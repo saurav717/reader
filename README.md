@@ -680,6 +680,19 @@ fetch asks IEEE's stamp endpoints for it by article number; for everyone else
 the page's `citation_pdf_url` — the tag publishers put there for Google Scholar
 — is followed to the file. `scripts/access.test.mjs` pins both.
 
+### With only the Worker: hand the file over yourself
+
+The Worker will never sign in for you, but the page can take a file from you.
+Under the same result — and in the reader, when a PDF fails to load — is the
+other way through: **open it at ieeexplore.ieee.org** in a tab of your own,
+where your institution's sign-in already holds and the PDF simply shows,
+download it, and **drop it on the result** or choose the file. It is checked to
+be a PDF (a sign-in page saved as `.pdf` is refused), goes up to the paper's
+folder in Drive, and the paper opens on it, with *PDF from your file* under the
+title. Nothing leaves the browser except to Drive, and no proxy is involved at
+all — which makes it the route that works from the site on GitHub Pages as it
+is, and from any publisher, IEEE or not.
+
 ## How highlighting works
 
 A highlight is stored as the quoted text plus 32 characters either side, not as a

@@ -29,7 +29,7 @@ const {
 // tests it has at the first top-level await, so a bundle loaded further down
 // the file would have its tests registered after the teardown hook had already
 // put the real `fetch` back.
-const { fetchPdfFromLocations, setProxyBase } = await loadTogether(['src/lib/pdf.ts', 'src/lib/api.ts']);
+const { fetchPdfFromLocations, pdfFromFile, setProxyBase } = await loadTogether(['src/lib/pdf.ts', 'src/lib/api.ts']);
 setProxyBase('https://proxy.example.workers.dev');
 
 const at = (url, overrides = {}) => ({
@@ -235,6 +235,19 @@ describe('downloading from whichever copy will answer', () => {
     };
     await fetchPdfFromLocations(paper(), [at('https://arxiv.org/pdf/1706.03762', { kind: 'preprint' })]);
     assert.match(asked[0], /\/arxiv\/pdf\?id=1706\.03762/);
+  });
+});
+
+describe('a file handed over by the person', () => {
+  it('takes a PDF, whatever the browser called it', async () => {
+    const blob = await pdfFromFile(new Blob(['%PDF-1.7 hello'], { type: 'application/octet-stream' }));
+    assert.equal(blob.type, 'application/pdf');
+    assert.equal(blob.size, '%PDF-1.7 hello'.length);
+  });
+
+  it('refuses a web page saved as a .pdf, and an empty file', async () => {
+    await assert.rejects(pdfFromFile(new Blob(['<html>sign in</html>'], { type: 'application/pdf' })), /not a PDF/);
+    await assert.rejects(pdfFromFile(new Blob([], { type: 'application/pdf' })), /empty/);
   });
 });
 

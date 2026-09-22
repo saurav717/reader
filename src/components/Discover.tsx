@@ -21,6 +21,7 @@ import {
 } from '../lib/locations';
 import { fetchPdfFromLocations, PdfError, type SignInOffer } from '../lib/pdf';
 import SignInPrompt from './SignInPrompt';
+import PdfDropIn from './PdfDropIn';
 import { whySaveToDriveUnavailable } from '../lib/driveSync';
 import type { AuthorRef, PaperLocation, PaperRef, SearchMode, SourceId } from '../types';
 import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
@@ -390,6 +391,28 @@ export default function Discover({ onClose, onOpen }: Props) {
     if (inLibrary) onOpen(ref.id);
   };
 
+  /**
+   * The file, handed over by the person rather than fetched: the paper is
+   * already in the library by the time this is offered, so it only has to go
+   * up to Drive and open.
+   */
+  const handOver = async (ref: PaperRef, pdf: Blob) => {
+    setSaveError(null);
+    setSaveNotice(null);
+    setSaving({ id: ref.id, step: 'Saving your file to Drive…' });
+    try {
+      const outcome = await syncPaperNow(ref.id, { pdf });
+      if (outcome.state === 'error') {
+        setSaveError({ id: ref.id, message: `Drive would not take it: ${outcome.message}` });
+        return;
+      }
+      if (outcome.message) setSaveNotice({ id: ref.id, message: outcome.message });
+    } finally {
+      setSaving(null);
+    }
+    onOpen(ref.id);
+  };
+
   const visibleSources = mode === 'authors' ? authorSources() : sourceList();
   const noSources = !sources.some((id) => visibleSources.some((source) => source.id === id));
 
@@ -681,6 +704,13 @@ export default function Discover({ onClose, onOpen }: Props) {
                       {saveError.message}
                       {saveError.signIn ? (
                         <SignInPrompt offer={saveError.signIn} onSignedIn={() => void addToCollection(result)} />
+                      ) : null}
+                      {driveConnected ? (
+                        <PdfDropIn
+                          host={saveError.signIn?.host}
+                          url={saveError.signIn?.url || result.landingUrl}
+                          onFile={(pdf) => handOver(result, pdf)}
+                        />
                       ) : null}
                     </p>
                   ) : null}

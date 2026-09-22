@@ -4,6 +4,7 @@ import { loadPaperContent, type PaperContent } from '../lib/paperContent';
 import { hasProxy } from '../lib/api';
 import { fetchPaperPdf, PdfError, pdfSourceUrl, resolvePdfUrl, saveBlob, type PdfOrigin, type SignInOffer } from '../lib/pdf';
 import SignInPrompt from './SignInPrompt';
+import PdfDropIn from './PdfDropIn';
 import { findLocations, scholarPaperUrl } from '../lib/locations';
 import type { PaperLocation } from '../types';
 import {
@@ -295,7 +296,7 @@ export default function Reader({
     // it. This effect runs again when the blob arrives.
     if (mode === 'pdf' && !pdfBlob && !pdfError) return;
     askedToSave.current.add(paper.id);
-    syncPaper(paper.id, pdfBlob && pdfFrom === 'proxy' ? { pdf: pdfBlob } : undefined);
+    syncPaper(paper.id, pdfBlob && pdfFrom !== 'drive' ? { pdf: pdfBlob } : undefined);
   }, [
     driveConnected,
     mode,
@@ -308,6 +309,26 @@ export default function Reader({
     settings.syncOnOpen,
     syncPaper,
   ]);
+
+  /**
+   * A file the person handed over, after every copy failed. It is shown at
+   * once, and goes up to Drive on its own — the save-on-open effect above has
+   * already had its turn for this paper, with nothing to send.
+   */
+  const takeFile = useCallback(
+    (blob: Blob) => {
+      setPdfBlob(blob);
+      setPdfFrom('file');
+      setPdfLocation(null);
+      setPdfError(null);
+      setPdfSignIn(null);
+      if (paper && driveConnected && settings.savePdf && !paper.drive?.pdfFileId) {
+        askedToSave.current.add(paper.id);
+        syncPaper(paper.id, { pdf: blob });
+      }
+    },
+    [driveConnected, paper, settings.savePdf, syncPaper],
+  );
 
   // What to say about Drive in the line under the title.
   const driveState = paper ? syncStateFor(paper.id) : 'idle';
@@ -525,7 +546,9 @@ export default function Reader({
             {mode === 'pdf'
               ? pdfFrom === 'drive'
                 ? ' · PDF from your Drive'
-                : pdfLocation
+                : pdfFrom === 'file'
+                  ? ' · PDF from your file'
+                  : pdfLocation
                   ? ` · PDF from ${pdfLocation.label}`
                   : ' · PDF'
               : content
@@ -645,6 +668,9 @@ export default function Reader({
                   </a>
                   .
                 </>
+              ) : null}
+              {pdfError ? (
+                <PdfDropIn host={pdfSignIn?.host} url={pdfSignIn?.url || pdfUrl || undefined} onFile={takeFile} />
               ) : null}{' '}
               <button type="button" className="link-btn" onClick={() => chooseMode('reflow')}>
                 Read the text instead

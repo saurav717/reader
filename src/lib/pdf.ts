@@ -377,7 +377,22 @@ export const hasKnownPdf = (paper: Paper): boolean => Boolean(pdfSourceUrl(paper
 // ------------------------------------------------------------------ Drive ---
 
 /** Where a copy of the file came from, for the line under the title. */
-export type PdfOrigin = 'drive' | 'proxy';
+export type PdfOrigin = 'drive' | 'proxy' | 'file';
+
+/**
+ * A file handed over by the person, checked to be a PDF before anything is
+ * done with it. The browser will not fetch a publisher's file for the page,
+ * signed in or not, but it will read one the person drops on it — which is
+ * the way through a login wall that needs no proxy at all.
+ */
+export async function pdfFromFile(file: Blob): Promise<Blob> {
+  if (!file.size) throw new PdfError('That file is empty.');
+  if (file.size > 64 * 1024 * 1024) throw new PdfError('That file is larger than 64 MB, which is more than a paper.');
+  const head = new Uint8Array(await file.slice(0, 5).arrayBuffer());
+  const magic = String.fromCharCode(...head);
+  if (!magic.startsWith('%PDF')) throw new PdfError('That file is not a PDF.');
+  return file.type === 'application/pdf' ? file : new Blob([file], { type: 'application/pdf' });
+}
 
 export interface FetchedPdf {
   blob: Blob;
