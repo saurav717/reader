@@ -14,7 +14,9 @@
  *                    the reader shows abstracts, and PDFs become links out
  *                    rather than something you can read or save from here.
  */
-const configured = (import.meta.env.VITE_API_BASE as string | undefined)?.trim();
+// `import.meta.env` is Vite's, and is absent when these modules are imported
+// by the test runner under plain Node, so it is read defensively.
+const configured = (import.meta.env as ImportMetaEnv | undefined)?.VITE_API_BASE?.trim();
 
 export const API_BASE: string | null =
   configured === 'none' ? null : (configured || '/api').replace(/\/$/, '');

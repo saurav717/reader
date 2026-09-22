@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../lib/store';
+import { parseRepo } from '../lib/github';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
 
 export default function Settings({ onClose }: { onClose: () => void }) {
@@ -15,12 +16,23 @@ export default function Settings({ onClose }: { onClose: () => void }) {
     syncAll,
     papers,
     syncLog,
+    githubConnected,
+    githubLog,
+    githubPending,
+    pushToGitHub,
   } = useStore();
   const [clientId, setClientId] = useState(settings.googleClientId);
+  const [repo, setRepo] = useState(settings.githubRepo);
+  const [branch, setBranch] = useState(settings.githubBranch);
+  const [token, setToken] = useState(settings.githubToken);
+  const [email, setEmail] = useState(settings.contactEmail);
 
   const pending = syncLog.filter((entry) => entry.state === 'queued' || entry.state === 'running').length;
   const failed = syncLog.filter((entry) => entry.state === 'error');
   const synced = papers.filter((paper) => paper.drive?.syncedAt).length;
+  const committed = papers.filter((paper) => paper.github?.syncedAt).length;
+  const githubFailed = githubLog.filter((entry) => entry.state === 'error');
+  const repoIsValid = !repo.trim() || Boolean(parseRepo(repo));
 
   return (
     <>
@@ -31,7 +43,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             <h2>Settings</h2>
             <p className="lede">
               Your library lives in this browser. Connect Google Drive to keep a copy of every paper you add,
-              with its highlights, in your own Drive.
+              with its highlights, in your own Drive — and a Git repository to keep the notes and the
+              bibliography under version control beside it.
             </p>
           </div>
           <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close settings">
@@ -180,6 +193,140 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               </span>
             </label>
           </div>
+        </section>
+
+
+        <section style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Git mirror
+          </div>
+          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+            Drive holds the PDFs; a repository holds everything that is text — a sidecar and a Markdown note
+            per paper, an index, and a <span className="mono">references.bib</span> you can cite from. PDFs are
+            deliberately <em>not</em> written here: a binary blob bloats a repository's history forever and
+            gains nothing from being diffed.
+          </p>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: 12,
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              marginBottom: 12,
+            }}
+          >
+            <CloudCheckIcon size={20} style={{ color: githubConnected ? 'var(--accent)' : 'var(--muted)' }} />
+            <div style={{ flexGrow: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>
+                {githubConnected ? `Mirroring to ${settings.githubRepo}` : 'No repository configured'}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                {githubConnected
+                  ? `${committed} of ${papers.length} papers committed${githubPending ? ` · ${githubPending} waiting` : ''}`
+                  : 'Add a repository and a token below.'}
+              </div>
+            </div>
+            {githubConnected ? (
+              <button type="button" className="btn sm" onClick={pushToGitHub}>
+                Push all
+              </button>
+            ) : null}
+          </div>
+
+          <label className="setting">
+            <span>Repository</span>
+            <input
+              type="text"
+              value={repo}
+              onChange={(event) => setRepo(event.target.value)}
+              onBlur={() => updateSettings({ githubRepo: repo.trim() })}
+              placeholder="you/papers"
+              aria-invalid={!repoIsValid}
+            />
+            <small>
+              {repoIsValid
+                ? 'owner/repo, or the full GitHub URL. It must already exist and have at least one commit — an empty repository has no branch to write to.'
+                : 'That does not look like owner/repo or a GitHub URL.'}
+            </small>
+          </label>
+
+          <label className="setting">
+            <span>Branch</span>
+            <input
+              type="text"
+              value={branch}
+              onChange={(event) => setBranch(event.target.value)}
+              onBlur={() => updateSettings({ githubBranch: branch.trim() || 'main' })}
+              placeholder="main"
+            />
+          </label>
+
+          <label className="setting">
+            <span>Access token</span>
+            <input
+              type="password"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              onBlur={() => updateSettings({ githubToken: token.trim() })}
+              placeholder="github_pat_…"
+              autoComplete="off"
+            />
+            <small>
+              A <strong>fine-grained</strong> personal access token, scoped to this one repository, with
+              Contents: read and write — and nothing else. It is kept in this browser's localStorage, which
+              means any script that runs on this origin could read it: scope it narrowly, give it an expiry, and
+              revoke it if you stop using this app. Prefer a private repository.
+            </small>
+          </label>
+
+          <div className="setting-row">
+            <input
+              id="github-sync"
+              type="checkbox"
+              checked={settings.githubSync}
+              onChange={(event) => updateSettings({ githubSync: event.target.checked })}
+            />
+            <label htmlFor="github-sync" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+              <strong style={{ fontWeight: 500 }}>Commit as I read</strong>
+              <br />
+              <span style={{ color: 'var(--muted)' }}>
+                Adding a paper, writing a note or changing a tag is committed a few seconds later. Everything
+                that changed in that window goes into one commit, so a reading session is a handful of commits
+                rather than a hundred.
+              </span>
+            </label>
+          </div>
+
+          {githubFailed.length ? (
+            <p className="banner error" style={{ marginTop: 10 }}>
+              {githubFailed.length} paper{githubFailed.length === 1 ? '' : 's'} failed to commit. Most recent:{' '}
+              {githubFailed[0].message}
+            </p>
+          ) : null}
+        </section>
+
+        <section style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Contact address
+          </div>
+          <label className="setting">
+            <span className="vh">Contact email</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              onBlur={() => updateSettings({ contactEmail: email.trim() })}
+              placeholder="you@example.com"
+            />
+            <small>
+              Optional, and sent only to OpenAlex, Crossref and Unpaywall. The first two run a faster "polite
+              pool" for requests that carry a way to reach you; Unpaywall — which finds free copies of papers
+              the other indexes miss — refuses the request without one, so leaving this empty simply skips it.
+            </small>
+          </label>
         </section>
 
         <section style={{ marginBottom: 22 }}>

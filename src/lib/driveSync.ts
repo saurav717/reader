@@ -2,73 +2,9 @@ import type { Collection, Highlight, Paper, Settings } from '../types';
 import { hasProxy } from './api';
 import { fetchPdf, resolvePdfUrl } from './pdf';
 import { ensureDriveToken, ensureFolder, findFile, uploadFile } from './google';
+import { baseName, sidecar } from './sidecar';
 
 export const UNSORTED_FOLDER = 'Unsorted';
-
-function slug(value: string): string {
-  return value
-    .normalize('NFKD')
-    .replace(/[^\w\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .slice(0, 80)
-    .trim();
-}
-
-function baseName(paper: Paper): string {
-  const stem = slug(paper.title) || paper.id.replace(/[^\w.-]/g, '-');
-  return paper.arxivId ? `${stem} (arXiv ${paper.arxivId})` : stem;
-}
-
-/**
- * The sidecar written next to the PDF. Shaped after the W3C Web Annotation
- * model so the export is the storage format rather than a lossy copy of it.
- */
-function sidecar(paper: Paper, highlights: Highlight[], collectionNames: string[]) {
-  return {
-    '@context': 'http://www.w3.org/ns/anno.jsonld',
-    generator: 'reader',
-    savedAt: new Date().toISOString(),
-    paper: {
-      id: paper.id,
-      title: paper.title,
-      authors: paper.authors,
-      abstract: paper.abstract,
-      published: paper.published,
-      categories: paper.categories,
-      arxivId: paper.arxivId,
-      doi: paper.doi,
-      venue: paper.venue,
-      landingUrl: paper.landingUrl,
-      pdfUrl: paper.pdfUrl,
-      addedAt: paper.addedAt,
-      tags: paper.tags,
-      collections: collectionNames,
-    },
-    annotations: highlights.map((highlight) => ({
-      id: highlight.id,
-      type: 'Annotation',
-      created: highlight.createdAt,
-      motivation: highlight.note ? 'commenting' : 'highlighting',
-      bodyValue: highlight.note ?? undefined,
-      tags: highlight.tags,
-      colour: highlight.color,
-      section: highlight.section,
-      target: {
-        source: paper.landingUrl || paper.id,
-        selector: [
-          {
-            type: 'TextQuoteSelector',
-            exact: highlight.exact,
-            prefix: highlight.prefix,
-            suffix: highlight.suffix,
-          },
-          { type: 'TextPositionSelector', start: highlight.hint },
-        ],
-      },
-    })),
-  };
-}
 
 export interface SyncResult {
   folderId: string;

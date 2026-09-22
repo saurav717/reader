@@ -172,11 +172,7 @@ export default function CommandPalette({ onClose, onOpenPaper, onOpenSettings }:
           {rows.map((row, position) => {
             const active = position === cursor;
             const heading =
-              row.kind === 'remote' && position === libraryCount
-                ? hasProxy
-                  ? 'New on arXiv'
-                  : 'Found online'
-                : null;
+              row.kind === 'remote' && position === libraryCount ? 'Found online' : null;
             const actionHeading =
               row.kind === 'action' && position === libraryCount + remoteCount ? 'Actions' : null;
             return (
@@ -234,7 +230,7 @@ export default function CommandPalette({ onClose, onOpenPaper, onOpenSettings }:
             <kbd>⇧↵</kbd> add and open
           </span>
           <span style={{ flexGrow: 1 }} />
-          <span style={{ color: 'var(--muted)' }}>{hasProxy ? 'arXiv' : 'OpenAlex'} · your library</span>
+          <span style={{ color: 'var(--muted)' }}>every source · your library</span>
         </div>
       </div>
     </>
