@@ -306,6 +306,10 @@ kbd {
 .result .authors { margin: 0 0 8px; font-size: 11.5px; line-height: 1.35; color: var(--ink-2); }
 .result-actions { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 
+/* Why "Save to Drive" is greyed out, said under the result that raises the
+   question rather than in Settings, where nobody is looking at the time. */
+.save-blocked { margin: 6px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted); }
+
 /* Every place a paper can be read from — the "all versions" list. */
 .locations { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 8px; }
 .locations .eyebrow { margin: 0 0 4px; font-size: 10.5px; color: var(--muted); letter-spacing: 0.02em; }

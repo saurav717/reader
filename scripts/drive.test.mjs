@@ -10,7 +10,8 @@ import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
 
-const { syncPaperToDrive, driveFolderUrl, ROOT_FOLDER } = await load('src/lib/driveSync.ts');
+const { syncPaperToDrive, driveFolderUrl, ROOT_FOLDER, whySaveToDriveUnavailable } =
+  await load('src/lib/driveSync.ts');
 
 const realFetch = globalThis.fetch;
 after(async () => {
@@ -243,5 +244,39 @@ describe('a library synced under the older layout', () => {
     assert.notEqual(result.pdfFileId, 'gone');
     assert.ok(result.pdfFileId, 'expected a fresh PDF to be uploaded');
     assert.notEqual(result.metaFileId, 'gone-too');
+  });
+});
+
+// What a search result says instead of offering to save. The button stays on
+// the result whether or not it can run — it is the only place a reader is
+// asking the question — so something has to say why it is greyed out, and
+// "Drive is not connected" and "this deployment has no proxy" are fixed in
+// different places.
+describe('why Save to Drive is not offered', () => {
+  it('says nothing when Drive and a proxy are both there', () => {
+    assert.equal(whySaveToDriveUnavailable({ driveConnected: true, proxyReady: true }), null);
+  });
+
+  it('names the consent when only Drive is missing', () => {
+    const reason = whySaveToDriveUnavailable({ driveConnected: false, proxyReady: true });
+    assert.match(reason, /Connect Drive/);
+    assert.doesNotMatch(reason, /proxy/i, 'the proxy is fine — mentioning it sends the reader nowhere');
+  });
+
+  it('explains the missing bytes when only the proxy is', () => {
+    const reason = whySaveToDriveUnavailable({ driveConnected: true, proxyReady: false });
+    assert.match(reason, /Paper proxy/);
+    // The whole confusion this answers: the copies are listed and they open.
+    assert.match(reason, /navigation/);
+    assert.doesNotMatch(reason, /Connect Drive/);
+  });
+
+  it('names both when neither is there', () => {
+    const reason = whySaveToDriveUnavailable({ driveConnected: false, proxyReady: false });
+    assert.match(reason, /Drive connected and a proxy configured/);
+    assert.match(reason, /no bytes to put in Drive/);
+    // Both are fixed in Settings, and naming neither leaves the reader hunting.
+    assert.match(reason, /Connect Drive/);
+    assert.match(reason, /Paper proxy/);
   });
 });
