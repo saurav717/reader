@@ -131,6 +131,9 @@ input, textarea { font: inherit; color: inherit; }
   box-shadow: inset 0 0 0 1px var(--border);
 }
 .icon-btn.sm { width: 32px; height: 32px; border-radius: 9px; }
+/* The link out to Drive is an anchor, but it sits in a row of buttons. */
+a.icon-btn { text-decoration: none; color: var(--ink-2); }
+a.icon-btn:hover { color: var(--ink); }
 
 .avatar { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; display: block; }
 .avatar-fallback {

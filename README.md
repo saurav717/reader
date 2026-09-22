@@ -209,8 +209,8 @@ library.
 ### 5. Check it
 
 Add a paper, open it, and look for the cloud tick in the reader's top bar —
-click it and Drive opens on the file. In Drive itself, **My Drive → Paper
-Reader**.
+click it and Drive opens on the file. In Drive itself, **My Drive →
+Papers_collection**.
 
 Tokens live in memory only, because there is no backend to hold a refresh token.
 After an hour the app quietly asks Google for a new one using the grant you have
@@ -221,11 +221,20 @@ revokes the token outright.
 
 ```
 My Drive/
-  Paper Reader/                      <- name configurable in Settings
-    Operator learning/               <- one folder per collection
+  Papers_collection/                                  <- name configurable in Settings
+    Fourier Neural Operator … (arXiv 2010.08895)/     <- one folder per paper
       Fourier Neural Operator … (arXiv 2010.08895).pdf
       Fourier Neural Operator … (arXiv 2010.08895).json
 ```
+
+Every paper gets a folder of its own, created the first time it is saved, and
+each row in a collection carries a Drive button that opens it. Which collections
+a paper belongs to is recorded in the sidecar rather than in the path, because a
+paper can be in several at once and a path can only say one thing.
+
+A library synced under the older layout — one folder per collection — is moved
+across the first time each paper syncs again: the files are re-parented in place
+rather than downloaded and uploaded a second time.
 
 The `.json` sidecar holds the paper's metadata and your highlights, shaped after the
 [W3C Web Annotation](https://www.w3.org/TR/annotation-model/) model, so the export
@@ -257,7 +266,7 @@ quiet:
    viewer as a blob. In full, because a failure you can explain beats a blank
    grey pane. If Drive already holds a copy, it comes from there instead and the
    line under the title says **PDF from your Drive**.
-3. **The same bytes go to Drive** — `Paper Reader/<collection>/<title>.pdf`,
+3. **The same bytes go to Drive** — `Papers_collection/<title>/<title>.pdf`,
    beside the `.json` sidecar of your highlights. The copy uploaded is the one
    on screen, so reading a paper and saving it is one download, not two. The
    line under the title reads *saving to Drive…* while it happens, and a cloud

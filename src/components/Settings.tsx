@@ -155,12 +155,14 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               type="text"
               value={settings.driveFolderName}
               onChange={(event) => updateSettings({ driveFolderName: event.target.value })}
-              placeholder="Paper Reader"
+              placeholder="Papers_collection"
             />
             <small>
-              A folder of this name is created at the top level of your Drive, with one sub-folder per
-              collection. Because the app asks only for the <span className="mono">drive.file</span> scope, it can
-              read and write the files it created and nothing else in your Drive.
+              A folder of this name is created at the top level of your Drive, and every paper gets a folder of
+              its own inside it — <span className="mono">Papers_collection/&lt;paper&gt;/</span>, holding the PDF and
+              a JSON sidecar. The link beside each paper in a collection opens that folder. Because the app asks
+              only for the <span className="mono">drive.file</span> scope, it can read and write the files it
+              created and nothing else in your Drive.
             </small>
           </label>
 
