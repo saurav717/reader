@@ -146,9 +146,13 @@ describe('what the app says when Google refuses', () => {
     await assert.rejects(google.signIn('client-id'), /blocked the Google sign-in window.*allow pop-ups/is);
   });
 
-  it('says a closed window is a closed window', async () => {
+  // Google's block page is the end of its own window: nothing comes back from
+  // it, so a consent screen still in Testing reaches the app as a closed window
+  // and nothing else. The advice has to be in that message or it is nowhere.
+  it('says a closed window is a closed window, and what a block page meant', async () => {
     install((config) => config.error_callback({ type: 'popup_closed', message: 'Popup window closed' }));
     await assert.rejects(google.signIn('client-id'), /closed before sign-in finished/);
+    await assert.rejects(google.signIn('client-id'), /Test users/);
   });
 
   it('turns access_denied into the advice that fixes it', async () => {
