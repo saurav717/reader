@@ -221,6 +221,21 @@ export function signOut(): void {
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
+/**
+ * A refusal from Drive, with the status kept where a caller can read it: a
+ * 404 on a file the app remembers means someone deleted it in Drive by hand,
+ * which is not the same thing as Drive being unreachable.
+ */
+export class DriveRequestError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'DriveRequestError';
+  }
+}
+
 async function driveFetch(accessToken: string, url: string, init: RequestInit = {}): Promise<Response> {
   const response = await fetch(url, {
     ...init,
@@ -228,7 +243,10 @@ async function driveFetch(accessToken: string, url: string, init: RequestInit = 
   });
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
-    throw new Error(`Drive request failed (${response.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`);
+    throw new DriveRequestError(
+      response.status,
+      `Drive request failed (${response.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`,
+    );
   }
   return response;
 }
@@ -280,9 +298,12 @@ export async function findFile(accessToken: string, name: string, parentId: stri
 }
 
 /**
- * Re-parents a file the app owns. Used when the layout in Drive changes under
- * a library that is already synced: the file is moved rather than downloaded
- * and uploaded again, so nothing crosses the network but the request itself.
+ * Re-parents a file the app owns — or a folder, which to Drive is a file with
+ * a folder's MIME type, so moving a paper's whole folder is this one request.
+ * Used when the layout in Drive changes under a library that is already
+ * synced, and when a paper is removed: the file is moved rather than
+ * downloaded and uploaded again, so nothing crosses the network but the
+ * request itself.
  */
 export async function moveFile(accessToken: string, fileId: string, parentId: string): Promise<DriveFile> {
   const id = encodeURIComponent(fileId);

@@ -10,8 +10,16 @@ import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
 
-const { syncPaperToDrive, driveFolderUrl, ROOT_FOLDER, whySaveToDriveUnavailable } =
-  await load('src/lib/driveSync.ts');
+const {
+  syncPaperToDrive,
+  driveFolderUrl,
+  ROOT_FOLDER,
+  JUNK_FOLDER,
+  whySaveToDriveUnavailable,
+  junkPaperInDrive,
+  describeRemovalInDrive,
+  isInDrive,
+} = await load('src/lib/driveSync.ts');
 
 const realFetch = globalThis.fetch;
 after(async () => {
@@ -77,6 +85,12 @@ function stubDrive() {
   globalThis.document = { querySelector: () => ({}), head: { appendChild() {} }, createElement: () => ({ addEventListener() {} }) };
 
   const json = (body) => new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
+  const folderById = (folderId) => {
+    const entry = [...folders].find(([, id]) => id === folderId);
+    if (!entry) return null;
+    const [parent, name] = entry[0].split(/\/(.*)/s);
+    return { parent, name };
+  };
 
   globalThis.fetch = async (url, init = {}) => {
     const request = new URL(String(url));
@@ -96,12 +110,14 @@ function stubDrive() {
       return json({ files: match ? [{ id: match[0], name, webViewLink: `link:${match[0]}` }] : [] });
     }
 
-    // Reading one file's parents, before a move.
+    // Reading one file's parents, before a move. A folder is a file too.
     if (method === 'GET' && /\/drive\/v3\/files\/[^?]+/.test(request.pathname)) {
       const fileId = decodeURIComponent(request.pathname.split('/').pop());
       const file = files.get(fileId);
-      if (!file) return new Response('not found', { status: 404 });
-      return json({ id: fileId, name: file.name, webViewLink: `link:${fileId}`, parents: file.parents });
+      if (file) return json({ id: fileId, name: file.name, webViewLink: `link:${fileId}`, parents: file.parents });
+      const folder = folderById(fileId);
+      if (!folder) return new Response('not found', { status: 404 });
+      return json({ id: fileId, name: folder.name, webViewLink: `link:${fileId}`, parents: [folder.parent] });
     }
 
     // Creating a folder.
@@ -131,10 +147,16 @@ function stubDrive() {
     if (method === 'PATCH' && /\/drive\/v3\/files\//.test(request.pathname)) {
       const fileId = decodeURIComponent(request.pathname.split('/').pop());
       const file = files.get(fileId);
-      if (!file) return new Response('not found', { status: 404 });
       const remove = (request.searchParams.get('removeParents') || '').split(',').filter(Boolean);
-      file.parents = [...file.parents.filter((parent) => !remove.includes(parent)), request.searchParams.get('addParents')];
-      return json({ id: fileId, name: file.name, webViewLink: `link:${fileId}` });
+      if (file) {
+        file.parents = [...file.parents.filter((parent) => !remove.includes(parent)), request.searchParams.get('addParents')];
+        return json({ id: fileId, name: file.name, webViewLink: `link:${fileId}` });
+      }
+      const folder = folderById(fileId);
+      if (!folder) return new Response('not found', { status: 404 });
+      folders.delete(`${folder.parent}/${folder.name}`);
+      folders.set(`${request.searchParams.get('addParents')}/${folder.name}`, fileId);
+      return json({ id: fileId, name: folder.name, webViewLink: `link:${fileId}` });
     }
 
     throw new Error(`unstubbed ${method} ${url}`);
@@ -145,6 +167,7 @@ function stubDrive() {
     folders,
     files,
     folderId: (parent, name) => folders.get(`${parent}/${name}`),
+    parentOfFolder: (folderId) => folderById(folderId)?.parent,
     addFile: (fileId, name, parent) => files.set(fileId, { name, parents: [parent] }),
   };
 }
@@ -278,5 +301,135 @@ describe('why Save to Drive is not offered', () => {
     // Both are fixed in Settings, and naming neither leaves the reader hunting.
     assert.match(reason, /Connect Drive/);
     assert.match(reason, /Paper proxy/);
+  });
+});
+
+describe('removing a paper moves its copy in Drive to Junk', () => {
+  let drive;
+  beforeEach(() => {
+    drive = stubDrive();
+  });
+
+  /** A paper as the library holds it once it has been through one sync. */
+  const synced = async () => {
+    const result = await syncPaperToDrive(paper(), context({ pdf: new Blob(['%PDF-1.4']) }));
+    return paper({
+      drive: {
+        folderId: result.folderId,
+        folderName: result.folderName,
+        pdfFileId: result.pdfFileId,
+        metaFileId: result.metaFileId,
+      },
+    });
+  };
+
+  it('re-parents the whole folder under <root>/Junk, PDF and sidecar inside it', async () => {
+    const removed = await synced();
+    const rootId = drive.folderId('root', ROOT_FOLDER);
+    assert.equal(drive.parentOfFolder(removed.drive.folderId), rootId);
+
+    drive.calls.length = 0;
+    const result = await junkPaperInDrive(removed, settings);
+
+    const junkId = drive.folderId(rootId, JUNK_FOLDER);
+    assert.ok(junkId, 'expected a Junk folder inside the root');
+    assert.equal(result.junkFolderId, junkId);
+    assert.equal(result.junkFolderLink, driveFolderUrl(junkId));
+    assert.equal(result.moved, 'folder');
+    assert.equal(drive.parentOfFolder(removed.drive.folderId), junkId);
+    // Nothing is deleted or uploaded: the folder moves, and its files with it.
+    assert.equal(drive.calls.filter((call) => call.method === 'DELETE').length, 0);
+    assert.equal(drive.calls.filter((call) => call.url.includes('/upload/')).length, 0);
+    assert.deepEqual(drive.files.get(removed.drive.pdfFileId).parents, [removed.drive.folderId]);
+  });
+
+  it('leaves the same paper free to be saved again into a fresh folder', async () => {
+    const removed = await synced();
+    await junkPaperInDrive(removed, settings);
+
+    const again = await syncPaperToDrive(paper(), context({ pdf: new Blob(['%PDF-1.4']) }));
+    const rootId = drive.folderId('root', ROOT_FOLDER);
+    assert.notEqual(again.folderId, removed.drive.folderId);
+    assert.equal(drive.parentOfFolder(again.folderId), rootId);
+    assert.equal(drive.parentOfFolder(removed.drive.folderId), drive.folderId(rootId, JUNK_FOLDER));
+  });
+
+  it('moves the files themselves for a library synced before papers had folders', async () => {
+    const rootId = await (async () => {
+      await syncPaperToDrive(paper(), context({ pdf: new Blob(['%PDF-1.4']) }));
+      return drive.folderId('root', ROOT_FOLDER);
+    })();
+    drive.addFile('old-pdf', `${STEM}.pdf`, 'collection-folder');
+    drive.addFile('old-json', `${STEM}.json`, 'collection-folder');
+    const removed = paper({ drive: { pdfFileId: 'old-pdf', metaFileId: 'old-json' } });
+
+    const result = await junkPaperInDrive(removed, settings);
+
+    const junkId = drive.folderId(rootId, JUNK_FOLDER);
+    assert.equal(result.moved, 'files');
+    assert.deepEqual(drive.files.get('old-pdf').parents, [junkId]);
+    assert.deepEqual(drive.files.get('old-json').parents, [junkId]);
+  });
+
+  it('is not an error when the folder was already deleted in Drive by hand', async () => {
+    const removed = paper({ drive: { folderId: 'gone-by-hand', pdfFileId: 'gone-too' } });
+    const result = await junkPaperInDrive(removed, settings);
+    assert.equal(result.moved, 'nothing');
+  });
+
+  it('is a Drive refusal otherwise, so the paper stays in the library', async () => {
+    const removed = await synced();
+    const failing = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if ((init?.method || 'GET') === 'PATCH') return new Response('quota', { status: 403 });
+      return failing(url, init);
+    };
+    await assert.rejects(junkPaperInDrive(removed, settings), /Drive request failed \(403\)/);
+  });
+});
+
+describe('what the notice says about Drive before a paper is removed', () => {
+  const rootName = 'My papers';
+
+  it('knows which papers Drive holds', () => {
+    assert.equal(isInDrive(paper()), false);
+    assert.equal(isInDrive(paper({ drive: { error: 'failed' } })), false);
+    assert.equal(isInDrive(paper({ drive: { folderId: 'f' } })), true);
+    assert.equal(isInDrive(paper({ drive: { pdfFileId: 'p' } })), true);
+  });
+
+  it('says the folder goes to Junk, by name, and that it can be got back', () => {
+    const notice = describeRemovalInDrive(paper({ drive: { folderId: 'f', folderName: STEM } }), {
+      driveConnected: true,
+      rootName,
+    });
+    assert.equal(notice.moves, true);
+    assert.match(notice.text, new RegExp(`Its folder in Drive, ${STEM.replace(/[()]/g, '\\$&')},`));
+    assert.match(notice.text, /moved to My papers\/Junk rather than deleted/);
+    assert.match(notice.text, /Get it back/);
+  });
+
+  it('says the files go, for a paper synced before it had a folder', () => {
+    const notice = describeRemovalInDrive(paper({ drive: { pdfFileId: 'p' } }), { driveConnected: true, rootName });
+    assert.equal(notice.moves, true);
+    assert.match(notice.text, /^Its files in Drive will be moved to My papers\/Junk/);
+  });
+
+  it('says nothing moves when Drive is not connected, and what to do about it', () => {
+    const notice = describeRemovalInDrive(paper({ drive: { folderId: 'f' } }), { driveConnected: false, rootName });
+    assert.equal(notice.moves, false);
+    assert.match(notice.text, /stays where it is/);
+    assert.match(notice.text, /Connect Drive first/);
+  });
+
+  it('says there is nothing to move for a paper Drive never held', () => {
+    const notice = describeRemovalInDrive(paper(), { driveConnected: true, rootName });
+    assert.equal(notice.moves, false);
+    assert.match(notice.text, /never saved to Drive/);
+  });
+
+  it('falls back to the default root name', () => {
+    const notice = describeRemovalInDrive(paper({ drive: { folderId: 'f' } }), { driveConnected: true });
+    assert.match(notice.text, new RegExp(`${ROOT_FOLDER}/${JUNK_FOLDER}`));
   });
 });
