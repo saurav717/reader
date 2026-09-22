@@ -37,8 +37,13 @@ import { fetchChecked, MAX_PDF_BYTES, rejectUrl } from '../server/fetchPdf.js';
 import { pdfCandidates, pdfLinksIn } from '../server/pdfLinks.js';
 import { acceptKey, BUTTONS, clamp, clicks, closedError, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
 
-/** How long a session outlives the last request to it: the most Cloudflare allows. */
-export const KEEP_ALIVE_MS = 600_000;
+/**
+ * How long a session outlives the last connection to it. Long enough for
+ * the Durable Object to reconnect after an eviction, short enough not to
+ * spend the day's browser minutes on a session nobody is using — and a
+ * session alive is one of the few Cloudflare allows at once.
+ */
+export const KEEP_ALIVE_MS = 90_000;
 /** A pause before each frame, so a polling app gets a few frames a second and not a hundred. */
 const FRAME_PAUSE_MS = 350;
 export const NAVIGATION_TIMEOUT_MS = 20_000;

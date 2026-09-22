@@ -290,3 +290,11 @@ describe('the Worker entry', () => {
     assert.equal(typeof entry.default.fetch, 'function');
   });
 });
+
+describe('what the Worker says when Cloudflare refuses a browser', () => {
+  it('has a message for the person about the free plan, not a status code', async () => {
+    const { RATE_LIMITED } = await import('../worker/browserSession.js');
+    assert.match(RATE_LIMITED, /free plan/);
+    assert.match(RATE_LIMITED, /try again/);
+  });
+});
