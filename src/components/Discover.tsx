@@ -411,6 +411,15 @@ export default function Discover({ onClose, onOpen }: Props) {
         </select>
       </div>
 
+      {sources.includes('scholar') ? (
+        <p style={{ padding: '0 16px 10px', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.55 }}>
+          Google Scholar publishes no API, so the proxy opens its pages the way you would. It finds what the
+          other indexes have no record of — theses, reports, a person's own copy — and lists every version of a
+          paper. It also refuses a server far more readily than a person: if it answers with a captcha, that is
+          what has happened, and the other sources carry on.
+        </p>
+      ) : null}
+
       {noSources ? (
         <p className="banner warn" style={{ margin: '0 16px 12px' }}>
           No sources are selected, so there is nothing to search. Turn at least one on above.
@@ -427,8 +436,13 @@ export default function Discover({ onClose, onOpen }: Props) {
       {errors.length ? (
         <div style={{ padding: '0 16px 12px' }}>
           {errors.map((error) => (
-            <p key={error.source} className="banner error" style={{ marginTop: 0, marginBottom: 6 }}>
+            <p
+              key={error.source}
+              className={`banner ${error.source === 'scholar' ? 'warn' : 'error'}`}
+              style={{ marginTop: 0, marginBottom: 6 }}
+            >
               {labelFor(error.source)}: {error.message}
+              {error.source === 'scholar' && results.length ? ' The results below are from the other sources.' : ''}
             </p>
           ))}
         </div>
@@ -473,15 +487,22 @@ export default function Discover({ onClose, onOpen }: Props) {
                     {author.citedBy ? <span>{compact(author.citedBy)} citations</span> : null}
                     {author.hIndex ? <span>h-index {author.hIndex}</span> : null}
                     {author.orcid ? <span className="mono">ORCID {author.orcid}</span> : null}
+                    {author.verifiedEmail ? <span>verified at {author.verifiedEmail}</span> : null}
                   </div>
                 </button>
+                {author.interests?.length ? (
+                  <p className="authors" style={{ margin: '2px 0 4px' }}>
+                    {author.interests.slice(0, 4).join(' · ')}
+                  </p>
+                ) : null}
                 <a
                   className="loc-scholar"
-                  href={scholarAuthorUrl(author.name)}
+                  href={author.scholarProfileUrl || scholarAuthorUrl(author.name)}
                   target="_blank"
                   rel="noreferrer noopener"
                 >
-                  Google Scholar profile <ExternalIcon size={10} />
+                  {author.scholarProfileUrl ? 'Their Google Scholar profile' : 'Look them up on Google Scholar'}{' '}
+                  <ExternalIcon size={10} />
                 </a>
               </article>
             ))
@@ -530,6 +551,7 @@ export default function Discover({ onClose, onOpen }: Props) {
                   {result.published ? <span>{new Date(result.published).getFullYear() || ''}</span> : null}
                   {result.venue ? <span>{result.venue}</span> : null}
                   {result.citedBy ? <span>{compact(result.citedBy)} citations</span> : null}
+                  {result.scholarVersions ? <span>{result.scholarVersions} versions</span> : null}
                   {saved ? (
                     <span className="pill-added">
                       <CheckIcon size={11} />

@@ -1,4 +1,4 @@
-export type SourceId = 'arxiv' | 'openalex' | 'semanticscholar' | 'crossref';
+export type SourceId = 'arxiv' | 'openalex' | 'semanticscholar' | 'crossref' | 'scholar';
 
 /** What a query is asking for: papers about something, or a person. */
 export type SearchMode = 'papers' | 'authors';
@@ -20,6 +20,13 @@ export interface AuthorRef {
   worksCount?: number;
   citedBy?: number;
   hIndex?: number;
+  /** Scholar's profile id, and the page it opens — Scholar records only. */
+  scholarUserId?: string;
+  scholarProfileUrl?: string;
+  /** What Scholar lists under a name on their profile. */
+  interests?: string[];
+  /** `google.com` where Scholar says "Verified email at google.com". */
+  verifiedEmail?: string;
 }
 
 /**
@@ -45,7 +52,7 @@ export interface PaperLocation {
   /** True when the URL is believed to be the file rather than a landing page. */
   isPdf: boolean;
   /** Which index told us about this copy. */
-  via: 'arxiv' | 'unpaywall' | 'openalex' | 'semanticscholar' | 'crossref' | 'pmc' | 'paper';
+  via: 'arxiv' | 'unpaywall' | 'openalex' | 'semanticscholar' | 'crossref' | 'pmc' | 'paper' | 'scholar';
   /** `submittedVersion`, `acceptedVersion`, `publishedVersion`, where known. */
   version?: string;
 }
@@ -67,6 +74,13 @@ export interface PaperRef {
   venue?: string;
   /** Citation count, where the source reports one. */
   citedBy?: number;
+  /**
+   * Scholar's id for the group of copies this paper belongs to — what its
+   * "All 84 versions" link points at, and the only way to ask for that list.
+   */
+  scholarCluster?: string;
+  /** How many copies Scholar says there are. */
+  scholarVersions?: number;
 }
 
 export interface DriveRecord {

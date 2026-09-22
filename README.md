@@ -1,7 +1,7 @@
 # Reader
 
-A reader for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref
-from one box — papers or the people who wrote them — see every place a paper can be
+A reader for research papers. Search arXiv, OpenAlex, Semantic Scholar, Crossref and
+Google Scholar from one box — papers or the people who wrote them — see every place a paper can be
 read from and open it from whichever one will part with a file, read it as its PDF or
 reflowed as text to highlight it, and keep what you collect: the PDFs in your own
 Google Drive, the notes and the bibliography in a Git repository.
@@ -64,12 +64,13 @@ is most people who are not prolific authors — falls back to that broader searc
 its own rather than showing an empty panel, and offers the person's Google Scholar
 profile alongside it.
 
-| Source | Needs the proxy | Papers | Authors |
-| --- | --- | --- | --- |
-| arXiv | yes | yes | by name |
-| OpenAlex | no | yes | yes |
-| Semantic Scholar | no | yes | yes |
-| Crossref | no | yes | by name |
+| Source | Needs the proxy | Papers | Authors | On by default |
+| --- | --- | --- | --- | --- |
+| arXiv | yes | yes | by name | with a proxy |
+| OpenAlex | no | yes | yes | yes |
+| Semantic Scholar | no | yes | yes | no |
+| Crossref | no | yes | by name | yes |
+| Google Scholar | yes | yes | yes | **no** — see below |
 
 ### Every copy of a paper, not just the first link
 
@@ -78,8 +79,9 @@ copy, the arXiv preprint, each institutional repository deposit, PubMed Central 
 with what each one is and whether it is a file or a page you would have to click
 through. This is the same list Google Scholar shows as "All 14 versions", built
 from [Unpaywall](https://unpaywall.org/), OpenAlex's full `locations` array,
-Semantic Scholar and Crossref, folded together on the URL so one copy reported by
-four indexes appears once.
+Semantic Scholar and Crossref — and, when the paper came from Scholar, from
+Scholar's own versions page, which is the longest of the lot. They are folded
+together on the URL, so one copy that five sources all report appears once.
 
 It matters because a single link is a coin toss. A DOI resolves to a login wall, a
 repository link has rotted, a URL ending in `.pdf` turns out to be a landing page —
@@ -93,13 +95,42 @@ cookie banner or a captcha in the way.
 
 The line under the title in the reader then says which copy you are looking at.
 
-**Google Scholar is linked to, not searched.** It has no public API, its terms forbid
-automated access, and it blocks datacentre IPs — which is exactly where this app's
-proxy runs, so a Scholar scraper here would return captchas rather than papers. What
-Scholar *indexes*, though, is largely what Unpaywall, OpenAlex, Semantic Scholar and
-Crossref publish through APIs, which is where the versions list above comes from.
-Every result carries a link to its Scholar page, every person to their Scholar
-profile, and the reader offers one when no copy of a paper can be found at all.
+### Google Scholar
+
+Scholar publishes no API, so `server/scholar.js` asks for the same pages a person
+would open — the search results, a profile, an "all versions" cluster — and parses
+the HTML. It is a real source, with a chip of its own, and it answers three things
+nothing else does:
+
+- **Papers no index has a record of.** Theses, technical reports, workshop papers, a
+  copy on somebody's own page. This is why a search for a person who is not a
+  prolific author finds anything at all.
+- **People, by their own profile.** Scholar's profile search gives the affiliation,
+  the verified email domain — the one thing that reliably tells two people of the
+  same name apart — and a curated list of what they have written.
+- **Every version of a paper.** "All 84 versions" is the longest list of copies
+  anywhere, and it feeds straight into the versions list above.
+
+**It will often refuse.** Scholar blocks servers far more readily than people, and
+the proxy is a server. When it answers with a captcha the panel says so, in those
+words, and the other four sources carry on — a refusal is never shown as "no
+results". That is also why Scholar is off by default: a source that fails half the
+time should be a choice, not a surprise.
+
+Two things make it work more often. `SCHOLAR_BROWSER=1 npm start` drives a real
+Chromium instead of sending a plain request, which Google's fingerprinting minds
+much less. And running the proxy somewhere that is not a datacentre — a laptop, a
+home server — matters more than anything else. From Cloudflare Workers, expect
+captchas.
+
+The proxy is polite whatever the mode: one Scholar request at a time, at least a
+second and a half apart, with a five-minute cache, so typing in the search box does
+not spend the whole budget on the first word. Its terms of service do not permit
+automated access; this is here for one person's own reading, not for pointing a
+crowd at.
+
+Every result also carries a plain link to its Scholar page, and every person to
+their profile, which works whether or not the source is turned on.
 
 ### Saving a paper to Drive as you find it
 
@@ -528,6 +559,10 @@ src/lib/paperContent.ts fetches and sanitises the full text
 src/lib/pdf.ts          finds a paper's PDF, fetches it (Drive first, then each
                         known copy in turn), and saves it
 src/lib/locations.ts    every place a paper can be read from, and the Scholar links
+src/lib/scholar.ts      the Google Scholar source, through the proxy
+server/scholar.js       Scholar's pages, fetched and parsed; also the politeness
+                        and the telling apart of a captcha from a network block
+server/scholarBrowser.js  the same, through a real Chromium (SCHOLAR_BROWSER=1)
 src/lib/google.ts       Google Identity Services + Drive REST
 src/lib/driveSync.ts    what a synced paper looks like in Drive
 src/lib/store.tsx       app state, IndexedDB persistence, the sync queue
@@ -540,6 +575,11 @@ scripts/locations.test.mjs  which copies of a paper are collected, how duplicate
                             fold together, the order they are tried in, and the
                             fall-through when one will not answer
 scripts/versions-drive.mjs  the whole chain in a browser (see below)
+scripts/scholar.test.mjs    reading Scholar's HTML, pinned to saved fixtures
+scripts/scholar-flow.mjs    Scholar search → versions → download → Drive → viewer
+scripts/scholar-live.mjs    asks the real Scholar; run by hand, not in CI
+scripts/fakeGoogle.mjs      Identity Services and Drive, stubbed, for the two
+                            browser tests
 scripts/github.test.mjs     what the Git mirror writes, and that a flush is
                             one commit
 scripts/proxy-setting.test.mjs  which proxy address wins, and what is refused
@@ -564,6 +604,9 @@ node scripts/versions-drive.mjs
 
 npm run build:pages            # and the same checks against the static build,
 BUILD=dist-pages SITE_PATH=/reader/ node scripts/versions-drive.mjs   # as Pages serves it
+
+node scripts/scholar-flow.mjs  # the Scholar chain, against saved Scholar pages
+npm run test:scholar           # ask the real Scholar — by hand, from a laptop
 ```
 
 `scripts/bundle.mjs` is how the unit tests reach the app's TypeScript: Node can strip
@@ -593,6 +636,21 @@ keeps a record for says so, and offers Scholar. `BUILD` and `SITE_PATH` run the 
 checks against `dist-pages` under a sub-path, which is the shape the deployed site
 is served in.
 
+`scripts/scholar-flow.mjs` does the same for the Scholar source: search Scholar →
+open the paper → ask Scholar for every version → try each until one hands over a
+file → save it to Drive → show the saved copy. Everything on this side of Scholar
+is the shipped code, including the proxy routes and the HTML parsing; only the one
+fetch this repository cannot make is replaced, by the saved pages in
+`scripts/fixtures/`. It also checks that a captcha is reported as a captcha rather
+than as an empty result.
+
+**`npm run test:scholar` is the one that asks Scholar itself**, and it is meant to
+be run by hand from a machine Google trusts. It prints what came back for a paper
+and for a person, whether anything parsed, and — when nothing did — whether Scholar
+refused or the request never reached it at all. `--save` overwrites the fixtures
+with what Scholar returned, which is how to find out what changed when the parsing
+tests start failing.
+
 ## Known limits
 
 - PDF mode hands the file to the browser's own viewer, so highlighting only works in
@@ -602,10 +660,12 @@ is served in.
 - A PDF is only there to be had if the paper is open access. Behind a paywall, every
   copy in the versions list is the publisher's, none of them will answer, and the
   reader says which ones it tried rather than pretending the file is coming.
-- Google Scholar is linked to, never queried: no API, terms that forbid it, and a
-  block on the datacentre IPs a proxy runs from. The versions list is assembled from
-  the four indexes that do publish an API, which between them cover most of what
-  Scholar lists for a paper — but not all of it, and not its citation graph.
+- Google Scholar is scraped, not queried, because there is no API to query. That
+  means two things. It breaks if Google changes its markup — `npm test` pins the
+  parsing to saved fixtures, so it fails loudly rather than returning nothing — and
+  it is refused outright from datacentre IPs, which is where a proxy usually runs.
+  `node scripts/scholar-live.mjs` says which of those is happening from a given
+  machine.
 - The whole PDF is fetched before the viewer sees it, which is what makes a failure
   explainable rather than a blank pane — but it also means no progressive rendering,
   and a cap (64 MB) on how big a file the proxy will pass. The most recent one is

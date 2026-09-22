@@ -18,7 +18,9 @@
  * to look themselves.
  */
 import type { PaperLocation, PaperRef } from '../types';
+import { hasProxy } from './api';
 import { contactEmail, politely } from './contact';
+import { scholarVersions } from './scholar';
 import type { OpenAlexWork } from './sources';
 
 const clean = (value: string | null | undefined) => (value || '').replace(/\s+/g, ' ').trim();
@@ -288,6 +290,27 @@ async function fromCrossref(paper: PaperRef, signal?: AbortSignal): Promise<Pape
   return found.filter((entry): entry is PaperLocation => Boolean(entry));
 }
 
+// -------------------------------------------------------- Google Scholar ----
+
+/**
+ * Scholar's "All 84 versions", which is the longest list of copies of a paper
+ * anywhere — it finds departmental pages, course readers and lab mirrors that
+ * no index has a record of. It is only asked when the paper came from Scholar
+ * in the first place, because the cluster id is the only handle on it, and
+ * only when a proxy is there to ask through.
+ */
+async function fromScholar(paper: PaperRef, signal?: AbortSignal): Promise<PaperLocation[]> {
+  if (!paper.scholarCluster || !hasProxy()) return [];
+  const versions = await scholarVersions(paper.scholarCluster, signal);
+  const found: (PaperLocation | null)[] = [];
+  for (const version of versions) {
+    const label = version.pdfHost || undefined;
+    found.push(locate(version.pdfUrl, { kind: 'unknown', isPdf: true, via: 'scholar', label }));
+    found.push(locate(version.url, { kind: 'unknown', isPdf: false, via: 'scholar', label }));
+  }
+  return found.filter((entry): entry is PaperLocation => Boolean(entry));
+}
+
 // ------------------------------------------------------------- the order ----
 
 /**
@@ -360,6 +383,7 @@ export async function findLocations(paper: PaperRef, signal?: AbortSignal): Prom
     fromOpenAlex(paper, signal),
     fromSemanticScholar(paper, signal),
     fromCrossref(paper, signal),
+    fromScholar(paper, signal),
   ]);
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 

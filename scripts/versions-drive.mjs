@@ -23,6 +23,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mkdir } from 'node:fs/promises';
 
+import { connectAndEnter, installGoogle, makePdf, reporter } from './fakeGoogle.mjs';
+
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = process.env.SMOKE_OUT || path.join(dirname, '..', '.smoke');
 await mkdir(OUT, { recursive: true });
@@ -142,31 +144,7 @@ const CROSSREF_ITEM = {
   link: [{ URL: LOCKED, 'content-type': 'application/pdf' }],
 };
 
-// A real one-page PDF, so the browser's viewer renders something rather than
-// an empty pane — the screenshot is only worth anything if it does.
-const PDF = (() => {
-  const page =
-    'BT /F1 22 Tf 64 700 Td (Attention Is All You Need) Tj ET\n' +
-    'BT /F1 11 Tf 64 672 Td (Saved to Drive from Example University DSpace.) Tj ET';
-  const objects = [
-    '<</Type/Catalog/Pages 2 0 R>>',
-    '<</Type/Pages/Kids[3 0 R]/Count 1>>',
-    '<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 5 0 R>>>>/Contents 4 0 R>>',
-    `<</Length ${page.length}>>stream\n${page}\nendstream`,
-    '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>',
-  ];
-  let body = '%PDF-1.4\n';
-  const offsets = [];
-  objects.forEach((object, index) => {
-    offsets.push(body.length);
-    body += `${index + 1} 0 obj${object}endobj\n`;
-  });
-  const startxref = body.length;
-  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (const offset of offsets) body += `${String(offset).padStart(10, '0')} 00000 n \n`;
-  body += `trailer<</Size ${objects.length + 1}/Root 1 0 R>>\nstartxref\n${startxref}\n%%EOF\n`;
-  return Buffer.from(body, 'latin1');
-})();
+const PDF = makePdf(['Attention Is All You Need', 'Saved to Drive from Example University DSpace.']);
 
 // ------------------------------------------------------ the app, and a proxy --
 
@@ -210,123 +188,18 @@ const server = app.listen(4399);
 const BASE = `http://localhost:4399${SITE_PATH}`;
 console.log(`\n== ${BUILD} at ${SITE_PATH} ==`);
 
-const problems = [];
-function check(label, condition, detail = '') {
-  console.log(`  ${condition ? 'PASS' : 'FAIL'}  ${label}${detail ? ` — ${detail}` : ''}`);
-  if (!condition) problems.push(label);
-}
+const { check, problems } = reporter();
 
 // ------------------------------------------------------------ a fake Drive ---
-
-/** Files "in Drive", by id, so the viewer can read back what it uploaded. */
-const drive = { files: new Map(), folders: new Map(), uploads: [], downloads: [] };
-let nextId = 1;
 
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
 });
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-
-// Google Identity Services, without Google: the app only ever calls
-// initTokenClient and requestAccessToken, and only ever reads the token back
-// out of the callback.
-await context.addInitScript(() => {
-  window.google = {
-    accounts: {
-      oauth2: {
-        initTokenClient: (config) => ({
-          requestAccessToken: () =>
-            setTimeout(
-              () =>
-                config.callback({
-                  access_token: 'test-token',
-                  expires_in: 3600,
-                  scope: 'openid email profile https://www.googleapis.com/auth/drive.file',
-                }),
-              10,
-            ),
-        }),
-        revoke: (_token, done) => done && done(),
-      },
-    },
-  };
-  // A client ID and the proxy, so the app is in the state it would be in on a
-  // deployment that has both.
-  localStorage.setItem(
-    'reader.settings',
-    JSON.stringify({
-      googleClientId: 'test.apps.googleusercontent.com',
-      driveFolderName: 'Papers_collection',
-      autoSync: true,
-      savePdf: true,
-      syncOnOpen: true,
-      // The static build is compiled with no proxy at all, which is exactly
-      // the state the deployed site is in until this is pasted into Settings.
-      proxyBase: '/api',
-      theme: 'light',
-      readingMode: 'pdf',
-      contactEmail: 'reader@example.org',
-      githubRepo: '',
-      githubBranch: 'main',
-      githubToken: '',
-      githubSync: false,
-    }),
-  );
-});
+const drive = await installGoogle(context, { pdf: PDF });
 
 const json = (route, body) =>
   route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
-
-await context.route('**/accounts.google.com/gsi/client*', (route) =>
-  route.fulfill({ status: 200, contentType: 'application/javascript', body: '// stubbed' }),
-);
-await context.route('**/www.googleapis.com/oauth2/v3/userinfo*', (route) =>
-  json(route, { name: 'Saurav Chennuri', email: 'reader@example.org' }),
-);
-
-// The Drive API: list, create folder, upload, download.
-await context.route('**/www.googleapis.com/**', async (route) => {
-  const request = route.request();
-  const url = new URL(request.url());
-
-  if (url.pathname.startsWith('/upload/drive/v3/files')) {
-    const id = `file-${nextId++}`;
-    const body = request.postData() || '';
-    const name = body.match(/"name":"([^"]+)"/)?.[1] || 'unknown';
-    drive.uploads.push(name);
-    // Only the PDF's bytes matter for reading it back; the sidecar is JSON.
-    drive.files.set(id, { name, body: name.endsWith('.pdf') ? PDF : Buffer.from(body) });
-    return json(route, { id, name, webViewLink: `https://drive.google.com/file/d/${id}/view` });
-  }
-
-  const media = url.pathname.match(/^\/drive\/v3\/files\/([^/]+)$/);
-  if (media && url.searchParams.get('alt') === 'media') {
-    drive.downloads.push(media[1]);
-    const file = drive.files.get(media[1]);
-    return route.fulfill({
-      status: file ? 200 : 404,
-      contentType: 'application/pdf',
-      body: file ? file.body : Buffer.from('missing'),
-    });
-  }
-
-  if (url.pathname === '/drive/v3/files' && request.method() === 'POST') {
-    const id = `folder-${nextId++}`;
-    const name = JSON.parse(request.postData() || '{}').name;
-    drive.folders.set(name, id);
-    return json(route, { id, name });
-  }
-
-  if (url.pathname === '/drive/v3/files') {
-    // A query for a folder or a file that does not exist yet.
-    const query = url.searchParams.get('q') || '';
-    const name = query.match(/name = '([^']+)'/)?.[1];
-    const folder = name && drive.folders.get(name);
-    return json(route, { files: folder ? [{ id: folder, name }] : [] });
-  }
-
-  return json(route, {});
-});
 
 // The indexes. The catch-all goes first; Playwright gives priority to the most
 // recently registered route, so the specific ones are registered after it.
@@ -351,12 +224,7 @@ page.on('console', (message) => message.type() === 'error' && errors.push(messag
 
 console.log('\n== connect ==');
 await page.goto(BASE, { waitUntil: 'networkidle' });
-await page.getByRole('button', { name: /Connect Google Drive|Sign in with Google/i }).first().click();
-await page.waitForTimeout(400);
-await page
-  .getByRole('button', { name: /Start reading|Not now/i })
-  .first()
-  .click();
+await connectAndEnter(page);
 check('Drive connects with the stubbed grant', await page.locator('.discover-panel, .library-panel').first().isVisible());
 
 if (!(await page.locator('.dock .discover-panel').isVisible())) {

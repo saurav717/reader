@@ -4,6 +4,18 @@
 // publishers and repositories an open-access PDF link points at.
 
 import { disposition, fetchChecked, readPdf, rejectUrl } from './fetchPdf.js';
+import {
+  authorSearchUrl,
+  getScholar,
+  parseAuthors,
+  parseProfileWorks,
+  parseResults,
+  plainFetch,
+  profileUrl,
+  searchUrl,
+  versionsUrl,
+} from './scholar.js';
+import { scholarFetcher } from './scholarBrowser.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 
@@ -119,6 +131,69 @@ async function pdf(url, res) {
   res.end(buffer);
 }
 
+// ------------------------------------------------------------- Scholar ----
+//
+// Google publishes no API for Scholar, so these routes fetch the pages a
+// person would open and parse them. See server/scholar.js for what that costs
+// and how often it is refused; a captcha comes back as 503 with
+// `blocked: true`, which is how the app knows to say so and use its other
+// sources rather than showing an empty list.
+
+/** Resolved once: a real browser where asked for, plain requests otherwise. */
+let fetchPage;
+const scholarPage = async (url, options) => {
+  if (!fetchPage) fetchPage = await scholarFetcher(plainFetch);
+  return fetchPage(url, options);
+};
+
+/**
+ * Swap in another way of getting a Scholar page. The end-to-end test hands in
+ * saved fixtures so that it exercises these routes and the parsing for real
+ * without anything leaving the machine; `scripts/scholar-live.mjs` uses it the
+ * other way, to force a browser.
+ */
+export function setScholarFetcher(fetcher) {
+  fetchPage = fetcher;
+}
+
+async function scholar(url, res, parse) {
+  try {
+    const html = await getScholar(url, { fetchPage: scholarPage });
+    return send(res, 200, { results: parse(html), source: 'scholar' }, { 'Cache-Control': 'private, max-age=300' });
+  } catch (error) {
+    if (error && error.blocked) {
+      return send(res, 503, { error: error.message, blocked: true, reason: error.reason });
+    }
+    return send(res, 502, { error: String(error?.message || error) });
+  }
+}
+
+function scholarSearch(url, res) {
+  const query = (url.searchParams.get('q') || '').trim();
+  if (!query) return send(res, 400, { error: 'q is required' });
+  const start = Math.max(0, Math.min(90, Number(url.searchParams.get('start')) || 0));
+  return scholar(searchUrl(query, { start }), res, parseResults);
+}
+
+function scholarAuthors(url, res) {
+  const name = (url.searchParams.get('name') || '').trim();
+  if (!name) return send(res, 400, { error: 'name is required' });
+  return scholar(authorSearchUrl(name), res, parseAuthors);
+}
+
+function scholarProfile(url, res) {
+  const user = (url.searchParams.get('user') || '').trim();
+  if (!/^[\w-]{6,32}$/.test(user)) return send(res, 400, { error: 'bad Scholar profile id' });
+  const start = Math.max(0, Number(url.searchParams.get('start')) || 0);
+  return scholar(profileUrl(user, { start }), res, parseProfileWorks);
+}
+
+function scholarVersions(url, res) {
+  const cluster = (url.searchParams.get('cluster') || '').trim();
+  if (!/^\d{1,25}$/.test(cluster)) return send(res, 400, { error: 'bad cluster id' });
+  return scholar(versionsUrl(cluster), res, parseResults);
+}
+
 // Only the handful of hosts the app actually reads from; an open proxy here
 // would let any page on this origin fetch anything as the server.
 const ASSET_HOSTS = new Set(['arxiv.org', 'ar5iv.labs.arxiv.org', 'ar5iv.org', 'browse.arxiv.org']);
@@ -157,6 +232,14 @@ export default async function apiRouter(req, res, next) {
         return await arxivPdf(url, res);
       case '/pdf':
         return await pdf(url, res);
+      case '/scholar/search':
+        return await scholarSearch(url, res);
+      case '/scholar/authors':
+        return await scholarAuthors(url, res);
+      case '/scholar/profile':
+        return await scholarProfile(url, res);
+      case '/scholar/versions':
+        return await scholarVersions(url, res);
       case '/asset':
         return await asset(url, res);
       case '/health':

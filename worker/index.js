@@ -12,6 +12,16 @@
  * Then rebuild the app with VITE_API_BASE=https://<your-worker>.workers.dev
  */
 import { disposition, fetchChecked, readPdf, rejectUrl } from '../server/fetchPdf.js';
+import {
+  authorSearchUrl,
+  getScholar,
+  parseAuthors,
+  parseProfileWorks,
+  parseResults,
+  profileUrl,
+  searchUrl,
+  versionsUrl,
+} from '../server/scholar.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 const UA = 'reader/0.1 (personal research reading tool)';
@@ -49,6 +59,41 @@ export default {
 
     try {
       if (path === '/health') return json({ ok: true }, 200, headers);
+
+      // Google Scholar, which publishes no API — see server/scholar.js. Expect
+      // this to be refused often from here: Workers run in datacentres, and a
+      // datacentre is what Scholar's captcha is for. It comes back as a 503
+      // saying so, and the app falls back to the sources that have APIs.
+      if (path.startsWith('/scholar/')) {
+        const scholarUrl =
+          path === '/scholar/search'
+            ? (url.searchParams.get('q') || '').trim() &&
+              searchUrl((url.searchParams.get('q') || '').trim(), {
+                start: Math.max(0, Math.min(90, Number(url.searchParams.get('start')) || 0)),
+              })
+            : path === '/scholar/authors'
+              ? (url.searchParams.get('name') || '').trim() && authorSearchUrl((url.searchParams.get('name') || '').trim())
+              : path === '/scholar/profile'
+                ? /^[\w-]{6,32}$/.test(url.searchParams.get('user') || '') &&
+                  profileUrl(url.searchParams.get('user'), { start: Math.max(0, Number(url.searchParams.get('start')) || 0) })
+                : path === '/scholar/versions'
+                  ? /^\d{1,25}$/.test(url.searchParams.get('cluster') || '') && versionsUrl(url.searchParams.get('cluster'))
+                  : null;
+        if (scholarUrl === null) return json({ error: 'not found' }, 404, headers);
+        if (!scholarUrl) return json({ error: 'missing or bad parameter' }, 400, headers);
+        const parse = path === '/scholar/authors' ? parseAuthors : path === '/scholar/profile' ? parseProfileWorks : parseResults;
+        try {
+          return json({ results: parse(await getScholar(scholarUrl)), source: 'scholar' }, 200, {
+            ...headers,
+            'Cache-Control': 'private, max-age=300',
+          });
+        } catch (error) {
+          if (error && error.blocked) {
+            return json({ error: error.message, blocked: true, reason: error.reason }, 503, headers);
+          }
+          return json({ error: String(error?.message || error) }, 502, headers);
+        }
+      }
 
       if (path === '/arxiv/query') {
         const params = new URLSearchParams();
