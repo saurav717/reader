@@ -704,10 +704,12 @@ before anyone is asked. **Settings → Institutional access → Forget sign-ins*
 deletes the profile and every session in it. Nothing is written anywhere else,
 and no cookie ever reaches the page.
 
-**It needs the proxy on your own machine.** A window has to open on a screen, and
-the Cloudflare Worker has neither a screen nor a browser — so from the Worker the
-same result explains that instead of offering a sign-in. The site on GitHub Pages
-does not have to be rebuilt to use it:
+**It needs a proxy with a screen.** A window has to open on one, and the
+Cloudflare Worker has neither a screen nor a browser — so from the Worker the
+same result explains that instead of offering a sign-in. The screen can be your
+own machine's, or a Codespace's (next section, for when there is nothing to
+run locally). On your own machine — the site on GitHub Pages does not have to
+be rebuilt to use it:
 
 ```bash
 git clone https://github.com/saurav717/reader.git && cd reader
@@ -716,7 +718,7 @@ npm run build
 npm start            # http://localhost:8080
 ```
 
-then paste `http://localhost:8080` into **Settings → Paper proxy** on the site
+then paste `http://localhost:8080/api` into **Settings → Paper proxy** on the site
 and press **Test it**. The site keeps talking to Google for Drive as before; only
 the fetching moves to your machine, and the proxy answers the site's origin by
 name (`ALLOWED_ORIGINS`, comma-separated, extends the list). Settings shows
@@ -735,6 +737,55 @@ For IEEE specifically the landing page never links the file, so a signed-in
 fetch asks IEEE's stamp endpoints for it by article number; for everyone else
 the page's `citation_pdf_url` — the tag publishers put there for Google Scholar
 — is followed to the file. `scripts/access.test.mjs` pins both.
+
+### Signing in from the cloud: a proxy with a screen, without your machine
+
+The sign-in needs a screen for the window, and the Worker has none. Your own
+machine is one answer; a machine that is not yours is the other. **A GitHub
+Codespace of this repository is a proxy with a screen** — `.devcontainer/`
+sets one up — and the screen comes to you: when a sign-in or a captcha needs
+you, the app opens the Codespace's desktop **as a pop-up beside the page**,
+with the proxy's Chromium in it at the publisher's sign-in. Type your
+institution's password, answer the two-factor prompt, watch the paper open,
+press **I have signed in**. Nothing runs on your machine but the two tabs.
+
+It costs nothing on a personal account: Codespaces gives everyone 120
+core-hours a month, which on the two-core machine this asks for is 60 hours of
+the proxy being up. It stops itself after half an hour idle and keeps its
+state — the sign-ins, the built site, the Chromium — for the next start.
+
+Once:
+
+1. On the repository's page on GitHub, **Code → Codespaces → Create codespace
+   on main**. The first build takes a few minutes: it installs the
+   dependencies, a Chromium, a small virtual desktop, and builds the site.
+2. When the editor opens, the terminal prints the proxy's address, which
+   carries a key of its own:
+   `https://<codespace>-8080.app.github.dev/api/k/<key>`. Paste it into
+   **Settings → Paper proxy** on the site and press **Test it**.
+3. In the **Ports** panel, right-click port 8080 → **Port Visibility →
+   Public**. That is what lets the site on GitHub Pages call it (the
+   Codespace tries to do this itself, and cannot always). Leave 6080 —
+   the screen — private: only you, signed in to GitHub, can open it, and
+   the pop-up is opened in a browser where you are.
+
+Then, every time: open the Codespace (github.com → Codespaces, or
+`gh codespace start`) and read. The address does not change between starts.
+The proxy starts with the Codespace and the terminal prints the address
+again; `/workspaces/.reader/proxy.log` is where it writes.
+
+Two things are different from a proxy on your own machine. The key in the
+address is not decoration: a public port is one anyone who found it could
+fetch through, and your institutional session sits behind it, so the proxy
+answers only under `/api/k/<key>` (`READER_PROXY_KEY`; unset, as on
+localhost, plain `/api` answers as before). And the first pop-up may be
+blocked: browsers allow a pop-up from a click, and this one is opened from
+the click on **Sign in**, but a browser told to block them all will block it,
+and the note under the result then links the screen to open by hand.
+
+This is not Codespaces-specific. Any machine with a virtual desktop is the
+same proxy: run it with `READER_VIEWER_URL` set to the desktop's noVNC page,
+and `DISPLAY` to the display, and the app opens that as the pop-up instead.
 
 ### With only the Worker: hand the file over yourself
 

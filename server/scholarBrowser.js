@@ -36,7 +36,7 @@
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { availability } from './access.js';
+import { availability, headedArgs } from './access.js';
 import { BROWSER_UA, blockedReason, isScholarUrl } from './scholar.js';
 
 /**
@@ -88,7 +88,7 @@ async function launch(mode) {
     // The "controlled by automated test software" bar is not something a
     // person solving a captcha should have to read.
     ignoreDefaultArgs: ['--enable-automation'],
-    args: ['--disable-blink-features=AutomationControlled'],
+    args: ['--disable-blink-features=AutomationControlled', ...(mode === 'headed' ? headedArgs() : [])],
   };
   if (process.env.READER_BROWSER_CHANNEL) options.channel = process.env.READER_BROWSER_CHANNEL;
   else if (process.env.CHROMIUM_PATH) options.executablePath = process.env.CHROMIUM_PATH;

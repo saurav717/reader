@@ -18,7 +18,10 @@
  * for again through that profile, which is what turns the page into the file.
  *
  * Only the Node proxy can do this: it needs Playwright, a Chromium, and a
- * screen to put the window on. The Cloudflare Worker has none of the three,
+ * screen to put the window on. The screen does not have to be in front of
+ * anyone: in a GitHub Codespace (see .devcontainer/) it is a virtual desktop,
+ * and `viewerUrl()` is the address of that desktop in a browser tab, which
+ * the app opens as a pop-up so the person signs in through it from anywhere. The Cloudflare Worker has none of the three,
  * and says so from `/access/status` so the app can offer the sign-in where it
  * can work and explain where it cannot.
  *
@@ -60,6 +63,33 @@ function executablePath(chromium) {
   return chromium.executablePath();
 }
 
+/**
+ * Where the person can see this proxy's screen, when it is not the one in
+ * front of them: the noVNC page of a Codespace's virtual desktop, or whatever
+ * READER_VIEWER_URL names for a proxy on some other remote machine. Undefined
+ * when the screen is the local one, where the window simply appears.
+ */
+export function viewerUrl() {
+  const configured = (process.env.READER_VIEWER_URL || '').trim();
+  if (configured) return configured;
+  const name = process.env.CODESPACE_NAME;
+  const domain = process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN;
+  if (name && domain) {
+    const port = process.env.READER_VIEWER_PORT || '6080';
+    return `https://${name}-${port}.${domain}/vnc.html?autoconnect=true&resize=scale&reconnect=true`;
+  }
+  return undefined;
+}
+
+/**
+ * Chromium's arguments for a window a person will use. On a remote desktop
+ * nothing else is on the screen, and the window should fill it rather than
+ * open at whatever size Chromium picks.
+ */
+export function headedArgs() {
+  return viewerUrl() ? ['--start-maximized'] : [];
+}
+
 /** A window needs a screen. macOS and Windows always have one; Linux says. */
 function hasDisplay() {
   if (process.platform === 'darwin' || process.platform === 'win32') return true;
@@ -94,10 +124,11 @@ export async function availability() {
     return {
       available: false,
       reason:
-        'The proxy is running somewhere with no screen to open a browser window on. Run it on your own machine (`npm start`) and point Settings → Paper proxy at it.',
+        'The proxy is running somewhere with no screen to open a browser window on. Run it on your own machine (`npm start`), or in a GitHub Codespace, which gives it a screen you open as a pop-up (see "Signing in from the cloud" in the README), and point Settings → Paper proxy at it.',
     };
   }
-  return { available: true };
+  const viewer = viewerUrl();
+  return viewer ? { available: true, viewer } : { available: true };
 }
 
 // -------------------------------------------------------------- browser ----
@@ -122,7 +153,7 @@ async function launch(mode) {
     // person signing in should have to read, and a few sign-in pages refuse a
     // browser that shows it.
     ignoreDefaultArgs: ['--enable-automation'],
-    args: ['--disable-blink-features=AutomationControlled'],
+    args: ['--disable-blink-features=AutomationControlled', ...(mode === 'headed' ? headedArgs() : [])],
   };
   if (process.env.READER_BROWSER_CHANNEL) options.channel = process.env.READER_BROWSER_CHANNEL;
   else if (process.env.CHROMIUM_PATH) options.executablePath = process.env.CHROMIUM_PATH;
