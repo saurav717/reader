@@ -30,14 +30,32 @@ const ARTICLE = {
   </div></body></html>`,
 };
 
-// Enough of a PDF for the app to accept it and hand it to the viewer; the
-// proxy's own rules about what is a PDF are tested in scripts/pdf-proxy.test.mjs.
-const PDF = Buffer.from(
-  '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n' +
-    '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
-    '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n' +
-    'trailer<</Root 1 0 R>>\n%%EOF\n',
-);
+// A real one-page PDF, with a cross-reference table and text on the page, so
+// that the browser's viewer actually renders it rather than showing an empty
+// pane — the screenshot this test writes is only worth anything if it does.
+// The proxy's own rules about what is a PDF are in scripts/pdf-proxy.test.mjs.
+const PDF = (() => {
+  const page = 'BT /F1 24 Tf 72 700 Td (Fourier Neural Operator) Tj ET\n' +
+    'BT /F1 12 Tf 72 670 Td (A stand-in for the real paper.) Tj ET';
+  const objects = [
+    '<</Type/Catalog/Pages 2 0 R>>',
+    '<</Type/Pages/Kids[3 0 R]/Count 1>>',
+    '<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 5 0 R>>>>/Contents 4 0 R>>',
+    `<</Length ${page.length}>>stream\n${page}\nendstream`,
+    '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>',
+  ];
+  let body = '%PDF-1.4\n';
+  const offsets = [];
+  objects.forEach((object, index) => {
+    offsets.push(body.length);
+    body += `${index + 1} 0 obj${object}endobj\n`;
+  });
+  const startxref = body.length;
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) body += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  body += `trailer<</Size ${objects.length + 1}/Root 1 0 R>>\nstartxref\n${startxref}\n%%EOF\n`;
+  return Buffer.from(body, 'latin1');
+})();
 
 // The lookup box calls three keyless, CORS-open services. Stubbing them keeps
 // the smoke test offline and its assertions stable.
@@ -83,6 +101,50 @@ const OPENALEX = {
   ],
 };
 
+const CROSSREF = {
+  message: {
+    items: [
+      {
+        DOI: '10.1000/two',
+        title: ['Theorie des operations lineaires'],
+        author: [{ given: 'Stefan', family: 'Banach' }],
+        issued: { 'date-parts': [[1932, 1, 1]] },
+        'container-title': ['Monografie Matematyczne'],
+        'is-referenced-by-count': 9001,
+        URL: 'https://doi.org/10.1000/two',
+      },
+    ],
+  },
+};
+
+const OPENALEX_AUTHORS = {
+  results: [
+    {
+      id: 'https://openalex.org/A1',
+      display_name: 'Stefan Banach',
+      orcid: null,
+      works_count: 58,
+      cited_by_count: 41000,
+      summary_stats: { h_index: 30 },
+      last_known_institutions: [{ display_name: 'Lwow' }],
+    },
+  ],
+};
+
+/**
+ * Leaves exactly one source chip switched on. Clicking each chip blind would
+ * depend on what the defaults happen to be, which is a thing that changes.
+ */
+async function selectOnlySource(target, label) {
+  const chips = target.locator('.discover-panel .chip');
+  for (let index = 0; index < (await chips.count()); index += 1) {
+    const chip = chips.nth(index);
+    const wanted = ((await chip.textContent()) || '').trim() === label;
+    const pressed = (await chip.getAttribute('aria-pressed')) === 'true';
+    if (wanted !== pressed) await chip.click();
+  }
+}
+
 const problems = [];
 function check(label, condition, detail = '') {
   const status = condition ? 'PASS' : 'FAIL';
@@ -117,6 +179,18 @@ async function stub(target) {
   );
   await target.route('**/api.openalex.org/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OPENALEX) }),
+  );
+  // Authors and works are different endpoints with different shapes. Playwright
+  // gives priority to the most recently registered route, so this one has to be
+  // registered after the catch-all above rather than before it.
+  await target.route('**/api.openalex.org/authors*', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OPENALEX_AUTHORS) }),
+  );
+  await target.route('**/api.crossref.org/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CROSSREF) }),
+  );
+  await target.route('**/api.semanticscholar.org/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }),
   );
 }
 await stub(context);
@@ -156,13 +230,32 @@ console.log('\n== search and add ==');
 await page.getByLabel('Search papers').fill('fourier neural operator');
 await page.getByLabel('Search papers').press('Enter');
 await page.waitForSelector('article.result');
-check('search returns a parsed result', (await page.locator('article.result h3').count()) === 1);
+// One hit from each stubbed source, merged into a single ranked list.
+check('search merges every source into one list', (await page.locator('article.result h3').count()) === 3);
 
-await page.locator('article.result h3').click();
+const arxivResult = page.locator('article.result', { hasText: 'Fourier Neural Operator' });
+check('the arXiv result is parsed', (await arxivResult.count()) === 1);
+await arxivResult.locator('h3').click();
 await page.getByRole('button', { name: /Add to collection/i }).click();
 await page.getByRole('button', { name: /^Read$/ }).click();
+
+console.log('\n== pdf ==');
+await page.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
+check('a paper opens on its PDF', await page.locator('.pdf-pane iframe').isVisible());
+check(
+  'the PDF comes from the proxy, not the publisher',
+  (await page.locator('.pdf-pane iframe').getAttribute('src'))?.startsWith('blob:'),
+);
+const download = page.locator('.topbar button[aria-label="Download the PDF"]');
+check('a download button sits next to the mode switch', await download.isVisible());
+const saved = page.waitForEvent('download', { timeout: 10000 });
+await download.click();
+check('it saves the file under the paper\'s name', (await saved).suggestedFilename().endsWith('.pdf'));
+
+console.log('\n== reflow ==');
+await page.locator('.segmented button', { hasText: 'Reflow' }).click();
 await page.waitForSelector('.paper-body p');
-check('reader shows the fetched full text', (await page.locator('.paper-body p').count()) === 3);
+check('the switch brings back the reflowed full text', (await page.locator('.paper-body p').count()) === 3);
 
 console.log('\n== highlight ==');
 await page.evaluate(() => {
@@ -197,22 +290,6 @@ check(
   'the left panel counts what is not started',
   (await page.locator('.library-panel .nav-item', { hasText: 'Not started' }).locator('.count').textContent()) === '1',
 );
-
-console.log('\n== pdf ==');
-await page.locator('.segmented button', { hasText: 'PDF' }).click();
-await page.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
-check('the PDF opens in the reader', await page.locator('.pdf-pane iframe').isVisible());
-check(
-  'the PDF comes from the proxy, not the publisher',
-  (await page.locator('.pdf-pane iframe').getAttribute('src'))?.startsWith('blob:'),
-);
-const download = page.locator('.topbar button[aria-label="Download the PDF"]');
-check('a download button sits next to the mode switch', await download.isVisible());
-const saved = page.waitForEvent('download', { timeout: 10000 });
-await download.click();
-check('it saves the file under the paper\'s name', (await saved).suggestedFilename().endsWith('.pdf'));
-await page.locator('.segmented button', { hasText: 'Reflow' }).click();
-await page.waitForSelector('.paper-body p');
 
 console.log('\n== lookup box ==');
 await page.evaluate(() => {
@@ -264,6 +341,10 @@ console.log('\n== persistence and re-anchoring ==');
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForSelector('.paper-body p', { timeout: 10000 }).catch(() => {});
 check('reader reopens on the paper you were reading', (await page.locator('.paper-body p').count()) === 3);
+check(
+  'it reopens in the mode you last chose, not the PDF',
+  (await page.locator('.pdf-pane').count()) === 0,
+);
 const afterReloadMarks = await page.locator('mark.hl').count();
 check('highlights re-anchor after a reload', afterReloadMarks === 2, `marks=${afterReloadMarks}`);
 const noteText = await page
@@ -316,8 +397,11 @@ await phone.getByRole('button', { name: 'Discover papers' }).click();
 await phone.getByLabel('Search papers').fill('fourier');
 await phone.getByLabel('Search papers').press('Enter');
 await phone.waitForSelector('article.result');
-await phone.locator('article.result h3').click();
+await phone.locator('article.result', { hasText: 'Fourier Neural Operator' }).locator('h3').click();
 await phone.getByRole('button', { name: /^Read$/ }).click();
+await phone.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
+check('the phone opens on the PDF too', await phone.locator('.pdf-pane iframe').isVisible());
+await phone.locator('.segmented button', { hasText: 'Reflow' }).click();
 await phone.waitForSelector('.paper-body p');
 check('phone reader opens with the panel dismissed', (await phone.locator('.panel').count()) === 0);
 await phone.screenshot({ path: `${OUT}/mobile-reader.png` });
@@ -358,12 +442,11 @@ const oaPage = await oaContext.newPage();
 oaPage.on('pageerror', (error) => errors.push(String(error)));
 await oaPage.goto(BASE, { waitUntil: 'networkidle' });
 await oaPage.getByRole('button', { name: /Skip — keep everything local/i }).click();
-await oaPage.locator('.chip', { hasText: 'OpenAlex' }).click();
-await oaPage.locator('.chip', { hasText: 'arXiv' }).click();
+await selectOnlySource(oaPage, 'OpenAlex');
 await oaPage.getByLabel('Search papers').fill('operators between function spaces');
 await oaPage.getByLabel('Search papers').press('Enter');
 await oaPage.waitForSelector('article.result');
-await oaPage.locator('article.result h3').click();
+await oaPage.locator('article.result', { hasText: 'On operators between function spaces' }).locator('h3').click();
 await oaPage.getByRole('button', { name: /Add to collection/i }).click();
 await oaPage.getByRole('button', { name: /^Read$/ }).click();
 await oaPage.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
@@ -376,6 +459,10 @@ check(
   'the download button is there for it too',
   await oaPage.locator('.topbar button[aria-label="Download the PDF"]').isVisible(),
 );
+// The viewer is a browser component inside the frame, and it paints a moment
+// after the frame itself is there; without this the screenshot is of an empty
+// pane and proves nothing.
+await oaPage.waitForTimeout(2500);
 await oaPage.screenshot({ path: `${OUT}/pdf.png` });
 await oaPage.locator('.segmented button', { hasText: 'Reflow' }).click();
 await oaPage.waitForSelector('.paper-body');
@@ -383,6 +470,201 @@ check(
   'reflow still offers the abstract, with a way back to the PDF',
   await oaPage.locator('.banner.warn', { hasText: /Read the PDF instead/ }).isVisible(),
 );
+
+console.log('\n== the copy in Drive ==');
+// Once a paper has been synced, its PDF is in Drive — and Google, unlike arXiv
+// and the publishers, answers the browser directly. So the reader should read
+// it back from there rather than going through the proxy a second time.
+const driveContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+await stub(driveContext);
+
+// A stand-in for Google Identity Services that grants the drive.file scope, so
+// the app's own Drive code runs for real with no network and no sign-in, plus
+// a Drive of sorts: folders, uploads, and the file handed back on request.
+// Returns the counters, which is what the checks below are actually about.
+async function fakeDrive(context) {
+  await context.addInitScript(() => {
+    window.google = {
+      accounts: {
+        oauth2: {
+          initTokenClient: (config) => ({
+            requestAccessToken: () =>
+              setTimeout(
+                () =>
+                  config.callback({
+                    access_token: 'smoke-token',
+                    expires_in: 3600,
+                    scope: 'openid email profile https://www.googleapis.com/auth/drive.file',
+                  }),
+                0,
+              ),
+          }),
+          revoke: (token, done) => done && done(),
+        },
+      },
+    };
+  });
+  await context.route(/accounts\.google\.com\/gsi\/client/, (route) =>
+    route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }),
+  );
+
+  const drive = { uploads: 0, pdfUploads: 0, downloads: 0, uploadedBytes: 0 };
+  await context.route(/googleapis\.com\//, (route) => {
+    const request = route.request();
+    const url = request.url();
+    const json = (body) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    if (url.includes('fonts.googleapis.com')) return route.fulfill({ status: 200, contentType: 'text/css', body: '' });
+    if (url.includes('/oauth2/v3/userinfo')) return json({ name: 'Smoke', email: 'smoke@example.com' });
+    if (url.includes('/upload/drive/v3/files')) {
+      drive.uploads += 1;
+      const body = request.postData() || '';
+      const isPdf = body.includes('application/pdf');
+      if (isPdf) {
+        drive.pdfUploads += 1;
+        drive.uploadedBytes = body.length;
+      }
+      return json({
+        id: isPdf ? 'drive-pdf-id' : 'drive-meta-id',
+        name: 'file',
+        webViewLink: 'https://drive.google.com/file/d/drive-pdf-id/view',
+      });
+    }
+    if (url.includes('alt=media')) {
+      drive.downloads += 1;
+      return route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF });
+    }
+    // A lookup is a GET with a q=; creating a folder is a POST.
+    return request.method() === 'POST' ? json({ id: 'drive-folder-id' }) : json({ files: [] });
+  });
+  return drive;
+}
+
+const drive = await fakeDrive(driveContext);
+
+// Count what the proxy is asked for, on top of the stub's own PDF route.
+let proxyPdfHits = 0;
+await driveContext.route('**/api/arxiv/pdf*', (route) => {
+  proxyPdfHits += 1;
+  return route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF });
+});
+
+const drivePage = await driveContext.newPage();
+drivePage.on('pageerror', (error) => errors.push(String(error)));
+await drivePage.goto(BASE, { waitUntil: 'networkidle' });
+await drivePage.getByRole('button', { name: /Skip — keep everything local/i }).click();
+
+await drivePage.getByRole('button', { name: /^Settings$/ }).click();
+await drivePage.getByPlaceholder(/apps.googleusercontent.com/).fill('smoke.apps.googleusercontent.com');
+await drivePage.getByRole('button', { name: /Connect Drive/i }).click();
+await drivePage.waitForTimeout(600);
+await drivePage.getByRole('button', { name: 'Close settings' }).click();
+
+await drivePage.getByLabel('Search papers').fill('fourier neural operator');
+await drivePage.getByLabel('Search papers').press('Enter');
+await drivePage.waitForSelector('article.result');
+// Search now merges several sources, so be explicit about which result: the
+// arXiv one, whose PDF goes through the route this section counts.
+await drivePage.locator('article.result h3').first().click();
+await drivePage.getByRole('button', { name: /Add to collection/i }).click();
+await drivePage.waitForTimeout(2500);
+check('adding a paper puts its PDF and sidecar in Drive', drive.uploads >= 2, `uploads=${drive.uploads}`);
+const proxyHitsBeforeRead = proxyPdfHits;
+
+await drivePage.getByRole('button', { name: /^Read$/ }).click();
+await drivePage.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
+await drivePage.waitForTimeout(1500);
+check('opening it reads the copy in Drive', drive.downloads >= 1, `downloads=${drive.downloads}`);
+check(
+  'and does not fetch it through the proxy again',
+  proxyPdfHits === proxyHitsBeforeRead,
+  `proxy ${proxyHitsBeforeRead} -> ${proxyPdfHits}`,
+);
+check(
+  'the reader says the file came from Drive',
+  await drivePage.locator('.topbar .sub', { hasText: /PDF from your Drive/ }).isVisible(),
+);
+await drivePage.screenshot({ path: `${OUT}/drive.png` });
+
+console.log('\n== a paper collected before Drive was connected ==');
+// The case adding-time sync cannot cover: the paper is already in the library
+// when Drive is connected, so nothing has ever uploaded it. Opening it should,
+// with the copy the viewer fetched rather than a second trip to the publisher.
+const lateContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+await stub(lateContext);
+const lateDrive = await fakeDrive(lateContext);
+
+let latePdfHits = 0;
+await lateContext.route('**/api/arxiv/pdf*', (route) => {
+  latePdfHits += 1;
+  return route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF });
+});
+
+const latePage = await lateContext.newPage();
+latePage.on('pageerror', (error) => errors.push(String(error)));
+await latePage.goto(BASE, { waitUntil: 'networkidle' });
+await latePage.getByRole('button', { name: /Skip — keep everything local/i }).click();
+
+await latePage.getByLabel('Search papers').fill('fourier neural operator');
+await latePage.getByLabel('Search papers').press('Enter');
+await latePage.waitForSelector('article.result');
+await latePage.locator('article.result h3').first().click();
+await latePage.getByRole('button', { name: /Add to collection/i }).click();
+await latePage.waitForTimeout(800);
+check('nothing is uploaded while Drive is not connected', lateDrive.uploads === 0, `uploads=${lateDrive.uploads}`);
+
+await latePage.getByRole('button', { name: /^Settings$/ }).click();
+await latePage.getByPlaceholder(/apps.googleusercontent.com/).fill('smoke.apps.googleusercontent.com');
+await latePage.getByRole('button', { name: /Connect Drive/i }).click();
+await latePage.waitForTimeout(600);
+await latePage.getByRole('button', { name: 'Close settings' }).click();
+
+await latePage.getByRole('button', { name: /^Read$/ }).click();
+await latePage.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
+await latePage.waitForTimeout(2500);
+check('opening it puts the PDF in Drive', lateDrive.pdfUploads === 1, `pdf uploads=${lateDrive.pdfUploads}`);
+check('and the sidecar with it', lateDrive.uploads >= 2, `uploads=${lateDrive.uploads}`);
+check(
+  'the file uploaded is the one on screen, fetched once',
+  latePdfHits === 1,
+  `proxy pdf fetches=${latePdfHits}`,
+);
+check(
+  'and the top bar links to it in Drive',
+  await latePage.locator('.topbar a[href*="drive.google.com"]').isVisible(),
+);
+await latePage.screenshot({ path: `${OUT}/drive-on-open.png` });
+console.log('\n== authors ==');
+// A fresh context, so the author run starts from the same blank slate the
+// reading run did rather than from whatever it left in localStorage.
+const peopleContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+await stub(peopleContext);
+const peoplePage = await peopleContext.newPage();
+peoplePage.on('pageerror', (error) => errors.push(String(error)));
+await peoplePage.goto(BASE, { waitUntil: 'networkidle' });
+await peoplePage.getByRole('button', { name: /Skip — keep everything local/i }).click();
+await peoplePage.waitForSelector('.discover-panel');
+await peoplePage.getByRole('button', { name: 'Authors', exact: true }).click();
+await peoplePage.getByLabel('Search for a person').fill('Banach');
+await peoplePage.getByLabel('Search for a person').press('Enter');
+await peoplePage.waitForSelector('article.result');
+const person = peoplePage.locator('article.result', { hasText: 'Stefan Banach' });
+check('author search finds the person', (await person.count()) === 1);
+check(
+  'and says what is known about them',
+  ((await person.textContent()) || '').includes('41k citations'),
+  (await person.textContent()) || '',
+);
+await person.locator('h3').click();
+// The "Papers by" header renders as soon as the person is picked, so waiting
+// on it alone would race the request that fetches what they wrote.
+await peoplePage.waitForSelector('text=Papers by');
+await peoplePage.waitForSelector('article.result', { timeout: 10000 });
+check(
+  'opening a person lists their papers',
+  await peoplePage.locator('article.result', { hasText: 'On operators between function spaces' }).isVisible(),
+);
+await peoplePage.screenshot({ path: `${OUT}/authors.png` });
 
 console.log('\n== console errors ==');
 // Google Fonts and the GIS script are external; a sandbox that intercepts TLS

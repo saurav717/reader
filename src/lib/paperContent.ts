@@ -80,7 +80,7 @@ function abstractDocument(paper: Paper, notice?: string): PaperContent {
 }
 
 export async function loadPaperContent(paper: Paper, signal?: AbortSignal): Promise<PaperContent> {
-  if (!hasProxy) {
+  if (!hasProxy()) {
     return abstractDocument(paper, `${NO_PROXY_REASON} Showing the abstract — you can still highlight it.`);
   }
 

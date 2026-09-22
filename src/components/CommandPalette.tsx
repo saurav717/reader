@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
-import { arxivIdFromQuery, DEFAULT_SOURCES, lookupArxiv, search } from '../lib/sources';
+import { arxivIdFromQuery, defaultSources, lookupArxiv, search } from '../lib/sources';
 import { hasProxy } from '../lib/api';
 import type { PaperRef } from '../types';
 import { FileIcon, PlusIcon, SearchIcon, SettingsIcon, StackIcon } from './icons';
@@ -38,9 +38,9 @@ export default function CommandPalette({ onClose, onOpenPaper, onOpenSettings }:
       try {
         const directId = arxivIdFromQuery(trimmed);
         const found =
-          directId && hasProxy
+          directId && hasProxy()
             ? await lookupArxiv(directId, controller.signal)
-            : (await search(trimmed, DEFAULT_SOURCES, { signal: controller.signal, limit: 6 })).results;
+            : (await search(trimmed, defaultSources(), { signal: controller.signal, limit: 6 })).results;
         setRemote(found);
       } catch {
         setRemote([]);
@@ -172,11 +172,7 @@ export default function CommandPalette({ onClose, onOpenPaper, onOpenSettings }:
           {rows.map((row, position) => {
             const active = position === cursor;
             const heading =
-              row.kind === 'remote' && position === libraryCount
-                ? hasProxy
-                  ? 'New on arXiv'
-                  : 'Found online'
-                : null;
+              row.kind === 'remote' && position === libraryCount ? 'Found online' : null;
             const actionHeading =
               row.kind === 'action' && position === libraryCount + remoteCount ? 'Actions' : null;
             return (
@@ -234,7 +230,7 @@ export default function CommandPalette({ onClose, onOpenPaper, onOpenSettings }:
             <kbd>⇧↵</kbd> add and open
           </span>
           <span style={{ flexGrow: 1 }} />
-          <span style={{ color: 'var(--muted)' }}>{hasProxy ? 'arXiv' : 'OpenAlex'} · your library</span>
+          <span style={{ color: 'var(--muted)' }}>every source · your library</span>
         </div>
       </div>
     </>

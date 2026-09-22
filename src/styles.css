@@ -739,7 +739,10 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 .setting { display: block; margin-bottom: 16px; }
 .setting > span { display: block; font-size: 12px; font-weight: 500; margin-bottom: 5px; }
 .setting > small { display: block; font-size: 11.5px; color: var(--muted); margin-top: 5px; line-height: 1.5; }
-.setting input[type='text'] {
+.setting input[type='text'],
+.setting input[type='url'],
+.setting input[type='email'],
+.setting input[type='password'] {
   width: 100%; height: 36px; padding: 0 10px;
   border: 1px solid var(--border); border-radius: 9px; background: var(--panel); outline: 0; font-size: 13px;
 }

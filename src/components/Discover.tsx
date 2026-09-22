@@ -1,8 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
-import { arxivIdFromQuery, DEFAULT_SOURCES, lookupArxiv, search, SOURCES } from '../lib/sources';
-import { hasProxy, NO_PROXY_REASON } from '../lib/api';
-import type { PaperRef, SourceId } from '../types';
+import {
+  arxivIdFromQuery,
+  authorSources,
+  defaultSources,
+  lookupArxiv,
+  PAGE_SIZE,
+  papersByAuthor,
+  search,
+  searchAuthors,
+  searchByAuthorName,
+  sourceList,
+} from '../lib/sources';
+import { hasProxy, NO_PROXY_FIX, NO_PROXY_REASON } from '../lib/api';
+import type { AuthorRef, PaperRef, SearchMode, SourceId } from '../types';
 import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
 
 interface Props {
@@ -10,13 +21,25 @@ interface Props {
   onOpen: (paperId: string) => void;
 }
 
+type SourceError = { source: SourceId; message: string };
+
+const labelFor = (id: SourceId) => sourceList().find((source) => source.id === id)?.label ?? id;
+
+const compact = (value: number) =>
+  value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k` : String(value);
+
 export default function Discover({ onClose, onOpen }: Props) {
   const { papers, collections, addPaper, createCollection } = useStore();
   const [query, setQuery] = useState('');
-  const [sources, setSources] = useState<SourceId[]>(DEFAULT_SOURCES);
+  const [mode, setMode] = useState<SearchMode>('papers');
+  const [sources, setSources] = useState<SourceId[]>(defaultSources);
   const [results, setResults] = useState<PaperRef[]>([]);
-  const [errors, setErrors] = useState<{ source: SourceId; message: string }[]>([]);
+  const [authors, setAuthors] = useState<AuthorRef[]>([]);
+  const [viewing, setViewing] = useState<AuthorRef | null>(null);
+  const [errors, setErrors] = useState<SourceError[]>([]);
   const [busy, setBusy] = useState(false);
+  const [more, setMore] = useState(false);
+  const [page, setPage] = useState(0);
   const [target, setTarget] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -25,39 +48,161 @@ export default function Discover({ onClose, onOpen }: Props) {
     if (!target && collections.length) setTarget(collections[0].id);
   }, [collections, target]);
 
-  const run = useCallback(
+  // Configuring a proxy in Settings puts arXiv within reach without a reload,
+  // so the selection follows it rather than staying on the static-host set.
+  const proxyReady = hasProxy();
+  const firstSources = useRef(true);
+  useEffect(() => {
+    if (firstSources.current) {
+      firstSources.current = false;
+      return;
+    }
+    setSources(defaultSources());
+  }, [proxyReady]);
+
+  const begin = () => {
+    abort.current?.abort();
+    const controller = new AbortController();
+    abort.current = controller;
+    setBusy(true);
+    setErrors([]);
+    return controller;
+  };
+
+  const finish = (controller: AbortController) => {
+    if (abort.current === controller) setBusy(false);
+  };
+
+  const fail = (error: unknown) => {
+    if (error instanceof DOMException && error.name === 'AbortError') return;
+    setErrors([{ source: sources[0] ?? 'openalex', message: error instanceof Error ? error.message : String(error) }]);
+  };
+
+  /** Papers matching a topic, a title, or an arXiv id. */
+  const runPapers = useCallback(
     async (text: string) => {
-      abort.current?.abort();
-      const controller = new AbortController();
-      abort.current = controller;
-      setBusy(true);
-      setErrors([]);
+      const controller = begin();
+      setViewing(null);
+      setAuthors([]);
+      setPage(0);
       try {
         const directId = arxivIdFromQuery(text);
-        if (directId && hasProxy && sources.includes('arxiv')) {
+        if (directId && hasProxy() && sources.includes('arxiv')) {
           const direct = await lookupArxiv(directId, controller.signal);
           if (direct.length) {
             setResults(direct);
+            setMore(false);
             return;
           }
         }
-        const outcome = await search(text, sources, { signal: controller.signal, limit: 20 });
+        const outcome = await search(text, sources, { signal: controller.signal, page: 0 });
         setResults(outcome.results);
         setErrors(outcome.errors);
+        setMore(!outcome.exhausted);
       } catch (error) {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          setErrors([{ source: sources[0], message: error instanceof Error ? error.message : String(error) }]);
-        }
+        fail(error);
       } finally {
-        if (abort.current === controller) setBusy(false);
+        finish(controller);
       }
     },
     [sources],
   );
 
+  /** People matching a name. */
+  const runAuthors = useCallback(
+    async (text: string) => {
+      const controller = begin();
+      setViewing(null);
+      setResults([]);
+      setPage(0);
+      setMore(false);
+      try {
+        const outcome = await searchAuthors(text, sources, { signal: controller.signal });
+        setAuthors(outcome.authors);
+        setErrors(outcome.errors);
+      } catch (error) {
+        fail(error);
+      } finally {
+        finish(controller);
+      }
+    },
+    [sources],
+  );
+
+  /** Everything one chosen person has written. */
+  const openAuthor = useCallback(
+    async (author: AuthorRef) => {
+      const controller = begin();
+      setViewing(author);
+      setPage(0);
+      try {
+        const found = await papersByAuthor(author, { signal: controller.signal, page: 0 });
+        setResults(found);
+        setMore(found.length >= PAGE_SIZE);
+      } catch (error) {
+        fail(error);
+      } finally {
+        finish(controller);
+      }
+    },
+    [],
+  );
+
+  /**
+   * The fallback when none of the author records is the right person: match on
+   * the name across every source's author field instead of on an identifier.
+   */
+  const runByName = useCallback(
+    async (text: string) => {
+      const controller = begin();
+      setViewing(null);
+      setAuthors([]);
+      setPage(0);
+      try {
+        const outcome = await searchByAuthorName(text, sources, { signal: controller.signal, page: 0 });
+        setResults(outcome.results);
+        setErrors(outcome.errors);
+        setMore(!outcome.exhausted);
+      } catch (error) {
+        fail(error);
+      } finally {
+        finish(controller);
+      }
+    },
+    [sources],
+  );
+
+  const loadMore = useCallback(async () => {
+    const controller = begin();
+    const next = page + 1;
+    try {
+      const found = viewing
+        ? await papersByAuthor(viewing, { signal: controller.signal, page: next })
+        : (await search(query, sources, { signal: controller.signal, page: next })).results;
+      // The merge is per-page, so a paper already on screen is dropped rather
+      // than shown twice when two pages overlap.
+      setResults((current) => {
+        const seen = new Set(current.map((paper) => paper.id));
+        return [...current, ...found.filter((paper) => !seen.has(paper.id))];
+      });
+      setMore(found.length >= PAGE_SIZE);
+      setPage(next);
+    } catch (error) {
+      fail(error);
+    } finally {
+      finish(controller);
+    }
+  }, [page, query, sources, viewing]);
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!query.trim()) return;
+    void (mode === 'authors' ? runAuthors(query) : runPapers(query));
+  };
+
   const toggleSource = (id: SourceId) => {
     setSources((current) =>
-      current.includes(id) ? current.filter((item) => item !== id) || [] : [...current, id],
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
     );
   };
 
@@ -66,6 +211,9 @@ export default function Discover({ onClose, onOpen }: Props) {
     if (!collectionId) collectionId = (await createCollection('Reading list')).id;
     await addPaper(ref, collectionId);
   };
+
+  const visibleSources = mode === 'authors' ? authorSources() : sourceList();
+  const noSources = !sources.some((id) => visibleSources.some((source) => source.id === id));
 
   return (
     <aside className="panel discover-panel" aria-label="Discover">
@@ -76,15 +224,20 @@ export default function Discover({ onClose, onOpen }: Props) {
         </button>
       </div>
 
-      <form
-        style={{ padding: '0 16px 12px' }}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void run(query);
-        }}
-      >
+      <div style={{ padding: '0 16px 10px' }}>
+        <div className="segmented" role="group" aria-label="What to search for">
+          <button type="button" aria-pressed={mode === 'papers'} onClick={() => setMode('papers')}>
+            Papers
+          </button>
+          <button type="button" aria-pressed={mode === 'authors'} onClick={() => setMode('authors')}>
+            Authors
+          </button>
+        </div>
+      </div>
+
+      <form style={{ padding: '0 16px 12px' }} onSubmit={submit}>
         <label className="vh" htmlFor="discover-query">
-          Search papers
+          {mode === 'authors' ? 'Search for a person' : 'Search papers'}
         </label>
         <div className="field">
           <SearchIcon size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
@@ -92,7 +245,7 @@ export default function Discover({ onClose, onOpen }: Props) {
             id="discover-query"
             type="search"
             value={query}
-            placeholder="Title, author, topic or arXiv id"
+            placeholder={mode === 'authors' ? 'Author name' : 'Title, topic, "exact phrase" or arXiv id'}
             onChange={(event) => setQuery(event.target.value)}
           />
           {busy ? <span className="spinner" aria-label="Searching" /> : null}
@@ -100,7 +253,7 @@ export default function Discover({ onClose, onOpen }: Props) {
       </form>
 
       <div style={{ padding: '0 16px 10px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {SOURCES.map((source) => (
+        {visibleSources.map((source) => (
           <button
             key={source.id}
             type="button"
@@ -141,10 +294,16 @@ export default function Discover({ onClose, onOpen }: Props) {
         </select>
       </div>
 
-      {!hasProxy ? (
+      {noSources ? (
         <p className="banner warn" style={{ margin: '0 16px 12px' }}>
-          {NO_PROXY_REASON} OpenAlex and Semantic Scholar both index arXiv, so most papers are still here — you
-          just get the abstract rather than the full text.
+          No sources are selected, so there is nothing to search. Turn at least one on above.
+        </p>
+      ) : null}
+
+      {!hasProxy() ? (
+        <p className="banner warn" style={{ margin: '0 16px 12px' }}>
+          {NO_PROXY_REASON} OpenAlex, Semantic Scholar and Crossref all index arXiv, so most papers are still
+          here — you just get the abstract rather than the full text. {NO_PROXY_FIX}
         </p>
       ) : null}
 
@@ -152,18 +311,69 @@ export default function Discover({ onClose, onOpen }: Props) {
         <div style={{ padding: '0 16px 12px' }}>
           {errors.map((error) => (
             <p key={error.source} className="banner error" style={{ marginTop: 0, marginBottom: 6 }}>
-              {SOURCES.find((source) => source.id === error.source)?.label}: {error.message}
+              {labelFor(error.source)}: {error.message}
             </p>
           ))}
         </div>
       ) : null}
 
+      {viewing ? (
+        <div style={{ padding: '0 16px 10px' }}>
+          <button type="button" className="btn sm" onClick={() => void runAuthors(query)}>
+            ← Back to people
+          </button>
+          <p style={{ margin: '8px 0 0', fontSize: 12.5, color: 'var(--ink-2)' }}>
+            Papers by <strong style={{ fontWeight: 600 }}>{viewing.name}</strong>
+            {viewing.affiliation ? ` · ${viewing.affiliation}` : ''}
+          </p>
+        </div>
+      ) : null}
+
       <div className="scroll" style={{ padding: '0 8px 16px' }}>
-        {!results.length && !busy ? (
+        {!results.length && !authors.length && !busy && !noSources ? (
           <p style={{ padding: '10px 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            {hasProxy
-              ? 'Search arXiv, OpenAlex and Semantic Scholar at once. Paste an arXiv id to jump straight to a paper.'
-              : 'Search OpenAlex and Semantic Scholar, both of which index arXiv.'}
+            {mode === 'authors'
+              ? 'Find a person, then open everything they have written. OpenAlex and Semantic Scholar each keep their own author records, so the same person can appear twice.'
+              : hasProxy()
+                ? 'Search arXiv, OpenAlex, Semantic Scholar and Crossref at once, merged into one ranked list. Quote a phrase to match it exactly, or paste an arXiv id to jump straight to a paper.'
+                : 'Search OpenAlex, Semantic Scholar and Crossref, all of which index arXiv.'}
+          </p>
+        ) : null}
+
+        {mode === 'authors' && !viewing
+          ? authors.map((author) => (
+              <article key={author.id} className="result">
+                <button
+                  type="button"
+                  onClick={() => void openAuthor(author)}
+                  style={{ all: 'unset', cursor: 'pointer', display: 'block', width: '100%' }}
+                >
+                  <h3>{author.name}</h3>
+                  {author.affiliation ? <p className="authors">{author.affiliation}</p> : null}
+                  <div className="meta">
+                    <span>{labelFor(author.source)}</span>
+                    {author.worksCount ? <span>{compact(author.worksCount)} papers</span> : null}
+                    {author.citedBy ? <span>{compact(author.citedBy)} citations</span> : null}
+                    {author.hIndex ? <span>h-index {author.hIndex}</span> : null}
+                    {author.orcid ? <span className="mono">ORCID {author.orcid}</span> : null}
+                  </div>
+                </button>
+              </article>
+            ))
+          : null}
+
+        {mode === 'authors' && !viewing && authors.length && query.trim() ? (
+          <p style={{ padding: '4px 10px 0', fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+            None of these the right person?{' '}
+            <button
+              type="button"
+              className="linklike"
+              onClick={() => void runByName(query)}
+              style={{ all: 'unset', color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              Search every paper with that name on it
+            </button>
+            .
           </p>
         ) : null}
 
@@ -190,6 +400,7 @@ export default function Discover({ onClose, onOpen }: Props) {
                   {result.arxivId ? <span className="mono">arXiv:{result.arxivId}</span> : null}
                   {result.published ? <span>{new Date(result.published).getFullYear() || ''}</span> : null}
                   {result.venue ? <span>{result.venue}</span> : null}
+                  {result.citedBy ? <span>{compact(result.citedBy)} citations</span> : null}
                   {saved ? (
                     <span className="pill-added">
                       <CheckIcon size={11} />
@@ -233,6 +444,14 @@ export default function Discover({ onClose, onOpen }: Props) {
             </article>
           );
         })}
+
+        {more && results.length && !busy ? (
+          <div style={{ padding: '8px 10px' }}>
+            <button type="button" className="btn sm" style={{ width: '100%' }} onClick={() => void loadMore()}>
+              Load more
+            </button>
+          </div>
+        ) : null}
       </div>
     </aside>
   );

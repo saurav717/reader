@@ -1,6 +1,8 @@
 import type { Paper, PaperRef } from '../types';
 import { api, hasProxy, NO_PROXY_REASON } from './api';
+import { downloadFile, ensureDriveToken } from './google';
 import { fromOpenAlex, openAlexPdf, type OpenAlexWork } from './sources';
+import { contactEmail } from './contact';
 
 /**
  * Getting the actual PDF, whichever source a paper came from.
@@ -43,7 +45,7 @@ export function pdfFileName(paper: PaperRef): string {
  * fetch, or no proxy to fetch it through.
  */
 export function pdfProxyUrl(paper: PaperRef, options: { download?: boolean } = {}): string | null {
-  if (!hasProxy) return null;
+  if (!hasProxy()) return null;
   const name = encodeURIComponent(pdfFileName(paper));
   const download = options.download ? '&download=1' : '';
   if (paper.arxivId) {
@@ -99,15 +101,48 @@ async function semanticScholarPdfFor(paper: PaperRef, signal?: AbortSignal): Pro
   return https(payload.openAccessPdf?.url);
 }
 
+interface UnpaywallLocation {
+  url_for_pdf?: string | null;
+  url?: string | null;
+}
+
 /**
- * A PDF link for a paper that arrived without one. OpenAlex first — it knows
- * about more repositories — then Semantic Scholar. Returns undefined when the
- * paper simply is not free to read anywhere either of them can see.
+ * Unpaywall, which does one job — find the free copy of a DOI — and does it
+ * better than either index, because it also knows about repository deposits
+ * the publisher never advertises. It requires a contact address and refuses
+ * the request without one, so no email in Settings means this is skipped.
+ */
+async function unpaywallPdfFor(paper: PaperRef, signal?: AbortSignal): Promise<string | undefined> {
+  const email = contactEmail();
+  if (!email || !paper.doi) return undefined;
+  const response = await fetch(
+    `https://api.unpaywall.org/v2/${encodeURIComponent(paper.doi)}?email=${encodeURIComponent(email)}`,
+    { signal },
+  );
+  if (!response.ok) return undefined;
+  const payload = (await response.json()) as {
+    best_oa_location?: UnpaywallLocation | null;
+    oa_locations?: UnpaywallLocation[] | null;
+  };
+  const candidates = [payload.best_oa_location, ...(payload.oa_locations || [])];
+  for (const location of candidates) {
+    const found = https(location?.url_for_pdf || location?.url);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * A PDF link for a paper that arrived without one. Unpaywall first where we
+ * have a DOI and an address to give it, then OpenAlex — which knows about more
+ * repositories than Semantic Scholar — and Semantic Scholar last. Returns
+ * undefined when the paper simply is not free to read anywhere any of them can
+ * see.
  */
 export async function resolvePdfUrl(paper: PaperRef, signal?: AbortSignal): Promise<string | undefined> {
   const known = pdfSourceUrl(paper);
   if (known) return known;
-  for (const lookup of [openAlexPdfFor, semanticScholarPdfFor]) {
+  for (const lookup of [unpaywallPdfFor, openAlexPdfFor, semanticScholarPdfFor]) {
     try {
       const found = await lookup(paper, signal);
       if (found) return found;
@@ -123,21 +158,11 @@ export async function resolvePdfUrl(paper: PaperRef, signal?: AbortSignal): Prom
 
 export class PdfError extends Error {}
 
-/**
- * The PDF itself, through the proxy. A blob rather than a bare URL in an
- * `<iframe>` so that a failure is something we can explain rather than a blank
- * grey pane, and so the Download button does not fetch the file a second time.
- */
-export async function fetchPdf(paper: PaperRef, signal?: AbortSignal): Promise<Blob> {
-  if (!hasProxy) throw new PdfError(NO_PROXY_REASON);
-  const url = pdfProxyUrl(paper);
-  if (!url) throw new PdfError('No PDF is available for this paper.');
-
+async function downloadPdf(url: string): Promise<Blob> {
   let response: Response;
   try {
-    response = await fetch(url, { signal });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    response = await fetch(url);
+  } catch {
     throw new PdfError('Could not reach the PDF.');
   }
   if (!response.ok) {
@@ -150,6 +175,60 @@ export async function fetchPdf(paper: PaperRef, signal?: AbortSignal): Promise<B
   const blob = await response.blob();
   // Keep the type honest: a blob URL only renders in the viewer if it says PDF.
   return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+}
+
+/**
+ * Downloads in progress, by URL. Opening a paper straight from a search result
+ * asks for its PDF twice — the viewer wants to show it, the Drive sync wants to
+ * upload it — and they are the same file. One request, handed to both.
+ *
+ * The last one is kept for a minute after it lands, because those two requests
+ * are not always in flight at the same moment: the sync starts as the paper is
+ * added and the viewer starts as the reader mounts, which on a fast connection
+ * is after the first has finished. One paper's worth of bytes — the viewer is
+ * holding the same blob anyway — against fetching a whole PDF twice.
+ */
+const inFlight = new Map<string, Promise<Blob>>();
+const KEEP_MS = 60_000;
+let recent: { url: string; blob: Blob; at: number } | null = null;
+
+/** Rejects the way an aborted fetch does, so callers need no special case. */
+function whenAborted(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    const fail = () => reject(new DOMException('Aborted', 'AbortError'));
+    if (signal.aborted) fail();
+    else signal.addEventListener('abort', fail, { once: true });
+  });
+}
+
+/**
+ * The PDF itself, through the proxy. A blob rather than a bare URL in an
+ * `<iframe>` so that a failure is something we can explain rather than a blank
+ * grey pane, and so the Download button does not fetch the file a second time.
+ *
+ * A caller that gives up takes its own promise with it; the download itself
+ * carries on for whoever else is waiting on it.
+ */
+export async function fetchPdf(paper: PaperRef, signal?: AbortSignal): Promise<Blob> {
+  if (!hasProxy()) throw new PdfError(NO_PROXY_REASON);
+  const url = pdfProxyUrl(paper);
+  if (!url) throw new PdfError('No PDF is available for this paper.');
+
+  if (recent && recent.url === url && Date.now() - recent.at < KEEP_MS) return recent.blob;
+
+  let shared = inFlight.get(url);
+  if (!shared) {
+    shared = downloadPdf(url)
+      .then((blob) => {
+        recent = { url, blob, at: Date.now() };
+        return blob;
+      })
+      .finally(() => inFlight.delete(url));
+    inFlight.set(url, shared);
+    // Nobody may be listening yet, and an unhandled rejection is noisy.
+    shared.catch(() => undefined);
+  }
+  return signal ? Promise.race([shared, whenAborted(signal)]) : shared;
 }
 
 /** Save a blob under a name, from the page, with no round trip to a server. */
@@ -167,3 +246,50 @@ export function saveBlob(blob: Blob, paper: PaperRef): void {
 
 /** Whether a paper in the library already knows where its PDF is. */
 export const hasKnownPdf = (paper: Paper): boolean => Boolean(pdfSourceUrl(paper));
+
+// ------------------------------------------------------------------ Drive ---
+
+/** Where a copy of the file came from, for the line under the title. */
+export type PdfOrigin = 'drive' | 'proxy';
+
+export interface FetchedPdf {
+  blob: Blob;
+  from: PdfOrigin;
+}
+
+/**
+ * The PDF, preferring the copy in Drive.
+ *
+ * Once a paper has been synced, Drive holds the same bytes the proxy fetched —
+ * and Google's API, unlike arXiv and the publishers, answers the browser
+ * directly. So a paper that has been saved reads back without the proxy at all,
+ * which also means it still opens on a deployment that has no server.
+ *
+ * Drive is only ever the *second* place a PDF can come from: putting it there
+ * means uploading bytes, and getting the bytes in the first place is the
+ * cross-origin fetch the browser will not do. There is no asking Drive to go
+ * and fetch a URL for us.
+ */
+export async function fetchPaperPdf(
+  paper: PaperRef,
+  options: { driveFileId?: string; clientId?: string; driveConnected?: boolean } = {},
+  signal?: AbortSignal,
+): Promise<FetchedPdf> {
+  const { driveFileId, clientId, driveConnected } = options;
+
+  if (driveFileId && driveConnected && clientId) {
+    try {
+      const token = await ensureDriveToken(clientId);
+      return { blob: await downloadFile(token, driveFileId, signal), from: 'drive' };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw error;
+      // The copy may have been deleted, or the grant may have lapsed. The
+      // publisher is still there, so this is not worth failing over.
+      if (!hasProxy()) {
+        throw new PdfError('The copy in your Drive could not be read, and there is no server to fetch it through.');
+      }
+    }
+  }
+
+  return { blob: await fetchPdf(paper, signal), from: 'proxy' };
+}
