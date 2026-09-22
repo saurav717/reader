@@ -20,13 +20,22 @@ delete process.env.SCHOLAR_BROWSER;
 delete process.env.SERPAPI_KEY;
 
 const { default: apiRouter } = await import('../server/api.js');
-const { askSerp, forgetSerp, fromSerpAuthors, fromSerpResults, fromSerpWorks, serpProblem, serpUrl, withoutKey } =
-  await import('../server/serpapi.js');
+const {
+  askSerp,
+  forgetSerp,
+  fromSerpAuthorProfile,
+  fromSerpAuthorsInResults,
+  fromSerpResults,
+  fromSerpWorks,
+  nameCouldBe,
+  serpProblem,
+  serpUrl,
+  withoutKey,
+} = await import('../server/serpapi.js');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = async (name) => JSON.parse(await readFile(join(here, 'fixtures', `${name}.json`), 'utf8'));
 const SEARCH = await fixture('serpapi-search');
-const PROFILES = await fixture('serpapi-profiles');
 const AUTHOR = await fixture('serpapi-author');
 
 beforeEach(() => forgetSerp());
@@ -42,9 +51,13 @@ describe('the asks it makes', () => {
     assert.equal(url.searchParams.get('api_key'), 'k');
   });
 
-  it('asks the profiles engine for a person and the author engine for their works', () => {
-    assert.equal(new URL(serpUrl('authors', { name: 'Saurav Chennuri' }, 'k')).searchParams.get('engine'), 'google_scholar_profiles');
-    assert.equal(new URL(serpUrl('authors', { name: 'Saurav Chennuri' }, 'k')).searchParams.get('mauthors'), 'Saurav Chennuri');
+  it('asks for a person as a search for their papers, since SerpApi has no profile search any more', () => {
+    const url = new URL(serpUrl('authors', { name: 'Saurav Chennuri' }, 'k'));
+    assert.equal(url.searchParams.get('engine'), 'google_scholar');
+    assert.equal(url.searchParams.get('q'), 'author:"Saurav Chennuri"');
+  });
+
+  it('asks the author engine for a profile’s works', () => {
     const works = new URL(serpUrl('profile', { user: 'oR9sCGYAAAAJ', start: 20 }, 'k'));
     assert.equal(works.searchParams.get('engine'), 'google_scholar_author');
     assert.equal(works.searchParams.get('author_id'), 'oR9sCGYAAAAJ');
@@ -101,25 +114,73 @@ describe('reading a page of results', () => {
   });
 });
 
-describe('reading the profile search', () => {
-  const authors = fromSerpAuthors(PROFILES);
-
-  it('finds each person, with the id their papers are asked for by', () => {
-    assert.equal(authors.length, 2);
-    assert.equal(authors[0].name, 'Ashish Vaswani');
-    assert.equal(authors[0].userId, 'oR9sCGYAAAAJ');
-    assert.match(authors[0].profileUrl, /^https:\/\/scholar\.google\.com\/citations/);
+describe('finding people in the bylines', () => {
+  it('knows which byline names could be the person asked for', () => {
+    assert.equal(nameCouldBe('S Chennuri', 'Saurav Chennuri'), true);
+    assert.equal(nameCouldBe('SVP Chennuri', 'Saurav Chennuri'), true);
+    assert.equal(nameCouldBe('Saurav Chennuri', 'saurav chennuri'), true);
+    assert.equal(nameCouldBe('R Chennuri', 'Saurav Chennuri'), false);
+    assert.equal(nameCouldBe('S Chennai', 'Saurav Chennuri'), false);
+    // A surname alone means anyone with it.
+    assert.equal(nameCouldBe('S Chennuri', 'Chennuri'), true);
   });
 
-  it('reads the affiliation, the interests and the verified domain', () => {
-    assert.equal(authors[0].affiliation, 'Essential AI');
-    assert.deepEqual(authors[0].interests, ['Machine Learning', 'Deep Learning']);
-    assert.equal(authors[0].verifiedEmail, 'essential.ai');
-    assert.equal(authors[0].citedBy, 231507);
+  it('collects each author with a profile once, from the bylines of a search', () => {
+    const people = fromSerpAuthorsInResults(SEARCH, 'Ashish Vaswani');
+    assert.equal(people.length, 1);
+    assert.equal(people[0].userId, 'oR9sCGYAAAAJ');
+    assert.equal(people[0].name, 'A Vaswani');
+    assert.match(people[0].profileUrl, /^https:\/\/scholar\.google\.com\/citations/);
+    // N Shazeer has a profile too, but is not who was asked for.
+    assert.equal(fromSerpAuthorsInResults(SEARCH, 'Noam Shazeer')[0].userId, 'wsGvgA8AAAAJ');
+    assert.deepEqual(fromSerpAuthorsInResults(SEARCH, 'Nobody Here'), []);
   });
 
-  it('makes a relative profile link absolute', () => {
-    assert.equal(authors[1].profileUrl, 'https://scholar.google.com/citations?hl=en&user=AAAAAAAAAAAJ');
+  it('reads the person at the top of their profile: full name, affiliation, verified domain, citations', () => {
+    const person = fromSerpAuthorProfile(AUTHOR, 'oR9sCGYAAAAJ');
+    assert.equal(person.name, 'Ashish Vaswani');
+    assert.equal(person.affiliation, 'Essential AI');
+    assert.equal(person.verifiedEmail, 'essential.ai');
+    assert.deepEqual(person.interests, ['Machine Learning', 'Deep Learning']);
+    assert.equal(person.citedBy, 231507);
+    assert.equal(fromSerpAuthorProfile({}, 'x'), null);
+  });
+
+  it('fills the people in from their profiles, and does without when a profile fails', async () => {
+    const asked = [];
+    const fetchJson = async (url) => {
+      const engine = new URL(url).searchParams.get('engine');
+      asked.push(engine);
+      return { status: 200, json: engine === 'google_scholar_author' ? AUTHOR : SEARCH };
+    };
+    const people = await askSerp('authors', { name: 'Ashish Vaswani' }, 'k', { fetchJson });
+    assert.equal(people[0].name, 'Ashish Vaswani');
+    assert.equal(people[0].affiliation, 'Essential AI');
+    assert.equal(people[0].worksSeen, undefined);
+    assert.deepEqual(asked, ['google_scholar', 'google_scholar_author']);
+
+    forgetSerp();
+    const failing = async (url) =>
+      new URL(url).searchParams.get('engine') === 'google_scholar_author'
+        ? { status: 200, json: { error: 'The Google Scholar Author API is discontinued.' } }
+        : { status: 200, json: SEARCH };
+    const bare = await askSerp('authors', { name: 'Ashish Vaswani' }, 'k', { fetchJson: failing });
+    assert.equal(bare[0].userId, 'oR9sCGYAAAAJ');
+    assert.equal(bare[0].name, 'A Vaswani');
+    assert.equal(bare[0].affiliation, undefined);
+  });
+
+  it('opens a person from the cache their profile was read into', async () => {
+    let profileAsks = 0;
+    const fetchJson = async (url) => {
+      const engine = new URL(url).searchParams.get('engine');
+      if (engine === 'google_scholar_author') profileAsks += 1;
+      return { status: 200, json: engine === 'google_scholar_author' ? AUTHOR : SEARCH };
+    };
+    await askSerp('authors', { name: 'Ashish Vaswani' }, 'k', { fetchJson });
+    const works = await askSerp('profile', { user: 'oR9sCGYAAAAJ', start: 0 }, 'k', { fetchJson });
+    assert.equal(works[0].title, 'Attention is all you need');
+    assert.equal(profileAsks, 1, 'the profile was asked for once, for the person and their works');
   });
 });
 
@@ -149,6 +210,10 @@ describe('being refused by SerpApi, which is not being refused by Scholar', () =
     const problem = serpProblem({ error: 'You are exceeding your monthly searches limit.' }, 429);
     assert.equal(problem.reason, 'rate-limited');
     assert.match(problem.message, /allowance/);
+  });
+
+  it('knows a page SerpApi has stopped offering', () => {
+    assert.equal(serpProblem({ error: 'The Google Scholar Profiles API is discontinued.' }, 200).reason, 'discontinued');
   });
 
   it('treats "no results" as an empty page, not a failure', () => {
@@ -193,7 +258,7 @@ describe('a proxy with a key', () => {
       if (url.startsWith(base)) return realFetch(input);
       asked.push(url);
       const engine = new URL(url).searchParams.get('engine');
-      const json = engine === 'google_scholar_profiles' ? PROFILES : engine === 'google_scholar_author' ? AUTHOR : SEARCH;
+      const json = engine === 'google_scholar_author' ? AUTHOR : SEARCH;
       return new Response(JSON.stringify(json), { status: 200, headers: { 'content-type': 'application/json' } });
     };
     try {
@@ -207,6 +272,7 @@ describe('a proxy with a key', () => {
       const payload = JSON.parse(text);
       assert.equal(payload.via, 'serpapi');
       assert.equal(payload.results[0].userId, 'oR9sCGYAAAAJ');
+      assert.equal(payload.results[0].affiliation, 'Essential AI');
 
       const works = await (await realFetch(`${base}/scholar/profile?user=oR9sCGYAAAAJ`)).json();
       assert.equal(works.results[0].title, 'Attention is all you need');

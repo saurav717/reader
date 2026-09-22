@@ -44,8 +44,12 @@ export function serpUrl(kind, params, key) {
       if (params.start) query.set('start', String(params.start));
       break;
     case 'authors':
-      query.set('engine', 'google_scholar_profiles');
-      query.set('mauthors', params.name);
+      // SerpApi has discontinued its profiles engine. A search for papers by
+      // the name names, in each byline, the authors who have a profile — and
+      // their ids — which is what the profile search gave.
+      query.set('engine', 'google_scholar');
+      query.set('q', `author:"${params.name}"`);
+      query.set('num', '20');
       break;
     case 'profile':
       query.set('engine', 'google_scholar_author');
@@ -116,25 +120,83 @@ export function fromSerpResults(json) {
     .filter((result) => result.title);
 }
 
-/** Scholar's profile search, as `parseAuthors` would have read it. */
-export function fromSerpAuthors(json) {
-  return list(json?.profiles)
-    .map((entry) => {
-      const userId = str(entry?.author_id) || undefined;
-      return {
-        userId,
-        name: str(entry?.name),
-        profileUrl:
-          absolute(str(entry?.link)) || (userId ? `${SCHOLAR_HOST}/citations?hl=en&user=${encodeURIComponent(userId)}` : undefined),
-        affiliation: str(entry?.affiliations) || undefined,
-        verifiedEmail: (str(entry?.email).match(/Verified email at (\S+)/i) || [])[1],
-        interests: list(entry?.interests)
-          .map((interest) => (typeof interest === 'string' ? interest.trim() : str(interest?.title)))
-          .filter(Boolean),
-        citedBy: num(entry?.cited_by),
-      };
-    })
-    .filter((author) => author.name);
+const profileLink = (userId) => `${SCHOLAR_HOST}/citations?hl=en&user=${encodeURIComponent(userId)}`;
+
+/** `Saurav Chennuri`, `S Chennuri`, `Chennuri, S.` → `s chennuri`-ish tokens. */
+const nameTokens = (name) =>
+  str(name)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[.,]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+
+/**
+ * Whether a byline's name could be the person searched for. Bylines carry
+ * initials — `S Chennuri`, `SVP Chennuri` — so the surname has to match and
+ * the initials have to begin with the first name's. A surname alone matches
+ * anyone with it, which is what a search by surname means.
+ */
+export function nameCouldBe(byline, wanted) {
+  const have = nameTokens(byline);
+  const want = nameTokens(wanted);
+  if (!have.length || !want.length) return false;
+  if (have.join(' ') === want.join(' ')) return true;
+  if (have[have.length - 1] !== want[want.length - 1]) return false;
+  if (want.length === 1) return true;
+  return have[0][0] === want[0][0];
+}
+
+/**
+ * The people a search for a name turns up: every author in a byline with a
+ * profile whose name could be the one asked for, once each, most often
+ * seen first. As much as the profile search gave, less the affiliation and
+ * the verified email — those come from the profile itself, below.
+ */
+export function fromSerpAuthorsInResults(json, name) {
+  const seen = new Map();
+  for (const entry of list(json?.organic_results)) {
+    for (const author of list(entry?.publication_info?.authors)) {
+      const userId = str(author?.author_id);
+      if (!userId || !nameCouldBe(author?.name, name)) continue;
+      const found = seen.get(userId);
+      if (found) found.worksSeen += 1;
+      else {
+        seen.set(userId, {
+          userId,
+          name: str(author?.name),
+          profileUrl: absolute(str(author?.link)) || profileLink(userId),
+          affiliation: undefined,
+          verifiedEmail: undefined,
+          interests: [],
+          citedBy: undefined,
+          worksSeen: 1,
+        });
+      }
+    }
+  }
+  return Array.from(seen.values()).sort((a, b) => b.worksSeen - a.worksSeen);
+}
+
+/** The person a profile page is about — the top of the author engine's answer. */
+export function fromSerpAuthorProfile(json, userId) {
+  const author = json?.author || {};
+  const name = str(author.name);
+  if (!name) return null;
+  const table = list(json?.cited_by?.table);
+  const citations = table.find((row) => row?.citations)?.citations;
+  return {
+    userId,
+    name,
+    profileUrl: profileLink(userId),
+    affiliation: str(author.affiliations) || undefined,
+    verifiedEmail: (str(author.email).match(/Verified email at (\S+)/i) || [])[1],
+    interests: list(author.interests)
+      .map((interest) => (typeof interest === 'string' ? interest.trim() : str(interest?.title)))
+      .filter(Boolean),
+    citedBy: num(citations?.all),
+  };
 }
 
 /** A profile's own list of works, as `parseProfileWorks` would have read it. */
@@ -157,11 +219,10 @@ export function fromSerpWorks(json) {
     .filter((work) => work.title);
 }
 
-/** The mapping for each kind of ask. */
+/** The mapping for each kind of ask that is one request. */
 export const fromSerp = {
   search: fromSerpResults,
   versions: fromSerpResults,
-  authors: fromSerpAuthors,
   profile: fromSerpWorks,
 };
 
@@ -176,6 +237,9 @@ export const fromSerp = {
 export function serpProblem(json, status) {
   const error = str(json?.error);
   if (/hasn't returned any results|no results/i.test(error)) return null;
+  if (/discontinued|deprecated|no longer/i.test(error)) {
+    return { reason: 'discontinued', message: `SerpApi no longer offers this Scholar page: ${error}` };
+  }
   if (status === 401 || /invalid api key|api_key/i.test(error)) {
     return { reason: 'key', message: 'SerpApi did not accept the key in SERPAPI_KEY. Check it on serpapi.com/manage-api-key.' };
   }
@@ -205,7 +269,9 @@ export class SerpFailed extends Error {
 /**
  * A short cache, as for the direct pages: a person typing in the search box
  * should not spend the allowance on the first word twice. Keyed without the
- * key, and holding the mapped answers rather than SerpApi's, which are large.
+ * key. It holds SerpApi's answers as given, so that the profile fetched to
+ * fill in a person in the list is the same one their works are read from
+ * when they are opened — one search, not two.
  */
 const CACHE_MS = 5 * 60 * 1000;
 const CACHE_MAX = 60;
@@ -227,20 +293,49 @@ export async function plainFetchJson(url, { signal } = {}) {
   return { status: response.status, json };
 }
 
-/**
- * One ask of SerpApi, mapped. `fetchJson` is how the request is made, so a
- * test can hand in saved answers.
- */
-export async function askSerp(kind, params, key, { fetchJson = plainFetchJson, signal } = {}) {
+/** One request of SerpApi, answered from the cache where it can be. */
+async function getJson(kind, params, key, { fetchJson, signal }) {
   const url = serpUrl(kind, params, key);
   const cacheKey = withoutKey(url);
   const hit = cache.get(cacheKey);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.results;
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.json;
   const { status, json } = await fetchJson(url, { signal });
   const problem = serpProblem(json, status);
   if (problem) throw new SerpFailed(problem);
-  const results = fromSerp[kind](json);
-  cache.set(cacheKey, { results, at: Date.now() });
+  cache.set(cacheKey, { json, at: Date.now() });
   while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
-  return results;
+  return json;
+}
+
+/** How many of the people found are looked up for their affiliation and email. */
+const FILL_IN_PEOPLE = 3;
+
+/**
+ * One ask of SerpApi, mapped. `fetchJson` is how the request is made, so a
+ * test can hand in saved answers.
+ *
+ * People are the one ask that is more than one request: the search that
+ * finds them, then their profiles — the first few — for the affiliation
+ * and the verified email, which are what tell two people of a name apart.
+ * That is up to four searches of the allowance; the profiles are cached,
+ * so opening one of those people afterwards costs nothing more.
+ */
+export async function askSerp(kind, params, key, { fetchJson = plainFetchJson, signal } = {}) {
+  if (kind !== 'authors') return fromSerp[kind](await getJson(kind, params, key, { fetchJson, signal }));
+
+  const people = fromSerpAuthorsInResults(await getJson('authors', params, key, { fetchJson, signal }), params.name);
+  await Promise.all(
+    people.slice(0, FILL_IN_PEOPLE).map(async (person) => {
+      try {
+        const profile = fromSerpAuthorProfile(
+          await getJson('profile', { user: person.userId, start: 0 }, key, { fetchJson, signal }),
+          person.userId,
+        );
+        if (profile) Object.assign(person, profile);
+      } catch {
+        // Their profile is a nicety; the person is still found without it.
+      }
+    }),
+  );
+  return people.map(({ worksSeen, ...person }) => person);
 }

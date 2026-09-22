@@ -30,8 +30,10 @@ import {
   blockedReason,
   getScholar,
   parseAuthors,
+  parseProfileWorks,
   parseResults,
   plainFetch,
+  profileUrl,
   searchUrl,
   versionsUrl,
 } from '../server/scholar.js';
@@ -151,6 +153,21 @@ for (const person of people || []) {
   console.log(`     profile:  ${person.profileUrl}`);
   console.log(`     verified: ${person.verifiedEmail || '—'}`);
   console.log(`     cited by: ${person.citedBy ?? '—'}`);
+}
+
+// Their own list of works, which is what opening a person shows.
+const first = (people || []).find((person) => person.userId);
+if (first) {
+  const works = await step(
+    `Works on the profile of ${first.name}`,
+    profileUrl(first.userId),
+    parseProfileWorks,
+    null,
+    { kind: 'profile', params: { user: first.userId, start: 0 } },
+  );
+  for (const work of (works || []).slice(0, 5)) {
+    console.log(`     ${work.year ?? '    '}  ${work.title}${work.citedBy ? ` (cited by ${work.citedBy})` : ''}`);
+  }
 }
 
 await closeBrowser();
