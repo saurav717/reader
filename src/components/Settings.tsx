@@ -175,7 +175,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               <strong style={{ fontWeight: 500 }}>Include the PDF</strong>
               <br />
               <span style={{ color: 'var(--muted)' }}>
-                arXiv PDFs are fetched through this app's server. Papers from other publishers save metadata only.
+                PDFs are fetched through this app's server — arXiv, or whichever repository OpenAlex and Semantic
+                Scholar point at. A paper with no free copy anywhere saves its metadata only.
               </span>
             </label>
           </div>

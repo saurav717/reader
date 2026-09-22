@@ -71,20 +71,44 @@ function invertAbstract(index: Record<string, number[]> | null | undefined): str
   return words.join(' ').replace(/\s+/g, ' ').trim();
 }
 
-interface OpenAlexWork {
+interface OpenAlexLocation {
+  pdf_url: string | null;
+  landing_page_url: string | null;
+  source: { display_name: string | null } | null;
+}
+
+export interface OpenAlexWork {
   id: string;
   doi: string | null;
   display_name: string | null;
   publication_date: string | null;
   abstract_inverted_index: Record<string, number[]> | null;
   authorships: { author: { display_name: string | null } }[];
-  primary_location: { pdf_url: string | null; landing_page_url: string | null; source: { display_name: string | null } | null } | null;
+  primary_location: OpenAlexLocation | null;
+  /** Where OpenAlex thinks the best free copy is — often not the primary one. */
+  best_oa_location?: OpenAlexLocation | null;
+  open_access?: { is_oa?: boolean; oa_url?: string | null } | null;
   concepts: { display_name: string }[];
   cited_by_count?: number;
-  ids?: { arxiv?: string };
+  ids?: { arxiv?: string; pmcid?: string };
 }
 
-function fromOpenAlex(work: OpenAlexWork): PaperRef {
+/**
+ * The best free PDF OpenAlex knows of. `primary_location` is the version of
+ * record — usually behind a paywall — so the OA locations come first, and a
+ * PubMed Central id is worth a guess when neither carries a direct link.
+ */
+export function openAlexPdf(work: OpenAlexWork): string | undefined {
+  const pmcid = work.ids?.pmcid?.match(/PMC\d+/i)?.[0];
+  const candidate =
+    work.best_oa_location?.pdf_url ||
+    work.primary_location?.pdf_url ||
+    work.open_access?.oa_url ||
+    (pmcid ? `https://www.ncbi.nlm.nih.gov/pmc/articles/${pmcid}/pdf/` : undefined);
+  return candidate && /^https:/i.test(candidate) ? candidate : undefined;
+}
+
+export function fromOpenAlex(work: OpenAlexWork): PaperRef {
   const doi = work.doi ? work.doi.replace('https://doi.org/', '') : undefined;
   const arxivFromDoi = doi?.match(/10\.48550\/arxiv\.(.+)$/i)?.[1];
   return {
@@ -97,9 +121,12 @@ function fromOpenAlex(work: OpenAlexWork): PaperRef {
     categories: (work.concepts || []).slice(0, 3).map((concept) => concept.display_name),
     arxivId: arxivFromDoi,
     doi,
-    pdfUrl: work.primary_location?.pdf_url || undefined,
-    landingUrl: work.primary_location?.landing_page_url || undefined,
-    venue: work.primary_location?.source?.display_name || undefined,
+    pdfUrl: openAlexPdf(work) || (arxivFromDoi ? `https://arxiv.org/pdf/${arxivFromDoi}` : undefined),
+    landingUrl:
+      work.primary_location?.landing_page_url ||
+      work.best_oa_location?.landing_page_url ||
+      (doi ? `https://doi.org/${doi}` : undefined),
+    venue: work.primary_location?.source?.display_name || work.best_oa_location?.source?.display_name || undefined,
     citedBy: typeof work.cited_by_count === 'number' ? work.cited_by_count : undefined,
   };
 }
@@ -152,7 +179,7 @@ export async function lookupLineage(phrase: string, signal?: AbortSignal): Promi
 
 // ------------------------------------------------------ Semantic Scholar ----
 
-interface SemanticScholarPaper {
+export interface SemanticScholarPaper {
   paperId: string;
   title: string | null;
   abstract: string | null;

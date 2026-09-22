@@ -185,6 +185,14 @@ export const SunIcon = (props: IconProps) => (
   </Icon>
 );
 
+export const DownloadIcon = (props: IconProps) => (
+  <Icon {...props} strokeWidth={1.8}>
+    <path d="M12 3.6v11.2" />
+    <path d="m7.6 10.6 4.4 4.4 4.4-4.4" />
+    <path d="M4.4 17.2v1.6a1.6 1.6 0 0 0 1.6 1.6h12a1.6 1.6 0 0 0 1.6-1.6v-1.6" />
+  </Icon>
+);
+
 export const MoonIcon = (props: IconProps) => (
   <Icon {...props} strokeWidth={1.8}>
     <path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z" />

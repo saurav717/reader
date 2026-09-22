@@ -1,14 +1,17 @@
 /**
- * The arXiv proxy as a Cloudflare Worker, for when the app is on a static host
- * (GitHub Pages) that cannot run `server/api.js`.
+ * The PDF and arXiv proxy as a Cloudflare Worker, for when the app is on a
+ * static host (GitHub Pages) that cannot run `server/api.js`.
  *
  * This duplicates the routes in server/api.js rather than importing them: the
  * Workers runtime speaks Request/Response, not Node's req/res, so there is no
- * shared shape to reuse. Keep the two in step.
+ * shared shape to reuse. Keep the two in step. The one thing both do share is
+ * `server/fetchPdf.js`, which is written against web APIs only — the rules for
+ * which URLs may be fetched are too important to keep two copies of.
  *
  * Deploy:  npx wrangler deploy
  * Then rebuild the app with VITE_API_BASE=https://<your-worker>.workers.dev
  */
+import { disposition, fetchChecked, readPdf, rejectUrl } from '../server/fetchPdf.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 const UA = 'reader/0.1 (personal research reading tool)';
@@ -94,7 +97,53 @@ export default {
         });
         if (!upstream.ok) return json({ error: 'could not fetch PDF' }, upstream.status, headers);
         return new Response(upstream.body, {
-          headers: { ...headers, 'Content-Type': 'application/pdf', 'Cache-Control': 'public, max-age=86400' },
+          headers: {
+            ...headers,
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': disposition(url.searchParams),
+            'Cache-Control': 'public, max-age=86400',
+            'X-Content-Type-Options': 'nosniff',
+          },
+        });
+      }
+
+      // Any other open-access PDF, from whichever publisher or repository
+      // OpenAlex and Semantic Scholar point at. See server/fetchPdf.js for
+      // what this refuses and why.
+      if (path === '/pdf') {
+        const target = url.searchParams.get('url') || '';
+        const reason = rejectUrl(target);
+        if (reason) return json({ error: reason }, 400, headers);
+
+        let response;
+        try {
+          ({ response } = await fetchChecked(target, { userAgent: UA }));
+        } catch (error) {
+          return json({ error: String(error?.message || error) }, 400, headers);
+        }
+        if (!response.ok) {
+          return json(
+            { error: `the publisher answered ${response.status} for that PDF` },
+            response.status === 404 ? 404 : 502,
+            headers,
+          );
+        }
+
+        let bytes;
+        try {
+          bytes = await readPdf(response, response.headers.get('content-type'));
+        } catch (error) {
+          return json({ error: String(error?.message || error) }, 415, headers);
+        }
+        return new Response(bytes, {
+          headers: {
+            ...headers,
+            'Content-Type': 'application/pdf',
+            'Content-Length': String(bytes.length),
+            'Content-Disposition': disposition(url.searchParams),
+            'Cache-Control': 'public, max-age=86400',
+            'X-Content-Type-Options': 'nosniff',
+          },
         });
       }
 
