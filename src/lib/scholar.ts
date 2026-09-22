@@ -64,7 +64,21 @@ export class ScholarError extends Error {
 const NO_PROXY =
   'Google Scholar needs the proxy: it sends no CORS headers, and a request from a browser tab would never reach it. Settings → Paper proxy.';
 
-async function ask<T>(path: string, signal?: AbortSignal): Promise<T[]> {
+const SCHOLAR = 'https://scholar.google.com';
+
+/**
+ * The Scholar page a proxy request stands for — the same URL `server/scholar.js`
+ * builds. The proxy names the page it was refused on, but a proxy older than
+ * this page does not, and the offer to show the captcha should not depend on
+ * which one is answering: the page knows what it asked for.
+ */
+const scholarPage = (path: string, params: Record<string, string>) => `${SCHOLAR}/${path}?${new URLSearchParams(params)}`;
+
+/**
+ * One proxy request. `page` is the Scholar page it asks for, kept on the
+ * error when Scholar answers it with a captcha, so the captcha can be shown.
+ */
+async function ask<T>(path: string, page: string, signal?: AbortSignal): Promise<T[]> {
   if (!hasProxy()) throw new ScholarError(NO_PROXY);
   let response: Response;
   try {
@@ -85,7 +99,7 @@ async function ask<T>(path: string, signal?: AbortSignal): Promise<T[]> {
       payload.error || `Google Scholar search failed (${response.status})`,
       Boolean(payload.blocked),
       payload.reason,
-      payload.blocked && payload.reason === 'captcha' ? payload.url : undefined,
+      payload.blocked && payload.reason === 'captcha' ? payload.url || page : undefined,
     );
   }
   return payload.results || [];
@@ -125,8 +139,10 @@ export async function searchScholar(query: string, page = 0, signal?: AbortSigna
   const trimmed = query.trim();
   if (!trimmed) return [];
   // Scholar pages in tens, whatever we ask for.
+  const start = page * 10;
   const results = await ask<ScholarResult>(
-    `/scholar/search?q=${encodeURIComponent(trimmed)}&start=${page * 10}`,
+    `/scholar/search?q=${encodeURIComponent(trimmed)}&start=${start}`,
+    scholarPage('scholar', { hl: 'en', as_sdt: '0,5', q: trimmed, ...(start ? { start: String(start) } : {}) }),
     signal,
   );
   return results.map(fromScholar);
@@ -135,7 +151,11 @@ export async function searchScholar(query: string, page = 0, signal?: AbortSigna
 export async function scholarAuthors(name: string, signal?: AbortSignal): Promise<AuthorRef[]> {
   const trimmed = name.trim();
   if (!trimmed) return [];
-  const results = await ask<ScholarAuthor>(`/scholar/authors?name=${encodeURIComponent(trimmed)}`, signal);
+  const results = await ask<ScholarAuthor>(
+    `/scholar/authors?name=${encodeURIComponent(trimmed)}`,
+    scholarPage('citations', { hl: 'en', view_op: 'search_authors', mauthors: trimmed }),
+    signal,
+  );
   return results
     .filter((author) => author.name)
     .map((author) => ({
@@ -153,8 +173,17 @@ export async function scholarAuthors(name: string, signal?: AbortSignal): Promis
 
 /** Everything on one person's Scholar profile, which is their own list. */
 export async function scholarProfileWorks(userId: string, page = 0, signal?: AbortSignal): Promise<PaperRef[]> {
+  const start = page * 20;
   const results = await ask<ScholarResult>(
-    `/scholar/profile?user=${encodeURIComponent(userId)}&start=${page * 20}`,
+    `/scholar/profile?user=${encodeURIComponent(userId)}&start=${start}`,
+    scholarPage('citations', {
+      hl: 'en',
+      user: userId,
+      cstart: String(start),
+      pagesize: '20',
+      view_op: 'list_works',
+      sortby: 'pubdate',
+    }),
     signal,
   );
   return results.map(fromScholar);
@@ -168,7 +197,11 @@ export async function scholarProfileWorks(userId: string, page = 0, signal?: Abo
  */
 export async function scholarVersions(clusterId: string, signal?: AbortSignal): Promise<ScholarResult[]> {
   if (!/^\d{1,25}$/.test(clusterId)) return [];
-  return ask<ScholarResult>(`/scholar/versions?cluster=${encodeURIComponent(clusterId)}`, signal);
+  return ask<ScholarResult>(
+    `/scholar/versions?cluster=${encodeURIComponent(clusterId)}`,
+    scholarPage('scholar', { hl: 'en', as_sdt: '0,5', cluster: clusterId }),
+    signal,
+  );
 }
 
 // ------------------------------------------------------------- the captcha --
@@ -207,10 +240,12 @@ export async function captchaStatus(): Promise<CaptchaStatus> {
   try {
     return await askCaptcha('/scholar/captcha/status');
   } catch {
-    // An older proxy without the route, or one that is down: no window.
+    // A proxy older than this page has no such route, and one that is down
+    // has none either: no window, and what to do about it.
     return {
       ...CAPTCHA_UNAVAILABLE,
-      reason: 'This proxy does not know how to show a captcha. Update it and restart.',
+      reason:
+        'This proxy is older than this page and does not know how to show a captcha. Update it: `npm run deploy:worker` for the Worker, or pull the repository and restart `npm start` on your machine, which is also the proxy that can open the window.',
     };
   }
 }
