@@ -6,3 +6,6 @@ dist
 .DS_Store
 .smoke
 dist-pages
+
+# wrangler dev scratch
+.wrangler/tmp

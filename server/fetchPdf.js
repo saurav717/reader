@@ -82,13 +82,13 @@ export function rejectUrl(target) {
  * fetch(), but following redirects by hand so every hop is checked. Returns the
  * final response, or throws with a message meant for the person reading.
  */
-export async function fetchChecked(target, { userAgent }) {
+export async function fetchChecked(target, { userAgent, headers = {} }) {
   let current = target;
   for (let hop = 0; hop <= MAX_HOPS; hop += 1) {
     const reason = rejectUrl(current);
     if (reason) throw new Error(reason);
     const response = await fetch(current, {
-      headers: { 'User-Agent': userAgent, Accept: 'application/pdf,*/*' },
+      headers: { 'User-Agent': userAgent, Accept: 'application/pdf,*/*', ...headers },
       redirect: 'manual',
     });
     if (![301, 302, 303, 307, 308].includes(response.status)) return { response, url: current };

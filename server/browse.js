@@ -41,9 +41,9 @@ import {
   signInWindowOpen,
 } from './access.js';
 import { isPrivateHost, MAX_PDF_BYTES, rejectUrl } from './fetchPdf.js';
+import { acceptKey, BUTTONS, clamp, clicks, closedError, VIEWPORT } from './browseShared.js';
 
-/** The size of the page the person sees. Frames are the same size, so the app scales them, not the proxy. */
-export const VIEWPORT = { width: 1280, height: 800 };
+export { acceptKey, VIEWPORT };
 /** How long a frame poll waits before answering with nothing new. */
 const POLL_MS = 8_000;
 /** Close a session nobody has polled for this long: the tab was shut without saying. */
@@ -60,15 +60,6 @@ function wake() {
   waiters.clear();
 }
 
-/** Playwright's key names are the DOM's, near enough; this is what is let through. */
-export function acceptKey(key) {
-  if (typeof key !== 'string' || !key) return false;
-  if (key.length === 1) return true; // a printable character, case and all
-  return /^(?:F[1-9]|F1[0-2]|[A-Z][A-Za-z0-9]{1,20})$/.test(key) && !['Dead', 'Unidentified', 'Process'].includes(key);
-}
-
-const clamp = (value, max) => Math.max(0, Math.min(max, Number(value) || 0));
-const BUTTONS = new Set(['left', 'middle', 'right']);
 
 /** Whether the page is still there to be driven. */
 const live = () => Boolean(session && !session.page.isClosed());
@@ -81,12 +72,14 @@ const live = () => Boolean(session && !session.page.isClosed());
 export async function status(after = -1) {
   const ready = await browseAvailability();
   if (!live()) {
-    return { ...ready, open: false, seq: frameSeq, pdf: session?.pdf ? { from: session.pdf.from, size: session.pdf.bytes.length } : null };
+    return { ...ready, open: false, seq: frameSeq, persistent: true, pdf: session?.pdf ? { from: session.pdf.from, size: session.pdf.bytes.length } : null };
   }
   const { frame } = session;
   return {
     ...ready,
     open: true,
+    /** A sign-in made here is kept in the profile, for the next paper. */
+    persistent: true,
     url: session.url,
     title: session.title,
     seq: frameSeq,
@@ -325,7 +318,7 @@ async function caught(bytes, from) {
  * one of these shapes is refused rather than guessed at.
  */
 export async function input(event) {
-  if (!live()) throw Object.assign(new Error('no browser is open'), { code: 'closed' });
+  if (!live()) throw closedError();
   touch();
   const { page } = session;
   const x = clamp(event.x, VIEWPORT.width);
@@ -336,9 +329,9 @@ export async function input(event) {
       return page.mouse.move(x, y);
     case 'down':
       await page.mouse.move(x, y);
-      return page.mouse.down({ button, clickCount: Math.max(1, Math.min(3, Number(event.clickCount) || 1)) });
+      return page.mouse.down({ button, clickCount: clicks(event.clickCount) });
     case 'up':
-      return page.mouse.up({ button, clickCount: Math.max(1, Math.min(3, Number(event.clickCount) || 1)) });
+      return page.mouse.up({ button, clickCount: clicks(event.clickCount) });
     case 'wheel':
       await page.mouse.move(x, y);
       return page.mouse.wheel(clamp(event.dx, 2000) * Math.sign(Number(event.dx) || 0), clamp(event.dy, 2000) * Math.sign(Number(event.dy) || 0));
@@ -381,7 +374,7 @@ export async function input(event) {
  * gives a file.
  */
 export async function grab() {
-  if (!live()) throw Object.assign(new Error('no browser is open'), { code: 'closed' });
+  if (!live()) throw closedError();
   touch();
   if (session.pdf) return { from: session.pdf.from, size: session.pdf.bytes.length };
   const { page } = session;

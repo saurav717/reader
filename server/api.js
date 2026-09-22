@@ -308,14 +308,15 @@ async function browseInput(req, res) {
   }
 }
 
-async function browseGrab(req, res) {
+async function browseGrab(req, url, res) {
   if (req.method !== 'POST') return send(res, 405, { error: 'POST' });
   if (!fromThisApp(req)) return send(res, 403, { error: 'not from this app' });
   try {
-    return send(res, 200, { ok: true, pdf: await browse.grab() }, { 'Cache-Control': 'no-store' });
+    await browse.grab();
   } catch (error) {
     return send(res, error?.code === 'closed' ? 409 : 404, { error: String(error?.message || error) });
   }
+  return browsePdf(url, res);
 }
 
 function browsePdf(url, res) {
@@ -534,7 +535,7 @@ export default async function apiRouter(req, res, next) {
       case '/browse/input':
         return await browseInput(req, res);
       case '/browse/grab':
-        return await browseGrab(req, res);
+        return await browseGrab(req, url, res);
       case '/browse/pdf':
         return browsePdf(url, res);
       case '/browse/close':

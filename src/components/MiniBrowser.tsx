@@ -55,8 +55,9 @@ type Stage = 'choose' | 'opening' | 'open' | 'collecting';
  * the file, "Fetch the PDF from this page" follows the link with the
  * browser's cookies. The sign-in stays on the proxy for the next paper.
  *
- * It needs the Node proxy with a Chromium, and nothing else: no screen, no
- * window, no pop-up. The Cloudflare Worker has no browser, and this says so.
+ * It needs a proxy with a browser to drive, and nothing else — no screen,
+ * no window, no pop-up: the Node proxy with a Chromium, or the Cloudflare
+ * Worker with Browser Rendering bound. A proxy with neither says so here.
  */
 export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, onClose }: Props) {
   const [access, setAccess] = useState<AccessStatus | null>(null);
@@ -71,6 +72,8 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
 
   const screen = useRef<HTMLImageElement>(null);
   const polling = useRef<AbortController | null>(null);
+  /** Whether the address is being typed, in which case the page's own URL must not overwrite it. */
+  const editingAddress = useRef(false);
   const collected = useRef(false);
   const queue = useMemo(() => new InputQueue((error) => setProblem(error.message)), []);
 
@@ -115,6 +118,9 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
         after = Math.max(after, next.seq);
         setStatus(next);
         if (next.frame) setFrame(next.frame);
+        // The address follows the page — a sign-in bounces through several
+        // — unless it is being typed into.
+        if (next.url && /^https?:/.test(next.url) && !editingAddress.current) setAddress(next.url);
         if (!next.open && !next.pdf) {
           setProblem('The browser closed on the proxy.');
           setStage('choose');
@@ -171,12 +177,15 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
   };
 
   const grab = async () => {
-    if (grabbing) return;
+    if (grabbing || collected.current) return;
     setGrabbing(true);
     setProblem(null);
     try {
-      await grabPdf();
-      // The poll sees the PDF on its next turn and collects it.
+      const blob = await grabPdf(pdfFileName(paper));
+      collected.current = true;
+      polling.current?.abort();
+      await closeBrowser();
+      onPdf(blob, status?.url || '');
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {
@@ -275,9 +284,10 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
         </div>
         <p className="banner warn" style={{ margin: 16 }}>
           A browser inside the reader — to go to {signIn?.host || 'the publisher'}, sign in through your institution, and
-          bring the PDF back here — needs the proxy to have a Chromium of its own, and this one has none.{' '}
-          {browse.reason} No screen is needed: <span className="mono">npm start</span> in the reader repository on any
-          machine with Playwright's Chromium installed, then that address under Settings → Paper proxy.
+          bring the PDF back here — needs the proxy to have a browser to drive, and this one has none. {browse.reason}{' '}
+          Either way no screen is needed: the Cloudflare Worker with its browser binding, or{' '}
+          <span className="mono">npm start</span> in the reader repository on any machine with Playwright's Chromium,
+          pointed at from Settings → Paper proxy.
         </p>
       </div>
     );
@@ -390,7 +400,13 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
             type="text"
             value={address}
             onChange={(event) => setAddress(event.target.value)}
-            onFocus={(event) => event.target.select()}
+            onFocus={(event) => {
+              editingAddress.current = true;
+              event.target.select();
+            }}
+            onBlur={() => {
+              editingAddress.current = false;
+            }}
             onKeyDown={(event) => event.stopPropagation()}
             onKeyUp={(event) => event.stopPropagation()}
             onPaste={(event) => event.stopPropagation()}
@@ -407,14 +423,16 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
         >
           {grabbing ? <span className="spinner" /> : null} Fetch the PDF from this page
         </button>
-        <button
-          type="button"
-          className="btn sm"
-          onClick={() => void close(true)}
-          title="Close the browser and try every copy of the paper again, through the sign-in just made"
-        >
-          Signed in — try the copies again
-        </button>
+        {status?.persistent !== false ? (
+          <button
+            type="button"
+            className="btn sm"
+            onClick={() => void close(true)}
+            title="Close the browser and try every copy of the paper again, through the sign-in just made"
+          >
+            Signed in — try the copies again
+          </button>
+        ) : null}
         <button type="button" className="icon-btn sm" onClick={() => void close(false)} aria-label="Close the browser">
           <CloseIcon size={16} />
         </button>

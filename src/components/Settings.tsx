@@ -324,8 +324,9 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             profile of its own, so the next paper needs no sign-in. A window needs a proxy on your own machine —{' '}
             <span className="mono">npm start</span>, then <span className="mono">http://localhost:8080</span> as
             the proxy above. The same offer can instead open a browser <em>inside the reader</em>, in the PDF pane:
-            the proxy&rsquo;s Chromium, shown here and driven from here, which needs no screen and so works from a
-            proxy on any machine with a Chromium. The Cloudflare Worker has no browser and can do neither.
+            a browser the proxy drives, shown here and driven from here, which needs no screen — the Node proxy
+            with its Chromium on any machine, or the Cloudflare Worker with Cloudflare&rsquo;s Browser Rendering
+            bound to it.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, lineHeight: 1.5, color: access?.available ? 'var(--accent)' : 'var(--muted)' }}>

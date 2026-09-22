@@ -25,6 +25,7 @@ import {
   workUrl,
 } from '../server/scholar.js';
 import { askSerp } from '../server/serpapi.js';
+import * as browse from './browse.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 const UA = 'reader/0.1 (personal research reading tool)';
@@ -39,7 +40,9 @@ function cors(origin) {
   return {
     'Access-Control-Allow-Origin': allowed,
     'Vary': 'Origin',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    // The browser session's input arrives as JSON.
+    'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -66,38 +69,101 @@ export default {
     }
 
     try {
-      if (path === '/health') return json({ ok: true, access: false, browse: false, scholar: serpKey ? 'serpapi' : 'direct' }, 200, headers);
+      if (path === '/health') {
+        return json({ ok: true, access: false, browse: browse.availability(env).available, scholar: serpKey ? 'serpapi' : 'direct' }, 200, headers);
+      }
 
-      // The browser inside the reader is the proxy's own Chromium, and a
-      // Worker has none — not even a headless one. Same answer, same shape,
-      // so the app explains what to run instead of offering.
+      // The browser inside the reader, on Cloudflare's Browser Rendering
+      // rather than a Chromium of this Worker's own — see worker/browse.js.
+      // Opening one takes a POST from the site; everything after takes the
+      // session id that opening handed out, which nobody else has.
       if (path.startsWith('/browse/')) {
-        return json(
-          {
-            available: false,
-            open: false,
-            seq: 0,
-            pdf: null,
-            reason:
-              'This proxy is a Cloudflare Worker, which has no browser to open. Run the Node proxy somewhere with Chromium — `npm start` in the reader repository, on your own machine or on any server; no screen is needed — and point Settings → Paper proxy at it.',
-          },
-          path === '/browse/status' || path === '/browse/frame' ? 200 : 501,
-          headers,
-        );
+        const session = url.searchParams.get('session') || '';
+        const fromThisApp = ALLOWED_ORIGINS.includes(origin);
+        try {
+          if (path === '/browse/status') return json(browse.idle(env), 200, { ...headers, 'Cache-Control': 'no-store' });
+          if (path === '/browse/open') {
+            if (request.method !== 'POST') return json({ error: 'POST to open the browser' }, 405, headers);
+            if (!fromThisApp) return json({ error: 'not from this app' }, 403, headers);
+            try {
+              return json({ ok: true, ...(await browse.open(env, url.searchParams.get('url') || '')) }, 200, { ...headers, 'Cache-Control': 'no-store' });
+            } catch (error) {
+              return json({ error: String(error?.message || error) }, 400, headers);
+            }
+          }
+          if (path === '/browse/frame') {
+            try {
+              return json(await browse.frame(env, session), 200, { ...headers, 'Cache-Control': 'no-store' });
+            } catch (error) {
+              if (error?.code !== 'closed') throw error;
+              return json(browse.idle(env), 200, { ...headers, 'Cache-Control': 'no-store' });
+            }
+          }
+          if (path === '/browse/input') {
+            if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+            if (!fromThisApp) return json({ error: 'not from this app' }, 403, headers);
+            let events;
+            try {
+              const body = await request.json();
+              events = Array.isArray(body) ? body : Array.isArray(body?.events) ? body.events : [body];
+            } catch {
+              return json({ error: 'that request body is not JSON' }, 400, headers);
+            }
+            if (events.length > 64) return json({ error: 'too many events at once' }, 400, headers);
+            return json(await browse.input(env, session, events), 200, { ...headers, 'Cache-Control': 'no-store' });
+          }
+          if (path === '/browse/grab' || path === '/browse/pdf') {
+            if (path === '/browse/grab' && request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+            if (path === '/browse/grab' && !fromThisApp) return json({ error: 'not from this app' }, 403, headers);
+            let bytes;
+            try {
+              bytes = await browse.grab(env, session);
+            } catch (error) {
+              if (error?.code === 'closed') throw error;
+              return json({ error: String(error?.message || error) }, 404, headers);
+            }
+            return new Response(bytes, {
+              headers: {
+                ...headers,
+                'Content-Type': 'application/pdf',
+                'Content-Length': String(bytes.length),
+                'Content-Disposition': disposition(url.searchParams),
+                'Cache-Control': 'no-store',
+                'X-Content-Type-Options': 'nosniff',
+              },
+            });
+          }
+          if (path === '/browse/close') {
+            if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+            if (!fromThisApp) return json({ error: 'not from this app' }, 403, headers);
+            return json({ ok: true, ...(await browse.close(env, session)) }, 200, { ...headers, 'Cache-Control': 'no-store' });
+          }
+          return json({ error: 'not found' }, 404, headers);
+        } catch (error) {
+          if (error?.code === 'closed') return json({ error: 'no browser is open' }, 409, headers);
+          if (String(error?.message || '').includes('browser binding')) return json({ error: String(error.message) }, 400, headers);
+          throw error;
+        }
       }
 
       // Signing in with an institution needs a browser window on a screen,
       // and a Worker has neither. The app asks here before offering it, and
       // this is the answer that tells it to explain instead.
       if (path.startsWith('/access/')) {
+        // "Forget sign-ins" has something to forget here only where the
+        // cookies of a browser session were kept.
+        if (path === '/access/forget' && request.method === 'POST' && ALLOWED_ORIGINS.includes(origin)) {
+          return json({ ok: true, forgotten: await browse.forgetCookies(env) }, 200, headers);
+        }
+        const kept = env.SESSIONS ? (await browse.storedCookies(env)).length > 0 : false;
         return json(
           {
             available: false,
             window: 'closed',
-            everSignedIn: false,
+            everSignedIn: kept,
             reason:
-              'This proxy is a Cloudflare Worker, which has no browser to sign in with. Run the proxy on your own machine (`npm start` in the reader repository) and point Settings → Paper proxy at http://localhost:8080.',
-            browse: { available: false, reason: 'This proxy is a Cloudflare Worker, which has no browser to open.' },
+              'This proxy is a Cloudflare Worker, which has no screen to open a window on — but it can open a browser inside the reader instead, from the offer under a walled paper.',
+            browse: browse.availability(env),
           },
           path === '/access/status' ? 200 : 501,
           headers,
@@ -272,12 +338,41 @@ export default {
           return json({ error: String(error?.message || error) }, 400, headers);
         }
         const host = new URL(target).hostname;
+        // A login wall, which a person can sign in through in the browser
+        // inside the reader (see /browse/ above). Where that sign-in's
+        // cookies were kept, the file is asked for again with them first,
+        // which is what makes one sign-in last for the next paper.
+        const loginWall = async (status, error) => {
+          const cookie = browse.cookieHeaderFor(await browse.storedCookies(env), target);
+          if (cookie) {
+            try {
+              const retry = await fetchChecked(target, { userAgent: UA, headers: { Cookie: cookie } });
+              if (retry.response.ok) {
+                const bytes = await readPdf(retry.response, retry.response.headers.get('content-type'));
+                return servePdf(bytes);
+              }
+            } catch {
+              // Signed in, but not to this; say what the first attempt said.
+            }
+          }
+          return json({ error, loginWall: true, host }, status, headers);
+        };
+        const servePdf = (bytes) =>
+          new Response(bytes, {
+            headers: {
+              ...headers,
+              'Content-Type': 'application/pdf',
+              'Content-Length': String(bytes.length),
+              'Content-Disposition': disposition(url.searchParams),
+              'Cache-Control': 'public, max-age=86400',
+              'X-Content-Type-Options': 'nosniff',
+            },
+          });
+
         if (!response.ok) {
           const error = `the publisher answered ${response.status} for that PDF`;
-          // A login wall, which a person could sign in through — but not
-          // from here; see /access/status above. Said so the app can explain.
-          const loginWall = response.status === 401 || response.status === 403;
-          return json({ error, ...(loginWall ? { loginWall, host } : {}) }, response.status === 404 ? 404 : 502, headers);
+          if (response.status === 401 || response.status === 403) return loginWall(502, error);
+          return json({ error }, response.status === 404 ? 404 : 502, headers);
         }
 
         let bytes;
@@ -285,7 +380,8 @@ export default {
           bytes = await readPdf(response, response.headers.get('content-type'));
         } catch (error) {
           const message = String(error?.message || error);
-          return json({ error: message, ...(/web page/.test(message) ? { loginWall: true, host } : {}) }, 415, headers);
+          if (/web page/.test(message)) return loginWall(415, message);
+          return json({ error: message }, 415, headers);
         }
         return new Response(bytes, {
           headers: {

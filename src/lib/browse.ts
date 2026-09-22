@@ -41,6 +41,13 @@ export interface BrowseStatus {
   frame?: string;
   /** A PDF the browser has met or fetched, waiting to be collected. */
   pdf: { from: string; size: number } | null;
+  /**
+   * The session's id, from a proxy that keeps nothing between requests (the
+   * Worker): sent back with every request after the one that opened it.
+   */
+  session?: string;
+  /** Whether a sign-in made here outlasts the session — kept in a profile, or in a KV namespace. */
+  persistent?: boolean;
 }
 
 export type BrowseInput =
@@ -60,8 +67,17 @@ const UNAVAILABLE: BrowseStatus = {
   reason: 'There is no proxy configured, so there is no browser to open.',
 };
 
+/** The open session's id, where the proxy hands one out; the Node proxy has one session and no id. */
+let session: string | null = null;
+
+/** A route's path with the session id on it, when there is one. */
+function withSession(path: string): string {
+  if (!session) return path;
+  return `${path}${path.includes('?') ? '&' : '?'}session=${encodeURIComponent(session)}`;
+}
+
 async function ask<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(api(path), { ...init, headers: { Accept: 'application/json', ...(init?.headers || {}) } });
+  const response = await fetch(api(withSession(path)), { ...init, headers: { Accept: 'application/json', ...(init?.headers || {}) } });
   const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
   if (!response.ok) throw new Error(payload.error || `The proxy answered ${response.status}.`);
   return payload;
@@ -79,7 +95,10 @@ export async function browseStatus(): Promise<BrowseStatus> {
 
 /** Open the browser at a site. */
 export async function openBrowser(url: string): Promise<BrowseStatus> {
-  return { ...UNAVAILABLE, ...(await ask<Partial<BrowseStatus>>(`/browse/open?url=${encodeURIComponent(url)}`, { method: 'POST' })) };
+  session = null;
+  const opened = { ...UNAVAILABLE, ...(await ask<Partial<BrowseStatus>>(`/browse/open?url=${encodeURIComponent(url)}`, { method: 'POST' })) };
+  session = opened.session || null;
+  return opened;
 }
 
 /**
@@ -87,7 +106,7 @@ export async function openBrowser(url: string): Promise<BrowseStatus> {
  * has waited its turn. Rejects the way an aborted fetch does on abort.
  */
 export async function nextFrame(after: number, signal?: AbortSignal): Promise<BrowseStatus> {
-  const response = await fetch(api(`/browse/frame?after=${after}`), { headers: { Accept: 'application/json' }, signal });
+  const response = await fetch(api(withSession(`/browse/frame?after=${after}`)), { headers: { Accept: 'application/json' }, signal });
   const payload = (await response.json().catch(() => ({}))) as Partial<BrowseStatus> & { error?: string };
   if (!response.ok) throw new Error(payload.error || `The proxy answered ${response.status}.`);
   return { ...UNAVAILABLE, ...payload };
@@ -103,15 +122,8 @@ export async function sendInput(events: BrowseInput[]): Promise<void> {
   });
 }
 
-/** Ask the proxy to find the PDF from the page the browser is on. */
-export async function grabPdf(): Promise<{ from: string; size: number }> {
-  const answer = await ask<{ pdf: { from: string; size: number } }>('/browse/grab', { method: 'POST' });
-  return answer.pdf;
-}
-
-/** The PDF the browser has met or fetched, as a blob. */
-export async function collectPdf(name: string): Promise<Blob> {
-  const response = await fetch(api(`/browse/pdf?name=${encodeURIComponent(name)}`));
+async function pdfFrom(path: string, init?: RequestInit): Promise<Blob> {
+  const response = await fetch(api(withSession(path)), init);
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { error?: string };
     throw new Error(payload.error || `The proxy answered ${response.status}.`);
@@ -120,8 +132,24 @@ export async function collectPdf(name: string): Promise<Blob> {
   return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
 }
 
-/** Close the page. The sign-in it made stays on the proxy. */
+/** The PDF from the page the browser is on, found and fetched by the proxy with the browser's sign-in. */
+export function grabPdf(name: string): Promise<Blob> {
+  return pdfFrom(`/browse/grab?name=${encodeURIComponent(name)}`, { method: 'POST' });
+}
+
+/** The PDF the browser has met, as a blob. */
+export function collectPdf(name: string): Promise<Blob> {
+  return pdfFrom(`/browse/pdf?name=${encodeURIComponent(name)}`);
+}
+
+/** Close the page. The sign-in it made stays on the proxy, where the proxy can keep one. */
 export async function closeBrowser(): Promise<void> {
+  const open = session;
+  session = null;
+  if (open) {
+    await fetch(api(`/browse/close?session=${encodeURIComponent(open)}`), { method: 'POST', headers: { Accept: 'application/json' } }).catch(() => undefined);
+    return;
+  }
   await ask('/browse/close', { method: 'POST' }).catch(() => undefined);
 }
 
