@@ -182,11 +182,29 @@ Changes to a client can take a few minutes to propagate.
 ### 3. Give the app the client ID
 
 Copy the client ID — it looks like
-`000000000000-xxxxxxxxxxxx.apps.googleusercontent.com` — and either put it in
-`.env` as `VITE_GOOGLE_CLIENT_ID` (see `.env.example`, needs a rebuild) or paste
-it into **Settings → Google OAuth client ID** in the running app, which is kept
-in this browser's `localStorage` and needs nothing rebuilt. The client ID is not
-a secret; it is visible in any browser-side OAuth flow by design.
+`000000000000-xxxxxxxxxxxx.apps.googleusercontent.com` — and put it in one of
+three places, in order of how permanent you want it:
+
+| Where | Applies to | Needs a rebuild |
+| --- | --- | --- |
+| **Settings → Google OAuth client ID** | this browser | no |
+| `.env` (`VITE_GOOGLE_CLIENT_ID=…`, see `.env.example`) | your local builds, and it is gitignored | yes |
+| `.env.production` | every build of this repo, including the deployed site | yes |
+
+`.env.production` is committed, and holds the client ID this project's own
+deployment is built with. That is deliberate: a client ID is **not** a secret.
+It is visible in the page source of every browser-side OAuth flow by design,
+and it is useless anywhere else, because Google only honours it on the origins
+listed under **Authorised JavaScript origins** on the client itself. Someone who
+copies it into their own site gets `redirect_uri_mismatch`, not your Drive.
+
+The client **secret** issued alongside it is a different matter — and this app
+never uses it. There is no backend to keep one in, and the token flow the page
+uses does not send one. Leave it in the Cloud Console; it belongs in none of
+these files.
+
+A client ID set in Settings wins over the compiled-in one, so a fork does not
+have to rebuild to use its own.
 
 ### 4. Sign in, then connect Drive
 

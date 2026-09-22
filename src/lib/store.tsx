@@ -46,7 +46,12 @@ function readSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return defaultSettings;
-    return { ...defaultSettings, ...(JSON.parse(raw) as Partial<Settings>) };
+    const saved = { ...defaultSettings, ...(JSON.parse(raw) as Partial<Settings>) };
+    // Anyone who opened the app before it had a client ID compiled in has an
+    // empty one saved, which would otherwise shadow the new default forever.
+    // An empty string here means "not set", not "deliberately blank".
+    if (!saved.googleClientId) saved.googleClientId = defaultSettings.googleClientId;
+    return saved;
   } catch {
     return defaultSettings;
   }
