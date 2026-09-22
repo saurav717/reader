@@ -1,3 +1,20 @@
 name = "reader-arxiv-proxy"
 main = "worker/index.js"
 compatibility_date = "2025-01-01"
+# @cloudflare/puppeteer, which drives the browser below, needs Node's APIs.
+compatibility_flags = ["nodejs_compat"]
+
+# The browser inside the reader, from this Worker: Cloudflare's Browser
+# Rendering runs a headless Chrome the Worker drives (worker/browse.js). It is
+# on the free plan, with a daily allowance of browser time; without this
+# binding the Worker says it has no browser and the app explains instead.
+[browser]
+binding = "BROWSER"
+
+# Optional: somewhere to keep the cookies of a sign-in made in that browser,
+# so it holds for the next paper and lets /pdf through a login wall. Make a
+# namespace (`npx wrangler kv namespace create SESSIONS`), paste its id here,
+# and redeploy. Without it a sign-in lasts as long as the browser session.
+# [[kv_namespaces]]
+# binding = "SESSIONS"
+# id = "…"

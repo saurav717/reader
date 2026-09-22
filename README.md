@@ -725,10 +725,10 @@ deletes the profile and every session in it. Nothing is written anywhere else,
 and no cookie ever reaches the page.
 
 **It needs the proxy on your own machine.** A window has to open on a screen, and
-the Cloudflare Worker has neither a screen nor a browser — so from the Worker the
-same result explains that instead of offering a sign-in. (A proxy with a Chromium
-but no screen has the other way in, the browser inside the reader, next
-section.) The site on GitHub Pages does not have to be rebuilt to use it:
+the Cloudflare Worker has none — so from the Worker the same result offers the
+other way in, the browser inside the reader (next section), which the Worker
+can do with Cloudflare's own browser. The site on GitHub Pages does not have to
+be rebuilt to use it:
 
 ```bash
 git clone https://github.com/saurav717/reader.git && cd reader
@@ -800,12 +800,29 @@ profile as the window's (`~/.reader/browser-profile`), so a sign-in made
 either way holds for both, and for the next paper from that publisher.
 **Settings → Institutional access → Forget sign-ins** deletes it as before.
 
-It needs the Node proxy with a Chromium — `npm install` without
-`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`, or `READER_BROWSER_CHANNEL=chrome` — and
-nothing else. No `DISPLAY`, no window, no pop-up: a proxy on a server with
-no screen can be signed in through from anywhere the site is open. Settings
-says which of the two forms the proxy it is talking to can do. The
-Cloudflare Worker has no browser and says so instead of offering.
+It needs a proxy with a browser to drive, and nothing else — no `DISPLAY`,
+no window, no pop-up — which is either of two:
+
+- **The Node proxy with a Chromium**: `npm install` without
+  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`, or `READER_BROWSER_CHANNEL=chrome`. On
+  your own machine or on a server with no screen, pointed at from Settings.
+- **The Cloudflare Worker, with Cloudflare's own browser.** Browser Rendering
+  is a headless Chrome that Cloudflare runs and a Worker drives, and it is on
+  the free plan (with a daily allowance of browser minutes; the Workers Paid
+  plan has more). `wrangler.toml` binds it as `BROWSER`, so `npm run
+  deploy:worker` is all it takes — and then the site on GitHub Pages signs in
+  to a publisher with nothing running anywhere of yours. `worker/browse.js`
+  is that side: the same routes and the same pane, but stateless, so the app
+  carries the session's id on each request and frames are screenshots per
+  poll rather than a screencast. The sign-in outlasts the browser session
+  only where the Worker has somewhere to keep its cookies: bind a KV
+  namespace as `SESSIONS` (the commented block in `wrangler.toml`) and they
+  are saved when the browser closes or hands over a file, restored when the
+  next one opens, and used to retry a login wall on `/pdf` — which is also
+  what **Signed in — try the copies again** and **Forget sign-ins** act on
+  there. Without it, the button is not shown and a sign-in lasts the session.
+
+Settings says which of the forms the proxy it is talking to can do.
 
 The pictures are polled: one request the proxy holds until there is a newer
 frame or something else has changed, so a page nobody is doing anything to

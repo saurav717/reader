@@ -230,3 +230,55 @@ describe('how a click on the picture reaches the page', () => {
     assert.equal(keyName(''), null);
   });
 });
+
+// ------------------------------------------------------------ the Worker ----
+
+const worker = await import('../worker/browse.js');
+
+describe('the browser from the Worker', () => {
+  it('has a browser only with the binding, and says how to add one', () => {
+    assert.deepEqual(worker.availability({ BROWSER: {} }), { available: true });
+    const without = worker.availability({});
+    assert.equal(without.available, false);
+    assert.match(without.reason, /wrangler\.toml/);
+    assert.equal(worker.idle({}).open, false);
+    assert.equal(worker.idle({ BROWSER: {}, SESSIONS: {} }).persistent, true);
+    assert.equal(worker.idle({ BROWSER: {} }).persistent, false);
+  });
+
+  it('refuses a missing or malformed session before reaching for a browser', async () => {
+    for (const session of ['', undefined, 'not a session', 'x'.repeat(200)]) {
+      await assert.rejects(worker.frame({ BROWSER: {} }, session), (error) => error.code === 'closed');
+    }
+    await assert.rejects(worker.open({ BROWSER: {} }, 'http://example.com/'), /https/);
+    await assert.rejects(worker.open({}, 'https://example.com/'), /wrangler\.toml/);
+  });
+
+  it('makes a Cookie header from the kept cookies that match the URL, and only those', () => {
+    const cookies = [
+      { name: 'sid', value: '1', domain: '.ieee.org', path: '/', secure: true },
+      { name: 'host', value: '2', domain: 'ieeexplore.ieee.org', path: '/' },
+      { name: 'other', value: '3', domain: 'www.ieee.org', path: '/' },
+      { name: 'deep', value: '4', domain: '.ieee.org', path: '/admin' },
+      { name: 'old', value: '5', domain: '.ieee.org', path: '/', expires: 1 },
+      { name: 'else', value: '6', domain: '.springer.com', path: '/' },
+    ];
+    assert.equal(worker.cookieHeaderFor(cookies, 'https://ieeexplore.ieee.org/document/1'), 'sid=1; host=2');
+    assert.equal(worker.cookieHeaderFor(cookies, 'https://ieeexplore.ieee.org/admin/x'), 'sid=1; host=2; deep=4');
+    assert.equal(worker.cookieHeaderFor(cookies, 'https://link.springer.com/article/1'), 'else=6');
+    assert.equal(worker.cookieHeaderFor(cookies, 'https://example.org/'), '');
+    assert.equal(worker.cookieHeaderFor(cookies, 'not a url'), '');
+  });
+
+  it('keeps and forgets cookies only where there is somewhere to keep them', async () => {
+    const store = new Map();
+    const env = { SESSIONS: { get: async (k) => store.get(k) ?? null, put: async (k, v) => store.set(k, v), delete: async (k) => store.delete(k) } };
+    assert.deepEqual(await worker.storedCookies({}), []);
+    assert.deepEqual(await worker.storedCookies(env), []);
+    store.set('browser-cookies', JSON.stringify([{ name: 'a', value: '1', domain: '.x.org', path: '/' }, { name: 'gone', value: '2', domain: '.x.org', path: '/', expires: 1 }]));
+    assert.deepEqual((await worker.storedCookies(env)).map((c) => c.name), ['a']);
+    assert.equal(await worker.forgetCookies(env), true);
+    assert.equal(await worker.forgetCookies({}), false);
+    assert.deepEqual(await worker.storedCookies(env), []);
+  });
+});
