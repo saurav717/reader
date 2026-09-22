@@ -20,6 +20,7 @@ import {
   workUrl,
 } from './scholar.js';
 import { captchaStatus, closeCaptcha, openCaptcha, scholarFetcher } from './scholarBrowser.js';
+import * as browse from './browse.js';
 import { askSerp } from './serpapi.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
@@ -51,8 +52,37 @@ function corsHeaders(req) {
     'Access-Control-Allow-Origin': origin,
     Vary: 'Origin',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    // The browser session's input arrives as JSON, which is the one header
+    // a cross-origin POST from the app has to be allowed to send.
+    'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
   };
+}
+
+/** A small JSON body, read by hand: nothing here mounts a body parser. */
+function readJson(req, limit = 64 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error('that request body is too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (!chunks.length) return resolve({});
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch {
+        reject(new Error('that request body is not JSON'));
+      }
+    });
+    req.on('error', reject);
+  });
 }
 
 /**
@@ -229,6 +259,76 @@ async function accessAction(req, res, action) {
   } catch (error) {
     return send(res, 502, { error: String(error?.message || error) });
   }
+}
+
+// ------------------------------------------------------ browser session ----
+//
+// The browser inside the reader: the same profile as the sign-in window,
+// headless, streamed into the app as pictures and driven from there. See
+// server/browse.js. Everything that opens, drives or closes it is a POST
+// from this app only — a page on another site could otherwise steer a
+// signed-in browser on somebody's proxy — and the frames are GETs the
+// app's origin may read, like every other answer here.
+
+async function browseOpen(req, url, res) {
+  if (req.method !== 'POST') return send(res, 405, { error: 'POST to open the browser' });
+  if (!fromThisApp(req)) return send(res, 403, { error: 'not from this app' });
+  try {
+    return send(res, 200, { ok: true, ...(await browse.open(url.searchParams.get('url') || '')) }, { 'Cache-Control': 'no-store' });
+  } catch (error) {
+    return send(res, 400, { error: String(error?.message || error) });
+  }
+}
+
+async function browseFrame(url, res) {
+  const after = Number(url.searchParams.get('after'));
+  const wait = url.searchParams.get('wait') !== '0';
+  const answer = wait
+    ? await browse.waitForChange(Number.isFinite(after) ? after : -1)
+    : await browse.status(Number.isFinite(after) ? after : -1);
+  return send(res, 200, answer, { 'Cache-Control': 'no-store' });
+}
+
+async function browseInput(req, res) {
+  if (req.method !== 'POST') return send(res, 405, { error: 'POST' });
+  if (!fromThisApp(req)) return send(res, 403, { error: 'not from this app' });
+  let events;
+  try {
+    const body = await readJson(req);
+    events = Array.isArray(body) ? body : Array.isArray(body.events) ? body.events : [body];
+  } catch (error) {
+    return send(res, 400, { error: String(error?.message || error) });
+  }
+  if (events.length > 64) return send(res, 400, { error: 'too many events at once' });
+  try {
+    for (const event of events) await browse.input(event || {});
+    return send(res, 200, { ok: true }, { 'Cache-Control': 'no-store' });
+  } catch (error) {
+    return send(res, error?.code === 'closed' ? 409 : 400, { error: String(error?.message || error) });
+  }
+}
+
+async function browseGrab(req, res) {
+  if (req.method !== 'POST') return send(res, 405, { error: 'POST' });
+  if (!fromThisApp(req)) return send(res, 403, { error: 'not from this app' });
+  try {
+    return send(res, 200, { ok: true, pdf: await browse.grab() }, { 'Cache-Control': 'no-store' });
+  } catch (error) {
+    return send(res, error?.code === 'closed' ? 409 : 404, { error: String(error?.message || error) });
+  }
+}
+
+function browsePdf(url, res) {
+  const bytes = browse.pdfBytes();
+  if (!bytes) return send(res, 404, { error: 'the browser has not met a PDF yet' });
+  res.writeHead(200, {
+    'Content-Type': 'application/pdf',
+    'Content-Length': bytes.length,
+    'Content-Disposition': disposition(url.searchParams),
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  return res.end(bytes);
 }
 
 // ------------------------------------------------------------- Scholar ----
@@ -425,8 +525,27 @@ export default async function apiRouter(req, res, next) {
         return await accessAction(req, res, () => access.closeSignIn());
       case '/access/forget':
         return await accessAction(req, res, () => access.forget());
+      case '/browse/status':
+        return send(res, 200, await browse.status(), { 'Cache-Control': 'no-store' });
+      case '/browse/open':
+        return await browseOpen(req, url, res);
+      case '/browse/frame':
+        return await browseFrame(url, res);
+      case '/browse/input':
+        return await browseInput(req, res);
+      case '/browse/grab':
+        return await browseGrab(req, res);
+      case '/browse/pdf':
+        return browsePdf(url, res);
+      case '/browse/close':
+        return await accessAction(req, res, () => browse.close());
       case '/health':
-        return send(res, 200, { ok: true, access: (await access.availability()).available, scholar: scholarVia() });
+        return send(res, 200, {
+          ok: true,
+          access: (await access.availability()).available,
+          browse: (await access.browseAvailability()).available,
+          scholar: scholarVia(),
+        });
       default:
         if (next) return next();
         return send(res, 404, { error: 'not found' });

@@ -61,12 +61,30 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha')) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/')) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
     try {
-      if (path === '/health') return json({ ok: true, access: false, scholar: serpKey ? 'serpapi' : 'direct' }, 200, headers);
+      if (path === '/health') return json({ ok: true, access: false, browse: false, scholar: serpKey ? 'serpapi' : 'direct' }, 200, headers);
+
+      // The browser inside the reader is the proxy's own Chromium, and a
+      // Worker has none — not even a headless one. Same answer, same shape,
+      // so the app explains what to run instead of offering.
+      if (path.startsWith('/browse/')) {
+        return json(
+          {
+            available: false,
+            open: false,
+            seq: 0,
+            pdf: null,
+            reason:
+              'This proxy is a Cloudflare Worker, which has no browser to open. Run the Node proxy somewhere with Chromium — `npm start` in the reader repository, on your own machine or on any server; no screen is needed — and point Settings → Paper proxy at it.',
+          },
+          path === '/browse/status' || path === '/browse/frame' ? 200 : 501,
+          headers,
+        );
+      }
 
       // Signing in with an institution needs a browser window on a screen,
       // and a Worker has neither. The app asks here before offering it, and
@@ -79,6 +97,7 @@ export default {
             everSignedIn: false,
             reason:
               'This proxy is a Cloudflare Worker, which has no browser to sign in with. Run the proxy on your own machine (`npm start` in the reader repository) and point Settings → Paper proxy at http://localhost:8080.',
+            browse: { available: false, reason: 'This proxy is a Cloudflare Worker, which has no browser to open.' },
           },
           path === '/access/status' ? 200 : 501,
           headers,

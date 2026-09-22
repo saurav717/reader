@@ -837,6 +837,52 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
    reflowed text does; a failure shows in its place rather than a grey pane. */
 .pdf-pane { flex-grow: 1; display: flex; flex-direction: column; min-height: 0; background: var(--rail); }
 
+/* The browser inside the reader: a toolbar, the page as a picture scaled to
+   fit, and a line under it. The picture keeps the page's own proportions,
+   so what is clicked is what was pointed at. */
+.mini-browser { flex-grow: 1; display: flex; flex-direction: column; min-height: 0; outline: 0; background: var(--rail); }
+.mini-browser-head {
+  display: flex; align-items: center; gap: 6px; padding: 8px 12px;
+  border-bottom: 1px solid var(--border-soft); background: var(--panel);
+}
+.mini-browser-title { font-size: 12.5px; font-weight: 500; flex-grow: 1; }
+.mini-browser-address { flex-grow: 1; min-width: 120px; height: 32px; border-radius: 8px; }
+.mini-browser-address input { font-family: var(--mono); font-size: 11.5px; }
+.mini-browser-screen {
+  flex-grow: 1; min-height: 0; display: flex; align-items: flex-start; justify-content: center;
+  padding: 10px; overflow: hidden; background: var(--rail);
+}
+.mini-browser-screen img {
+  display: block; max-width: 100%; max-height: 100%; width: auto; height: auto;
+  object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: #fff;
+  box-shadow: var(--shadow-sm); cursor: default; user-select: none; -webkit-user-select: none;
+}
+.mini-browser.is-focused .mini-browser-screen img { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mini-browser-status {
+  margin: 0; padding: 6px 16px; font-size: 11.5px; color: var(--muted);
+  border-top: 1px solid var(--border-soft); display: flex; align-items: center; gap: 8px; min-height: 30px;
+}
+.mini-browser-status em { font-style: normal; color: var(--ink-2); }
+.mini-browser-sites { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 10px; }
+.mini-browser-note { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; padding: 16px; margin: 0; }
+.mini-browser-choose { padding: 16px 20px; overflow: auto; }
+.mini-browser-choose .lede { margin: 0 0 14px; font-size: 13px; color: var(--ink-2); line-height: 1.55; max-width: 62ch; }
+.site-list { list-style: none; margin: 0 0 12px; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.site {
+  width: 100%; display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); cursor: pointer;
+}
+.site:hover { border-color: var(--muted); }
+.site:disabled { opacity: 0.55; cursor: wait; }
+.site-name { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; }
+.site-note { font-size: 11.5px; color: var(--ink-2); line-height: 1.4; }
+.site-url { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.site-custom { max-width: 620px; }
+@media (max-width: 720px) {
+  .mini-browser-head { flex-wrap: wrap; }
+  .mini-browser-address { order: 9; flex-basis: 100%; }
+}
+
 /* A button that has to read as part of a sentence, inside a banner. */
 .link-btn {
   border: 0; background: none; padding: 0; font: inherit; color: inherit;

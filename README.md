@@ -726,8 +726,9 @@ and no cookie ever reaches the page.
 
 **It needs the proxy on your own machine.** A window has to open on a screen, and
 the Cloudflare Worker has neither a screen nor a browser — so from the Worker the
-same result explains that instead of offering a sign-in. The site on GitHub Pages
-does not have to be rebuilt to use it:
+same result explains that instead of offering a sign-in. (A proxy with a Chromium
+but no screen has the other way in, the browser inside the reader, next
+section.) The site on GitHub Pages does not have to be rebuilt to use it:
 
 ```bash
 git clone https://github.com/saurav717/reader.git && cd reader
@@ -755,6 +756,69 @@ For IEEE specifically the landing page never links the file, so a signed-in
 fetch asks IEEE's stamp endpoints for it by article number; for everyone else
 the page's `citation_pdf_url` — the tag publishers put there for Google Scholar
 — is followed to the file. `scripts/access.test.mjs` pins both.
+
+### A browser inside the reader: sign in without a screen on the proxy
+
+The window above needs the proxy's screen to open on, and the proxy is not
+always on a machine with one — a server, a container, a laptop in another
+room. The same offer has a second form that needs no screen at all. Under a
+result that came back walled, **Browse to ieeexplore.ieee.org and sign in
+here** opens **a browser in the PDF pane**, where the paper would be:
+
+![the browser in the PDF pane: a toolbar with the address and a "Fetch the PDF from this page" button, the publisher's page below it, and chips for the other copies underneath](docs/mini-browser.png)
+
+It first asks where to go — every site the paper is published on, the one
+that asked for the sign-in first, at its landing page since that is where
+the institutional sign-in link is; Google Scholar's page for the paper, for
+copies no index lists; or any https address typed in, your library's portal
+say. The chosen site opens in the proxy's own Chromium, **headless**, and
+what that page shows is streamed into the pane as pictures — Chromium's own
+screencast, a JPEG whenever something changes — while what you do to the
+picture goes back: clicks, scrolling, keys once the page has been clicked,
+text pasted in. Sign in there the way you would in any browser; the
+institution's page, the password box, the two-factor prompt all appear where
+the paper will. The address bar and the back, forward and reload buttons are
+the ones you would expect, and the chips under the page jump to the other
+copies.
+
+Then one of two things gets the file:
+
+- **The browser meets the PDF.** Click the publisher's *PDF* link once
+  signed in, or open a link that is the file, and the moment the proxy's
+  browser meets a PDF it keeps the bytes, closes itself, and the reader opens
+  the paper on them — *PDF from the browser here* under the title — and
+  saves them to Drive like any other copy. Headless Chromium does not show a
+  PDF so much as download it, and this is that download, caught.
+- **Fetch the PDF from this page**, for a landing page that only links the
+  file. The proxy follows the page to its file the way the signed-in retry
+  does — the `citation_pdf_url` tag, IEEE's stamp endpoints, the links the
+  page shows once rendered — with this browser's cookies.
+
+And **Signed in — try the copies again** closes the browser and asks every
+copy again, which now goes through the sign-in just made: it is the same
+profile as the window's (`~/.reader/browser-profile`), so a sign-in made
+either way holds for both, and for the next paper from that publisher.
+**Settings → Institutional access → Forget sign-ins** deletes it as before.
+
+It needs the Node proxy with a Chromium — `npm install` without
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`, or `READER_BROWSER_CHANNEL=chrome` — and
+nothing else. No `DISPLAY`, no window, no pop-up: a proxy on a server with
+no screen can be signed in through from anywhere the site is open. Settings
+says which of the two forms the proxy it is talking to can do. The
+Cloudflare Worker has no browser and says so instead of offering.
+
+The pictures are polled: one request the proxy holds until there is a newer
+frame or something else has changed, so a page nobody is doing anything to
+costs one held connection and no traffic. One page is open at a time, it is
+closed when the reader leaves it, and the proxy closes it itself after five
+minutes with nobody watching. Only a POST from this app can open, drive or
+close it — a page on another site could otherwise steer a signed-in browser
+on somebody's proxy — and it opens only https addresses, never a private
+one, and refuses to follow a link a page shows into the proxy's own network.
+`READER_BROWSER_ARGS` passes extra flags to that Chromium (`--proxy-server=`
+on a machine behind one), split the way a shell would.
+`scripts/browse.test.mjs` pins what it refuses and how a click on the
+picture is read.
 
 ### With only the Worker: hand the file over yourself
 

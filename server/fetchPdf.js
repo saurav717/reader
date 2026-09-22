@@ -46,6 +46,20 @@ function isPrivateIPv6(host) {
 const BLOCKED_SUFFIXES = ['.localhost', '.local', '.internal', '.home.arpa'];
 
 /**
+ * Whether a hostname names something that is not on the public internet —
+ * this machine, the network it is on, a cloud's metadata service. The same
+ * test `rejectUrl` applies, on its own for the browser session in
+ * server/browse.js, which follows links a person clicks rather than URLs an
+ * index handed over and so cannot check the whole URL up front.
+ */
+export function isPrivateHost(hostname) {
+  const host = (hostname || '').toLowerCase();
+  if (!host) return true;
+  if (host === 'localhost' || BLOCKED_SUFFIXES.some((suffix) => host.endsWith(suffix))) return true;
+  return isPrivateIPv4(host) || isPrivateIPv6(host);
+}
+
+/**
  * Why this URL may not be fetched, or null if it may. Hostnames are all we can
  * check without resolving ourselves; a name that resolves to a private address
  * still gets through, which is why the PDF check below matters as much.
@@ -60,10 +74,7 @@ export function rejectUrl(target) {
   if (parsed.protocol !== 'https:') return 'only https URLs are fetched';
   const host = parsed.hostname.toLowerCase();
   if (!host) return 'that URL has no host';
-  if (host === 'localhost' || BLOCKED_SUFFIXES.some((suffix) => host.endsWith(suffix))) {
-    return 'that host is not reachable from here';
-  }
-  if (isPrivateIPv4(host) || isPrivateIPv6(host)) return 'that host is not reachable from here';
+  if (isPrivateHost(host)) return 'that host is not reachable from here';
   return null;
 }
 
