@@ -234,13 +234,26 @@ To get arXiv and the PDFs back on a static host, put the proxy on Cloudflare's
 free tier — `worker/index.js` is the same routes in Workers form:
 
 ```bash
-# in worker/index.js, set ALLOWED_ORIGINS to your own site first
-npx wrangler deploy                                   # prints your worker URL
+# your site's origin goes in ALLOWED_ORIGINS at the top of worker/index.js;
+# it ships with https://saurav717.github.io and the two localhost ports.
+npm run check:worker    # bundles it without deploying: ~24 KiB, no bindings
+npm run deploy:worker   # asks you to log in the first time, then prints the URL
+```
+
+The URL it prints is `https://reader-arxiv-proxy.<your-subdomain>.workers.dev`
+— `name` in `wrangler.toml` is the first half of it. Check it before depending
+on it:
+
+```bash
+curl -H 'Origin: https://saurav717.github.io' https://<that>/health
+# {"ok":true}, and Access-Control-Allow-Origin echoing that same origin
 ```
 
 A wide-open proxy is one anyone can point at arXiv on your account's quota, so
 `ALLOWED_ORIGINS` is not optional — a site that is not on the list fails CORS,
-and from the page that looks exactly like the Worker being down.
+and from the page that looks exactly like the Worker being down. An origin is a
+scheme and a host: `https://saurav717.github.io`, never the `/reader/` path the
+app is served under.
 
 Then tell the app about it. Either rebuild with `VITE_API_BASE` set to the
 Worker's URL, or — and this is the point of it being a setting — paste that URL
