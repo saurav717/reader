@@ -811,10 +811,15 @@ no window, no pop-up — which is either of two:
   the free plan (with a daily allowance of browser minutes; the Workers Paid
   plan has more). `wrangler.toml` binds it as `BROWSER`, so `npm run
   deploy:worker` is all it takes — and then the site on GitHub Pages signs in
-  to a publisher with nothing running anywhere of yours. `worker/browse.js`
-  is that side: the same routes and the same pane, but stateless, so the app
-  carries the session's id on each request and frames are screenshots per
-  poll rather than a screencast. The sign-in outlasts the browser session
+  to a publisher with nothing running anywhere of yours. A Durable Object
+  (`worker/browserSession.js`, bound in `wrangler.toml` too) holds the one
+  connection to that browser for the session's life and streams Chrome's
+  screencast into memory, so a frame or a click costs a few milliseconds
+  rather than a fresh connection each; the app carries a session token on
+  each request, and if the object is evicted while idle the next request
+  reconnects to the same browser. (`worker/browse.js` is the same thing
+  without the object, reconnecting per request: slower, and only the
+  fallback.) The sign-in outlasts the browser session
   only where the Worker has somewhere to keep its cookies: bind a KV
   namespace as `SESSIONS` (the commented block in `wrangler.toml`) and they
   are saved when the browser closes or hands over a file, restored when the

@@ -19,6 +19,12 @@
  * (`document.contentType`) and then fetched with the session's cookies,
  * since there is no download to catch either.
  *
+ * This stateless form is the fallback. The fast form is worker/browserSession.js,
+ * a Durable Object that holds one connection open for the session's life
+ * and streams Chrome's screencast, the way the Node proxy does; it reuses
+ * the helpers below and is what wrangler.toml binds. Without that binding
+ * the routes fall back to reconnecting per request, which works but is slow.
+ *
  * With a KV namespace bound as SESSIONS the cookies are saved when the
  * browser closes or hands over a file, put back when the next one opens,
  * and used to retry a login wall on `/pdf` — which is what makes a sign-in
@@ -32,10 +38,10 @@ import { pdfCandidates, pdfLinksIn } from '../server/pdfLinks.js';
 import { acceptKey, BUTTONS, clamp, clicks, closedError, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
 
 /** How long a session outlives the last request to it: the most Cloudflare allows. */
-const KEEP_ALIVE_MS = 600_000;
+export const KEEP_ALIVE_MS = 600_000;
 /** A pause before each frame, so a polling app gets a few frames a second and not a hundred. */
 const FRAME_PAUSE_MS = 350;
-const NAVIGATION_TIMEOUT_MS = 20_000;
+export const NAVIGATION_TIMEOUT_MS = 20_000;
 /** How many pages to follow from a landing page before giving up on the file. */
 const MAX_PAGE_HOPS = 4;
 const COOKIES_KEY = 'browser-cookies';
@@ -175,7 +181,7 @@ export async function input(env, session, events, driver = defaultDriver) {
   });
 }
 
-async function apply(page, event) {
+export async function apply(page, event) {
   const x = clamp(event.x, VIEWPORT.width);
   const y = clamp(event.y, VIEWPORT.height);
   const button = BUTTONS.has(event.button) ? event.button : 'left';
@@ -279,7 +285,7 @@ async function cookieHeaderFromPage(page, url) {
  * The first PDF among the URLs, following each landing page to where it
  * says its file is, with the browser's cookies for each host on the request.
  */
-async function fetchFileWithCookies(page, urls) {
+export async function fetchFileWithCookies(page, urls) {
   const queue = [...urls];
   const seen = new Set();
   let hops = 0;
