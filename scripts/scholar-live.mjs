@@ -10,6 +10,7 @@
  *   node scripts/scholar-live.mjs "attention is all you need"
  *   node scholar-live.mjs --author "Saurav Chennuri"
  *   SCHOLAR_BROWSER=1 node scripts/scholar-live.mjs    # drive real Chromium
+ *   SERPAPI_KEY=… node scripts/scholar-live.mjs        # through SerpApi instead
  *   node scripts/scholar-live.mjs --save               # refresh the fixtures
  *
  * It prints what came back, what was parsed out of it, and — the part that
@@ -35,6 +36,10 @@ import {
   versionsUrl,
 } from '../server/scholar.js';
 import { browserWanted, closeBrowser, scholarFetcher } from '../server/scholarBrowser.js';
+import { askSerp } from '../server/serpapi.js';
+
+/** With a key, every ask below goes through SerpApi — see server/serpapi.js. */
+const SERPAPI_KEY = (process.env.SERPAPI_KEY || '').trim();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -48,15 +53,30 @@ const SAVE = flag('--save');
 const QUERY = args.find((arg) => !arg.startsWith('--') && arg !== valueFor('--author')) || 'attention is all you need';
 const AUTHOR = valueFor('--author') || 'Saurav Chennuri';
 
-const fetchPage = await scholarFetcher(plainFetch);
+const fetchPage = SERPAPI_KEY ? null : await scholarFetcher(plainFetch);
 console.log(
-  `Asking Google Scholar ${browserWanted() ? 'through a real Chromium' : 'with plain HTTPS requests'}.\n` +
-    'A captcha is the normal answer from a server; from a laptop it usually is not.\n',
+  SERPAPI_KEY
+    ? 'Asking Google Scholar through SerpApi, with the key in SERPAPI_KEY. Each check spends one search of its allowance.\n'
+    : `Asking Google Scholar ${browserWanted() ? 'through a real Chromium' : 'with plain HTTPS requests'}.\n` +
+        'A captcha is the normal answer from a server; from a laptop it usually is not.\n',
 );
 
 let problems = 0;
 
-async function step(label, url, parse, fixture) {
+async function step(label, url, parse, fixture, serp) {
+  if (SERPAPI_KEY) {
+    process.stdout.write(`\n── ${label}\n   via SerpApi: ${serp.kind} ${JSON.stringify(serp.params)}\n`);
+    try {
+      const parsed = await askSerp(serp.kind, serp.params, SERPAPI_KEY);
+      console.log(`   OK       ${parsed.length} results`);
+      if (!parsed.length) console.log('   (nothing came back — an empty answer, or a field SerpApi renamed; check the JSON on serpapi.com/searches)');
+      return parsed;
+    } catch (error) {
+      problems += 1;
+      console.log(`   REFUSED  ${error.reason ? `(${error.reason}) ` : ''}${error.message}`);
+      return null;
+    }
+  }
   process.stdout.write(`\n── ${label}\n   ${url}\n`);
   let html;
   try {
@@ -87,7 +107,10 @@ async function step(label, url, parse, fixture) {
 
 // ---------------------------------------------------------------- papers ----
 
-const results = await step(`Papers matching "${QUERY}"`, searchUrl(QUERY), parseResults, SAVE ? 'scholar-search' : null);
+const results = await step(`Papers matching "${QUERY}"`, searchUrl(QUERY), parseResults, SAVE ? 'scholar-search' : null, {
+  kind: 'search',
+  params: { query: QUERY },
+});
 for (const result of (results || []).slice(0, 5)) {
   console.log(`\n   ${result.title}`);
   console.log(`     ${result.authors.join(', ')}${result.year ? ` · ${result.year}` : ''}${result.venue ? ` · ${result.venue}` : ''}`);
@@ -100,7 +123,10 @@ for (const result of (results || []).slice(0, 5)) {
 // Every copy of the first result — the list this is all for.
 const cluster = (results || []).find((result) => result.clusterId && result.versionCount)?.clusterId;
 if (cluster) {
-  const versions = await step(`Every version of the first result`, versionsUrl(cluster), parseResults, null);
+  const versions = await step(`Every version of the first result`, versionsUrl(cluster), parseResults, null, {
+    kind: 'versions',
+    params: { cluster },
+  });
   for (const version of (versions || []).slice(0, 12)) {
     console.log(`     ${version.pdfUrl ? 'PDF ' : '    '} ${version.pdfHost || new URL(version.url || 'https://x/').hostname}`);
   }
@@ -115,6 +141,7 @@ const people = await step(
   authorSearchUrl(AUTHOR),
   parseAuthors,
   SAVE ? 'scholar-authors' : null,
+  { kind: 'authors', params: { name: AUTHOR } },
 );
 if (people && !people.length) {
   console.log(`   Scholar has no profile under that name. That is an answer, not a failure — most people have none.`);
@@ -134,6 +161,7 @@ console.log(
         '\n  · try again from a home connection rather than a server,' +
         '\n  · try SCHOLAR_BROWSER=1, which drives a real Chromium and gets through more often,' +
         '\n  · or search from the app against this proxy: when Scholar answers with a captcha, the panel offers to show it to you to solve,' +
+        '\n  · or put a SerpApi key in SERPAPI_KEY, and Scholar is asked through SerpApi, which is never shown a captcha,' +
         '\n  · or leave Scholar off — the other four sources need no proxy and are never blocked.'
     : '\nEverything answered. The Scholar source works from this machine.',
 );

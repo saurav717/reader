@@ -18,6 +18,7 @@ import {
   versionsUrl,
 } from './scholar.js';
 import { captchaStatus, closeCaptcha, openCaptcha, scholarFetcher } from './scholarBrowser.js';
+import { askSerp } from './serpapi.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 
@@ -260,13 +261,28 @@ export function setScholarFetcher(fetcher) {
   fetchPage = fetcher;
 }
 
-async function scholar(url, res, parse) {
+/**
+ * With a SerpApi key on this proxy, Scholar is asked through SerpApi instead
+ * — see server/serpapi.js: JSON back, no captcha, and it works from a
+ * server. Without one, the page itself, as above.
+ */
+const serpKey = () => (process.env.SERPAPI_KEY || '').trim();
+
+/** How this proxy asks Scholar, for /health and for anyone wondering. */
+export const scholarVia = () => (serpKey() ? 'serpapi' : 'direct');
+
+async function scholar(res, { kind, params, url, parse }) {
   try {
-    const html = await getScholar(url, { fetchPage: scholarPage });
-    return send(res, 200, { results: parse(html), source: 'scholar' }, { 'Cache-Control': 'private, max-age=300' });
+    const results = serpKey()
+      ? await askSerp(kind, params, serpKey())
+      : parse(await getScholar(url, { fetchPage: scholarPage }));
+    return send(res, 200, { results, source: 'scholar', via: scholarVia() }, { 'Cache-Control': 'private, max-age=300' });
   } catch (error) {
     if (error && error.blocked) {
       return send(res, 503, { error: error.message, blocked: true, reason: error.reason, url: error.url });
+    }
+    if (error && error.serpapi) {
+      return send(res, 503, { error: error.message, serpapi: true, reason: error.reason });
     }
     return send(res, 502, { error: String(error?.message || error) });
   }
@@ -292,26 +308,26 @@ function scholarSearch(url, res) {
   const query = (url.searchParams.get('q') || '').trim();
   if (!query) return send(res, 400, { error: 'q is required' });
   const start = Math.max(0, Math.min(90, Number(url.searchParams.get('start')) || 0));
-  return scholar(searchUrl(query, { start }), res, parseResults);
+  return scholar(res, { kind: 'search', params: { query, start }, url: searchUrl(query, { start }), parse: parseResults });
 }
 
 function scholarAuthors(url, res) {
   const name = (url.searchParams.get('name') || '').trim();
   if (!name) return send(res, 400, { error: 'name is required' });
-  return scholar(authorSearchUrl(name), res, parseAuthors);
+  return scholar(res, { kind: 'authors', params: { name }, url: authorSearchUrl(name), parse: parseAuthors });
 }
 
 function scholarProfile(url, res) {
   const user = (url.searchParams.get('user') || '').trim();
   if (!/^[\w-]{6,32}$/.test(user)) return send(res, 400, { error: 'bad Scholar profile id' });
   const start = Math.max(0, Number(url.searchParams.get('start')) || 0);
-  return scholar(profileUrl(user, { start }), res, parseProfileWorks);
+  return scholar(res, { kind: 'profile', params: { user, start }, url: profileUrl(user, { start }), parse: parseProfileWorks });
 }
 
 function scholarVersions(url, res) {
   const cluster = (url.searchParams.get('cluster') || '').trim();
   if (!/^\d{1,25}$/.test(cluster)) return send(res, 400, { error: 'bad cluster id' });
-  return scholar(versionsUrl(cluster), res, parseResults);
+  return scholar(res, { kind: 'versions', params: { cluster }, url: versionsUrl(cluster), parse: parseResults });
 }
 
 // Only the handful of hosts the app actually reads from; an open proxy here
@@ -386,7 +402,7 @@ export default async function apiRouter(req, res, next) {
       case '/access/forget':
         return await accessAction(req, res, () => access.forget());
       case '/health':
-        return send(res, 200, { ok: true, access: (await access.availability()).available });
+        return send(res, 200, { ok: true, access: (await access.availability()).available, scholar: scholarVia() });
       default:
         if (next) return next();
         return send(res, 404, { error: 'not found' });
