@@ -196,10 +196,19 @@ app.get('/api/arxiv/query', (_req, res) =>
   res.set('Content-Type', 'application/atom+xml').send('<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>'),
 );
 app.get('/api/arxiv/html', (_req, res) => res.status(404).json({ error: 'no HTML' }));
-app.use(express.static(path.join(dirname, '..', 'dist'), { index: false }));
-app.get('*', (_req, res) => res.sendFile(path.join(dirname, '..', 'dist', 'index.html')));
+// The same checks run against either build: `dist` served at the root, the way
+// `npm start` does, or `dist-pages` served under /reader/, the way GitHub Pages
+// does for the deployed site.
+//
+//   BUILD=dist-pages SITE_PATH=/reader/ node scripts/versions-drive.mjs
+const BUILD = process.env.BUILD || 'dist';
+const SITE_PATH = process.env.SITE_PATH || '/';
+const root = path.join(dirname, '..', BUILD);
+app.use(SITE_PATH, express.static(root, { index: false }));
+app.get('*', (_req, res) => res.sendFile(path.join(root, 'index.html')));
 const server = app.listen(4399);
-const BASE = 'http://localhost:4399';
+const BASE = `http://localhost:4399${SITE_PATH}`;
+console.log(`\n== ${BUILD} at ${SITE_PATH} ==`);
 
 const problems = [];
 function check(label, condition, detail = '') {
@@ -251,6 +260,8 @@ await context.addInitScript(() => {
       autoSync: true,
       savePdf: true,
       syncOnOpen: true,
+      // The static build is compiled with no proxy at all, which is exactly
+      // the state the deployed site is in until this is pasted into Settings.
       proxyBase: '/api',
       theme: 'light',
       readingMode: 'pdf',

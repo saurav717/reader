@@ -561,6 +561,9 @@ node scripts/smoke.mjs         # in another
 
 npm run build                  # then, needing no server of its own:
 node scripts/versions-drive.mjs
+
+npm run build:pages            # and the same checks against the static build,
+BUILD=dist-pages SITE_PATH=/reader/ node scripts/versions-drive.mjs   # as Pages serves it
 ```
 
 `scripts/bundle.mjs` is how the unit tests reach the app's TypeScript: Node can strip
@@ -586,7 +589,9 @@ link that has rotted) → download from the third → upload it to Drive → rea
 out of Drive and show it. It brings its own server and its own Drive: Google
 Identity Services, the Drive REST API and the PDF proxy are all stubbed in the page,
 so it needs no network and no Google account. It also checks that a name no index
-keeps a record for says so, and offers Scholar.
+keeps a record for says so, and offers Scholar. `BUILD` and `SITE_PATH` run the same
+checks against `dist-pages` under a sub-path, which is the shape the deployed site
+is served in.
 
 ## Known limits
 
