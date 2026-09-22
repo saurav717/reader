@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "start": "node server/index.js",
     "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false || tsc -b",
-    "build:pages": "VITE_BASE=/reader/ VITE_API_BASE=${VITE_API_BASE:-none} vite build --outDir dist-pages --emptyOutDir"
+    "build:pages": "VITE_BASE=/reader/ VITE_SOURCEMAP=false VITE_API_BASE=${VITE_API_BASE:-none} vite build --outDir dist-pages --emptyOutDir"
   },
   "dependencies": {
     "dompurify": "^3.2.7",

@@ -18,5 +18,7 @@ export default defineConfig({
     },
   ],
   server: { port: 5173 },
-  build: { outDir: 'dist', sourcemap: true },
+  // Sourcemaps are useful locally but needless weight in a repo that is
+  // committed as build output.
+  build: { outDir: 'dist', sourcemap: process.env.VITE_SOURCEMAP !== 'false' },
 });
