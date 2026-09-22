@@ -15,6 +15,14 @@ const WELCOME_KEY = 'reader.welcomed';
 const VIEW_KEY = 'reader.view';
 const LAYOUT_KEY = 'reader.layout';
 
+/** What the right-hand dock is showing, if anything. */
+type Dock = 'discover' | 'notes' | null;
+
+interface Layout {
+  libraryOpen: boolean;
+  dock: Dock;
+}
+
 function readView(): View {
   try {
     const raw = localStorage.getItem(VIEW_KEY);
@@ -31,24 +39,29 @@ function isNarrow(): boolean {
   return typeof window !== 'undefined' && window.innerWidth < NARROW;
 }
 
-function readLayout(): { panel: 'discover' | 'library' | null; notesOpen: boolean } {
+function readLayout(): Layout {
   try {
     const raw = localStorage.getItem(LAYOUT_KEY);
-    if (raw) return JSON.parse(raw) as { panel: 'discover' | 'library' | null; notesOpen: boolean };
+    if (raw) {
+      const stored = JSON.parse(raw) as Partial<Layout>;
+      if (typeof stored.libraryOpen === 'boolean') {
+        return { libraryOpen: stored.libraryOpen, dock: stored.dock ?? null };
+      }
+    }
   } catch {
     // fall through to the default
   }
   // On a phone the panels are overlays, so opening one by default would hide
   // the page behind it.
-  return isNarrow() ? { panel: null, notesOpen: false } : { panel: 'library', notesOpen: true };
+  return isNarrow() ? { libraryOpen: false, dock: null } : { libraryOpen: true, dock: 'discover' };
 }
 
 export default function App() {
   const { ready, papers, collections, user, driveConnected } = useStore();
   const [layout] = useState(readLayout);
-  const [panel, setPanel] = useState<'discover' | 'library' | null>(layout.panel);
+  const [libraryOpen, setLibraryOpen] = useState(layout.libraryOpen);
+  const [dock, setDock] = useState<Dock>(layout.dock);
   const [view, setView] = useState<View>(readView);
-  const [notesOpen, setNotesOpen] = useState(layout.notesOpen);
   const [selectedHighlightId, setSelectedHighlightId] = useState<string | null>(null);
   const [orphanIds, setOrphanIds] = useState<string[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -61,8 +74,8 @@ export default function App() {
   }, [view]);
 
   useEffect(() => {
-    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ panel, notesOpen }));
-  }, [panel, notesOpen]);
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ libraryOpen, dock } satisfies Layout));
+  }, [libraryOpen, dock]);
 
   // A paper removed from the library must not leave the reader pointing at it.
   useEffect(() => {
@@ -86,8 +99,18 @@ export default function App() {
     setView({ kind: 'paper', id });
     setSelectedHighlightId(null);
     setOrphanIds([]);
-    if (isNarrow()) setPanel(null);
+    if (isNarrow()) {
+      setLibraryOpen(false);
+      setDock(null);
+    }
   }, []);
+
+  // The highlights pane comes forward when you write a note; a plain highlight
+  // only moves a dock that is already open.
+  const revealNotes = useCallback(
+    (force: boolean) => setDock((current) => (force || current ? 'notes' : null)),
+    [],
+  );
 
   const dismissWelcome = useCallback(() => {
     localStorage.setItem(WELCOME_KEY, 'true');
@@ -111,6 +134,10 @@ export default function App() {
   }
 
   const showWelcome = !welcomed && !papers.length;
+  const reading = view.kind === 'paper' ? view.id : null;
+  // Highlights only mean anything with a paper open, so the dock falls back to
+  // Discover rather than showing an empty rail.
+  const dockPane: Dock = dock === 'notes' && !reading ? 'discover' : dock;
 
   return (
     <div className="app">
@@ -121,30 +148,30 @@ export default function App() {
         <button
           type="button"
           className="icon-btn"
-          aria-pressed={panel === 'discover'}
-          aria-label="Discover papers"
-          title="Discover"
-          onClick={() => setPanel(panel === 'discover' ? null : 'discover')}
-        >
-          <SearchIcon size={19} />
-        </button>
-        <button
-          type="button"
-          className="icon-btn"
-          aria-pressed={panel === 'library'}
+          aria-pressed={libraryOpen}
           aria-label="Library"
-          title="Library"
-          onClick={() => setPanel(panel === 'library' ? null : 'library')}
+          title="Library — your collections and what you are reading"
+          onClick={() => setLibraryOpen(!libraryOpen)}
         >
           <LibraryIcon size={19} />
         </button>
         <button
           type="button"
           className="icon-btn"
-          aria-pressed={notesOpen}
+          aria-pressed={dockPane === 'discover'}
+          aria-label="Discover papers"
+          title="Discover"
+          onClick={() => setDock(dockPane === 'discover' ? null : 'discover')}
+        >
+          <SearchIcon size={19} />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-pressed={dockPane === 'notes'}
           aria-label="Highlights and notes"
           title="Highlights"
-          onClick={() => setNotesOpen(!notesOpen)}
+          onClick={() => setDock(dockPane === 'notes' ? null : 'notes')}
         >
           <HighlighterIcon size={19} />
         </button>
@@ -179,15 +206,16 @@ export default function App() {
         </button>
       </nav>
 
-      {panel === 'discover' && !showWelcome ? <Discover onClose={() => setPanel(null)} onOpen={openPaper} /> : null}
-      {panel === 'library' && !showWelcome ? (
+      {libraryOpen && !showWelcome ? (
         <Library
           view={view}
+          activePaperId={reading}
           onSelect={(next) => {
             setView(next);
-            if (isNarrow()) setPanel(null);
+            if (isNarrow()) setLibraryOpen(false);
           }}
-          onClose={() => setPanel(null)}
+          onOpenPaper={openPaper}
+          onClose={() => setLibraryOpen(false)}
         />
       ) : null}
 
@@ -196,26 +224,54 @@ export default function App() {
       ) : view.kind === 'paper' ? (
         <Reader
           paperId={view.id}
-          notesOpen={notesOpen}
+          notesOpen={dockPane === 'notes'}
           selectedHighlightId={selectedHighlightId}
           onBack={() => setView(collections[0] ? { kind: 'collection', id: collections[0].id } : { kind: 'all' })}
-          onToggleNotes={() => setNotesOpen((current) => !current)}
-          onToggleSidebar={() => setPanel(panel ? null : 'library')}
+          onToggleNotes={() => setDock(dockPane === 'notes' ? null : 'notes')}
+          onNotes={revealNotes}
+          onToggleSidebar={() => setLibraryOpen(!libraryOpen)}
           onSelectHighlight={setSelectedHighlightId}
           onOrphans={onOrphans}
         />
       ) : (
-        <CollectionView view={view} onOpenPaper={openPaper} onDiscover={() => setPanel('discover')} />
+        <CollectionView view={view} onOpenPaper={openPaper} onDiscover={() => setDock('discover')} />
       )}
 
-      {view.kind === 'paper' && notesOpen && !showWelcome ? (
-        <NotesRail
-          paperId={view.id}
-          selectedId={selectedHighlightId}
-          orphanIds={orphanIds}
-          onSelect={setSelectedHighlightId}
-          onClose={() => setNotesOpen(false)}
-        />
+      {dockPane && !showWelcome ? (
+        <div className="dock">
+          {reading ? (
+            <div className="dock-tabs" role="tablist" aria-label="Side panel">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={dockPane === 'discover'}
+                onClick={() => setDock('discover')}
+              >
+                Discover
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={dockPane === 'notes'}
+                onClick={() => setDock('notes')}
+              >
+                Highlights
+              </button>
+            </div>
+          ) : null}
+
+          {dockPane === 'discover' ? (
+            <Discover onClose={() => setDock(null)} onOpen={openPaper} />
+          ) : (
+            <NotesRail
+              paperId={view.kind === 'paper' ? view.id : ''}
+              selectedId={selectedHighlightId}
+              orphanIds={orphanIds}
+              onSelect={setSelectedHighlightId}
+              onClose={() => setDock(null)}
+            />
+          )}
+        </div>
       ) : null}
 
       {paletteOpen ? (

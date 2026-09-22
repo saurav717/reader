@@ -80,32 +80,74 @@ interface OpenAlexWork {
   authorships: { author: { display_name: string | null } }[];
   primary_location: { pdf_url: string | null; landing_page_url: string | null; source: { display_name: string | null } | null } | null;
   concepts: { display_name: string }[];
+  cited_by_count?: number;
   ids?: { arxiv?: string };
 }
 
-async function searchOpenAlex(query: string, limit: number, signal?: AbortSignal): Promise<PaperRef[]> {
-  const params = new URLSearchParams({ search: query, per_page: String(limit) });
+function fromOpenAlex(work: OpenAlexWork): PaperRef {
+  const doi = work.doi ? work.doi.replace('https://doi.org/', '') : undefined;
+  const arxivFromDoi = doi?.match(/10\.48550\/arxiv\.(.+)$/i)?.[1];
+  return {
+    id: arxivFromDoi ? `arxiv:${arxivFromDoi}` : doi ? `doi:${doi}` : work.id,
+    source: 'openalex' as const,
+    title: clean(work.display_name),
+    authors: (work.authorships || []).map((authorship) => clean(authorship.author?.display_name)).filter(Boolean),
+    abstract: invertAbstract(work.abstract_inverted_index),
+    published: work.publication_date || '',
+    categories: (work.concepts || []).slice(0, 3).map((concept) => concept.display_name),
+    arxivId: arxivFromDoi,
+    doi,
+    pdfUrl: work.primary_location?.pdf_url || undefined,
+    landingUrl: work.primary_location?.landing_page_url || undefined,
+    venue: work.primary_location?.source?.display_name || undefined,
+    citedBy: typeof work.cited_by_count === 'number' ? work.cited_by_count : undefined,
+  };
+}
+
+async function openAlexWorks(params: URLSearchParams, signal?: AbortSignal): Promise<PaperRef[]> {
   const response = await fetch(`https://api.openalex.org/works?${params}`, { signal });
   if (!response.ok) throw new Error(`OpenAlex search failed (${response.status})`);
   const payload = (await response.json()) as { results: OpenAlexWork[] };
-  return (payload.results || []).map((work) => {
-    const doi = work.doi ? work.doi.replace('https://doi.org/', '') : undefined;
-    const arxivFromDoi = doi?.match(/10\.48550\/arxiv\.(.+)$/i)?.[1];
-    return {
-      id: arxivFromDoi ? `arxiv:${arxivFromDoi}` : doi ? `doi:${doi}` : work.id,
-      source: 'openalex' as const,
-      title: clean(work.display_name),
-      authors: (work.authorships || []).map((authorship) => clean(authorship.author?.display_name)).filter(Boolean),
-      abstract: invertAbstract(work.abstract_inverted_index),
-      published: work.publication_date || '',
-      categories: (work.concepts || []).slice(0, 3).map((concept) => concept.display_name),
-      arxivId: arxivFromDoi,
-      doi,
-      pdfUrl: work.primary_location?.pdf_url || undefined,
-      landingUrl: work.primary_location?.landing_page_url || undefined,
-      venue: work.primary_location?.source?.display_name || undefined,
-    };
-  });
+  return (payload.results || []).map(fromOpenAlex);
+}
+
+async function searchOpenAlex(query: string, limit: number, signal?: AbortSignal): Promise<PaperRef[]> {
+  return openAlexWorks(new URLSearchParams({ search: query, per_page: String(limit) }), signal);
+}
+
+export interface Lineage {
+  /** The oldest indexed works using the phrase — where the idea comes from. */
+  earliest: PaperRef[];
+  /** The most cited ones — how it reached the paper you are reading. */
+  influential: PaperRef[];
+}
+
+/**
+ * The trail behind a phrase, from OpenAlex: the first papers to use it and the
+ * ones everyone since has cited. Searching titles and abstracts rather than
+ * full text keeps the answer about the term itself.
+ */
+export async function lookupLineage(phrase: string, signal?: AbortSignal): Promise<Lineage> {
+  // Commas separate filters and colons separate a filter from its value, so
+  // neither can survive inside the phrase being searched for.
+  const term = phrase.replace(/[,:|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!term) return { earliest: [], influential: [] };
+  const base = () => {
+    const params = new URLSearchParams({ per_page: '4' });
+    params.set('filter', `title_and_abstract.search:${term}`);
+    return params;
+  };
+  const oldest = base();
+  oldest.set('sort', 'publication_date:asc');
+  const cited = base();
+  cited.set('sort', 'cited_by_count:desc');
+
+  const [earliest, influential] = await Promise.all([
+    openAlexWorks(oldest, signal),
+    openAlexWorks(cited, signal),
+  ]);
+  const seen = new Set(earliest.map((paper) => paper.id));
+  return { earliest, influential: influential.filter((paper) => !seen.has(paper.id)) };
 }
 
 // ------------------------------------------------------ Semantic Scholar ----

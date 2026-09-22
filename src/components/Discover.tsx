@@ -68,7 +68,7 @@ export default function Discover({ onClose, onOpen }: Props) {
   };
 
   return (
-    <aside className="panel" aria-label="Discover">
+    <aside className="panel discover-panel" aria-label="Discover">
       <div className="panel-head">
         <h2>Discover</h2>
         <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the discover panel">
