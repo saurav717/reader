@@ -1,5 +1,6 @@
 import type { Collection, Highlight, Paper, Settings } from '../types';
-import { api, hasProxy } from './api';
+import { hasProxy } from './api';
+import { fetchPdf, resolvePdfUrl } from './pdf';
 import { ensureDriveToken, ensureFolder, findFile, uploadFile } from './google';
 
 export const UNSORTED_FOLDER = 'Unsorted';
@@ -100,31 +101,32 @@ export async function syncPaperToDrive(
   let pdfFileId = paper.drive?.pdfFileId;
 
   if (settings.savePdf) {
-    if (paper.arxivId && !hasProxy) {
-      // The PDF would have to be fetched cross-origin from arxiv.org, which the
-      // browser blocks. Nothing to do but say so.
+    if (!pdfFileId) {
+      const existing = await findFile(accessToken, `${stem}.pdf`, folderId);
+      pdfFileId = existing?.id;
+    }
+    if (!pdfFileId && !hasProxy) {
+      // Every PDF has to be fetched cross-origin, which the browser blocks.
+      // Without a server of our own there is nothing to do but say so.
       notice = 'This deployment has no server to fetch PDFs through; saved the metadata only.';
-    } else if (paper.arxivId) {
-      if (!pdfFileId) {
-        const existing = await findFile(accessToken, `${stem}.pdf`, folderId);
-        pdfFileId = existing?.id;
-      }
-      if (!pdfFileId) {
-        const response = await fetch(api(`/arxiv/pdf?id=${encodeURIComponent(paper.arxivId)}`));
-        if (response.ok) {
+    } else if (!pdfFileId) {
+      // arXiv, or whichever repository OpenAlex and Semantic Scholar know of.
+      const source = await resolvePdfUrl(paper).catch(() => undefined);
+      if (!source) {
+        notice = 'No open-access PDF could be found for this paper; saved the metadata only.';
+      } else {
+        try {
           const uploaded = await uploadFile(accessToken, {
             name: `${stem}.pdf`,
             mimeType: 'application/pdf',
             parentId: folderId,
-            body: await response.blob(),
+            body: await fetchPdf({ ...paper, pdfUrl: source }),
           });
           pdfFileId = uploaded.id;
-        } else {
-          notice = 'The PDF could not be downloaded; saved the metadata only.';
+        } catch (error) {
+          notice = `${error instanceof Error ? error.message : String(error)} Saved the metadata only.`;
         }
       }
-    } else {
-      notice = 'Only arXiv PDFs can be fetched from the browser; saved the metadata only.';
     }
   }
 

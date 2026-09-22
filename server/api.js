@@ -1,6 +1,9 @@
 // Connect-style handler mounted at /api by both the Vite dev server and the
-// production Express server. Everything here exists because arXiv serves no
-// CORS headers: the browser cannot talk to it directly.
+// production Express server. Everything here exists because the browser cannot
+// fetch it directly: arXiv serves no CORS headers, and neither do most of the
+// publishers and repositories an open-access PDF link points at.
+
+import { disposition, fetchChecked, readPdf, rejectUrl } from './fetchPdf.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 
@@ -70,7 +73,48 @@ async function arxivPdf(url, res) {
   res.writeHead(200, {
     'Content-Type': 'application/pdf',
     'Content-Length': buffer.length,
+    'Content-Disposition': disposition(url.searchParams),
     'Cache-Control': 'public, max-age=86400',
+    'X-Content-Type-Options': 'nosniff',
+  });
+  res.end(buffer);
+}
+
+// Any other open-access PDF: OpenAlex and Semantic Scholar hand out links to
+// publishers and repositories that send no CORS headers either, so the browser
+// needs this route to read them. See server/fetchPdf.js for what it refuses.
+async function pdf(url, res) {
+  const target = url.searchParams.get('url') || '';
+  const reason = rejectUrl(target);
+  if (reason) return send(res, 400, { error: reason });
+
+  let result;
+  try {
+    result = await fetchChecked(target, { userAgent: UA });
+  } catch (error) {
+    return send(res, 400, { error: String(error?.message || error) });
+  }
+  const { response } = result;
+  if (!response.ok) {
+    return send(res, response.status === 404 ? 404 : 502, {
+      error: `the publisher answered ${response.status} for that PDF`,
+    });
+  }
+
+  let bytes;
+  try {
+    bytes = await readPdf(response, response.headers.get('content-type'));
+  } catch (error) {
+    return send(res, 415, { error: String(error?.message || error) });
+  }
+
+  const buffer = Buffer.from(bytes);
+  res.writeHead(200, {
+    'Content-Type': 'application/pdf',
+    'Content-Length': buffer.length,
+    'Content-Disposition': disposition(url.searchParams),
+    'Cache-Control': 'public, max-age=86400',
+    'X-Content-Type-Options': 'nosniff',
   });
   res.end(buffer);
 }
@@ -111,6 +155,8 @@ export default async function apiRouter(req, res, next) {
         return await arxivHtml(url, res);
       case '/arxiv/pdf':
         return await arxivPdf(url, res);
+      case '/pdf':
+        return await pdf(url, res);
       case '/asset':
         return await asset(url, res);
       case '/health':

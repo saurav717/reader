@@ -30,6 +30,15 @@ const ARTICLE = {
   </div></body></html>`,
 };
 
+// Enough of a PDF for the app to accept it and hand it to the viewer; the
+// proxy's own rules about what is a PDF are tested in scripts/pdf-proxy.test.mjs.
+const PDF = Buffer.from(
+  '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n' +
+    '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
+    '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n' +
+    'trailer<</Root 1 0 R>>\n%%EOF\n',
+);
+
 // The lookup box calls three keyless, CORS-open services. Stubbing them keeps
 // the smoke test offline and its assertions stable.
 const DEFINITION = [
@@ -66,6 +75,8 @@ const OPENALEX = {
       abstract_inverted_index: null,
       authorships: [{ author: { display_name: 'S Banach' } }],
       primary_location: { pdf_url: null, landing_page_url: 'https://example.org/one', source: null },
+      best_oa_location: { pdf_url: 'https://repository.example.org/one.pdf', landing_page_url: null, source: null },
+      open_access: { is_oa: true, oa_url: 'https://repository.example.org/one.pdf' },
       concepts: [],
       cited_by_count: 4211,
     },
@@ -88,6 +99,12 @@ async function stub(target) {
   );
   await target.route('**/api/arxiv/html*', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(ARTICLE) }),
+  );
+  await target.route('**/api/arxiv/pdf*', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF }),
+  );
+  await target.route('**/api/pdf*', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF }),
   );
   await target.route('**/api.dictionaryapi.dev/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(DEFINITION) }),
@@ -180,6 +197,22 @@ check(
   'the left panel counts what is not started',
   (await page.locator('.library-panel .nav-item', { hasText: 'Not started' }).locator('.count').textContent()) === '1',
 );
+
+console.log('\n== pdf ==');
+await page.locator('.segmented button', { hasText: 'PDF' }).click();
+await page.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
+check('the PDF opens in the reader', await page.locator('.pdf-pane iframe').isVisible());
+check(
+  'the PDF comes from the proxy, not the publisher',
+  (await page.locator('.pdf-pane iframe').getAttribute('src'))?.startsWith('blob:'),
+);
+const download = page.locator('.topbar button[aria-label="Download the PDF"]');
+check('a download button sits next to the mode switch', await download.isVisible());
+const saved = page.waitForEvent('download', { timeout: 10000 });
+await download.click();
+check('it saves the file under the paper\'s name', (await saved).suggestedFilename().endsWith('.pdf'));
+await page.locator('.segmented button', { hasText: 'Reflow' }).click();
+await page.waitForSelector('.paper-body p');
 
 console.log('\n== lookup box ==');
 await page.evaluate(() => {
@@ -314,6 +347,42 @@ check(
 await phone.locator('.lookup-tabs button', { hasText: 'Comment' }).click();
 check('the comment pane opens from the tabs', await phone.locator('#lookup-comment').isVisible());
 await phone.screenshot({ path: `${OUT}/mobile-lookup.png` });
+
+console.log('\n== a paper that is not on arXiv ==');
+// The case this is really about: OpenAlex and Semantic Scholar give an
+// abstract and a link to a PDF somewhere else. A fresh context so none of the
+// state above is in the way.
+const oaContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+await stub(oaContext);
+const oaPage = await oaContext.newPage();
+oaPage.on('pageerror', (error) => errors.push(String(error)));
+await oaPage.goto(BASE, { waitUntil: 'networkidle' });
+await oaPage.getByRole('button', { name: /Skip — keep everything local/i }).click();
+await oaPage.locator('.chip', { hasText: 'OpenAlex' }).click();
+await oaPage.locator('.chip', { hasText: 'arXiv' }).click();
+await oaPage.getByLabel('Search papers').fill('operators between function spaces');
+await oaPage.getByLabel('Search papers').press('Enter');
+await oaPage.waitForSelector('article.result');
+await oaPage.locator('article.result h3').click();
+await oaPage.getByRole('button', { name: /Add to collection/i }).click();
+await oaPage.getByRole('button', { name: /^Read$/ }).click();
+await oaPage.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
+check('an OpenAlex paper opens on its PDF rather than the abstract', await oaPage.locator('.pdf-pane iframe').isVisible());
+check(
+  'its PDF is fetched through the proxy',
+  (await oaPage.locator('.pdf-pane iframe').getAttribute('src'))?.startsWith('blob:'),
+);
+check(
+  'the download button is there for it too',
+  await oaPage.locator('.topbar button[aria-label="Download the PDF"]').isVisible(),
+);
+await oaPage.screenshot({ path: `${OUT}/pdf.png` });
+await oaPage.locator('.segmented button', { hasText: 'Reflow' }).click();
+await oaPage.waitForSelector('.paper-body');
+check(
+  'reflow still offers the abstract, with a way back to the PDF',
+  await oaPage.locator('.banner.warn', { hasText: /Read the PDF instead/ }).isVisible(),
+);
 
 console.log('\n== console errors ==');
 // Google Fonts and the GIS script are external; a sandbox that intercepts TLS
