@@ -151,6 +151,34 @@ crowd at.
 Every result also carries a plain link to its Scholar page, and every person to
 their profile, which works whether or not the source is turned on.
 
+#### Through SerpApi instead
+
+[SerpApi](https://serpapi.com) fetches Scholar's pages on its own machines and
+answers with JSON, so a proxy that goes through it is never the one Scholar shows
+a captcha to. It is the way Scholar works from anywhere that looks like a server,
+the Cloudflare Worker above all. It costs money past a free allowance — one
+SerpApi search per Scholar page asked for: a search, a person, a profile's works,
+a paper's versions — and it needs a key, so it is opt-in:
+
+```bash
+SERPAPI_KEY=… npm start                        # the Node proxy
+npx --yes wrangler@4 secret put SERPAPI_KEY    # the Worker, then redeploy it
+```
+
+With the key set every Scholar route goes through SerpApi (`server/serpapi.js`),
+mapped onto the same shapes as the direct parsing, so nothing downstream knows
+which was asked; `/health` says `"scholar": "serpapi"`. Without it the proxy asks
+Scholar directly as above. The key never leaves the proxy: not into the page,
+which anyone can read, and not into an answer. A refusal from SerpApi — a bad key,
+a spent allowance — is reported as SerpApi's, not as a captcha, so the panel does
+not offer a window for it. The five-minute cache applies either way, so typing in
+the search box does not spend the allowance on the first word twice.
+
+`SERPAPI_KEY=… node scripts/scholar-live.mjs` asks SerpApi for real, from any
+machine, and prints what came back; it is the check to run once, since the field
+names are SerpApi's and not a contract — `scripts/serpapi.test.mjs` pins the
+mapping to saved answers in their documented shape.
+
 ### Getting a paper from a terminal
 
 `npm run fetch` is the same resolution and download, run from Node rather than
@@ -768,6 +796,7 @@ server/scholar.js       Scholar's pages, fetched and parsed; also the politeness
                         and the telling apart of a captcha from a network block
 server/scholarBrowser.js  the same, through a real Chromium (SCHOLAR_BROWSER=1), and
                         the window a captcha is shown in
+server/serpapi.js       Scholar through SerpApi instead, when SERPAPI_KEY is set
 src/lib/google.ts       Google Identity Services + Drive REST
 src/lib/driveSync.ts    what a synced paper looks like in Drive
 src/lib/store.tsx       app state, IndexedDB persistence, the sync queue
@@ -782,6 +811,7 @@ scripts/locations.test.mjs  which copies of a paper are collected, how duplicate
 scripts/versions-drive.mjs  the whole chain in a browser (see below)
 scripts/scholar.test.mjs    reading Scholar's HTML, pinned to saved fixtures
 scripts/scholar-captcha.test.mjs  the captcha window's routes, and what they refuse to open
+scripts/serpapi.test.mjs    Scholar through SerpApi, pinned to its documented answers
 scripts/scholar-flow.mjs    Scholar search → versions → download → Drive → viewer
 scripts/scholar-live.mjs    asks the real Scholar; run by hand, not in CI
 scripts/fetch-paper.mjs     find and download a paper from a terminal, with no

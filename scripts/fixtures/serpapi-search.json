@@ -1,0 +1,56 @@
+{
+  "search_metadata": { "id": "6501a1b2c3d4e5f6a7b8c9d0", "status": "Success", "google_scholar_url": "https://scholar.google.com/scholar?q=attention+is+all+you+need&hl=en" },
+  "search_parameters": { "engine": "google_scholar", "q": "attention is all you need", "hl": "en", "num": "10" },
+  "search_information": { "organic_results_state": "Results for exact spelling", "total_results": 5210000, "time_taken_displayed": 0.06, "query_displayed": "attention is all you need" },
+  "organic_results": [
+    {
+      "position": 0,
+      "title": "Attention is all you need",
+      "result_id": "1DZmFRMh2t0J",
+      "type": "Pdf",
+      "link": "https://proceedings.neurips.cc/paper/2017/hash/3f5ee243547dee91fbd053c1c4a845aa-Abstract.html",
+      "snippet": "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder …",
+      "publication_info": {
+        "summary": "A Vaswani, N Shazeer, N Parmar, J Uszkoreit… - Advances in neural information …, 2017 - proceedings.neurips.cc",
+        "authors": [
+          { "name": "A Vaswani", "link": "https://scholar.google.com/citations?user=oR9sCGYAAAAJ&hl=en&oi=sra", "serpapi_scholar_link": "https://serpapi.com/search.json?author_id=oR9sCGYAAAAJ&engine=google_scholar_author&hl=en", "author_id": "oR9sCGYAAAAJ" },
+          { "name": "N Shazeer", "link": "https://scholar.google.com/citations?user=wsGvgA8AAAAJ&hl=en&oi=sra", "author_id": "wsGvgA8AAAAJ" }
+        ]
+      },
+      "resources": [
+        { "title": "neurips.cc", "file_format": "PDF", "link": "https://proceedings.neurips.cc/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf" }
+      ],
+      "inline_links": {
+        "serpapi_cite_link": "https://serpapi.com/search.json?engine=google_scholar_cite&q=1DZmFRMh2t0J",
+        "cited_by": { "total": 145231, "link": "https://scholar.google.com/scholar?cites=15939590049015976177&as_sdt=2005&sciodt=0,5&hl=en", "cites_id": "15939590049015976177", "serpapi_scholar_link": "https://serpapi.com/search.json?cites=15939590049015976177&engine=google_scholar&hl=en" },
+        "related_pages_link": "https://scholar.google.com/scholar?q=related:1DZmFRMh2t0J:scholar.google.com/&scioq=attention+is+all+you+need&hl=en&as_sdt=0,5",
+        "versions": { "total": 84, "link": "https://scholar.google.com/scholar?cluster=1972994675707178528&hl=en&as_sdt=0,5", "cluster_id": "1972994675707178528", "serpapi_scholar_link": "https://serpapi.com/search.json?cluster=1972994675707178528&engine=google_scholar&hl=en" }
+      }
+    },
+    {
+      "position": 1,
+      "title": "Attention is all you need",
+      "result_id": "2EZmFRMh2t1J",
+      "link": "https://arxiv.org/abs/1706.03762",
+      "snippet": "The dominant sequence transduction models …",
+      "publication_info": { "summary": "A Vaswani, N Shazeer, N Parmar… - arXiv preprint arXiv …, 2017 - arxiv.org" },
+      "resources": [
+        { "title": "arxiv.org", "file_format": "PDF", "link": "https://arxiv.org/pdf/1706.03762" }
+      ],
+      "inline_links": {
+        "cited_by": { "total": 1200, "cites_id": "1" },
+        "versions": { "total": 12, "cluster_id": "9" }
+      }
+    },
+    {
+      "position": 2,
+      "title": "Attention is not all you need: pure attention loses rank doubly exponentially with depth",
+      "result_id": "3FZmFRMh2t2J",
+      "link": "https://proceedings.mlr.press/v139/dong21a.html",
+      "snippet": "Attention-based architectures have become ubiquitous in machine learning …",
+      "publication_info": { "summary": "Y Dong, JB Cordonnier, A Loukas - International conference on …, 2021 - proceedings.mlr.press" },
+      "inline_links": { "cited_by": { "total": 300 } }
+    }
+  ],
+  "pagination": { "current": 1, "next": "https://scholar.google.com/scholar?start=10&q=attention+is+all+you+need&hl=en&as_sdt=0,5" }
+}

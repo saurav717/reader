@@ -22,6 +22,7 @@ import {
   searchUrl,
   versionsUrl,
 } from '../server/scholar.js';
+import { askSerp } from '../server/serpapi.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 const UA = 'reader/0.1 (personal research reading tool)';
@@ -48,7 +49,11 @@ const json = (body, status, headers) =>
   });
 
 export default {
-  async fetch(request) {
+  async fetch(request, env = {}) {
+    // A SerpApi key, as a secret: `npx wrangler secret put SERPAPI_KEY`. With
+    // it, Scholar is asked through SerpApi, which is the one way Scholar
+    // answers a Worker at all. See server/serpapi.js.
+    const serpKey = (env.SERPAPI_KEY || '').trim();
     const origin = request.headers.get('Origin') || '';
     const headers = cors(origin);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
@@ -59,7 +64,7 @@ export default {
     }
 
     try {
-      if (path === '/health') return json({ ok: true, access: false }, 200, headers);
+      if (path === '/health') return json({ ok: true, access: false, scholar: serpKey ? 'serpapi' : 'direct' }, 200, headers);
 
       // Signing in with an institution needs a browser window on a screen,
       // and a Worker has neither. The app asks here before offering it, and
@@ -101,6 +106,35 @@ export default {
         );
       }
       if (path.startsWith('/scholar/')) {
+        if (serpKey) {
+          const kind = path.replace('/scholar/', '');
+          const query = (url.searchParams.get('q') || '').trim();
+          const name = (url.searchParams.get('name') || '').trim();
+          const user = (url.searchParams.get('user') || '').trim();
+          const cluster = (url.searchParams.get('cluster') || '').trim();
+          const start = Math.max(0, Number(url.searchParams.get('start')) || 0);
+          const params =
+            kind === 'search'
+              ? query && { query, start: Math.min(90, start) }
+              : kind === 'authors'
+                ? name && { name }
+                : kind === 'profile'
+                  ? /^[\w-]{6,32}$/.test(user) && { user, start }
+                  : kind === 'versions'
+                    ? /^\d{1,25}$/.test(cluster) && { cluster }
+                    : null;
+          if (params === null) return json({ error: 'not found' }, 404, headers);
+          if (!params) return json({ error: 'missing or bad parameter' }, 400, headers);
+          try {
+            return json({ results: await askSerp(kind, params, serpKey), source: 'scholar', via: 'serpapi' }, 200, {
+              ...headers,
+              'Cache-Control': 'private, max-age=300',
+            });
+          } catch (error) {
+            if (error && error.serpapi) return json({ error: error.message, serpapi: true, reason: error.reason }, 503, headers);
+            return json({ error: String(error?.message || error) }, 502, headers);
+          }
+        }
         const scholarUrl =
           path === '/scholar/search'
             ? (url.searchParams.get('q') || '').trim() &&
@@ -119,7 +153,7 @@ export default {
         if (!scholarUrl) return json({ error: 'missing or bad parameter' }, 400, headers);
         const parse = path === '/scholar/authors' ? parseAuthors : path === '/scholar/profile' ? parseProfileWorks : parseResults;
         try {
-          return json({ results: parse(await getScholar(scholarUrl)), source: 'scholar' }, 200, {
+          return json({ results: parse(await getScholar(scholarUrl)), source: 'scholar', via: 'direct' }, 200, {
             ...headers,
             'Cache-Control': 'private, max-age=300',
           });
