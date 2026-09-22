@@ -54,7 +54,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/')) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha')) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
@@ -82,6 +82,24 @@ export default {
       // this to be refused often from here: Workers run in datacentres, and a
       // datacentre is what Scholar's captcha is for. It comes back as a 503
       // saying so, and the app falls back to the sources that have APIs.
+      //
+      // Showing the captcha to a person takes a browser window on a screen,
+      // which a Worker has no more of than a sign-in does. Said so, the same
+      // way, so the app explains instead of offering.
+      if (path.startsWith('/scholar/captcha')) {
+        return json(
+          {
+            available: false,
+            window: 'closed',
+            solved: false,
+            browser: false,
+            reason:
+              'This proxy is a Cloudflare Worker, which has no browser to show the captcha in. Run the proxy on your own machine (`npm start` in the reader repository) and point Settings → Paper proxy at http://localhost:8080.',
+          },
+          path === '/scholar/captcha/status' ? 200 : 501,
+          headers,
+        );
+      }
       if (path.startsWith('/scholar/')) {
         const scholarUrl =
           path === '/scholar/search'
@@ -107,7 +125,7 @@ export default {
           });
         } catch (error) {
           if (error && error.blocked) {
-            return json({ error: error.message, blocked: true, reason: error.reason }, 503, headers);
+            return json({ error: error.message, blocked: true, reason: error.reason, url: error.url }, 503, headers);
           }
           return json({ error: String(error?.message || error) }, 502, headers);
         }

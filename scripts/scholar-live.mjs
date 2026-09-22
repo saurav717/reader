@@ -133,6 +133,7 @@ console.log(
     ? `\n${problems} of the checks did not get an answer. If they were all captchas, Scholar has decided this machine is a robot:` +
         '\n  · try again from a home connection rather than a server,' +
         '\n  · try SCHOLAR_BROWSER=1, which drives a real Chromium and gets through more often,' +
+        '\n  · or search from the app against this proxy: when Scholar answers with a captcha, the panel offers to show it to you to solve,' +
         '\n  · or leave Scholar off — the other four sources need no proxy and are never blocked.'
     : '\nEverything answered. The Scholar source works from this machine.',
 );

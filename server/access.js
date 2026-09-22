@@ -67,7 +67,8 @@ function hasDisplay() {
 }
 
 /**
- * Whether this proxy can open a sign-in window at all, and if not, why —
+ * Whether this proxy can open a browser window at all — for a sign-in, or
+ * for a Scholar captcha (see server/scholarBrowser.js) — and if not, why,
  * worded for the person who could fix it. Nothing is launched to answer this.
  */
 export async function availability() {
@@ -93,7 +94,7 @@ export async function availability() {
     return {
       available: false,
       reason:
-        'The proxy is running somewhere with no screen to open a sign-in window on. Run it on your own machine (`npm start`) and point Settings → Paper proxy at it.',
+        'The proxy is running somewhere with no screen to open a browser window on. Run it on your own machine (`npm start`) and point Settings → Paper proxy at it.',
     };
   }
   return { available: true };

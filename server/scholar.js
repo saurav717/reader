@@ -19,6 +19,11 @@
  *   - Being blocked is normal and is not a bug. Every function here reports it
  *     as `blocked` rather than as an empty result, so the app can say what
  *     happened and fall back to the indexes that do have APIs.
+ *   - A captcha is Google asking for a person, and a person can be supplied:
+ *     `server/scholarBrowser.js` opens the refused page in a real browser
+ *     window on the proxy's machine, the captcha is solved there, and Scholar
+ *     is asked again through that browser, which now carries the cookie the
+ *     solve earned. The refusal carries the page it was refused on for that.
  *   - Scholar's HTML is not a contract. The class names below have been stable
  *     for years, but a redesign would break the parsing rather than corrupt it:
  *     the parsers return nothing rather than nonsense, and
@@ -68,6 +73,20 @@ export function versionsUrl(clusterId, { start = 0 } = {}) {
   const params = new URLSearchParams({ hl: 'en', as_sdt: '0,5', cluster: String(clusterId) });
   if (start) params.set('start', String(start));
   return `${SCHOLAR_HOST}/scholar?${params}`;
+}
+
+/**
+ * Whether this is a page of Scholar's, and only Scholar's. The captcha window
+ * opens a URL the app hands back, so the check is what keeps that window from
+ * being opened on any other site's page at another site's choosing.
+ */
+export function isScholarUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    return url.protocol === 'https:' && url.hostname === 'scholar.google.com';
+  } catch {
+    return false;
+  }
 }
 
 // ------------------------------------------------------------- being told no --
@@ -124,10 +143,12 @@ export function blockedMessage(reason) {
 }
 
 export class ScholarBlocked extends Error {
-  constructor(reason) {
+  constructor(reason, url) {
     super(blockedMessage(reason));
     this.reason = reason;
     this.blocked = true;
+    /** The page that was refused — where a captcha can be shown and solved. */
+    this.url = url;
   }
 }
 
@@ -417,7 +438,7 @@ export async function getScholar(url, { fetchPage = plainFetch, signal } = {}) {
     lastAt = Date.now();
     const { status, html } = await fetchPage(url, { signal });
     const reason = blockedReason(html, status);
-    if (reason) throw new ScholarBlocked(reason);
+    if (reason) throw new ScholarBlocked(reason, url);
     if (status >= 400) throw new Error(`Google Scholar answered ${status}`);
     remember(url, html);
     return html;

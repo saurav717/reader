@@ -8,6 +8,7 @@ import * as access from './access.js';
 import {
   authorSearchUrl,
   getScholar,
+  isScholarUrl,
   parseAuthors,
   parseProfileWorks,
   parseResults,
@@ -16,7 +17,7 @@ import {
   searchUrl,
   versionsUrl,
 } from './scholar.js';
-import { scholarFetcher } from './scholarBrowser.js';
+import { captchaStatus, closeCaptcha, openCaptcha, scholarFetcher } from './scholarBrowser.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 
@@ -233,13 +234,20 @@ async function accessAction(req, res, action) {
 // person would open and parse them. See server/scholar.js for what that costs
 // and how often it is refused; a captcha comes back as 503 with
 // `blocked: true`, which is how the app knows to say so and use its other
-// sources rather than showing an empty list.
+// sources rather than showing an empty list — and with the page that was
+// refused, so the app can offer to show the captcha. `/scholar/captcha`
+// opens that page in a real browser window on this machine, the person
+// solves it there, and Scholar is asked again through that browser. See
+// server/scholarBrowser.js.
 
-/** Resolved once: a real browser where asked for, plain requests otherwise. */
+/** A stand-in for the fetch, when a test or a script has handed one in. */
 let fetchPage;
 const scholarPage = async (url, options) => {
-  if (!fetchPage) fetchPage = await scholarFetcher(plainFetch);
-  return fetchPage(url, options);
+  if (fetchPage) return fetchPage(url, options);
+  // Decided per request rather than once: a captcha solved along the way
+  // moves Scholar from plain requests to the browser that solved it.
+  const fetcher = await scholarFetcher(plainFetch);
+  return fetcher(url, options);
 };
 
 /**
@@ -258,9 +266,25 @@ async function scholar(url, res, parse) {
     return send(res, 200, { results: parse(html), source: 'scholar' }, { 'Cache-Control': 'private, max-age=300' });
   } catch (error) {
     if (error && error.blocked) {
-      return send(res, 503, { error: error.message, blocked: true, reason: error.reason });
+      return send(res, 503, { error: error.message, blocked: true, reason: error.reason, url: error.url });
     }
     return send(res, 502, { error: String(error?.message || error) });
+  }
+}
+
+// The captcha, shown to a person. A POST, and only from this app: it opens a
+// window on the machine the proxy runs on, which is not something a page on
+// another site should be able to do — and only ever at a Scholar page, which
+// openCaptcha checks.
+async function scholarCaptcha(req, url, res) {
+  if (req.method !== 'POST') return send(res, 405, { error: 'POST to open the captcha in a window' });
+  if (!fromThisApp(req)) return send(res, 403, { error: 'not from this app' });
+  const target = url.searchParams.get('url') || '';
+  if (!isScholarUrl(target)) return send(res, 400, { error: 'only a scholar.google.com page can be opened here' });
+  try {
+    return send(res, 200, { ok: true, ...(await openCaptcha(target)) });
+  } catch (error) {
+    return send(res, 400, { error: String(error?.message || error) });
   }
 }
 
@@ -345,6 +369,12 @@ export default async function apiRouter(req, res, next) {
         return await scholarProfile(url, res);
       case '/scholar/versions':
         return await scholarVersions(url, res);
+      case '/scholar/captcha':
+        return await scholarCaptcha(req, url, res);
+      case '/scholar/captcha/status':
+        return send(res, 200, await captchaStatus(), { 'Cache-Control': 'no-store' });
+      case '/scholar/captcha/close':
+        return await accessAction(req, res, () => closeCaptcha());
       case '/asset':
         return await asset(url, res);
       case '/access/status':

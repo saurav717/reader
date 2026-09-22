@@ -10,6 +10,14 @@
  * Being refused is a normal outcome here, not an error to hide. `ScholarError`
  * carries `blocked`, and the panel says which sources are still answering
  * rather than showing an empty list.
+ *
+ * A captcha is the one refusal a person can do something about, and the
+ * bottom of this file is how: the proxy opens the refused page in a real
+ * browser window on its own machine, the person solves the captcha there,
+ * and Scholar is asked again through that browser. The window cannot be this
+ * tab's — the cookie a solve earns would land here, not on the proxy, and
+ * Scholar would refuse the proxy exactly as before — so the proxy has to be
+ * one with a screen: `npm start` on your own machine.
  */
 import type { AuthorRef, PaperRef } from '../types';
 import { api, hasProxy } from './api';
@@ -43,10 +51,13 @@ export interface ScholarAuthor {
 export class ScholarError extends Error {
   blocked: boolean;
   reason?: string;
-  constructor(message: string, blocked = false, reason?: string) {
+  /** The Scholar page that answered with a captcha — where it can be shown and solved. */
+  captchaUrl?: string;
+  constructor(message: string, blocked = false, reason?: string, captchaUrl?: string) {
     super(message);
     this.blocked = blocked;
     this.reason = reason;
+    this.captchaUrl = captchaUrl;
   }
 }
 
@@ -67,9 +78,15 @@ async function ask<T>(path: string, signal?: AbortSignal): Promise<T[]> {
     error?: string;
     blocked?: boolean;
     reason?: string;
+    url?: string;
   };
   if (!response.ok) {
-    throw new ScholarError(payload.error || `Google Scholar search failed (${response.status})`, Boolean(payload.blocked), payload.reason);
+    throw new ScholarError(
+      payload.error || `Google Scholar search failed (${response.status})`,
+      Boolean(payload.blocked),
+      payload.reason,
+      payload.blocked && payload.reason === 'captcha' ? payload.url : undefined,
+    );
   }
   return payload.results || [];
 }
@@ -152,4 +169,82 @@ export async function scholarProfileWorks(userId: string, page = 0, signal?: Abo
 export async function scholarVersions(clusterId: string, signal?: AbortSignal): Promise<ScholarResult[]> {
   if (!/^\d{1,25}$/.test(clusterId)) return [];
   return ask<ScholarResult>(`/scholar/versions?cluster=${encodeURIComponent(clusterId)}`, signal);
+}
+
+// ------------------------------------------------------------- the captcha --
+
+export interface CaptchaStatus {
+  /** Whether this proxy can open a window to show the captcha in at all. */
+  available: boolean;
+  /** Why not, worded for the person who could fix it. */
+  reason?: string;
+  /** Whether the captcha window is open right now. */
+  window: 'open' | 'closed';
+  /** Whether the last window ended with Scholar accepting the answer. */
+  solved: boolean;
+  /** Whether Scholar is now asked through the browser that solved it. */
+  browser: boolean;
+}
+
+const CAPTCHA_UNAVAILABLE: CaptchaStatus = {
+  available: false,
+  window: 'closed',
+  solved: false,
+  browser: false,
+  reason: 'There is no proxy configured, so there is nothing to show the captcha in.',
+};
+
+async function askCaptcha(path: string, init?: RequestInit): Promise<CaptchaStatus> {
+  const response = await fetch(api(path), { ...init, headers: { Accept: 'application/json' } });
+  const payload = (await response.json().catch(() => ({}))) as Partial<CaptchaStatus> & { error?: string };
+  if (!response.ok) throw new Error(payload.error || `The proxy answered ${response.status}.`);
+  return { ...CAPTCHA_UNAVAILABLE, ...payload };
+}
+
+/** The proxy's answer, fresh. */
+export async function captchaStatus(): Promise<CaptchaStatus> {
+  if (!hasProxy()) return CAPTCHA_UNAVAILABLE;
+  try {
+    return await askCaptcha('/scholar/captcha/status');
+  } catch {
+    // An older proxy without the route, or one that is down: no window.
+    return {
+      ...CAPTCHA_UNAVAILABLE,
+      reason: 'This proxy does not know how to show a captcha. Update it and restart.',
+    };
+  }
+}
+
+/** Open the window at the Scholar page that was refused. */
+export async function showCaptcha(url: string): Promise<void> {
+  await askCaptcha(`/scholar/captcha?url=${encodeURIComponent(url)}`, { method: 'POST' });
+}
+
+/** "I have solved it": close the window, so the fetches can use the profile. */
+export async function finishCaptcha(): Promise<void> {
+  await askCaptcha('/scholar/captcha/close', { method: 'POST' }).catch(() => undefined);
+}
+
+/**
+ * Resolves once the captcha window has closed — on its own, the moment
+ * Scholar accepts the answer; by the person; or by `finishCaptcha`. Polls,
+ * because the proxy has no way to call back, and gives up quietly on abort.
+ */
+export async function waitForCaptcha(signal?: AbortSignal, intervalMs = 1500): Promise<CaptchaStatus> {
+  for (;;) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const status = await captchaStatus();
+    if (status.window !== 'open') return status;
+    await new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(resolve, intervalMs);
+      signal?.addEventListener(
+        'abort',
+        () => {
+          window.clearTimeout(timer);
+          reject(new DOMException('Aborted', 'AbortError'));
+        },
+        { once: true },
+      );
+    });
+  }
 }
