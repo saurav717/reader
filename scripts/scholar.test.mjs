@@ -25,11 +25,13 @@ import {
   isScholarUrl,
   parseAuthors,
   parseByline,
+  parseCitationView,
   parseProfileWorks,
   parseResults,
   profileUrl,
   searchUrl,
   versionsUrl,
+  workUrl,
 } from '../server/scholar.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -39,6 +41,7 @@ const SEARCH = await fixture('scholar-search');
 const AUTHORS = await fixture('scholar-authors');
 const CAPTCHA = await fixture('scholar-captcha');
 const PROFILE = await fixture('scholar-profile');
+const WORK = await fixture('scholar-work');
 
 const realFetch = globalThis.fetch;
 after(() => {
@@ -65,6 +68,15 @@ describe('the pages it asks for', () => {
     assert.equal(url.pathname, '/citations');
     assert.equal(url.searchParams.get('view_op'), 'search_authors');
     assert.equal(url.searchParams.get('mauthors'), 'Saurav Chennuri');
+  });
+
+  it('asks for one entry of a profile by the handle the list gives it', () => {
+    const url = new URL(workUrl('oR9sCGYAAAAJ', 'oR9sCGYAAAAJ:u5HHmVD_uO8C'));
+    assert.equal(url.pathname, '/citations');
+    assert.equal(url.searchParams.get('view_op'), 'view_citation');
+    assert.equal(url.searchParams.get('user'), 'oR9sCGYAAAAJ');
+    assert.equal(url.searchParams.get('citation_for_view'), 'oR9sCGYAAAAJ:u5HHmVD_uO8C');
+    assert.equal(isScholarUrl(url.href), true);
   });
 
   it('asks a profile for the works it lists', () => {
@@ -192,6 +204,70 @@ describe('reading a profile’s own list of works', () => {
     assert.match(works[0].venue, /Advances in neural information processing systems/);
     assert.equal(works[0].year, 2017);
     assert.equal(works[0].citedBy, 145231);
+  });
+
+  it('keeps each entry’s handle, which is how its own page — and the file on it — is asked for', () => {
+    assert.equal(works[0].citationId, 'oR9sCGYAAAAJ:u5HHmVD_uO8C');
+    assert.equal(works[1].citationId, 'oR9sCGYAAAAJ:d1gkVwhDpl0C');
+  });
+});
+
+describe('reading one entry of a profile, opened', () => {
+  const [work] = parseCitationView(WORK);
+
+  it('reads the title and where it points', () => {
+    assert.equal(parseCitationView(WORK).length, 1);
+    assert.equal(work.title, 'Fusion approaches to predict post-stroke aphasia severity from multimodal neuroimaging data');
+    assert.match(work.url, /^https:\/\/openaccess\.thecvf\.com\//);
+  });
+
+  it('finds the file Scholar found — the "[PDF] from bu.edu" the list never showed', () => {
+    // The whole reason this page is asked for: the copy on the person's own
+    // university's site, which no index has a record of.
+    assert.equal(work.pdfUrl, 'https://www.bu.edu/example/papers/Chennuri_Fusion_ICCVW_2023.pdf');
+    assert.equal(work.pdfKind, 'PDF');
+    assert.equal(work.pdfHost, 'bu.edu');
+  });
+
+  it('reads the table: every author, the date, the venue, the description, the citations', () => {
+    assert.equal(work.authors.length, 10);
+    assert.equal(work.authors[0], 'Saurav Chennuri');
+    assert.equal(work.authors[9], 'Margrit Betke');
+    assert.equal(work.year, 2023);
+    assert.equal(work.published, '2023-10-02');
+    assert.equal(work.venue, '2023 IEEE/CVF International Conference on Computer Vision Workshops (ICCVW)');
+    // The full description, not the cut one shown before "more".
+    assert.match(work.snippet, /Western Aphasia Battery/);
+    assert.equal(work.citedBy, 9);
+  });
+
+  it('names the cluster from "All 5 versions", so every other copy can be asked for', () => {
+    assert.equal(work.clusterId, '6188253286931533296');
+    assert.equal(work.versionCount, 5);
+  });
+
+  it('reads the same page under the overlay’s ids', () => {
+    const [overlay] = parseCitationView(WORK.replace(/gsc_oci/g, 'gsc_vcd'));
+    assert.equal(overlay.pdfUrl, work.pdfUrl);
+    assert.equal(overlay.clusterId, work.clusterId);
+    assert.equal(overlay.authors.length, 10);
+  });
+
+  it('copes with an entry that has no file and no cluster', () => {
+    const bare = WORK.replace(/<div id="gsc_oci_title_ggi">[\s\S]*?<\/div>\s*<\/div>/, '</div>').replace(
+      /<div class="gs_scl"><div class="gsc_oci_field">Scholar articles[\s\S]*?<\/div><\/div><\/div><\/div>/,
+      '',
+    );
+    const [entry] = parseCitationView(bare);
+    assert.equal(entry.title, work.title);
+    assert.equal(entry.pdfUrl, undefined);
+    assert.equal(entry.clusterId, undefined);
+    assert.equal(entry.versionCount, undefined);
+  });
+
+  it('returns nothing rather than nonsense for a page that is not one', () => {
+    assert.deepEqual(parseCitationView(SEARCH), []);
+    assert.deepEqual(parseCitationView(CAPTCHA), []);
   });
 });
 

@@ -10,12 +10,14 @@ import {
   getScholar,
   isScholarUrl,
   parseAuthors,
+  parseCitationView,
   parseProfileWorks,
   parseResults,
   plainFetch,
   profileUrl,
   searchUrl,
   versionsUrl,
+  workUrl,
 } from './scholar.js';
 import { captchaStatus, closeCaptcha, openCaptcha, scholarFetcher } from './scholarBrowser.js';
 import { askSerp } from './serpapi.js';
@@ -324,6 +326,26 @@ function scholarProfile(url, res) {
   return scholar(res, { kind: 'profile', params: { user, start }, url: profileUrl(user, { start }), parse: parseProfileWorks });
 }
 
+/** Valid as far as the routes are concerned: a profile id, and an entry's `<user>:<code>`. */
+export const PROFILE_ID = /^[\w-]{6,32}$/;
+export const CITATION_ID = /^[\w-]{6,32}:[\w-]{6,32}$/;
+
+// One entry on a profile, opened: where the file Scholar found for it, and
+// the cluster it belongs to, are shown. The list gives neither, so the app
+// asks for this when it comes to reading one of a profile's papers.
+function scholarWork(url, res) {
+  const user = (url.searchParams.get('user') || '').trim();
+  const citation = (url.searchParams.get('citation') || '').trim();
+  if (!PROFILE_ID.test(user)) return send(res, 400, { error: 'bad Scholar profile id' });
+  if (!CITATION_ID.test(citation)) return send(res, 400, { error: 'bad Scholar citation id' });
+  return scholar(res, {
+    kind: 'work',
+    params: { user, citation },
+    url: workUrl(user, citation),
+    parse: parseCitationView,
+  });
+}
+
 function scholarVersions(url, res) {
   const cluster = (url.searchParams.get('cluster') || '').trim();
   if (!/^\d{1,25}$/.test(cluster)) return send(res, 400, { error: 'bad cluster id' });
@@ -385,6 +407,8 @@ export default async function apiRouter(req, res, next) {
         return await scholarProfile(url, res);
       case '/scholar/versions':
         return await scholarVersions(url, res);
+      case '/scholar/work':
+        return await scholarWork(url, res);
       case '/scholar/captcha':
         return await scholarCaptcha(req, url, res);
       case '/scholar/captcha/status':

@@ -63,6 +63,13 @@ export function serpUrl(kind, params, key) {
       query.set('cluster', params.cluster);
       query.set('num', '20');
       break;
+    case 'work':
+      // One entry of a profile, opened: the author engine's citation view,
+      // which carries the file Scholar found for it and the cluster.
+      query.set('engine', 'google_scholar_author');
+      query.set('view_op', 'view_citation');
+      query.set('citation_id', params.citation);
+      break;
     default:
       throw new Error(`no SerpApi request for ${kind}`);
   }
@@ -207,6 +214,7 @@ export function fromSerpWorks(json) {
       return {
         title: str(entry?.title),
         url: absolute(str(entry?.link)),
+        citationId: str(entry?.citation_id) || (str(entry?.link).match(/[?&]citation_for_view=([^&]+)/) || [])[1],
         authors: str(entry?.authors)
           .split(/,\s*/)
           .map((name) => name.replace(/…|\.\.\./g, '').trim())
@@ -219,11 +227,56 @@ export function fromSerpWorks(json) {
     .filter((work) => work.title);
 }
 
+/**
+ * One entry of a profile, opened, as `parseCitationView` would have read it:
+ * the `citation` object is the table on the page, `resources` the file link
+ * beside the title, and `scholar_articles` the search records it stands for,
+ * with the cluster in their "all versions" link.
+ */
+export function fromSerpCitation(json) {
+  const citation = json?.citation;
+  const title = str(citation?.title);
+  if (!title) return [];
+  const resource = list(json?.resources).find((entry) => absolute(str(entry?.link)));
+  const articles = list(citation?.scholar_articles);
+  const versions = articles.map((entry) => str(entry?.all_versions?.link)).find((link) => /cluster=(\d+)/.test(link));
+  const clusterId =
+    (versions && (versions.match(/cluster=(\d+)/) || [])[1]) ||
+    articles.map((entry) => (str(entry?.link).match(/cluster=(\d+)/) || [])[1]).find(Boolean) ||
+    undefined;
+  const date = (str(citation?.publication_date).match(/\b(1[89]\d\d|20\d\d)(?:\/(\d{1,2}))?(?:\/(\d{1,2}))?/) || []);
+  return [
+    {
+      title,
+      url: absolute(str(citation?.link)),
+      pdfUrl: resource ? absolute(str(resource.link)) : undefined,
+      pdfKind: resource ? str(resource.file_format).toUpperCase() || undefined : undefined,
+      pdfHost: resource ? str(resource.title) || undefined : undefined,
+      authors: str(citation?.authors)
+        .split(/,\s*/)
+        .map((name) => name.trim())
+        .filter(Boolean),
+      venue:
+        ['journal', 'conference', 'book', 'source', 'publisher', 'institution'].map((name) => str(citation?.[name])).find(Boolean) ||
+        undefined,
+      year: date[1] ? Number(date[1]) : undefined,
+      published: date[1]
+        ? [date[1], date[2] ? date[2].padStart(2, '0') : '01', date[3] ? date[3].padStart(2, '0') : '01'].join('-')
+        : undefined,
+      snippet: str(citation?.description),
+      citedBy: num(citation?.total_citations?.cited_by?.value) || num(citation?.total_citations?.cited_by?.total) || undefined,
+      clusterId,
+      versionCount: articles.map((entry) => num(entry?.all_versions?.total)).find(Boolean),
+    },
+  ];
+}
+
 /** The mapping for each kind of ask that is one request. */
 export const fromSerp = {
   search: fromSerpResults,
   versions: fromSerpResults,
   profile: fromSerpWorks,
+  work: fromSerpCitation,
 };
 
 // ------------------------------------------------------------- refusals ----

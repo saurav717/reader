@@ -81,6 +81,13 @@ export interface PaperRef {
   scholarCluster?: string;
   /** How many copies Scholar says there are. */
   scholarVersions?: number;
+  /**
+   * The entry on a Scholar profile this came from, as `<user>:<code>` — the
+   * handle for its own page, which is where Scholar shows the file it found
+   * for it and the cluster it belongs to. Only set for a profile's works,
+   * which carry neither in the list.
+   */
+  scholarCitation?: string;
 }
 
 export interface DriveRecord {

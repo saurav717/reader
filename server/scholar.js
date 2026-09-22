@@ -62,6 +62,18 @@ export function profileUrl(userId, { start = 0, pageSize = 20 } = {}) {
   return `${SCHOLAR_HOST}/citations?${params}`;
 }
 
+/**
+ * One entry on a profile, opened: the page behind a title in the list. It is
+ * the only place Scholar shows the file it found for a profile's paper — the
+ * "[PDF] from bu.edu" in the corner — and the cluster the paper belongs to,
+ * neither of which the list itself carries. `citationId` is Scholar's
+ * `citation_for_view`, `<user>:<code>`, which the list gives for each row.
+ */
+export function workUrl(userId, citationId) {
+  const params = new URLSearchParams({ hl: 'en', user: userId, view_op: 'view_citation', citation_for_view: citationId });
+  return `${SCHOLAR_HOST}/citations?${params}`;
+}
+
 /** People matching a name — Scholar's own profile search. */
 export function authorSearchUrl(name) {
   const params = new URLSearchParams({ hl: 'en', view_op: 'search_authors', mauthors: name });
@@ -225,6 +237,24 @@ function blocks(html, className) {
 /** The contents of the first element with this class. */
 const block = (html, className) => blocks(html, className)[0] || '';
 
+/** The contents of the element with this id, walked to its close tag the same way. */
+function idBlock(html, id) {
+  const open = new RegExp(`<([a-z][\\w-]*)[^>]*\\bid="${id}"[^>]*>`, 'i');
+  const match = open.exec(html);
+  if (!match) return '';
+  const tag = match[1];
+  const from = match.index + match[0].length;
+  const scan = new RegExp(`<${tag}\\b|</${tag}\\s*>`, 'gi');
+  scan.lastIndex = from;
+  let depth = 1;
+  let found;
+  while ((found = scan.exec(html))) {
+    depth += found[0][1] === '/' ? -1 : 1;
+    if (depth === 0) return html.slice(from, found.index);
+  }
+  return html.slice(from);
+}
+
 /** Every `<a href>` in a fragment, as { href, text }. */
 function links(html) {
   const out = [];
@@ -378,6 +408,11 @@ export function parseProfileWorks(html) {
       title: titleLink.text,
       /** Opens the entry on the person's profile; no direct file here. */
       url: absolute(titleLink.href),
+      /**
+       * Scholar's handle on that entry, which is how its own page — and the
+       * file link and cluster on it — is asked for. See `parseCitationView`.
+       */
+      citationId: (titleLink.href.match(/[?&]citation_for_view=([^&"]+)/) || [])[1],
       authors: text(grey?.[1] || '').split(/,\s*/).filter(Boolean),
       venue: text(grey?.[2] || '').replace(/,?\s*\b(1[89]\d\d|20\d\d)\b\s*$/, '') || undefined,
       year: Number(text(block(entry, 'gsc_a_y')).match(/(1[89]\d\d|20\d\d)/)?.[1]) || undefined,
@@ -385,6 +420,89 @@ export function parseProfileWorks(html) {
     });
   });
   return out;
+}
+
+/**
+ * One entry of a profile, opened: the "View article" page. Scholar lays it out
+ * as a title, a "[PDF] from bu.edu" link beside it where it found a file, and
+ * a table of field/value rows — authors, publication date, the venue under
+ * whichever name fits (journal, conference, book, source), a description,
+ * total citations — ending in "Scholar articles", the search record(s) the
+ * entry stands for, whose "All N versions" link names the cluster.
+ *
+ * The ids are `gsc_oci_*` on the page opened in its own tab and `gsc_vcd_*`
+ * in the overlay on the profile itself; the same page under two prefixes, so
+ * both are read. The answer is a list of at most one, in the shape of a search
+ * result, so it folds in with the rest of the Scholar answers.
+ */
+export function parseCitationView(html) {
+  const source = String(html || '');
+  const prefix = /gsc_oci_title/.test(source) ? 'gsc_oci' : /gsc_vcd_title/.test(source) ? 'gsc_vcd' : null;
+  if (!prefix) return [];
+
+  // The title and, next to it, the file Scholar found.
+  const titleBlock = idBlock(source, `${prefix}_title`);
+  const titleLink = links(titleBlock)[0];
+  const title = titleLink ? titleLink.text : text(titleBlock);
+  if (!title) return [];
+  // The id is on the wrapper and the class on the link inside it; either will do.
+  const file = links(idBlock(source, `${prefix}_title_ggi`) || block(source, `${prefix}_title_ggi`))[0];
+  const fileTag = file ? (file.text.match(/^\[(\w+)\]/) || [])[1] : undefined;
+
+  // The table: one row per field, labelled in words.
+  const fields = new Map();
+  for (const row of blocks(source, 'gs_scl')) {
+    const name = text(block(row, `${prefix}_field`)).toLowerCase();
+    const value = block(row, `${prefix}_value`);
+    if (name && value) fields.set(name, value);
+  }
+  const field = (name) => fields.get(name) || '';
+  const authors = text(field('authors') || field('inventors'))
+    .split(/,\s*/)
+    .map((name) => name.trim())
+    .filter(Boolean);
+  const venue =
+    ['journal', 'conference', 'book', 'source', 'publisher', 'institution']
+      .map((name) => text(field(name)))
+      .find(Boolean) || undefined;
+  // `2023/10/2`, `2023/10`, or `2023`: as much of the date as Scholar has.
+  const date = (text(field('publication date')).match(/\b(1[89]\d\d|20\d\d)(?:\/(\d{1,2}))?(?:\/(\d{1,2}))?/) || []);
+  const year = date[1] ? Number(date[1]) : undefined;
+  const published = date[1]
+    ? [date[1], date[2] ? date[2].padStart(2, '0') : '01', date[3] ? date[3].padStart(2, '0') : '01'].join('-')
+    : undefined;
+  // The description is shown twice — a short cut and the full text — and the
+  // full one carries the `descr` id; the short one is just the fallback.
+  const description = text(idBlock(field('description'), `${prefix}_descr`) || field('description'));
+  const citedBy = Number((text(field('total citations')).match(/cited by\s+(\d[\d,]*)/i) || [])[1]?.replace(/,/g, '')) || undefined;
+
+  // The search record(s) this entry is, and the cluster they belong to.
+  const articles = links(field('scholar articles'));
+  const versions = articles.find((link) => /\bversions?\b/i.test(link.text) && /cluster=/.test(link.href));
+  const clusterId =
+    (versions && (versions.href.match(/cluster=(\d+)/) || [])[1]) ||
+    (articles.map((link) => (link.href.match(/cluster=(\d+)/) || [])[1]).find(Boolean)) ||
+    undefined;
+
+  return [
+    {
+      title,
+      /** Where the title points: the publisher's page, usually. */
+      url: titleLink && /^https?:/i.test(titleLink.href) ? titleLink.href : undefined,
+      /** The file Scholar found — the "[PDF] from bu.edu" in the corner. */
+      pdfUrl: file && /^https?:/i.test(file.href) ? file.href : undefined,
+      pdfKind: fileTag ? fileTag.toUpperCase() : undefined,
+      pdfHost: file ? file.text.replace(/^\[\w+\]\s*(?:from\s+)?/i, '').trim() || undefined : undefined,
+      authors,
+      venue,
+      year,
+      published,
+      snippet: description,
+      citedBy,
+      clusterId,
+      versionCount: versions ? Number((versions.text.match(/(\d+)/) || [])[1]) || undefined : undefined,
+    },
+  ];
 }
 
 // ------------------------------------------------------------- the fetching --

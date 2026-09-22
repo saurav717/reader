@@ -1,0 +1,71 @@
+{
+  "search_metadata": {
+    "id": "example",
+    "status": "Success"
+  },
+  "search_parameters": {
+    "engine": "google_scholar_author",
+    "view_op": "view_citation",
+    "citation_id": "oR9sCGYAAAAJ:u5HHmVD_uO8C",
+    "hl": "en"
+  },
+  "citation": {
+    "title": "Fusion approaches to predict post-stroke aphasia severity from multimodal neuroimaging data",
+    "link": "https://openaccess.thecvf.com/content/ICCV2023W/CVAMD/html/Chennuri_Fusion_Approaches_to_Predict_Post-Stroke_Aphasia_Severity_from_Multimodal_Neuroimaging_ICCVW_2023_paper.html",
+    "authors": "Saurav Chennuri, Sha Lai, Anne Billot, Maria Varkanitsa, Emily J Braun, Swathi Kiran, Archana Venkataraman, Janusz Konrad, Prakash Ishwar, Margrit Betke",
+    "publication_date": "2023/10/2",
+    "conference": "2023 IEEE/CVF International Conference on Computer Vision Workshops (ICCVW)",
+    "pages": "2636-2645",
+    "publisher": "IEEE",
+    "description": "This paper explores feature selection and fusion methods for predicting the clinical outcome of post-stroke aphasia from medical imaging data.",
+    "total_citations": {
+      "link": "https://scholar.google.com/scholar?oi=bibs&hl=en&cites=6188253286931533296",
+      "cited_by": {
+        "value": 9,
+        "cites_id": "6188253286931533296"
+      },
+      "table": [
+        {
+          "year": "2024",
+          "citations": 3
+        },
+        {
+          "year": "2025",
+          "citations": 4
+        },
+        {
+          "year": "2026",
+          "citations": 2
+        }
+      ]
+    },
+    "scholar_articles": [
+      {
+        "title": "Fusion approaches to predict post-stroke aphasia severity from multimodal neuroimaging data",
+        "link": "https://scholar.google.com/scholar?oi=bibs&cluster=6188253286931533296&btnI=1&hl=en",
+        "authors": "S Chennuri, S Lai, A Billot, M Varkanitsa, EJ Braun…",
+        "publication": "2023 IEEE/CVF International Conference on Computer …, 2023",
+        "cited_by": {
+          "link": "https://scholar.google.com/scholar?oi=bibs&hl=en&cites=6188253286931533296",
+          "cites_id": "6188253286931533296",
+          "total": 9
+        },
+        "related_pages": {
+          "link": "https://scholar.google.com/scholar?oi=bibs&hl=en&q=related:cN0yNoxV4VUJ:scholar.google.com/"
+        },
+        "all_versions": {
+          "link": "https://scholar.google.com/scholar?oi=bibs&hl=en&cluster=6188253286931533296",
+          "cluster_id": "6188253286931533296",
+          "total": 5
+        }
+      }
+    ]
+  },
+  "resources": [
+    {
+      "title": "bu.edu",
+      "file_format": "PDF",
+      "link": "https://www.bu.edu/example/papers/Chennuri_Fusion_ICCVW_2023.pdf"
+    }
+  ]
+}
