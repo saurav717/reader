@@ -152,12 +152,25 @@ application.**
 
 You will be asked to configure the **OAuth consent screen** first if you have
 not before: **External** user type, an app name, your own address for the
-support and developer contact fields. Leave it in **Testing** and add your own
-Google account under **Test users** — an app in testing can only be used by the
-accounts listed there, which for a personal reading tool is exactly right. (A
-testing app's grant expires after seven days, so you will be asked to consent
-again about weekly. Publishing it stops that, and a `drive.file`-only app is not
-subject to Google's verification review.)
+support and developer contact fields. Leave it in **Testing** and add every
+Google account you will sign in with under **Test users** (newer consoles put
+this under **Google Auth Platform → Audience**) — an app in testing can only be
+used by the accounts listed there, which for a personal reading tool is exactly
+right.
+
+Miss that step and sign-in stops at Google's own page, before the app sees
+anything:
+
+> **Access blocked: <app> has not completed the Google verification process.**
+> The app is currently being tested and can only be accessed by
+> developer-approved testers. Error 403: `access_denied`
+
+The fix is to add *that* account — the one named at the bottom of the block
+page, which is not always the one you meant to use — to **Test users**, and to
+sign in again. (A testing app's grant also expires after seven days, so you will
+be asked to consent again about weekly. **Publish app** stops both: a
+`drive.file`-only app asks for no sensitive scope and so is not subject to
+Google's verification review, despite what the block page implies.)
 
 Under **Scopes**, nothing needs adding: the app asks for what it needs at the
 moment it needs it.
@@ -279,6 +292,8 @@ If nothing arrives in Drive, it is one of five things, and the app says which:
 | *No open-access PDF could be found* in the sync log | The paper is not free to read anywhere the three indexes can see |
 | *Drive request failed (403)* | The Drive API is not enabled on your Cloud project |
 | A popup that closes instantly, or `redirect_uri_mismatch` | The origin is not on the OAuth client's **Authorised JavaScript origins** — and a path is not an origin |
+| *Access blocked … has not completed the Google verification process*, `access_denied` | The consent screen is in **Testing** and the account shown on that page is not one of its **Test users** |
+| *The browser blocked the Google sign-in window* | Pop-ups are blocked for this site; allow them and click again |
 | Nothing at all, Settings shows Drive as not connected | Sign-in is only identity; **Connect Drive** is the second consent |
 
 ## Mirroring to a Git repository

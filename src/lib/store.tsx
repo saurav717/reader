@@ -171,6 +171,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  // Fetch Google's script as soon as a client ID is configured, rather than
+  // inside the click that needs it: a popup opened after an awaited download
+  // has lost the user gesture that allows it, and the browser blocks it.
+  useEffect(() => {
+    if (settings.googleClientId.trim()) google.prepare();
+  }, [settings.googleClientId]);
+
   useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     document.documentElement.dataset.theme = settings.theme;
