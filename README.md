@@ -1,10 +1,9 @@
 # Reader
 
 A reader for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref
-from one box — papers or the people who wrote them — read the paper, the full text
-where there is one and the PDF where there is not, highlight it, and keep what you
-collect: the PDFs in your own Google Drive, the notes and the bibliography in a Git
-repository.
+from one box — papers or the people who wrote them — read the paper as its PDF, or
+reflowed as text where there is one, to highlight it, and keep what you collect: the
+PDFs in your own Google Drive, the notes and the bibliography in a Git repository.
 
 ![the library on the left, the paper in the middle, the highlights pane on the right, and the three-pane lookup box over a selection](docs/reader.png)
 
@@ -200,6 +199,28 @@ re-syncing an unchanged paper does not fill the history with noise. The ref upda
 never forced: if something else pushed in between, the write fails and the next flush
 rebuilds on top of it rather than throwing that commit away.
 
+### Reading the copy in Drive
+
+Once a paper has been synced, Drive holds the same bytes the proxy fetched — and
+Google's API, unlike arXiv and the publishers, answers the browser directly. So
+the reader reads a synced paper back out of Drive instead of fetching it again:
+one request to Google rather than a round trip through the server to arXiv, and
+the line under the title says **PDF from your Drive** when that is where it came
+from. A paper already in Drive therefore opens even on a deployment with no
+server at all. If the copy has been deleted or the grant has lapsed, the reader
+falls back to the proxy without saying anything.
+
+Drive can only ever be the *second* place a PDF comes from. Putting a file there
+means uploading bytes, and getting the bytes in the first place is exactly the
+cross-origin fetch the browser refuses — there is no asking Drive to go and
+fetch a URL on your behalf. So the proxy is what gets a paper into Drive, and
+Drive is what saves you going back to the proxy afterwards.
+
+For the same reason, a PDF you downloaded from arXiv yourself and dropped into
+the folder is not picked up: under the `drive.file` scope the app cannot see
+files it did not create. Widening that scope would let it read the rest of your
+Drive, which is the trade this app deliberately does not make.
+
 ## Getting the PDF
 
 arXiv, OpenAlex and Semantic Scholar all answer a search with an abstract. Only
@@ -214,9 +235,21 @@ paper, and the reader goes and gets it:
 3. The file is fetched through `/api/pdf`, because a publisher's PDF is
    cross-origin and the browser will not read it from the page.
 
-The **Reflow / PDF** switch in the top bar appears whenever there is a PDF to
-show, and the button beside it saves the file. A paper with no reflowable text
-opens on its PDF rather than on an abstract you did not ask for.
+A paper opens on its PDF: the paper as it was published, figures, tables,
+typesetting and all, handed to the browser's own viewer. The **Reflow / PDF**
+switch in the top bar appears whenever there is a PDF to show, and the button
+beside it saves the file.
+
+Reflow is the other half of the switch, and the one you can highlight. Choosing
+either sets what the *next* paper opens in too — under **Reading** in Settings if
+you would rather set it there — so a reader who never wants the text rendering
+never sees it, and one who always does never sees a PDF. The reflowed text is
+only fetched once it is being looked at, so reading PDFs costs no round trip for
+an HTML rendering nobody reads.
+
+Where there is no PDF to open — no proxy to fetch it through, or no free copy
+anywhere OpenAlex or Semantic Scholar can see — the reader falls back to the
+reflowed text, or to the abstract, and says which.
 
 `/api/pdf` is the only route that fetches a URL this app did not choose, so it is
 deliberately narrow: https only, never at a private, loopback or link-local
@@ -276,7 +309,7 @@ src/lib/contact.ts      the address OpenAlex, Crossref and Unpaywall ask for
 src/lib/lookup.ts       dictionary and Wikipedia lookups for a selection
 src/lib/status.ts       reading, not started or finished
 src/lib/paperContent.ts fetches and sanitises the full text
-src/lib/pdf.ts          finds a paper's PDF, fetches it, and saves it
+src/lib/pdf.ts          finds a paper's PDF, fetches it (Drive first), and saves it
 src/lib/google.ts       Google Identity Services + Drive REST
 src/lib/driveSync.ts    what a synced paper looks like in Drive
 src/lib/store.tsx       app state, IndexedDB persistence, the sync queue
@@ -310,18 +343,21 @@ with, so the module under test is bundled with esbuild first.
 
 A Playwright script that drives a real Chromium through search → add → read →
 highlight → open the PDF → download it → look up → comment → note → reload, checks
-the panels are on the sides they should be, that the highlights re-anchor and the
-note survives, that results from several sources merge into one list, that an author
-search finds a person and opens their papers, and that a paper which is not on arXiv
-still opens on its PDF. It writes screenshots to `.smoke/`, and stubs arXiv, the PDF
-routes, the dictionary, Wikipedia, OpenAlex, Crossref and Semantic Scholar, so it
-needs no network beyond the local server.
+the panels are on the sides they should be, that a paper opens on its PDF and that
+the browser's viewer really renders it, that the highlights re-anchor, that the note
+and the chosen mode survive a reload, that results from several sources merge into
+one list, that an author search finds a person and opens their papers, that a paper
+which is not on arXiv opens on its PDF too, and that a synced paper is read back out
+of Drive rather than fetched through the proxy twice. It writes screenshots to
+`.smoke/`, and stubs arXiv, the PDF routes, the dictionary, Wikipedia, OpenAlex,
+Crossref and Semantic Scholar, so it needs no network beyond the local server.
 
 ## Known limits
 
 - PDF mode hands the file to the browser's own viewer, so highlighting only works in
-  Reflow mode. Reflow needs an HTML rendering, which arXiv has for recent papers and
-  ar5iv has for most older ones; otherwise the reader falls back to the abstract.
+  Reflow mode — which is why the switch is there, and why choosing it sticks. Reflow
+  needs an HTML rendering, which arXiv has for recent papers and ar5iv has for most
+  older ones; otherwise the reader falls back to the abstract.
 - A PDF is only there to be had if the paper is open access. Behind a paywall, the
   best either index can offer is the landing page, and the reader says so rather
   than pretending the file is coming.

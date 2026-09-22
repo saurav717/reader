@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useStore } from '../lib/store';
 import { loadPaperContent, type PaperContent } from '../lib/paperContent';
 import { hasProxy } from '../lib/api';
-import { fetchPdf, pdfSourceUrl, resolvePdfUrl, saveBlob } from '../lib/pdf';
+import { fetchPaperPdf, pdfSourceUrl, resolvePdfUrl, saveBlob, type PdfOrigin } from '../lib/pdf';
 import {
   buildIndex,
   offsetsFromRange,
@@ -13,7 +13,7 @@ import {
   unpaint,
   type Selector,
 } from '../lib/anchor';
-import { HIGHLIGHT_COLORS, type HighlightColor } from '../types';
+import { HIGHLIGHT_COLORS, type HighlightColor, type ReadingMode } from '../types';
 import LookupPopover, { type LookupTarget } from './LookupPopover';
 import {
   ArrowLeftIcon,
@@ -61,13 +61,16 @@ export default function Reader({
   onSelectHighlight,
   onOrphans,
 }: Props) {
-  const { papers, highlights, addHighlight, setProgress, markOpened, setPaperPdfUrl, settings, updateSettings } =
+  const { papers, highlights, addHighlight, setProgress, markOpened, setPaperPdfUrl, settings, updateSettings, driveConnected } =
     useStore();
   const paper = papers.find((item) => item.id === paperId);
 
+  // What a paper opens on, remembered between papers and between sessions.
+  const preferredMode = settings.readingMode;
+
   const [content, setContent] = useState<PaperContent | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<'reflow' | 'pdf'>('reflow');
+  const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<ReadingMode>(preferredMode);
   const [sizeIndex, setSizeIndex] = useState(1);
   const [pending, setPending] = useState<PendingSelection | null>(null);
   const [lookup, setLookup] = useState<LookupTarget | null>(null);
@@ -76,6 +79,7 @@ export default function Reader({
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfLookup, setPdfLookup] = useState<'checking' | 'ready' | 'none'>('checking');
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
+  const [pdfFrom, setPdfFrom] = useState<PdfOrigin | null>(null);
   const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -102,19 +106,31 @@ export default function Reader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
 
+  // A different paper is a different document, whichever way it is being read.
+  // The fetch below turns the spinner back on if it is the one being read.
   useEffect(() => {
-    if (!paper) return;
+    setContent(null);
+    setLoading(false);
+  }, [paperId, paper?.arxivId]);
+
+  // The reflowed text is only fetched once it is being looked at: for a paper
+  // read as a PDF, the HTML rendering is a round trip nobody asked for.
+  useEffect(() => {
+    if (!paper || mode !== 'reflow' || content) return;
     const controller = new AbortController();
     setLoading(true);
-    setContent(null);
     loadPaperContent(paper, controller.signal)
-      .then((loaded) => setContent(loaded))
+      .then((loaded) => {
+        if (!controller.signal.aborted) setContent(loaded);
+      })
       .catch(() => undefined)
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
     return () => controller.abort();
     // Only the identity of the paper matters for what we fetch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paperId, paper?.arxivId]);
+  }, [paperId, paper?.arxivId, mode, content]);
 
   // Find the PDF. arXiv and most open-access results already say where theirs
   // is; for the rest we go back to OpenAlex and Semantic Scholar and ask, since
@@ -144,16 +160,28 @@ export default function Reader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId, paper?.arxivId, paper?.pdfUrl]);
 
-  // A new paper starts in Reflow again, with no PDF held over from the last.
+  // A new paper opens the way they read the last one, with no PDF held over.
   useEffect(() => {
     modeChosen.current = false;
-    setMode('reflow');
+    setMode(preferredMode);
     setPdfBlob(null);
+    setPdfFrom(null);
     setSaving(false);
+    // Changing the preference mid-paper is already handled by chooseMode.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
 
-  // Nothing to reflow and a PDF to hand: open the PDF rather than leaving them
-  // on an abstract. Only until they pick a mode themselves.
+  // The PDF is what a paper opens on unless there is none to open: no proxy to
+  // fetch it through, or nothing free to read anywhere we can see. Only until
+  // they pick a mode themselves.
+  useEffect(() => {
+    if (modeChosen.current) return;
+    if (preferredMode === 'pdf' && (!hasProxy || pdfLookup === 'none')) setMode('reflow');
+    else setMode(preferredMode);
+  }, [preferredMode, pdfLookup]);
+
+  // Reading it reflowed but there is nothing to reflow: the PDF beats an
+  // abstract they did not ask for.
   useEffect(() => {
     if (modeChosen.current || !content) return;
     if (content.mode === 'abstract' && pdfLookup === 'ready' && hasProxy) setMode('pdf');
@@ -168,21 +196,35 @@ export default function Reader({
     [paper?.id, paper?.title, paper?.arxivId, pdfUrl],
   );
 
+  // Reading the copy in Drive rather than fetching the paper again is worth it
+  // whenever there is one: it is the same file, and it comes back without the
+  // proxy — so a synced paper opens even where there is no server at all.
+  const driveOptions = useMemo(
+    () => ({
+      driveFileId: paper?.drive?.pdfFileId,
+      clientId: settings.googleClientId,
+      driveConnected,
+    }),
+    [paper?.drive?.pdfFileId, settings.googleClientId, driveConnected],
+  );
+
   // Fetch the file itself, once, when the PDF pane is first opened.
   useEffect(() => {
     if (mode !== 'pdf' || !pdfTarget || pdfBlob) return;
     const controller = new AbortController();
     setPdfError(null);
-    fetchPdf(pdfTarget, controller.signal)
-      .then((blob) => {
-        if (!controller.signal.aborted) setPdfBlob(blob);
+    fetchPaperPdf(pdfTarget, driveOptions, controller.signal)
+      .then(({ blob, from }) => {
+        if (controller.signal.aborted) return;
+        setPdfBlob(blob);
+        setPdfFrom(from);
       })
       .catch((error) => {
         if (controller.signal.aborted) return;
         setPdfError(error instanceof Error ? error.message : String(error));
       });
     return () => controller.abort();
-  }, [mode, pdfBlob, pdfTarget]);
+  }, [mode, pdfBlob, pdfTarget, driveOptions]);
 
   // The viewer needs a URL, and every one of them has to be handed back.
   useEffect(() => {
@@ -200,20 +242,25 @@ export default function Reader({
     setSaving(true);
     setPdfError(null);
     try {
-      const blob = pdfBlob ?? (await fetchPdf(pdfTarget));
-      if (!pdfBlob) setPdfBlob(blob);
-      saveBlob(blob, pdfTarget);
+      const fetched = pdfBlob ?? (await fetchPaperPdf(pdfTarget, driveOptions)).blob;
+      if (!pdfBlob) setPdfBlob(fetched);
+      saveBlob(fetched, pdfTarget);
     } catch (error) {
       setPdfError(error instanceof Error ? error.message : String(error));
     } finally {
       setSaving(false);
     }
-  }, [pdfBlob, pdfTarget, saving]);
+  }, [driveOptions, pdfBlob, pdfTarget, saving]);
 
-  const chooseMode = useCallback((next: 'reflow' | 'pdf') => {
-    modeChosen.current = true;
-    setMode(next);
-  }, []);
+  // A mode picked by hand is the one the next paper opens in too.
+  const chooseMode = useCallback(
+    (next: ReadingMode) => {
+      modeChosen.current = true;
+      setMode(next);
+      if (next !== preferredMode) updateSettings({ readingMode: next });
+    },
+    [preferredMode, updateSettings],
+  );
 
   // Repaint whenever the document or the highlight set changes.
   useLayoutEffect(() => {
@@ -385,7 +432,13 @@ export default function Reader({
           <div className="title">{paper.title}</div>
           <div className="sub">
             {paper.arxivId ? `arXiv:${paper.arxivId}` : paper.doi ? `doi:${paper.doi}` : paper.id}
-            {mode === 'pdf' ? ' · PDF' : content ? ` · ${content.sourceLabel}` : ''}
+            {mode === 'pdf'
+              ? pdfFrom === 'drive'
+                ? ' · PDF from your Drive'
+                : ' · PDF'
+              : content
+                ? ` · ${content.sourceLabel}`
+                : ''}
             {` · ${Math.round(paper.progress * 100)}%`}
           </div>
         </div>
@@ -464,9 +517,9 @@ export default function Reader({
 
       {mode === 'pdf' ? (
         <div className="pdf-pane">
-          {pdfError ? (
+          {pdfError || pdfLookup === 'none' ? (
             <p className="banner warn" style={{ margin: 16 }}>
-              {pdfError}
+              {pdfError || 'No PDF of this paper is free to read anywhere we can see.'}
               {pdfUrl ? (
                 <>
                   {' '}
@@ -475,7 +528,11 @@ export default function Reader({
                   </a>
                   .
                 </>
-              ) : null}
+              ) : null}{' '}
+              <button type="button" className="link-btn" onClick={() => chooseMode('reflow')}>
+                Read the text instead
+              </button>
+              .
             </p>
           ) : pdfObjectUrl ? (
             <iframe
@@ -485,7 +542,8 @@ export default function Reader({
             />
           ) : (
             <p style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13, padding: 16 }}>
-              <span className="spinner" /> Fetching the PDF…
+              <span className="spinner" />
+              {pdfLookup === 'checking' ? ' Looking for the PDF…' : ' Fetching the PDF…'}
             </p>
           )}
         </div>
@@ -556,7 +614,7 @@ export default function Reader({
         </div>
       )}
 
-      {mode === 'pdf' && !pdfError ? (
+      {mode === 'pdf' && !pdfError && pdfLookup !== 'none' ? (
         <p style={{ margin: 0, padding: '8px 16px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)' }}>
           Highlighting works in Reflow mode — the PDF is rendered by your browser's own viewer.
         </p>

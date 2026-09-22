@@ -355,6 +355,33 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           ) : null}
         </section>
 
+        <section style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Reading
+          </div>
+          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="What a paper opens in">
+            <button
+              type="button"
+              aria-pressed={settings.readingMode === 'pdf'}
+              onClick={() => updateSettings({ readingMode: 'pdf' })}
+            >
+              PDF
+            </button>
+            <button
+              type="button"
+              aria-pressed={settings.readingMode === 'reflow'}
+              onClick={() => updateSettings({ readingMode: 'reflow' })}
+            >
+              Reflow
+            </button>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+            What a paper opens in. The PDF is the paper as it was published; Reflow is the text rendering, which is
+            the one you can highlight. Either way the switch in the top bar changes a paper you already have open —
+            and sets this.
+          </p>
+        </section>
+
         <section>
           <div className="eyebrow" style={{ marginBottom: 10 }}>
             Appearance

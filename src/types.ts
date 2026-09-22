@@ -105,6 +105,8 @@ export interface Settings {
   autoSync: boolean;
   savePdf: boolean;
   theme: 'light' | 'dark';
+  /** Which view a paper opens in when both are available. */
+  readingMode: ReadingMode;
   /**
    * Used for the OpenAlex and Crossref "polite pools" — which are faster and
    * more reliable than the anonymous ones — and required by Unpaywall. Left
@@ -122,6 +124,9 @@ export interface Settings {
   githubToken: string;
   githubSync: boolean;
 }
+
+/** The PDF as the publisher set it, or the reflowed text you can highlight. */
+export type ReadingMode = 'pdf' | 'reflow';
 
 export interface GoogleUser {
   name: string;
