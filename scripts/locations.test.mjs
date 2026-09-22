@@ -140,6 +140,61 @@ describe('a paper from a Google Scholar profile', () => {
     assert.ok(found.some((location) => location.host === 'ieeexplore.ieee.org'), 'and the other versions, from the cluster it named');
   });
 
+  it('falls back to the search by title when the entry’s own page is refused, or the proxy has no route for it', async () => {
+    // What the site sees from a Worker older than the route (404) and what a
+    // plain request gets from Scholar's profile pages (a 401 refusal): either
+    // way the search answers, with the same record the Papers tab shows.
+    for (const refusal of [json({ error: 'not found' }, 404), json({ error: 'refused', blocked: true, reason: 'refused' }, 503)]) {
+      forgetLocations();
+      setLocationsProxy('https://proxy.example.workers.dev');
+      const asked = [];
+      handlers['proxy.example.workers.dev'] = (url) => {
+        asked.push(url.pathname);
+        if (url.pathname === '/scholar/work') return refusal.clone();
+        if (url.pathname === '/scholar/search') {
+          assert.equal(url.searchParams.get('q'), '"Fusion approaches to predict post-stroke aphasia severity from multimodal neuroimaging data"');
+          return json({
+            results: [
+              // A neighbour Scholar finds for the same words: not this paper.
+              { title: 'Fusion approaches to aphasia severity: a replication', url: 'https://other.example.org/1', pdfUrl: 'https://other.example.org/1.pdf', authors: [], snippet: '', clusterId: '1' },
+              {
+                title: 'Fusion Approaches to Predict Post-Stroke Aphasia Severity from Multimodal Neuroimaging Data',
+                url: 'https://ieeexplore.ieee.org/document/10350951',
+                pdfUrl: 'https://www.bu.edu/example/papers/Chennuri_Fusion_ICCVW_2023.pdf',
+                pdfHost: 'bu.edu',
+                authors: [],
+                snippet: '',
+                clusterId: '6188253286931533296',
+                versionCount: 5,
+              },
+            ],
+          });
+        }
+        if (url.pathname === '/scholar/versions') {
+          return json({ results: [{ title: 'Fusion approaches…', url: 'https://openaccess.thecvf.com/x.html', pdfUrl: 'https://openaccess.thecvf.com/x.pdf', pdfHost: 'thecvf.com', authors: [], snippet: '' }] });
+        }
+        return json({ error: 'not found' }, 404);
+      };
+      const found = await findLocations(fromProfile());
+      assert.deepEqual(asked, ['/scholar/work', '/scholar/search', '/scholar/versions']);
+      assert.equal(found[0].host, 'bu.edu');
+      assert.ok(found.some((location) => location.host === 'openaccess.thecvf.com' && location.isPdf), 'and the versions from the cluster the search named');
+      assert.ok(!found.some((location) => location.host === 'other.example.org'), 'the neighbour is not this paper');
+    }
+  });
+
+  it('asks the search by title for any Scholar paper without a cluster, not only a profile’s', async () => {
+    setLocationsProxy('https://proxy.example.workers.dev');
+    const asked = [];
+    handlers['proxy.example.workers.dev'] = (url) => {
+      asked.push(url.pathname);
+      return json({ results: [{ title: 'Attention Is All You Need', pdfUrl: 'https://arxiv.example.org/1706.03762.pdf', pdfHost: 'arxiv.org', authors: [], snippet: '' }] });
+    };
+    const found = await findLocations(paper({ id: 'scholar:Attention Is All You Need', source: 'scholar', doi: undefined, landingUrl: undefined }));
+    assert.deepEqual(asked, ['/scholar/search']);
+    assert.equal(found[0].host, 'arxiv.example.org');
+  });
+
   it('does not count Scholar’s own page about the paper as a place to read it', async () => {
     setLocationsProxy('https://proxy.example.workers.dev');
     handlers['proxy.example.workers.dev'] = () => json({ results: [] });

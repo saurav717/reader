@@ -237,7 +237,8 @@ export function fromSerpCitation(json) {
   const citation = json?.citation;
   const title = str(citation?.title);
   if (!title) return [];
-  const resource = list(json?.resources).find((entry) => absolute(str(entry?.link)));
+  // Beside the answer or inside it: SerpApi has put the file link in both places.
+  const resource = [...list(json?.resources), ...list(citation?.resources)].find((entry) => absolute(str(entry?.link)));
   const articles = list(citation?.scholar_articles);
   const versions = articles.map((entry) => str(entry?.all_versions?.link)).find((link) => /cluster=(\d+)/.test(link));
   const clusterId =
