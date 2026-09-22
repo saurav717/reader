@@ -96,18 +96,28 @@ interface StoredToken {
 
 let token: StoredToken | null = null;
 
+/**
+ * The one thing to do about a consent screen that is still in Testing. It is
+ * said twice because Google refuses such an account in two different ways: with
+ * an `access_denied` it hands back, and with a page in the popup it hands back
+ * nothing for — the block page is the end of that window, so all the app ever
+ * learns is that the window closed.
+ */
+const TESTING_ADVICE =
+  'add this Google account under Test users on the OAuth consent screen of the Cloud project the client ID belongs to — or publish that app, which a drive.file-only app can do without review.';
+
 /** What Google's own wording means, said in terms of this app. */
 function describe(type: string | undefined, message: string | undefined, description?: string): string {
   switch (type) {
     case 'popup_failed_to_open':
       return 'The browser blocked the Google sign-in window. Allow pop-ups for this site and try again.';
     case 'popup_closed':
-      return 'The Google window was closed before sign-in finished.';
+      return `The Google window was closed before sign-in finished. If it said the app has not completed verification, ${TESTING_ADVICE}`;
     default:
       break;
   }
   if (message === 'access_denied' || description === 'access_denied') {
-    return 'Google refused the sign-in. If it said the app has not completed verification, add this Google account under Test users on the OAuth consent screen of the Cloud project the client ID belongs to — or publish that app, which a drive.file-only app can do without review.';
+    return `Google refused the sign-in. If it said the app has not completed verification, ${TESTING_ADVICE}`;
   }
   return description || message || 'Authorisation was cancelled';
 }

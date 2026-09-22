@@ -320,6 +320,7 @@ If nothing arrives in Drive, it is one of five things, and the app says which:
 | *Drive request failed (403)* | The Drive API is not enabled on your Cloud project |
 | A popup that closes instantly, or `redirect_uri_mismatch` | The origin is not on the OAuth client's **Authorised JavaScript origins** — and a path is not an origin |
 | *Access blocked … has not completed the Google verification process*, `access_denied` | The consent screen is in **Testing** and the account shown on that page is not one of its **Test users** |
+| *The Google window was closed before sign-in finished* | Either it was closed, or it was the block page above — that page ends the window without telling the app why, so the message carries the same advice |
 | *The browser blocked the Google sign-in window* | Pop-ups are blocked for this site; allow them and click again |
 | Nothing at all, Settings shows Drive as not connected | Sign-in is only identity; **Connect Drive** is the second consent |
 
