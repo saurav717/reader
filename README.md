@@ -132,6 +132,36 @@ crowd at.
 Every result also carries a plain link to its Scholar page, and every person to
 their profile, which works whether or not the source is turned on.
 
+### Getting a paper from a terminal
+
+`npm run fetch` is the same resolution and download, run from Node rather than
+from a page:
+
+```bash
+npm run fetch -- "attention is all you need"
+npm run fetch -- 1706.03762 --email you@example.org
+npm run fetch -- --doi 10.5555/3295222.3295349 --list
+```
+
+It searches, lists every copy it found, tries them in order, and writes the first
+one that hands over a PDF — named exactly as the app names it in Drive.
+
+It is worth having for one reason beyond convenience: **it isolates the failure**.
+The app needs a proxy because a browser tab may not fetch a cross-origin PDF — that
+is the browser's rule, not the network's, and Node has no such rule. So if
+`npm run fetch` gets the paper and the app does not, the paper is fine and the proxy
+is the problem. If `npm run fetch` cannot get it either, no proxy was ever going to.
+
+With Google Drive for desktop, `--out` is all that "save it to Drive" needs, since
+the folder *is* Drive:
+
+```bash
+npm run fetch -- "attention is all you need" --out ~/"Google Drive/My Drive/Papers_collection"
+```
+
+Without it, use the app's **Save to Drive**: uploading needs a Google token, the app
+has one in the browser, and nothing here holds a refresh token on disk.
+
 ### Saving a paper to Drive as you find it
 
 **Save to Drive** on a search result does the whole chain in one press: find every
@@ -578,6 +608,8 @@ scripts/versions-drive.mjs  the whole chain in a browser (see below)
 scripts/scholar.test.mjs    reading Scholar's HTML, pinned to saved fixtures
 scripts/scholar-flow.mjs    Scholar search → versions → download → Drive → viewer
 scripts/scholar-live.mjs    asks the real Scholar; run by hand, not in CI
+scripts/fetch-paper.mjs     find and download a paper from a terminal, with no
+                            browser and no proxy — `npm run fetch`
 scripts/fakeGoogle.mjs      Identity Services and Drive, stubbed, for the two
                             browser tests
 scripts/github.test.mjs     what the Git mirror writes, and that a flush is
