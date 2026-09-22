@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useStore } from '../lib/store';
 import type { View } from '../types.view';
 import type { Paper } from '../types';
+import { FINISHED_AT, statusOf } from '../lib/status';
 import { CloudCheckIcon, CloudIcon, PlusIcon, SearchIcon, TrashIcon } from './icons';
 
 interface Props {
@@ -16,6 +17,10 @@ function headingFor(view: View, name?: string): { title: string; colour?: string
       return { title: 'All papers' };
     case 'reading':
       return { title: 'Reading now' };
+    case 'unread':
+      return { title: 'Not started' };
+    case 'finished':
+      return { title: 'Finished' };
     case 'unsorted':
       return { title: 'Unsorted' };
     default:
@@ -35,7 +40,9 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
     let list: Paper[] = papers;
     if (view.kind === 'collection') list = list.filter((paper) => paper.collectionIds.includes(view.id));
     if (view.kind === 'unsorted') list = list.filter((paper) => paper.collectionIds.length === 0);
-    if (view.kind === 'reading') list = list.filter((paper) => paper.progress > 0 && paper.progress < 0.98);
+    if (view.kind === 'reading') list = list.filter((paper) => statusOf(paper) === 'reading');
+    if (view.kind === 'unread') list = list.filter((paper) => statusOf(paper) === 'unread');
+    if (view.kind === 'finished') list = list.filter((paper) => statusOf(paper) === 'finished');
 
     const needle = filter.trim().toLowerCase();
     if (needle) {
@@ -183,7 +190,11 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
                     <span style={{ width: `${Math.round(paper.progress * 44)}px` }} />
                   </span>
                   <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    {paper.progress >= 0.98 ? 'done' : paper.progress > 0 ? `${Math.round(paper.progress * 100)}%` : 'new'}
+                    {paper.progress >= FINISHED_AT
+                      ? 'done'
+                      : paper.progress > 0
+                        ? `${Math.round(paper.progress * 100)}%`
+                        : 'new'}
                   </span>
                 </div>
               </button>

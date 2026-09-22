@@ -13,8 +13,10 @@ import {
   type Selector,
 } from '../lib/anchor';
 import { HIGHLIGHT_COLORS, type HighlightColor } from '../types';
+import LookupPopover, { type LookupTarget } from './LookupPopover';
 import {
   ArrowLeftIcon,
+  BookIcon,
   CopyIcon,
   ExternalIcon,
   MoonIcon,
@@ -30,6 +32,8 @@ interface Props {
   selectedHighlightId: string | null;
   onBack: () => void;
   onToggleNotes: () => void;
+  /** Bring the highlights pane forward; `force` opens the dock if it is shut. */
+  onNotes: (force: boolean) => void;
   onToggleSidebar: () => void;
   onSelectHighlight: (id: string | null) => void;
   onOrphans: (ids: string[]) => void;
@@ -50,6 +54,7 @@ export default function Reader({
   selectedHighlightId,
   onBack,
   onToggleNotes,
+  onNotes,
   onToggleSidebar,
   onSelectHighlight,
   onOrphans,
@@ -62,6 +67,7 @@ export default function Reader({
   const [mode, setMode] = useState<'reflow' | 'pdf'>('reflow');
   const [sizeIndex, setSizeIndex] = useState(1);
   const [pending, setPending] = useState<PendingSelection | null>(null);
+  const [lookup, setLookup] = useState<LookupTarget | null>(null);
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -70,6 +76,12 @@ export default function Reader({
     () => highlights.filter((highlight) => highlight.paperId === paperId),
     [highlights, paperId],
   );
+
+  // A different paper means a stale box over text that is no longer there.
+  useEffect(() => {
+    setLookup(null);
+    setPending(null);
+  }, [paperId]);
 
   useEffect(() => {
     if (paper) markOpened(paper.id);
@@ -153,6 +165,33 @@ export default function Reader({
     });
   }, []);
 
+  /** The same capture the toolbar does, but returned rather than shown. */
+  const selectionTarget = useCallback((): LookupTarget | null => {
+    const root = bodyRef.current;
+    const selection = window.getSelection();
+    if (!root || !selection || selection.isCollapsed || !selection.rangeCount) return null;
+    const range = selection.getRangeAt(0);
+    if (!root.contains(range.commonAncestorContainer)) return null;
+    const index = buildIndex(root);
+    const offsets = offsetsFromRange(index, range);
+    if (!offsets || !index.text.slice(offsets.start, offsets.end).trim()) return null;
+    const rect = range.getBoundingClientRect();
+    return {
+      top: rect.bottom + 8,
+      left: rect.left,
+      selector: selectorFromOffsets(index, offsets.start, offsets.end),
+      section: sectionFor(range, root),
+    };
+  }, []);
+
+  const openLookup = useCallback(() => {
+    const target = selectionTarget();
+    if (!target) return false;
+    setPending(null);
+    setLookup(target);
+    return true;
+  }, [selectionTarget]);
+
   const applyHighlight = useCallback(
     async (color: HighlightColor, withNote: boolean) => {
       if (!pending || !paper) return;
@@ -171,10 +210,13 @@ export default function Reader({
       setPending(null);
       if (withNote) {
         onSelectHighlight(created.id);
-        if (!notesOpen) onToggleNotes();
+        onNotes(true);
+      } else {
+        // Follow along if the dock is open, but do not reopen one you shut.
+        onNotes(false);
       }
     },
-    [addHighlight, notesOpen, onSelectHighlight, onToggleNotes, paper, pending],
+    [addHighlight, onNotes, onSelectHighlight, paper, pending],
   );
 
   // Number keys apply a colour to the live selection without the mouse.
@@ -347,11 +389,15 @@ export default function Reader({
               className="paper-body"
               onMouseUp={captureSelection}
               onKeyUp={captureSelection}
+              onContextMenu={(event) => {
+                // Only take the menu over when there is something to look up.
+                if (openLookup()) event.preventDefault();
+              }}
               onClick={(event) => {
                 const mark = (event.target as HTMLElement).closest('mark.hl') as HTMLElement | null;
                 if (mark?.dataset.highlightId) {
                   onSelectHighlight(mark.dataset.highlightId);
-                  if (!notesOpen) onToggleNotes();
+                  onNotes(true);
                 }
               }}
               dangerouslySetInnerHTML={{ __html: content?.html ?? '' }}
@@ -380,6 +426,14 @@ export default function Reader({
             </button>
           ))}
           <span className="divider" />
+          <button
+            type="button"
+            className="wide"
+            onClick={() => openLookup()}
+            title="Meaning, where it comes from, and a comment — or right-click the selection"
+          >
+            <BookIcon size={15} /> Look up
+          </button>
           <button type="button" className="wide" onClick={() => void applyHighlight('yellow', true)} title="Highlight and write a note — N">
             <NoteIcon size={15} /> Note
           </button>
@@ -394,6 +448,18 @@ export default function Reader({
             <CopyIcon size={15} />
           </button>
         </div>
+      ) : null}
+
+      {lookup ? (
+        <LookupPopover
+          paperId={paper.id}
+          target={lookup}
+          onClose={() => setLookup(null)}
+          onSelectHighlight={(id) => {
+            onSelectHighlight(id);
+            if (id) onNotes(true);
+          }}
+        />
       ) : null}
     </div>
   );

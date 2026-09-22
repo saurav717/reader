@@ -64,7 +64,7 @@ export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, on
   };
 
   return (
-    <aside className="panel notes-rail" aria-label="Highlights and notes" style={{ borderLeft: '1px solid var(--border)', borderRight: 0, width: 336 }}>
+    <aside className="panel notes-rail" aria-label="Highlights and notes">
       <div className="panel-head">
         <h2>Highlights</h2>
         <button type="button" className="icon-btn sm" onClick={exportMarkdown} aria-label="Export highlights as Markdown">

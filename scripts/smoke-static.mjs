@@ -63,12 +63,16 @@ await page.goto('http://localhost:4321/reader/', { waitUntil: 'networkidle' });
 check('static build boots at a sub-path', await page.getByRole('heading', { name: /Read papers/i }).isVisible());
 
 await page.getByRole('button', { name: /Skip — keep everything local/i }).click();
-await page.getByRole('button', { name: 'Discover papers' }).click();
+// Discover holds the right-hand dock by default; only open it if it is shut.
+if (!(await page.locator('.dock .discover-panel').isVisible())) {
+  await page.getByRole('button', { name: 'Discover papers' }).click();
+}
+check('discover is the right-hand pane', await page.locator('.dock .discover-panel').isVisible());
 
-const chips = await page.locator('.panel .chip').allTextContents();
+const chips = await page.locator('.discover-panel .chip').allTextContents();
 check('arXiv is hidden as a source', !chips.includes('arXiv'), `chips: ${chips.join(', ')}`);
 check('OpenAlex is offered instead', chips.includes('OpenAlex'));
-check('the limitation is explained, not hidden', await page.locator('.banner.warn').first().isVisible());
+check('the limitation is explained, not hidden', await page.locator('.dock .banner.warn').first().isVisible());
 
 await page.getByLabel('Search papers').fill('fourier neural operator');
 await page.getByLabel('Search papers').press('Enter');
