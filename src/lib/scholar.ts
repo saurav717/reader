@@ -99,7 +99,9 @@ async function ask<T>(path: string, page: string, signal?: AbortSignal): Promise
       payload.error || `Google Scholar search failed (${response.status})`,
       Boolean(payload.blocked),
       payload.reason,
-      payload.blocked && payload.reason === 'captcha' ? payload.url || page : undefined,
+      // A captcha, or a bare refusal that a real browser gets past: both are
+      // answered by opening the page in the proxy's window.
+      payload.blocked && (payload.reason === 'captcha' || payload.reason === 'refused') ? payload.url || page : undefined,
     );
   }
   return payload.results || [];
