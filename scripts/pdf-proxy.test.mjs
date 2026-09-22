@@ -8,7 +8,13 @@
 import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import apiRouter from '../server/api.js';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+
+// No signed-in profile on this machine, whatever the machine: a login wall
+// below is a login wall, not something to retry through a browser.
+process.env.READER_PROFILE_DIR = join(tmpdir(), `reader-no-profile-${process.pid}`);
+const { default: apiRouter } = await import('../server/api.js');
 
 const PDF = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(2048, 0x20), Buffer.from('\n%%EOF')]);
 
@@ -111,7 +117,7 @@ describe('what the PDF proxy refuses', () => {
     assert.match((await response.json()).error, /redirects too many times/);
   });
 
-  it('refuses a login page dressed up as a PDF', async () => {
+  it('refuses a login page dressed up as a PDF, and says whose login it was', async () => {
     upstream = () =>
       new Response('<html><body>Sign in to read this article</body></html>', {
         status: 200,
@@ -119,7 +125,20 @@ describe('what the PDF proxy refuses', () => {
       });
     const response = await get('https://publisher.example.com/article');
     assert.equal(response.status, 415);
-    assert.match((await response.json()).error, /web page rather than a PDF/);
+    const body = await response.json();
+    assert.match(body.error, /web page rather than a PDF/);
+    // The app offers a sign-in on this, so the answer has to name the host.
+    assert.equal(body.loginWall, true);
+    assert.equal(body.host, 'publisher.example.com');
+  });
+
+  it('treats a 403 as a login wall too', async () => {
+    upstream = () => new Response('forbidden', { status: 403 });
+    const response = await get('https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=1');
+    assert.equal(response.status, 502);
+    const body = await response.json();
+    assert.equal(body.loginWall, true);
+    assert.equal(body.host, 'ieeexplore.ieee.org');
   });
 
   it('refuses a file larger than the cap', async () => {
@@ -138,5 +157,66 @@ describe('what the PDF proxy refuses', () => {
     const response = await get('https://repository.example.org/missing.pdf');
     assert.equal(response.status, 404);
     assert.match((await response.json()).error, /404/);
+  });
+});
+
+describe('signing in with an institution', () => {
+  it('says whether it can open a window, without opening one', async () => {
+    const response = await realFetch(`${base}/access/status`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(typeof body.available, 'boolean');
+    assert.equal(body.window, 'closed');
+    assert.equal(body.everSignedIn, false);
+  });
+
+  it('will not open a window for a GET, which any page could trigger', async () => {
+    const response = await realFetch(`${base}/access/signin?url=https://ieeexplore.ieee.org/document/1`);
+    assert.equal(response.status, 405);
+  });
+
+  it('will not open a window for another site', async () => {
+    const response = await realFetch(`${base}/access/signin?url=https://ieeexplore.ieee.org/document/1`, {
+      method: 'POST',
+      headers: { Origin: 'https://evil.example' },
+    });
+    assert.equal(response.status, 403);
+    assert.match((await response.json()).error, /not from this app/);
+  });
+
+  it('refuses a sign-in page that is not https, before anything is launched', async () => {
+    const response = await realFetch(`${base}/access/signin?url=http://ieeexplore.ieee.org/document/1`, {
+      method: 'POST',
+    });
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /only https/);
+  });
+
+  it('mentions the sign-in on /health, so a proxy check can say so', async () => {
+    const body = await (await realFetch(`${base}/health`)).json();
+    assert.equal(body.ok, true);
+    assert.equal(typeof body.access, 'boolean');
+  });
+});
+
+describe('a proxy on this machine, called from the site', () => {
+  it('answers the site on GitHub Pages with CORS headers', async () => {
+    const response = await realFetch(`${base}/health`, { headers: { Origin: 'https://saurav717.github.io' } });
+    assert.equal(response.headers.get('access-control-allow-origin'), 'https://saurav717.github.io');
+    assert.equal(response.headers.get('vary'), 'Origin');
+  });
+
+  it('answers a preflight for the same', async () => {
+    const response = await realFetch(`${base}/access/close`, {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://saurav717.github.io', 'Access-Control-Request-Method': 'POST' },
+    });
+    assert.equal(response.status, 204);
+    assert.match(response.headers.get('access-control-allow-methods'), /POST/);
+  });
+
+  it('gives no CORS headers to anyone else', async () => {
+    const response = await realFetch(`${base}/health`, { headers: { Origin: 'https://evil.example' } });
+    assert.equal(response.headers.get('access-control-allow-origin'), null);
   });
 });

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../lib/store';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
+import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
 import { parseRepo } from '../lib/github';
 import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
@@ -31,6 +32,21 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   const [proxy, setProxy] = useState(settings.proxyBase);
   const [proxyCheck, setProxyCheck] = useState<{ ok: boolean; message: string } | null>(null);
   const [checking, setChecking] = useState(false);
+  /** Whether the proxy can open a sign-in window, asked once the sheet opens. */
+  const [access, setAccess] = useState<AccessStatus | null>(null);
+  const [forgetting, setForgetting] = useState(false);
+  const [forgot, setForgot] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    accessStatus().then((status) => {
+      if (live) setAccess(status);
+    });
+    return () => {
+      live = false;
+    };
+    // Asked again after the proxy address is tested, which is when it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.proxyBase]);
 
   // Fetch Google's script while the sheet is being read, not inside the click
   // that needs it: a popup opened after an awaited download has lost the user
@@ -270,6 +286,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                 setChecking(true);
                 updateSettings({ proxyBase: proxy.trim() });
                 setProxyCheck(await checkProxy(proxy));
+                forgetAccess();
+                setAccess(await accessStatus());
                 setChecking(false);
               }}
             >
@@ -293,6 +311,53 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           </div>
         </section>
 
+
+        <section style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Institutional access
+          </div>
+          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+            IEEE, ACM, Springer and the rest hand their PDFs to a browser signed in through a university, and a
+            web page to everyone else. When a copy comes back as that page, the result offers to sign in: the
+            proxy opens a real browser window on its own machine at the publisher, you sign in there through your
+            institution, and the paper is fetched again through that browser. The session is kept in a browser
+            profile of its own, so the next paper needs no sign-in. Only a proxy running on your machine —{' '}
+            <span className="mono">npm start</span>, then <span className="mono">http://localhost:8080</span> as
+            the proxy above — can open a window; the Cloudflare Worker cannot.
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, lineHeight: 1.5, color: access?.available ? 'var(--accent)' : 'var(--muted)' }}>
+              {access === null
+                ? 'Asking the proxy…'
+                : access.available
+                  ? `This proxy can open a sign-in window.${access.everSignedIn ? ' A signed-in profile is kept on it.' : ' Nothing has been signed in to yet.'}`
+                  : `Not available on this proxy. ${access.reason || ''}`}
+            </span>
+            {access?.available && access.everSignedIn ? (
+              <button
+                type="button"
+                className="btn sm"
+                disabled={forgetting}
+                onClick={async () => {
+                  setForgetting(true);
+                  setForgot(null);
+                  try {
+                    await forgetSignIns();
+                    setForgot('Signed out: the profile and every session in it are gone.');
+                    setAccess(await accessStatus());
+                  } catch (error) {
+                    setForgot(error instanceof Error ? error.message : String(error));
+                  } finally {
+                    setForgetting(false);
+                  }
+                }}
+              >
+                {forgetting ? <span className="spinner" /> : null} Forget sign-ins
+              </button>
+            ) : null}
+            {forgot ? <span style={{ fontSize: 12, color: 'var(--muted)' }}>{forgot}</span> : null}
+          </div>
+        </section>
 
         <section style={{ marginBottom: 22 }}>
           <div className="eyebrow" style={{ marginBottom: 10 }}>

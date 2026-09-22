@@ -796,6 +796,13 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .banner .link-btn { color: var(--accent-ink); }
 .banner.warn .link-btn, .banner.error .link-btn { color: inherit; }
+/* The offer to sign in, inside a banner that just said why the file is not here. */
+.sign-in-note .link-btn { text-decoration: underline; font-weight: 500; }
+.sign-in-note .link-btn:disabled { opacity: 0.6; cursor: wait; }
+/* Where the file can be dropped: the sentence itself, lit up while something is over it. */
+.drop-in { border-radius: 6px; transition: background 120ms; }
+.drop-in.over { background: rgba(127, 127, 127, 0.18); outline: 1.5px dashed var(--muted); outline-offset: 2px; }
+.drop-in .link-btn { text-decoration: underline; font-weight: 500; }
 
 .setting { display: block; margin-bottom: 16px; }
 .setting > span { display: block; font-size: 12px; font-weight: 500; margin-bottom: 5px; }
