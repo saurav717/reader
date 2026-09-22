@@ -101,6 +101,50 @@ const OPENALEX = {
   ],
 };
 
+const CROSSREF = {
+  message: {
+    items: [
+      {
+        DOI: '10.1000/two',
+        title: ['Theorie des operations lineaires'],
+        author: [{ given: 'Stefan', family: 'Banach' }],
+        issued: { 'date-parts': [[1932, 1, 1]] },
+        'container-title': ['Monografie Matematyczne'],
+        'is-referenced-by-count': 9001,
+        URL: 'https://doi.org/10.1000/two',
+      },
+    ],
+  },
+};
+
+const OPENALEX_AUTHORS = {
+  results: [
+    {
+      id: 'https://openalex.org/A1',
+      display_name: 'Stefan Banach',
+      orcid: null,
+      works_count: 58,
+      cited_by_count: 41000,
+      summary_stats: { h_index: 30 },
+      last_known_institutions: [{ display_name: 'Lwow' }],
+    },
+  ],
+};
+
+/**
+ * Leaves exactly one source chip switched on. Clicking each chip blind would
+ * depend on what the defaults happen to be, which is a thing that changes.
+ */
+async function selectOnlySource(target, label) {
+  const chips = target.locator('.discover-panel .chip');
+  for (let index = 0; index < (await chips.count()); index += 1) {
+    const chip = chips.nth(index);
+    const wanted = ((await chip.textContent()) || '').trim() === label;
+    const pressed = (await chip.getAttribute('aria-pressed')) === 'true';
+    if (wanted !== pressed) await chip.click();
+  }
+}
+
 const problems = [];
 function check(label, condition, detail = '') {
   const status = condition ? 'PASS' : 'FAIL';
@@ -135,6 +179,18 @@ async function stub(target) {
   );
   await target.route('**/api.openalex.org/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OPENALEX) }),
+  );
+  // Authors and works are different endpoints with different shapes. Playwright
+  // gives priority to the most recently registered route, so this one has to be
+  // registered after the catch-all above rather than before it.
+  await target.route('**/api.openalex.org/authors*', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OPENALEX_AUTHORS) }),
+  );
+  await target.route('**/api.crossref.org/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(CROSSREF) }),
+  );
+  await target.route('**/api.semanticscholar.org/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ data: [] }) }),
   );
 }
 await stub(context);
@@ -174,9 +230,12 @@ console.log('\n== search and add ==');
 await page.getByLabel('Search papers').fill('fourier neural operator');
 await page.getByLabel('Search papers').press('Enter');
 await page.waitForSelector('article.result');
-check('search returns a parsed result', (await page.locator('article.result h3').count()) === 1);
+// One hit from each stubbed source, merged into a single ranked list.
+check('search merges every source into one list', (await page.locator('article.result h3').count()) === 3);
 
-await page.locator('article.result h3').click();
+const arxivResult = page.locator('article.result', { hasText: 'Fourier Neural Operator' });
+check('the arXiv result is parsed', (await arxivResult.count()) === 1);
+await arxivResult.locator('h3').click();
 await page.getByRole('button', { name: /Add to collection/i }).click();
 await page.getByRole('button', { name: /^Read$/ }).click();
 
@@ -338,7 +397,7 @@ await phone.getByRole('button', { name: 'Discover papers' }).click();
 await phone.getByLabel('Search papers').fill('fourier');
 await phone.getByLabel('Search papers').press('Enter');
 await phone.waitForSelector('article.result');
-await phone.locator('article.result h3').click();
+await phone.locator('article.result', { hasText: 'Fourier Neural Operator' }).locator('h3').click();
 await phone.getByRole('button', { name: /^Read$/ }).click();
 await phone.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
 check('the phone opens on the PDF too', await phone.locator('.pdf-pane iframe').isVisible());
@@ -383,12 +442,11 @@ const oaPage = await oaContext.newPage();
 oaPage.on('pageerror', (error) => errors.push(String(error)));
 await oaPage.goto(BASE, { waitUntil: 'networkidle' });
 await oaPage.getByRole('button', { name: /Skip — keep everything local/i }).click();
-await oaPage.locator('.chip', { hasText: 'OpenAlex' }).click();
-await oaPage.locator('.chip', { hasText: 'arXiv' }).click();
+await selectOnlySource(oaPage, 'OpenAlex');
 await oaPage.getByLabel('Search papers').fill('operators between function spaces');
 await oaPage.getByLabel('Search papers').press('Enter');
 await oaPage.waitForSelector('article.result');
-await oaPage.locator('article.result h3').click();
+await oaPage.locator('article.result', { hasText: 'On operators between function spaces' }).locator('h3').click();
 await oaPage.getByRole('button', { name: /Add to collection/i }).click();
 await oaPage.getByRole('button', { name: /^Read$/ }).click();
 await oaPage.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
@@ -488,7 +546,9 @@ await drivePage.getByRole('button', { name: 'Close settings' }).click();
 await drivePage.getByLabel('Search papers').fill('fourier neural operator');
 await drivePage.getByLabel('Search papers').press('Enter');
 await drivePage.waitForSelector('article.result');
-await drivePage.locator('article.result h3').click();
+// Search now merges several sources, so be explicit about which result: the
+// arXiv one, whose PDF goes through the route this section counts.
+await drivePage.locator('article.result h3').first().click();
 await drivePage.getByRole('button', { name: /Add to collection/i }).click();
 await drivePage.waitForTimeout(2500);
 check('adding a paper puts its PDF and sidecar in Drive', drive.uploads >= 2, `uploads=${drive.uploads}`);
@@ -508,6 +568,37 @@ check(
   await drivePage.locator('.topbar .sub', { hasText: /PDF from your Drive/ }).isVisible(),
 );
 await drivePage.screenshot({ path: `${OUT}/drive.png` });
+console.log('\n== authors ==');
+// A fresh context, so the author run starts from the same blank slate the
+// reading run did rather than from whatever it left in localStorage.
+const peopleContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+await stub(peopleContext);
+const peoplePage = await peopleContext.newPage();
+peoplePage.on('pageerror', (error) => errors.push(String(error)));
+await peoplePage.goto(BASE, { waitUntil: 'networkidle' });
+await peoplePage.getByRole('button', { name: /Skip — keep everything local/i }).click();
+await peoplePage.waitForSelector('.discover-panel');
+await peoplePage.getByRole('button', { name: 'Authors', exact: true }).click();
+await peoplePage.getByLabel('Search for a person').fill('Banach');
+await peoplePage.getByLabel('Search for a person').press('Enter');
+await peoplePage.waitForSelector('article.result');
+const person = peoplePage.locator('article.result', { hasText: 'Stefan Banach' });
+check('author search finds the person', (await person.count()) === 1);
+check(
+  'and says what is known about them',
+  ((await person.textContent()) || '').includes('41k citations'),
+  (await person.textContent()) || '',
+);
+await person.locator('h3').click();
+// The "Papers by" header renders as soon as the person is picked, so waiting
+// on it alone would race the request that fetches what they wrote.
+await peoplePage.waitForSelector('text=Papers by');
+await peoplePage.waitForSelector('article.result', { timeout: 10000 });
+check(
+  'opening a person lists their papers',
+  await peoplePage.locator('article.result', { hasText: 'On operators between function spaces' }).isVisible(),
+);
+await peoplePage.screenshot({ path: `${OUT}/authors.png` });
 
 console.log('\n== console errors ==');
 // Google Fonts and the GIS script are external; a sandbox that intercepts TLS

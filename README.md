@@ -1,9 +1,9 @@
 # Reader
 
-A reader for research papers. Search arXiv, OpenAlex and Semantic Scholar from one
-box, read the paper as its PDF — or reflowed as text, where there is one, to
-highlight it — and — if you connect Google Drive — keep a copy of every paper you add
-in your own Drive, with your annotations beside it.
+A reader for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref
+from one box — papers or the people who wrote them — read the paper as its PDF, or
+reflowed as text where there is one, to highlight it, and keep what you collect: the
+PDFs in your own Google Drive, the notes and the bibliography in a Git repository.
 
 ![the library on the left, the paper in the middle, the highlights pane on the right, and the three-pane lookup box over a selection](docs/reader.png)
 
@@ -35,8 +35,43 @@ npm start            # http://localhost:8080
 `npm start` runs a small Express server that serves the build **and** the `/api`
 routes. Those routes are not optional: arXiv sends no CORS headers, so the browser
 cannot fetch its search API, HTML renderings or PDFs directly — and neither do the
-publishers and repositories that hold everything else. Search itself (OpenAlex,
-Semantic Scholar) and Google are called straight from the page.
+publishers and repositories that hold everything else. Everything else — OpenAlex,
+Semantic Scholar, Crossref, Unpaywall, GitHub and Google — sends CORS headers and is
+called straight from the page.
+
+## Searching
+
+The **Papers** tab searches every selected source at once and merges the answers
+into one list. Sources are merged rather than concatenated: two records of the same
+paper — matched on DOI, then arXiv id, then a normalised title — become one entry
+that takes the best field from each, so the abstract can come from one index and the
+open-access PDF from another. The order is [reciprocal rank
+fusion](https://dl.acm.org/doi/10.1145/1571941.1572114): each source votes with
+`1/(60 + rank)`, so a paper two indexes both rank highly beats one that only a single
+index ranked first, without their scores having to mean the same thing.
+
+Quote a phrase to match it exactly. A query that *is* an arXiv id jumps straight to
+that paper; one that merely contains a number does not.
+
+The **Authors** tab searches OpenAlex's and Semantic Scholar's author records —
+affiliation, paper count, citations, h-index, ORCID — and opening a person lists
+what they wrote. Neither index disambiguates people perfectly, so two records of the
+same person can appear; when none of them is the right person, "search every paper
+with that name on it" falls back to matching the name across every source's author
+field instead of on an identifier.
+
+| Source | Needs the proxy | Papers | Authors |
+| --- | --- | --- | --- |
+| arXiv | yes | yes | by name |
+| OpenAlex | no | yes | yes |
+| Semantic Scholar | no | yes | yes |
+| Crossref | no | yes | by name |
+
+There is deliberately no Google Scholar. It has no public API, its terms forbid
+automated access, and it blocks datacentre IPs — which is exactly where this app's
+proxy runs. Its results are also mostly links to publisher landing pages rather than
+to anything this reader could open. The four sources above return structured
+metadata *and* open-access locations, which is what actually gets a paper on screen.
 
 ## Putting it online
 
@@ -122,8 +157,47 @@ Two consequences of using the least-privilege `drive.file` scope, both deliberat
   and the app will create a new one next time.
 
 PDFs are fetched through this app's server — arXiv, or whichever repository
-OpenAlex and Semantic Scholar point at. A paper with no free copy anywhere either
-of them can see saves its metadata sidecar and says so in the sync log.
+Unpaywall, OpenAlex or Semantic Scholar points at. A paper with no free copy anywhere
+any of them can see saves its metadata sidecar and says so in the sync log.
+
+## Mirroring to a Git repository
+
+Drive holds the PDFs. A repository holds everything that is text:
+
+```
+collections/<collection>/<paper>.json    the W3C annotation sidecar
+collections/<collection>/<paper>.md      the paper and your highlights, readable
+library.json                             the index
+references.bib                           BibTeX for everything you have added
+```
+
+The split is on purpose, and it is the whole reason both exist. A PDF is a binary
+blob: committing it bloats a repository's history permanently, runs into the 100 MB
+per-file limit and Git LFS's 1 GB free tier, and gains nothing from being diffed —
+and pushing publisher PDFs to a *public* repository is redistribution rather than
+personal use. Notes and highlights are the opposite: small, textual, and worth being
+able to read back through `git log`.
+
+Point it at a repository in **Settings → Git mirror**. It needs:
+
+- **A repository that already exists**, with at least one commit — an empty
+  repository has no branch to write to. A private one, ideally.
+- **A fine-grained personal access token**, scoped to that one repository, with
+  **Contents: read and write** and nothing else.
+
+Two things to know about the token. It lives in this browser's `localStorage`, so
+any script running on this origin could read it — scope it narrowly, give it an
+expiry, and revoke it when you stop using the app. And because there is no backend,
+that is the only place it *can* live; if that is not a trade you want, the Drive
+mirror alone needs no long-lived secret.
+
+Writes are batched. Everything that changes within a few seconds of each other —
+adding a paper, three highlights and a note — goes into **one commit** built through
+the Git Data API, rather than one commit per file through the Contents API. A flush
+whose tree turns out identical to the one already there makes no commit at all, so
+re-syncing an unchanged paper does not fill the history with noise. The ref update is
+never forced: if something else pushed in between, the write fails and the next flush
+rebuilds on top of it rather than throwing that commit away.
 
 ### Reading the copy in Drive
 
@@ -226,8 +300,12 @@ server/fetchPdf.js      which URLs the PDF route will fetch, and what it accepts
                         back; shared with the Cloudflare Worker
 server/index.js         production Express server
 src/lib/anchor.ts       text-quote anchoring: resolve, paint, unpaint
-src/lib/sources.ts      arXiv / OpenAlex / Semantic Scholar search, and the
-                        OpenAlex lineage query behind the lookup box
+src/lib/sources.ts      arXiv / OpenAlex / Semantic Scholar / Crossref search,
+                        author search, the merge, and the OpenAlex lineage
+                        query behind the lookup box
+src/lib/sidecar.ts      the annotation format both mirrors write
+src/lib/github.ts       the Git mirror: notes, index, BibTeX, one commit a flush
+src/lib/contact.ts      the address OpenAlex, Crossref and Unpaywall ask for
 src/lib/lookup.ts       dictionary and Wikipedia lookups for a selection
 src/lib/status.ts       reading, not started or finished
 src/lib/paperContent.ts fetches and sanitises the full text
@@ -239,6 +317,10 @@ src/lib/db.ts           IndexedDB wrapper
 src/components/         the UI
 scripts/smoke.mjs       browser smoke test (see below)
 scripts/pdf-proxy.test.mjs  what the PDF proxy serves and what it refuses
+scripts/search.test.mjs     query shapes, de-duplication and ranking
+scripts/github.test.mjs     what the Git mirror writes, and that a flush is
+                            one commit
+scripts/bundle.mjs          loads the app's TypeScript into the test runner
 ```
 
 Your library, collections and highlights live in IndexedDB. Settings and the last
@@ -247,21 +329,28 @@ view live in `localStorage`.
 ## Tests
 
 ```bash
-npm run test:api               # the PDF proxy's rules, no network needed
+npm test                       # everything below that needs no network
+npm run test:api               # the PDF proxy's rules
+npm run test:unit              # query building, result merging, the Git mirror
 
 npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
 ```
 
+`scripts/bundle.mjs` is how the unit tests reach the app's TypeScript: Node can strip
+the types itself but will not resolve the extension-less imports the app is written
+with, so the module under test is bundled with esbuild first.
+
 A Playwright script that drives a real Chromium through search → add → read →
 highlight → open the PDF → download it → look up → comment → note → reload, checks
 the panels are on the sides they should be, that a paper opens on its PDF and that
-the browser's viewer really renders it, that the highlights re-anchor, that the
-note and the chosen mode survive a reload, and that a paper which is not on arXiv
-opens on its PDF too, and that a synced paper is read back out of Drive rather
-than fetched through the proxy twice. It
-writes screenshots to `.smoke/`, and stubs arXiv, the PDF routes, the dictionary,
-Wikipedia and OpenAlex, so it needs no network beyond the local server.
+the browser's viewer really renders it, that the highlights re-anchor, that the note
+and the chosen mode survive a reload, that results from several sources merge into
+one list, that an author search finds a person and opens their papers, that a paper
+which is not on arXiv opens on its PDF too, and that a synced paper is read back out
+of Drive rather than fetched through the proxy twice. It writes screenshots to
+`.smoke/`, and stubs arXiv, the PDF routes, the dictionary, Wikipedia, OpenAlex,
+Crossref and Semantic Scholar, so it needs no network beyond the local server.
 
 ## Known limits
 
@@ -277,7 +366,16 @@ Wikipedia and OpenAlex, so it needs no network beyond the local server.
   and a cap (64 MB) on how big a file the proxy will pass.
 - Tokens are held in memory only — there is no backend to hold a refresh token — so
   Drive re-authorises silently on the first sync after an hour.
-- Semantic Scholar rate-limits unauthenticated search fairly aggressively.
+- The GitHub token is the exception, and has to be stored in `localStorage` for the
+  mirror to work without a backend. See above.
+- Semantic Scholar rate-limits unauthenticated search fairly aggressively; its author
+  endpoints are the first to say so.
+- Author disambiguation is the indexes', not ours. OpenAlex and Semantic Scholar each
+  merge and split people imperfectly, so one person can appear as two records with
+  different citation counts, and two people who share a name can appear as one.
+- Crossref and Unpaywall want a contact address, and Unpaywall refuses without one.
+  Setting it in Settings is optional; leaving it empty costs you Unpaywall's PDF
+  lookups and the faster "polite pool" on OpenAlex and Crossref.
 - The lookup box is English-only: the dictionary endpoint and the Wikipedia it
   queries are both `en`.
 - A comment made from the lookup box anchors like any other highlight, so in PDF

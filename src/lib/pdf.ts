@@ -2,6 +2,7 @@ import type { Paper, PaperRef } from '../types';
 import { api, hasProxy, NO_PROXY_REASON } from './api';
 import { downloadFile, ensureDriveToken } from './google';
 import { fromOpenAlex, openAlexPdf, type OpenAlexWork } from './sources';
+import { contactEmail } from './contact';
 
 /**
  * Getting the actual PDF, whichever source a paper came from.
@@ -100,15 +101,48 @@ async function semanticScholarPdfFor(paper: PaperRef, signal?: AbortSignal): Pro
   return https(payload.openAccessPdf?.url);
 }
 
+interface UnpaywallLocation {
+  url_for_pdf?: string | null;
+  url?: string | null;
+}
+
 /**
- * A PDF link for a paper that arrived without one. OpenAlex first — it knows
- * about more repositories — then Semantic Scholar. Returns undefined when the
- * paper simply is not free to read anywhere either of them can see.
+ * Unpaywall, which does one job — find the free copy of a DOI — and does it
+ * better than either index, because it also knows about repository deposits
+ * the publisher never advertises. It requires a contact address and refuses
+ * the request without one, so no email in Settings means this is skipped.
+ */
+async function unpaywallPdfFor(paper: PaperRef, signal?: AbortSignal): Promise<string | undefined> {
+  const email = contactEmail();
+  if (!email || !paper.doi) return undefined;
+  const response = await fetch(
+    `https://api.unpaywall.org/v2/${encodeURIComponent(paper.doi)}?email=${encodeURIComponent(email)}`,
+    { signal },
+  );
+  if (!response.ok) return undefined;
+  const payload = (await response.json()) as {
+    best_oa_location?: UnpaywallLocation | null;
+    oa_locations?: UnpaywallLocation[] | null;
+  };
+  const candidates = [payload.best_oa_location, ...(payload.oa_locations || [])];
+  for (const location of candidates) {
+    const found = https(location?.url_for_pdf || location?.url);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * A PDF link for a paper that arrived without one. Unpaywall first where we
+ * have a DOI and an address to give it, then OpenAlex — which knows about more
+ * repositories than Semantic Scholar — and Semantic Scholar last. Returns
+ * undefined when the paper simply is not free to read anywhere any of them can
+ * see.
  */
 export async function resolvePdfUrl(paper: PaperRef, signal?: AbortSignal): Promise<string | undefined> {
   const known = pdfSourceUrl(paper);
   if (known) return known;
-  for (const lookup of [openAlexPdfFor, semanticScholarPdfFor]) {
+  for (const lookup of [unpaywallPdfFor, openAlexPdfFor, semanticScholarPdfFor]) {
     try {
       const found = await lookup(paper, signal);
       if (found) return found;

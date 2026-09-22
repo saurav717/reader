@@ -12,6 +12,8 @@ import type { Collection, GoogleUser, Highlight, HighlightColor, Paper, PaperRef
 import { COLLECTION_COLORS } from '../types';
 import { db } from './db';
 import { syncPaperToDrive } from './driveSync';
+import { pathFor, syncPapersToGitHub, targetFrom } from './github';
+import { setContactEmail } from './contact';
 import * as google from './google';
 
 const SETTINGS_KEY = 'reader.settings';
@@ -23,7 +25,19 @@ const defaultSettings: Settings = {
   savePdf: true,
   theme: 'light',
   readingMode: 'pdf',
+  contactEmail: '',
+  githubRepo: '',
+  githubBranch: 'main',
+  githubToken: '',
+  githubSync: false,
 };
+
+/**
+ * How long a change waits before it is pushed. Highlighting a paragraph is a
+ * dozen state changes in a few seconds; without this they would be a dozen
+ * commits saying nothing.
+ */
+const GITHUB_DEBOUNCE_MS = 8000;
 
 function readSettings(): Settings {
   try {
@@ -81,6 +95,13 @@ interface StoreValue {
   syncPaper: (id: string) => void;
   syncAll: () => void;
   syncStateFor: (id: string) => SyncState;
+
+  /** True once a repository and a token are both configured. */
+  githubConnected: boolean;
+  githubLog: SyncEntry[];
+  githubPending: number;
+  /** Flush whatever is queued now, rather than waiting for the debounce. */
+  pushToGitHub: () => void;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
@@ -97,6 +118,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [driveConnected, setDriveConnected] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [syncLog, setSyncLog] = useState<SyncEntry[]>([]);
+  const [githubLog, setGithubLog] = useState<SyncEntry[]>([]);
+  const [githubPending, setGithubPending] = useState(0);
 
   // Latest-state mirrors so the background sync runner never reads a stale
   // closure while it is working through the queue.
@@ -105,6 +128,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const queue = useRef<string[]>([]);
   const running = useRef(false);
+
+  // GitHub is batched rather than queued one at a time: everything that
+  // changed within the debounce window lands in a single commit.
+  const githubQueue = useRef<Set<string>>(new Set());
+  const githubTimer = useRef<number | undefined>(undefined);
+  const githubRunning = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -139,7 +168,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     document.documentElement.dataset.theme = settings.theme;
+    setContactEmail(settings.contactEmail);
   }, [settings]);
+
+  const githubConnected = Boolean(targetFrom(settings));
 
   const note = useCallback((paperId: string, state: SyncState, message?: string) => {
     setSyncLog((entries) => {
@@ -217,6 +249,101 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     void drainQueue();
   }, [driveConnected, drainQueue, note]);
 
+  const githubNote = useCallback((paperId: string, state: SyncState, message?: string) => {
+    setGithubLog((entries) => {
+      const rest = entries.filter((entry) => entry.paperId !== paperId);
+      return [{ paperId, state, message, at: new Date().toISOString() }, ...rest].slice(0, 60);
+    });
+  }, []);
+
+  const flushGitHub = useCallback(async () => {
+    if (githubRunning.current) return;
+    const ids = Array.from(githubQueue.current);
+    if (!ids.length) return;
+    if (!targetFrom(latest.current.settings)) return;
+
+    githubQueue.current.clear();
+    setGithubPending(0);
+    githubRunning.current = true;
+    const papers = ids
+      .map((id) => latest.current.papers.find((paper) => paper.id === id))
+      .filter((paper): paper is Paper => Boolean(paper));
+
+    try {
+      if (!papers.length) return;
+      for (const paper of papers) githubNote(paper.id, 'running');
+      const result = await syncPapersToGitHub(papers, {
+        collections: latest.current.collections,
+        highlights: latest.current.highlights,
+        library: latest.current.papers,
+        settings: latest.current.settings,
+      });
+      for (const paper of papers) {
+        const current = latest.current.papers.find((item) => item.id === paper.id);
+        if (!current) continue;
+        const updated: Paper = {
+          ...current,
+          github: {
+            repo: latest.current.settings.githubRepo,
+            path: `${pathFor(current, latest.current.collections)}.md`,
+            commit: result.commit ?? current.github?.commit,
+            syncedAt: result.syncedAt,
+            error: undefined,
+          },
+        };
+        await savePaper(updated);
+        latest.current.papers = latest.current.papers.map((item) => (item.id === updated.id ? updated : item));
+        githubNote(paper.id, 'done', result.commit ? undefined : 'Already up to date.');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      for (const paper of papers) {
+        const current = latest.current.papers.find((item) => item.id === paper.id);
+        if (current) {
+          await savePaper({ ...current, github: { ...(current.github || {}), error: message } });
+        }
+        githubNote(paper.id, 'error', message);
+      }
+    } finally {
+      githubRunning.current = false;
+      // Anything queued while the commit was in flight goes in the next one.
+      if (githubQueue.current.size) {
+        githubTimer.current = window.setTimeout(() => void flushGitHub(), GITHUB_DEBOUNCE_MS);
+      }
+    }
+  }, [githubNote, savePaper]);
+
+  const queueGitHub = useCallback(
+    (id: string) => {
+      if (!latest.current.settings.githubSync || !targetFrom(latest.current.settings)) return;
+      githubQueue.current.add(id);
+      setGithubPending(githubQueue.current.size);
+      githubNote(id, 'queued');
+      window.clearTimeout(githubTimer.current);
+      githubTimer.current = window.setTimeout(() => void flushGitHub(), GITHUB_DEBOUNCE_MS);
+    },
+    [flushGitHub, githubNote],
+  );
+
+  const pushToGitHub = useCallback(() => {
+    if (!targetFrom(latest.current.settings)) return;
+    // An explicit push is "write everything", not "write what changed".
+    for (const paper of latest.current.papers) githubQueue.current.add(paper.id);
+    setGithubPending(githubQueue.current.size);
+    window.clearTimeout(githubTimer.current);
+    void flushGitHub();
+  }, [flushGitHub]);
+
+  // A commit that is still waiting out its debounce when the tab closes would
+  // simply be lost, so the queue is flushed on the way out.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden' && githubQueue.current.size) void flushGitHub();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    return () => document.removeEventListener('visibilitychange', onHide);
+  }, [flushGitHub]);
+
   const addPaper = useCallback(
     async (ref: PaperRef, collectionId?: string) => {
       const existing = latest.current.papers.find((paper) => paper.id === ref.id);
@@ -237,9 +364,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       await savePaper(paper);
       latest.current.papers = [paper, ...latest.current.papers.filter((item) => item.id !== paper.id)];
       if (settings.autoSync && driveConnected) syncPaper(paper.id);
+      queueGitHub(paper.id);
       return paper;
     },
-    [driveConnected, savePaper, settings.autoSync, syncPaper],
+    [driveConnected, queueGitHub, savePaper, settings.autoSync, syncPaper],
   );
 
   const removePaper = useCallback(async (id: string) => {
@@ -258,8 +386,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       await savePaper(updated);
       latest.current.papers = latest.current.papers.map((item) => (item.id === id ? updated : item));
       if (settings.autoSync && driveConnected) syncPaper(id);
+      queueGitHub(id);
     },
-    [driveConnected, savePaper, settings.autoSync, syncPaper],
+    [driveConnected, queueGitHub, savePaper, settings.autoSync, syncPaper],
   );
 
   const togglePaperTag = useCallback(
@@ -267,9 +396,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const paper = latest.current.papers.find((item) => item.id === id);
       if (!paper) return;
       const tags = paper.tags.includes(tag) ? paper.tags.filter((item) => item !== tag) : [...paper.tags, tag];
-      await savePaper({ ...paper, tags });
+      const updated = { ...paper, tags };
+      await savePaper(updated);
+      latest.current.papers = latest.current.papers.map((item) => (item.id === id ? updated : item));
+      queueGitHub(id);
     },
-    [savePaper],
+    [queueGitHub, savePaper],
   );
 
   const progressTimer = useRef<Record<string, number>>({});
@@ -353,9 +485,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setHighlights((current) => [...current, highlight]);
       latest.current.highlights = [...latest.current.highlights, highlight];
       if (settings.autoSync && driveConnected) syncPaper(highlight.paperId);
+      queueGitHub(highlight.paperId);
       return highlight;
     },
-    [driveConnected, settings.autoSync, syncPaper],
+    [driveConnected, queueGitHub, settings.autoSync, syncPaper],
   );
 
   const updateHighlight = useCallback(
@@ -367,15 +500,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setHighlights((current) => current.map((item) => (item.id === id ? updated : item)));
       latest.current.highlights = latest.current.highlights.map((item) => (item.id === id ? updated : item));
       if (settings.autoSync && driveConnected) syncPaper(updated.paperId);
+      queueGitHub(updated.paperId);
     },
-    [driveConnected, settings.autoSync, syncPaper],
+    [driveConnected, queueGitHub, settings.autoSync, syncPaper],
   );
 
-  const deleteHighlight = useCallback(async (id: string) => {
-    await db.deleteHighlight(id);
-    setHighlights((current) => current.filter((item) => item.id !== id));
-    latest.current.highlights = latest.current.highlights.filter((item) => item.id !== id);
-  }, []);
+  const deleteHighlight = useCallback(
+    async (id: string) => {
+      const highlight = latest.current.highlights.find((item) => item.id === id);
+      await db.deleteHighlight(id);
+      setHighlights((current) => current.filter((item) => item.id !== id));
+      latest.current.highlights = latest.current.highlights.filter((item) => item.id !== id);
+      if (highlight) queueGitHub(highlight.paperId);
+    },
+    [queueGitHub],
+  );
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings((current) => ({ ...current, ...patch }));
@@ -453,12 +592,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       syncPaper,
       syncAll,
       syncStateFor,
+      githubConnected,
+      githubLog,
+      githubPending,
+      pushToGitHub,
     }),
     [
       ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog,
       addPaper, removePaper, setPaperCollections, togglePaperTag, setProgress, markOpened, setPaperPdfUrl,
       createCollection, renameCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, signOut, syncPaper, syncAll, syncStateFor,
+      githubConnected, githubLog, githubPending, pushToGitHub,
     ],
   );
 
