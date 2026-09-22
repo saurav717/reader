@@ -783,6 +783,13 @@ blocked: browsers allow a pop-up from a click, and this one is opened from
 the click on **Sign in**, but a browser told to block them all will block it,
 and the note under the result then links the screen to open by hand.
 
+Google Scholar from a Codespace is Scholar from a datacentre, which mostly
+means a captcha — and the same pop-up shows it to you to solve. To go through
+SerpApi instead, as the Worker does, give the Codespace the key: on GitHub,
+**Settings → Codespaces → Secrets → New secret**, `SERPAPI_KEY`, for this
+repository; then stop and start the Codespace, since secrets land only on a
+fresh start. The terminal says which of the two it is doing.
+
 This is not Codespaces-specific. Any machine with a virtual desktop is the
 same proxy: run it with `READER_VIEWER_URL` set to the desktop's noVNC page,
 and `DISPLAY` to the display, and the app opens that as the pop-up instead.

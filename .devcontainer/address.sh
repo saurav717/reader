@@ -12,6 +12,14 @@ else
   PROXY="http://localhost:8080/api/k/${KEY}"
   SCREEN="http://localhost:6080/vnc.html?autoconnect=true&resize=scale"
 fi
+if [ -n "${SERPAPI_KEY:-}" ]; then
+  SCHOLAR="through SerpApi (SERPAPI_KEY is set), which is never shown a captcha."
+else
+  SCHOLAR="asked directly, from a datacentre, which Scholar mostly answers with a
+  captcha — the app offers to show it to you in the pop-up. To go through
+  SerpApi instead, as the Worker does: github.com → Settings → Codespaces →
+  Secrets → SERPAPI_KEY for this repository, then stop and start the Codespace."
+fi
 cat <<MSG
 
   reader proxy
@@ -26,6 +34,8 @@ cat <<MSG
   a captcha needs you —
 
     $SCREEN
+
+  Google Scholar: $SCHOLAR
 
   Log: $STATE/proxy.log
 
