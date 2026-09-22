@@ -15,6 +15,8 @@ export interface PaperRef {
   pdfUrl?: string;
   landingUrl?: string;
   venue?: string;
+  /** Citation count, where the source reports one. */
+  citedBy?: number;
 }
 
 export interface DriveRecord {

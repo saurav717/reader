@@ -123,6 +123,22 @@ export const FileIcon = (props: IconProps) => (
   </Icon>
 );
 
+export const BookIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4 5.2A1.7 1.7 0 0 1 5.7 3.5H10a2.4 2.4 0 0 1 2 1.2 2.4 2.4 0 0 1 2-1.2h4.3A1.7 1.7 0 0 1 20 5.2v11.4a1.7 1.7 0 0 1-1.7 1.7H14a2.4 2.4 0 0 0-2 1.2 2.4 2.4 0 0 0-2-1.2H5.7A1.7 1.7 0 0 1 4 16.6z" />
+    <path d="M12 6.9v12.6" />
+  </Icon>
+);
+
+export const TreeIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="12" cy="4.8" r="2.1" />
+    <circle cx="6" cy="19.2" r="2.1" />
+    <circle cx="18" cy="19.2" r="2.1" />
+    <path d="M12 6.9v4.6M6 17.1v-2.3a3.3 3.3 0 0 1 3.3-3.3h5.4a3.3 3.3 0 0 1 3.3 3.3v2.3" />
+  </Icon>
+);
+
 export const ExternalIcon = (props: IconProps) => (
   <Icon {...props} strokeWidth={1.9}>
     <path d="M6 18 18 6M9 6h9v9" />

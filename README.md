@@ -4,7 +4,18 @@ A reader for research papers. Search arXiv, OpenAlex and Semantic Scholar from o
 box, collect what you want to read, highlight it, and — if you connect Google Drive —
 keep a copy of every paper you add in your own Drive, with your annotations beside it.
 
-![the reader with the discover panel and the notes rail open](docs/reader.png)
+![the library on the left, the paper in the middle, the highlights pane on the right, and the three-pane lookup box over a selection](docs/reader.png)
+
+The window is in three parts. On the left, the library: your collections, and the
+papers in them split into what you are **reading now**, what you have **not started**
+and what you have **finished**. In the middle, the paper. On the right, a dock
+holding **Discover** and **Highlights** — tabs, so the reading column never has a
+panel crowding it on both sides.
+
+Right-click a selection in a paper and a box opens with three panes: what the word
+**means**, where the idea **comes from** — a background paragraph, the earliest
+papers to use the phrase, the most cited ones since, and links out — and a
+**comment** that highlights the passage as you type it, the way Acrobat does.
 
 ## Running it
 
@@ -122,13 +133,38 @@ In the reader: select text, then click a colour or press `1`–`4`; `N` highligh
 opens a note. `⌘K` / `Ctrl-K` opens the palette, which searches your library and
 arXiv together.
 
+## The lookup box
+
+Right-click a selection — or use **Look up** on the selection toolbar, which a
+trackpad can reach. Three panes, each fetched straight from the browser from a
+keyless service that sends CORS headers, so the box works on a static host with no
+proxy at all:
+
+| Pane | Where it comes from | When it has nothing |
+| --- | --- | --- |
+| Meaning | [dictionaryapi.dev](https://dictionaryapi.dev); chips pick which word of a phrase to define | says so, and links to Wiktionary |
+| Where it comes from | Wikipedia's lede, plus OpenAlex sorted oldest-first and most-cited-first | falls back to the search links below it |
+| Comment | your own library | — |
+
+The comment pane writes a real highlight as soon as there is something to attach it
+to — a colour you pick, or the first character you type — so the passage is marked
+up while you are still writing, and the comment lands in the Highlights pane and in
+the Drive sidecar like any other note. **Discard** removes it again.
+
+None of it is a term-of-art oracle: the dictionary has nothing to say about
+"attention head", and OpenAlex's oldest match for a phrase is the oldest thing it
+has indexed, which is not always the thing that coined it.
+
 ## Layout
 
 ```
 server/api.js           the /api routes (arXiv proxy), shared by dev and prod
 server/index.js         production Express server
 src/lib/anchor.ts       text-quote anchoring: resolve, paint, unpaint
-src/lib/sources.ts      arXiv / OpenAlex / Semantic Scholar search
+src/lib/sources.ts      arXiv / OpenAlex / Semantic Scholar search, and the
+                        OpenAlex lineage query behind the lookup box
+src/lib/lookup.ts       dictionary and Wikipedia lookups for a selection
+src/lib/status.ts       reading, not started or finished
 src/lib/paperContent.ts fetches and sanitises the full text
 src/lib/google.ts       Google Identity Services + Drive REST
 src/lib/driveSync.ts    what a synced paper looks like in Drive
@@ -149,9 +185,10 @@ node scripts/smoke.mjs         # in another
 ```
 
 A Playwright script that drives a real Chromium through search → add → read →
-highlight → note → reload, checks the highlight re-anchors and the note survives,
-and writes screenshots to `.smoke/`. It stubs the arXiv responses, so it needs no
-network beyond the local server.
+highlight → look up → comment → note → reload, checks the panels are on the sides
+they should be, that the highlights re-anchor and the note survives, and writes
+screenshots to `.smoke/`. It stubs arXiv, the dictionary, Wikipedia and OpenAlex, so
+it needs no network beyond the local server.
 
 ## Known limits
 
@@ -161,3 +198,8 @@ network beyond the local server.
 - Tokens are held in memory only — there is no backend to hold a refresh token — so
   Drive re-authorises silently on the first sync after an hour.
 - Semantic Scholar rate-limits unauthenticated search fairly aggressively.
+- The lookup box is English-only: the dictionary endpoint and the Wikipedia it
+  queries are both `en`.
+- A comment made from the lookup box anchors like any other highlight, so in PDF
+  mode — where there is no text layer of ours to anchor to — there is no right-click
+  box either.
