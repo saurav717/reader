@@ -1,9 +1,18 @@
+import { useEffect } from 'react';
 import { useStore } from '../lib/store';
+import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloudCheckIcon, GoogleMark, HighlighterIcon, SearchIcon } from './icons';
 
 export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () => void; onOpenSettings: () => void }) {
   const { user, driveConnected, signIn, connectDrive, settings, authError } = useStore();
   const configured = Boolean(settings.googleClientId);
+
+  // The script Google's popup needs, fetched while this page is being read
+  // rather than inside the click — a popup opened after an awaited download
+  // has lost the user gesture that allows it, and the browser blocks it.
+  useEffect(() => {
+    if (configured) prepareGoogle();
+  }, [configured]);
 
   return (
     <div className="main" style={{ alignItems: 'center', justifyContent: 'center', padding: 24 }}>

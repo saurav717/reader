@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '../lib/store';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { parseRepo } from '../lib/github';
+import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
 
 export default function Settings({ onClose }: { onClose: () => void }) {
@@ -30,6 +31,13 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   const [proxy, setProxy] = useState(settings.proxyBase);
   const [proxyCheck, setProxyCheck] = useState<{ ok: boolean; message: string } | null>(null);
   const [checking, setChecking] = useState(false);
+
+  // Fetch Google's script while the sheet is being read, not inside the click
+  // that needs it: a popup opened after an awaited download has lost the user
+  // gesture that allows it, and the browser blocks it.
+  useEffect(() => {
+    if (settings.googleClientId.trim()) prepareGoogle();
+  }, [settings.googleClientId]);
 
   const pending = syncLog.filter((entry) => entry.state === 'queued' || entry.state === 'running').length;
   const failed = syncLog.filter((entry) => entry.state === 'error');
