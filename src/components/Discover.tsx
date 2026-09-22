@@ -45,6 +45,58 @@ const SAVE_BLOCKED_ID = 'discover-save-blocked';
 const compact = (value: number) =>
   value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k` : String(value);
 
+/** Further than this between press and release, and the gesture was a drag. */
+const DRAG_SLOP = 4;
+
+/**
+ * The clickable top of a result card. It is not a `<button>` on purpose:
+ * browsers do not let text inside a button be selected by dragging over it,
+ * and the title, authors and venue are exactly the lines people want to copy.
+ * A div with the button role keeps the keyboard behaviour (Tab to it, Enter or
+ * Space to open) while leaving the text as selectable as any other.
+ *
+ * A drag across the text also ends in a click, so the card would open under
+ * the selection just made. The press position tells the two apart: a click
+ * that let go where it started opens the card, and one that moved does not.
+ */
+function ResultHead({
+  onActivate,
+  expanded,
+  children,
+}: {
+  onActivate: () => void;
+  expanded?: boolean;
+  children: React.ReactNode;
+}) {
+  const pressedAt = useRef<{ x: number; y: number } | null>(null);
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="result-head"
+      aria-expanded={expanded}
+      onPointerDown={(event) => {
+        pressedAt.current = { x: event.clientX, y: event.clientY };
+      }}
+      onClick={(event) => {
+        const start = pressedAt.current;
+        pressedAt.current = null;
+        if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > DRAG_SLOP) return;
+        onActivate();
+      }}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onActivate();
+        }
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 /** `acceptedVersion` -> `accepted`, which is all a reader needs from it. */
 const versionLabel = (version?: string) =>
   version ? version.replace(/Version$/i, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase() : '';
@@ -573,11 +625,7 @@ export default function Discover({ onClose, onOpen }: Props) {
         {mode === 'authors' && !viewing
           ? authors.map((author) => (
               <article key={author.id} className="result">
-                <button
-                  type="button"
-                  onClick={() => void openAuthor(author)}
-                  style={{ all: 'unset', cursor: 'pointer', display: 'block', width: '100%' }}
-                >
+                <ResultHead onActivate={() => void openAuthor(author)}>
                   <h3>{author.name}</h3>
                   {author.affiliation ? <p className="authors">{author.affiliation}</p> : null}
                   <div className="meta">
@@ -588,7 +636,7 @@ export default function Discover({ onClose, onOpen }: Props) {
                     {author.orcid ? <span className="mono">ORCID {author.orcid}</span> : null}
                     {author.verifiedEmail ? <span>verified at {author.verifiedEmail}</span> : null}
                   </div>
-                </button>
+                </ResultHead>
                 {author.interests?.length ? (
                   <p className="authors" style={{ margin: '2px 0 4px' }}>
                     {author.interests.slice(0, 4).join(' · ')}
@@ -634,12 +682,7 @@ export default function Discover({ onClose, onOpen }: Props) {
           const isOpen = openId === result.id;
           return (
             <article key={result.id} className={`result ${isOpen ? 'is-open' : ''}`}>
-              <button
-                type="button"
-                onClick={() => setOpenId(isOpen ? null : result.id)}
-                style={{ all: 'unset', cursor: 'pointer', display: 'block', width: '100%' }}
-                aria-expanded={isOpen}
-              >
+              <ResultHead onActivate={() => setOpenId(isOpen ? null : result.id)} expanded={isOpen}>
                 <h3>{result.title}</h3>
                 <p className="authors">
                   {result.authors.slice(0, 4).join(', ')}
@@ -658,7 +701,7 @@ export default function Discover({ onClose, onOpen }: Props) {
                     </span>
                   ) : null}
                 </div>
-              </button>
+              </ResultHead>
 
               {isOpen ? (
                 <>

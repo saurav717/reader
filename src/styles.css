@@ -320,6 +320,11 @@ kbd {
   cursor: pointer;
 }
 .result:hover, .result.is-open { background: var(--surface); border-color: var(--border); box-shadow: var(--shadow-sm); }
+/* The card's header opens it, and its text — title, authors, venue — is the
+   text people copy out of a result, so it stays selectable. A drag across it
+   selects; only a plain click toggles the card. */
+.result-head { display: block; width: 100%; cursor: pointer; user-select: text; -webkit-user-select: text; }
+.result, .result h3, .result .authors, .result .meta { user-select: text; -webkit-user-select: text; }
 .result h3 {
   margin: 0 0 5px;
   font-family: var(--serif);
