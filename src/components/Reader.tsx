@@ -515,9 +515,7 @@ export default function Reader({
           ) : pdfObjectUrl ? (
             <iframe
               title={`${paper.title} (PDF)`}
-              // Fit the width: a paper opened at the viewer's default zoom is
-              // a column of text too small to read in a pane this narrow.
-              src={`${pdfObjectUrl}#view=FitH`}
+              src={pdfObjectUrl}
               style={{ flexGrow: 1, border: 0, width: '100%', background: 'var(--rail)' }}
             />
           ) : (
