@@ -30,10 +30,12 @@ import {
   blockedReason,
   getScholar,
   parseAuthors,
+  parseCitationView,
   parseProfileWorks,
   parseResults,
   plainFetch,
   profileUrl,
+  workUrl,
   searchUrl,
   versionsUrl,
 } from '../server/scholar.js';
@@ -167,6 +169,25 @@ if (first) {
   );
   for (const work of (works || []).slice(0, 5)) {
     console.log(`     ${work.year ?? '    '}  ${work.title}${work.citedBy ? ` (cited by ${work.citedBy})` : ''}`);
+  }
+
+  // One of them, opened: where the file Scholar found for it is shown — a
+  // copy on the person's own site, as often as not — and the cluster.
+  const entry = (works || []).find((work) => work.citationId);
+  if (entry) {
+    const [opened] = (await step(
+      `The entry "${entry.title}", opened`,
+      workUrl(first.userId, entry.citationId),
+      parseCitationView,
+      SAVE ? 'scholar-work' : null,
+      { kind: 'work', params: { user: first.userId, citation: entry.citationId } },
+    )) || [];
+    if (opened) {
+      console.log(`     file:     ${opened.pdfUrl ? `${opened.pdfUrl} (${opened.pdfHost})` : '— none listed'}`);
+      console.log(`     landing:  ${opened.url || '—'}`);
+      console.log(`     versions: ${opened.versionCount ?? '—'}${opened.clusterId ? ` (cluster ${opened.clusterId})` : ''}`);
+      console.log(`     authors:  ${opened.authors.join(', ')}`);
+    }
   }
 }
 

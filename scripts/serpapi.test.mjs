@@ -25,6 +25,7 @@ const {
   forgetSerp,
   fromSerpAuthorProfile,
   fromSerpAuthorsInResults,
+  fromSerpCitation,
   fromSerpResults,
   fromSerpWorks,
   nameCouldBe,
@@ -37,6 +38,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const fixture = async (name) => JSON.parse(await readFile(join(here, 'fixtures', `${name}.json`), 'utf8'));
 const SEARCH = await fixture('serpapi-search');
 const AUTHOR = await fixture('serpapi-author');
+const CITATION = await fixture('serpapi-citation');
 
 beforeEach(() => forgetSerp());
 
@@ -63,6 +65,13 @@ describe('the asks it makes', () => {
     assert.equal(works.searchParams.get('author_id'), 'oR9sCGYAAAAJ');
     assert.equal(works.searchParams.get('sort'), 'pubdate');
     assert.equal(works.searchParams.get('start'), '20');
+  });
+
+  it('asks the author engine for one entry of a profile, opened', () => {
+    const url = new URL(serpUrl('work', { user: 'oR9sCGYAAAAJ', citation: 'oR9sCGYAAAAJ:u5HHmVD_uO8C' }, 'k'));
+    assert.equal(url.searchParams.get('engine'), 'google_scholar_author');
+    assert.equal(url.searchParams.get('view_op'), 'view_citation');
+    assert.equal(url.searchParams.get('citation_id'), 'oR9sCGYAAAAJ:u5HHmVD_uO8C');
   });
 
   it('asks a cluster for every version of one paper', () => {
@@ -199,6 +208,41 @@ describe('reading a profile’s own list of works', () => {
   it('drops the ellipsis Scholar truncates an author list with', () => {
     assert.deepEqual(works[1].authors, ['A Vaswani', 'S Bengio', 'E Brevdo', 'F Chollet', 'AN Gomez']);
   });
+
+  it('keeps each entry’s handle, so its own page can be asked for', () => {
+    assert.equal(works[0].citationId, 'oR9sCGYAAAAJ:u5HHmVD_uO8C');
+  });
+});
+
+describe('reading one entry of a profile, opened', () => {
+  const [work] = fromSerpCitation(CITATION);
+
+  it('finds the file beside the title, and where it sits', () => {
+    assert.equal(fromSerpCitation(CITATION).length, 1);
+    assert.equal(work.pdfUrl, 'https://www.bu.edu/example/papers/Chennuri_Fusion_ICCVW_2023.pdf');
+    assert.equal(work.pdfKind, 'PDF');
+    assert.equal(work.pdfHost, 'bu.edu');
+    assert.match(work.url, /^https:\/\/openaccess\.thecvf\.com\//);
+  });
+
+  it('reads the table, in the shape the direct parser gives', () => {
+    assert.equal(work.title, 'Fusion approaches to predict post-stroke aphasia severity from multimodal neuroimaging data');
+    assert.equal(work.authors.length, 10);
+    assert.equal(work.published, '2023-10-02');
+    assert.equal(work.year, 2023);
+    assert.match(work.venue, /ICCVW/);
+    assert.match(work.snippet, /feature selection/);
+    assert.equal(work.citedBy, 9);
+  });
+
+  it('names the cluster from the "all versions" link', () => {
+    assert.equal(work.clusterId, '6188253286931533296');
+    assert.equal(work.versionCount, 5);
+  });
+
+  it('returns nothing rather than nonsense for an answer with no citation in it', () => {
+    assert.deepEqual(fromSerpCitation({ search_metadata: { status: 'Success' } }), []);
+  });
 });
 
 describe('being refused by SerpApi, which is not being refused by Scholar', () => {
@@ -257,8 +301,9 @@ describe('a proxy with a key', () => {
       const url = String(input instanceof Request ? input.url : input);
       if (url.startsWith(base)) return realFetch(input);
       asked.push(url);
-      const engine = new URL(url).searchParams.get('engine');
-      const json = engine === 'google_scholar_author' ? AUTHOR : SEARCH;
+      const params = new URL(url).searchParams;
+      const json =
+        params.get('view_op') === 'view_citation' ? CITATION : params.get('engine') === 'google_scholar_author' ? AUTHOR : SEARCH;
       return new Response(JSON.stringify(json), { status: 200, headers: { 'content-type': 'application/json' } });
     };
     try {
@@ -277,7 +322,15 @@ describe('a proxy with a key', () => {
       const works = await (await realFetch(`${base}/scholar/profile?user=oR9sCGYAAAAJ`)).json();
       assert.equal(works.results[0].title, 'Attention is all you need');
 
-      assert.ok(asked.length >= 2);
+      // One of those works, opened: the file beside its title comes back too.
+      const opened = await (
+        await realFetch(`${base}/scholar/work?user=oR9sCGYAAAAJ&citation=${encodeURIComponent(works.results[0].citationId)}`)
+      ).json();
+      assert.equal(opened.via, 'serpapi');
+      assert.equal(opened.results[0].pdfHost, 'bu.edu');
+      assert.equal(opened.results[0].clusterId, '6188253286931533296');
+
+      assert.ok(asked.length >= 3);
       assert.ok(asked.every((url) => url.startsWith('https://serpapi.com/')), asked.join('\n'));
       assert.ok(asked.every((url) => url.includes('api_key=SECRET-KEY')));
     } finally {

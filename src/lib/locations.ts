@@ -20,7 +20,7 @@
 import type { PaperLocation, PaperRef } from '../types';
 import { hasProxy } from './api';
 import { contactEmail, politely } from './contact';
-import { scholarVersions } from './scholar';
+import { scholarVersions, scholarWork } from './scholar';
 import type { OpenAlexWork } from './sources';
 
 const clean = (value: string | null | undefined) => (value || '').replace(/\s+/g, ' ').trim();
@@ -91,9 +91,15 @@ function fromPaper(paper: PaperRef): PaperLocation[] {
     );
   }
   found.push(locate(paper.pdfUrl, { kind: 'unknown', isPdf: true, via: 'paper' }));
-  found.push(locate(paper.landingUrl, { kind: 'publisher', isPdf: false, via: 'paper' }));
+  // A profile's entry lands on Scholar's own page about the paper, which is
+  // not a copy of it: the copies are what that page lists, read below.
+  if (!isScholarPage(paper.landingUrl)) {
+    found.push(locate(paper.landingUrl, { kind: 'publisher', isPdf: false, via: 'paper' }));
+  }
   return found.filter((entry): entry is PaperLocation => Boolean(entry));
 }
+
+const isScholarPage = (url: string | undefined) => hostOf(url || '') === 'scholar.google.com';
 
 // ------------------------------------------------------------ Unpaywall ----
 
@@ -300,9 +306,32 @@ async function fromCrossref(paper: PaperRef, signal?: AbortSignal): Promise<Pape
  * only when a proxy is there to ask through.
  */
 async function fromScholar(paper: PaperRef, signal?: AbortSignal): Promise<PaperLocation[]> {
-  if (!paper.scholarCluster || !hasProxy()) return [];
-  const versions = await scholarVersions(paper.scholarCluster, signal);
+  if (!hasProxy()) return [];
   const found: (PaperLocation | null)[] = [];
+  let cluster = paper.scholarCluster;
+
+  // A paper from a person's profile arrives with no cluster and no file: the
+  // list gives neither. Its own page on Scholar gives both — the "[PDF] from
+  // bu.edu" beside the title is the copy on the person's own site that no
+  // index has a record of — so that page is asked for first, and the cluster
+  // it names is what the versions below are asked for.
+  if (!cluster && paper.scholarCitation) {
+    const work = await scholarWork(paper.scholarCitation, signal);
+    if (work) {
+      const label = work.pdfHost || undefined;
+      found.push(locate(work.pdfUrl, { kind: 'unknown', isPdf: true, via: 'scholar', label }));
+      found.push(locate(work.url, { kind: 'publisher', isPdf: false, via: 'scholar' }));
+      cluster = work.clusterId;
+    }
+  }
+  if (!cluster) return found.filter((entry): entry is PaperLocation => Boolean(entry));
+
+  const versions = await scholarVersions(cluster, signal).catch((error: unknown) => {
+    // The entry's own page answered; a refusal on the second ask costs the
+    // other copies, not the one it already found.
+    if (found.length) return [];
+    throw error;
+  });
   for (const version of versions) {
     const label = version.pdfHost || undefined;
     found.push(locate(version.pdfUrl, { kind: 'unknown', isPdf: true, via: 'scholar', label }));

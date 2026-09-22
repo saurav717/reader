@@ -112,7 +112,11 @@ nothing else does:
   prolific author finds anything at all.
 - **People, by their own profile.** Scholar's profile search gives the affiliation,
   the verified email domain — the one thing that reliably tells two people of the
-  same name apart — and a curated list of what they have written.
+  same name apart — and a curated list of what they have written. The list itself
+  names no files, so opening one of its papers asks for the entry's own page, which
+  is where Scholar shows the copy it found — "[PDF] from bu.edu", the one on the
+  person's own university's site that no index has a record of — and the cluster
+  the paper belongs to, from which every other copy follows.
 - **Every version of a paper.** "All 84 versions" is the longest list of copies
   anywhere, and it feeds straight into the versions list above.
 
@@ -157,8 +161,8 @@ their profile, which works whether or not the source is turned on.
 answers with JSON, so a proxy that goes through it is never the one Scholar shows
 a captcha to. It is the way Scholar works from anywhere that looks like a server,
 the Cloudflare Worker above all. It costs money past a free allowance — one
-SerpApi search per Scholar page asked for: a search, a profile's works, a paper's
-versions — and it needs a key, so it is opt-in:
+SerpApi search per Scholar page asked for: a search, a profile's works, one of
+those works opened, a paper's versions — and it needs a key, so it is opt-in:
 
 ```bash
 SERPAPI_KEY=… npm start                        # the Node proxy

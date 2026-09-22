@@ -16,11 +16,13 @@ import {
   authorSearchUrl,
   getScholar,
   parseAuthors,
+  parseCitationView,
   parseProfileWorks,
   parseResults,
   profileUrl,
   searchUrl,
   versionsUrl,
+  workUrl,
 } from '../server/scholar.js';
 import { askSerp } from '../server/serpapi.js';
 
@@ -112,6 +114,7 @@ export default {
           const name = (url.searchParams.get('name') || '').trim();
           const user = (url.searchParams.get('user') || '').trim();
           const cluster = (url.searchParams.get('cluster') || '').trim();
+          const citation = (url.searchParams.get('citation') || '').trim();
           const start = Math.max(0, Number(url.searchParams.get('start')) || 0);
           const params =
             kind === 'search'
@@ -122,7 +125,9 @@ export default {
                   ? /^[\w-]{6,32}$/.test(user) && { user, start }
                   : kind === 'versions'
                     ? /^\d{1,25}$/.test(cluster) && { cluster }
-                    : null;
+                    : kind === 'work'
+                      ? /^[\w-]{6,32}$/.test(user) && /^[\w-]{6,32}:[\w-]{6,32}$/.test(citation) && { user, citation }
+                      : null;
           if (params === null) return json({ error: 'not found' }, 404, headers);
           if (!params) return json({ error: 'missing or bad parameter' }, 400, headers);
           try {
@@ -148,10 +153,21 @@ export default {
                   profileUrl(url.searchParams.get('user'), { start: Math.max(0, Number(url.searchParams.get('start')) || 0) })
                 : path === '/scholar/versions'
                   ? /^\d{1,25}$/.test(url.searchParams.get('cluster') || '') && versionsUrl(url.searchParams.get('cluster'))
-                  : null;
+                  : path === '/scholar/work'
+                    ? /^[\w-]{6,32}$/.test(url.searchParams.get('user') || '') &&
+                      /^[\w-]{6,32}:[\w-]{6,32}$/.test(url.searchParams.get('citation') || '') &&
+                      workUrl(url.searchParams.get('user'), url.searchParams.get('citation'))
+                    : null;
         if (scholarUrl === null) return json({ error: 'not found' }, 404, headers);
         if (!scholarUrl) return json({ error: 'missing or bad parameter' }, 400, headers);
-        const parse = path === '/scholar/authors' ? parseAuthors : path === '/scholar/profile' ? parseProfileWorks : parseResults;
+        const parse =
+          path === '/scholar/authors'
+            ? parseAuthors
+            : path === '/scholar/profile'
+              ? parseProfileWorks
+              : path === '/scholar/work'
+                ? parseCitationView
+                : parseResults;
         try {
           return json({ results: parse(await getScholar(scholarUrl)), source: 'scholar', via: 'direct' }, 200, {
             ...headers,

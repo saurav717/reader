@@ -36,6 +36,10 @@ export interface ScholarResult {
   citedBy?: number;
   clusterId?: string;
   versionCount?: number;
+  /** A profile's entry: its `citation_for_view`, `<user>:<code>`. */
+  citationId?: string;
+  /** As much of a date as Scholar has, ISO; the citation view gives one, a byline only a year. */
+  published?: string;
 }
 
 export interface ScholarAuthor {
@@ -124,7 +128,7 @@ export function fromScholar(result: ScholarResult): PaperRef {
     // Scholar gives a two-line snippet rather than an abstract; it is marked as
     // what it is so the reader does not present it as one.
     abstract: result.snippet || '',
-    published: result.year ? `${result.year}-01-01` : '',
+    published: result.published || (result.year ? `${result.year}-01-01` : ''),
     categories: [],
     arxivId: arxiv,
     doi: doi?.toLowerCase(),
@@ -134,6 +138,7 @@ export function fromScholar(result: ScholarResult): PaperRef {
     citedBy: result.citedBy,
     scholarCluster: result.clusterId,
     scholarVersions: result.versionCount,
+    scholarCitation: result.citationId,
   };
 }
 
@@ -189,6 +194,27 @@ export async function scholarProfileWorks(userId: string, page = 0, signal?: Abo
     signal,
   );
   return results.map(fromScholar);
+}
+
+/**
+ * One entry on a profile, opened. The list a profile gives carries a title,
+ * a byline and a count, and no more; the entry's own page is where Scholar
+ * shows the file it found for it — "[PDF] from bu.edu", the copy on the
+ * person's own university's site that no index has a record of — and the
+ * cluster it belongs to, from which every other copy follows. Asked for when
+ * one of a profile's papers is opened, not for the whole list at once: it is
+ * one Scholar request per paper.
+ */
+export async function scholarWork(citationId: string, signal?: AbortSignal): Promise<ScholarResult | undefined> {
+  const match = /^([\w-]{6,32}):([\w-]{6,32})$/.exec(citationId);
+  if (!match) return undefined;
+  const user = match[1];
+  const results = await ask<ScholarResult>(
+    `/scholar/work?user=${encodeURIComponent(user)}&citation=${encodeURIComponent(citationId)}`,
+    scholarPage('citations', { hl: 'en', user, view_op: 'view_citation', citation_for_view: citationId }),
+    signal,
+  );
+  return results[0];
 }
 
 /**
