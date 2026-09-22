@@ -56,13 +56,17 @@ export function authorSources(): { id: SourceId; label: string; authors: boolean
 }
 
 /**
- * What a fresh search asks. Scholar is deliberately not among them: it is the
- * one source that answers with a captcha rather than a result, often enough
- * that having it on by default would make every search look broken. It is one
- * click away, and the panel says what it is for.
+ * What a fresh search asks. Google Scholar, alone, wherever there is a proxy
+ * to ask it through: it is the one source that finds a thesis, a report or a
+ * copy on somebody's own page, and the one whose profiles say who a person
+ * is. It is also the one that answers with a captcha rather than a result,
+ * so the panel says what that means when it happens, and the other sources
+ * are one click away on their chips for whoever wants them alongside — or
+ * instead. Without a proxy Scholar cannot be reached at all, and the search
+ * falls back to the indexes a browser can ask directly.
  */
 export function defaultSources(): SourceId[] {
-  return hasProxy() ? ['arxiv', 'openalex', 'crossref'] : ['openalex', 'crossref'];
+  return hasProxy() ? ['scholar'] : ['openalex', 'crossref'];
 }
 
 const clean = (value: string | null | undefined) => (value || '').replace(/\s+/g, ' ').trim();

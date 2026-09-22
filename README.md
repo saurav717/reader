@@ -71,11 +71,16 @@ profile alongside it.
 
 | Source | Needs the proxy | Papers | Authors | On by default |
 | --- | --- | --- | --- | --- |
-| arXiv | yes | yes | by name | with a proxy |
-| OpenAlex | no | yes | yes | yes |
+| arXiv | yes | yes | by name | no |
+| OpenAlex | no | yes | yes | only without a proxy |
 | Semantic Scholar | no | yes | yes | no |
-| Crossref | no | yes | by name | yes |
-| Google Scholar | yes | yes | yes | **no** — see below |
+| Crossref | no | yes | by name | only without a proxy |
+| Google Scholar | yes | yes | yes | **yes**, with a proxy — see below |
+
+Scholar is what a fresh search asks, on its own, whenever there is a proxy to
+ask it through. The other four are chips on the panel: press one and it joins
+the search, press Scholar's and it leaves. Without a proxy Scholar is out of
+reach, and the search falls back to OpenAlex and Crossref.
 
 ### Every copy of a paper, not just the first link
 
@@ -126,8 +131,9 @@ nothing else does:
 **It will often refuse.** Scholar blocks servers far more readily than people, and
 the proxy is a server. When it answers with a captcha the panel says so, in those
 words, and the other four sources carry on — a refusal is never shown as "no
-results". That is also why Scholar is off by default: a source that fails half the
-time should be a choice, not a surprise.
+results". It is on by default anyway, because what it finds is what nothing else
+does; the panel says what a refusal means the moment one happens, and the other
+sources are one press away.
 
 **When it does, you can be shown the captcha.** A captcha is Scholar asking for a
 person, and the panel offers to supply one: press *Show me the captcha* and the
