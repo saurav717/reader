@@ -87,7 +87,7 @@ export async function loadPaperContent(paper: Paper, signal?: AbortSignal): Prom
   if (!paper.arxivId) {
     return abstractDocument(
       paper,
-      'Full text is only fetched for arXiv papers. Open the publisher link for the rest.',
+      'Reflowed text — the kind you can highlight — is only rendered for arXiv papers.',
     );
   }
 

@@ -1,15 +1,18 @@
 /**
- * Where the arXiv proxy lives.
+ * Where the proxy lives.
  *
  * arXiv sends no CORS headers, so its search API, HTML renderings and PDFs can
- * only be reached through a server. Three deployments:
+ * only be reached through a server — and neither do the publishers and
+ * repositories that host the open-access PDFs OpenAlex and Semantic Scholar
+ * point at. Three deployments:
  *
  *   unset            same-origin `/api` — the dev server, or `npm start`.
  *   <a url>          a proxy elsewhere, e.g. the Cloudflare Worker in worker/.
  *                    Use this when the app is on a static host.
  *   "none"           no proxy at all. The app still runs: search falls back to
  *                    OpenAlex and Semantic Scholar, which do send CORS headers,
- *                    and the reader shows abstracts with a link to the source.
+ *                    the reader shows abstracts, and PDFs become links out
+ *                    rather than something you can read or save from here.
  */
 const configured = (import.meta.env.VITE_API_BASE as string | undefined)?.trim();
 
@@ -24,4 +27,4 @@ export function api(path: string): string {
 }
 
 export const NO_PROXY_REASON =
-  'This copy runs on a static host with no server, so arXiv — which blocks direct browser requests — is unavailable.';
+  'This copy runs on a static host with no server, so the sites that hold the papers — which block direct browser requests — cannot be reached from here.';

@@ -1,8 +1,9 @@
 # Reader
 
 A reader for research papers. Search arXiv, OpenAlex and Semantic Scholar from one
-box, collect what you want to read, highlight it, and — if you connect Google Drive —
-keep a copy of every paper you add in your own Drive, with your annotations beside it.
+box, read the paper — the full text where there is one, the PDF where there is not —
+highlight it, and — if you connect Google Drive — keep a copy of every paper you add
+in your own Drive, with your annotations beside it.
 
 ![the library on the left, the paper in the middle, the highlights pane on the right, and the three-pane lookup box over a selection](docs/reader.png)
 
@@ -33,8 +34,9 @@ npm start            # http://localhost:8080
 
 `npm start` runs a small Express server that serves the build **and** the `/api`
 routes. Those routes are not optional: arXiv sends no CORS headers, so the browser
-cannot fetch its search API, HTML renderings or PDFs directly. Everything else
-(OpenAlex, Semantic Scholar, Google) is called straight from the page.
+cannot fetch its search API, HTML renderings or PDFs directly — and neither do the
+publishers and repositories that hold everything else. Search itself (OpenAlex,
+Semantic Scholar) and Google are called straight from the page.
 
 ## Putting it online
 
@@ -62,11 +64,12 @@ VITE_API_BASE=https://…workers.dev npm run build:pages   # with a proxy
 
 Without a proxy the app still runs, and says so in the UI: search falls back to
 OpenAlex and Semantic Scholar (both send CORS headers, and both index arXiv), the
-reader shows abstracts with a link to the source, and Drive saves metadata without
-the PDF. Highlighting, collections, notes and export are unaffected.
+reader shows abstracts, PDFs become links out rather than something you can read
+or save here, and Drive saves metadata without the PDF. Highlighting, collections,
+notes and export are unaffected.
 
-To get arXiv back on a static host, put the proxy on Cloudflare's free tier —
-`worker/index.js` is the same four routes in Workers form:
+To get arXiv and the PDFs back on a static host, put the proxy on Cloudflare's
+free tier — `worker/index.js` is the same five routes in Workers form:
 
 ```bash
 npx wrangler deploy                                   # prints your worker URL
@@ -118,8 +121,34 @@ Two consequences of using the least-privilege `drive.file` scope, both deliberat
   it creates its own top-level folder instead. Rename it in Settings; move it in Drive
   and the app will create a new one next time.
 
-PDFs are fetched through this app's server, which only proxies arXiv. Papers from
-other publishers save their metadata sidecar but no PDF.
+PDFs are fetched through this app's server — arXiv, or whichever repository
+OpenAlex and Semantic Scholar point at. A paper with no free copy anywhere either
+of them can see saves its metadata sidecar and says so in the sync log.
+
+## Getting the PDF
+
+arXiv, OpenAlex and Semantic Scholar all answer a search with an abstract. Only
+arXiv also hands over something to reflow, so for everything else the PDF *is* the
+paper, and the reader goes and gets it:
+
+1. Most open-access results already carry a link — `best_oa_location` from
+   OpenAlex, `openAccessPdf` from Semantic Scholar.
+2. When a result carries none, the reader asks both APIs again by DOI when it
+   opens the paper. A search hit and the per-work record do not always agree
+   about what is free to read. What it finds is kept with the paper.
+3. The file is fetched through `/api/pdf`, because a publisher's PDF is
+   cross-origin and the browser will not read it from the page.
+
+The **Reflow / PDF** switch in the top bar appears whenever there is a PDF to
+show, and the button beside it saves the file. A paper with no reflowable text
+opens on its PDF rather than on an abstract you did not ask for.
+
+`/api/pdf` is the only route that fetches a URL this app did not choose, so it is
+deliberately narrow: https only, never at a private, loopback or link-local
+address, every redirect hop checked against the same rules, a size cap, and the
+body has to actually be a PDF — which keeps it from being a general-purpose proxy
+and catches the publisher who answers a sign-in page instead of the paper.
+`scripts/pdf-proxy.test.mjs` is those rules written down (`npm run test:api`).
 
 ## How highlighting works
 
@@ -158,7 +187,9 @@ has indexed, which is not always the thing that coined it.
 ## Layout
 
 ```
-server/api.js           the /api routes (arXiv proxy), shared by dev and prod
+server/api.js           the /api routes (arXiv and PDF proxy), dev and prod
+server/fetchPdf.js      which URLs the PDF route will fetch, and what it accepts
+                        back; shared with the Cloudflare Worker
 server/index.js         production Express server
 src/lib/anchor.ts       text-quote anchoring: resolve, paint, unpaint
 src/lib/sources.ts      arXiv / OpenAlex / Semantic Scholar search, and the
@@ -166,12 +197,14 @@ src/lib/sources.ts      arXiv / OpenAlex / Semantic Scholar search, and the
 src/lib/lookup.ts       dictionary and Wikipedia lookups for a selection
 src/lib/status.ts       reading, not started or finished
 src/lib/paperContent.ts fetches and sanitises the full text
+src/lib/pdf.ts          finds a paper's PDF, fetches it, and saves it
 src/lib/google.ts       Google Identity Services + Drive REST
 src/lib/driveSync.ts    what a synced paper looks like in Drive
 src/lib/store.tsx       app state, IndexedDB persistence, the sync queue
 src/lib/db.ts           IndexedDB wrapper
 src/components/         the UI
 scripts/smoke.mjs       browser smoke test (see below)
+scripts/pdf-proxy.test.mjs  what the PDF proxy serves and what it refuses
 ```
 
 Your library, collections and highlights live in IndexedDB. Settings and the last
@@ -180,21 +213,30 @@ view live in `localStorage`.
 ## Tests
 
 ```bash
+npm run test:api               # the PDF proxy's rules, no network needed
+
 npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
 ```
 
 A Playwright script that drives a real Chromium through search → add → read →
-highlight → look up → comment → note → reload, checks the panels are on the sides
-they should be, that the highlights re-anchor and the note survives, and writes
-screenshots to `.smoke/`. It stubs arXiv, the dictionary, Wikipedia and OpenAlex, so
-it needs no network beyond the local server.
+highlight → open the PDF → download it → look up → comment → note → reload, checks
+the panels are on the sides they should be, that the highlights re-anchor and the
+note survives, and that a paper which is not on arXiv still opens on its PDF. It
+writes screenshots to `.smoke/`, and stubs arXiv, the PDF routes, the dictionary,
+Wikipedia and OpenAlex, so it needs no network beyond the local server.
 
 ## Known limits
 
 - PDF mode hands the file to the browser's own viewer, so highlighting only works in
   Reflow mode. Reflow needs an HTML rendering, which arXiv has for recent papers and
   ar5iv has for most older ones; otherwise the reader falls back to the abstract.
+- A PDF is only there to be had if the paper is open access. Behind a paywall, the
+  best either index can offer is the landing page, and the reader says so rather
+  than pretending the file is coming.
+- The whole PDF is fetched before the viewer sees it, which is what makes a failure
+  explainable rather than a blank pane — but it also means no progressive rendering,
+  and a cap (64 MB) on how big a file the proxy will pass.
 - Tokens are held in memory only — there is no backend to hold a refresh token — so
   Drive re-authorises silently on the first sync after an hour.
 - Semantic Scholar rate-limits unauthenticated search fairly aggressively.

@@ -60,6 +60,8 @@ interface StoreValue {
   togglePaperTag: (id: string, tag: string) => Promise<void>;
   setProgress: (id: string, progress: number) => void;
   markOpened: (id: string) => void;
+  /** Remember a PDF link we had to go and find, so the next open is instant. */
+  setPaperPdfUrl: (id: string, pdfUrl: string) => Promise<void>;
 
   createCollection: (name: string) => Promise<Collection>;
   renameCollection: (id: string, name: string) => Promise<void>;
@@ -293,6 +295,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [savePaper],
   );
 
+  const setPaperPdfUrl = useCallback(
+    async (id: string, pdfUrl: string) => {
+      const paper = latest.current.papers.find((item) => item.id === id);
+      if (!paper || paper.pdfUrl === pdfUrl) return;
+      const updated = { ...paper, pdfUrl };
+      await savePaper(updated);
+      latest.current.papers = latest.current.papers.map((item) => (item.id === id ? updated : item));
+    },
+    [savePaper],
+  );
+
   const createCollection = useCallback(async (name: string) => {
     const collection: Collection = {
       id: newId(),
@@ -425,6 +438,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       togglePaperTag,
       setProgress,
       markOpened,
+      setPaperPdfUrl,
       createCollection,
       renameCollection,
       deleteCollection,
@@ -441,7 +455,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }),
     [
       ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog,
-      addPaper, removePaper, setPaperCollections, togglePaperTag, setProgress, markOpened,
+      addPaper, removePaper, setPaperCollections, togglePaperTag, setProgress, markOpened, setPaperPdfUrl,
       createCollection, renameCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, signOut, syncPaper, syncAll, syncStateFor,
     ],
