@@ -20,6 +20,7 @@ import {
   scholarPaperUrl,
 } from '../lib/locations';
 import { fetchPdfFromLocations } from '../lib/pdf';
+import { whySaveToDriveUnavailable } from '../lib/driveSync';
 import type { AuthorRef, PaperLocation, PaperRef, SearchMode, SourceId } from '../types';
 import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
 
@@ -31,6 +32,12 @@ interface Props {
 type SourceError = { source: SourceId; message: string };
 
 const labelFor = (id: SourceId) => sourceList().find((source) => source.id === id)?.label ?? id;
+
+/**
+ * Only one result is ever expanded, so the line explaining a greyed-out
+ * **Save to Drive** exists at most once and can be named once.
+ */
+const SAVE_BLOCKED_ID = 'discover-save-blocked';
 
 const compact = (value: number) =>
   value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k` : String(value);
@@ -329,6 +336,12 @@ export default function Discover({ onClose, onOpen }: Props) {
     }
   };
 
+  // Kept on the result rather than taken off it when it cannot run: a button
+  // that disappears looks like a feature this app never had, and the question
+  // it leaves behind — the copies are listed right here, why can none of them
+  // be saved? — is the one thing the panel is in a position to answer.
+  const saveBlocked = whySaveToDriveUnavailable({ driveConnected, proxyReady });
+
   const visibleSources = mode === 'authors' ? authorSources() : sourceList();
   const noSources = !sources.some((id) => visibleSources.some((source) => source.id === id));
 
@@ -585,22 +598,27 @@ export default function Discover({ onClose, onOpen }: Props) {
                     >
                       Read
                     </button>
-                    {driveConnected && hasProxy() ? (
-                      <button
-                        type="button"
-                        className="btn sm"
-                        disabled={Boolean(saving)}
-                        onClick={() => void saveToDrive(result)}
-                      >
-                        {saving?.id === result.id ? saving.step : 'Save to Drive'}
-                      </button>
-                    ) : null}
+                    <button
+                      type="button"
+                      className="btn sm"
+                      disabled={Boolean(saving) || Boolean(saveBlocked)}
+                      aria-describedby={saveBlocked ? SAVE_BLOCKED_ID : undefined}
+                      title={saveBlocked ?? undefined}
+                      onClick={() => void saveToDrive(result)}
+                    >
+                      {saving?.id === result.id ? saving.step : 'Save to Drive'}
+                    </button>
                     {result.landingUrl ? (
                       <a className="btn sm" href={result.landingUrl} target="_blank" rel="noreferrer noopener">
                         Source <ExternalIcon size={12} />
                       </a>
                     ) : null}
                   </div>
+                  {saveBlocked ? (
+                    <p className="save-blocked" id={SAVE_BLOCKED_ID}>
+                      {saveBlocked}
+                    </p>
+                  ) : null}
                   {saveError && saving?.id !== result.id && openId === result.id ? (
                     <p className="banner error" style={{ marginBottom: 0 }}>
                       {saveError}

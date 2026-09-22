@@ -17,6 +17,35 @@ export function driveFolderUrl(folderId: string): string {
   return `https://drive.google.com/drive/folders/${folderId}`;
 }
 
+/**
+ * Why a paper cannot be put in Drive from here, or null when it can. The two
+ * halves fail differently: Drive is a consent the reader gives in Settings,
+ * the proxy is a deployment that has to exist. Saying which is missing matters
+ * most on a search result, where every copy of the paper is listed and one of
+ * them opens in a tab on a click — which makes the file look like something
+ * the page is already holding. It is not. Opening a link is a navigation and
+ * the browser allows it; reading the same URL from script is a cross-origin
+ * fetch and it does not. So there is nothing to upload until something fetches
+ * the bytes on the page's behalf, and that something is the proxy.
+ */
+export function whySaveToDriveUnavailable({
+  driveConnected,
+  proxyReady,
+}: {
+  driveConnected: boolean;
+  proxyReady: boolean;
+}): string | null {
+  const noProxy = !proxyReady;
+  const noBytes =
+    'The links here open in a tab because that is a navigation; the page may not fetch another site’s file, so there are no bytes to put in Drive.';
+  if (!driveConnected && noProxy) {
+    return `Saving needs Drive connected and a proxy configured — Settings → Connect Drive, then Settings → Paper proxy. ${noBytes}`;
+  }
+  if (!driveConnected) return 'Saving needs Drive connected — Settings → Connect Drive.';
+  if (noProxy) return `${noBytes} Settings → Paper proxy.`;
+  return null;
+}
+
 export interface SyncResult {
   folderId: string;
   /** What the paper's folder is called in Drive. */

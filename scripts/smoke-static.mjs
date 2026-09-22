@@ -80,6 +80,18 @@ await page.waitForSelector('article.result', { timeout: 10000 });
 check('OpenAlex search returns results', (await page.locator('article.result h3').count()) === 1);
 
 await page.locator('article.result h3').click();
+
+// Save to Drive cannot run here — no proxy, so no way to fetch the file the
+// result links to — but the button stays and says so, which is the question a
+// list of readable copies provokes.
+const save = page.getByRole('button', { name: /Save to Drive/ });
+check('save to drive stays on the result', await save.isVisible());
+check('it is greyed out rather than gone', await save.isDisabled());
+const why = (await page.locator('.save-blocked').innerText()).trim();
+check('and the result says why', /no bytes to put in Drive/.test(why), why);
+check('pointing at the setting that fixes it', /Paper proxy/.test(why));
+await page.locator('article.result').first().screenshot({ path: `${OUT}/static-save-to-drive.png` });
+
 await page.getByRole('button', { name: /^Read$/ }).click();
 await page.waitForSelector('.paper-body p');
 check('reader falls back to the abstract', (await page.locator('.reader-column .banner.warn').count()) === 1);

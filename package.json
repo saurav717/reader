@@ -15,6 +15,8 @@
     "test:unit": "node --test scripts/search.test.mjs scripts/locations.test.mjs scripts/scholar.test.mjs scripts/github.test.mjs scripts/proxy-setting.test.mjs scripts/google-signin.test.mjs scripts/drive.test.mjs",
     "test": "node --test scripts/pdf-proxy.test.mjs scripts/search.test.mjs scripts/locations.test.mjs scripts/scholar.test.mjs scripts/github.test.mjs scripts/google-signin.test.mjs scripts/drive.test.mjs",
     "test:scholar": "node scripts/scholar-live.mjs",
+    "check:worker": "npx --yes wrangler@4 deploy --dry-run",
+    "deploy:worker": "npx --yes wrangler@4 deploy",
     "fetch": "node scripts/fetch-paper.mjs"
   },
   "dependencies": {

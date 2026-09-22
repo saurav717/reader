@@ -188,8 +188,17 @@ has one in the browser, and nothing here holds a refresh token on disk.
 **Save to Drive** on a search result does the whole chain in one press: find every
 copy, download from whichever one answers, put the file in
 `My Drive/Papers_collection/<paper>/`, and open the paper on **the copy that was
-just saved** — read back out of Drive, which the browser can do directly. It needs
-Drive connected and a proxy configured; without either, the button is not shown.
+just saved** — read back out of Drive, which the browser can do directly.
+
+It needs Drive connected and a proxy configured. Without either the button is still
+there, greyed out, with a line under the result saying which half is missing and
+where to fix it — because that is exactly where the question gets asked. A result
+lists every place the paper can be read and those links open on a click, which makes
+the file look like something the page already has. It is not: opening a link is a
+*navigation*, which the browser allows across origins, while reading the same URL
+from script is a *fetch*, which it refuses. Until something fetches the bytes on the
+page's behalf there is nothing to upload, and that something is the proxy. Drive
+cannot stand in for it — its API takes bytes, not a URL to go and collect.
 
 ## Putting it online
 
@@ -225,13 +234,26 @@ To get arXiv and the PDFs back on a static host, put the proxy on Cloudflare's
 free tier — `worker/index.js` is the same routes in Workers form:
 
 ```bash
-# in worker/index.js, set ALLOWED_ORIGINS to your own site first
-npx wrangler deploy                                   # prints your worker URL
+# your site's origin goes in ALLOWED_ORIGINS at the top of worker/index.js;
+# it ships with https://saurav717.github.io and the two localhost ports.
+npm run check:worker    # bundles it without deploying: ~24 KiB, no bindings
+npm run deploy:worker   # asks you to log in the first time, then prints the URL
+```
+
+The URL it prints is `https://reader-arxiv-proxy.<your-subdomain>.workers.dev`
+— `name` in `wrangler.toml` is the first half of it. Check it before depending
+on it:
+
+```bash
+curl -H 'Origin: https://saurav717.github.io' https://<that>/health
+# {"ok":true}, and Access-Control-Allow-Origin echoing that same origin
 ```
 
 A wide-open proxy is one anyone can point at arXiv on your account's quota, so
 `ALLOWED_ORIGINS` is not optional — a site that is not on the list fails CORS,
-and from the page that looks exactly like the Worker being down.
+and from the page that looks exactly like the Worker being down. An origin is a
+scheme and a host: `https://saurav717.github.io`, never the `/reader/` path the
+app is served under.
 
 Then tell the app about it. Either rebuild with `VITE_API_BASE` set to the
 Worker's URL, or — and this is the point of it being a setting — paste that URL
@@ -443,6 +465,7 @@ If nothing arrives in Drive, it is one of five things, and the app says which:
 | What you see | What it is |
 | --- | --- |
 | No **PDF** switch in the top bar, a *no server* banner in Discover | No proxy configured — see **Settings → Paper proxy** |
+| **Save to Drive** greyed out on every search result | The line under the result says which of the two is missing — the Drive consent, the proxy, or both |
 | *No open-access PDF could be found* in the sync log | The paper is not free to read anywhere the three indexes can see |
 | *Drive request failed (403)* | The Drive API is not enabled on your Cloud project |
 | A popup that closes instantly, or `redirect_uri_mismatch` | The origin is not on the OAuth client's **Authorised JavaScript origins** — and a path is not an origin |
