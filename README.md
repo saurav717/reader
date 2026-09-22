@@ -819,7 +819,15 @@ no window, no pop-up — which is either of two:
   each request, and if the object is evicted while idle the next request
   reconnects to the same browser. (`worker/browse.js` is the same thing
   without the object, reconnecting per request: slower, and only the
-  fallback.) The sign-in outlasts the browser session
+  fallback.) Cloudflare rations browsers rather than requests — on the free
+  plan a few new browsers a minute, three alive at once, and ten minutes of
+  browser time a day; the Workers Paid plan has hours a month — so the
+  object starts one only when it has none: picking another site points the
+  open browser at it, a session left idle by an eviction is adopted rather
+  than replaced, a refusal is retried once after a pause, and a browser is
+  closed the moment the pane is or two minutes after anyone last looked.
+  A day's minutes spent shows as *Cloudflare would not start another
+  browser just now*. The sign-in outlasts the browser session
   only where the Worker has somewhere to keep its cookies: bind a KV
   namespace as `SESSIONS` (the commented block in `wrangler.toml`) and they
   are saved when the browser closes or hands over a file, restored when the
