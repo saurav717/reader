@@ -9,14 +9,20 @@ export const UNSORTED_FOLDER = 'Unsorted';
 export interface SyncResult {
   folderId: string;
   pdfFileId?: string;
+  pdfLink?: string;
   metaFileId: string;
   syncedAt: string;
   notice?: string;
 }
 
+/**
+ * `pdf` is a copy of the file the reader has already fetched. Handing it over
+ * is what makes opening a paper and saving it one download rather than two:
+ * the viewer pulls the PDF through the proxy, and the same bytes go to Drive.
+ */
 export async function syncPaperToDrive(
   paper: Paper,
-  context: { collections: Collection[]; highlights: Highlight[]; settings: Settings },
+  context: { collections: Collection[]; highlights: Highlight[]; settings: Settings; pdf?: Blob },
 ): Promise<SyncResult> {
   const { settings } = context;
   if (!settings.googleClientId) throw new Error('No Google client ID is configured');
@@ -35,16 +41,35 @@ export async function syncPaperToDrive(
 
   let notice: string | undefined;
   let pdfFileId = paper.drive?.pdfFileId;
+  let pdfLink = paper.drive?.pdfLink;
 
   if (settings.savePdf) {
     if (!pdfFileId) {
       const existing = await findFile(accessToken, `${stem}.pdf`, folderId);
       pdfFileId = existing?.id;
+      pdfLink = existing?.webViewLink ?? pdfLink;
     }
-    if (!pdfFileId && !hasProxy) {
+    if (!pdfFileId && context.pdf) {
+      // The reader already has the file open. Upload that, rather than asking
+      // the publisher for the same bytes a second time.
+      try {
+        const uploaded = await uploadFile(accessToken, {
+          name: `${stem}.pdf`,
+          mimeType: 'application/pdf',
+          parentId: folderId,
+          body: context.pdf,
+        });
+        pdfFileId = uploaded.id;
+        pdfLink = uploaded.webViewLink;
+      } catch (error) {
+        notice = `${error instanceof Error ? error.message : String(error)} Saved the metadata only.`;
+      }
+    } else if (!pdfFileId && !hasProxy()) {
       // Every PDF has to be fetched cross-origin, which the browser blocks.
       // Without a server of our own there is nothing to do but say so.
-      notice = 'This deployment has no server to fetch PDFs through; saved the metadata only.';
+      notice =
+        'There is no proxy configured, so the PDF could not be fetched; saved the metadata only. ' +
+        'Settings → Paper proxy.';
     } else if (!pdfFileId) {
       // arXiv, or whichever repository OpenAlex and Semantic Scholar know of.
       const source = await resolvePdfUrl(paper).catch(() => undefined);
@@ -59,6 +84,7 @@ export async function syncPaperToDrive(
             body: await fetchPdf({ ...paper, pdfUrl: source }),
           });
           pdfFileId = uploaded.id;
+          pdfLink = uploaded.webViewLink;
         } catch (error) {
           notice = `${error instanceof Error ? error.message : String(error)} Saved the metadata only.`;
         }
@@ -77,5 +103,5 @@ export async function syncPaperToDrive(
     fileId: metaFileId,
   });
 
-  return { folderId, pdfFileId, metaFileId: meta.id, syncedAt: new Date().toISOString(), notice };
+  return { folderId, pdfFileId, pdfLink, metaFileId: meta.id, syncedAt: new Date().toISOString(), notice };
 }

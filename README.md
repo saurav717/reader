@@ -93,26 +93,38 @@ start command `npm start`, and it listens on `$PORT`.
 caveat. `npm run build:pages` produces `dist-pages/` for a `/reader/` sub-path:
 
 ```bash
-npm run build:pages                                   # no proxy: static mode
-VITE_API_BASE=https://…workers.dev npm run build:pages   # with a proxy
+npm run build:pages                                   # no proxy compiled in
+VITE_API_BASE=https://…workers.dev npm run build:pages   # or name one now
 ```
 
 Without a proxy the app still runs, and says so in the UI: search falls back to
-OpenAlex and Semantic Scholar (both send CORS headers, and both index arXiv), the
-reader shows abstracts, PDFs become links out rather than something you can read
-or save here, and Drive saves metadata without the PDF. Highlighting, collections,
-notes and export are unaffected.
+OpenAlex, Crossref and Semantic Scholar (all of which send CORS headers, and all
+of which index arXiv), the reader shows abstracts, PDFs become links out rather
+than something you can read or save here, and Drive saves metadata without the
+PDF. Highlighting, collections, notes and export are unaffected.
 
 To get arXiv and the PDFs back on a static host, put the proxy on Cloudflare's
-free tier — `worker/index.js` is the same five routes in Workers form:
+free tier — `worker/index.js` is the same routes in Workers form:
 
 ```bash
+# in worker/index.js, set ALLOWED_ORIGINS to your own site first
 npx wrangler deploy                                   # prints your worker URL
 ```
 
-Edit `ALLOWED_ORIGINS` in `worker/index.js` to your own site first; a wide-open
-proxy is one anyone can point at arXiv on your account's quota. Then rebuild with
-`VITE_API_BASE` set to the worker URL.
+A wide-open proxy is one anyone can point at arXiv on your account's quota, so
+`ALLOWED_ORIGINS` is not optional — a site that is not on the list fails CORS,
+and from the page that looks exactly like the Worker being down.
+
+Then tell the app about it. Either rebuild with `VITE_API_BASE` set to the
+Worker's URL, or — and this is the point of it being a setting — paste that URL
+into **Settings → Paper proxy** and press **Test it**. The address is kept in
+this browser beside the client ID, takes effect immediately, and arXiv appears
+in the source list without a reload. A site published once can be pointed at a
+proxy, or moved to another one, without being rebuilt or redeployed.
+
+`VITE_API_BASE` remains the default for the build; the setting only overrides
+it. A proxy address has to be same-origin or `https` (or `http://localhost`),
+since an `https` page cannot call an `http` one.
 
 Whichever you pick, add the resulting origin to **Authorised JavaScript origins**
 on your OAuth client before Google sign-in will work there.
@@ -122,17 +134,106 @@ on your OAuth client before Google sign-in will work there.
 Sign-in and Drive are two separate consents, and both are optional — without them
 the app still works, with your library in this browser only.
 
-1. In the [Google Cloud Console](https://console.cloud.google.com/), create a
-   project and enable the **Google Drive API**.
-2. Under **APIs & Services → Credentials**, create an **OAuth client ID** of type
-   **Web application**. Add your origin (`http://localhost:5173` for dev,
-   `http://localhost:8080` for the built server, or your deployed origin) to
-   **Authorised JavaScript origins**.
-3. Put the client ID either in `.env` as `VITE_GOOGLE_CLIENT_ID` (see
-   `.env.example`) or paste it into **Settings** in the app — the latter is stored
-   in `localStorage` and needs no rebuild.
-4. **Sign in with Google** asks only for your name and email. **Connect Drive** is a
-   second, incremental consent for the `drive.file` scope.
+There is no backend here, and that shapes everything below: the app talks to
+Google from the page itself, with an OAuth client **you** own. Nothing you sign
+into is visible to anyone hosting the site.
+
+### 1. A Google Cloud project with the Drive API on
+
+In the [Google Cloud Console](https://console.cloud.google.com/), create a
+project (or pick one you already have), then **APIs & Services → Library →
+Google Drive API → Enable**. Without this the sign-in works and every Drive call
+comes back 403.
+
+### 2. An OAuth client ID
+
+**APIs & Services → Credentials → Create credentials → OAuth client ID → Web
+application.**
+
+You will be asked to configure the **OAuth consent screen** first if you have
+not before: **External** user type, an app name, your own address for the
+support and developer contact fields. Leave it in **Testing** and add your own
+Google account under **Test users** — an app in testing can only be used by the
+accounts listed there, which for a personal reading tool is exactly right. (A
+testing app's grant expires after seven days, so you will be asked to consent
+again about weekly. Publishing it stops that, and a `drive.file`-only app is not
+subject to Google's verification review.)
+
+Under **Scopes**, nothing needs adding: the app asks for what it needs at the
+moment it needs it.
+
+Then, on the client itself, fill in **Authorised JavaScript origins** with every
+origin the app is served from — scheme and host, no path, no trailing slash:
+
+| Where you run it | Origin to add |
+| --- | --- |
+| `npm run dev` | `http://localhost:5173` |
+| `npm start` (built server) | `http://localhost:8080` |
+| GitHub Pages | `https://yourname.github.io` |
+| Vercel | `https://your-project.vercel.app` |
+
+`https://yourname.github.io/reader/` is **not** an origin — the path is not part
+of one, and pasting it is the most common reason sign-in fails with
+`redirect_uri_mismatch` or a popup that closes instantly. **Authorised redirect
+URIs** can be left empty: this app uses the token flow, which has no redirect.
+
+Changes to a client can take a few minutes to propagate.
+
+### 3. Give the app the client ID
+
+Copy the client ID — it looks like
+`000000000000-xxxxxxxxxxxx.apps.googleusercontent.com` — and put it in one of
+three places, in order of how permanent you want it:
+
+| Where | Applies to | Needs a rebuild |
+| --- | --- | --- |
+| **Settings → Google OAuth client ID** | this browser | no |
+| `.env` (`VITE_GOOGLE_CLIENT_ID=…`, see `.env.example`) | your local builds, and it is gitignored | yes |
+| `.env.production` | every build of this repo, including the deployed site | yes |
+
+`.env.production` is committed, and holds the client ID this project's own
+deployment is built with. That is deliberate: a client ID is **not** a secret.
+It is visible in the page source of every browser-side OAuth flow by design,
+and it is useless anywhere else, because Google only honours it on the origins
+listed under **Authorised JavaScript origins** on the client itself. Someone who
+copies it into their own site gets `redirect_uri_mismatch`, not your Drive.
+
+The client **secret** issued alongside it is a different matter — and this app
+never uses it. There is no backend to keep one in, and the token flow the page
+uses does not send one. Leave it in the Cloud Console; it belongs in none of
+these files.
+
+A client ID set in Settings wins over the compiled-in one, so a fork does not
+have to rebuild to use its own.
+
+### 4. Sign in, then connect Drive
+
+**Sign in with Google** asks only for your name and email — it is how the app
+knows who you are, and it touches no files.
+
+**Connect Drive** is a second, incremental consent for one scope,
+`drive.file`: *see, edit, create and delete only the specific Drive files you
+use with this app*. Google's consent screen will phrase it roughly that way. The
+app cannot read anything in your Drive that it did not create, which is the
+whole point of using that scope rather than the blanket one.
+
+Allow the popup if the browser blocks it — both steps open one, and a blocked
+popup looks like nothing happening.
+
+Settings then reads **Google Drive connected**, with a count of how many papers
+are saved, and a **Sync all** button that pushes everything already in your
+library.
+
+### 5. Check it
+
+Add a paper, open it, and look for the cloud tick in the reader's top bar —
+click it and Drive opens on the file. In Drive itself, **My Drive → Paper
+Reader**.
+
+Tokens live in memory only, because there is no backend to hold a refresh token.
+After an hour the app quietly asks Google for a new one using the grant you have
+already given, with no dialog. Closing the tab ends the session; **Sign out**
+revokes the token outright.
 
 ### What lands in Drive
 
@@ -156,9 +257,47 @@ Two consequences of using the least-privilege `drive.file` scope, both deliberat
   it creates its own top-level folder instead. Rename it in Settings; move it in Drive
   and the app will create a new one next time.
 
-PDFs are fetched through this app's server — arXiv, or whichever repository
-Unpaywall, OpenAlex or Semantic Scholar points at. A paper with no free copy anywhere
-any of them can see saves its metadata sidecar and says so in the sync log.
+PDFs are fetched through the proxy — arXiv, or whichever repository Unpaywall,
+OpenAlex or Semantic Scholar points at. A paper with no free copy anywhere any of
+them can see saves its metadata sidecar and says so in the sync log.
+
+### What happens when you click Read
+
+This is the whole path, because it is the part that has the most ways to go
+quiet:
+
+1. **The PDF is located.** arXiv papers already know where theirs is. For
+   everything else the reader asks Unpaywall (if you have given a contact
+   address), then OpenAlex, then Semantic Scholar — a search result and the
+   per-work record often disagree about what is free to read. What it finds is
+   kept with the paper, so the next open is immediate.
+2. **It is fetched through the proxy**, in full, and handed to the browser's own
+   viewer as a blob. In full, because a failure you can explain beats a blank
+   grey pane. If Drive already holds a copy, it comes from there instead and the
+   line under the title says **PDF from your Drive**.
+3. **The same bytes go to Drive** — `Paper Reader/<collection>/<title>.pdf`,
+   beside the `.json` sidecar of your highlights. The copy uploaded is the one
+   on screen, so reading a paper and saving it is one download, not two. The
+   line under the title reads *saving to Drive…* while it happens, and a cloud
+   tick appears in the top bar when it is done; click it and Drive opens on the
+   file.
+4. **Afterwards the reader opens that copy**, not the publisher's.
+
+Step 3 is on by default and is **Settings → Save a paper when I open it**. It
+exists because adding a paper is not when its PDF is usually within reach:
+papers collected before you connected Drive, before you configured a proxy, or
+on a day the publisher was down, have nothing in Drive but their metadata.
+Opening one is the moment the file is at hand.
+
+If nothing arrives in Drive, it is one of five things, and the app says which:
+
+| What you see | What it is |
+| --- | --- |
+| No **PDF** switch in the top bar, a *no server* banner in Discover | No proxy configured — see **Settings → Paper proxy** |
+| *No open-access PDF could be found* in the sync log | The paper is not free to read anywhere the three indexes can see |
+| *Drive request failed (403)* | The Drive API is not enabled on your Cloud project |
+| A popup that closes instantly, or `redirect_uri_mismatch` | The origin is not on the OAuth client's **Authorised JavaScript origins** — and a path is not an origin |
+| Nothing at all, Settings shows Drive as not connected | Sign-in is only identity; **Connect Drive** is the second consent |
 
 ## Mirroring to a Git repository
 
@@ -234,6 +373,11 @@ paper, and the reader goes and gets it:
    about what is free to read. What it finds is kept with the paper.
 3. The file is fetched through `/api/pdf`, because a publisher's PDF is
    cross-origin and the browser will not read it from the page.
+4. It is fetched **once**. Opening a paper straight from a search result asks
+   for the same file twice — the viewer to show it, the Drive sync to upload it
+   — so a download in progress is handed to both, and the last one is held for
+   a minute afterwards in case the second request is a moment late. The copy
+   that goes to Drive is the copy on screen.
 
 A paper opens on its PDF: the paper as it was published, figures, tables,
 typesetting and all, handed to the browser's own viewer. The **Reflow / PDF**
@@ -300,6 +444,8 @@ server/fetchPdf.js      which URLs the PDF route will fetch, and what it accepts
                         back; shared with the Cloudflare Worker
 server/index.js         production Express server
 src/lib/anchor.ts       text-quote anchoring: resolve, paint, unpaint
+src/lib/api.ts          where the proxy is: the build's default, the setting
+                        that overrides it, and the check behind "Test it"
 src/lib/sources.ts      arXiv / OpenAlex / Semantic Scholar / Crossref search,
                         author search, the merge, and the OpenAlex lineage
                         query behind the lookup box
@@ -320,6 +466,7 @@ scripts/pdf-proxy.test.mjs  what the PDF proxy serves and what it refuses
 scripts/search.test.mjs     query shapes, de-duplication and ranking
 scripts/github.test.mjs     what the Git mirror writes, and that a flush is
                             one commit
+scripts/proxy-setting.test.mjs  which proxy address wins, and what is refused
 scripts/bundle.mjs          loads the app's TypeScript into the test runner
 ```
 
@@ -331,7 +478,7 @@ view live in `localStorage`.
 ```bash
 npm test                       # everything below that needs no network
 npm run test:api               # the PDF proxy's rules
-npm run test:unit              # query building, result merging, the Git mirror
+npm run test:unit              # query building, merging, the Git mirror, the proxy setting
 
 npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
@@ -347,8 +494,9 @@ the panels are on the sides they should be, that a paper opens on its PDF and th
 the browser's viewer really renders it, that the highlights re-anchor, that the note
 and the chosen mode survive a reload, that results from several sources merge into
 one list, that an author search finds a person and opens their papers, that a paper
-which is not on arXiv opens on its PDF too, and that a synced paper is read back out
-of Drive rather than fetched through the proxy twice. It writes screenshots to
+which is not on arXiv opens on its PDF too, that a synced paper is read back out of
+Drive rather than fetched through the proxy twice, and that a paper collected before
+Drive was connected is uploaded when it is opened — the copy on screen, fetched once. It writes screenshots to
 `.smoke/`, and stubs arXiv, the PDF routes, the dictionary, Wikipedia, OpenAlex,
 Crossref and Semantic Scholar, so it needs no network beyond the local server.
 
@@ -363,7 +511,14 @@ Crossref and Semantic Scholar, so it needs no network beyond the local server.
   than pretending the file is coming.
 - The whole PDF is fetched before the viewer sees it, which is what makes a failure
   explainable rather than a blank pane — but it also means no progressive rendering,
-  and a cap (64 MB) on how big a file the proxy will pass.
+  and a cap (64 MB) on how big a file the proxy will pass. The most recent one is
+  also held for a minute after it lands so that the viewer and the Drive upload are
+  one download; that is one paper's worth of memory, not a cache of your library.
+- A static deployment cannot save PDFs to Drive on its own. Drive will not fetch a
+  URL for you, and the browser will not fetch a publisher's PDF from the page, so
+  without a proxy the only thing that reaches Drive is the metadata sidecar. The
+  Worker in `worker/` is what makes the rest of it work, and Settings → Paper proxy
+  is where its address goes.
 - Tokens are held in memory only — there is no backend to hold a refresh token — so
   Drive re-authorises silently on the first sync after an hour.
 - The GitHub token is the exception, and has to be stored in `localStorage` for the

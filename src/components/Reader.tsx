@@ -18,6 +18,7 @@ import LookupPopover, { type LookupTarget } from './LookupPopover';
 import {
   ArrowLeftIcon,
   BookIcon,
+  CloudCheckIcon,
   CopyIcon,
   DownloadIcon,
   ExternalIcon,
@@ -61,8 +62,19 @@ export default function Reader({
   onSelectHighlight,
   onOrphans,
 }: Props) {
-  const { papers, highlights, addHighlight, setProgress, markOpened, setPaperPdfUrl, settings, updateSettings, driveConnected } =
-    useStore();
+  const {
+    papers,
+    highlights,
+    addHighlight,
+    setProgress,
+    markOpened,
+    setPaperPdfUrl,
+    settings,
+    updateSettings,
+    driveConnected,
+    syncPaper,
+    syncStateFor,
+  } = useStore();
   const paper = papers.find((item) => item.id === paperId);
 
   // What a paper opens on, remembered between papers and between sessions.
@@ -160,6 +172,12 @@ export default function Reader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId, paper?.arxivId, paper?.pdfUrl]);
 
+  // A PDF can be shown if there is a proxy to fetch it through — or if Drive
+  // already holds a copy, which comes back to the browser directly and so
+  // opens even on a deployment that has no server at all.
+  const driveCopy = Boolean(paper?.drive?.pdfFileId && driveConnected && settings.googleClientId);
+  const canFetchPdf = hasProxy() || driveCopy;
+
   // A new paper opens the way they read the last one, with no PDF held over.
   useEffect(() => {
     modeChosen.current = false;
@@ -176,16 +194,16 @@ export default function Reader({
   // they pick a mode themselves.
   useEffect(() => {
     if (modeChosen.current) return;
-    if (preferredMode === 'pdf' && (!hasProxy || pdfLookup === 'none')) setMode('reflow');
+    if (preferredMode === 'pdf' && (!canFetchPdf || pdfLookup === 'none')) setMode('reflow');
     else setMode(preferredMode);
-  }, [preferredMode, pdfLookup]);
+  }, [preferredMode, pdfLookup, canFetchPdf]);
 
   // Reading it reflowed but there is nothing to reflow: the PDF beats an
   // abstract they did not ask for.
   useEffect(() => {
     if (modeChosen.current || !content) return;
-    if (content.mode === 'abstract' && pdfLookup === 'ready' && hasProxy) setMode('pdf');
-  }, [content, pdfLookup]);
+    if (content.mode === 'abstract' && pdfLookup === 'ready' && canFetchPdf) setMode('pdf');
+  }, [content, pdfLookup, canFetchPdf]);
 
   // What the PDF routes need, and nothing that changes while reading: the paper
   // object itself is replaced on every progress tick, which would otherwise
@@ -225,6 +243,45 @@ export default function Reader({
       });
     return () => controller.abort();
   }, [mode, pdfBlob, pdfTarget, driveOptions]);
+
+  // Putting a paper in Drive as it is read.
+  //
+  // Adding a paper already queues a sync, but that is not where most papers
+  // get their PDF: one added before Drive was connected, one whose publisher
+  // was down that minute, one found before a proxy was configured — all of
+  // them sit in Drive as metadata and nothing else. Opening a paper is the
+  // moment the file is actually at hand, so that is when it goes up, and the
+  // copy that goes up is the one on screen rather than a second download.
+  const askedToSave = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!paper || !settings.syncOnOpen || !settings.savePdf || !driveConnected) return;
+    if (paper.drive?.pdfFileId) return; // Drive has it already.
+    if (pdfLookup !== 'ready' || !hasProxy()) return; // Nothing we can fetch.
+    if (askedToSave.current.has(paper.id)) return;
+    // Reading it as a PDF: the viewer is already fetching the file, so wait for
+    // it. This effect runs again when the blob arrives.
+    if (mode === 'pdf' && !pdfBlob && !pdfError) return;
+    askedToSave.current.add(paper.id);
+    syncPaper(paper.id, pdfBlob && pdfFrom === 'proxy' ? { pdf: pdfBlob } : undefined);
+  }, [
+    driveConnected,
+    mode,
+    paper,
+    pdfBlob,
+    pdfError,
+    pdfFrom,
+    pdfLookup,
+    settings.savePdf,
+    settings.syncOnOpen,
+    syncPaper,
+  ]);
+
+  // What to say about Drive in the line under the title.
+  const driveState = paper ? syncStateFor(paper.id) : 'idle';
+  const driveBusy = driveState === 'queued' || driveState === 'running';
+  const driveFileLink = paper?.drive?.pdfFileId
+    ? paper.drive.pdfLink || `https://drive.google.com/file/d/${paper.drive.pdfFileId}/view`
+    : null;
 
   // The viewer needs a URL, and every one of them has to be handed back.
   useEffect(() => {
@@ -440,10 +497,25 @@ export default function Reader({
                 ? ` · ${content.sourceLabel}`
                 : ''}
             {` · ${Math.round(paper.progress * 100)}%`}
+            {driveConnected && driveBusy ? ' · saving to Drive…' : ''}
           </div>
         </div>
 
-        {pdfLookup === 'ready' && hasProxy ? (
+        {driveConnected && driveFileLink && !driveBusy ? (
+          <a
+            className="icon-btn sm"
+            href={driveFileLink}
+            target="_blank"
+            rel="noreferrer noopener"
+            aria-label="Open this paper in your Google Drive"
+            title="This paper is in your Google Drive"
+            style={{ color: 'var(--accent)' }}
+          >
+            <CloudCheckIcon size={17} />
+          </a>
+        ) : null}
+
+        {pdfLookup === 'ready' && canFetchPdf ? (
           <>
             <div className="segmented" role="group" aria-label="Reading mode">
               <button type="button" aria-pressed={mode === 'reflow'} onClick={() => chooseMode('reflow')}>
@@ -565,7 +637,7 @@ export default function Reader({
             {content?.notice ? (
               <p className="banner warn" style={{ marginBottom: 20 }}>
                 {content.notice}
-                {pdfLookup === 'ready' && hasProxy ? (
+                {pdfLookup === 'ready' && canFetchPdf ? (
                   <>
                     {' '}
                     <button type="button" className="link-btn" onClick={() => chooseMode('pdf')}>

@@ -14,6 +14,7 @@ import { db } from './db';
 import { syncPaperToDrive } from './driveSync';
 import { pathFor, syncPapersToGitHub, targetFrom } from './github';
 import { setContactEmail } from './contact';
+import { setProxyBase } from './api';
 import * as google from './google';
 
 const SETTINGS_KEY = 'reader.settings';
@@ -23,6 +24,8 @@ const defaultSettings: Settings = {
   driveFolderName: 'Paper Reader',
   autoSync: true,
   savePdf: true,
+  syncOnOpen: true,
+  proxyBase: '',
   theme: 'light',
   readingMode: 'pdf',
   contactEmail: '',
@@ -43,7 +46,12 @@ function readSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return defaultSettings;
-    return { ...defaultSettings, ...(JSON.parse(raw) as Partial<Settings>) };
+    const saved = { ...defaultSettings, ...(JSON.parse(raw) as Partial<Settings>) };
+    // Anyone who opened the app before it had a client ID compiled in has an
+    // empty one saved, which would otherwise shadow the new default forever.
+    // An empty string here means "not set", not "deliberately blank".
+    if (!saved.googleClientId) saved.googleClientId = defaultSettings.googleClientId;
+    return saved;
   } catch {
     return defaultSettings;
   }
@@ -92,7 +100,8 @@ interface StoreValue {
   connectDrive: () => Promise<void>;
   signOut: () => void;
 
-  syncPaper: (id: string) => void;
+  /** `pdf` is a copy the caller already has; it is uploaded as-is. */
+  syncPaper: (id: string, options?: { pdf?: Blob }) => void;
   syncAll: () => void;
   syncStateFor: (id: string) => SyncState;
 
@@ -127,6 +136,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   latest.current = { papers, collections, highlights, settings };
 
   const queue = useRef<string[]>([]);
+  /** PDFs the reader has already fetched, waiting to be uploaded with them. */
+  const queuedPdfs = useRef<Map<string, Blob>>(new Map());
   const running = useRef(false);
 
   // GitHub is batched rather than queued one at a time: everything that
@@ -169,6 +180,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     document.documentElement.dataset.theme = settings.theme;
     setContactEmail(settings.contactEmail);
+    setProxyBase(settings.proxyBase);
   }, [settings]);
 
   const githubConnected = Boolean(targetFrom(settings));
@@ -197,6 +209,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     try {
       while (queue.current.length) {
         const paperId = queue.current.shift() as string;
+        const pdf = queuedPdfs.current.get(paperId);
+        queuedPdfs.current.delete(paperId);
         const paper = latest.current.papers.find((item) => item.id === paperId);
         if (!paper) continue;
         note(paperId, 'running');
@@ -205,18 +219,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             collections: latest.current.collections,
             highlights: latest.current.highlights,
             settings: latest.current.settings,
+            pdf,
           });
           const updated: Paper = {
             ...paper,
             drive: {
               folderId: result.folderId,
               pdfFileId: result.pdfFileId,
+              pdfLink: result.pdfLink,
               metaFileId: result.metaFileId,
               syncedAt: result.syncedAt,
               error: undefined,
             },
           };
           await savePaper(updated);
+          // The next entry in the queue reads this mirror, and may be the same
+          // paper again: without this it would not know the PDF is now in
+          // Drive, and would fetch and upload the whole thing a second time.
+          latest.current.papers = latest.current.papers.map((item) =>
+            item.id === updated.id ? updated : item,
+          );
           note(paperId, 'done', result.notice);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -231,8 +253,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [note, savePaper]);
 
   const syncPaper = useCallback(
-    (id: string) => {
+    (id: string, options: { pdf?: Blob } = {}) => {
       if (!driveConnected) return;
+      // The reader hands over the copy it is showing, so the upload is the
+      // file already on screen rather than a second trip to the publisher.
+      if (options.pdf) queuedPdfs.current.set(id, options.pdf);
       if (!queue.current.includes(id)) queue.current.push(id);
       note(id, 'queued');
       void drainQueue();
