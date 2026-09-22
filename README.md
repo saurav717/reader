@@ -534,7 +534,15 @@ quiet:
    everything else the reader asks Unpaywall (if you have given a contact
    address), then OpenAlex, then Semantic Scholar — a search result and the
    per-work record often disagree about what is free to read. What it finds is
-   kept with the paper, so the next open is immediate.
+   kept with the paper, so the next open is immediate. That single link is one
+   way in, not the gate: a paper whose copy is already in Drive opens on that
+   copy at once, and a paper with no link of its own — one from a Google
+   Scholar profile, with no DOI and no arXiv id — opens on whichever of the
+   copies under *every copy of a paper* will answer, the ones on the author's
+   own university site included. A list of nothing but landing pages does not
+   count: a paper behind a login opens on its abstract, with the copies listed
+   beside it, rather than on the wall. Only when every one of those has come
+   back empty does the reader say there is no PDF.
 2. **It is fetched through the proxy**, in full, and handed to the browser's own
    viewer as a blob. In full, because a failure you can explain beats a blank
    grey pane. If Drive already holds a copy, it comes from there instead and the
@@ -639,7 +647,13 @@ paper, and the reader goes and gets it:
    OpenAlex, `openAccessPdf` from Semantic Scholar.
 2. When a result carries none, the reader asks both APIs again by DOI when it
    opens the paper. A search hit and the per-work record do not always agree
-   about what is free to read. What it finds is kept with the paper.
+   about what is free to read. What it finds is kept with the paper — and a
+   later **Read** on the same result keeps it too, rather than taking the
+   result's own empty link over it.
+   Nor is that link the only way to a PDF: the copy in Drive and the list of
+   every place the paper is published each count on their own, so a paper the
+   DOI lookups know nothing about still opens when Drive holds it or one of
+   its copies hands over the file.
 3. The file is fetched through `/api/pdf`, because a publisher's PDF is
    cross-origin and the browser will not read it from the page.
 4. It is fetched **once**. Opening a paper straight from a search result asks

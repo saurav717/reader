@@ -476,10 +476,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const collectionIds = collectionId
         ? Array.from(new Set([...(existing?.collectionIds || []), collectionId]))
         : existing?.collectionIds || [];
+      // A search result carries every field, set or not, and spreading an
+      // unset one over the stored paper would erase it — the PDF link the
+      // reader resolved and kept on the last open, most of all. Only what the
+      // result actually says is taken over what is stored.
+      const said = Object.fromEntries(Object.entries(ref).filter(([, value]) => value !== undefined)) as PaperRef;
       const paper: Paper = {
         ...ref,
         ...(existing || {}),
-        ...ref,
+        ...said,
         addedAt: existing?.addedAt || new Date().toISOString(),
         collectionIds,
         tags: existing?.tags || [],

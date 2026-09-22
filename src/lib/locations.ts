@@ -82,7 +82,7 @@ function locate(
 // ------------------------------------------------------------- the paper ----
 
 /** What the search result itself already said, before anything is fetched. */
-function fromPaper(paper: PaperRef): PaperLocation[] {
+export function paperLocations(paper: PaperRef): PaperLocation[] {
   const found: (PaperLocation | null)[] = [];
   if (paper.arxivId) {
     const id = paper.arxivId;
@@ -432,7 +432,7 @@ export async function findLocations(paper: PaperRef, signal?: AbortSignal): Prom
   ]);
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
-  const groups = [fromPaper(paper)];
+  const groups = [paperLocations(paper)];
   for (const outcome of settled) if (outcome.status === 'fulfilled') groups.push(outcome.value);
 
   const merged = mergeLocations(groups);
