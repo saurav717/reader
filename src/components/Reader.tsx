@@ -3,6 +3,8 @@ import { useStore } from '../lib/store';
 import { loadPaperContent, type PaperContent } from '../lib/paperContent';
 import { hasProxy } from '../lib/api';
 import { fetchPaperPdf, pdfSourceUrl, resolvePdfUrl, saveBlob, type PdfOrigin } from '../lib/pdf';
+import { findLocations, scholarPaperUrl } from '../lib/locations';
+import type { PaperLocation } from '../types';
 import {
   buildIndex,
   offsetsFromRange,
@@ -92,6 +94,10 @@ export default function Reader({
   const [pdfLookup, setPdfLookup] = useState<'checking' | 'ready' | 'none'>('checking');
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [pdfFrom, setPdfFrom] = useState<PdfOrigin | null>(null);
+  /** Which of the paper's copies the file on screen actually came from. */
+  const [pdfLocation, setPdfLocation] = useState<PaperLocation | null>(null);
+  /** Everywhere this paper is published, resolved once when it is opened. */
+  const [locations, setLocations] = useState<PaperLocation[] | null>(null);
   const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -172,6 +178,22 @@ export default function Reader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId, paper?.arxivId, paper?.pdfUrl]);
 
+  // Everywhere the paper is published, not only the first link that resolved.
+  // The viewer needs the list to fall through a copy that will not answer, and
+  // the line under the title uses it to say which one did.
+  useEffect(() => {
+    if (!paper) return;
+    const controller = new AbortController();
+    findLocations(paper, controller.signal)
+      .then((found) => {
+        if (!controller.signal.aborted) setLocations(found);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+    // Only the identity of the paper decides where its copies are.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paperId, paper?.arxivId, paper?.doi]);
+
   // A PDF can be shown if there is a proxy to fetch it through — or if Drive
   // already holds a copy, which comes back to the browser directly and so
   // opens even on a deployment that has no server at all.
@@ -184,6 +206,8 @@ export default function Reader({
     setMode(preferredMode);
     setPdfBlob(null);
     setPdfFrom(null);
+    setPdfLocation(null);
+    setLocations(null);
     setSaving(false);
     // Changing the preference mid-paper is already handled by chooseMode.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -222,8 +246,9 @@ export default function Reader({
       driveFileId: paper?.drive?.pdfFileId,
       clientId: settings.googleClientId,
       driveConnected,
+      locations: locations ?? undefined,
     }),
-    [paper?.drive?.pdfFileId, settings.googleClientId, driveConnected],
+    [paper?.drive?.pdfFileId, settings.googleClientId, driveConnected, locations],
   );
 
   // Fetch the file itself, once, when the PDF pane is first opened.
@@ -232,10 +257,11 @@ export default function Reader({
     const controller = new AbortController();
     setPdfError(null);
     fetchPaperPdf(pdfTarget, driveOptions, controller.signal)
-      .then(({ blob, from }) => {
+      .then(({ blob, from, location }) => {
         if (controller.signal.aborted) return;
         setPdfBlob(blob);
         setPdfFrom(from);
+        setPdfLocation(location ?? null);
       })
       .catch((error) => {
         if (controller.signal.aborted) return;
@@ -492,7 +518,9 @@ export default function Reader({
             {mode === 'pdf'
               ? pdfFrom === 'drive'
                 ? ' · PDF from your Drive'
-                : ' · PDF'
+                : pdfLocation
+                  ? ` · PDF from ${pdfLocation.label}`
+                  : ' · PDF'
               : content
                 ? ` · ${content.sourceLabel}`
                 : ''}
@@ -604,6 +632,10 @@ export default function Reader({
               <button type="button" className="link-btn" onClick={() => chooseMode('reflow')}>
                 Read the text instead
               </button>
+              , or look for a copy{' '}
+              <a href={scholarPaperUrl(paper)} target="_blank" rel="noreferrer noopener">
+                on Google Scholar
+              </a>
               .
             </p>
           ) : pdfObjectUrl ? (

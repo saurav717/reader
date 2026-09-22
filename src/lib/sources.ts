@@ -1,12 +1,16 @@
 import type { AuthorRef, PaperRef, SourceId } from '../types';
 import { api, hasProxy } from './api';
 import { politely } from './contact';
+import { scholarAuthors, scholarProfileWorks, searchScholar } from './scholar';
 
 const ALL_SOURCES: { id: SourceId; label: string; needsProxy: boolean; authors: boolean }[] = [
   { id: 'arxiv', label: 'arXiv', needsProxy: true, authors: true },
   { id: 'openalex', label: 'OpenAlex', needsProxy: false, authors: true },
   { id: 'semanticscholar', label: 'Semantic Scholar', needsProxy: false, authors: true },
   { id: 'crossref', label: 'Crossref', needsProxy: false, authors: false },
+  // Scholar has no API; the proxy fetches its pages and parses them, and is
+  // refused a good deal of the time. See server/scholar.js.
+  { id: 'scholar', label: 'Google Scholar', needsProxy: true, authors: true },
 ];
 
 /**
@@ -27,6 +31,12 @@ export function authorSources(): { id: SourceId; label: string; authors: boolean
   return sourceList().filter((source) => source.authors);
 }
 
+/**
+ * What a fresh search asks. Scholar is deliberately not among them: it is the
+ * one source that answers with a captcha rather than a result, often enough
+ * that having it on by default would make every search look broken. It is one
+ * click away, and the panel says what it is for.
+ */
 export function defaultSources(): SourceId[] {
   return hasProxy() ? ['arxiv', 'openalex', 'crossref'] : ['openalex', 'crossref'];
 }
@@ -156,10 +166,14 @@ function invertAbstract(index: Record<string, number[]> | null | undefined): str
   return words.join(' ').replace(/\s+/g, ' ').trim();
 }
 
-interface OpenAlexLocation {
+export interface OpenAlexLocation {
   pdf_url: string | null;
   landing_page_url: string | null;
-  source: { display_name: string | null } | null;
+  /** `type` tells a repository deposit apart from the version of record. */
+  source: { display_name: string | null; type?: string | null } | null;
+  /** submittedVersion | acceptedVersion | publishedVersion, where stated. */
+  version?: string | null;
+  is_oa?: boolean;
 }
 
 export interface OpenAlexWork {
@@ -172,6 +186,12 @@ export interface OpenAlexWork {
   primary_location: OpenAlexLocation | null;
   /** Where OpenAlex thinks the best free copy is — often not the primary one. */
   best_oa_location?: OpenAlexLocation | null;
+  /**
+   * Every copy OpenAlex knows of, the repository deposits included. The two
+   * fields above are picks out of this list, and the tail of it is where a
+   * paper that the publisher has locked is usually still readable.
+   */
+  locations?: OpenAlexLocation[] | null;
   open_access?: { is_oa?: boolean; oa_url?: string | null } | null;
   concepts: { display_name: string }[];
   cited_by_count?: number;
@@ -487,6 +507,7 @@ export async function searchAuthors(
   const runners: Partial<Record<SourceId, (n: string, l: number, s?: AbortSignal) => Promise<AuthorRef[]>>> = {
     openalex: openAlexAuthors,
     semanticscholar: semanticScholarAuthors,
+    scholar: (name, _limit, signal) => scholarAuthors(name, signal),
   };
   const usable = sources.filter((source) => runners[source] && authorSources().some((entry) => entry.id === source));
   if (!usable.length) {
@@ -546,6 +567,12 @@ export async function papersByAuthor(
     return openAlexWorks(params, options.signal);
   }
 
+  if (author.id.startsWith('scholar:') && author.scholarUserId) {
+    // A person's own profile is the best list of what they have written: it is
+    // the one they curate, and it includes what no index has a record of.
+    return scholarProfileWorks(author.scholarUserId, page, options.signal);
+  }
+
   if (author.id.startsWith('s2:')) {
     const params = new URLSearchParams({
       fields: S2_FIELDS,
@@ -591,6 +618,9 @@ export async function searchByAuthorName(
         new URLSearchParams({ 'query.author': query, rows: String(l), offset: String(p * l) }),
         signal,
       ),
+    // Scholar has no author field to filter on, so this is what a person would
+    // type: the name in quotes, which Scholar matches against the byline.
+    scholar: (query, p, _l, signal) => searchScholar(`author:"${query}"`, p, signal),
   };
 
   return runQuery(sources, runners, trimmed, page, limit, options.signal);
@@ -724,6 +754,7 @@ export async function search(
     openalex: searchOpenAlex,
     semanticscholar: searchSemanticScholar,
     crossref: searchCrossref,
+    scholar: (query, p, _l, signal) => searchScholar(query, p, signal),
   };
 
   return runQuery(sources, runners, trimmed, page, limit, options.signal);

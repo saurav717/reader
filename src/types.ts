@@ -1,4 +1,4 @@
-export type SourceId = 'arxiv' | 'openalex' | 'semanticscholar' | 'crossref';
+export type SourceId = 'arxiv' | 'openalex' | 'semanticscholar' | 'crossref' | 'scholar';
 
 /** What a query is asking for: papers about something, or a person. */
 export type SearchMode = 'papers' | 'authors';
@@ -20,6 +20,41 @@ export interface AuthorRef {
   worksCount?: number;
   citedBy?: number;
   hIndex?: number;
+  /** Scholar's profile id, and the page it opens — Scholar records only. */
+  scholarUserId?: string;
+  scholarProfileUrl?: string;
+  /** What Scholar lists under a name on their profile. */
+  interests?: string[];
+  /** `google.com` where Scholar says "Verified email at google.com". */
+  verifiedEmail?: string;
+}
+
+/**
+ * One place a paper can be read from. Google Scholar's "All N versions" is the
+ * same idea: the publisher's copy, the preprint, and every repository deposit
+ * in between are all the same paper, and only some of them will actually hand
+ * over a PDF. Collecting them all is what makes a paper openable when the
+ * first link is a login wall.
+ */
+export interface PaperLocation {
+  /** What to fetch. A PDF where `isPdf`, otherwise a page a person can open. */
+  url: string;
+  /** The hostname, which is what identifies a copy to a reader at a glance. */
+  host: string;
+  /** Repository or publisher name where one is known, else the host. */
+  label: string;
+  /**
+   * `unknown` is a link we have no provenance for — the one a search result
+   * carried. It is not assumed to be a repository copy, because assuming that
+   * puts a publisher's link ahead of copies we know are repository deposits.
+   */
+  kind: 'preprint' | 'repository' | 'publisher' | 'unknown';
+  /** True when the URL is believed to be the file rather than a landing page. */
+  isPdf: boolean;
+  /** Which index told us about this copy. */
+  via: 'arxiv' | 'unpaywall' | 'openalex' | 'semanticscholar' | 'crossref' | 'pmc' | 'paper' | 'scholar';
+  /** `submittedVersion`, `acceptedVersion`, `publishedVersion`, where known. */
+  version?: string;
 }
 
 export interface PaperRef {
@@ -39,6 +74,13 @@ export interface PaperRef {
   venue?: string;
   /** Citation count, where the source reports one. */
   citedBy?: number;
+  /**
+   * Scholar's id for the group of copies this paper belongs to — what its
+   * "All 84 versions" link points at, and the only way to ask for that list.
+   */
+  scholarCluster?: string;
+  /** How many copies Scholar says there are. */
+  scholarVersions?: number;
 }
 
 export interface DriveRecord {

@@ -1,6 +1,7 @@
-import type { Paper, PaperRef } from '../types';
+import type { Paper, PaperLocation, PaperRef } from '../types';
 import { api, hasProxy, NO_PROXY_REASON } from './api';
 import { downloadFile, ensureDriveToken } from './google';
+import { findLocations } from './locations';
 import { fromOpenAlex, openAlexPdf, type OpenAlexWork } from './sources';
 import { contactEmail } from './contact';
 
@@ -52,6 +53,26 @@ export function pdfProxyUrl(paper: PaperRef, options: { download?: boolean } = {
     return api(`/arxiv/pdf?id=${encodeURIComponent(paper.arxivId)}&name=${name}${download}`);
   }
   const source = https(paper.pdfUrl);
+  if (!source) return null;
+  return api(`/pdf?url=${encodeURIComponent(source)}&name=${name}${download}`);
+}
+
+/**
+ * The same, for one location out of a paper's list rather than for whichever
+ * link the paper happened to arrive with. arXiv keeps its own route because it
+ * is the one host the proxy knows how to ask by id.
+ */
+export function locationProxyUrl(
+  paper: PaperRef,
+  location: PaperLocation,
+  options: { download?: boolean } = {},
+): string | null {
+  if (!hasProxy()) return null;
+  const name = encodeURIComponent(pdfFileName(paper));
+  const download = options.download ? '&download=1' : '';
+  const arxiv = location.host === 'arxiv.org' ? location.url.match(/\/pdf\/([^?#]+?)(?:\.pdf)?$/i)?.[1] : null;
+  if (arxiv) return api(`/arxiv/pdf?id=${encodeURIComponent(arxiv)}&name=${name}${download}`);
+  const source = https(location.url);
   if (!source) return null;
   return api(`/pdf?url=${encodeURIComponent(source)}&name=${name}${download}`);
 }
@@ -213,8 +234,12 @@ export async function fetchPdf(paper: PaperRef, signal?: AbortSignal): Promise<B
   if (!hasProxy()) throw new PdfError(NO_PROXY_REASON);
   const url = pdfProxyUrl(paper);
   if (!url) throw new PdfError('No PDF is available for this paper.');
+  return shareDownload(url, signal);
+}
 
-  if (recent && recent.url === url && Date.now() - recent.at < KEEP_MS) return recent.blob;
+/** One download per URL, however many callers are waiting on it. */
+function shareDownload(url: string, signal?: AbortSignal): Promise<Blob> {
+  if (recent && recent.url === url && Date.now() - recent.at < KEEP_MS) return Promise.resolve(recent.blob);
 
   let shared = inFlight.get(url);
   if (!shared) {
@@ -229,6 +254,62 @@ export async function fetchPdf(paper: PaperRef, signal?: AbortSignal): Promise<B
     shared.catch(() => undefined);
   }
   return signal ? Promise.race([shared, whenAborted(signal)]) : shared;
+}
+
+// ----------------------------------------------------------- every copy ----
+
+export interface FetchedFromLocation {
+  blob: Blob;
+  /** Which of the copies actually answered. */
+  location: PaperLocation;
+  /** The ones tried before it, and why each failed. */
+  tried: { location: PaperLocation; error: string }[];
+}
+
+/**
+ * The paper, from whichever of its copies will part with one.
+ *
+ * A single link is a coin toss: a publisher's DOI resolves to a login wall, a
+ * repository link rots, a `.pdf` URL turns out to be a landing page — and
+ * until it has been asked, all of them look alike. So each copy is tried in
+ * turn, best first, and the first one that returns actual PDF bytes wins. The
+ * proxy does the deciding: it refuses anything that is not a PDF, which is
+ * what makes "did this work" answerable rather than a guess.
+ */
+export async function fetchPdfFromLocations(
+  paper: PaperRef,
+  locations: PaperLocation[],
+  signal?: AbortSignal,
+): Promise<FetchedFromLocation> {
+  if (!hasProxy()) throw new PdfError(NO_PROXY_REASON);
+  // A landing page is worth asking for too — plenty of them answer with the
+  // file — but only after every copy that claims to be one has been tried.
+  const candidates = locations.filter((location) => locationProxyUrl(paper, location));
+  if (!candidates.length) throw new PdfError('No open-access copy of this paper could be found anywhere we can see.');
+
+  const tried: { location: PaperLocation; error: string }[] = [];
+  for (const location of candidates) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const url = locationProxyUrl(paper, location) as string;
+    try {
+      return { blob: await shareDownload(url, signal), location, tried };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw error;
+      tried.push({ location, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  // Say which copies were tried: "it did not work" is not actionable, and the
+  // list is often the answer — every copy being the publisher's means the
+  // paper is simply not open access.
+  const summary = tried
+    .slice(0, 3)
+    .map((entry) => entry.location.label)
+    .join(', ');
+  throw new PdfError(
+    `None of the ${candidates.length} known ${candidates.length === 1 ? 'copy' : 'copies'} of this paper would hand over a PDF` +
+      `${summary ? ` (tried ${summary}${tried.length > 3 ? `, and ${tried.length - 3} more` : ''})` : ''}.`,
+  );
 }
 
 /** Save a blob under a name, from the page, with no round trip to a server. */
@@ -255,6 +336,8 @@ export type PdfOrigin = 'drive' | 'proxy';
 export interface FetchedPdf {
   blob: Blob;
   from: PdfOrigin;
+  /** Which copy answered, when it was not the one in Drive. */
+  location?: PaperLocation;
 }
 
 /**
@@ -272,7 +355,13 @@ export interface FetchedPdf {
  */
 export async function fetchPaperPdf(
   paper: PaperRef,
-  options: { driveFileId?: string; clientId?: string; driveConnected?: boolean } = {},
+  options: {
+    driveFileId?: string;
+    clientId?: string;
+    driveConnected?: boolean;
+    /** The copies already resolved for this paper, if the caller has them. */
+    locations?: PaperLocation[];
+  } = {},
   signal?: AbortSignal,
 ): Promise<FetchedPdf> {
   const { driveFileId, clientId, driveConnected } = options;
@@ -291,5 +380,10 @@ export async function fetchPaperPdf(
     }
   }
 
-  return { blob: await fetchPdf(paper, signal), from: 'proxy' };
+  // Not in Drive: ask every place the paper is published, best copy first,
+  // rather than betting the whole thing on the one link a search result
+  // happened to carry.
+  const locations = options.locations ?? (await findLocations(paper, signal));
+  const fetched = await fetchPdfFromLocations(paper, locations, signal);
+  return { blob: fetched.blob, from: 'proxy', location: fetched.location };
 }

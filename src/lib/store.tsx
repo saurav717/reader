@@ -84,7 +84,12 @@ interface StoreValue {
   authError: string | null;
   syncLog: SyncEntry[];
 
-  addPaper: (ref: PaperRef, collectionId?: string) => Promise<Paper>;
+  /**
+   * `sync: false` for a caller that is going to put the paper in Drive itself
+   * — without it the automatic sync starts fetching the same PDF in parallel,
+   * and the paper comes down the wire twice.
+   */
+  addPaper: (ref: PaperRef, collectionId?: string, options?: { sync?: boolean }) => Promise<Paper>;
   removePaper: (id: string) => Promise<void>;
   setPaperCollections: (id: string, collectionIds: string[]) => Promise<void>;
   togglePaperTag: (id: string, tag: string) => Promise<void>;
@@ -111,6 +116,12 @@ interface StoreValue {
 
   /** `pdf` is a copy the caller already has; it is uploaded as-is. */
   syncPaper: (id: string, options?: { pdf?: Blob }) => void;
+  /**
+   * The same, but it resolves once that paper has been through the queue — for
+   * the callers that need Drive to hold the file before they go on, such as
+   * opening a paper on the copy that was just saved.
+   */
+  syncPaperNow: (id: string, options?: { pdf?: Blob }) => Promise<void>;
   syncAll: () => void;
   syncStateFor: (id: string) => SyncState;
 
@@ -148,6 +159,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const queue = useRef<string[]>([]);
   /** PDFs the reader has already fetched, waiting to be uploaded with them. */
   const queuedPdfs = useRef<Map<string, Blob>>(new Map());
+  /** Callers waiting to hear that a particular paper has finished syncing. */
+  const waiters = useRef<Map<string, (() => void)[]>>(new Map());
   const running = useRef(false);
 
   // GitHub is batched rather than queued one at a time: everything that
@@ -213,6 +226,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  /** Releases whoever was waiting on this paper, whether it worked or not. */
+  const settle = useCallback((paperId: string) => {
+    const pending = waiters.current.get(paperId);
+    waiters.current.delete(paperId);
+    for (const resolve of pending || []) resolve();
+  }, []);
+
   const drainQueue = useCallback(async () => {
     if (running.current) return;
     running.current = true;
@@ -222,7 +242,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const pdf = queuedPdfs.current.get(paperId);
         queuedPdfs.current.delete(paperId);
         const paper = latest.current.papers.find((item) => item.id === paperId);
-        if (!paper) continue;
+        if (!paper) {
+          settle(paperId);
+          continue;
+        }
         note(paperId, 'running');
         try {
           const result = await syncPaperToDrive(paper, {
@@ -258,11 +281,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (current) await savePaper({ ...current, drive: { ...(current.drive || {}), error: message } });
           note(paperId, 'error', message);
         }
+        settle(paperId);
       }
     } finally {
       running.current = false;
+      // A paper that never made it into the queue — Drive disconnected
+      // mid-flight, say — would otherwise leave its caller waiting forever.
+      for (const paperId of Array.from(waiters.current.keys())) {
+        if (!queue.current.includes(paperId)) settle(paperId);
+      }
     }
-  }, [note, savePaper]);
+  }, [note, savePaper, settle]);
 
   const syncPaper = useCallback(
     (id: string, options: { pdf?: Blob } = {}) => {
@@ -275,6 +304,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       void drainQueue();
     },
     [driveConnected, drainQueue, note],
+  );
+
+  /**
+   * Sync, and say when it is done. Used where the next step needs the file to
+   * be in Drive already: saving a paper from search opens it on the copy in
+   * Drive, and that copy has to exist first.
+   */
+  const syncPaperNow = useCallback(
+    (id: string, options: { pdf?: Blob } = {}) => {
+      if (!driveConnected) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        waiters.current.set(id, [...(waiters.current.get(id) || []), resolve]);
+        syncPaper(id, options);
+      });
+    },
+    [driveConnected, syncPaper],
   );
 
   const syncAll = useCallback(() => {
@@ -382,7 +427,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [flushGitHub]);
 
   const addPaper = useCallback(
-    async (ref: PaperRef, collectionId?: string) => {
+    async (ref: PaperRef, collectionId?: string, options: { sync?: boolean } = {}) => {
       const existing = latest.current.papers.find((paper) => paper.id === ref.id);
       const collectionIds = collectionId
         ? Array.from(new Set([...(existing?.collectionIds || []), collectionId]))
@@ -400,7 +445,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       };
       await savePaper(paper);
       latest.current.papers = [paper, ...latest.current.papers.filter((item) => item.id !== paper.id)];
-      if (settings.autoSync && driveConnected) syncPaper(paper.id);
+      if (options.sync !== false && settings.autoSync && driveConnected) syncPaper(paper.id);
       queueGitHub(paper.id);
       return paper;
     },
@@ -640,6 +685,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       connectDrive,
       signOut,
       syncPaper,
+      syncPaperNow,
       syncAll,
       syncStateFor,
       githubConnected,
@@ -651,7 +697,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog,
       addPaper, removePaper, setPaperCollections, togglePaperTag, setProgress, markOpened, setPaperPdfUrl,
       createCollection, renameCollection, deleteCollection, addHighlight, updateHighlight,
-      deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, signOut, syncPaper, syncAll, syncStateFor,
+      deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
       githubConnected, githubLog, githubPending, pushToGitHub,
     ],
   );

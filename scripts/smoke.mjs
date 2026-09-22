@@ -339,6 +339,10 @@ await page.waitForTimeout(300);
 
 console.log('\n== persistence and re-anchoring ==');
 await page.reload({ waitUntil: 'networkidle' });
+// A page with no backend cannot keep a Google token, so every visit opens on
+// the connect screen. Past it is the library, exactly as it was left.
+const gate = page.getByRole('button', { name: /Start reading|Not now — keep everything in this browser/i }).first();
+if (await gate.isVisible().catch(() => false)) await gate.click();
 await page.waitForSelector('.paper-body p', { timeout: 10000 }).catch(() => {});
 check('reader reopens on the paper you were reading', (await page.locator('.paper-body p').count()) === 3);
 check(
