@@ -206,6 +206,22 @@ export async function findFile(accessToken: string, name: string, parentId: stri
   return payload.files?.[0] ?? null;
 }
 
+/**
+ * The bytes of a file the app put in Drive. Google's API sends CORS headers, so
+ * unlike the sites the papers come from this one the browser can read directly
+ * — which is the whole point: a paper already in Drive needs no proxy.
+ */
+export async function downloadFile(accessToken: string, fileId: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await driveFetch(
+    accessToken,
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
+    { signal },
+  );
+  const blob = await response.blob();
+  // Drive reports what it was given; the viewer only renders a blob that says PDF.
+  return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+}
+
 export async function uploadFile(
   accessToken: string,
   options: { name: string; mimeType: string; parentId: string; body: Blob | string; fileId?: string },

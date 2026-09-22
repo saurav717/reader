@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useStore } from '../lib/store';
 import { loadPaperContent, type PaperContent } from '../lib/paperContent';
 import { hasProxy } from '../lib/api';
-import { fetchPdf, pdfSourceUrl, resolvePdfUrl, saveBlob } from '../lib/pdf';
+import { fetchPaperPdf, pdfSourceUrl, resolvePdfUrl, saveBlob, type PdfOrigin } from '../lib/pdf';
 import {
   buildIndex,
   offsetsFromRange,
@@ -61,7 +61,7 @@ export default function Reader({
   onSelectHighlight,
   onOrphans,
 }: Props) {
-  const { papers, highlights, addHighlight, setProgress, markOpened, setPaperPdfUrl, settings, updateSettings } =
+  const { papers, highlights, addHighlight, setProgress, markOpened, setPaperPdfUrl, settings, updateSettings, driveConnected } =
     useStore();
   const paper = papers.find((item) => item.id === paperId);
 
@@ -79,6 +79,7 @@ export default function Reader({
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [pdfLookup, setPdfLookup] = useState<'checking' | 'ready' | 'none'>('checking');
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
+  const [pdfFrom, setPdfFrom] = useState<PdfOrigin | null>(null);
   const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -164,6 +165,7 @@ export default function Reader({
     modeChosen.current = false;
     setMode(preferredMode);
     setPdfBlob(null);
+    setPdfFrom(null);
     setSaving(false);
     // Changing the preference mid-paper is already handled by chooseMode.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -194,21 +196,35 @@ export default function Reader({
     [paper?.id, paper?.title, paper?.arxivId, pdfUrl],
   );
 
+  // Reading the copy in Drive rather than fetching the paper again is worth it
+  // whenever there is one: it is the same file, and it comes back without the
+  // proxy — so a synced paper opens even where there is no server at all.
+  const driveOptions = useMemo(
+    () => ({
+      driveFileId: paper?.drive?.pdfFileId,
+      clientId: settings.googleClientId,
+      driveConnected,
+    }),
+    [paper?.drive?.pdfFileId, settings.googleClientId, driveConnected],
+  );
+
   // Fetch the file itself, once, when the PDF pane is first opened.
   useEffect(() => {
     if (mode !== 'pdf' || !pdfTarget || pdfBlob) return;
     const controller = new AbortController();
     setPdfError(null);
-    fetchPdf(pdfTarget, controller.signal)
-      .then((blob) => {
-        if (!controller.signal.aborted) setPdfBlob(blob);
+    fetchPaperPdf(pdfTarget, driveOptions, controller.signal)
+      .then(({ blob, from }) => {
+        if (controller.signal.aborted) return;
+        setPdfBlob(blob);
+        setPdfFrom(from);
       })
       .catch((error) => {
         if (controller.signal.aborted) return;
         setPdfError(error instanceof Error ? error.message : String(error));
       });
     return () => controller.abort();
-  }, [mode, pdfBlob, pdfTarget]);
+  }, [mode, pdfBlob, pdfTarget, driveOptions]);
 
   // The viewer needs a URL, and every one of them has to be handed back.
   useEffect(() => {
@@ -226,15 +242,15 @@ export default function Reader({
     setSaving(true);
     setPdfError(null);
     try {
-      const blob = pdfBlob ?? (await fetchPdf(pdfTarget));
-      if (!pdfBlob) setPdfBlob(blob);
-      saveBlob(blob, pdfTarget);
+      const fetched = pdfBlob ?? (await fetchPaperPdf(pdfTarget, driveOptions)).blob;
+      if (!pdfBlob) setPdfBlob(fetched);
+      saveBlob(fetched, pdfTarget);
     } catch (error) {
       setPdfError(error instanceof Error ? error.message : String(error));
     } finally {
       setSaving(false);
     }
-  }, [pdfBlob, pdfTarget, saving]);
+  }, [driveOptions, pdfBlob, pdfTarget, saving]);
 
   // A mode picked by hand is the one the next paper opens in too.
   const chooseMode = useCallback(
@@ -416,7 +432,13 @@ export default function Reader({
           <div className="title">{paper.title}</div>
           <div className="sub">
             {paper.arxivId ? `arXiv:${paper.arxivId}` : paper.doi ? `doi:${paper.doi}` : paper.id}
-            {mode === 'pdf' ? ' · PDF' : content ? ` · ${content.sourceLabel}` : ''}
+            {mode === 'pdf'
+              ? pdfFrom === 'drive'
+                ? ' · PDF from your Drive'
+                : ' · PDF'
+              : content
+                ? ` · ${content.sourceLabel}`
+                : ''}
             {` · ${Math.round(paper.progress * 100)}%`}
           </div>
         </div>

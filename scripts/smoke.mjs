@@ -413,6 +413,102 @@ check(
   await oaPage.locator('.banner.warn', { hasText: /Read the PDF instead/ }).isVisible(),
 );
 
+console.log('\n== the copy in Drive ==');
+// Once a paper has been synced, its PDF is in Drive — and Google, unlike arXiv
+// and the publishers, answers the browser directly. So the reader should read
+// it back from there rather than going through the proxy a second time.
+const driveContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+await stub(driveContext);
+
+// A stand-in for Google Identity Services that grants the drive.file scope, so
+// the app's own Drive code runs for real with no network and no sign-in.
+await driveContext.addInitScript(() => {
+  window.google = {
+    accounts: {
+      oauth2: {
+        initTokenClient: (config) => ({
+          requestAccessToken: () =>
+            setTimeout(
+              () =>
+                config.callback({
+                  access_token: 'smoke-token',
+                  expires_in: 3600,
+                  scope: 'openid email profile https://www.googleapis.com/auth/drive.file',
+                }),
+              0,
+            ),
+        }),
+        revoke: (token, done) => done && done(),
+      },
+    },
+  };
+});
+await driveContext.route(/accounts\.google\.com\/gsi\/client/, (route) =>
+  route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }),
+);
+
+// A Drive of sorts: folders, two uploads, and the file handed back on request.
+const drive = { uploads: 0, downloads: 0 };
+await driveContext.route(/googleapis\.com\//, (route) => {
+  const request = route.request();
+  const url = request.url();
+  const json = (body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  if (url.includes('fonts.googleapis.com')) return route.fulfill({ status: 200, contentType: 'text/css', body: '' });
+  if (url.includes('/oauth2/v3/userinfo')) return json({ name: 'Smoke', email: 'smoke@example.com' });
+  if (url.includes('/upload/drive/v3/files')) {
+    drive.uploads += 1;
+    return json({ id: drive.uploads === 1 ? 'drive-pdf-id' : 'drive-meta-id', name: 'file' });
+  }
+  if (url.includes('alt=media')) {
+    drive.downloads += 1;
+    return route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF });
+  }
+  // A lookup is a GET with a q=; creating a folder is a POST.
+  return request.method() === 'POST' ? json({ id: 'drive-folder-id' }) : json({ files: [] });
+});
+
+// Count what the proxy is asked for, on top of the stub's own PDF route.
+let proxyPdfHits = 0;
+await driveContext.route('**/api/arxiv/pdf*', (route) => {
+  proxyPdfHits += 1;
+  return route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF });
+});
+
+const drivePage = await driveContext.newPage();
+drivePage.on('pageerror', (error) => errors.push(String(error)));
+await drivePage.goto(BASE, { waitUntil: 'networkidle' });
+await drivePage.getByRole('button', { name: /Skip — keep everything local/i }).click();
+
+await drivePage.getByRole('button', { name: /^Settings$/ }).click();
+await drivePage.getByPlaceholder(/apps.googleusercontent.com/).fill('smoke.apps.googleusercontent.com');
+await drivePage.getByRole('button', { name: /Connect Drive/i }).click();
+await drivePage.waitForTimeout(600);
+await drivePage.getByRole('button', { name: 'Close settings' }).click();
+
+await drivePage.getByLabel('Search papers').fill('fourier neural operator');
+await drivePage.getByLabel('Search papers').press('Enter');
+await drivePage.waitForSelector('article.result');
+await drivePage.locator('article.result h3').click();
+await drivePage.getByRole('button', { name: /Add to collection/i }).click();
+await drivePage.waitForTimeout(2500);
+check('adding a paper puts its PDF and sidecar in Drive', drive.uploads >= 2, `uploads=${drive.uploads}`);
+const proxyHitsBeforeRead = proxyPdfHits;
+
+await drivePage.getByRole('button', { name: /^Read$/ }).click();
+await drivePage.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
+await drivePage.waitForTimeout(1500);
+check('opening it reads the copy in Drive', drive.downloads >= 1, `downloads=${drive.downloads}`);
+check(
+  'and does not fetch it through the proxy again',
+  proxyPdfHits === proxyHitsBeforeRead,
+  `proxy ${proxyHitsBeforeRead} -> ${proxyPdfHits}`,
+);
+check(
+  'the reader says the file came from Drive',
+  await drivePage.locator('.topbar .sub', { hasText: /PDF from your Drive/ }).isVisible(),
+);
+await drivePage.screenshot({ path: `${OUT}/drive.png` });
+
 console.log('\n== console errors ==');
 // Google Fonts and the GIS script are external; a sandbox that intercepts TLS
 // fails them without anything being wrong with the app.

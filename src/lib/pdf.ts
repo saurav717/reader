@@ -1,5 +1,6 @@
 import type { Paper, PaperRef } from '../types';
 import { api, hasProxy, NO_PROXY_REASON } from './api';
+import { downloadFile, ensureDriveToken } from './google';
 import { fromOpenAlex, openAlexPdf, type OpenAlexWork } from './sources';
 
 /**
@@ -167,3 +168,50 @@ export function saveBlob(blob: Blob, paper: PaperRef): void {
 
 /** Whether a paper in the library already knows where its PDF is. */
 export const hasKnownPdf = (paper: Paper): boolean => Boolean(pdfSourceUrl(paper));
+
+// ------------------------------------------------------------------ Drive ---
+
+/** Where a copy of the file came from, for the line under the title. */
+export type PdfOrigin = 'drive' | 'proxy';
+
+export interface FetchedPdf {
+  blob: Blob;
+  from: PdfOrigin;
+}
+
+/**
+ * The PDF, preferring the copy in Drive.
+ *
+ * Once a paper has been synced, Drive holds the same bytes the proxy fetched —
+ * and Google's API, unlike arXiv and the publishers, answers the browser
+ * directly. So a paper that has been saved reads back without the proxy at all,
+ * which also means it still opens on a deployment that has no server.
+ *
+ * Drive is only ever the *second* place a PDF can come from: putting it there
+ * means uploading bytes, and getting the bytes in the first place is the
+ * cross-origin fetch the browser will not do. There is no asking Drive to go
+ * and fetch a URL for us.
+ */
+export async function fetchPaperPdf(
+  paper: PaperRef,
+  options: { driveFileId?: string; clientId?: string; driveConnected?: boolean } = {},
+  signal?: AbortSignal,
+): Promise<FetchedPdf> {
+  const { driveFileId, clientId, driveConnected } = options;
+
+  if (driveFileId && driveConnected && clientId) {
+    try {
+      const token = await ensureDriveToken(clientId);
+      return { blob: await downloadFile(token, driveFileId, signal), from: 'drive' };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw error;
+      // The copy may have been deleted, or the grant may have lapsed. The
+      // publisher is still there, so this is not worth failing over.
+      if (!hasProxy) {
+        throw new PdfError('The copy in your Drive could not be read, and there is no server to fetch it through.');
+      }
+    }
+  }
+
+  return { blob: await fetchPdf(paper, signal), from: 'proxy' };
+}

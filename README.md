@@ -125,6 +125,28 @@ PDFs are fetched through this app's server — arXiv, or whichever repository
 OpenAlex and Semantic Scholar point at. A paper with no free copy anywhere either
 of them can see saves its metadata sidecar and says so in the sync log.
 
+### Reading the copy in Drive
+
+Once a paper has been synced, Drive holds the same bytes the proxy fetched — and
+Google's API, unlike arXiv and the publishers, answers the browser directly. So
+the reader reads a synced paper back out of Drive instead of fetching it again:
+one request to Google rather than a round trip through the server to arXiv, and
+the line under the title says **PDF from your Drive** when that is where it came
+from. A paper already in Drive therefore opens even on a deployment with no
+server at all. If the copy has been deleted or the grant has lapsed, the reader
+falls back to the proxy without saying anything.
+
+Drive can only ever be the *second* place a PDF comes from. Putting a file there
+means uploading bytes, and getting the bytes in the first place is exactly the
+cross-origin fetch the browser refuses — there is no asking Drive to go and
+fetch a URL on your behalf. So the proxy is what gets a paper into Drive, and
+Drive is what saves you going back to the proxy afterwards.
+
+For the same reason, a PDF you downloaded from arXiv yourself and dropped into
+the folder is not picked up: under the `drive.file` scope the app cannot see
+files it did not create. Widening that scope would let it read the rest of your
+Drive, which is the trade this app deliberately does not make.
+
 ## Getting the PDF
 
 arXiv, OpenAlex and Semantic Scholar all answer a search with an abstract. Only
@@ -209,7 +231,7 @@ src/lib/sources.ts      arXiv / OpenAlex / Semantic Scholar search, and the
 src/lib/lookup.ts       dictionary and Wikipedia lookups for a selection
 src/lib/status.ts       reading, not started or finished
 src/lib/paperContent.ts fetches and sanitises the full text
-src/lib/pdf.ts          finds a paper's PDF, fetches it, and saves it
+src/lib/pdf.ts          finds a paper's PDF, fetches it (Drive first), and saves it
 src/lib/google.ts       Google Identity Services + Drive REST
 src/lib/driveSync.ts    what a synced paper looks like in Drive
 src/lib/store.tsx       app state, IndexedDB persistence, the sync queue
@@ -236,7 +258,8 @@ highlight → open the PDF → download it → look up → comment → note → 
 the panels are on the sides they should be, that a paper opens on its PDF and that
 the browser's viewer really renders it, that the highlights re-anchor, that the
 note and the chosen mode survive a reload, and that a paper which is not on arXiv
-opens on its PDF too. It
+opens on its PDF too, and that a synced paper is read back out of Drive rather
+than fetched through the proxy twice. It
 writes screenshots to `.smoke/`, and stubs arXiv, the PDF routes, the dictionary,
 Wikipedia and OpenAlex, so it needs no network beyond the local server.
 
