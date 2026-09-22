@@ -34,8 +34,8 @@ type SourceError = { source: SourceId; message: string };
 const labelFor = (id: SourceId) => sourceList().find((source) => source.id === id)?.label ?? id;
 
 /**
- * Only one result is ever expanded, so the line explaining a greyed-out
- * **Save to Drive** exists at most once and can be named once.
+ * Only one result is ever expanded, so the line explaining why adding a paper
+ * will not put its file in Drive exists at most once and can be named once.
  */
 const SAVE_BLOCKED_ID = 'discover-save-blocked';
 
@@ -113,7 +113,7 @@ function Locations({ paper }: { paper: PaperRef }) {
 }
 
 export default function Discover({ onClose, onOpen }: Props) {
-  const { papers, collections, addPaper, createCollection, driveConnected, syncPaperNow } = useStore();
+  const { papers, collections, addPaper, createCollection, driveConnected, settings, syncPaperNow } = useStore();
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<SearchMode>('papers');
   const [sources, setSources] = useState<SourceId[]>(defaultSources);
@@ -128,7 +128,10 @@ export default function Discover({ onClose, onOpen }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
   /** The paper currently being fetched and put in Drive, and how far it is. */
   const [saving, setSaving] = useState<{ id: string; step: string } | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  /** How the last add ended, when it did not end with the file in Drive. */
+  const [saveError, setSaveError] = useState<{ id: string; message: string } | null>(null);
+  /** The paper is in Drive, but not whole — the sidecar without the PDF, say. */
+  const [saveNotice, setSaveNotice] = useState<{ id: string; message: string } | null>(null);
   const abort = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -309,38 +312,80 @@ export default function Discover({ onClose, onOpen }: Props) {
     return addPaper(ref, collectionId, options);
   };
 
+  // Adding a paper does not put its file in Drive on its own: that takes the
+  // Drive consent and a proxy to fetch the bytes through. Both are checked here
+  // rather than in the store because the answer changes what this panel says
+  // — the line under the result names which half is missing and where it is
+  // set — while the add itself goes ahead either way.
+  const saveBlocked = whySaveToDriveUnavailable({ driveConnected, proxyReady });
+
   /**
-   * Find the file, put it in Drive, then open it — in that order, so what the
-   * viewer shows is the copy that was saved rather than a second download of
-   * the same paper. Each copy the indexes know about is tried until one
-   * answers, which is what makes this work for papers that are not on arXiv.
+   * Adding a paper is the whole chain, in one press: put it in the collection,
+   * find every copy of it, download from whichever one answers, put that file
+   * in Drive, and open the paper on the copy that was just saved — in that
+   * order, so what the viewer shows is the copy in Drive rather than a second
+   * download of the same paper. Each copy the indexes know about is tried
+   * until one answers, which is what makes this work for papers that are not
+   * on arXiv.
+   *
+   * Every step after the first is best effort. Without Drive or a proxy the
+   * file has nowhere to go, or no way to get here; a paper none of the indexes
+   * has a free copy of has no file at all. In each case the paper is still
+   * added and still opened, and the result says what did not happen — the
+   * reader is looking at this panel, so this is where the answer belongs, not
+   * only in the sync log behind Settings.
    */
-  const saveToDrive = async (ref: PaperRef) => {
+  const addToCollection = async (ref: PaperRef) => {
     setSaveError(null);
-    setSaving({ id: ref.id, step: 'Finding a copy…' });
+    setSaveNotice(null);
+    setSaving({ id: ref.id, step: 'Adding…' });
+    let inLibrary = false;
     try {
       // Added without its automatic sync: that would start fetching the same
       // PDF in parallel with the fetch below, and the paper would come down
-      // the wire twice.
-      await add(ref, { sync: false });
-      const locations = await findLocations(ref);
-      setSaving({ id: ref.id, step: 'Downloading…' });
-      const fetched = await fetchPdfFromLocations(ref, locations);
-      setSaving({ id: ref.id, step: `Saving to Drive from ${fetched.location.label}…` });
-      await syncPaperNow(ref.id, { pdf: fetched.blob });
-      onOpen(ref.id);
+      // the wire twice. The sync is asked for below instead, once there is a
+      // file to hand it.
+      const added = await add(ref, { sync: false });
+      inLibrary = true;
+
+      if (driveConnected) {
+        let pdf: Blob | undefined;
+        let from = '';
+        // A paper Drive already holds the file of is only being added to a
+        // second collection; the sidecar is rewritten, the PDF stays put. And
+        // with "Include the PDF" off there is no point fetching one.
+        if (proxyReady && settings.savePdf && !added.drive?.pdfFileId) {
+          setSaving({ id: ref.id, step: 'Finding a copy…' });
+          const locations = await findLocations(ref);
+          setSaving({ id: ref.id, step: 'Downloading…' });
+          const fetched = await fetchPdfFromLocations(ref, locations);
+          pdf = fetched.blob;
+          from = ` from ${fetched.location.label}`;
+        }
+        setSaving({ id: ref.id, step: `Saving to Drive${from}…` });
+        const outcome = await syncPaperNow(ref.id, pdf ? { pdf } : undefined);
+        if (outcome.state === 'error') {
+          setSaveError({ id: ref.id, message: `Added, but Drive would not take it: ${outcome.message}` });
+        } else if (outcome.message) {
+          setSaveNotice({ id: ref.id, message: outcome.message });
+        }
+      }
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : String(error));
+      // The paper is in the library whatever happened after that. The reader
+      // opens on what it can show — the abstract, or the copies to try by
+      // hand — and this says why the file is not in Drive.
+      setSaveError({
+        id: ref.id,
+        message: `Added, but the file is not in Drive: ${error instanceof Error ? error.message : String(error)}`,
+      });
     } finally {
       setSaving(null);
     }
+    // Whatever happened to the file, the paper is in the library, and this is
+    // what "add" was pressed for. Only an add that itself failed has nothing
+    // to open.
+    if (inLibrary) onOpen(ref.id);
   };
-
-  // Kept on the result rather than taken off it when it cannot run: a button
-  // that disappears looks like a feature this app never had, and the question
-  // it leaves behind — the copies are listed right here, why can none of them
-  // be saved? — is the one thing the panel is in a position to answer.
-  const saveBlocked = whySaveToDriveUnavailable({ driveConnected, proxyReady });
 
   const visibleSources = mode === 'authors' ? authorSources() : sourceList();
   const noSources = !sources.some((id) => visibleSources.some((source) => source.id === id));
@@ -584,29 +629,38 @@ export default function Discover({ onClose, onOpen }: Props) {
                   ) : null}
                   <Locations paper={result} />
                   <div className="result-actions">
-                    <button type="button" className="btn primary sm" onClick={() => void add(result)}>
-                      <PlusIcon size={14} />
-                      {saved ? 'Add to this collection' : 'Add to collection'}
+                    <button
+                      type="button"
+                      className="btn primary sm"
+                      disabled={Boolean(saving)}
+                      aria-describedby={saveBlocked ? SAVE_BLOCKED_ID : undefined}
+                      title={
+                        saveBlocked ??
+                        'Add it to the collection, save the PDF to your Drive, and open it here on that copy'
+                      }
+                      onClick={() => void addToCollection(result)}
+                    >
+                      {saving?.id === result.id ? (
+                        <>
+                          <span className="spinner" /> {saving.step}
+                        </>
+                      ) : (
+                        <>
+                          <PlusIcon size={14} />
+                          {saved ? 'Add to this collection' : 'Add to collection'}
+                        </>
+                      )}
                     </button>
                     <button
                       type="button"
                       className="btn sm"
+                      title="Open it straight away; Drive catches up in the background"
                       onClick={async () => {
                         await add(result);
                         onOpen(result.id);
                       }}
                     >
                       Read
-                    </button>
-                    <button
-                      type="button"
-                      className="btn sm"
-                      disabled={Boolean(saving) || Boolean(saveBlocked)}
-                      aria-describedby={saveBlocked ? SAVE_BLOCKED_ID : undefined}
-                      title={saveBlocked ?? undefined}
-                      onClick={() => void saveToDrive(result)}
-                    >
-                      {saving?.id === result.id ? saving.step : 'Save to Drive'}
                     </button>
                     {result.landingUrl ? (
                       <a className="btn sm" href={result.landingUrl} target="_blank" rel="noreferrer noopener">
@@ -616,12 +670,17 @@ export default function Discover({ onClose, onOpen }: Props) {
                   </div>
                   {saveBlocked ? (
                     <p className="save-blocked" id={SAVE_BLOCKED_ID}>
-                      {saveBlocked}
+                      Adding still opens the paper here, but its PDF will not reach Drive. {saveBlocked}
                     </p>
                   ) : null}
-                  {saveError && saving?.id !== result.id && openId === result.id ? (
+                  {saveError?.id === result.id && saving?.id !== result.id ? (
                     <p className="banner error" style={{ marginBottom: 0 }}>
-                      {saveError}
+                      {saveError.message}
+                    </p>
+                  ) : null}
+                  {saveNotice?.id === result.id && saving?.id !== result.id ? (
+                    <p className="banner warn" style={{ marginBottom: 0 }}>
+                      {saveNotice.message}
                     </p>
                   ) : null}
                 </>
