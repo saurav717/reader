@@ -280,6 +280,31 @@ export async function findFile(accessToken: string, name: string, parentId: stri
 }
 
 /**
+ * Re-parents a file the app owns. Used when the layout in Drive changes under
+ * a library that is already synced: the file is moved rather than downloaded
+ * and uploaded again, so nothing crosses the network but the request itself.
+ */
+export async function moveFile(accessToken: string, fileId: string, parentId: string): Promise<DriveFile> {
+  const id = encodeURIComponent(fileId);
+  const current = (await (
+    await driveFetch(accessToken, `https://www.googleapis.com/drive/v3/files/${id}?fields=id,name,webViewLink,parents`)
+  ).json()) as DriveFile & { parents?: string[] };
+
+  const parents = current.parents ?? [];
+  if (parents.length === 1 && parents[0] === parentId) return current;
+
+  const params = new URLSearchParams({ addParents: parentId, fields: 'id,name,webViewLink' });
+  const stale = parents.filter((parent) => parent !== parentId);
+  if (stale.length) params.set('removeParents', stale.join(','));
+  const moved = await driveFetch(accessToken, `https://www.googleapis.com/drive/v3/files/${id}?${params}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  return (await moved.json()) as DriveFile;
+}
+
+/**
  * The bytes of a file the app put in Drive. Google's API sends CORS headers, so
  * unlike the sites the papers come from this one the browser can read directly
  * — which is the whole point: a paper already in Drive needs no proxy.

@@ -3,7 +3,8 @@ import { useStore } from '../lib/store';
 import type { View } from '../types.view';
 import type { Paper } from '../types';
 import { FINISHED_AT, statusOf } from '../lib/status';
-import { CloudCheckIcon, CloudIcon, PlusIcon, SearchIcon, TrashIcon } from './icons';
+import { driveFolderUrl } from '../lib/driveSync';
+import { CloudCheckIcon, CloudIcon, DriveMark, PlusIcon, SearchIcon, TrashIcon } from './icons';
 
 interface Props {
   view: View;
@@ -26,6 +27,16 @@ function headingFor(view: View, name?: string): { title: string; colour?: string
     default:
       return { title: name || 'Collection' };
   }
+}
+
+/**
+ * Where a paper sits in Drive. The folder id is recorded on the first sync;
+ * papers saved before per-paper folders existed only have the PDF's own link,
+ * which is still somewhere to go.
+ */
+function driveFolderLink(paper: Paper): string | null {
+  if (paper.drive?.folderId) return paper.drive.folderLink || driveFolderUrl(paper.drive.folderId);
+  return paper.drive?.pdfLink ?? null;
 }
 
 export default function CollectionView({ view, onOpenPaper, onDiscover }: Props) {
@@ -154,6 +165,7 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
         {rows.map((paper) => {
           const state = syncStateFor(paper.id);
           const count = highlights.filter((highlight) => highlight.paperId === paper.id).length;
+          const folderLink = driveFolderLink(paper);
           return (
             <div key={paper.id} style={{ position: 'relative' }}>
               <button type="button" className="row-grid" onClick={() => onOpenPaper(paper.id)}>
@@ -209,6 +221,18 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
                   gap: 4,
                 }}
               >
+                {folderLink ? (
+                  <a
+                    className="icon-btn sm"
+                    href={folderLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={`Open ${paper.drive?.folderName || paper.title} in Google Drive`}
+                    aria-label={`Find ${paper.title} on Google Drive`}
+                  >
+                    <DriveMark size={15} />
+                  </a>
+                ) : null}
                 {driveConnected ? (
                   <button
                     type="button"

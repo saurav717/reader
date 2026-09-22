@@ -1,13 +1,27 @@
 import type { Collection, Highlight, Paper, Settings } from '../types';
 import { hasProxy } from './api';
 import { fetchPdf, resolvePdfUrl } from './pdf';
-import { ensureDriveToken, ensureFolder, findFile, uploadFile } from './google';
+import { ensureDriveToken, ensureFolder, findFile, moveFile, uploadFile } from './google';
 import { baseName, sidecar } from './sidecar';
 
-export const UNSORTED_FOLDER = 'Unsorted';
+/** The folder at the top level of Drive that every paper folder sits in. */
+export const ROOT_FOLDER = 'Papers_collection';
+
+/**
+ * Drive's own URL for a folder. It is derivable from the id, so knowing where
+ * a paper lives costs no extra request — the link is there as soon as the
+ * folder is.
+ */
+export function driveFolderUrl(folderId: string): string {
+  return `https://drive.google.com/drive/folders/${folderId}`;
+}
 
 export interface SyncResult {
   folderId: string;
+  /** What the paper's folder is called in Drive. */
+  folderName: string;
+  /** Where that folder opens. */
+  folderLink: string;
   pdfFileId?: string;
   pdfLink?: string;
   metaFileId: string;
@@ -28,20 +42,41 @@ export async function syncPaperToDrive(
   if (!settings.googleClientId) throw new Error('No Google client ID is configured');
 
   const accessToken = await ensureDriveToken(settings.googleClientId);
-  const rootId = await ensureFolder(accessToken, settings.driveFolderName || 'Paper Reader');
+  const rootId = await ensureFolder(accessToken, settings.driveFolderName || ROOT_FOLDER);
+
+  // Papers_collection/<paper>/ — a folder of its own for every paper, holding
+  // the PDF and the sidecar. Which collections a paper belongs to is recorded
+  // in the sidecar rather than in the path, because a paper can be in several
+  // at once and the path can only say one thing.
+  const stem = baseName(paper);
+  const folderId = await ensureFolder(accessToken, stem, rootId);
+  const folderLink = driveFolderUrl(folderId);
 
   const collectionNames = paper.collectionIds
     .map((id) => context.collections.find((collection) => collection.id === id)?.name)
     .filter((name): name is string => Boolean(name));
-  const folderName = collectionNames[0] || UNSORTED_FOLDER;
-  const folderId = await ensureFolder(accessToken, folderName, rootId);
 
-  const stem = baseName(paper);
   const highlights = context.highlights.filter((highlight) => highlight.paperId === paper.id);
 
   let notice: string | undefined;
   let pdfFileId = paper.drive?.pdfFileId;
   let pdfLink = paper.drive?.pdfLink;
+  let metaFileId = paper.drive?.metaFileId;
+
+  // A library synced before papers had folders of their own has its files in a
+  // folder named after a collection. Move them across rather than uploading a
+  // second copy; a file that has since been deleted by hand simply fails, and
+  // the code below puts a fresh one in the right place.
+  if (paper.drive?.folderId && paper.drive.folderId !== folderId) {
+    if (pdfFileId) {
+      const moved = await moveFile(accessToken, pdfFileId, folderId).catch(() => null);
+      pdfFileId = moved?.id;
+      pdfLink = moved ? (moved.webViewLink ?? pdfLink) : undefined;
+    }
+    if (metaFileId) {
+      metaFileId = (await moveFile(accessToken, metaFileId, folderId).catch(() => null))?.id;
+    }
+  }
 
   if (settings.savePdf) {
     if (!pdfFileId) {
@@ -93,7 +128,6 @@ export async function syncPaperToDrive(
   }
 
   const metaName = `${stem}.json`;
-  let metaFileId = paper.drive?.metaFileId;
   if (!metaFileId) metaFileId = (await findFile(accessToken, metaName, folderId))?.id;
   const meta = await uploadFile(accessToken, {
     name: metaName,
@@ -103,5 +137,14 @@ export async function syncPaperToDrive(
     fileId: metaFileId,
   });
 
-  return { folderId, pdfFileId, pdfLink, metaFileId: meta.id, syncedAt: new Date().toISOString(), notice };
+  return {
+    folderId,
+    folderName: stem,
+    folderLink,
+    pdfFileId,
+    pdfLink,
+    metaFileId: meta.id,
+    syncedAt: new Date().toISOString(),
+    notice,
+  };
 }

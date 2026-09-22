@@ -11,7 +11,7 @@ import {
 import type { Collection, GoogleUser, Highlight, HighlightColor, Paper, PaperRef, Settings } from '../types';
 import { COLLECTION_COLORS } from '../types';
 import { db } from './db';
-import { syncPaperToDrive } from './driveSync';
+import { ROOT_FOLDER, syncPaperToDrive } from './driveSync';
 import { pathFor, syncPapersToGitHub, targetFrom } from './github';
 import { setContactEmail } from './contact';
 import { setProxyBase } from './api';
@@ -28,7 +28,7 @@ const DRIVE_KEY = 'reader.drive.connected';
 
 const defaultSettings: Settings = {
   googleClientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || '',
-  driveFolderName: 'Paper Reader',
+  driveFolderName: ROOT_FOLDER,
   autoSync: true,
   savePdf: true,
   syncOnOpen: true,
@@ -235,6 +235,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             ...paper,
             drive: {
               folderId: result.folderId,
+              folderName: result.folderName,
+              folderLink: result.folderLink,
               pdfFileId: result.pdfFileId,
               pdfLink: result.pdfLink,
               metaFileId: result.metaFileId,
