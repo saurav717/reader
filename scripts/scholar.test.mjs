@@ -228,6 +228,13 @@ describe('being refused', () => {
     assert.equal(blockedReason('<html><body>scholar.google.com says no</body></html>', 403), 'captcha');
   });
 
+  it('calls Google’s bare 401 a refusal, which a browser gets past, and a proxy’s 401 unreachable', () => {
+    const google = '<!DOCTYPE html><html lang=en><title>Error 401 (Unauthorized)!!1</title><a href=//www.google.com/>Google</a>';
+    assert.equal(blockedReason(google, 401), 'refused');
+    assert.match(blockedMessage('refused'), /real browser/i);
+    assert.equal(blockedReason('Unauthorized', 401), 'unreachable');
+  });
+
   it('knows the consent interstitial', () => {
     assert.equal(blockedReason('<html><body>Before you continue to Google</body></html>', 200), 'consent');
   });

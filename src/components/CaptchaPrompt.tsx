@@ -85,7 +85,8 @@ export default function CaptchaPrompt({ url, onSolved }: Props) {
       <span className="sign-in-note">
         {' '}
         A browser window has opened at Google Scholar. Solve the captcha there; the window closes on its own the
-        moment Scholar accepts it, and the search runs again.{' '}
+        moment Scholar accepts it, and the search runs again. If Scholar simply answers the browser with no
+        captcha, the window closes by itself just the same.{' '}
         <button type="button" className="link-btn" onClick={() => void done()}>
           I have solved it
         </button>

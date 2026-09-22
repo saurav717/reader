@@ -117,6 +117,9 @@ export function blockedReason(html, status) {
   const fromGoogle = isHtml && /google/i.test(head);
   if (status === 429) return fromGoogle ? 'rate-limited' : 'unreachable';
   if (status === 403) return fromGoogle ? 'captcha' : 'unreachable';
+  // The profile search answers a plain request with a bare 401 and no
+  // captcha, and answers a real browser. Refused, then, but not a puzzle.
+  if (status === 401) return fromGoogle ? 'refused' : 'unreachable';
   if (status === 407 || status === 502 || status === 504) return 'unreachable';
   return null;
 }
@@ -133,6 +136,11 @@ export function blockedMessage(reason) {
       return 'Google Scholar is rate-limiting this proxy. Wait a minute, or search the other sources meanwhile.';
     case 'consent':
       return 'Google Scholar answered with its consent page rather than results, which it does for some regions.';
+    case 'refused':
+      return (
+        'Google Scholar refused this request outright (401) without showing a captcha. It does that to plain requests ' +
+        'for its profile pages while answering a real browser, so showing it one is what gets through.'
+      );
     case 'captcha':
     default:
       return (

@@ -157,8 +157,8 @@ their profile, which works whether or not the source is turned on.
 answers with JSON, so a proxy that goes through it is never the one Scholar shows
 a captcha to. It is the way Scholar works from anywhere that looks like a server,
 the Cloudflare Worker above all. It costs money past a free allowance — one
-SerpApi search per Scholar page asked for: a search, a person, a profile's works,
-a paper's versions — and it needs a key, so it is opt-in:
+SerpApi search per Scholar page asked for: a search, a profile's works, a paper's
+versions — and it needs a key, so it is opt-in:
 
 ```bash
 SERPAPI_KEY=… npm start                        # the Node proxy
@@ -173,6 +173,13 @@ which anyone can read, and not into an answer. A refusal from SerpApi — a bad 
 a spent allowance — is reported as SerpApi's, not as a captcha, so the panel does
 not offer a window for it. The five-minute cache applies either way, so typing in
 the search box does not spend the allowance on the first word twice.
+
+People cost more. SerpApi has discontinued its profile search, so a person is
+found the way Scholar's bylines allow: a search for papers by the name, from
+which every author with a profile is collected, and then — for the first three
+— their profile, for the full name, the affiliation and the verified email. Up
+to four searches, then; the profiles are cached, so opening one of those people
+afterwards costs nothing more.
 
 `SERPAPI_KEY=… node scripts/scholar-live.mjs` asks SerpApi for real, from any
 machine, and prints what came back; it is the check to run once, since the field
