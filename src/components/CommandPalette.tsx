@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
-import { arxivIdFromQuery, lookupArxiv, search } from '../lib/sources';
+import { arxivIdFromQuery, DEFAULT_SOURCES, lookupArxiv, search } from '../lib/sources';
+import { hasProxy } from '../lib/api';
 import type { PaperRef } from '../types';
 import { FileIcon, PlusIcon, SearchIcon, SettingsIcon, StackIcon } from './icons';
 
@@ -36,9 +37,10 @@ export default function CommandPalette({ onClose, onOpenPaper, onOpenSettings }:
       setBusy(true);
       try {
         const directId = arxivIdFromQuery(trimmed);
-        const found = directId
-          ? await lookupArxiv(directId, controller.signal)
-          : (await search(trimmed, ['arxiv'], { signal: controller.signal, limit: 6 })).results;
+        const found =
+          directId && hasProxy
+            ? await lookupArxiv(directId, controller.signal)
+            : (await search(trimmed, DEFAULT_SOURCES, { signal: controller.signal, limit: 6 })).results;
         setRemote(found);
       } catch {
         setRemote([]);
@@ -169,7 +171,12 @@ export default function CommandPalette({ onClose, onOpenPaper, onOpenSettings }:
           {libraryCount ? <div className="eyebrow" style={{ padding: '6px 12px 8px' }}>In your library</div> : null}
           {rows.map((row, position) => {
             const active = position === cursor;
-            const heading = row.kind === 'remote' && position === libraryCount ? 'New on arXiv' : null;
+            const heading =
+              row.kind === 'remote' && position === libraryCount
+                ? hasProxy
+                  ? 'New on arXiv'
+                  : 'Found online'
+                : null;
             const actionHeading =
               row.kind === 'action' && position === libraryCount + remoteCount ? 'Actions' : null;
             return (
@@ -227,7 +234,7 @@ export default function CommandPalette({ onClose, onOpenPaper, onOpenSettings }:
             <kbd>⇧↵</kbd> add and open
           </span>
           <span style={{ flexGrow: 1 }} />
-          <span style={{ color: 'var(--muted)' }}>arXiv · your library</span>
+          <span style={{ color: 'var(--muted)' }}>{hasProxy ? 'arXiv' : 'OpenAlex'} · your library</span>
         </div>
       </div>
     </>

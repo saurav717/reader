@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import { loadPaperContent, type PaperContent } from '../lib/paperContent';
+import { api, hasProxy } from '../lib/api';
 import {
   buildIndex,
   offsetsFromRange,
@@ -235,7 +236,7 @@ export default function Reader({
           </div>
         </div>
 
-        {paper.arxivId ? (
+        {paper.arxivId && hasProxy ? (
           <div className="segmented" role="group" aria-label="Reading mode">
             <button type="button" aria-pressed={mode === 'reflow'} onClick={() => setMode('reflow')}>
               Reflow
@@ -244,6 +245,15 @@ export default function Reader({
               PDF
             </button>
           </div>
+        ) : paper.arxivId ? (
+          <a
+            className="btn sm"
+            href={`https://arxiv.org/pdf/${paper.arxivId}`}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            PDF <ExternalIcon size={12} />
+          </a>
         ) : null}
 
         <button
@@ -293,7 +303,7 @@ export default function Reader({
       {mode === 'pdf' && paper.arxivId ? (
         <iframe
           title={`${paper.title} (PDF)`}
-          src={`/api/arxiv/pdf?id=${encodeURIComponent(paper.arxivId)}`}
+          src={api(`/arxiv/pdf?id=${encodeURIComponent(paper.arxivId)}`)}
           style={{ flexGrow: 1, border: 0, width: '100%', background: 'var(--rail)' }}
         />
       ) : (

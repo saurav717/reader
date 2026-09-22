@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
-import { arxivIdFromQuery, lookupArxiv, search, SOURCES } from '../lib/sources';
+import { arxivIdFromQuery, DEFAULT_SOURCES, lookupArxiv, search, SOURCES } from '../lib/sources';
+import { hasProxy, NO_PROXY_REASON } from '../lib/api';
 import type { PaperRef, SourceId } from '../types';
 import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
 
@@ -12,7 +13,7 @@ interface Props {
 export default function Discover({ onClose, onOpen }: Props) {
   const { papers, collections, addPaper, createCollection } = useStore();
   const [query, setQuery] = useState('');
-  const [sources, setSources] = useState<SourceId[]>(['arxiv']);
+  const [sources, setSources] = useState<SourceId[]>(DEFAULT_SOURCES);
   const [results, setResults] = useState<PaperRef[]>([]);
   const [errors, setErrors] = useState<{ source: SourceId; message: string }[]>([]);
   const [busy, setBusy] = useState(false);
@@ -33,7 +34,7 @@ export default function Discover({ onClose, onOpen }: Props) {
       setErrors([]);
       try {
         const directId = arxivIdFromQuery(text);
-        if (directId && sources.includes('arxiv')) {
+        if (directId && hasProxy && sources.includes('arxiv')) {
           const direct = await lookupArxiv(directId, controller.signal);
           if (direct.length) {
             setResults(direct);
@@ -140,6 +141,13 @@ export default function Discover({ onClose, onOpen }: Props) {
         </select>
       </div>
 
+      {!hasProxy ? (
+        <p className="banner warn" style={{ margin: '0 16px 12px' }}>
+          {NO_PROXY_REASON} OpenAlex and Semantic Scholar both index arXiv, so most papers are still here — you
+          just get the abstract rather than the full text.
+        </p>
+      ) : null}
+
       {errors.length ? (
         <div style={{ padding: '0 16px 12px' }}>
           {errors.map((error) => (
@@ -153,7 +161,9 @@ export default function Discover({ onClose, onOpen }: Props) {
       <div className="scroll" style={{ padding: '0 8px 16px' }}>
         {!results.length && !busy ? (
           <p style={{ padding: '10px 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            Search arXiv, OpenAlex and Semantic Scholar at once. Paste an arXiv id to jump straight to a paper.
+            {hasProxy
+              ? 'Search arXiv, OpenAlex and Semantic Scholar at once. Paste an arXiv id to jump straight to a paper.'
+              : 'Search OpenAlex and Semantic Scholar, both of which index arXiv.'}
           </p>
         ) : null}
 

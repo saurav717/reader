@@ -1,4 +1,5 @@
 import type { Collection, Highlight, Paper, Settings } from '../types';
+import { api, hasProxy } from './api';
 import { ensureDriveToken, ensureFolder, findFile, uploadFile } from './google';
 
 export const UNSORTED_FOLDER = 'Unsorted';
@@ -99,13 +100,17 @@ export async function syncPaperToDrive(
   let pdfFileId = paper.drive?.pdfFileId;
 
   if (settings.savePdf) {
-    if (paper.arxivId) {
+    if (paper.arxivId && !hasProxy) {
+      // The PDF would have to be fetched cross-origin from arxiv.org, which the
+      // browser blocks. Nothing to do but say so.
+      notice = 'This deployment has no server to fetch PDFs through; saved the metadata only.';
+    } else if (paper.arxivId) {
       if (!pdfFileId) {
         const existing = await findFile(accessToken, `${stem}.pdf`, folderId);
         pdfFileId = existing?.id;
       }
       if (!pdfFileId) {
-        const response = await fetch(`/api/arxiv/pdf?id=${encodeURIComponent(paper.arxivId)}`);
+        const response = await fetch(api(`/arxiv/pdf?id=${encodeURIComponent(paper.arxivId)}`));
         if (response.ok) {
           const uploaded = await uploadFile(accessToken, {
             name: `${stem}.pdf`,

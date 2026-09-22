@@ -1,10 +1,18 @@
 import type { PaperRef, SourceId } from '../types';
+import { api, hasProxy } from './api';
 
-export const SOURCES: { id: SourceId; label: string }[] = [
-  { id: 'arxiv', label: 'arXiv' },
-  { id: 'openalex', label: 'OpenAlex' },
-  { id: 'semanticscholar', label: 'Semantic Scholar' },
+const ALL_SOURCES: { id: SourceId; label: string; needsProxy: boolean }[] = [
+  { id: 'arxiv', label: 'arXiv', needsProxy: true },
+  { id: 'openalex', label: 'OpenAlex', needsProxy: false },
+  { id: 'semanticscholar', label: 'Semantic Scholar', needsProxy: false },
 ];
+
+/** Only the sources this deployment can actually reach. */
+export const SOURCES = ALL_SOURCES.filter((source) => hasProxy || !source.needsProxy).map(
+  ({ id, label }) => ({ id, label }),
+);
+
+export const DEFAULT_SOURCES: SourceId[] = hasProxy ? ['arxiv'] : ['openalex'];
 
 const clean = (value: string | null | undefined) => (value || '').replace(/\s+/g, ' ').trim();
 
@@ -46,7 +54,7 @@ async function searchArxiv(query: string, limit: number, signal?: AbortSignal): 
     max_results: String(limit),
     sortBy: 'relevance',
   });
-  const response = await fetch(`/api/arxiv/query?${params}`, { signal });
+  const response = await fetch(api(`/arxiv/query?${params}`), { signal });
   if (!response.ok) throw new Error(`arXiv search failed (${response.status})`);
   return parseArxiv(await response.text());
 }
@@ -168,8 +176,10 @@ export async function search(
     semanticscholar: searchSemanticScholar,
   };
 
+  // A source the deployment cannot reach would only produce a confusing error.
+  const usable = sources.filter((source) => SOURCES.some((entry) => entry.id === source));
   const settled = await Promise.allSettled(
-    sources.map((source) => runners[source](trimmed, limit, options.signal)),
+    usable.map((source) => runners[source](trimmed, limit, options.signal)),
   );
 
   const results: PaperRef[] = [];
@@ -177,7 +187,7 @@ export async function search(
   const seen = new Set<string>();
 
   settled.forEach((outcome, position) => {
-    const source = sources[position];
+    const source = usable[position];
     if (outcome.status === 'rejected') {
       const message = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
       if (!/abort/i.test(message)) errors.push({ source, message });
@@ -198,9 +208,10 @@ export function arxivIdFromQuery(query: string): string | null {
   return match ? match[1] : null;
 }
 
-/** Direct lookup when the query is itself an arXiv id. */
+/** Direct lookup when the query is itself an arXiv id. Needs the proxy. */
 export async function lookupArxiv(id: string, signal?: AbortSignal): Promise<PaperRef[]> {
-  const response = await fetch(`/api/arxiv/query?id_list=${encodeURIComponent(id)}`, { signal });
+  if (!hasProxy) return [];
+  const response = await fetch(api(`/arxiv/query?id_list=${encodeURIComponent(id)}`), { signal });
   if (!response.ok) throw new Error(`arXiv lookup failed (${response.status})`);
   return parseArxiv(await response.text());
 }

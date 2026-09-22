@@ -1,5 +1,6 @@
 import DOMPurify from 'dompurify';
 import type { Paper } from '../types';
+import { api, hasProxy, NO_PROXY_REASON } from './api';
 
 export interface PaperContent {
   html: string;
@@ -39,7 +40,7 @@ function absolutise(element: HTMLElement, base: string): void {
     if (!src || src.startsWith('data:')) return;
     try {
       const absolute = new URL(src, base).toString();
-      image.setAttribute('src', `/api/asset?url=${encodeURIComponent(absolute)}`);
+      image.setAttribute('src', api(`/asset?url=${encodeURIComponent(absolute)}`));
       image.setAttribute('loading', 'lazy');
       image.removeAttribute('srcset');
     } catch {
@@ -79,6 +80,10 @@ function abstractDocument(paper: Paper, notice?: string): PaperContent {
 }
 
 export async function loadPaperContent(paper: Paper, signal?: AbortSignal): Promise<PaperContent> {
+  if (!hasProxy) {
+    return abstractDocument(paper, `${NO_PROXY_REASON} Showing the abstract — you can still highlight it.`);
+  }
+
   if (!paper.arxivId) {
     return abstractDocument(
       paper,
@@ -87,7 +92,7 @@ export async function loadPaperContent(paper: Paper, signal?: AbortSignal): Prom
   }
 
   try {
-    const response = await fetch(`/api/arxiv/html?id=${encodeURIComponent(paper.arxivId)}`, { signal });
+    const response = await fetch(api(`/arxiv/html?id=${encodeURIComponent(paper.arxivId)}`), { signal });
     if (!response.ok) {
       return abstractDocument(paper, 'arXiv has no HTML rendering of this paper — showing the abstract.');
     }

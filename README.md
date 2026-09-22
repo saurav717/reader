@@ -41,6 +41,30 @@ npx vercel --prod
 **Any Node host** (Render, Railway, Fly, a VPS) — build command `npm run build`,
 start command `npm start`, and it listens on `$PORT`.
 
+**A static host** (GitHub Pages, S3, Netlify without functions) — possible, with a
+caveat. `npm run build:pages` produces `dist-pages/` for a `/reader/` sub-path:
+
+```bash
+npm run build:pages                                   # no proxy: static mode
+VITE_API_BASE=https://…workers.dev npm run build:pages   # with a proxy
+```
+
+Without a proxy the app still runs, and says so in the UI: search falls back to
+OpenAlex and Semantic Scholar (both send CORS headers, and both index arXiv), the
+reader shows abstracts with a link to the source, and Drive saves metadata without
+the PDF. Highlighting, collections, notes and export are unaffected.
+
+To get arXiv back on a static host, put the proxy on Cloudflare's free tier —
+`worker/index.js` is the same four routes in Workers form:
+
+```bash
+npx wrangler deploy                                   # prints your worker URL
+```
+
+Edit `ALLOWED_ORIGINS` in `worker/index.js` to your own site first; a wide-open
+proxy is one anyone can point at arXiv on your account's quota. Then rebuild with
+`VITE_API_BASE` set to the worker URL.
+
 Whichever you pick, add the resulting origin to **Authorised JavaScript origins**
 on your OAuth client before Google sign-in will work there.
 
