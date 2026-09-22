@@ -71,11 +71,16 @@ profile alongside it.
 
 | Source | Needs the proxy | Papers | Authors | On by default |
 | --- | --- | --- | --- | --- |
-| arXiv | yes | yes | by name | with a proxy |
-| OpenAlex | no | yes | yes | yes |
+| arXiv | yes | yes | by name | no |
+| OpenAlex | no | yes | yes | only without a proxy |
 | Semantic Scholar | no | yes | yes | no |
-| Crossref | no | yes | by name | yes |
-| Google Scholar | yes | yes | yes | **no** — see below |
+| Crossref | no | yes | by name | only without a proxy |
+| Google Scholar | yes | yes | yes | **yes**, with a proxy — see below |
+
+Scholar is what a fresh search asks, on its own, whenever there is a proxy to
+ask it through. The other four are chips on the panel: press one and it joins
+the search, press Scholar's and it leaves. Without a proxy Scholar is out of
+reach, and the search falls back to OpenAlex and Crossref.
 
 ### Every copy of a paper, not just the first link
 
@@ -126,8 +131,9 @@ nothing else does:
 **It will often refuse.** Scholar blocks servers far more readily than people, and
 the proxy is a server. When it answers with a captcha the panel says so, in those
 words, and the other four sources carry on — a refusal is never shown as "no
-results". That is also why Scholar is off by default: a source that fails half the
-time should be a choice, not a surprise.
+results". It is on by default anyway, because what it finds is what nothing else
+does; the panel says what a refusal means the moment one happens, and the other
+sources are one press away.
 
 **When it does, you can be shown the captcha.** A captcha is Scholar asking for a
 person, and the panel offers to supply one: press *Show me the captcha* and the
@@ -534,7 +540,15 @@ quiet:
    everything else the reader asks Unpaywall (if you have given a contact
    address), then OpenAlex, then Semantic Scholar — a search result and the
    per-work record often disagree about what is free to read. What it finds is
-   kept with the paper, so the next open is immediate.
+   kept with the paper, so the next open is immediate. That single link is one
+   way in, not the gate: a paper whose copy is already in Drive opens on that
+   copy at once, and a paper with no link of its own — one from a Google
+   Scholar profile, with no DOI and no arXiv id — opens on whichever of the
+   copies under *every copy of a paper* will answer, the ones on the author's
+   own university site included. A list of nothing but landing pages does not
+   count: a paper behind a login opens on its abstract, with the copies listed
+   beside it, rather than on the wall. Only when every one of those has come
+   back empty does the reader say there is no PDF.
 2. **It is fetched through the proxy**, in full, and handed to the browser's own
    viewer as a blob. In full, because a failure you can explain beats a blank
    grey pane. If Drive already holds a copy, it comes from there instead and the
@@ -639,7 +653,13 @@ paper, and the reader goes and gets it:
    OpenAlex, `openAccessPdf` from Semantic Scholar.
 2. When a result carries none, the reader asks both APIs again by DOI when it
    opens the paper. A search hit and the per-work record do not always agree
-   about what is free to read. What it finds is kept with the paper.
+   about what is free to read. What it finds is kept with the paper — and a
+   later **Read** on the same result keeps it too, rather than taking the
+   result's own empty link over it.
+   Nor is that link the only way to a PDF: the copy in Drive and the list of
+   every place the paper is published each count on their own, so a paper the
+   DOI lookups know nothing about still opens when Drive holds it or one of
+   its copies hands over the file.
 3. The file is fetched through `/api/pdf`, because a publisher's PDF is
    cross-origin and the browser will not read it from the page.
 4. It is fetched **once**. Opening a paper straight from a search result asks

@@ -30,7 +30,10 @@ const {
 // tests it has at the first top-level await, so a bundle loaded further down
 // the file would have its tests registered after the teardown hook had already
 // put the real `fetch` back.
-const { fetchPdfFromLocations, pdfFromFile, setProxyBase } = await loadTogether(['src/lib/pdf.ts', 'src/lib/api.ts']);
+const { fetchPdfFromLocations, pdfAvailability, pdfFromFile, setProxyBase } = await loadTogether([
+  'src/lib/pdf.ts',
+  'src/lib/api.ts',
+]);
 setProxyBase('https://proxy.example.workers.dev');
 
 const at = (url, overrides = {}) => ({
@@ -394,6 +397,40 @@ describe('downloading from whichever copy will answer', () => {
     };
     await fetchPdfFromLocations(paper(), [at('https://arxiv.org/pdf/1706.03762', { kind: 'preprint' })]);
     assert.match(asked[0], /\/arxiv\/pdf\?id=1706\.03762/);
+  });
+});
+
+describe('whether there is a PDF to open at all', () => {
+  const nothing = { pdfUrl: null, resolved: false, driveCopy: false, locations: null };
+
+  it('is still looking while both the link and the copies are out', () => {
+    assert.equal(pdfAvailability(nothing), 'checking');
+    assert.equal(pdfAvailability({ ...nothing, resolved: true }), 'checking');
+    assert.equal(pdfAvailability({ ...nothing, locations: [] }), 'checking');
+  });
+
+  it('opens on the copy in Drive without waiting for any index', () => {
+    assert.equal(pdfAvailability({ ...nothing, driveCopy: true }), 'ready');
+  });
+
+  it('opens on a link the paper came with, or one resolved by DOI', () => {
+    assert.equal(pdfAvailability({ ...nothing, pdfUrl: 'https://arxiv.org/pdf/2010.08895' }), 'ready');
+    assert.equal(pdfAvailability({ ...nothing, resolved: true, pdfUrl: 'https://repo.example/paper.pdf' }), 'ready');
+  });
+
+  it('opens on the copies the indexes list, with no link of its own — a Scholar profile’s paper', () => {
+    const copies = [at('https://www.bu.edu/lab/files/paper.pdf', { via: 'scholar' })];
+    assert.equal(pdfAvailability({ ...nothing, locations: copies }), 'ready');
+  });
+
+  it('does not count a landing page: a paper behind a login opens on its abstract, not on the wall', () => {
+    const page = [at('https://ieeexplore.ieee.org/document/1', { isPdf: false, kind: 'publisher' })];
+    assert.equal(pdfAvailability({ ...nothing, resolved: true, locations: page }), 'none');
+    assert.equal(pdfAvailability({ ...nothing, locations: page }), 'checking');
+  });
+
+  it('gives up only once the link and the copies have both come back empty', () => {
+    assert.equal(pdfAvailability({ ...nothing, resolved: true, locations: [] }), 'none');
   });
 });
 

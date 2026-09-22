@@ -374,6 +374,42 @@ export function saveBlob(blob: Blob, paper: PaperRef): void {
 /** Whether a paper in the library already knows where its PDF is. */
 export const hasKnownPdf = (paper: Paper): boolean => Boolean(pdfSourceUrl(paper));
 
+export type PdfAvailability = 'checking' | 'ready' | 'none';
+
+/**
+ * Whether there is a PDF to open, from everything the reader knows about a
+ * paper — not only the one link it arrived with.
+ *
+ * A paper has a PDF to show when Drive already holds a copy, when a single
+ * link is known or was resolved by DOI, or when any of the places it is
+ * published is a file rather than a landing page. A list of landing pages
+ * alone is not a PDF to open: `fetchPdfFromLocations` will try them, but a
+ * paper that opens on a login wall is worse than one that opens on its
+ * abstract with the copies listed beside it. The answer is `checking` only
+ * while the by-DOI lookup or the search for copies is still out; once both
+ * are back with nothing, it is `none`.
+ *
+ * This used to hinge on the single link alone, which is what left a paper
+ * from a Google Scholar profile — no DOI, no arXiv id, three copies on the
+ * author's own university site and one already in Drive — opening on
+ * "No PDF of this paper is free to read anywhere we can see".
+ */
+export function pdfAvailability(known: {
+  /** A single link: the paper's own, or the one resolved by DOI. */
+  pdfUrl?: string | null;
+  /** Whether the by-DOI lookup for that link has finished. */
+  resolved: boolean;
+  /** Drive holds a copy, and it can be read back from there. */
+  driveCopy: boolean;
+  /** Everywhere the paper is published, or null while that is being looked up. */
+  locations: PaperLocation[] | null;
+}): PdfAvailability {
+  if (known.driveCopy || known.pdfUrl) return 'ready';
+  if (known.locations?.some((location) => location.isPdf)) return 'ready';
+  if (!known.resolved || known.locations === null) return 'checking';
+  return 'none';
+}
+
 // ------------------------------------------------------------------ Drive ---
 
 /** Where a copy of the file came from, for the line under the title. */

@@ -2,10 +2,19 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useStore } from '../lib/store';
 import { loadPaperContent, type PaperContent } from '../lib/paperContent';
 import { hasProxy } from '../lib/api';
-import { fetchPaperPdf, PdfError, pdfSourceUrl, resolvePdfUrl, saveBlob, type PdfOrigin, type SignInOffer } from '../lib/pdf';
+import {
+  fetchPaperPdf,
+  PdfError,
+  pdfAvailability,
+  pdfSourceUrl,
+  resolvePdfUrl,
+  saveBlob,
+  type PdfOrigin,
+  type SignInOffer,
+} from '../lib/pdf';
 import SignInPrompt from './SignInPrompt';
 import PdfDropIn from './PdfDropIn';
-import { findLocations, scholarPaperUrl } from '../lib/locations';
+import { findLocations, mergeLocations, paperLocations, scholarPaperUrl } from '../lib/locations';
 import type { PaperLocation } from '../types';
 import {
   buildIndex,
@@ -93,7 +102,8 @@ export default function Reader({
 
   // Where this paper's PDF lives, and the copy we have fetched of it.
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
-  const [pdfLookup, setPdfLookup] = useState<'checking' | 'ready' | 'none'>('checking');
+  /** Whether the by-DOI lookup for a single link has come back, found or not. */
+  const [pdfResolved, setPdfResolved] = useState(false);
   const [pdfBlob, setPdfBlob] = useState<Blob | null>(null);
   const [pdfFrom, setPdfFrom] = useState<PdfOrigin | null>(null);
   /** Which of the paper's copies the file on screen actually came from. */
@@ -156,28 +166,31 @@ export default function Reader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId, paper?.arxivId, mode, content]);
 
-  // Find the PDF. arXiv and most open-access results already say where theirs
-  // is; for the rest we go back to OpenAlex and Semantic Scholar and ask, since
-  // a search result and the per-work record do not always agree about what is
-  // free to read. Worth doing even with no proxy — it still gives a link out.
+  // Find a single link to the PDF. arXiv and most open-access results already
+  // say where theirs is; for the rest we go back to OpenAlex and Semantic
+  // Scholar and ask, since a search result and the per-work record do not
+  // always agree about what is free to read. Worth doing even with no proxy —
+  // it still gives a link out. It is one of the ways a PDF can be found, not
+  // the gate on all of them: the copy in Drive and the list of places the
+  // paper is published, below, each count on their own.
   useEffect(() => {
     if (!paper) return;
     const controller = new AbortController();
     const known = pdfSourceUrl(paper);
     setPdfError(null);
     setPdfUrl(known ?? null);
-    setPdfLookup(known ? 'ready' : 'checking');
+    setPdfResolved(Boolean(known));
     if (known) return () => controller.abort();
 
     resolvePdfUrl(paper, controller.signal)
       .then((found) => {
         if (controller.signal.aborted) return;
         setPdfUrl(found ?? null);
-        setPdfLookup(found ? 'ready' : 'none');
+        setPdfResolved(true);
         if (found) void setPaperPdfUrl(paper.id, found);
       })
       .catch(() => {
-        if (!controller.signal.aborted) setPdfLookup('none');
+        if (!controller.signal.aborted) setPdfResolved(true);
       });
     return () => controller.abort();
     // Only the identity of the paper decides which PDF we are after.
@@ -186,7 +199,9 @@ export default function Reader({
 
   // Everywhere the paper is published, not only the first link that resolved.
   // The viewer needs the list to fall through a copy that will not answer, and
-  // the line under the title uses it to say which one did.
+  // the line under the title uses it to say which one did. An empty list is an
+  // answer too — it is what says there is nothing to fetch — so a lookup that
+  // fails outright is recorded as one rather than left looking forever.
   useEffect(() => {
     if (!paper) return;
     const controller = new AbortController();
@@ -194,7 +209,9 @@ export default function Reader({
       .then((found) => {
         if (!controller.signal.aborted) setLocations(found);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!controller.signal.aborted) setLocations([]);
+      });
     return () => controller.abort();
     // Only the identity of the paper decides where its copies are.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -205,6 +222,11 @@ export default function Reader({
   // opens even on a deployment that has no server at all.
   const driveCopy = Boolean(paper?.drive?.pdfFileId && driveConnected && settings.googleClientId);
   const canFetchPdf = hasProxy() || driveCopy;
+
+  // Whether there is a PDF to open at all: the copy in Drive, a single link,
+  // or any of the places the paper is published. Only when every one of those
+  // has come back empty is there nothing to show.
+  const pdfLookup = pdfAvailability({ pdfUrl, resolved: pdfResolved, driveCopy, locations });
 
   // A new paper opens the way they read the last one, with no PDF held over.
   useEffect(() => {
@@ -237,11 +259,19 @@ export default function Reader({
 
   // What the PDF routes need, and nothing that changes while reading: the paper
   // object itself is replaced on every progress tick, which would otherwise
-  // abort the download and start it again.
+  // abort the download and start it again. A paper without a single link is
+  // still a target — its copies, or the one in Drive, are what get fetched.
   const pdfTarget = useMemo(
-    () => (paper && pdfUrl ? { ...paper, pdfUrl } : null),
+    () => (paper ? { ...paper, pdfUrl: pdfUrl ?? paper.pdfUrl } : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [paper?.id, paper?.title, paper?.arxivId, pdfUrl],
+    [paper?.id, paper?.title, paper?.arxivId, paper?.pdfUrl, pdfUrl],
+  );
+
+  // The places to try, with a link resolved after the list came back folded
+  // in: the list is cached per paper, so it would not pick the link up itself.
+  const knownLocations = useMemo(
+    () => (locations && pdfTarget ? mergeLocations([paperLocations(pdfTarget), locations]) : locations),
+    [locations, pdfTarget],
   );
 
   // Reading the copy in Drive rather than fetching the paper again is worth it
@@ -252,14 +282,18 @@ export default function Reader({
       driveFileId: paper?.drive?.pdfFileId,
       clientId: settings.googleClientId,
       driveConnected,
-      locations: locations ?? undefined,
+      locations: knownLocations ?? undefined,
     }),
-    [paper?.drive?.pdfFileId, settings.googleClientId, driveConnected, locations],
+    [paper?.drive?.pdfFileId, settings.googleClientId, driveConnected, knownLocations],
   );
 
-  // Fetch the file itself, once, when the PDF pane is first opened.
+  // Fetch the file itself, once, when the PDF pane is first opened. Drive
+  // needs no list of copies and is asked at once; the proxy waits for the list
+  // this component is already resolving, rather than resolving it twice.
   useEffect(() => {
     if (mode !== 'pdf' || !pdfTarget || pdfBlob) return;
+    if (pdfLookup !== 'ready') return;
+    if (!driveCopy && !driveOptions.locations) return;
     const controller = new AbortController();
     setPdfError(null);
     setPdfSignIn(null);
@@ -276,7 +310,7 @@ export default function Reader({
         setPdfSignIn(error instanceof PdfError ? error.signIn ?? null : null);
       });
     return () => controller.abort();
-  }, [mode, pdfBlob, pdfTarget, driveOptions, pdfAttempt]);
+  }, [mode, pdfBlob, pdfTarget, driveOptions, driveCopy, pdfLookup, pdfAttempt]);
 
   // Putting a paper in Drive as it is read.
   //
@@ -329,6 +363,10 @@ export default function Reader({
     },
     [driveConnected, paper, settings.savePdf, syncPaper],
   );
+
+  // Where to send a person when the file will not come here: the single link
+  // where there is one, else the first copy that is a file.
+  const pdfLink = pdfUrl ?? knownLocations?.find((location) => location.isPdf)?.url ?? null;
 
   // What to say about Drive in the line under the title.
   const driveState = paper ? syncStateFor(paper.id) : 'idle';
@@ -594,9 +632,9 @@ export default function Reader({
               {saving ? <span className="spinner" /> : <DownloadIcon size={17} />}
             </button>
           </>
-        ) : pdfLookup === 'ready' && pdfUrl ? (
+        ) : pdfLookup === 'ready' && pdfLink ? (
           // No proxy to fetch it through, but we know where it is.
-          <a className="btn sm" href={pdfUrl} target="_blank" rel="noreferrer noopener">
+          <a className="btn sm" href={pdfLink} target="_blank" rel="noreferrer noopener">
             PDF <ExternalIcon size={12} />
           </a>
         ) : null}
@@ -660,17 +698,17 @@ export default function Reader({
                   }}
                 />
               ) : null}
-              {pdfUrl ? (
+              {pdfLink ? (
                 <>
                   {' '}
-                  <a href={pdfUrl} target="_blank" rel="noreferrer noopener">
+                  <a href={pdfLink} target="_blank" rel="noreferrer noopener">
                     Open it at the publisher
                   </a>
                   .
                 </>
               ) : null}
               {pdfError ? (
-                <PdfDropIn host={pdfSignIn?.host} url={pdfSignIn?.url || pdfUrl || undefined} onFile={takeFile} />
+                <PdfDropIn host={pdfSignIn?.host} url={pdfSignIn?.url || pdfLink || undefined} onFile={takeFile} />
               ) : null}{' '}
               <button type="button" className="link-btn" onClick={() => chooseMode('reflow')}>
                 Read the text instead
