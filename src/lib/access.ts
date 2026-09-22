@@ -27,6 +27,11 @@ export interface AccessStatus {
   everSignedIn: boolean;
   /** Where the proxy keeps the signed-in profile, for Settings to say. */
   profile?: string;
+  /**
+   * Where the proxy's screen can be watched, when it is not this machine's —
+   * a Codespace's virtual desktop, say. The app opens it as a pop-up.
+   */
+  viewer?: string;
 }
 
 const UNAVAILABLE: AccessStatus = {

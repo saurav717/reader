@@ -276,6 +276,8 @@ export interface CaptchaStatus {
   solved: boolean;
   /** Whether Scholar is now asked through the browser that solved it. */
   browser: boolean;
+  /** Where the proxy's screen can be watched, when it is not this machine's. */
+  viewer?: string;
 }
 
 const CAPTCHA_UNAVAILABLE: CaptchaStatus = {

@@ -78,7 +78,7 @@ export default {
             window: 'closed',
             everSignedIn: false,
             reason:
-              'This proxy is a Cloudflare Worker, which has no browser to sign in with. Run the proxy on your own machine (`npm start` in the reader repository) and point Settings → Paper proxy at http://localhost:8080.',
+              'This proxy is a Cloudflare Worker, which has no browser to sign in with. Run the proxy somewhere with a screen and point Settings → Paper proxy at it: `npm start` on your own machine (http://localhost:8080/api), or — with nothing to run locally — a GitHub Codespace of the reader repository, whose screen the app then opens for you as a pop-up. See "Signing in from the cloud" in the README.',
           },
           path === '/access/status' ? 200 : 501,
           headers,
@@ -101,7 +101,7 @@ export default {
             solved: false,
             browser: false,
             reason:
-              'This proxy is a Cloudflare Worker, which has no browser to show the captcha in. Run the proxy on your own machine (`npm start` in the reader repository) and point Settings → Paper proxy at http://localhost:8080.',
+              'This proxy is a Cloudflare Worker, which has no browser to show the captcha in. Run the proxy somewhere with a screen and point Settings → Paper proxy at it: `npm start` on your own machine (http://localhost:8080/api), or — with nothing to run locally — a GitHub Codespace of the reader repository, whose screen the app then opens for you as a pop-up. See "Signing in from the cloud" in the README.',
           },
           path === '/scholar/captcha/status' ? 200 : 501,
           headers,

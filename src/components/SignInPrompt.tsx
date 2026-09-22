@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { accessAvailable, finishSignIn, requestSignIn, waitForSignIn, type AccessStatus } from '../lib/access';
 import type { SignInOffer } from '../lib/pdf';
+import { closeViewer, openViewer } from '../lib/viewer';
 
 interface Props {
   /** The publisher that wanted a sign-in, and its page to sign in at. */
@@ -20,6 +21,11 @@ type Stage = 'idle' | 'opening' | 'open' | 'failed';
  * they are done, the caller asks for the paper again, and this time the
  * proxy asks through the signed-in browser.
  *
+ * When the proxy's screen is somewhere else — a Codespace's virtual desktop —
+ * the status names where it can be watched, and the click that asks for the
+ * window also opens that as a pop-up, so the sign-in happens in front of the
+ * person all the same.
+ *
  * Where the proxy cannot open a window — a Cloudflare Worker has no screen —
  * this says so instead, with what to run to get one.
  */
@@ -28,6 +34,8 @@ export default function SignInPrompt({ offer, onSignedIn }: Props) {
   const [stage, setStage] = useState<Stage>('idle');
   const [problem, setProblem] = useState<string | null>(null);
   const waiting = useRef<AbortController | null>(null);
+  const popup = useRef<Window | null>(null);
+  const [popupBlocked, setPopupBlocked] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -37,17 +45,26 @@ export default function SignInPrompt({ offer, onSignedIn }: Props) {
     return () => {
       live = false;
       waiting.current?.abort();
+      closeViewer(popup.current);
     };
   }, []);
 
   const signIn = async () => {
     setStage('opening');
     setProblem(null);
+    // The pop-up first, from the click, before anything is awaited: a window
+    // opened later is one the browser blocks.
+    if (access?.viewer) {
+      popup.current = openViewer(access.viewer);
+      setPopupBlocked(!popup.current);
+    }
     try {
       await requestSignIn(offer.url);
     } catch (error) {
       setStage('failed');
       setProblem(error instanceof Error ? error.message : String(error));
+      closeViewer(popup.current);
+      popup.current = null;
       return;
     }
     setStage('open');
@@ -59,6 +76,8 @@ export default function SignInPrompt({ offer, onSignedIn }: Props) {
       return; // unmounted
     }
     waiting.current = null;
+    closeViewer(popup.current);
+    popup.current = null;
     setStage('idle');
     onSignedIn();
   };
@@ -77,6 +96,39 @@ export default function SignInPrompt({ offer, onSignedIn }: Props) {
         {' '}
         To read it here, sign in at {offer.host} through your institution — which this proxy cannot open a
         window for. {access.reason}
+      </span>
+    );
+  }
+
+  if (stage === 'open' && access.viewer) {
+    return (
+      <span className="sign-in-note">
+        {' '}
+        The proxy has opened {offer.host} in its own browser, on its screen
+        {popupBlocked ? (
+          <>
+            {' '}
+            — this page tried to show you that screen in a pop-up and the browser blocked it, so{' '}
+            <a href={access.viewer} target="reader-proxy-screen">
+              open the proxy&rsquo;s screen
+            </a>{' '}
+            yourself.
+          </>
+        ) : (
+          <>
+            , which is the pop-up beside this page (
+            <a href={access.viewer} target="reader-proxy-screen">
+              bring it back
+            </a>
+            ).
+          </>
+        )}{' '}
+        Sign in there through your institution — the page, the password, the two-factor prompt, all of it
+        happen in that window — and when the paper opens there, press this: the paper is fetched again through
+        that signed-in browser.{' '}
+        <button type="button" className="link-btn" onClick={() => void done()}>
+          I have signed in
+        </button>
       </span>
     );
   }

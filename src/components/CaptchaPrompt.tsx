@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { captchaStatus, finishCaptcha, showCaptcha, waitForCaptcha, type CaptchaStatus } from '../lib/scholar';
+import { closeViewer, openViewer } from '../lib/viewer';
 
 interface Props {
   /** The Scholar page that was refused, which is the page the captcha is on. */
@@ -28,6 +29,8 @@ export default function CaptchaPrompt({ url, onSolved }: Props) {
   const [stage, setStage] = useState<Stage>('idle');
   const [problem, setProblem] = useState<string | null>(null);
   const waiting = useRef<AbortController | null>(null);
+  const popup = useRef<Window | null>(null);
+  const [popupBlocked, setPopupBlocked] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -37,17 +40,26 @@ export default function CaptchaPrompt({ url, onSolved }: Props) {
     return () => {
       live = false;
       waiting.current?.abort();
+      closeViewer(popup.current);
     };
   }, []);
 
   const show = async () => {
     setStage('opening');
     setProblem(null);
+    // The proxy's screen, when it is elsewhere, as a pop-up — from the click
+    // itself, since a window opened after an await is one the browser blocks.
+    if (status?.viewer) {
+      popup.current = openViewer(status.viewer);
+      setPopupBlocked(!popup.current);
+    }
     try {
       await showCaptcha(url);
     } catch (error) {
       setStage('failed');
       setProblem(error instanceof Error ? error.message : String(error));
+      closeViewer(popup.current);
+      popup.current = null;
       return;
     }
     setStage('open');
@@ -59,6 +71,8 @@ export default function CaptchaPrompt({ url, onSolved }: Props) {
       return; // unmounted
     }
     waiting.current = null;
+    closeViewer(popup.current);
+    popup.current = null;
     setStage('idle');
     onSolved();
   };
@@ -76,6 +90,38 @@ export default function CaptchaPrompt({ url, onSolved }: Props) {
       <span className="sign-in-note">
         {' '}
         The proxy could show you the captcha to solve, but this one cannot open a browser window. {status.reason}
+      </span>
+    );
+  }
+
+  if (stage === 'open' && status.viewer) {
+    return (
+      <span className="sign-in-note">
+        {' '}
+        The proxy has opened the captcha in its own browser, on its screen
+        {popupBlocked ? (
+          <>
+            {' '}
+            — this page tried to show you that screen in a pop-up and the browser blocked it, so{' '}
+            <a href={status.viewer} target="reader-proxy-screen">
+              open the proxy&rsquo;s screen
+            </a>{' '}
+            yourself.
+          </>
+        ) : (
+          <>
+            , which is the pop-up beside this page (
+            <a href={status.viewer} target="reader-proxy-screen">
+              bring it back
+            </a>
+            ).
+          </>
+        )}{' '}
+        Solve it there; the moment Scholar accepts it the proxy closes its window, the pop-up goes with it,
+        and the search runs again.{' '}
+        <button type="button" className="link-btn" onClick={() => void done()}>
+          I have solved it
+        </button>
       </span>
     );
   }
