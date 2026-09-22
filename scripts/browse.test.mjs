@@ -282,3 +282,11 @@ describe('the browser from the Worker', () => {
     assert.deepEqual(await worker.storedCookies(env), []);
   });
 });
+
+describe('the Worker entry', () => {
+  it('exports the Durable Object that holds a session open, for the runtime to find', async () => {
+    const entry = await import('../worker/index.js');
+    assert.equal(typeof entry.BrowserSession, 'function');
+    assert.equal(typeof entry.default.fetch, 'function');
+  });
+});

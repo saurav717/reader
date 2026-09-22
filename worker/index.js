@@ -27,6 +27,10 @@ import {
 import { askSerp } from '../server/serpapi.js';
 import * as browse from './browse.js';
 
+// The Durable Object that holds the browser session open; the runtime needs
+// it exported from the entry. See worker/browserSession.js.
+export { BrowserSession } from './browserSession.js';
+
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 const UA = 'reader/0.1 (personal research reading tool)';
 const ASSET_HOSTS = new Set(['arxiv.org', 'ar5iv.labs.arxiv.org', 'ar5iv.org', 'browse.arxiv.org']);
@@ -80,6 +84,30 @@ export default {
       if (path.startsWith('/browse/')) {
         const session = url.searchParams.get('session') || '';
         const fromThisApp = ALLOWED_ORIGINS.includes(origin);
+        const changes = ['/browse/open', '/browse/input', '/browse/grab', '/browse/close'].includes(path);
+        if (changes && request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+        if (changes && !fromThisApp) return json({ error: 'not from this app' }, 403, headers);
+
+        // Held open in a Durable Object where one is bound (the fast way,
+        // and what wrangler.toml ships); reconnected per request otherwise.
+        if (env.BROWSER_SESSION && !['/browse/status'].includes(path)) {
+          const stub = env.BROWSER_SESSION.get(env.BROWSER_SESSION.idFromName('the-browser'));
+          const inner = new URL(`https://browser-session${path.replace(/^\/browse/, '')}${url.search}`);
+          const answer = await stub.fetch(inner, {
+            method: request.method,
+            headers: { 'Content-Type': request.headers.get('Content-Type') || 'application/json' },
+            body: request.method === 'POST' ? await request.text() : undefined,
+          });
+          const type = answer.headers.get('Content-Type') || 'application/json; charset=utf-8';
+          const extra = type.startsWith('application/pdf')
+            ? { 'Content-Disposition': disposition(url.searchParams), 'X-Content-Type-Options': 'nosniff' }
+            : {};
+          return new Response(answer.body, {
+            status: answer.status,
+            headers: { ...headers, 'Content-Type': type, 'Cache-Control': 'no-store', ...extra },
+          });
+        }
+
         try {
           if (path === '/browse/status') return json(browse.idle(env), 200, { ...headers, 'Cache-Control': 'no-store' });
           if (path === '/browse/open') {

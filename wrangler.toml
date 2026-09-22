@@ -11,6 +11,18 @@ compatibility_flags = ["nodejs_compat"]
 [browser]
 binding = "BROWSER"
 
+# The session, held open between requests: a Durable Object keeps the one
+# connection to that browser and streams its picture, so the pane is as quick
+# as from the Node proxy (worker/browserSession.js). SQLite-backed, which is
+# what the free plan provides.
+[[durable_objects.bindings]]
+name = "BROWSER_SESSION"
+class_name = "BrowserSession"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BrowserSession"]
+
 # Optional: somewhere to keep the cookies of a sign-in made in that browser,
 # so it holds for the next paper and lets /pdf through a login wall. Make a
 # namespace (`npx wrangler kv namespace create SESSIONS`), paste its id here,
