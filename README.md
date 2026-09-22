@@ -26,6 +26,11 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
+`npm install` pulls a Chromium for the browser tests. To skip it —
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install` — which is enough for
+everything except `scripts/smoke.mjs`, `scripts/versions-drive.mjs` and
+`scripts/scholar-flow.mjs`.
+
 For a production build:
 
 ```bash
@@ -135,10 +140,26 @@ their profile, which works whether or not the source is turned on.
 ### Getting a paper from a terminal
 
 `npm run fetch` is the same resolution and download, run from Node rather than
-from a page:
+from a page. It is an npm script, so it has to be run **from a clone of this
+repository** — `npm run` looks for `package.json` in the directory you are in,
+and says `ENOENT … package.json` if it is not there:
 
 ```bash
-npm run fetch -- "attention is all you need"
+git clone https://github.com/saurav717/reader.git
+cd reader
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install    # see below
+npm run fetch -- "attention is all you need" --email you@example.org
+```
+
+Everything after `--` goes to the script; without it, npm keeps the flags for
+itself.
+
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` is worth the typing: Playwright is a
+devDependency for the browser tests, and installing it otherwise downloads a few
+hundred megabytes of Chromium that the fetcher never touches. Drop the variable
+when you want to run `scripts/smoke.mjs` and the rest.
+
+```bash
 npm run fetch -- 1706.03762 --email you@example.org
 npm run fetch -- --doi 10.5555/3295222.3295349 --list
 ```
