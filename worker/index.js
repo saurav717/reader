@@ -52,13 +52,31 @@ export default {
     const origin = request.headers.get('Origin') || '';
     const headers = cors(origin);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
-    if (request.method !== 'GET') return json({ error: 'method not allowed' }, 405, headers);
-
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
+    if (request.method !== 'GET' && !path.startsWith('/access/')) {
+      return json({ error: 'method not allowed' }, 405, headers);
+    }
 
     try {
-      if (path === '/health') return json({ ok: true }, 200, headers);
+      if (path === '/health') return json({ ok: true, access: false }, 200, headers);
+
+      // Signing in with an institution needs a browser window on a screen,
+      // and a Worker has neither. The app asks here before offering it, and
+      // this is the answer that tells it to explain instead.
+      if (path.startsWith('/access/')) {
+        return json(
+          {
+            available: false,
+            window: 'closed',
+            everSignedIn: false,
+            reason:
+              'This proxy is a Cloudflare Worker, which has no browser to sign in with. Run the proxy on your own machine (`npm start` in the reader repository) and point Settings → Paper proxy at http://localhost:8080.',
+          },
+          path === '/access/status' ? 200 : 501,
+          headers,
+        );
+      }
 
       // Google Scholar, which publishes no API — see server/scholar.js. Expect
       // this to be refused often from here: Workers run in datacentres, and a
@@ -166,19 +184,21 @@ export default {
         } catch (error) {
           return json({ error: String(error?.message || error) }, 400, headers);
         }
+        const host = new URL(target).hostname;
         if (!response.ok) {
-          return json(
-            { error: `the publisher answered ${response.status} for that PDF` },
-            response.status === 404 ? 404 : 502,
-            headers,
-          );
+          const error = `the publisher answered ${response.status} for that PDF`;
+          // A login wall, which a person could sign in through — but not
+          // from here; see /access/status above. Said so the app can explain.
+          const loginWall = response.status === 401 || response.status === 403;
+          return json({ error, ...(loginWall ? { loginWall, host } : {}) }, response.status === 404 ? 404 : 502, headers);
         }
 
         let bytes;
         try {
           bytes = await readPdf(response, response.headers.get('content-type'));
         } catch (error) {
-          return json({ error: String(error?.message || error) }, 415, headers);
+          const message = String(error?.message || error);
+          return json({ error: message, ...(/web page/.test(message) ? { loginWall: true, host } : {}) }, 415, headers);
         }
         return new Response(bytes, {
           headers: {

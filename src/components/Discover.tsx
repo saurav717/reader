@@ -19,7 +19,8 @@ import {
   scholarAuthorUrl,
   scholarPaperUrl,
 } from '../lib/locations';
-import { fetchPdfFromLocations } from '../lib/pdf';
+import { fetchPdfFromLocations, PdfError, type SignInOffer } from '../lib/pdf';
+import SignInPrompt from './SignInPrompt';
 import { whySaveToDriveUnavailable } from '../lib/driveSync';
 import type { AuthorRef, PaperLocation, PaperRef, SearchMode, SourceId } from '../types';
 import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
@@ -129,7 +130,7 @@ export default function Discover({ onClose, onOpen }: Props) {
   /** The paper currently being fetched and put in Drive, and how far it is. */
   const [saving, setSaving] = useState<{ id: string; step: string } | null>(null);
   /** How the last add ended, when it did not end with the file in Drive. */
-  const [saveError, setSaveError] = useState<{ id: string; message: string } | null>(null);
+  const [saveError, setSaveError] = useState<{ id: string; message: string; signIn?: SignInOffer } | null>(null);
   /** The paper is in Drive, but not whole — the sidecar without the PDF, say. */
   const [saveNotice, setSaveNotice] = useState<{ id: string; message: string } | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -377,6 +378,8 @@ export default function Discover({ onClose, onOpen }: Props) {
       setSaveError({
         id: ref.id,
         message: `Added, but the file is not in Drive: ${error instanceof Error ? error.message : String(error)}`,
+        // A login wall is the one failure a person can do something about.
+        signIn: error instanceof PdfError ? error.signIn : undefined,
       });
     } finally {
       setSaving(null);
@@ -676,6 +679,9 @@ export default function Discover({ onClose, onOpen }: Props) {
                   {saveError?.id === result.id && saving?.id !== result.id ? (
                     <p className="banner error" style={{ marginBottom: 0 }}>
                       {saveError.message}
+                      {saveError.signIn ? (
+                        <SignInPrompt offer={saveError.signIn} onSignedIn={() => void addToCollection(result)} />
+                      ) : null}
                     </p>
                   ) : null}
                   {saveNotice?.id === result.id && saving?.id !== result.id ? (

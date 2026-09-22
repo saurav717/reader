@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useStore } from '../lib/store';
 import { loadPaperContent, type PaperContent } from '../lib/paperContent';
 import { hasProxy } from '../lib/api';
-import { fetchPaperPdf, pdfSourceUrl, resolvePdfUrl, saveBlob, type PdfOrigin } from '../lib/pdf';
+import { fetchPaperPdf, PdfError, pdfSourceUrl, resolvePdfUrl, saveBlob, type PdfOrigin, type SignInOffer } from '../lib/pdf';
+import SignInPrompt from './SignInPrompt';
 import { findLocations, scholarPaperUrl } from '../lib/locations';
 import type { PaperLocation } from '../types';
 import {
@@ -100,6 +101,10 @@ export default function Reader({
   const [locations, setLocations] = useState<PaperLocation[] | null>(null);
   const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  /** Set beside the error when a publisher's copy wanted a sign-in. */
+  const [pdfSignIn, setPdfSignIn] = useState<SignInOffer | null>(null);
+  /** Bumped to ask for the file again after a sign-in. */
+  const [pdfAttempt, setPdfAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   // Once the reading mode has been chosen by hand, stop choosing it for them.
   const modeChosen = useRef(false);
@@ -256,6 +261,7 @@ export default function Reader({
     if (mode !== 'pdf' || !pdfTarget || pdfBlob) return;
     const controller = new AbortController();
     setPdfError(null);
+    setPdfSignIn(null);
     fetchPaperPdf(pdfTarget, driveOptions, controller.signal)
       .then(({ blob, from, location }) => {
         if (controller.signal.aborted) return;
@@ -266,9 +272,10 @@ export default function Reader({
       .catch((error) => {
         if (controller.signal.aborted) return;
         setPdfError(error instanceof Error ? error.message : String(error));
+        setPdfSignIn(error instanceof PdfError ? error.signIn ?? null : null);
       });
     return () => controller.abort();
-  }, [mode, pdfBlob, pdfTarget, driveOptions]);
+  }, [mode, pdfBlob, pdfTarget, driveOptions, pdfAttempt]);
 
   // Putting a paper in Drive as it is read.
   //
@@ -620,6 +627,16 @@ export default function Reader({
           {pdfError || pdfLookup === 'none' ? (
             <p className="banner warn" style={{ margin: 16 }}>
               {pdfError || 'No PDF of this paper is free to read anywhere we can see.'}
+              {pdfSignIn ? (
+                <SignInPrompt
+                  offer={pdfSignIn}
+                  onSignedIn={() => {
+                    setPdfError(null);
+                    setPdfSignIn(null);
+                    setPdfAttempt((attempt) => attempt + 1);
+                  }}
+                />
+              ) : null}
               {pdfUrl ? (
                 <>
                   {' '}

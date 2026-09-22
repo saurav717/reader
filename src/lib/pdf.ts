@@ -177,7 +177,28 @@ export async function resolvePdfUrl(paper: PaperRef, signal?: AbortSignal): Prom
 
 // -------------------------------------------------------------- fetching ----
 
-export class PdfError extends Error {}
+/** A copy a person could get by signing in, and where to go to do it. */
+export interface SignInOffer {
+  host: string;
+  /** The publisher's page to open the sign-in window at. */
+  url: string;
+}
+
+export class PdfError extends Error {
+  /** True when the publisher answered with a login wall rather than the file. */
+  loginWall: boolean;
+  /** The host that wanted the sign-in. */
+  host?: string;
+  /** Set on the summary error when at least one copy was behind a login. */
+  signIn?: SignInOffer;
+
+  constructor(message: string, options: { loginWall?: boolean; host?: string; signIn?: SignInOffer } = {}) {
+    super(message);
+    this.loginWall = Boolean(options.loginWall);
+    this.host = options.host;
+    this.signIn = options.signIn;
+  }
+}
 
 async function downloadPdf(url: string): Promise<Blob> {
   let response: Response;
@@ -187,11 +208,15 @@ async function downloadPdf(url: string): Promise<Blob> {
     throw new PdfError('Could not reach the PDF.');
   }
   if (!response.ok) {
-    const detail = await response
+    const body = await response
       .json()
-      .then((body: { error?: string }) => body?.error)
+      .then((payload: { error?: string; loginWall?: boolean; host?: string }) => payload)
       .catch(() => undefined);
-    throw new PdfError(detail ? `Could not fetch the PDF — ${detail}.` : 'Could not fetch the PDF.');
+    const detail = body?.error;
+    throw new PdfError(detail ? `Could not fetch the PDF — ${detail}.` : 'Could not fetch the PDF.', {
+      loginWall: Boolean(body?.loginWall),
+      host: body?.host,
+    });
   }
   const blob = await response.blob();
   // Keep the type honest: a blob URL only renders in the viewer if it says PDF.
@@ -287,7 +312,7 @@ export async function fetchPdfFromLocations(
   const candidates = locations.filter((location) => locationProxyUrl(paper, location));
   if (!candidates.length) throw new PdfError('No open-access copy of this paper could be found anywhere we can see.');
 
-  const tried: { location: PaperLocation; error: string }[] = [];
+  const tried: { location: PaperLocation; error: string; loginWall: boolean; host?: string }[] = [];
   for (const location of candidates) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const url = locationProxyUrl(paper, location) as string;
@@ -295,21 +320,42 @@ export async function fetchPdfFromLocations(
       return { blob: await shareDownload(url, signal), location, tried };
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') throw error;
-      tried.push({ location, error: error instanceof Error ? error.message : String(error) });
+      tried.push({
+        location,
+        error: error instanceof Error ? error.message : String(error),
+        loginWall: error instanceof PdfError && error.loginWall,
+        host: error instanceof PdfError ? error.host : undefined,
+      });
     }
   }
 
   // Say which copies were tried: "it did not work" is not actionable, and the
   // list is often the answer — every copy being the publisher's means the
-  // paper is simply not open access.
-  const summary = tried
-    .slice(0, 3)
-    .map((entry) => entry.location.label)
-    .join(', ');
+  // paper is simply not open access. Two copies at the same publisher are one
+  // name with a count, not the name twice.
+  const counts = new Map<string, number>();
+  for (const entry of tried) counts.set(entry.location.label, (counts.get(entry.location.label) || 0) + 1);
+  const names = Array.from(counts.entries()).map(([label, count]) => (count > 1 ? `${label} ×${count}` : label));
+  const summary = names.slice(0, 3).join(', ') + (names.length > 3 ? `, and ${names.length - 3} more` : '');
+
+  // A login wall is the one failure a person can do something about, so it is
+  // named — and the offer carries the publisher's own page to sign in at,
+  // which is where the institutional sign-in link lives.
+  const walled = tried.find((entry) => entry.loginWall);
+  const signIn = walled ? signInOffer(walled.host || walled.location.host, locations) : undefined;
   throw new PdfError(
     `None of the ${candidates.length} known ${candidates.length === 1 ? 'copy' : 'copies'} of this paper would hand over a PDF` +
-      `${summary ? ` (tried ${summary}${tried.length > 3 ? `, and ${tried.length - 3} more` : ''})` : ''}.`,
+      `${summary ? ` (tried ${summary})` : ''}` +
+      `${signIn ? ` — ${walled?.location.label || signIn.host} asks for a sign-in` : ''}.`,
+    { loginWall: Boolean(signIn), host: signIn?.host, signIn },
   );
+}
+
+/** The page to sign in at for a host: its landing page if we know one, else the file's URL. */
+function signInOffer(host: string, locations: PaperLocation[]): SignInOffer {
+  const same = locations.filter((location) => location.host === host.replace(/^www\./, ''));
+  const page = same.find((location) => !location.isPdf) || same[0];
+  return { host, url: page ? page.url : `https://${host}/` };
 }
 
 /** Save a blob under a name, from the page, with no round trip to a server. */

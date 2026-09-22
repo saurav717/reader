@@ -615,6 +615,71 @@ body has to actually be a PDF — which keeps it from being a general-purpose pr
 and catches the publisher who answers a sign-in page instead of the paper.
 `scripts/pdf-proxy.test.mjs` is those rules written down (`npm run test:api`).
 
+## Papers behind a login: signing in with your institution
+
+IEEE, ACM, Springer, Elsevier and the rest hand their PDFs to a browser that has
+signed in through a university, and a web page to everyone else. The proxy is
+everyone else. It asks for the paper anonymously, gets the sign-in page, refuses
+it — a page is not a PDF — and the result says so:
+
+> Added, but the file is not in Drive: None of the 2 known copies of this paper
+> would hand over a PDF (tried IEEE ×2) — IEEE asks for a sign-in.
+
+Nothing the app's own page can do changes that. It may *open* the publisher in a
+new tab, and if you are signed in there the PDF shows — but it may not *read* what
+comes back, cookies or no cookies; that is the browser's cross-origin rule, and it
+is the same rule that made the proxy necessary in the first place. So the sign-in
+has to happen where the fetching happens: on the proxy.
+
+That is what the offer under the result does. **Sign in at ieeexplore.ieee.org
+with your institution** opens a real browser window — Chromium, on the machine
+the proxy runs on — at the publisher's own page for the paper, where the
+*Institutional Sign In* link is. Sign in there the way you would anywhere:
+pick your institution, log in with its account, come back to the paper. Then
+close the window, or press **I have signed in**, and the reader asks for the
+paper again — and this time the proxy asks through that signed-in browser,
+which is what turns the page into the file. It is saved to Drive and opened
+like any other.
+
+The session is kept in a browser profile of the proxy's own (`~/.reader/browser-profile`,
+or `READER_PROFILE_DIR`), so the next paper from the same publisher needs no
+sign-in: a copy that comes back as a login wall is retried through the profile
+before anyone is asked. **Settings → Institutional access → Forget sign-ins**
+deletes the profile and every session in it. Nothing is written anywhere else,
+and no cookie ever reaches the page.
+
+**It needs the proxy on your own machine.** A window has to open on a screen, and
+the Cloudflare Worker has neither a screen nor a browser — so from the Worker the
+same result explains that instead of offering a sign-in. The site on GitHub Pages
+does not have to be rebuilt to use it:
+
+```bash
+git clone https://github.com/saurav717/reader.git && cd reader
+npm install          # with the Chromium: that is the window
+npm run build
+npm start            # http://localhost:8080
+```
+
+then paste `http://localhost:8080` into **Settings → Paper proxy** on the site
+and press **Test it**. The site keeps talking to Google for Drive as before; only
+the fetching moves to your machine, and the proxy answers the site's origin by
+name (`ALLOWED_ORIGINS`, comma-separated, extends the list). Settings shows
+whether the proxy it is talking to can open a window, and why not when it cannot
+— Playwright not installed, no Chromium, no display.
+
+Two things worth knowing. If a sign-in page refuses the browser as "not secure"
+— Google-backed institutional accounts sometimes do this to a Chromium that is
+not Chrome — run the proxy with `READER_BROWSER_CHANNEL=chrome` (or `msedge`) and
+it uses the browser you already have, with a profile of its own. And a sign-in
+only gets what your institution subscribes to: a publisher that still answers
+with a page after you have signed in is one your library does not have, and the
+result says that too.
+
+For IEEE specifically the landing page never links the file, so a signed-in
+fetch asks IEEE's stamp endpoints for it by article number; for everyone else
+the page's `citation_pdf_url` — the tag publishers put there for Google Scholar
+— is followed to the file. `scripts/access.test.mjs` pins both.
+
 ## How highlighting works
 
 A highlight is stored as the quoted text plus 32 characters either side, not as a
@@ -707,7 +772,7 @@ view live in `localStorage`.
 
 ```bash
 npm test                       # everything below that needs no network
-npm run test:api               # the PDF proxy's rules
+npm run test:api               # the PDF proxy's rules, and the institutional sign-in around it
 npm run test:unit              # query building, merging, the Git mirror, the proxy setting
 
 npm run build && npm start     # in one terminal
@@ -771,9 +836,11 @@ tests start failing.
   Reflow mode — which is why the switch is there, and why choosing it sticks. Reflow
   needs an HTML rendering, which arXiv has for recent papers and ar5iv has for most
   older ones; otherwise the reader falls back to the abstract.
-- A PDF is only there to be had if the paper is open access. Behind a paywall, every
-  copy in the versions list is the publisher's, none of them will answer, and the
-  reader says which ones it tried rather than pretending the file is coming.
+- A PDF is only there to be had if the paper is open access, or your institution
+  subscribes to it. Behind a paywall, every copy in the versions list is the
+  publisher's, none of them will answer an anonymous request, and the reader says
+  which ones it tried and offers the sign-in above — which only a proxy on your own
+  machine can open a window for, never the Worker.
 - Google Scholar is scraped, not queried, because there is no API to query. That
   means two things. It breaks if Google changes its markup — `npm test` pins the
   parsing to saved fixtures, so it fails loudly rather than returning nothing — and

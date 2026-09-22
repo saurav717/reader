@@ -4,6 +4,7 @@
 // publishers and repositories an open-access PDF link points at.
 
 import { disposition, fetchChecked, readPdf, rejectUrl } from './fetchPdf.js';
+import * as access from './access.js';
 import {
   authorSearchUrl,
   getScholar,
@@ -20,6 +21,52 @@ import { scholarFetcher } from './scholarBrowser.js';
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 
 const UA = 'reader/0.1 (personal research reading tool)';
+
+// Which other origins may call this proxy. The site on GitHub Pages can be
+// pointed at a proxy on your own machine — Settings → Paper proxy,
+// http://localhost:8080 — which is the one way the institutional sign-in
+// below can work for it, since a Worker has no window to sign in with. A
+// proxy that answered every origin would be one anyone could fetch through,
+// so the list is short, and ALLOWED_ORIGINS (comma-separated) extends it.
+const ALLOWED_ORIGINS = new Set(
+  [
+    'https://saurav717.github.io',
+    'http://localhost:5173',
+    'http://localhost:8080',
+    ...(process.env.ALLOWED_ORIGINS || '').split(','),
+  ]
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
+
+/** CORS headers for a cross-origin caller we allow, else none. */
+function corsHeaders(req) {
+  const origin = req.headers.origin;
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) return {};
+  return {
+    'Access-Control-Allow-Origin': origin,
+    Vary: 'Origin',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+  };
+}
+
+/**
+ * Whether a request that changes something — opens a window, forgets the
+ * sign-ins — came from this app. A page on any other site could POST here
+ * without reading the answer, and opening browser windows on somebody's
+ * machine at a URL of another site's choosing is not something to allow.
+ */
+function fromThisApp(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true; // same-origin without an Origin header: not a browser, or an old one
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
+}
 
 function send(res, status, body, headers = {}) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...headers });
@@ -99,6 +146,22 @@ async function pdf(url, res) {
   const target = url.searchParams.get('url') || '';
   const reason = rejectUrl(target);
   if (reason) return send(res, 400, { error: reason });
+  const host = new URL(target).hostname;
+
+  // A login wall is the one failure a person can do something about: sign in
+  // through their institution, in a window this proxy opens, and ask again.
+  // The answer says when that is what happened, so the app can offer it.
+  const loginWall = async (status, error) => {
+    if (access.everSignedIn()) {
+      try {
+        const bytes = await access.fetchWithSession(target);
+        return servePdf(res, url, bytes);
+      } catch (retry) {
+        return send(res, status, { error: `${error}; ${retry?.message || retry}`, loginWall: true, host });
+      }
+    }
+    return send(res, status, { error, loginWall: true, host });
+  };
 
   let result;
   try {
@@ -108,18 +171,23 @@ async function pdf(url, res) {
   }
   const { response } = result;
   if (!response.ok) {
-    return send(res, response.status === 404 ? 404 : 502, {
-      error: `the publisher answered ${response.status} for that PDF`,
-    });
+    const error = `the publisher answered ${response.status} for that PDF`;
+    if (response.status === 401 || response.status === 403) return loginWall(502, error);
+    return send(res, response.status === 404 ? 404 : 502, { error });
   }
 
   let bytes;
   try {
     bytes = await readPdf(response, response.headers.get('content-type'));
   } catch (error) {
-    return send(res, 415, { error: String(error?.message || error) });
+    const message = String(error?.message || error);
+    if (/web page/.test(message)) return loginWall(415, message);
+    return send(res, 415, { error: message });
   }
+  return servePdf(res, url, bytes);
+}
 
+function servePdf(res, url, bytes) {
   const buffer = Buffer.from(bytes);
   res.writeHead(200, {
     'Content-Type': 'application/pdf',
@@ -129,6 +197,34 @@ async function pdf(url, res) {
     'X-Content-Type-Options': 'nosniff',
   });
   res.end(buffer);
+}
+
+// ------------------------------------------------------ institutional ----
+//
+// Signing in with an institution, for the publishers that want one before
+// they hand over a PDF. See server/access.js: a real browser window opens on
+// the machine this runs on, the person signs in there, and from then on a
+// login wall is retried through that browser's profile.
+
+async function accessSignIn(req, url, res) {
+  if (req.method !== 'POST') return send(res, 405, { error: 'POST to open a sign-in window' });
+  if (!fromThisApp(req)) return send(res, 403, { error: 'not from this app' });
+  const target = url.searchParams.get('url') || '';
+  try {
+    return send(res, 200, { ok: true, ...(await access.openSignIn(target)) });
+  } catch (error) {
+    return send(res, 400, { error: String(error?.message || error) });
+  }
+}
+
+async function accessAction(req, res, action) {
+  if (req.method !== 'POST') return send(res, 405, { error: 'POST' });
+  if (!fromThisApp(req)) return send(res, 403, { error: 'not from this app' });
+  try {
+    return send(res, 200, { ok: true, ...(await action()) });
+  } catch (error) {
+    return send(res, 502, { error: String(error?.message || error) });
+  }
 }
 
 // ------------------------------------------------------------- Scholar ----
@@ -222,6 +318,15 @@ async function asset(url, res) {
 
 export default async function apiRouter(req, res, next) {
   const url = new URL(req.url || '/', 'http://localhost');
+  const cors = corsHeaders(req);
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, cors);
+    return res.end();
+  }
+  if (Object.keys(cors).length) {
+    const writeHead = res.writeHead.bind(res);
+    res.writeHead = (status, headers) => writeHead(status, { ...cors, ...(headers || {}) });
+  }
   try {
     switch (url.pathname) {
       case '/arxiv/query':
@@ -242,8 +347,16 @@ export default async function apiRouter(req, res, next) {
         return await scholarVersions(url, res);
       case '/asset':
         return await asset(url, res);
+      case '/access/status':
+        return send(res, 200, await access.status(), { 'Cache-Control': 'no-store' });
+      case '/access/signin':
+        return await accessSignIn(req, url, res);
+      case '/access/close':
+        return await accessAction(req, res, () => access.closeSignIn());
+      case '/access/forget':
+        return await accessAction(req, res, () => access.forget());
       case '/health':
-        return send(res, 200, { ok: true });
+        return send(res, 200, { ok: true, access: (await access.availability()).available });
       default:
         if (next) return next();
         return send(res, 404, { error: 'not found' });
