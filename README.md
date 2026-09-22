@@ -25,6 +25,25 @@ routes. Those routes are not optional: arXiv sends no CORS headers, so the brows
 cannot fetch its search API, HTML renderings or PDFs directly. Everything else
 (OpenAlex, Semantic Scholar, Google) is called straight from the page.
 
+## Putting it online
+
+The app needs a server for the `/api` routes, so a pure static host will not do.
+Two paths that work as-is:
+
+**Vercel** — `api/[...path].js` and `vercel.json` are committed, so it deploys
+unchanged:
+
+```bash
+npx vercel            # first run links the project and gives you a preview URL
+npx vercel --prod
+```
+
+**Any Node host** (Render, Railway, Fly, a VPS) — build command `npm run build`,
+start command `npm start`, and it listens on `$PORT`.
+
+Whichever you pick, add the resulting origin to **Authorised JavaScript origins**
+on your OAuth client before Google sign-in will work there.
+
 ## Connecting Google
 
 Sign-in and Drive are two separate consents, and both are optional — without them
