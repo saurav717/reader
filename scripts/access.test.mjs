@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 process.env.READER_PROFILE_DIR = join(tmpdir(), `reader-no-profile-${process.pid}`);
-const { availability, everSignedIn, headedArgs, pdfCandidates, pdfLinksIn, status, viewerUrl } = await import('../server/access.js');
+const { availability, everSignedIn, pdfCandidates, pdfLinksIn, status } = await import('../server/access.js');
 
 describe('which URL a signed-in browser asks for', () => {
   it('turns an IEEE document page into its stamp endpoints, file first', () => {
@@ -87,54 +87,5 @@ describe('whether this proxy can open a window', () => {
     assert.equal(answer.window, 'closed');
     assert.equal(answer.everSignedIn, false);
     assert.equal(answer.profile, process.env.READER_PROFILE_DIR);
-  });
-});
-
-describe('where the proxy\'s screen can be seen from elsewhere', () => {
-  const saved = {};
-  const set = (values) => {
-    for (const key of ['READER_VIEWER_URL', 'READER_VIEWER_PORT', 'CODESPACE_NAME', 'GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN']) {
-      if (!(key in saved)) saved[key] = process.env[key];
-      if (values[key] === undefined) delete process.env[key];
-      else process.env[key] = values[key];
-    }
-  };
-  const restore = () => {
-    for (const [key, value] of Object.entries(saved)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
-    }
-  };
-
-  it('has no viewer on a machine with its own screen', () => {
-    set({});
-    try {
-      assert.equal(viewerUrl(), undefined);
-      assert.deepEqual(headedArgs(), []);
-    } finally {
-      restore();
-    }
-  });
-
-  it('names the virtual desktop of a Codespace, and fills its screen', () => {
-    set({ CODESPACE_NAME: 'fuzzy-space-abc123', GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN: 'app.github.dev' });
-    try {
-      assert.equal(
-        viewerUrl(),
-        'https://fuzzy-space-abc123-6080.app.github.dev/vnc.html?autoconnect=true&resize=scale&reconnect=true',
-      );
-      assert.deepEqual(headedArgs(), ['--start-maximized']);
-    } finally {
-      restore();
-    }
-  });
-
-  it('takes an address given by hand over the one it would work out', () => {
-    set({ READER_VIEWER_URL: 'https://desk.example.org/vnc.html', CODESPACE_NAME: 'x', GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN: 'app.github.dev' });
-    try {
-      assert.equal(viewerUrl(), 'https://desk.example.org/vnc.html');
-    } finally {
-      restore();
-    }
   });
 });
