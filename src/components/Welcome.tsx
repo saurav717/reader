@@ -1,9 +1,21 @@
+import { useEffect } from 'react';
 import { useStore } from '../lib/store';
+import { hasProxy } from '../lib/api';
+import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloudCheckIcon, GoogleMark, HighlighterIcon, SearchIcon } from './icons';
 
 export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () => void; onOpenSettings: () => void }) {
-  const { user, driveConnected, signIn, connectDrive, settings, authError } = useStore();
+  const { user, driveConnected, driveRemembered, connectDrive, settings, authError } = useStore();
   const configured = Boolean(settings.googleClientId);
+  // A visit that has connected before is reconnecting, not being introduced.
+  const returning = driveRemembered && !driveConnected;
+
+  // The script Google's popup needs, fetched while this page is being read
+  // rather than inside the click — a popup opened after an awaited download
+  // has lost the user gesture that allows it, and the browser blocks it.
+  useEffect(() => {
+    if (configured) prepareGoogle();
+  }, [configured]);
 
   return (
     <div className="main" style={{ alignItems: 'center', justifyContent: 'center', padding: 24 }}>
@@ -12,11 +24,12 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
           R
         </div>
         <h1 style={{ margin: '0 0 8px', fontFamily: 'var(--serif)', fontSize: 34, fontWeight: 600, letterSpacing: '-0.014em' }}>
-          Read papers, keep what matters
+          {returning ? 'Reconnect your Drive' : 'Read papers, keep what matters'}
         </h1>
         <p style={{ margin: '0 0 26px', fontSize: 14, lineHeight: 1.6, color: 'var(--ink-2)' }}>
-          Search arXiv, OpenAlex and Semantic Scholar, collect what you want to read, and highlight it. Connect
-          Google Drive and every paper you add is saved to your own Drive with its highlights alongside.
+          {returning
+            ? 'This page has no server to keep you signed in, so each visit reconnects — one click, and Google will not ask again what you have already agreed to. Papers you add then go to your Drive as you collect them.'
+            : 'Search arXiv, OpenAlex and Semantic Scholar, collect what you want to read, and highlight it. Sign in with Google and every paper you add is saved to your own Drive with its highlights alongside.'}
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
@@ -57,42 +70,46 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
         ) : null}
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          {!user ? (
+          {!driveConnected ? (
+            // Identity and Drive are asked for together: signing in on its own
+            // saves nothing, and the point of this screen is the saving.
             <button
               type="button"
-              className="btn"
+              className="btn primary"
               disabled={!configured}
-              onClick={() => void signIn()}
+              onClick={() => void connectDrive()}
               style={{ height: 42, padding: '0 16px', fontSize: 14 }}
             >
-              <GoogleMark size={18} /> Sign in with Google
+              <GoogleMark size={18} />
+              {returning ? 'Reconnect Google Drive' : user ? 'Connect Google Drive' : 'Sign in and connect Google Drive'}
             </button>
           ) : (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-              <CheckIcon size={16} style={{ color: 'var(--accent)' }} /> Signed in as {user.email}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--accent)' }}>
+              <CheckIcon size={16} /> Drive connected{user ? ` as ${user.email}` : ''}
             </span>
           )}
 
-          {user && !driveConnected ? (
-            <button type="button" className="btn primary" onClick={() => void connectDrive()} style={{ height: 42, padding: '0 16px', fontSize: 14 }}>
-              <CloudCheckIcon size={18} /> Connect Google Drive
-            </button>
-          ) : null}
-
-          {driveConnected ? (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--accent)' }}>
-              <CheckIcon size={16} /> Drive connected
-            </span>
-          ) : null}
-
           <button type="button" className="btn ghost" onClick={onDismiss} style={{ height: 42, fontSize: 14 }}>
-            {driveConnected ? 'Start reading' : 'Skip — keep everything local'}
+            {driveConnected ? 'Start reading' : 'Not now — keep everything in this browser'}
           </button>
         </div>
 
+        {configured && !driveConnected && !hasProxy() ? (
+          <p className="banner warn" style={{ marginTop: 14 }}>
+            No paper proxy is set, so a PDF cannot be fetched and Drive would receive each paper's details
+            without its file.{' '}
+            <button type="button" className="btn ghost sm" onClick={onOpenSettings} style={{ padding: 0, height: 'auto' }}>
+              Set one in Settings
+            </button>
+            .
+          </p>
+        ) : null}
+
         <p style={{ margin: '20px 0 0', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-          Signing in is optional. Without it the app still works — your library and highlights stay in this
-          browser's storage and are never sent anywhere.
+          One consent covers both: your name and address, and the <code>drive.file</code> scope — which reaches
+          only the files this app creates, never the rest of your Drive. It is still optional; without it the app
+          works the same, with your library and highlights in this browser's storage alone, and this screen will
+          ask again next time. Nothing is ever sent anywhere else.
         </p>
       </div>
     </div>

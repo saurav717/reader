@@ -18,6 +18,13 @@ import { setProxyBase } from './api';
 import * as google from './google';
 
 const SETTINGS_KEY = 'reader.settings';
+/**
+ * That Drive was connected once, which is all a page with no backend may
+ * remember: the token itself lives in memory and dies with the tab. It is what
+ * lets a return visit offer to reconnect, and reconnect without asking for
+ * consent a second time.
+ */
+const DRIVE_KEY = 'reader.drive.connected';
 
 const defaultSettings: Settings = {
   googleClientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || '',
@@ -98,6 +105,8 @@ interface StoreValue {
 
   signIn: () => Promise<void>;
   connectDrive: () => Promise<void>;
+  /** Drive was connected on an earlier visit, so reconnecting is one click. */
+  driveRemembered: boolean;
   signOut: () => void;
 
   /** `pdf` is a copy the caller already has; it is uploaded as-is. */
@@ -125,6 +134,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>(readSettings);
   const [user, setUser] = useState<GoogleUser | null>(null);
   const [driveConnected, setDriveConnected] = useState(false);
+  const [driveRemembered, setDriveRemembered] = useState(() => localStorage.getItem(DRIVE_KEY) === 'true');
   const [authError, setAuthError] = useState<string | null>(null);
   const [syncLog, setSyncLog] = useState<SyncEntry[]>([]);
   const [githubLog, setGithubLog] = useState<SyncEntry[]>([]);
@@ -567,10 +577,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setAuthError('Add your Google OAuth client ID in Settings first.');
       return;
     }
+    const quiet = localStorage.getItem(DRIVE_KEY) === 'true';
     try {
-      setUser(await google.connectDrive(clientId));
+      setUser(await google.connectDrive(clientId, quiet));
       setDriveConnected(google.hasDriveAccess());
+      localStorage.setItem(DRIVE_KEY, 'true');
+      setDriveRemembered(true);
     } catch (error) {
+      // A quiet reconnect leans on a grant Google may have let go of. Forget
+      // it, so the next click asks for consent properly rather than failing
+      // the same way again.
+      if (quiet) {
+        localStorage.removeItem(DRIVE_KEY);
+        setDriveRemembered(false);
+      }
       setAuthError(error instanceof Error ? error.message : String(error));
     }
   }, []);
@@ -579,6 +599,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     google.signOut();
     setUser(null);
     setDriveConnected(false);
+    localStorage.removeItem(DRIVE_KEY);
+    setDriveRemembered(false);
   }, []);
 
   const syncStateFor = useCallback(
@@ -595,6 +617,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       settings,
       user,
       driveConnected,
+      driveRemembered,
       authError,
       syncLog,
       addPaper,
@@ -626,7 +649,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog,
       addPaper, removePaper, setPaperCollections, togglePaperTag, setProgress, markOpened, setPaperPdfUrl,
       createCollection, renameCollection, deleteCollection, addHighlight, updateHighlight,
-      deleteHighlight, updateSettings, signIn, connectDrive, signOut, syncPaper, syncAll, syncStateFor,
+      deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, signOut, syncPaper, syncAll, syncStateFor,
       githubConnected, githubLog, githubPending, pushToGitHub,
     ],
   );

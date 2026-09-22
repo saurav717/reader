@@ -6,6 +6,11 @@
  *
  * Sign-in asks only for identity. Drive is a second, incremental consent for
  * `drive.file` — the app can only ever see files it created itself.
+ *
+ * Everything a click reaches is synchronous once the GIS script is in the page:
+ * a browser only opens a popup for a window that still has the user's gesture,
+ * and awaiting a script download in between spends it. So the script is
+ * fetched ahead of time (see `prepare`) and the request itself never awaits.
  */
 import type { GoogleUser } from '../types';
 
@@ -46,20 +51,41 @@ declare global {
 
 let scriptPromise: Promise<void> | null = null;
 
+/** True once `window.google.accounts.oauth2` is there to be called. */
+export function googleReady(): boolean {
+  return Boolean(window.google?.accounts?.oauth2);
+}
+
 export function loadGoogleScript(): Promise<void> {
   if (scriptPromise) return scriptPromise;
   scriptPromise = new Promise((resolve, reject) => {
-    if (window.google?.accounts?.oauth2) return resolve();
+    if (googleReady()) return resolve();
     const existing = document.querySelector<HTMLScriptElement>(`script[src="${GIS_SRC}"]`);
     const script = existing ?? document.createElement('script');
-    script.src = GIS_SRC;
-    script.async = true;
-    script.defer = true;
     script.addEventListener('load', () => resolve());
-    script.addEventListener('error', () => reject(new Error('Could not load Google Identity Services')));
-    if (!existing) document.head.appendChild(script);
+    script.addEventListener('error', () => {
+      // A script element runs once; a failed one would never load again, so it
+      // goes, and with the cached promise cleared the next click can retry.
+      script.remove();
+      scriptPromise = null;
+      reject(new Error('Could not load Google Identity Services — check the network, or an ad blocker.'));
+    });
+    if (!existing) {
+      script.src = GIS_SRC;
+      script.async = true;
+      script.defer = true;
+      document.head.appendChild(script);
+    }
   });
   return scriptPromise;
+}
+
+/**
+ * Warm the script up before anyone clicks. Failure is not reported: the click
+ * loads it again and says so then, when there is somewhere to say it.
+ */
+export function prepare(): void {
+  void loadGoogleScript().catch(() => undefined);
 }
 
 interface StoredToken {
@@ -70,15 +96,35 @@ interface StoredToken {
 
 let token: StoredToken | null = null;
 
+/** What Google's own wording means, said in terms of this app. */
+function describe(type: string | undefined, message: string | undefined, description?: string): string {
+  switch (type) {
+    case 'popup_failed_to_open':
+      return 'The browser blocked the Google sign-in window. Allow pop-ups for this site and try again.';
+    case 'popup_closed':
+      return 'The Google window was closed before sign-in finished.';
+    default:
+      break;
+  }
+  if (message === 'access_denied' || description === 'access_denied') {
+    return 'Google refused the sign-in. If it said the app has not completed verification, add this Google account under Test users on the OAuth consent screen of the Cloud project the client ID belongs to — or publish that app, which a drive.file-only app can do without review.';
+  }
+  return description || message || 'Authorisation was cancelled';
+}
+
 function requestToken(clientId: string, scope: string, prompt: string): Promise<StoredToken> {
   return new Promise((resolve, reject) => {
+    if (!googleReady()) {
+      reject(new Error('Google Identity Services is not available'));
+      return;
+    }
     const client = window.google?.accounts.oauth2.initTokenClient({
       client_id: clientId,
       scope,
       prompt,
       callback: (response) => {
         if (response.error || !response.access_token) {
-          reject(new Error(response.error_description || response.error || 'Authorisation was cancelled'));
+          reject(new Error(describe(undefined, response.error, response.error_description)));
           return;
         }
         const next: StoredToken = {
@@ -89,7 +135,7 @@ function requestToken(clientId: string, scope: string, prompt: string): Promise<
         token = next;
         resolve(next);
       },
-      error_callback: (error) => reject(new Error(error.message || 'Authorisation was cancelled')),
+      error_callback: (error) => reject(new Error(describe(error.type, error.message))),
     });
     if (!client) {
       reject(new Error('Google Identity Services is not available'));
@@ -97,6 +143,16 @@ function requestToken(clientId: string, scope: string, prompt: string): Promise<
     }
     client.requestAccessToken();
   });
+}
+
+/**
+ * Ask for a token, loading the script first only if it is not there yet. The
+ * fast path runs inside the click that started it, which is what keeps the
+ * popup from being blocked.
+ */
+function tokenFor(clientId: string, scope: string, prompt: string): Promise<StoredToken> {
+  if (googleReady()) return requestToken(clientId, scope, prompt);
+  return loadGoogleScript().then(() => requestToken(clientId, scope, prompt));
 }
 
 export function currentScopes(): string[] {
@@ -116,24 +172,31 @@ async function fetchProfile(accessToken: string): Promise<GoogleUser> {
   return { name: payload.name || payload.email || 'Signed in', email: payload.email || '', picture: payload.picture };
 }
 
-export async function signIn(clientId: string): Promise<GoogleUser> {
-  await loadGoogleScript();
-  const granted = await requestToken(clientId, IDENTITY_SCOPES, '');
-  return fetchProfile(granted.accessToken);
+export function signIn(clientId: string): Promise<GoogleUser> {
+  return tokenFor(clientId, IDENTITY_SCOPES, '').then((granted) => fetchProfile(granted.accessToken));
 }
 
-/** Incremental consent: keeps identity, adds Drive. */
-export async function connectDrive(clientId: string): Promise<GoogleUser> {
-  await loadGoogleScript();
-  const granted = await requestToken(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`, 'consent');
-  return fetchProfile(granted.accessToken);
+/**
+ * Incremental consent: keeps identity, adds Drive.
+ *
+ * `quiet` is for the visitor who has granted this before. No refresh token can
+ * be kept in a page with no backend, so every visit reconnects; an empty prompt
+ * lets Google honour the existing grant and close its window again without
+ * asking the same question weekly. It still opens that window — a grant is only
+ * reusable while the browser has a Google session — so it, too, has to happen
+ * inside a click.
+ */
+export function connectDrive(clientId: string, quiet = false): Promise<GoogleUser> {
+  return tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`, quiet ? '' : 'consent').then((granted) => {
+    if (!granted.scopes.includes(DRIVE_SCOPE)) throw new Error('Drive access was not granted');
+    return fetchProfile(granted.accessToken);
+  });
 }
 
 export async function ensureDriveToken(clientId: string): Promise<string> {
   if (token && token.expiresAt > Date.now() && token.scopes.includes(DRIVE_SCOPE)) return token.accessToken;
-  await loadGoogleScript();
   // An empty prompt reuses the existing grant without showing the dialog again.
-  const granted = await requestToken(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`, '');
+  const granted = await tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`, '');
   if (!granted.scopes.includes(DRIVE_SCOPE)) throw new Error('Drive access was not granted');
   return granted.accessToken;
 }
