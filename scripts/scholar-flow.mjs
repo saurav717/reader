@@ -241,6 +241,11 @@ const banner = await page.locator('.discover-panel .banner').first().textContent
 check('the refusal is reported as what it is', /captcha/i.test(banner || ''), (banner || '').slice(0, 90));
 check('it is a warning, not an error — the other sources still work', (await page.locator('.discover-panel .banner.warn').count()) >= 1);
 check('and nothing was silently reported as "no results"', !/no results/i.test(banner || ''));
+// The offer to be shown the captcha — or, on a proxy with no screen, which
+// this one is, why it cannot be shown here. Either way the person is told.
+await page.waitForSelector('.discover-panel .banner .sign-in-note', { timeout: 15000 });
+const offer = await page.locator('.discover-panel .banner .sign-in-note').first().textContent();
+check('the captcha is offered to be shown, or why not is said', /show (me|you) the captcha/i.test(offer || ''), (offer || '').slice(0, 90));
 await page.screenshot({ path: `${OUT}/scholar-blocked.png` });
 
 const real = errors.filter(

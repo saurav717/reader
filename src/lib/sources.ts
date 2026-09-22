@@ -1,7 +1,7 @@
 import type { AuthorRef, PaperRef, SourceId } from '../types';
 import { api, hasProxy } from './api';
 import { politely } from './contact';
-import { scholarAuthors, scholarProfileWorks, searchScholar } from './scholar';
+import { ScholarError, scholarAuthors, scholarProfileWorks, searchScholar } from './scholar';
 
 const ALL_SOURCES: { id: SourceId; label: string; needsProxy: boolean; authors: boolean }[] = [
   { id: 'arxiv', label: 'arXiv', needsProxy: true, authors: true },
@@ -12,6 +12,30 @@ const ALL_SOURCES: { id: SourceId; label: string; needsProxy: boolean; authors: 
   // refused a good deal of the time. See server/scholar.js.
   { id: 'scholar', label: 'Google Scholar', needsProxy: true, authors: true },
 ];
+
+/** Why one source did not answer — and, where anything can be done about it, what. */
+export interface SourceError {
+  source: SourceId;
+  message: string;
+  /** Google Scholar answered with a captcha at this page, which the proxy can show to be solved. */
+  captchaUrl?: string;
+}
+
+/**
+ * What a source rejected with, as the panel reports it; nothing for an abort,
+ * which is the person typing on. A Scholar refusal is always Scholar's,
+ * whichever source it was caught on behalf of.
+ */
+export function sourceError(source: SourceId, reason: unknown): SourceError | null {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  if (/abort/i.test(message)) return null;
+  if (reason instanceof ScholarError) {
+    return reason.blocked && reason.captchaUrl
+      ? { source: 'scholar', message, captchaUrl: reason.captchaUrl }
+      : { source: 'scholar', message };
+  }
+  return { source, message };
+}
 
 /**
  * Only the sources this deployment can actually reach. Functions rather than
@@ -484,7 +508,7 @@ async function semanticScholarAuthors(name: string, limit: number, signal?: Abor
 
 export interface AuthorOutcome {
   authors: AuthorRef[];
-  errors: { source: SourceId; message: string }[];
+  errors: SourceError[];
 }
 
 /**
@@ -519,14 +543,14 @@ export async function searchAuthors(
   );
 
   const authors: AuthorRef[] = [];
-  const errors: { source: SourceId; message: string }[] = [];
+  const errors: SourceError[] = [];
   const byName = new Map<string, AuthorRef>();
 
   settled.forEach((outcome, position) => {
     const source = usable[position];
     if (outcome.status === 'rejected') {
-      const message = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
-      if (!/abort/i.test(message)) errors.push({ source, message });
+      const error = sourceError(source, outcome.reason);
+      if (error) errors.push(error);
       return;
     }
     for (const author of outcome.value) {
@@ -630,7 +654,7 @@ export async function searchByAuthorName(
 
 export interface SearchOutcome {
   results: PaperRef[];
-  errors: { source: SourceId; message: string }[];
+  errors: SourceError[];
   /** True when no source had a full page left to give. */
   exhausted: boolean;
 }
@@ -703,15 +727,15 @@ function runQuery(
   return Promise.allSettled(
     usable.map((source) => (runners[source] as NonNullable<typeof runners[SourceId]>)(query, page, limit, signal)),
   ).then((settled) => {
-    const errors: { source: SourceId; message: string }[] = [];
+    const errors: SourceError[] = [];
     const merged = new Map<string, { paper: PaperRef; score: number }>();
     let exhausted = true;
 
     settled.forEach((outcome, position) => {
       const source = usable[position];
       if (outcome.status === 'rejected') {
-        const message = outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason);
-        if (!/abort/i.test(message)) errors.push({ source, message });
+        const error = sourceError(source, outcome.reason);
+        if (error) errors.push(error);
         return;
       }
       if (outcome.value.length >= limit) exhausted = false;

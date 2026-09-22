@@ -10,7 +10,9 @@ import {
   search,
   searchAuthors,
   searchByAuthorName,
+  sourceError,
   sourceList,
+  type SourceError,
 } from '../lib/sources';
 import { hasProxy, NO_PROXY_FIX, NO_PROXY_REASON } from '../lib/api';
 import {
@@ -21,6 +23,7 @@ import {
 } from '../lib/locations';
 import { fetchPdfFromLocations, PdfError, type SignInOffer } from '../lib/pdf';
 import SignInPrompt from './SignInPrompt';
+import CaptchaPrompt from './CaptchaPrompt';
 import PdfDropIn from './PdfDropIn';
 import { whySaveToDriveUnavailable } from '../lib/driveSync';
 import type { AuthorRef, PaperLocation, PaperRef, SearchMode, SourceId } from '../types';
@@ -30,8 +33,6 @@ interface Props {
   onClose: () => void;
   onOpen: (paperId: string) => void;
 }
-
-type SourceError = { source: SourceId; message: string };
 
 const labelFor = (id: SourceId) => sourceList().find((source) => source.id === id)?.label ?? id;
 
@@ -135,6 +136,11 @@ export default function Discover({ onClose, onOpen }: Props) {
   /** The paper is in Drive, but not whole — the sidecar without the PDF, say. */
   const [saveNotice, setSaveNotice] = useState<{ id: string; message: string } | null>(null);
   const abort = useRef<AbortController | null>(null);
+  /**
+   * The search on screen, so that it can be run again — after a Scholar
+   * captcha has been solved, say, when the same question gets an answer.
+   */
+  const lastRun = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!target && collections.length) setTarget(collections[0].id);
@@ -167,12 +173,14 @@ export default function Discover({ onClose, onOpen }: Props) {
 
   const fail = (error: unknown) => {
     if (error instanceof DOMException && error.name === 'AbortError') return;
-    setErrors([{ source: sources[0] ?? 'openalex', message: error instanceof Error ? error.message : String(error) }]);
+    const reported = sourceError(sources[0] ?? 'openalex', error);
+    setErrors(reported ? [reported] : []);
   };
 
   /** Papers matching a topic, a title, or an arXiv id. */
   const runPapers = useCallback(
     async (text: string) => {
+      lastRun.current = () => void runPapers(text);
       const controller = begin();
       setViewing(null);
       setAuthors([]);
@@ -203,6 +211,7 @@ export default function Discover({ onClose, onOpen }: Props) {
   /** People matching a name. */
   const runAuthors = useCallback(
     async (text: string) => {
+      lastRun.current = () => void runAuthors(text);
       const controller = begin();
       setViewing(null);
       setResults([]);
@@ -234,6 +243,7 @@ export default function Discover({ onClose, onOpen }: Props) {
   /** Everything one chosen person has written. */
   const openAuthor = useCallback(
     async (author: AuthorRef) => {
+      lastRun.current = () => void openAuthor(author);
       const controller = begin();
       setViewing(author);
       setPage(0);
@@ -256,6 +266,7 @@ export default function Discover({ onClose, onOpen }: Props) {
    */
   const runByName = useCallback(
     async (text: string) => {
+      lastRun.current = () => void runByName(text);
       const controller = begin();
       setViewing(null);
       setAuthors([]);
@@ -500,7 +511,8 @@ export default function Discover({ onClose, onOpen }: Props) {
           Google Scholar publishes no API, so the proxy opens its pages the way you would. It finds what the
           other indexes have no record of — theses, reports, a person's own copy — and lists every version of a
           paper. It also refuses a server far more readily than a person: if it answers with a captcha, that is
-          what has happened, and the other sources carry on.
+          what has happened, the other sources carry on, and — when the proxy runs on your own machine — you can
+          be shown the captcha to solve.
         </p>
       ) : null}
 
@@ -527,6 +539,9 @@ export default function Discover({ onClose, onOpen }: Props) {
             >
               {labelFor(error.source)}: {error.message}
               {error.source === 'scholar' && results.length ? ' The results below are from the other sources.' : ''}
+              {error.captchaUrl ? (
+                <CaptchaPrompt url={error.captchaUrl} onSolved={() => lastRun.current?.()} />
+              ) : null}
             </p>
           ))}
         </div>

@@ -122,11 +122,25 @@ words, and the other four sources carry on — a refusal is never shown as "no
 results". That is also why Scholar is off by default: a source that fails half the
 time should be a choice, not a surprise.
 
+**When it does, you can be shown the captcha.** A captcha is Scholar asking for a
+person, and the panel offers to supply one: press *Show me the captcha* and the
+proxy opens the refused page in a real browser window on its own machine, captcha
+and all. Solve it there. The moment Scholar accepts the answer it shows the results
+in that window; the proxy notices, closes the window, and the search runs again —
+this time through that browser, which now carries the cookie the solve earned. The
+proxy keeps asking Scholar through that browser from then on, so one solve lasts
+(its profile is `~/.reader/scholar-profile`; delete it to go back to plain
+requests). The window has to be the proxy's rather than a tab of your own: a
+captcha solved in your browser would satisfy Google about your browser, and it is
+the proxy Google is asking about. So this needs a proxy with a screen — `npm start`
+on your own machine, pointed at from Settings → Paper proxy — and the Cloudflare
+Worker says so instead of offering.
+
 Two things make it work more often. `SCHOLAR_BROWSER=1 npm start` drives a real
-Chromium instead of sending a plain request, which Google's fingerprinting minds
-much less. And running the proxy somewhere that is not a datacentre — a laptop, a
-home server — matters more than anything else. From Cloudflare Workers, expect
-captchas.
+Chromium for every request instead of sending a plain one, which Google's
+fingerprinting minds much less. And running the proxy somewhere that is not a
+datacentre — a laptop, a home server — matters more than anything else. From
+Cloudflare Workers, expect captchas.
 
 The proxy is polite whatever the mode: one Scholar request at a time, at least a
 second and a half apart, with a five-minute cache, so typing in the search box does
@@ -752,7 +766,8 @@ src/lib/locations.ts    every place a paper can be read from, and the Scholar li
 src/lib/scholar.ts      the Google Scholar source, through the proxy
 server/scholar.js       Scholar's pages, fetched and parsed; also the politeness
                         and the telling apart of a captcha from a network block
-server/scholarBrowser.js  the same, through a real Chromium (SCHOLAR_BROWSER=1)
+server/scholarBrowser.js  the same, through a real Chromium (SCHOLAR_BROWSER=1), and
+                        the window a captcha is shown in
 src/lib/google.ts       Google Identity Services + Drive REST
 src/lib/driveSync.ts    what a synced paper looks like in Drive
 src/lib/store.tsx       app state, IndexedDB persistence, the sync queue
@@ -766,6 +781,7 @@ scripts/locations.test.mjs  which copies of a paper are collected, how duplicate
                             fall-through when one will not answer
 scripts/versions-drive.mjs  the whole chain in a browser (see below)
 scripts/scholar.test.mjs    reading Scholar's HTML, pinned to saved fixtures
+scripts/scholar-captcha.test.mjs  the captcha window's routes, and what they refuse to open
 scripts/scholar-flow.mjs    Scholar search → versions → download → Drive → viewer
 scripts/scholar-live.mjs    asks the real Scholar; run by hand, not in CI
 scripts/fetch-paper.mjs     find and download a paper from a terminal, with no

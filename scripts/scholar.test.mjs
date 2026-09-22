@@ -22,6 +22,7 @@ import {
   blockedReason,
   forgetScholar,
   getScholar,
+  isScholarUrl,
   parseAuthors,
   parseByline,
   parseProfileWorks,
@@ -74,6 +75,17 @@ describe('the pages it asks for', () => {
 
   it('asks a cluster for every version of one paper', () => {
     assert.equal(new URL(versionsUrl('1972994675707178528')).searchParams.get('cluster'), '1972994675707178528');
+  });
+
+  it('knows which pages are Scholar’s, which is all the captcha window may open', () => {
+    assert.equal(isScholarUrl(searchUrl('x')), true);
+    assert.equal(isScholarUrl(profileUrl('oR9sCGYAAAAJ')), true);
+    // Not a lookalike, not plain http, not Google’s own captcha host either —
+    // the window opens Scholar’s page, and Scholar sends it on from there.
+    assert.equal(isScholarUrl('https://scholar.google.com.evil.example/scholar'), false);
+    assert.equal(isScholarUrl('http://scholar.google.com/scholar?q=x'), false);
+    assert.equal(isScholarUrl('https://www.google.com/sorry/index'), false);
+    assert.equal(isScholarUrl('not a url'), false);
   });
 });
 
@@ -234,6 +246,9 @@ describe('the manners it owes Scholar', () => {
       (error) => {
         assert.equal(error.blocked, true);
         assert.equal(error.reason, 'captcha');
+        // The page that was refused rides along: it is where the captcha is
+        // shown, when the proxy can show it.
+        assert.equal(error.url, 'https://scholar.google.com/scholar?q=x');
         return true;
       },
     );
