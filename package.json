@@ -1,0 +1,29 @@
+{
+  "name": "reader",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A reader for research papers: search arXiv and OpenAlex, collect, highlight, and mirror your collections to Google Drive.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "start": "node server/index.js",
+    "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false || tsc -b",
+    "build:pages": "VITE_BASE=/reader/ VITE_SOURCEMAP=false VITE_API_BASE=${VITE_API_BASE:-none} vite build --outDir dist-pages --emptyOutDir"
+  },
+  "dependencies": {
+    "dompurify": "^3.2.7",
+    "express": "^4.21.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.27",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "playwright": "^1.63.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.20"
+  }
+}

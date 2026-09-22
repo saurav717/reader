@@ -1,0 +1,226 @@
+import { useState } from 'react';
+import { useStore } from '../lib/store';
+import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
+
+export default function Settings({ onClose }: { onClose: () => void }) {
+  const {
+    settings,
+    updateSettings,
+    user,
+    driveConnected,
+    authError,
+    signIn,
+    connectDrive,
+    signOut,
+    syncAll,
+    papers,
+    syncLog,
+  } = useStore();
+  const [clientId, setClientId] = useState(settings.googleClientId);
+
+  const pending = syncLog.filter((entry) => entry.state === 'queued' || entry.state === 'running').length;
+  const failed = syncLog.filter((entry) => entry.state === 'error');
+  const synced = papers.filter((paper) => paper.drive?.syncedAt).length;
+
+  return (
+    <>
+      <div className="scrim" onClick={onClose} role="presentation" />
+      <div className="sheet" role="dialog" aria-modal="true" aria-label="Settings">
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <div style={{ flexGrow: 1 }}>
+            <h2>Settings</h2>
+            <p className="lede">
+              Your library lives in this browser. Connect Google Drive to keep a copy of every paper you add,
+              with its highlights, in your own Drive.
+            </p>
+          </div>
+          <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close settings">
+            <CloseIcon size={18} />
+          </button>
+        </div>
+
+        {authError ? (
+          <p className="banner error" style={{ marginBottom: 16 }}>
+            {authError}
+          </p>
+        ) : null}
+
+        <section style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Google account
+          </div>
+
+          {user ? (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: 12,
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                marginBottom: 12,
+              }}
+            >
+              {user.picture ? (
+                <img className="avatar" src={user.picture} alt="" />
+              ) : (
+                <span className="avatar-fallback" aria-hidden="true">
+                  {user.name.slice(0, 1).toUpperCase()}
+                </span>
+              )}
+              <div style={{ flexGrow: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{user.name}</div>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{user.email}</div>
+              </div>
+              <button type="button" className="btn sm" onClick={signOut}>
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void signIn()}
+              style={{ marginBottom: 12, height: 40, padding: '0 16px', fontSize: 13.5 }}
+            >
+              <GoogleMark size={18} /> Sign in with Google
+            </button>
+          )}
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: 12,
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+            }}
+          >
+            <CloudCheckIcon size={20} style={{ color: driveConnected ? 'var(--accent)' : 'var(--muted)' }} />
+            <div style={{ flexGrow: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>
+                {driveConnected ? 'Google Drive connected' : 'Google Drive not connected'}
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+                {driveConnected
+                  ? `${synced} of ${papers.length} papers saved${pending ? ` · ${pending} in progress` : ''}`
+                  : 'Grants access only to the files this app creates.'}
+              </div>
+            </div>
+            {driveConnected ? (
+              <button type="button" className="btn sm" onClick={syncAll}>
+                Sync all
+              </button>
+            ) : (
+              <button type="button" className="btn primary sm" onClick={() => void connectDrive()}>
+                Connect Drive
+              </button>
+            )}
+          </div>
+
+          {failed.length ? (
+            <p className="banner error" style={{ marginTop: 10 }}>
+              {failed.length} paper{failed.length === 1 ? '' : 's'} failed to save. Most recent: {failed[0].message}
+            </p>
+          ) : null}
+        </section>
+
+        <section style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Where papers are stored
+          </div>
+
+          <label className="setting">
+            <span>Drive folder</span>
+            <input
+              type="text"
+              value={settings.driveFolderName}
+              onChange={(event) => updateSettings({ driveFolderName: event.target.value })}
+              placeholder="Paper Reader"
+            />
+            <small>
+              A folder of this name is created at the top level of your Drive, with one sub-folder per
+              collection. Because the app asks only for the <span className="mono">drive.file</span> scope, it can
+              read and write the files it created and nothing else in your Drive.
+            </small>
+          </label>
+
+          <div className="setting-row">
+            <input
+              id="auto-sync"
+              type="checkbox"
+              checked={settings.autoSync}
+              onChange={(event) => updateSettings({ autoSync: event.target.checked })}
+            />
+            <label htmlFor="auto-sync" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+              <strong style={{ fontWeight: 500 }}>Save new papers automatically</strong>
+              <br />
+              <span style={{ color: 'var(--muted)' }}>
+                Every paper added to a collection is uploaded, along with a JSON sidecar holding its metadata and
+                your highlights. Editing a highlight re-uploads the sidecar.
+              </span>
+            </label>
+          </div>
+
+          <div className="setting-row">
+            <input
+              id="save-pdf"
+              type="checkbox"
+              checked={settings.savePdf}
+              onChange={(event) => updateSettings({ savePdf: event.target.checked })}
+            />
+            <label htmlFor="save-pdf" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+              <strong style={{ fontWeight: 500 }}>Include the PDF</strong>
+              <br />
+              <span style={{ color: 'var(--muted)' }}>
+                arXiv PDFs are fetched through this app's server. Papers from other publishers save metadata only.
+              </span>
+            </label>
+          </div>
+        </section>
+
+        <section style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Google OAuth client ID
+          </div>
+          <label className="setting">
+            <span className="vh">Google OAuth client ID</span>
+            <input
+              type="text"
+              value={clientId}
+              onChange={(event) => setClientId(event.target.value)}
+              onBlur={() => updateSettings({ googleClientId: clientId.trim() })}
+              placeholder="000000000000-xxxxxxxx.apps.googleusercontent.com"
+            />
+            <small>
+              Create one in the Google Cloud Console under APIs &amp; Services → Credentials → OAuth client ID →
+              Web application, enable the Google Drive API, and add this app's origin to the authorised JavaScript
+              origins. Stored in this browser only.
+            </small>
+          </label>
+          {settings.googleClientId ? (
+            <p style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--accent)', margin: 0 }}>
+              <CheckIcon size={14} /> A client ID is configured.
+            </p>
+          ) : null}
+        </section>
+
+        <section>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Appearance
+          </div>
+          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="Theme">
+            <button type="button" aria-pressed={settings.theme === 'light'} onClick={() => updateSettings({ theme: 'light' })}>
+              Light
+            </button>
+            <button type="button" aria-pressed={settings.theme === 'dark'} onClick={() => updateSettings({ theme: 'dark' })}>
+              Dark
+            </button>
+          </div>
+        </section>
+      </div>
+    </>
+  );
+}
