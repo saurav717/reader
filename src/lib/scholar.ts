@@ -217,6 +217,37 @@ export async function scholarWork(citationId: string, signal?: AbortSignal): Pro
   return results[0];
 }
 
+/** Enough to say two titles are the same paper: case, punctuation and accents aside. */
+export const sameTitle = (a: string, b: string) => {
+  const fold = (value: string) =>
+    value
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim();
+  return fold(a) !== '' && fold(a) === fold(b);
+};
+
+/**
+ * The paper as Scholar's search finds it: the same record the Papers tab
+ * shows, with the file Scholar found and the cluster. It is the way to reach
+ * those for a paper that arrived without them — one from a profile, when the
+ * entry's own page was refused — because a search is the one page Scholar
+ * answers most readily. Only an exact match on the title is taken: a search
+ * finds neighbours too, and a neighbour's copies are not this paper's.
+ */
+export async function scholarLookup(title: string, signal?: AbortSignal): Promise<ScholarResult | undefined> {
+  const trimmed = title.trim();
+  if (!trimmed) return undefined;
+  const query = `"${trimmed}"`;
+  const results = await ask<ScholarResult>(
+    `/scholar/search?q=${encodeURIComponent(query)}`,
+    scholarPage('scholar', { hl: 'en', as_sdt: '0,5', q: query }),
+    signal,
+  );
+  return results.find((result) => sameTitle(result.title, trimmed));
+}
+
 /**
  * Scholar's "All 84 versions" — every copy of one paper it knows of, which is
  * the longest such list anywhere and the reason this source is worth the

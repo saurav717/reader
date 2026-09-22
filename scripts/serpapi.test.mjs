@@ -240,6 +240,11 @@ describe('reading one entry of a profile, opened', () => {
     assert.equal(work.versionCount, 5);
   });
 
+  it('finds the file link inside the citation too, where SerpApi has also put it', () => {
+    const nested = { citation: { ...CITATION.citation, resources: CITATION.resources } };
+    assert.equal(fromSerpCitation(nested)[0].pdfUrl, work.pdfUrl);
+  });
+
   it('returns nothing rather than nonsense for an answer with no citation in it', () => {
     assert.deepEqual(fromSerpCitation({ search_metadata: { status: 'Success' } }), []);
   });

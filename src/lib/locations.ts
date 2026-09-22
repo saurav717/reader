@@ -20,7 +20,7 @@
 import type { PaperLocation, PaperRef } from '../types';
 import { hasProxy } from './api';
 import { contactEmail, politely } from './contact';
-import { scholarVersions, scholarWork } from './scholar';
+import { scholarLookup, scholarVersions, scholarWork } from './scholar';
 import type { OpenAlexWork } from './sources';
 
 const clean = (value: string | null | undefined) => (value || '').replace(/\s+/g, ' ').trim();
@@ -309,6 +309,16 @@ async function fromScholar(paper: PaperRef, signal?: AbortSignal): Promise<Paper
   if (!hasProxy()) return [];
   const found: (PaperLocation | null)[] = [];
   let cluster = paper.scholarCluster;
+  const fromProfile = Boolean(paper.scholarCitation) || paper.source === 'scholar';
+
+  const take = (result: { pdfUrl?: string; pdfHost?: string; url?: string; clusterId?: string } | undefined) => {
+    if (!result) return;
+    const label = result.pdfHost || undefined;
+    found.push(locate(result.pdfUrl, { kind: 'unknown', isPdf: true, via: 'scholar', label }));
+    found.push(locate(result.url, { kind: 'publisher', isPdf: false, via: 'scholar' }));
+    if (!cluster) cluster = result.clusterId;
+  };
+  const hasFile = () => found.some((entry) => entry?.isPdf);
 
   // A paper from a person's profile arrives with no cluster and no file: the
   // list gives neither. Its own page on Scholar gives both — the "[PDF] from
@@ -316,13 +326,19 @@ async function fromScholar(paper: PaperRef, signal?: AbortSignal): Promise<Paper
   // index has a record of — so that page is asked for first, and the cluster
   // it names is what the versions below are asked for.
   if (!cluster && paper.scholarCitation) {
-    const work = await scholarWork(paper.scholarCitation, signal);
-    if (work) {
-      const label = work.pdfHost || undefined;
-      found.push(locate(work.pdfUrl, { kind: 'unknown', isPdf: true, via: 'scholar', label }));
-      found.push(locate(work.url, { kind: 'publisher', isPdf: false, via: 'scholar' }));
-      cluster = work.clusterId;
-    }
+    // A refusal here is not the end of it: the search below is asked next.
+    take(await scholarWork(paper.scholarCitation, signal).catch(() => undefined));
+  }
+
+  // Scholar refuses its profile pages far more readily than a search — a bare
+  // 401 to anything that is not a browser, where the search answers — and a
+  // proxy older than this page has no route for the entry at all. The search
+  // is the page that is known to answer, and it finds the same record the
+  // Papers tab shows, file and cluster included; so it is asked whenever the
+  // entry's own page gave neither, which is what keeps a paper opened from a
+  // profile in step with the same paper found by its title.
+  if (fromProfile && !cluster && !hasFile() && paper.title) {
+    take(await scholarLookup(paper.title, signal).catch(() => undefined));
   }
   if (!cluster) return found.filter((entry): entry is PaperLocation => Boolean(entry));
 

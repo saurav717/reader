@@ -116,7 +116,10 @@ nothing else does:
   names no files, so opening one of its papers asks for the entry's own page, which
   is where Scholar shows the copy it found — "[PDF] from bu.edu", the one on the
   person's own university's site that no index has a record of — and the cluster
-  the paper belongs to, from which every other copy follows.
+  the paper belongs to, from which every other copy follows. Scholar refuses its
+  profile pages more readily than a search, so when that page is refused the paper
+  is looked up by its exact title instead, which finds the same record the Papers
+  tab shows, file and cluster included.
 - **Every version of a paper.** "All 84 versions" is the longest list of copies
   anywhere, and it feeds straight into the versions list above.
 
