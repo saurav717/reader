@@ -447,6 +447,28 @@ PDFs are fetched through the proxy — arXiv, or whichever repository Unpaywall,
 OpenAlex or Semantic Scholar points at. A paper with no free copy anywhere any of
 them can see saves its metadata sidecar and says so in the sync log.
 
+### Removing a paper
+
+The bin on a row does not act at once: a notice names the paper, says that it
+leaves every collection with its highlights, and says what happens in Drive
+before it happens. With Drive connected, the paper's folder is **moved to
+`Papers_collection/Junk`**, PDF and sidecar inside it — not deleted — so getting
+it back is dragging the folder up one level in Drive. Saving the same paper again
+later makes a fresh folder in the root and leaves the junked one alone.
+
+```
+My Drive/
+  Papers_collection/
+    Junk/
+      Fourier Neural Operator … (arXiv 2010.08895)/   <- removed from the library
+```
+
+If Drive refuses the move, the paper stays in the library and the notice says
+why; it offers to remove the entry anyway and leave the copy in Drive where it
+is. If Drive is not connected the notice says the copy stays put and offers to
+connect first. A paper that was never saved to Drive says so, and only the entry
+goes.
+
 ### What happens when you click Read
 
 This is the whole path, because it is the part that has the most ways to go

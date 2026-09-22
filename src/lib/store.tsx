@@ -11,7 +11,7 @@ import {
 import type { Collection, GoogleUser, Highlight, HighlightColor, Paper, PaperRef, Settings } from '../types';
 import { COLLECTION_COLORS } from '../types';
 import { db } from './db';
-import { ROOT_FOLDER, syncPaperToDrive } from './driveSync';
+import { ROOT_FOLDER, isInDrive, junkPaperInDrive, syncPaperToDrive } from './driveSync';
 import { pathFor, syncPapersToGitHub, targetFrom } from './github';
 import { setContactEmail } from './contact';
 import { setProxyBase } from './api';
@@ -84,6 +84,16 @@ export interface SyncOutcome {
   message?: string;
 }
 
+/**
+ * What removing a paper did about its copy in Drive. `kept` is the one the
+ * caller asked for — remove the entry, leave Drive alone — or the one Drive
+ * forced, by not being connected.
+ */
+export interface RemoveOutcome {
+  drive: 'junked' | 'not-in-drive' | 'not-connected' | 'kept';
+  junkFolderLink?: string;
+}
+
 interface StoreValue {
   ready: boolean;
   papers: Paper[];
@@ -101,7 +111,14 @@ interface StoreValue {
    * and the paper comes down the wire twice.
    */
   addPaper: (ref: PaperRef, collectionId?: string, options?: { sync?: boolean }) => Promise<Paper>;
-  removePaper: (id: string) => Promise<void>;
+  /**
+   * Takes the paper out of the library, highlights and all, and — unless
+   * `junkInDrive` is false — moves its copy in Drive to the Junk folder first.
+   * Drive refusing the move is thrown, and the paper stays in the library:
+   * the entry is the only record of where the files are, so it must not go
+   * until they have.
+   */
+  removePaper: (id: string, options?: { junkInDrive?: boolean }) => Promise<RemoveOutcome>;
   setPaperCollections: (id: string, collectionIds: string[]) => Promise<void>;
   togglePaperTag: (id: string, tag: string) => Promise<void>;
   setProgress: (id: string, progress: number) => void;
@@ -173,6 +190,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /** Callers waiting to hear that a particular paper has finished syncing. */
   const waiters = useRef<Map<string, ((outcome: SyncOutcome) => void)[]>>(new Map());
   const running = useRef(false);
+  /** The paper whose sync is in flight right now, for a removal to wait on. */
+  const active = useRef<string | null>(null);
 
   // GitHub is batched rather than queued one at a time: everything that
   // changed within the debounce window lands in a single commit.
@@ -258,6 +277,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           continue;
         }
         note(paperId, 'running');
+        active.current = paperId;
         try {
           const result = await syncPaperToDrive(paper, {
             collections: latest.current.collections,
@@ -265,6 +285,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             settings: latest.current.settings,
             pdf,
           });
+          // Removed while the upload was in flight: saving the result would
+          // put the paper straight back in the library.
+          if (!latest.current.papers.some((item) => item.id === paperId)) {
+            settle(paperId, { state: 'skipped', message: 'That paper is no longer in the library.' });
+            continue;
+          }
           const updated: Paper = {
             ...paper,
             drive: {
@@ -293,6 +319,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           if (current) await savePaper({ ...current, drive: { ...(current.drive || {}), error: message } });
           note(paperId, 'error', message);
           settle(paperId, { state: 'error', message });
+        } finally {
+          active.current = null;
         }
       }
     } finally {
@@ -468,13 +496,45 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [driveConnected, queueGitHub, savePaper, settings.autoSync, syncPaper],
   );
 
-  const removePaper = useCallback(async (id: string) => {
-    await db.deletePaper(id);
-    setPapers((current) => current.filter((paper) => paper.id !== id));
-    const toRemove = latest.current.highlights.filter((highlight) => highlight.paperId === id);
-    await Promise.all(toRemove.map((highlight) => db.deleteHighlight(highlight.id)));
-    setHighlights((current) => current.filter((highlight) => highlight.paperId !== id));
-  }, []);
+  const removePaper = useCallback(
+    async (id: string, options: { junkInDrive?: boolean } = {}): Promise<RemoveOutcome> => {
+      const paper = latest.current.papers.find((item) => item.id === id);
+
+      // A sync still waiting its turn would put the folder straight back in
+      // the root after it had been moved, so it is dropped; one already in
+      // flight is let finish, so the move sees the folder as it will end up.
+      queue.current = queue.current.filter((item) => item !== id);
+      queuedPdfs.current.delete(id);
+      if (active.current === id) {
+        await new Promise<SyncOutcome>((resolve) => {
+          waiters.current.set(id, [...(waiters.current.get(id) || []), resolve]);
+        });
+      }
+
+      let outcome: RemoveOutcome = { drive: 'kept' };
+      const current = latest.current.papers.find((item) => item.id === id) ?? paper;
+      if (!current || !isInDrive(current)) {
+        outcome = { drive: 'not-in-drive' };
+      } else if (options.junkInDrive === false) {
+        outcome = { drive: 'kept' };
+      } else if (!driveConnected) {
+        outcome = { drive: 'not-connected' };
+      } else {
+        const moved = await junkPaperInDrive(current, latest.current.settings);
+        outcome = { drive: moved.moved === 'nothing' ? 'not-in-drive' : 'junked', junkFolderLink: moved.junkFolderLink };
+      }
+
+      await db.deletePaper(id);
+      latest.current.papers = latest.current.papers.filter((item) => item.id !== id);
+      setPapers((items) => items.filter((item) => item.id !== id));
+      const toRemove = latest.current.highlights.filter((highlight) => highlight.paperId === id);
+      await Promise.all(toRemove.map((highlight) => db.deleteHighlight(highlight.id)));
+      latest.current.highlights = latest.current.highlights.filter((highlight) => highlight.paperId !== id);
+      setHighlights((items) => items.filter((highlight) => highlight.paperId !== id));
+      return outcome;
+    },
+    [driveConnected],
+  );
 
   const setPaperCollections = useCallback(
     async (id: string, collectionIds: string[]) => {

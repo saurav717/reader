@@ -2,11 +2,18 @@ import type { Collection, Highlight, Paper, Settings } from '../types';
 import { hasProxy } from './api';
 import { findLocations } from './locations';
 import { fetchPdfFromLocations } from './pdf';
-import { ensureDriveToken, ensureFolder, findFile, moveFile, uploadFile } from './google';
+import { DriveRequestError, ensureDriveToken, ensureFolder, findFile, moveFile, uploadFile } from './google';
 import { baseName, sidecar } from './sidecar';
 
 /** The folder at the top level of Drive that every paper folder sits in. */
 export const ROOT_FOLDER = 'Papers_collection';
+/**
+ * The folder inside the root that a removed paper's files are moved to. They
+ * are moved rather than deleted because the library is the only index of
+ * what is in Drive — and once the paper is gone from it, a file that was
+ * deleted outright would be gone from everywhere.
+ */
+export const JUNK_FOLDER = 'Junk';
 
 /**
  * Drive's own URL for a folder. It is derivable from the id, so knowing where
@@ -180,4 +187,83 @@ export async function syncPaperToDrive(
     syncedAt: new Date().toISOString(),
     notice,
   };
+}
+
+/** True when Drive holds something of this paper's that removing it has to deal with. */
+export function isInDrive(paper: Paper): boolean {
+  return Boolean(paper.drive?.folderId || paper.drive?.pdfFileId || paper.drive?.metaFileId);
+}
+
+/**
+ * What removing a paper from the library does to its copy in Drive, said
+ * before it happens: the notice that asks whether to go ahead is built from
+ * this, so the wording is decided in one place and can be tested without a
+ * browser.
+ */
+export function describeRemovalInDrive(
+  paper: Paper,
+  { driveConnected, rootName }: { driveConnected: boolean; rootName?: string },
+): { moves: boolean; text: string } {
+  const junkPath = `${rootName || ROOT_FOLDER}/${JUNK_FOLDER}`;
+  if (!isInDrive(paper)) {
+    return { moves: false, text: 'It was never saved to Drive, so there is nothing there to move.' };
+  }
+  if (!driveConnected) {
+    return {
+      moves: false,
+      text: `Its copy in Drive stays where it is, because Drive is not connected. Connect Drive first to have it moved to ${junkPath}.`,
+    };
+  }
+  const what = paper.drive?.folderId
+    ? `Its folder in Drive${paper.drive.folderName ? `, ${paper.drive.folderName},` : ''}`
+    : 'Its files in Drive';
+  return {
+    moves: true,
+    text: `${what} will be moved to ${junkPath} rather than deleted. Get it back from there if you change your mind.`,
+  };
+}
+
+export interface JunkResult {
+  junkFolderId: string;
+  junkFolderLink: string;
+  /**
+   * What went to Junk: the paper's folder; its files, for a library synced
+   * before papers had folders of their own; or nothing, when whatever the
+   * library remembered had already been deleted in Drive by hand.
+   */
+  moved: 'folder' | 'files' | 'nothing';
+}
+
+/**
+ * Moves a paper's copy in Drive to `<root>/Junk`. Nothing is deleted: the
+ * paper's folder is re-parented as it is, PDF, sidecar and all, so getting it
+ * back is dragging the folder up one level in Drive.
+ */
+export async function junkPaperInDrive(paper: Paper, settings: Settings): Promise<JunkResult> {
+  if (!settings.googleClientId) throw new Error('No Google client ID is configured');
+
+  const accessToken = await ensureDriveToken(settings.googleClientId);
+  const rootId = await ensureFolder(accessToken, settings.driveFolderName || ROOT_FOLDER);
+  const junkFolderId = await ensureFolder(accessToken, JUNK_FOLDER, rootId);
+  const result = { junkFolderId, junkFolderLink: driveFolderUrl(junkFolderId) };
+
+  // A file the library remembers but Drive no longer has was deleted by hand,
+  // and there is nothing left to move; every other refusal is reported.
+  const move = async (fileId: string): Promise<boolean> => {
+    try {
+      await moveFile(accessToken, fileId, junkFolderId);
+      return true;
+    } catch (error) {
+      if (error instanceof DriveRequestError && error.status === 404) return false;
+      throw error;
+    }
+  };
+
+  if (paper.drive?.folderId) {
+    return { ...result, moved: (await move(paper.drive.folderId)) ? 'folder' : 'nothing' };
+  }
+  const files = [paper.drive?.pdfFileId, paper.drive?.metaFileId].filter((id): id is string => Boolean(id));
+  let any = false;
+  for (const fileId of files) any = (await move(fileId)) || any;
+  return { ...result, moved: any ? 'files' : 'nothing' };
 }

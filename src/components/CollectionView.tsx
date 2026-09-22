@@ -5,6 +5,7 @@ import type { Paper } from '../types';
 import { FINISHED_AT, statusOf } from '../lib/status';
 import { driveFolderUrl } from '../lib/driveSync';
 import { CloudCheckIcon, CloudIcon, DriveMark, PlusIcon, SearchIcon, TrashIcon } from './icons';
+import RemovePaperDialog from './RemovePaperDialog';
 
 interface Props {
   view: View;
@@ -40,9 +41,11 @@ function driveFolderLink(paper: Paper): string | null {
 }
 
 export default function CollectionView({ view, onOpenPaper, onDiscover }: Props) {
-  const { papers, collections, highlights, removePaper, driveConnected, syncPaper, syncStateFor } = useStore();
+  const { papers, collections, highlights, driveConnected, syncPaper, syncStateFor } = useStore();
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<'added' | 'title' | 'progress'>('added');
+  /** The paper the bin was pressed on, while the notice asks whether to go ahead. */
+  const [removing, setRemoving] = useState<Paper | null>(null);
 
   const collection = view.kind === 'collection' ? collections.find((item) => item.id === view.id) : undefined;
   const heading = headingFor(view, collection?.name);
@@ -259,8 +262,9 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
                 <button
                   type="button"
                   className="icon-btn sm"
+                  title="Remove from the library"
                   aria-label={`Remove ${paper.title} from the library`}
-                  onClick={() => void removePaper(paper.id)}
+                  onClick={() => setRemoving(paper)}
                 >
                   <TrashIcon size={16} />
                 </button>
@@ -269,6 +273,7 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
           );
         })}
       </div>
+      {removing ? <RemovePaperDialog paper={removing} onClose={() => setRemoving(null)} /> : null}
     </div>
   );
 }
