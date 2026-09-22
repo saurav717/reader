@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useStore } from '../lib/store';
+import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { parseRepo } from '../lib/github';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
 
@@ -26,6 +27,9 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   const [branch, setBranch] = useState(settings.githubBranch);
   const [token, setToken] = useState(settings.githubToken);
   const [email, setEmail] = useState(settings.contactEmail);
+  const [proxy, setProxy] = useState(settings.proxyBase);
+  const [proxyCheck, setProxyCheck] = useState<{ ok: boolean; message: string } | null>(null);
+  const [checking, setChecking] = useState(false);
 
   const pending = syncLog.filter((entry) => entry.state === 'queued' || entry.state === 'running').length;
   const failed = syncLog.filter((entry) => entry.state === 'error');
@@ -188,10 +192,94 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               <strong style={{ fontWeight: 500 }}>Include the PDF</strong>
               <br />
               <span style={{ color: 'var(--muted)' }}>
-                PDFs are fetched through this app's server — arXiv, or whichever repository OpenAlex and Semantic
-                Scholar point at. A paper with no free copy anywhere saves its metadata only.
+                PDFs are fetched through the proxy — arXiv, or whichever repository OpenAlex, Unpaywall and
+                Semantic Scholar point at. A paper with no free copy anywhere saves its metadata only.
               </span>
             </label>
+          </div>
+
+          <div className="setting-row">
+            <input
+              id="sync-on-open"
+              type="checkbox"
+              checked={settings.syncOnOpen}
+              onChange={(event) => updateSettings({ syncOnOpen: event.target.checked })}
+            />
+            <label htmlFor="sync-on-open" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+              <strong style={{ fontWeight: 500 }}>Save a paper when I open it</strong>
+              <br />
+              <span style={{ color: 'var(--muted)' }}>
+                Opening a paper that is not in Drive yet uploads it — the same copy the reader is showing, so it
+                is one download rather than two. This is what catches the papers you collected before connecting
+                Drive. Afterwards the reader opens that copy straight from Drive.
+              </span>
+            </label>
+          </div>
+        </section>
+
+        <section style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Paper proxy
+          </div>
+          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+            arXiv and the publishers send no CORS headers, so a browser cannot fetch a paper from them directly —
+            a small proxy has to do it. On a static host (GitHub Pages) there is no server to run one, so deploy
+            the Cloudflare Worker in <span className="mono">worker/</span> — <span className="mono">npx wrangler
+            deploy</span>, free tier — and paste its address here. Without it, search still works through
+            OpenAlex, Crossref and Semantic Scholar, but there are no PDFs to read or to save.
+          </p>
+
+          <label className="setting">
+            <span className="vh">Proxy URL</span>
+            <input
+              type="url"
+              value={proxy}
+              onChange={(event) => {
+                setProxy(event.target.value);
+                setProxyCheck(null);
+              }}
+              onBlur={() => updateSettings({ proxyBase: proxy.trim() })}
+              placeholder="https://reader-arxiv-proxy.you.workers.dev"
+              spellCheck={false}
+            />
+            <small>
+              {BUILT_IN_BASE
+                ? `Leave it empty to use this deployment's own ${BUILT_IN_BASE}.`
+                : 'This build has no proxy compiled in, so PDFs need one here.'}{' '}
+              Kept in this browser. The Worker only answers origins listed in its{' '}
+              <span className="mono">ALLOWED_ORIGINS</span>, so add this site's to it.
+            </small>
+          </label>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button
+              type="button"
+              className="btn sm"
+              disabled={checking || !proxy.trim()}
+              onClick={async () => {
+                setChecking(true);
+                updateSettings({ proxyBase: proxy.trim() });
+                setProxyCheck(await checkProxy(proxy));
+                setChecking(false);
+              }}
+            >
+              {checking ? <span className="spinner" /> : null} Test it
+            </button>
+            {proxyCheck ? (
+              <span
+                style={{
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                  color: proxyCheck.ok ? 'var(--accent)' : 'var(--danger)',
+                }}
+              >
+                {proxyCheck.message}
+              </span>
+            ) : (
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {hasProxy() ? 'A proxy is configured.' : 'No proxy — PDFs are links out only.'}
+              </span>
+            )}
           </div>
         </section>
 

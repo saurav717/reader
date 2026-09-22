@@ -2,17 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import {
   arxivIdFromQuery,
-  AUTHOR_SOURCES,
-  DEFAULT_SOURCES,
+  authorSources,
+  defaultSources,
   lookupArxiv,
   PAGE_SIZE,
   papersByAuthor,
   search,
   searchAuthors,
   searchByAuthorName,
-  SOURCES,
+  sourceList,
 } from '../lib/sources';
-import { hasProxy, NO_PROXY_REASON } from '../lib/api';
+import { hasProxy, NO_PROXY_FIX, NO_PROXY_REASON } from '../lib/api';
 import type { AuthorRef, PaperRef, SearchMode, SourceId } from '../types';
 import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
 
@@ -23,7 +23,7 @@ interface Props {
 
 type SourceError = { source: SourceId; message: string };
 
-const labelFor = (id: SourceId) => SOURCES.find((source) => source.id === id)?.label ?? id;
+const labelFor = (id: SourceId) => sourceList().find((source) => source.id === id)?.label ?? id;
 
 const compact = (value: number) =>
   value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k` : String(value);
@@ -32,7 +32,7 @@ export default function Discover({ onClose, onOpen }: Props) {
   const { papers, collections, addPaper, createCollection } = useStore();
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<SearchMode>('papers');
-  const [sources, setSources] = useState<SourceId[]>(DEFAULT_SOURCES);
+  const [sources, setSources] = useState<SourceId[]>(defaultSources);
   const [results, setResults] = useState<PaperRef[]>([]);
   const [authors, setAuthors] = useState<AuthorRef[]>([]);
   const [viewing, setViewing] = useState<AuthorRef | null>(null);
@@ -47,6 +47,18 @@ export default function Discover({ onClose, onOpen }: Props) {
   useEffect(() => {
     if (!target && collections.length) setTarget(collections[0].id);
   }, [collections, target]);
+
+  // Configuring a proxy in Settings puts arXiv within reach without a reload,
+  // so the selection follows it rather than staying on the static-host set.
+  const proxyReady = hasProxy();
+  const firstSources = useRef(true);
+  useEffect(() => {
+    if (firstSources.current) {
+      firstSources.current = false;
+      return;
+    }
+    setSources(defaultSources());
+  }, [proxyReady]);
 
   const begin = () => {
     abort.current?.abort();
@@ -75,7 +87,7 @@ export default function Discover({ onClose, onOpen }: Props) {
       setPage(0);
       try {
         const directId = arxivIdFromQuery(text);
-        if (directId && hasProxy && sources.includes('arxiv')) {
+        if (directId && hasProxy() && sources.includes('arxiv')) {
           const direct = await lookupArxiv(directId, controller.signal);
           if (direct.length) {
             setResults(direct);
@@ -200,7 +212,7 @@ export default function Discover({ onClose, onOpen }: Props) {
     await addPaper(ref, collectionId);
   };
 
-  const visibleSources = mode === 'authors' ? AUTHOR_SOURCES : SOURCES;
+  const visibleSources = mode === 'authors' ? authorSources() : sourceList();
   const noSources = !sources.some((id) => visibleSources.some((source) => source.id === id));
 
   return (
@@ -288,10 +300,10 @@ export default function Discover({ onClose, onOpen }: Props) {
         </p>
       ) : null}
 
-      {!hasProxy ? (
+      {!hasProxy() ? (
         <p className="banner warn" style={{ margin: '0 16px 12px' }}>
           {NO_PROXY_REASON} OpenAlex, Semantic Scholar and Crossref all index arXiv, so most papers are still
-          here — you just get the abstract rather than the full text.
+          here — you just get the abstract rather than the full text. {NO_PROXY_FIX}
         </p>
       ) : null}
 
@@ -322,7 +334,7 @@ export default function Discover({ onClose, onOpen }: Props) {
           <p style={{ padding: '10px 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
             {mode === 'authors'
               ? 'Find a person, then open everything they have written. OpenAlex and Semantic Scholar each keep their own author records, so the same person can appear twice.'
-              : hasProxy
+              : hasProxy()
                 ? 'Search arXiv, OpenAlex, Semantic Scholar and Crossref at once, merged into one ranked list. Quote a phrase to match it exactly, or paste an arXiv id to jump straight to a paper.'
                 : 'Search OpenAlex, Semantic Scholar and Crossref, all of which index arXiv.'}
           </p>

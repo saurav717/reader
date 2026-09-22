@@ -479,51 +479,68 @@ const driveContext = await browser.newContext({ viewport: { width: 1440, height:
 await stub(driveContext);
 
 // A stand-in for Google Identity Services that grants the drive.file scope, so
-// the app's own Drive code runs for real with no network and no sign-in.
-await driveContext.addInitScript(() => {
-  window.google = {
-    accounts: {
-      oauth2: {
-        initTokenClient: (config) => ({
-          requestAccessToken: () =>
-            setTimeout(
-              () =>
-                config.callback({
-                  access_token: 'smoke-token',
-                  expires_in: 3600,
-                  scope: 'openid email profile https://www.googleapis.com/auth/drive.file',
-                }),
-              0,
-            ),
-        }),
-        revoke: (token, done) => done && done(),
+// the app's own Drive code runs for real with no network and no sign-in, plus
+// a Drive of sorts: folders, uploads, and the file handed back on request.
+// Returns the counters, which is what the checks below are actually about.
+async function fakeDrive(context) {
+  await context.addInitScript(() => {
+    window.google = {
+      accounts: {
+        oauth2: {
+          initTokenClient: (config) => ({
+            requestAccessToken: () =>
+              setTimeout(
+                () =>
+                  config.callback({
+                    access_token: 'smoke-token',
+                    expires_in: 3600,
+                    scope: 'openid email profile https://www.googleapis.com/auth/drive.file',
+                  }),
+                0,
+              ),
+          }),
+          revoke: (token, done) => done && done(),
+        },
       },
-    },
-  };
-});
-await driveContext.route(/accounts\.google\.com\/gsi\/client/, (route) =>
-  route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }),
-);
+    };
+  });
+  await context.route(/accounts\.google\.com\/gsi\/client/, (route) =>
+    route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }),
+  );
 
-// A Drive of sorts: folders, two uploads, and the file handed back on request.
-const drive = { uploads: 0, downloads: 0 };
-await driveContext.route(/googleapis\.com\//, (route) => {
-  const request = route.request();
-  const url = request.url();
-  const json = (body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
-  if (url.includes('fonts.googleapis.com')) return route.fulfill({ status: 200, contentType: 'text/css', body: '' });
-  if (url.includes('/oauth2/v3/userinfo')) return json({ name: 'Smoke', email: 'smoke@example.com' });
-  if (url.includes('/upload/drive/v3/files')) {
-    drive.uploads += 1;
-    return json({ id: drive.uploads === 1 ? 'drive-pdf-id' : 'drive-meta-id', name: 'file' });
-  }
-  if (url.includes('alt=media')) {
-    drive.downloads += 1;
-    return route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF });
-  }
-  // A lookup is a GET with a q=; creating a folder is a POST.
-  return request.method() === 'POST' ? json({ id: 'drive-folder-id' }) : json({ files: [] });
-});
+  const drive = { uploads: 0, pdfUploads: 0, downloads: 0, uploadedBytes: 0 };
+  await context.route(/googleapis\.com\//, (route) => {
+    const request = route.request();
+    const url = request.url();
+    const json = (body) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    if (url.includes('fonts.googleapis.com')) return route.fulfill({ status: 200, contentType: 'text/css', body: '' });
+    if (url.includes('/oauth2/v3/userinfo')) return json({ name: 'Smoke', email: 'smoke@example.com' });
+    if (url.includes('/upload/drive/v3/files')) {
+      drive.uploads += 1;
+      const body = request.postData() || '';
+      const isPdf = body.includes('application/pdf');
+      if (isPdf) {
+        drive.pdfUploads += 1;
+        drive.uploadedBytes = body.length;
+      }
+      return json({
+        id: isPdf ? 'drive-pdf-id' : 'drive-meta-id',
+        name: 'file',
+        webViewLink: 'https://drive.google.com/file/d/drive-pdf-id/view',
+      });
+    }
+    if (url.includes('alt=media')) {
+      drive.downloads += 1;
+      return route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF });
+    }
+    // A lookup is a GET with a q=; creating a folder is a POST.
+    return request.method() === 'POST' ? json({ id: 'drive-folder-id' }) : json({ files: [] });
+  });
+  return drive;
+}
+
+const drive = await fakeDrive(driveContext);
 
 // Count what the proxy is asked for, on top of the stub's own PDF route.
 let proxyPdfHits = 0;
@@ -568,6 +585,55 @@ check(
   await drivePage.locator('.topbar .sub', { hasText: /PDF from your Drive/ }).isVisible(),
 );
 await drivePage.screenshot({ path: `${OUT}/drive.png` });
+
+console.log('\n== a paper collected before Drive was connected ==');
+// The case adding-time sync cannot cover: the paper is already in the library
+// when Drive is connected, so nothing has ever uploaded it. Opening it should,
+// with the copy the viewer fetched rather than a second trip to the publisher.
+const lateContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+await stub(lateContext);
+const lateDrive = await fakeDrive(lateContext);
+
+let latePdfHits = 0;
+await lateContext.route('**/api/arxiv/pdf*', (route) => {
+  latePdfHits += 1;
+  return route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF });
+});
+
+const latePage = await lateContext.newPage();
+latePage.on('pageerror', (error) => errors.push(String(error)));
+await latePage.goto(BASE, { waitUntil: 'networkidle' });
+await latePage.getByRole('button', { name: /Skip — keep everything local/i }).click();
+
+await latePage.getByLabel('Search papers').fill('fourier neural operator');
+await latePage.getByLabel('Search papers').press('Enter');
+await latePage.waitForSelector('article.result');
+await latePage.locator('article.result h3').first().click();
+await latePage.getByRole('button', { name: /Add to collection/i }).click();
+await latePage.waitForTimeout(800);
+check('nothing is uploaded while Drive is not connected', lateDrive.uploads === 0, `uploads=${lateDrive.uploads}`);
+
+await latePage.getByRole('button', { name: /^Settings$/ }).click();
+await latePage.getByPlaceholder(/apps.googleusercontent.com/).fill('smoke.apps.googleusercontent.com');
+await latePage.getByRole('button', { name: /Connect Drive/i }).click();
+await latePage.waitForTimeout(600);
+await latePage.getByRole('button', { name: 'Close settings' }).click();
+
+await latePage.getByRole('button', { name: /^Read$/ }).click();
+await latePage.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
+await latePage.waitForTimeout(2500);
+check('opening it puts the PDF in Drive', lateDrive.pdfUploads === 1, `pdf uploads=${lateDrive.pdfUploads}`);
+check('and the sidecar with it', lateDrive.uploads >= 2, `uploads=${lateDrive.uploads}`);
+check(
+  'the file uploaded is the one on screen, fetched once',
+  latePdfHits === 1,
+  `proxy pdf fetches=${latePdfHits}`,
+);
+check(
+  'and the top bar links to it in Drive',
+  await latePage.locator('.topbar a[href*="drive.google.com"]').isVisible(),
+);
+await latePage.screenshot({ path: `${OUT}/drive-on-open.png` });
 console.log('\n== authors ==');
 // A fresh context, so the author run starts from the same blank slate the
 // reading run did rather than from whatever it left in localStorage.

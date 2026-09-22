@@ -44,6 +44,8 @@ export interface PaperRef {
 export interface DriveRecord {
   folderId?: string;
   pdfFileId?: string;
+  /** Where the PDF opens in Drive's own viewer, for the link in the reader. */
+  pdfLink?: string;
   metaFileId?: string;
   syncedAt?: string;
   error?: string;
@@ -104,6 +106,14 @@ export interface Settings {
   driveFolderName: string;
   autoSync: boolean;
   savePdf: boolean;
+  /** Save a paper to Drive the first time it is opened, not only when added. */
+  syncOnOpen: boolean;
+  /**
+   * A proxy for arXiv and the PDFs — the Cloudflare Worker in `worker/`, or
+   * any deployment of `server/api.js`. Empty falls back to whatever the build
+   * was compiled with, which on a static host is nothing at all.
+   */
+  proxyBase: string;
   theme: 'light' | 'dark';
   /** Which view a paper opens in when both are available. */
   readingMode: ReadingMode;

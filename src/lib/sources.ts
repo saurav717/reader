@@ -9,17 +9,27 @@ const ALL_SOURCES: { id: SourceId; label: string; needsProxy: boolean; authors: 
   { id: 'crossref', label: 'Crossref', needsProxy: false, authors: false },
 ];
 
-/** Only the sources this deployment can actually reach. */
-export const SOURCES = ALL_SOURCES.filter((source) => hasProxy || !source.needsProxy).map(
-  ({ id, label, authors }) => ({ id, label, authors }),
-);
+/**
+ * Only the sources this deployment can actually reach. Functions rather than
+ * constants because the proxy can be configured at runtime: paste a Worker URL
+ * into Settings and arXiv joins the list without a reload.
+ */
+export function sourceList(): { id: SourceId; label: string; authors: boolean }[] {
+  return ALL_SOURCES.filter((source) => hasProxy() || !source.needsProxy).map(({ id, label, authors }) => ({
+    id,
+    label,
+    authors,
+  }));
+}
 
 /** The subset that can answer "who is this person", for the Authors tab. */
-export const AUTHOR_SOURCES = SOURCES.filter((source) => source.authors);
+export function authorSources(): { id: SourceId; label: string; authors: boolean }[] {
+  return sourceList().filter((source) => source.authors);
+}
 
-export const DEFAULT_SOURCES: SourceId[] = hasProxy
-  ? ['arxiv', 'openalex', 'crossref']
-  : ['openalex', 'crossref'];
+export function defaultSources(): SourceId[] {
+  return hasProxy() ? ['arxiv', 'openalex', 'crossref'] : ['openalex', 'crossref'];
+}
 
 const clean = (value: string | null | undefined) => (value || '').replace(/\s+/g, ' ').trim();
 
@@ -478,7 +488,7 @@ export async function searchAuthors(
     openalex: openAlexAuthors,
     semanticscholar: semanticScholarAuthors,
   };
-  const usable = sources.filter((source) => runners[source] && AUTHOR_SOURCES.some((entry) => entry.id === source));
+  const usable = sources.filter((source) => runners[source] && authorSources().some((entry) => entry.id === source));
   if (!usable.length) {
     return { authors: [], errors: [{ source: 'openalex', message: 'No source selected that can search for people.' }] };
   }
@@ -650,7 +660,7 @@ function runQuery(
 ): Promise<SearchOutcome> {
   // A source the deployment cannot reach would only produce a confusing error.
   const usable = sources.filter(
-    (source) => runners[source] && SOURCES.some((entry) => entry.id === source),
+    (source) => runners[source] && sourceList().some((entry) => entry.id === source),
   );
   if (!usable.length) {
     return Promise.resolve({
@@ -728,7 +738,7 @@ export function arxivIdFromQuery(query: string): string | null {
 
 /** Direct lookup when the query is itself an arXiv id. Needs the proxy. */
 export async function lookupArxiv(id: string, signal?: AbortSignal): Promise<PaperRef[]> {
-  if (!hasProxy) return [];
+  if (!hasProxy()) return [];
   const response = await fetch(api(`/arxiv/query?id_list=${encodeURIComponent(id)}`), { signal });
   if (!response.ok) throw new Error(`arXiv lookup failed (${response.status})`);
   return parseArxiv(await response.text());

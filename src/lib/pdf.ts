@@ -45,7 +45,7 @@ export function pdfFileName(paper: PaperRef): string {
  * fetch, or no proxy to fetch it through.
  */
 export function pdfProxyUrl(paper: PaperRef, options: { download?: boolean } = {}): string | null {
-  if (!hasProxy) return null;
+  if (!hasProxy()) return null;
   const name = encodeURIComponent(pdfFileName(paper));
   const download = options.download ? '&download=1' : '';
   if (paper.arxivId) {
@@ -158,21 +158,11 @@ export async function resolvePdfUrl(paper: PaperRef, signal?: AbortSignal): Prom
 
 export class PdfError extends Error {}
 
-/**
- * The PDF itself, through the proxy. A blob rather than a bare URL in an
- * `<iframe>` so that a failure is something we can explain rather than a blank
- * grey pane, and so the Download button does not fetch the file a second time.
- */
-export async function fetchPdf(paper: PaperRef, signal?: AbortSignal): Promise<Blob> {
-  if (!hasProxy) throw new PdfError(NO_PROXY_REASON);
-  const url = pdfProxyUrl(paper);
-  if (!url) throw new PdfError('No PDF is available for this paper.');
-
+async function downloadPdf(url: string): Promise<Blob> {
   let response: Response;
   try {
-    response = await fetch(url, { signal });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    response = await fetch(url);
+  } catch {
     throw new PdfError('Could not reach the PDF.');
   }
   if (!response.ok) {
@@ -185,6 +175,60 @@ export async function fetchPdf(paper: PaperRef, signal?: AbortSignal): Promise<B
   const blob = await response.blob();
   // Keep the type honest: a blob URL only renders in the viewer if it says PDF.
   return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+}
+
+/**
+ * Downloads in progress, by URL. Opening a paper straight from a search result
+ * asks for its PDF twice — the viewer wants to show it, the Drive sync wants to
+ * upload it — and they are the same file. One request, handed to both.
+ *
+ * The last one is kept for a minute after it lands, because those two requests
+ * are not always in flight at the same moment: the sync starts as the paper is
+ * added and the viewer starts as the reader mounts, which on a fast connection
+ * is after the first has finished. One paper's worth of bytes — the viewer is
+ * holding the same blob anyway — against fetching a whole PDF twice.
+ */
+const inFlight = new Map<string, Promise<Blob>>();
+const KEEP_MS = 60_000;
+let recent: { url: string; blob: Blob; at: number } | null = null;
+
+/** Rejects the way an aborted fetch does, so callers need no special case. */
+function whenAborted(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    const fail = () => reject(new DOMException('Aborted', 'AbortError'));
+    if (signal.aborted) fail();
+    else signal.addEventListener('abort', fail, { once: true });
+  });
+}
+
+/**
+ * The PDF itself, through the proxy. A blob rather than a bare URL in an
+ * `<iframe>` so that a failure is something we can explain rather than a blank
+ * grey pane, and so the Download button does not fetch the file a second time.
+ *
+ * A caller that gives up takes its own promise with it; the download itself
+ * carries on for whoever else is waiting on it.
+ */
+export async function fetchPdf(paper: PaperRef, signal?: AbortSignal): Promise<Blob> {
+  if (!hasProxy()) throw new PdfError(NO_PROXY_REASON);
+  const url = pdfProxyUrl(paper);
+  if (!url) throw new PdfError('No PDF is available for this paper.');
+
+  if (recent && recent.url === url && Date.now() - recent.at < KEEP_MS) return recent.blob;
+
+  let shared = inFlight.get(url);
+  if (!shared) {
+    shared = downloadPdf(url)
+      .then((blob) => {
+        recent = { url, blob, at: Date.now() };
+        return blob;
+      })
+      .finally(() => inFlight.delete(url));
+    inFlight.set(url, shared);
+    // Nobody may be listening yet, and an unhandled rejection is noisy.
+    shared.catch(() => undefined);
+  }
+  return signal ? Promise.race([shared, whenAborted(signal)]) : shared;
 }
 
 /** Save a blob under a name, from the page, with no round trip to a server. */
@@ -241,7 +285,7 @@ export async function fetchPaperPdf(
       if (error instanceof DOMException && error.name === 'AbortError') throw error;
       // The copy may have been deleted, or the grant may have lapsed. The
       // publisher is still there, so this is not worth failing over.
-      if (!hasProxy) {
+      if (!hasProxy()) {
         throw new PdfError('The copy in your Drive could not be read, and there is no server to fetch it through.');
       }
     }
