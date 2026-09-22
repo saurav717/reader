@@ -180,24 +180,39 @@ the folder *is* Drive:
 npm run fetch -- "attention is all you need" --out ~/"Google Drive/My Drive/Papers_collection"
 ```
 
-Without it, use the app's **Save to Drive**: uploading needs a Google token, the app
+Without it, add the paper in the app: uploading needs a Google token, the app
 has one in the browser, and nothing here holds a refresh token on disk.
 
-### Saving a paper to Drive as you find it
+### Adding a paper is saving it to Drive and opening it
 
-**Save to Drive** on a search result does the whole chain in one press: find every
-copy, download from whichever one answers, put the file in
-`My Drive/Papers_collection/<paper>/`, and open the paper on **the copy that was
-just saved** — read back out of Drive, which the browser can do directly.
+**Add to collection** on a search result does the whole chain in one press: put the
+paper in the collection, find every copy, download from whichever one answers, put
+the file in `My Drive/Papers_collection/<paper>/`, and open the paper on **the copy
+that was just saved** — read back out of Drive, which the browser can do directly.
+The button reports each step as it goes — *Finding a copy…*, *Downloading…*,
+*Saving to Drive from arXiv…* — and the reader opens when the file is in Drive.
 
-It needs Drive connected and a proxy configured. Without either the button is still
-there, greyed out, with a line under the result saying which half is missing and
-where to fix it — because that is exactly where the question gets asked. A result
-lists every place the paper can be read and those links open on a click, which makes
-the file look like something the page already has. It is not: opening a link is a
-*navigation*, which the browser allows across origins, while reading the same URL
-from script is a *fetch*, which it refuses. Until something fetches the bytes on the
-page's behalf there is nothing to upload, and that something is the proxy. Drive
+Every step after the first is best effort, and the result says what did not
+happen. A paper none of the indexes has a free copy of is still added and still
+opened — on its abstract, with the copies to try by hand — and a line under the
+result says the file is not in Drive and which copies were tried. Drive refusing
+the upload (the Drive API not enabled on the Cloud project, say) is reported the
+same way, with Google's own reason. A paper that went up without its PDF says so
+too. None of that is left to the sync log behind Settings, because the result is
+where you are looking at the time.
+
+**Read** beside it is the same add without the wait: the paper opens at once and
+Drive catches up in the background.
+
+Saving needs Drive connected and a proxy configured. Without either the button
+still adds and opens the paper, and a line under the result says the file will
+not reach Drive, which half is missing and where to fix it — because that is
+exactly where the question gets asked. A result lists every place the paper can
+be read and those links open on a click, which makes the file look like something
+the page already has. It is not: opening a link is a *navigation*, which the
+browser allows across origins, while reading the same URL from script is a
+*fetch*, which it refuses. Until something fetches the bytes on the page's behalf
+there is nothing to upload, and that something is the proxy. Drive
 cannot stand in for it — its API takes bytes, not a URL to go and collect.
 
 ## Putting it online
@@ -465,7 +480,8 @@ If nothing arrives in Drive, it is one of five things, and the app says which:
 | What you see | What it is |
 | --- | --- |
 | No **PDF** switch in the top bar, a *no server* banner in Discover | No proxy configured — see **Settings → Paper proxy** |
-| **Save to Drive** greyed out on every search result | The line under the result says which of the two is missing — the Drive consent, the proxy, or both |
+| *its PDF will not reach Drive* under **Add to collection** on every search result | The line says which of the two is missing — the Drive consent, the proxy, or both |
+| *Added, but the file is not in Drive* or *Added, but Drive would not take it* under the result you just added | The download or the upload failed, and the line carries the reason — which copies were tried, or what Google answered |
 | *No open-access PDF could be found* in the sync log | The paper is not free to read anywhere the three indexes can see |
 | *Drive request failed (403)* | The Drive API is not enabled on your Cloud project |
 | A popup that closes instantly, or `redirect_uri_mismatch` | The origin is not on the OAuth client's **Authorised JavaScript origins** — and a path is not an origin |

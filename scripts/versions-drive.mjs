@@ -259,9 +259,14 @@ const summary = await page.locator('.locations .eyebrow').first().textContent();
 check('the count is stated in the panel', /Readable in \d+ places/.test(summary || ''), summary || '');
 await page.screenshot({ path: `${OUT}/versions.png` });
 
-console.log('\n== download from whichever copy answers, then save it to Drive ==');
-await page.getByRole('button', { name: /Save to Drive/i }).click();
+console.log('\n== add it: download from whichever copy answers, save it to Drive, open it ==');
+// One press does the whole chain. There is no separate "save" step to find:
+// adding a paper to a collection is what puts it in Drive and opens it.
+check('there is no second button to press for Drive', (await page.getByRole('button', { name: /Save to Drive/i }).count()) === 0);
+await page.getByRole('button', { name: /Add to collection/i }).click();
 await page.waitForSelector('.pdf-pane iframe', { timeout: 20000 });
+check('the paper is in the collection', await result.locator('.pill-added', { hasText: /In Reading list/ }).isVisible());
+check('adding says nothing went wrong', (await result.locator('.banner').count()) === 0, (await result.locator('.banner').allTextContents()).join(' | '));
 
 check('the best-ranked copy was tried first', proxied[0] === DEAD, proxied.join(' -> '));
 check('a rotted link did not end it', proxied.includes(REPO), proxied.join(' -> '));
@@ -293,6 +298,87 @@ check(
 );
 check('there is a link straight to the file in Drive', (await page.locator('.topbar a[href*="drive.google.com"]').count()) === 1);
 await page.screenshot({ path: `${OUT}/drive-pdf.png` });
+
+// The two ways the chain can end without the file in Drive, each of which
+// used to end in silence: the paper was in the library, the sync log behind
+// Settings knew why, and the panel the reader was looking at said nothing.
+console.log('\n== when no copy will hand over the file ==');
+const noFile = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+const noFileDrive = await installGoogle(noFile, { pdf: PDF });
+await noFile.route('**/api.openalex.org/**', (route) => json(route, { results: [OPENALEX_WORK] }));
+await noFile.route('**/api.openalex.org/works/**', (route) => json(route, OPENALEX_WORK));
+await noFile.route('**/api.semanticscholar.org/**', (route) => json(route, { data: [] }));
+await noFile.route('**/api.crossref.org/**', (route) => json(route, { message: { items: [] } }));
+await noFile.route('**/api.unpaywall.org/**', (route) => json(route, UNPAYWALL));
+// Every copy is a login wall today.
+await noFile.route('**/api/pdf*', (route) =>
+  route.fulfill({ status: 415, contentType: 'application/json', body: JSON.stringify({ error: 'that link gave a web page rather than a PDF' }) }),
+);
+const noFilePage = await noFile.newPage();
+noFilePage.on('pageerror', (error) => errors.push(String(error)));
+await noFilePage.goto(BASE, { waitUntil: 'networkidle' });
+await connectAndEnter(noFilePage);
+if (!(await noFilePage.locator('.dock .discover-panel').isVisible())) {
+  await noFilePage.getByRole('button', { name: 'Discover papers' }).click();
+}
+await noFilePage.getByLabel('Search papers').fill('attention is all you need');
+await noFilePage.getByLabel('Search papers').press('Enter');
+await noFilePage.waitForSelector('article.result', { timeout: 15000 });
+const noFileResult = noFilePage.locator('article.result', { hasText: 'Attention Is All You Need' }).first();
+await noFileResult.locator('h3').click();
+await noFilePage.waitForSelector('.locations ul li a', { timeout: 15000 });
+await noFilePage.getByRole('button', { name: /Add to collection/i }).click();
+await noFilePage.waitForSelector('.topbar .title', { timeout: 20000 });
+await noFilePage.waitForSelector('article.result .banner', { timeout: 20000 });
+const noFileSaid = (await noFileResult.locator('.banner').first().textContent()) || '';
+check('the paper is still added', await noFileResult.locator('.pill-added').isVisible());
+check('and still opened', await noFilePage.locator('.topbar .title', { hasText: /Attention/ }).isVisible());
+check(
+  'and the result says the file is not in Drive, and why',
+  /not in Drive/.test(noFileSaid) && /would hand over a PDF/.test(noFileSaid),
+  noFileSaid,
+);
+// The sidecar may still follow — the reader saves metadata on open — but
+// there was never a file to send.
+check('no PDF was uploaded for it', !noFileDrive.uploads.some((name) => name.endsWith('.pdf')), noFileDrive.uploads.join(', '));
+await noFilePage.screenshot({ path: `${OUT}/add-no-file.png` });
+await noFile.close();
+
+console.log('\n== when Drive refuses the upload ==');
+const refused = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+await installGoogle(refused, { pdf: PDF });
+await refused.route('**/api.openalex.org/**', (route) => json(route, { results: [OPENALEX_WORK] }));
+await refused.route('**/api.openalex.org/works/**', (route) => json(route, OPENALEX_WORK));
+await refused.route('**/api.semanticscholar.org/**', (route) => json(route, { data: [] }));
+await refused.route('**/api.crossref.org/**', (route) => json(route, { message: { items: [] } }));
+await refused.route('**/api.unpaywall.org/**', (route) => json(route, UNPAYWALL));
+// What Drive answers when the API is not enabled on the Cloud project.
+await refused.route('**/www.googleapis.com/upload/drive/v3/files*', (route) =>
+  route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { message: 'Google Drive API has not been used in project 308274983351 before or it is disabled.' } }) }),
+);
+const refusedPage = await refused.newPage();
+refusedPage.on('pageerror', (error) => errors.push(String(error)));
+await refusedPage.goto(BASE, { waitUntil: 'networkidle' });
+await connectAndEnter(refusedPage);
+if (!(await refusedPage.locator('.dock .discover-panel').isVisible())) {
+  await refusedPage.getByRole('button', { name: 'Discover papers' }).click();
+}
+await refusedPage.getByLabel('Search papers').fill('attention is all you need');
+await refusedPage.getByLabel('Search papers').press('Enter');
+await refusedPage.waitForSelector('article.result', { timeout: 15000 });
+const refusedResult = refusedPage.locator('article.result', { hasText: 'Attention Is All You Need' }).first();
+await refusedResult.locator('h3').click();
+await refusedPage.waitForSelector('.locations ul li a', { timeout: 15000 });
+await refusedPage.getByRole('button', { name: /Add to collection/i }).click();
+await refusedPage.waitForSelector('article.result .banner.error', { timeout: 20000 });
+await refusedPage.waitForSelector('.pdf-pane iframe', { timeout: 20000 });
+const refusedSaid = (await refusedResult.locator('.banner.error').textContent()) || '';
+check('the result says Drive refused, with Google’s own reason', /Drive would not take it/.test(refusedSaid) && /403/.test(refusedSaid) && /Drive API/.test(refusedSaid), refusedSaid);
+check('the paper still opens, on the copy that was fetched', await refusedPage.locator('.pdf-pane iframe').isVisible());
+const refusedSub = (await refusedPage.locator('.topbar .sub').textContent()) || '';
+check('and says where that copy came from', /PDF from Example University/.test(refusedSub), refusedSub);
+await refusedPage.screenshot({ path: `${OUT}/add-drive-refused.png` });
+await refused.close();
 
 console.log('\n== a person nobody indexes ==');
 await page.getByRole('button', { name: 'Discover papers' }).click();

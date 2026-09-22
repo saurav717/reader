@@ -73,6 +73,17 @@ export interface SyncEntry {
   at: string;
 }
 
+/**
+ * How one paper's trip to Drive ended, for a caller that waited on it.
+ * `done` may still carry a message: the sidecar went up but the PDF did not,
+ * and the message says why — which is the one thing a caller that just
+ * pressed "add" needs to be able to show.
+ */
+export interface SyncOutcome {
+  state: 'done' | 'error' | 'skipped';
+  message?: string;
+}
+
 interface StoreValue {
   ready: boolean;
   papers: Paper[];
@@ -121,7 +132,7 @@ interface StoreValue {
    * the callers that need Drive to hold the file before they go on, such as
    * opening a paper on the copy that was just saved.
    */
-  syncPaperNow: (id: string, options?: { pdf?: Blob }) => Promise<void>;
+  syncPaperNow: (id: string, options?: { pdf?: Blob }) => Promise<SyncOutcome>;
   syncAll: () => void;
   syncStateFor: (id: string) => SyncState;
 
@@ -160,7 +171,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /** PDFs the reader has already fetched, waiting to be uploaded with them. */
   const queuedPdfs = useRef<Map<string, Blob>>(new Map());
   /** Callers waiting to hear that a particular paper has finished syncing. */
-  const waiters = useRef<Map<string, (() => void)[]>>(new Map());
+  const waiters = useRef<Map<string, ((outcome: SyncOutcome) => void)[]>>(new Map());
   const running = useRef(false);
 
   // GitHub is batched rather than queued one at a time: everything that
@@ -227,10 +238,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /** Releases whoever was waiting on this paper, whether it worked or not. */
-  const settle = useCallback((paperId: string) => {
+  const settle = useCallback((paperId: string, outcome: SyncOutcome) => {
     const pending = waiters.current.get(paperId);
     waiters.current.delete(paperId);
-    for (const resolve of pending || []) resolve();
+    for (const resolve of pending || []) resolve(outcome);
   }, []);
 
   const drainQueue = useCallback(async () => {
@@ -243,7 +254,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         queuedPdfs.current.delete(paperId);
         const paper = latest.current.papers.find((item) => item.id === paperId);
         if (!paper) {
-          settle(paperId);
+          settle(paperId, { state: 'skipped', message: 'That paper is no longer in the library.' });
           continue;
         }
         note(paperId, 'running');
@@ -275,20 +286,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             item.id === updated.id ? updated : item,
           );
           note(paperId, 'done', result.notice);
+          settle(paperId, { state: 'done', message: result.notice });
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           const current = latest.current.papers.find((item) => item.id === paperId);
           if (current) await savePaper({ ...current, drive: { ...(current.drive || {}), error: message } });
           note(paperId, 'error', message);
+          settle(paperId, { state: 'error', message });
         }
-        settle(paperId);
       }
     } finally {
       running.current = false;
       // A paper that never made it into the queue — Drive disconnected
       // mid-flight, say — would otherwise leave its caller waiting forever.
       for (const paperId of Array.from(waiters.current.keys())) {
-        if (!queue.current.includes(paperId)) settle(paperId);
+        if (!queue.current.includes(paperId)) settle(paperId, { state: 'skipped' });
       }
     }
   }, [note, savePaper, settle]);
@@ -307,14 +319,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   /**
-   * Sync, and say when it is done. Used where the next step needs the file to
-   * be in Drive already: saving a paper from search opens it on the copy in
-   * Drive, and that copy has to exist first.
+   * Sync, and say how it went. Used where the next step needs the file to be
+   * in Drive already: adding a paper from search opens it on the copy in
+   * Drive, and that copy has to exist first — and where the caller is the one
+   * place the reader is looking, so a failure has to come back to it rather
+   * than only into the sync log.
    */
   const syncPaperNow = useCallback(
     (id: string, options: { pdf?: Blob } = {}) => {
-      if (!driveConnected) return Promise.resolve();
-      return new Promise<void>((resolve) => {
+      if (!driveConnected) {
+        return Promise.resolve<SyncOutcome>({ state: 'skipped', message: 'Drive is not connected.' });
+      }
+      return new Promise<SyncOutcome>((resolve) => {
         waiters.current.set(id, [...(waiters.current.get(id) || []), resolve]);
         syncPaper(id, options);
       });

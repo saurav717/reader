@@ -81,19 +81,22 @@ check('OpenAlex search returns results', (await page.locator('article.result h3'
 
 await page.locator('article.result h3').click();
 
-// Save to Drive cannot run here — no proxy, so no way to fetch the file the
-// result links to — but the button stays and says so, which is the question a
-// list of readable copies provokes.
-const save = page.getByRole('button', { name: /Save to Drive/ });
-check('save to drive stays on the result', await save.isVisible());
-check('it is greyed out rather than gone', await save.isDisabled());
+// Adding a paper cannot put its file in Drive here — no proxy, so no way to
+// fetch the file the result links to — but the button still adds and opens
+// it, and the line under it says what will not happen and why, which is the
+// question a list of readable copies provokes.
+const addButton = page.getByRole('button', { name: /Add to collection/ });
+check('add to collection is on the result', await addButton.isVisible());
+check('and still usable', await addButton.isEnabled());
 const why = (await page.locator('.save-blocked').innerText()).trim();
-check('and the result says why', /no bytes to put in Drive/.test(why), why);
+check('the result says the file will not reach Drive', /will not reach Drive/.test(why), why);
+check('and why — there are no bytes to send', /no bytes to put in Drive/.test(why), why);
 check('pointing at the setting that fixes it', /Paper proxy/.test(why));
 await page.locator('article.result').first().screenshot({ path: `${OUT}/static-save-to-drive.png` });
 
-await page.getByRole('button', { name: /^Read$/ }).click();
+await addButton.click();
 await page.waitForSelector('.paper-body p');
+check('adding opens the paper', await page.locator('.topbar .title').isVisible());
 check('reader falls back to the abstract', (await page.locator('.reader-column .banner.warn').count()) === 1);
 check('PDF opens externally instead of in a tab', (await page.locator('.topbar a[href^="https://arxiv.org/pdf/"]').count()) === 1);
 

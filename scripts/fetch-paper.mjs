@@ -31,7 +31,8 @@
  *
  * The file is named exactly as the app names it, so a paper fetched this way
  * lands where the app would have put it. Without Drive for desktop, use the
- * app's own Save to Drive: uploading needs a Google token, the app has one in
+ * app's own Add to collection, which saves the file to Drive as it adds the
+ * paper: uploading needs a Google token, the app has one in
  * the browser, and nothing here should be holding a refresh token on disk.
  */
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -250,8 +251,8 @@ if (/Google Drive|GoogleDrive/i.test(OUT)) {
 } else {
   console.log(
     '\nTo put it in Drive: re-run with --out pointed at your Google Drive folder, or use\n' +
-      "Save to Drive in the app, which also records the file against the paper so the\n" +
-      'reader opens that copy.',
+      "Add to collection in the app, which also records the file against the paper so\n" +
+      'the reader opens that copy.',
   );
 }
 
