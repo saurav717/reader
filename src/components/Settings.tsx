@@ -321,19 +321,23 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             web page to everyone else. When a copy comes back as that page, the result offers to sign in: the
             proxy opens a real browser window on its own machine at the publisher, you sign in there through your
             institution, and the paper is fetched again through that browser. The session is kept in a browser
-            profile of its own, so the next paper needs no sign-in. Only a proxy running on your machine —{' '}
+            profile of its own, so the next paper needs no sign-in. A window needs a proxy on your own machine —{' '}
             <span className="mono">npm start</span>, then <span className="mono">http://localhost:8080</span> as
-            the proxy above — can open a window; the Cloudflare Worker cannot.
+            the proxy above. The same offer can instead open a browser <em>inside the reader</em>, in the PDF pane:
+            the proxy&rsquo;s Chromium, shown here and driven from here, which needs no screen and so works from a
+            proxy on any machine with a Chromium. The Cloudflare Worker has no browser and can do neither.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, lineHeight: 1.5, color: access?.available ? 'var(--accent)' : 'var(--muted)' }}>
               {access === null
                 ? 'Asking the proxy…'
                 : access.available
-                  ? `This proxy can open a sign-in window.${access.everSignedIn ? ' A signed-in profile is kept on it.' : ' Nothing has been signed in to yet.'}`
-                  : `Not available on this proxy. ${access.reason || ''}`}
+                  ? `This proxy can open a sign-in window, and a browser inside the reader.${access.everSignedIn ? ' A signed-in profile is kept on it.' : ' Nothing has been signed in to yet.'}`
+                  : access.browse?.available
+                    ? `This proxy can open a browser inside the reader, though not a window of its own. ${access.reason || ''}${access.everSignedIn ? ' A signed-in profile is kept on it.' : ''}`
+                    : `Not available on this proxy. ${access.reason || ''}`}
             </span>
-            {access?.available && access.everSignedIn ? (
+            {(access?.available || access?.browse?.available) && access.everSignedIn ? (
               <button
                 type="button"
                 className="btn sm"

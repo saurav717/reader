@@ -22,6 +22,12 @@
  * and says so from `/access/status` so the app can offer the sign-in where it
  * can work and explain where it cannot.
  *
+ * The screen is the one part that can be done without. server/browse.js runs
+ * the same profile headless and streams it into the reader's own window, so a
+ * proxy with Playwright and a Chromium but no display — a server, a container
+ * — can still be signed in through; `browseAvailability()` is that test, and
+ * it is the same profile, so a sign-in done either way holds for both.
+ *
  * Nothing here runs unless asked. Playwright is a devDependency and is only
  * imported on the first request that needs it, so a deployment without it
  * still starts, and answers "not available" with the reason.
@@ -67,11 +73,12 @@ function hasDisplay() {
 }
 
 /**
- * Whether this proxy can open a browser window at all — for a sign-in, or
- * for a Scholar captcha (see server/scholarBrowser.js) — and if not, why,
- * worded for the person who could fix it. Nothing is launched to answer this.
+ * Whether this proxy has a browser to drive at all — Playwright, and a
+ * Chromium it can find — which is what the browser inside the reader needs
+ * (server/browse.js): it runs headless, so no screen is involved. If not,
+ * why, worded for the person who could fix it. Nothing is launched to answer.
  */
-export async function availability() {
+export async function browseAvailability() {
   let chromium;
   try {
     ({ chromium } = await playwright());
@@ -90,14 +97,39 @@ export async function availability() {
         'Playwright is installed on the proxy but its Chromium is not. Run `npx playwright install chromium` there, or set READER_BROWSER_CHANNEL=chrome to use the Chrome you already have.',
     };
   }
+  return { available: true };
+}
+
+/**
+ * Whether this proxy can open a browser window at all — for a sign-in, or
+ * for a Scholar captcha (see server/scholarBrowser.js) — and if not, why,
+ * worded for the person who could fix it. Nothing is launched to answer this.
+ */
+export async function availability() {
+  const browser = await browseAvailability();
+  if (!browser.available) return browser;
   if (!hasDisplay()) {
     return {
       available: false,
       reason:
-        'The proxy is running somewhere with no screen to open a browser window on. Run it on your own machine (`npm start`) and point Settings → Paper proxy at it.',
+        'The proxy is running somewhere with no screen to open a browser window on. Run it on your own machine (`npm start`) and point Settings → Paper proxy at it — or use the browser inside the reader, which needs no screen.',
     };
   }
   return { available: true };
+}
+
+/**
+ * Extra flags for Chromium, from READER_BROWSER_ARGS: a `--proxy-server=` for
+ * a machine behind one, say. Split the way a shell would, so a value with a
+ * space in it can be quoted (`--host-resolver-rules="MAP a.example 10.0.0.1"`).
+ * Not something the app ever sets, and nothing here depends on it.
+ */
+export function extraBrowserArgs(value = process.env.READER_BROWSER_ARGS || '') {
+  const args = [];
+  for (const match of value.matchAll(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)) {
+    args.push(match[0].replace(/"([^"]*)"|'([^']*)'/g, (_, double, single) => double ?? single));
+  }
+  return args;
 }
 
 // -------------------------------------------------------------- browser ----
@@ -122,7 +154,7 @@ async function launch(mode) {
     // person signing in should have to read, and a few sign-in pages refuse a
     // browser that shows it.
     ignoreDefaultArgs: ['--enable-automation'],
-    args: ['--disable-blink-features=AutomationControlled'],
+    args: ['--disable-blink-features=AutomationControlled', ...extraBrowserArgs()],
   };
   if (process.env.READER_BROWSER_CHANNEL) options.channel = process.env.READER_BROWSER_CHANNEL;
   else if (process.env.CHROMIUM_PATH) options.executablePath = process.env.CHROMIUM_PATH;
@@ -137,7 +169,13 @@ async function launch(mode) {
   return launched;
 }
 
-async function ensureContext(mode) {
+/**
+ * The profile, open in one mode or the other. Exported for server/browse.js,
+ * which drives the same profile headless: a sign-in made in the browser
+ * inside the reader is a sign-in `fetchWithSession` can use, and the other
+ * way round.
+ */
+export async function ensureContext(mode) {
   if (launching) await launching;
   if (context && contextMode === mode) return context;
   if (context) {
@@ -209,8 +247,11 @@ export async function openSignIn(url) {
 export async function status() {
   const ready = await availability();
   const window = signInPage && !signInPage.isClosed() ? 'open' : 'closed';
-  return { ...ready, window, everSignedIn: everSignedIn(), profile: PROFILE_DIR };
+  return { ...ready, window, everSignedIn: everSignedIn(), profile: PROFILE_DIR, browse: await browseAvailability() };
 }
+
+/** Whether the sign-in window is open, for server/browse.js to pick a mode by. */
+export const signInWindowOpen = () => Boolean(signInPage && !signInPage.isClosed());
 
 /** "I have signed in": close the window so the fetches can have the profile. */
 export async function closeSignIn() {
@@ -313,7 +354,7 @@ export function pdfLinksIn(html, base) {
   return found.filter((url) => /^https:\/\//i.test(url));
 }
 
-const isPdf = (bytes) => bytes.length > 4 && bytes.subarray(0, 5).toString('latin1').startsWith('%PDF');
+export const isPdf = (bytes) => bytes.length > 4 && bytes.subarray(0, 5).toString('latin1').startsWith('%PDF');
 
 /**
  * The file, through the signed-in profile. Throws with a reason meant for the
@@ -329,7 +370,21 @@ export async function fetchWithSession(target) {
   const host = new URL(target).hostname;
   if (!(await cookiesFor(target)).length) throw new Error(`not signed in at ${host}`);
 
-  const queue = pdfCandidates(target);
+  const found = await fetchFileThrough(ctx, pdfCandidates(target));
+  if (found) return found;
+  throw new Error(`signed in at ${host}, but it still would not hand over the PDF — does your institution subscribe to it?`);
+}
+
+/**
+ * The file, asked for through a browser context's own request client — with
+ * its cookies, which is the point — starting from the URLs given and
+ * following each landing page to wherever it says its PDF is. Null when none
+ * of the pages within reach was a file. Shared by the signed-in retry above
+ * and by the browser session in server/browse.js, which starts from the page
+ * the person is looking at.
+ */
+export async function fetchFileThrough(ctx, urls) {
+  const queue = [...urls];
   const seen = new Set();
   let hops = 0;
   while (queue.length && hops < MAX_PAGE_HOPS) {
@@ -357,5 +412,5 @@ export async function fetchWithSession(target) {
       for (const link of pdfLinksIn(body.toString('utf8'), response.url())) queue.push(link);
     }
   }
-  throw new Error(`signed in at ${host}, but it still would not hand over the PDF — does your institution subscribe to it?`);
+  return null;
 }

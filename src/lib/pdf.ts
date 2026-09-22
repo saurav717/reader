@@ -413,7 +413,7 @@ export function pdfAvailability(known: {
 // ------------------------------------------------------------------ Drive ---
 
 /** Where a copy of the file came from, for the line under the title. */
-export type PdfOrigin = 'drive' | 'proxy' | 'file';
+export type PdfOrigin = 'drive' | 'proxy' | 'file' | 'browser';
 
 /**
  * A file handed over by the person, checked to be a PDF before anything is

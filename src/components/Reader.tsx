@@ -14,6 +14,7 @@ import {
 } from '../lib/pdf';
 import SignInPrompt from './SignInPrompt';
 import PdfDropIn from './PdfDropIn';
+import MiniBrowser from './MiniBrowser';
 import { findLocations, mergeLocations, paperLocations, scholarPaperUrl } from '../lib/locations';
 import type { PaperLocation } from '../types';
 import {
@@ -116,6 +117,8 @@ export default function Reader({
   const [pdfSignIn, setPdfSignIn] = useState<SignInOffer | null>(null);
   /** Bumped to ask for the file again after a sign-in. */
   const [pdfAttempt, setPdfAttempt] = useState(0);
+  /** The browser inside the reader, open in the PDF pane in place of the failure. */
+  const [browsing, setBrowsing] = useState(false);
   const [saving, setSaving] = useState(false);
   // Once the reading mode has been chosen by hand, stop choosing it for them.
   const modeChosen = useRef(false);
@@ -237,6 +240,7 @@ export default function Reader({
     setPdfLocation(null);
     setLocations(null);
     setSaving(false);
+    setBrowsing(false);
     // Changing the preference mid-paper is already handled by chooseMode.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
@@ -345,14 +349,17 @@ export default function Reader({
   ]);
 
   /**
-   * A file the person handed over, after every copy failed. It is shown at
-   * once, and goes up to Drive on its own — the save-on-open effect above has
-   * already had its turn for this paper, with nothing to send.
+   * A file that arrived some other way after every copy failed — handed
+   * over by the person, or brought back by the browser inside the reader.
+   * It is shown at once, and goes up to Drive on its own — the save-on-open
+   * effect above has already had its turn for this paper, with nothing to
+   * send.
    */
-  const takeFile = useCallback(
-    (blob: Blob) => {
+  const takePdf = useCallback(
+    (blob: Blob, from: PdfOrigin) => {
+      setBrowsing(false);
       setPdfBlob(blob);
-      setPdfFrom('file');
+      setPdfFrom(from);
       setPdfLocation(null);
       setPdfError(null);
       setPdfSignIn(null);
@@ -363,6 +370,15 @@ export default function Reader({
     },
     [driveConnected, paper, settings.savePdf, syncPaper],
   );
+  const takeFile = useCallback((blob: Blob) => takePdf(blob, 'file'), [takePdf]);
+
+  /** Every copy again, after a sign-in made in the browser inside the reader. */
+  const retryCopies = useCallback(() => {
+    setBrowsing(false);
+    setPdfError(null);
+    setPdfSignIn(null);
+    setPdfAttempt((attempt) => attempt + 1);
+  }, []);
 
   // Where to send a person when the file will not come here: the single link
   // where there is one, else the first copy that is a file.
@@ -586,7 +602,9 @@ export default function Reader({
                 ? ' · PDF from your Drive'
                 : pdfFrom === 'file'
                   ? ' · PDF from your file'
-                  : pdfLocation
+                  : pdfFrom === 'browser'
+                    ? ' · PDF from the browser here'
+                    : pdfLocation
                   ? ` · PDF from ${pdfLocation.label}`
                   : ' · PDF'
               : content
@@ -685,9 +703,27 @@ export default function Reader({
 
       {mode === 'pdf' ? (
         <div className="pdf-pane">
-          {pdfError || pdfLookup === 'none' ? (
+          {browsing && (pdfError || pdfLookup === 'none') ? (
+            <MiniBrowser
+              paper={paper}
+              locations={knownLocations}
+              signIn={pdfSignIn}
+              onPdf={(blob) => takePdf(blob, 'browser')}
+              onRetry={retryCopies}
+              onClose={() => setBrowsing(false)}
+            />
+          ) : pdfError || pdfLookup === 'none' ? (
             <p className="banner warn" style={{ margin: 16 }}>
               {pdfError || 'No PDF of this paper is free to read anywhere we can see.'}
+              {hasProxy() ? (
+                <span className="sign-in-note">
+                  {' '}
+                  <button type="button" className="link-btn" onClick={() => setBrowsing(true)}>
+                    {pdfSignIn ? `Browse to ${pdfSignIn.host} and sign in here` : 'Browse to a copy and sign in here'}
+                  </button>
+                  {' — a browser opens in this pane, at the site you pick.'}
+                </span>
+              ) : null}
               {pdfSignIn ? (
                 <SignInPrompt
                   offer={pdfSignIn}

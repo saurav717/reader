@@ -27,6 +27,12 @@ export interface AccessStatus {
   everSignedIn: boolean;
   /** Where the proxy keeps the signed-in profile, for Settings to say. */
   profile?: string;
+  /**
+   * Whether the proxy can open a browser inside the reader instead — its
+   * Chromium, headless, on the same profile — which needs no screen. See
+   * src/lib/browse.ts.
+   */
+  browse?: { available: boolean; reason?: string };
 }
 
 const UNAVAILABLE: AccessStatus = {
