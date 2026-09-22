@@ -103,7 +103,12 @@ check('highlighting still works on the abstract', (await page.locator('mark.hl')
 check('nothing tried to call a same-origin proxy', proxyCalls === 0, `calls=${proxyCalls}`);
 await page.screenshot({ path: `${OUT}/static-reader.png` });
 
-const real = errors.filter((m) => !/favicon|ERR_CERT_AUTHORITY_INVALID|fonts\.googleapis|gsi\/client|accounts\.google/.test(m));
+// Network-layer failures for the two third-party assets the page loads — the
+// fonts and Google's sign-in script — are the sandbox's, not the app's, and
+// Chromium reports some of them without a URL to match on.
+const real = errors.filter(
+  (m) => !/favicon|ERR_CERT_AUTHORITY_INVALID|ERR_TUNNEL_CONNECTION_FAILED|fonts\.googleapis|gsi\/client|accounts\.google/.test(m),
+);
 check('no uncaught page errors', real.length === 0, real.slice(0, 2).join(' | '));
 
 await browser.close();

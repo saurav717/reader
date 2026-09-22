@@ -22,6 +22,34 @@ export interface AuthorRef {
   hIndex?: number;
 }
 
+/**
+ * One place a paper can be read from. Google Scholar's "All N versions" is the
+ * same idea: the publisher's copy, the preprint, and every repository deposit
+ * in between are all the same paper, and only some of them will actually hand
+ * over a PDF. Collecting them all is what makes a paper openable when the
+ * first link is a login wall.
+ */
+export interface PaperLocation {
+  /** What to fetch. A PDF where `isPdf`, otherwise a page a person can open. */
+  url: string;
+  /** The hostname, which is what identifies a copy to a reader at a glance. */
+  host: string;
+  /** Repository or publisher name where one is known, else the host. */
+  label: string;
+  /**
+   * `unknown` is a link we have no provenance for — the one a search result
+   * carried. It is not assumed to be a repository copy, because assuming that
+   * puts a publisher's link ahead of copies we know are repository deposits.
+   */
+  kind: 'preprint' | 'repository' | 'publisher' | 'unknown';
+  /** True when the URL is believed to be the file rather than a landing page. */
+  isPdf: boolean;
+  /** Which index told us about this copy. */
+  via: 'arxiv' | 'unpaywall' | 'openalex' | 'semanticscholar' | 'crossref' | 'pmc' | 'paper';
+  /** `submittedVersion`, `acceptedVersion`, `publishedVersion`, where known. */
+  version?: string;
+}
+
 export interface PaperRef {
   /** Stable app-wide id, e.g. "arxiv:2010.08895" or "doi:10.1234/xyz". */
   id: string;

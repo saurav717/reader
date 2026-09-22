@@ -1,6 +1,7 @@
 import type { Collection, Highlight, Paper, Settings } from '../types';
 import { hasProxy } from './api';
-import { fetchPdf, resolvePdfUrl } from './pdf';
+import { findLocations } from './locations';
+import { fetchPdfFromLocations } from './pdf';
 import { ensureDriveToken, ensureFolder, findFile, moveFile, uploadFile } from './google';
 import { baseName, sidecar } from './sidecar';
 
@@ -106,17 +107,20 @@ export async function syncPaperToDrive(
         'There is no proxy configured, so the PDF could not be fetched; saved the metadata only. ' +
         'Settings → Paper proxy.';
     } else if (!pdfFileId) {
-      // arXiv, or whichever repository OpenAlex and Semantic Scholar know of.
-      const source = await resolvePdfUrl(paper).catch(() => undefined);
-      if (!source) {
+      // Every place the paper is published — arXiv, the repository deposits
+      // Unpaywall knows about, whatever OpenAlex, Semantic Scholar and Crossref
+      // list — tried in turn until one hands over the file.
+      const locations = await findLocations(paper).catch(() => []);
+      if (!locations.length) {
         notice = 'No open-access PDF could be found for this paper; saved the metadata only.';
       } else {
         try {
+          const fetched = await fetchPdfFromLocations(paper, locations);
           const uploaded = await uploadFile(accessToken, {
             name: `${stem}.pdf`,
             mimeType: 'application/pdf',
             parentId: folderId,
-            body: await fetchPdf({ ...paper, pdfUrl: source }),
+            body: fetched.blob,
           });
           pdfFileId = uploaded.id;
           pdfLink = uploaded.webViewLink;

@@ -13,7 +13,14 @@ import {
   sourceList,
 } from '../lib/sources';
 import { hasProxy, NO_PROXY_FIX, NO_PROXY_REASON } from '../lib/api';
-import type { AuthorRef, PaperRef, SearchMode, SourceId } from '../types';
+import {
+  findLocations,
+  scholarAuthorPapersUrl,
+  scholarAuthorUrl,
+  scholarPaperUrl,
+} from '../lib/locations';
+import { fetchPdfFromLocations } from '../lib/pdf';
+import type { AuthorRef, PaperLocation, PaperRef, SearchMode, SourceId } from '../types';
 import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
 
 interface Props {
@@ -28,8 +35,78 @@ const labelFor = (id: SourceId) => sourceList().find((source) => source.id === i
 const compact = (value: number) =>
   value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k` : String(value);
 
+/** `acceptedVersion` -> `accepted`, which is all a reader needs from it. */
+const versionLabel = (version?: string) =>
+  version ? version.replace(/Version$/i, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase() : '';
+
+/**
+ * Everywhere this paper can be read, which is the question a search result
+ * cannot answer on its own: a result carries at most one link, and whether that
+ * link is a file or a login wall is not knowable until it is asked. Google
+ * Scholar answers it with "All 14 versions"; this is the same list, built from
+ * the indexes that publish one, with a link to Scholar's own for comparison.
+ */
+function Locations({ paper }: { paper: PaperRef }) {
+  const [locations, setLocations] = useState<PaperLocation[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLocations(null);
+    setFailed(false);
+    findLocations(paper, controller.signal)
+      .then((found) => {
+        if (!controller.signal.aborted) setLocations(found);
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        setFailed(true);
+      });
+    return () => controller.abort();
+    // The identity of the paper is what decides where its copies are.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paper.id]);
+
+  const files = (locations || []).filter((location) => location.isPdf);
+  const scholar = (
+    <a className="loc-scholar" href={scholarPaperUrl(paper)} target="_blank" rel="noreferrer noopener">
+      Google Scholar <ExternalIcon size={10} />
+    </a>
+  );
+
+  return (
+    <div className="locations">
+      <p className="eyebrow">
+        {locations === null && !failed
+          ? 'Looking for every copy…'
+          : failed
+            ? 'Could not check where else this is published'
+            : (locations?.length ?? 0)
+              ? `Readable in ${locations?.length} ${locations?.length === 1 ? 'place' : 'places'}` +
+                (files.length ? ` · ${files.length} as a file` : ' · none of them a file')
+              : 'No copy of this found anywhere we can see'}
+      </p>
+      <ul>
+        {(locations || []).slice(0, 6).map((location) => (
+          <li key={location.url}>
+            <a href={location.url} target="_blank" rel="noreferrer noopener" title={location.url}>
+              {location.label}
+            </a>
+            <span className={location.isPdf ? 'loc-pdf' : 'loc-page'}>{location.isPdf ? 'PDF' : 'page'}</span>
+            {location.version ? <span className="loc-version">{versionLabel(location.version)}</span> : null}
+          </li>
+        ))}
+      </ul>
+      {locations && locations.length > 6 ? (
+        <p className="eyebrow">and {locations.length - 6} more</p>
+      ) : null}
+      <p className="eyebrow">Also on {scholar}</p>
+    </div>
+  );
+}
+
 export default function Discover({ onClose, onOpen }: Props) {
-  const { papers, collections, addPaper, createCollection } = useStore();
+  const { papers, collections, addPaper, createCollection, driveConnected, syncPaperNow } = useStore();
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState<SearchMode>('papers');
   const [sources, setSources] = useState<SourceId[]>(defaultSources);
@@ -42,6 +119,9 @@ export default function Discover({ onClose, onOpen }: Props) {
   const [page, setPage] = useState(0);
   const [target, setTarget] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
+  /** The paper currently being fetched and put in Drive, and how far it is. */
+  const [saving, setSaving] = useState<{ id: string; step: string } | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -120,6 +200,16 @@ export default function Discover({ onClose, onOpen }: Props) {
         const outcome = await searchAuthors(text, sources, { signal: controller.signal });
         setAuthors(outcome.authors);
         setErrors(outcome.errors);
+        // Nobody by that name has a record in either index — which is the
+        // normal case for anyone who is not a prolific author. Rather than an
+        // empty panel, go straight to the broader search: every paper with the
+        // name on it, across every source.
+        if (!outcome.authors.length) {
+          const byName = await searchByAuthorName(text, sources, { signal: controller.signal, page: 0 });
+          setResults(byName.results);
+          setMore(!byName.exhausted);
+          if (byName.errors.length) setErrors(byName.errors);
+        }
       } catch (error) {
         fail(error);
       } finally {
@@ -206,10 +296,37 @@ export default function Discover({ onClose, onOpen }: Props) {
     );
   };
 
-  const add = async (ref: PaperRef) => {
+  const add = async (ref: PaperRef, options: { sync?: boolean } = {}) => {
     let collectionId = target;
     if (!collectionId) collectionId = (await createCollection('Reading list')).id;
-    await addPaper(ref, collectionId);
+    return addPaper(ref, collectionId, options);
+  };
+
+  /**
+   * Find the file, put it in Drive, then open it — in that order, so what the
+   * viewer shows is the copy that was saved rather than a second download of
+   * the same paper. Each copy the indexes know about is tried until one
+   * answers, which is what makes this work for papers that are not on arXiv.
+   */
+  const saveToDrive = async (ref: PaperRef) => {
+    setSaveError(null);
+    setSaving({ id: ref.id, step: 'Finding a copy…' });
+    try {
+      // Added without its automatic sync: that would start fetching the same
+      // PDF in parallel with the fetch below, and the paper would come down
+      // the wire twice.
+      await add(ref, { sync: false });
+      const locations = await findLocations(ref);
+      setSaving({ id: ref.id, step: 'Downloading…' });
+      const fetched = await fetchPdfFromLocations(ref, locations);
+      setSaving({ id: ref.id, step: `Saving to Drive from ${fetched.location.label}…` });
+      await syncPaperNow(ref.id, { pdf: fetched.blob });
+      onOpen(ref.id);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(null);
+    }
   };
 
   const visibleSources = mode === 'authors' ? authorSources() : sourceList();
@@ -358,21 +475,33 @@ export default function Discover({ onClose, onOpen }: Props) {
                     {author.orcid ? <span className="mono">ORCID {author.orcid}</span> : null}
                   </div>
                 </button>
+                <a
+                  className="loc-scholar"
+                  href={scholarAuthorUrl(author.name)}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  Google Scholar profile <ExternalIcon size={10} />
+                </a>
               </article>
             ))
           : null}
 
-        {mode === 'authors' && !viewing && authors.length && query.trim() ? (
-          <p style={{ padding: '4px 10px 0', fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-            None of these the right person?{' '}
+        {mode === 'authors' && !viewing && query.trim() && !busy ? (
+          <p className="author-advice" style={{ padding: '4px 10px 0', fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+            {authors.length ? 'None of these the right person? ' : 'No index keeps a record under that name. '}
             <button
               type="button"
               className="linklike"
               onClick={() => void runByName(query)}
               style={{ all: 'unset', color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline' }}
             >
-              Search every paper with that name on it
+              {authors.length ? 'Search every paper with that name on it' : 'Search every paper with that name again'}
             </button>
+            , or look them up{' '}
+            <a className="loc-scholar" href={scholarAuthorPapersUrl(query.trim())} target="_blank" rel="noreferrer noopener">
+              on Google Scholar <ExternalIcon size={10} />
+            </a>
             .
           </p>
         ) : null}
@@ -418,6 +547,7 @@ export default function Discover({ onClose, onOpen }: Props) {
                       {result.abstract.length > 420 ? '…' : ''}
                     </p>
                   ) : null}
+                  <Locations paper={result} />
                   <div className="result-actions">
                     <button type="button" className="btn primary sm" onClick={() => void add(result)}>
                       <PlusIcon size={14} />
@@ -433,12 +563,27 @@ export default function Discover({ onClose, onOpen }: Props) {
                     >
                       Read
                     </button>
+                    {driveConnected && hasProxy() ? (
+                      <button
+                        type="button"
+                        className="btn sm"
+                        disabled={Boolean(saving)}
+                        onClick={() => void saveToDrive(result)}
+                      >
+                        {saving?.id === result.id ? saving.step : 'Save to Drive'}
+                      </button>
+                    ) : null}
                     {result.landingUrl ? (
                       <a className="btn sm" href={result.landingUrl} target="_blank" rel="noreferrer noopener">
                         Source <ExternalIcon size={12} />
                       </a>
                     ) : null}
                   </div>
+                  {saveError && saving?.id !== result.id && openId === result.id ? (
+                    <p className="banner error" style={{ marginBottom: 0 }}>
+                      {saveError}
+                    </p>
+                  ) : null}
                 </>
               ) : null}
             </article>

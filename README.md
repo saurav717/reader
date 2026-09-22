@@ -1,9 +1,10 @@
 # Reader
 
 A reader for research papers. Search arXiv, OpenAlex, Semantic Scholar and Crossref
-from one box — papers or the people who wrote them — read the paper as its PDF, or
-reflowed as text where there is one, to highlight it, and keep what you collect: the
-PDFs in your own Google Drive, the notes and the bibliography in a Git repository.
+from one box — papers or the people who wrote them — see every place a paper can be
+read from and open it from whichever one will part with a file, read it as its PDF or
+reflowed as text to highlight it, and keep what you collect: the PDFs in your own
+Google Drive, the notes and the bibliography in a Git repository.
 
 ![the library on the left, the paper in the middle, the highlights pane on the right, and the three-pane lookup box over a selection](docs/reader.png)
 
@@ -58,7 +59,10 @@ affiliation, paper count, citations, h-index, ORCID — and opening a person lis
 what they wrote. Neither index disambiguates people perfectly, so two records of the
 same person can appear; when none of them is the right person, "search every paper
 with that name on it" falls back to matching the name across every source's author
-field instead of on an identifier.
+field instead of on an identifier. A name neither index keeps a record for — which
+is most people who are not prolific authors — falls back to that broader search on
+its own rather than showing an empty panel, and offers the person's Google Scholar
+profile alongside it.
 
 | Source | Needs the proxy | Papers | Authors |
 | --- | --- | --- | --- |
@@ -67,11 +71,43 @@ field instead of on an identifier.
 | Semantic Scholar | no | yes | yes |
 | Crossref | no | yes | by name |
 
-There is deliberately no Google Scholar. It has no public API, its terms forbid
+### Every copy of a paper, not just the first link
+
+Open a result and it lists **everywhere the paper can be read** — the publisher's
+copy, the arXiv preprint, each institutional repository deposit, PubMed Central —
+with what each one is and whether it is a file or a page you would have to click
+through. This is the same list Google Scholar shows as "All 14 versions", built
+from [Unpaywall](https://unpaywall.org/), OpenAlex's full `locations` array,
+Semantic Scholar and Crossref, folded together on the URL so one copy reported by
+four indexes appears once.
+
+It matters because a single link is a coin toss. A DOI resolves to a login wall, a
+repository link has rotted, a URL ending in `.pdf` turns out to be a landing page —
+and none of that is knowable until it is asked. So the reader **tries each copy in
+turn**, best first, and takes the first one that returns actual PDF bytes. The proxy
+is what makes that answerable rather than a guess: it refuses anything that is not a
+PDF, so a landing page counts as a failure and the next copy gets a turn. The order
+is files before pages, and preprint servers before repositories before publishers,
+which is the order in which they answer an anonymous request without a paywall, a
+cookie banner or a captcha in the way.
+
+The line under the title in the reader then says which copy you are looking at.
+
+**Google Scholar is linked to, not searched.** It has no public API, its terms forbid
 automated access, and it blocks datacentre IPs — which is exactly where this app's
-proxy runs. Its results are also mostly links to publisher landing pages rather than
-to anything this reader could open. The four sources above return structured
-metadata *and* open-access locations, which is what actually gets a paper on screen.
+proxy runs, so a Scholar scraper here would return captchas rather than papers. What
+Scholar *indexes*, though, is largely what Unpaywall, OpenAlex, Semantic Scholar and
+Crossref publish through APIs, which is where the versions list above comes from.
+Every result carries a link to its Scholar page, every person to their Scholar
+profile, and the reader offers one when no copy of a paper can be found at all.
+
+### Saving a paper to Drive as you find it
+
+**Save to Drive** on a search result does the whole chain in one press: find every
+copy, download from whichever one answers, put the file in
+`My Drive/Papers_collection/<paper>/`, and open the paper on **the copy that was
+just saved** — read back out of Drive, which the browser can do directly. It needs
+Drive connected and a proxy configured; without either, the button is not shown.
 
 ## Putting it online
 
@@ -489,7 +525,9 @@ src/lib/contact.ts      the address OpenAlex, Crossref and Unpaywall ask for
 src/lib/lookup.ts       dictionary and Wikipedia lookups for a selection
 src/lib/status.ts       reading, not started or finished
 src/lib/paperContent.ts fetches and sanitises the full text
-src/lib/pdf.ts          finds a paper's PDF, fetches it (Drive first), and saves it
+src/lib/pdf.ts          finds a paper's PDF, fetches it (Drive first, then each
+                        known copy in turn), and saves it
+src/lib/locations.ts    every place a paper can be read from, and the Scholar links
 src/lib/google.ts       Google Identity Services + Drive REST
 src/lib/driveSync.ts    what a synced paper looks like in Drive
 src/lib/store.tsx       app state, IndexedDB persistence, the sync queue
@@ -498,6 +536,10 @@ src/components/         the UI
 scripts/smoke.mjs       browser smoke test (see below)
 scripts/pdf-proxy.test.mjs  what the PDF proxy serves and what it refuses
 scripts/search.test.mjs     query shapes, de-duplication and ranking
+scripts/locations.test.mjs  which copies of a paper are collected, how duplicates
+                            fold together, the order they are tried in, and the
+                            fall-through when one will not answer
+scripts/versions-drive.mjs  the whole chain in a browser (see below)
 scripts/github.test.mjs     what the Git mirror writes, and that a flush is
                             one commit
 scripts/proxy-setting.test.mjs  which proxy address wins, and what is refused
@@ -516,6 +558,9 @@ npm run test:unit              # query building, merging, the Git mirror, the pr
 
 npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
+
+npm run build                  # then, needing no server of its own:
+node scripts/versions-drive.mjs
 ```
 
 `scripts/bundle.mjs` is how the unit tests reach the app's TypeScript: Node can strip
@@ -534,15 +579,28 @@ Drive was connected is uploaded when it is opened — the copy on screen, fetche
 `.smoke/`, and stubs arXiv, the PDF routes, the dictionary, Wikipedia, OpenAlex,
 Crossref and Semantic Scholar, so it needs no network beyond the local server.
 
+`scripts/versions-drive.mjs` drives the chain this reader exists for, on a paper
+that is *not* on arXiv: search every index → list every copy → try them in order →
+watch the first two fail (a publisher link that gives back a web page, a repository
+link that has rotted) → download from the third → upload it to Drive → read it back
+out of Drive and show it. It brings its own server and its own Drive: Google
+Identity Services, the Drive REST API and the PDF proxy are all stubbed in the page,
+so it needs no network and no Google account. It also checks that a name no index
+keeps a record for says so, and offers Scholar.
+
 ## Known limits
 
 - PDF mode hands the file to the browser's own viewer, so highlighting only works in
   Reflow mode — which is why the switch is there, and why choosing it sticks. Reflow
   needs an HTML rendering, which arXiv has for recent papers and ar5iv has for most
   older ones; otherwise the reader falls back to the abstract.
-- A PDF is only there to be had if the paper is open access. Behind a paywall, the
-  best either index can offer is the landing page, and the reader says so rather
-  than pretending the file is coming.
+- A PDF is only there to be had if the paper is open access. Behind a paywall, every
+  copy in the versions list is the publisher's, none of them will answer, and the
+  reader says which ones it tried rather than pretending the file is coming.
+- Google Scholar is linked to, never queried: no API, terms that forbid it, and a
+  block on the datacentre IPs a proxy runs from. The versions list is assembled from
+  the four indexes that do publish an API, which between them cover most of what
+  Scholar lists for a paper — but not all of it, and not its citation graph.
 - The whole PDF is fetched before the viewer sees it, which is what makes a failure
   explainable rather than a blank pane — but it also means no progressive rendering,
   and a cap (64 MB) on how big a file the proxy will pass. The most recent one is

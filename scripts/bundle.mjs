@@ -8,9 +8,9 @@
 // beyond the default.
 
 import { build } from 'esbuild';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const temporary = [];
@@ -21,6 +21,36 @@ export async function load(entry) {
   const outfile = join(directory, 'bundle.mjs');
   await build({
     entryPoints: [entry],
+    outfile,
+    bundle: true,
+    format: 'esm',
+    platform: 'neutral',
+    target: 'node22',
+    banner: { js: 'const __viteEnv = {};' },
+    define: { 'import.meta.env': '__viteEnv' },
+    logLevel: 'silent',
+  });
+  return import(pathToFileURL(outfile).href);
+}
+
+/**
+ * Several modules bundled together, so that they share the one instance of
+ * everything they import. Module-level state — the contact address, the proxy
+ * base — is per bundle, so a test that sets it through one module and reads it
+ * through another has to load both at once or it is talking to two different
+ * copies.
+ */
+export async function loadTogether(entries) {
+  const directory = await mkdtemp(join(tmpdir(), 'reader-test-'));
+  temporary.push(directory);
+  const barrel = join(directory, 'entry.mjs');
+  await writeFile(
+    barrel,
+    entries.map((entry) => `export * from ${JSON.stringify(resolve(entry))};`).join('\n'),
+  );
+  const outfile = join(directory, 'bundle.mjs');
+  await build({
+    entryPoints: [barrel],
     outfile,
     bundle: true,
     format: 'esm',

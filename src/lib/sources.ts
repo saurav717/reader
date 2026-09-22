@@ -156,10 +156,14 @@ function invertAbstract(index: Record<string, number[]> | null | undefined): str
   return words.join(' ').replace(/\s+/g, ' ').trim();
 }
 
-interface OpenAlexLocation {
+export interface OpenAlexLocation {
   pdf_url: string | null;
   landing_page_url: string | null;
-  source: { display_name: string | null } | null;
+  /** `type` tells a repository deposit apart from the version of record. */
+  source: { display_name: string | null; type?: string | null } | null;
+  /** submittedVersion | acceptedVersion | publishedVersion, where stated. */
+  version?: string | null;
+  is_oa?: boolean;
 }
 
 export interface OpenAlexWork {
@@ -172,6 +176,12 @@ export interface OpenAlexWork {
   primary_location: OpenAlexLocation | null;
   /** Where OpenAlex thinks the best free copy is — often not the primary one. */
   best_oa_location?: OpenAlexLocation | null;
+  /**
+   * Every copy OpenAlex knows of, the repository deposits included. The two
+   * fields above are picks out of this list, and the tail of it is where a
+   * paper that the publisher has locked is usually still readable.
+   */
+  locations?: OpenAlexLocation[] | null;
   open_access?: { is_oa?: boolean; oa_url?: string | null } | null;
   concepts: { display_name: string }[];
   cited_by_count?: number;
