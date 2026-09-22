@@ -176,11 +176,21 @@ export function signIn(clientId: string): Promise<GoogleUser> {
   return tokenFor(clientId, IDENTITY_SCOPES, '').then((granted) => fetchProfile(granted.accessToken));
 }
 
-/** Incremental consent: keeps identity, adds Drive. */
-export function connectDrive(clientId: string): Promise<GoogleUser> {
-  return tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`, 'consent').then((granted) =>
-    fetchProfile(granted.accessToken),
-  );
+/**
+ * Incremental consent: keeps identity, adds Drive.
+ *
+ * `quiet` is for the visitor who has granted this before. No refresh token can
+ * be kept in a page with no backend, so every visit reconnects; an empty prompt
+ * lets Google honour the existing grant and close its window again without
+ * asking the same question weekly. It still opens that window — a grant is only
+ * reusable while the browser has a Google session — so it, too, has to happen
+ * inside a click.
+ */
+export function connectDrive(clientId: string, quiet = false): Promise<GoogleUser> {
+  return tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`, quiet ? '' : 'consent').then((granted) => {
+    if (!granted.scopes.includes(DRIVE_SCOPE)) throw new Error('Drive access was not granted');
+    return fetchProfile(granted.accessToken);
+  });
 }
 
 export async function ensureDriveToken(clientId: string): Promise<string> {

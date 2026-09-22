@@ -205,9 +205,9 @@ page.on('console', (message) => {
 console.log('\n== boot ==');
 await page.goto(BASE, { waitUntil: 'networkidle' });
 check('welcome screen renders', await page.getByRole('heading', { name: /Read papers/i }).isVisible());
-check('sign in with Google button present', await page.getByRole('button', { name: /Sign in with Google/i }).first().isVisible());
+check('the Google button asks for both consents at once', await page.getByRole('button', { name: /Sign in and connect Google Drive/i }).first().isVisible());
 
-await page.getByRole('button', { name: /Skip — keep everything local/i }).click();
+await page.getByRole('button', { name: /Not now — keep everything in this browser/i }).click();
 
 console.log('\n== layout ==');
 check('the library sits on the left of the reading column', await page.evaluate(() => {
@@ -392,7 +392,7 @@ const phone = await phoneContext.newPage();
 await phone.goto(BASE, { waitUntil: 'networkidle' });
 check('phone opens with no panel covering the page', await phone.getByRole('heading', { name: /Read papers/i }).isVisible());
 await phone.screenshot({ path: `${OUT}/mobile.png` });
-await phone.getByRole('button', { name: /Skip — keep everything local/i }).click();
+await phone.getByRole('button', { name: /Not now — keep everything in this browser/i }).click();
 await phone.getByRole('button', { name: 'Discover papers' }).click();
 await phone.getByLabel('Search papers').fill('fourier');
 await phone.getByLabel('Search papers').press('Enter');
@@ -441,7 +441,7 @@ await stub(oaContext);
 const oaPage = await oaContext.newPage();
 oaPage.on('pageerror', (error) => errors.push(String(error)));
 await oaPage.goto(BASE, { waitUntil: 'networkidle' });
-await oaPage.getByRole('button', { name: /Skip — keep everything local/i }).click();
+await oaPage.getByRole('button', { name: /Not now — keep everything in this browser/i }).click();
 await selectOnlySource(oaPage, 'OpenAlex');
 await oaPage.getByLabel('Search papers').fill('operators between function spaces');
 await oaPage.getByLabel('Search papers').press('Enter');
@@ -552,7 +552,7 @@ await driveContext.route('**/api/arxiv/pdf*', (route) => {
 const drivePage = await driveContext.newPage();
 drivePage.on('pageerror', (error) => errors.push(String(error)));
 await drivePage.goto(BASE, { waitUntil: 'networkidle' });
-await drivePage.getByRole('button', { name: /Skip — keep everything local/i }).click();
+await drivePage.getByRole('button', { name: /Not now — keep everything in this browser/i }).click();
 
 await drivePage.getByRole('button', { name: /^Settings$/ }).click();
 await drivePage.getByPlaceholder(/apps.googleusercontent.com/).fill('smoke.apps.googleusercontent.com');
@@ -603,7 +603,7 @@ await lateContext.route('**/api/arxiv/pdf*', (route) => {
 const latePage = await lateContext.newPage();
 latePage.on('pageerror', (error) => errors.push(String(error)));
 await latePage.goto(BASE, { waitUntil: 'networkidle' });
-await latePage.getByRole('button', { name: /Skip — keep everything local/i }).click();
+await latePage.getByRole('button', { name: /Not now — keep everything in this browser/i }).click();
 
 await latePage.getByLabel('Search papers').fill('fourier neural operator');
 await latePage.getByLabel('Search papers').press('Enter');
@@ -634,6 +634,60 @@ check(
   await latePage.locator('.topbar a[href*="drive.google.com"]').isVisible(),
 );
 await latePage.screenshot({ path: `${OUT}/drive-on-open.png` });
+console.log('\n== the connect screen ==');
+// The page holds no refresh token — there is no backend to hold one — so a
+// visit always starts disconnected, and the app puts the Drive connection in
+// front of itself until it is made. This context has connected nothing yet but
+// has seen the introduction, which is how a returning reader arrives.
+const gateContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+await stub(gateContext);
+await fakeDrive(gateContext);
+await gateContext.addInitScript(() => {
+  localStorage.setItem('reader.welcomed', 'true');
+  localStorage.setItem('reader.settings', JSON.stringify({ googleClientId: 'smoke.apps.googleusercontent.com' }));
+});
+// What Google is asked for, in the order it is asked.
+await gateContext.addInitScript(() => {
+  window.__prompts = [];
+  const oauth = window.google.accounts.oauth2;
+  const initTokenClient = oauth.initTokenClient;
+  oauth.initTokenClient = (config) => {
+    window.__prompts.push({ prompt: config.prompt, scope: config.scope });
+    return initTokenClient(config);
+  };
+});
+
+const gatePage = await gateContext.newPage();
+gatePage.on('pageerror', (error) => errors.push(String(error)));
+await gatePage.goto(BASE, { waitUntil: 'networkidle' });
+check(
+  'a visit with Drive unconnected is asked to connect first',
+  await gatePage.getByRole('heading', { name: /Read papers, keep what matters/i }).isVisible(),
+);
+check('and the app is not yet behind it', (await gatePage.locator('.discover-panel').count()) === 0);
+await gatePage.screenshot({ path: `${OUT}/connect-screen.png` });
+
+await gatePage.getByRole('button', { name: /Sign in and connect Google Drive/i }).click();
+await gatePage.waitForSelector('.discover-panel', { timeout: 10000 });
+check('connecting from it opens the app, with no second click', true);
+const firstAsk = (await gatePage.evaluate(() => window.__prompts)).at(-1);
+check('one consent covers identity and Drive', /drive\.file$/.test(firstAsk.scope), firstAsk.scope);
+
+await gatePage.reload({ waitUntil: 'networkidle' });
+check(
+  'the next visit is asked to reconnect, not introduced again',
+  await gatePage.getByRole('heading', { name: /Reconnect your Drive/i }).isVisible(),
+);
+await gatePage.screenshot({ path: `${OUT}/reconnect-screen.png` });
+await gatePage.getByRole('button', { name: /Reconnect Google Drive/i }).click();
+await gatePage.waitForSelector('.discover-panel', { timeout: 10000 });
+const secondAsk = (await gatePage.evaluate(() => window.__prompts)).at(-1);
+check(
+  'and a grant already given is reused rather than asked for again',
+  secondAsk.prompt === '',
+  `prompt="${secondAsk.prompt}"`,
+);
+
 console.log('\n== authors ==');
 // A fresh context, so the author run starts from the same blank slate the
 // reading run did rather than from whatever it left in localStorage.
@@ -642,7 +696,7 @@ await stub(peopleContext);
 const peoplePage = await peopleContext.newPage();
 peoplePage.on('pageerror', (error) => errors.push(String(error)));
 await peoplePage.goto(BASE, { waitUntil: 'networkidle' });
-await peoplePage.getByRole('button', { name: /Skip — keep everything local/i }).click();
+await peoplePage.getByRole('button', { name: /Not now — keep everything in this browser/i }).click();
 await peoplePage.waitForSelector('.discover-panel');
 await peoplePage.getByRole('button', { name: 'Authors', exact: true }).click();
 await peoplePage.getByLabel('Search for a person').fill('Banach');

@@ -201,19 +201,28 @@ it into **Settings → Google OAuth client ID** in the running app, which is kep
 in this browser's `localStorage` and needs nothing rebuilt. The client ID is not
 a secret; it is visible in any browser-side OAuth flow by design.
 
-### 4. Sign in, then connect Drive
+### 4. Connect Drive, which the app asks for first
 
-**Sign in with Google** asks only for your name and email — it is how the app
-knows who you are, and it touches no files.
+With a client ID configured, **the connect screen stands in front of the app
+until Drive is connected**. One button does both consents at once: your name and
+email, and one scope, `drive.file` — *see, edit, create and delete only the
+specific Drive files you use with this app*. Google's consent screen will phrase
+it roughly that way. The app cannot read anything in your Drive that it did not
+create, which is the whole point of using that scope rather than the blanket
+one. **Not now** goes straight to the app with everything kept in this browser.
 
-**Connect Drive** is a second, incremental consent for one scope,
-`drive.file`: *see, edit, create and delete only the specific Drive files you
-use with this app*. Google's consent screen will phrase it roughly that way. The
-app cannot read anything in your Drive that it did not create, which is the
-whole point of using that scope rather than the blanket one.
+It asks **on every visit**, because it has to. A page with no backend cannot
+hold a refresh token, so the token dies with the tab, and a paper added before
+you reconnect is a paper Drive never hears about. The asking is cheap after the
+first time: the app remembers *that* you connected, and reconnecting reuses the
+grant you already gave — Google's window opens and closes again without a
+question. Sign out, and it forgets.
 
-Allow the popup if the browser blocks it — both steps open one, and a blocked
-popup looks like nothing happening.
+Settings keeps both consents separately, for signing in without Drive at all.
+
+Allow the popup if the browser blocks it — every step opens one, and a blocked
+popup looks like nothing happening. The app says so when it can; see the table
+under **What lands in Drive, and when**.
 
 Settings then reads **Google Drive connected**, with a count of how many papers
 are saved, and a **Sync all** button that pushes everything already in your

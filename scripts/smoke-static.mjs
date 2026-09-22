@@ -62,7 +62,7 @@ page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 await page.goto('http://localhost:4321/reader/', { waitUntil: 'networkidle' });
 check('static build boots at a sub-path', await page.getByRole('heading', { name: /Read papers/i }).isVisible());
 
-await page.getByRole('button', { name: /Skip — keep everything local/i }).click();
+await page.getByRole('button', { name: /Not now — keep everything in this browser/i }).click();
 // Discover holds the right-hand dock by default; only open it if it is shut.
 if (!(await page.locator('.dock .discover-panel').isVisible())) {
   await page.getByRole('button', { name: 'Discover papers' }).click();

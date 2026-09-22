@@ -57,7 +57,7 @@ function readLayout(): Layout {
 }
 
 export default function App() {
-  const { ready, papers, collections, user, driveConnected } = useStore();
+  const { ready, papers, collections, user, driveConnected, settings } = useStore();
   const [layout] = useState(readLayout);
   const [libraryOpen, setLibraryOpen] = useState(layout.libraryOpen);
   const [dock, setDock] = useState<Dock>(layout.dock);
@@ -67,6 +67,11 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [welcomed, setWelcomed] = useState(() => localStorage.getItem(WELCOME_KEY) === 'true');
+  // Dismissing the opening screen is remembered for this page load only. A
+  // token cannot outlive the tab — there is no backend to hold a refresh token
+  // — so every visit starts disconnected, and every visit offers to reconnect
+  // before anything is collected that Drive would then have missed.
+  const [skippedConnect, setSkippedConnect] = useState(false);
 
   // Reopening the tab should put you back on the paper you were reading.
   useEffect(() => {
@@ -115,6 +120,7 @@ export default function App() {
   const dismissWelcome = useCallback(() => {
     localStorage.setItem(WELCOME_KEY, 'true');
     setWelcomed(true);
+    setSkippedConnect(true);
   }, []);
 
   const onOrphans = useCallback((ids: string[]) => {
@@ -133,7 +139,12 @@ export default function App() {
     );
   }
 
-  const showWelcome = !welcomed && !papers.length;
+  // The opening screen is the Drive connection: it stands in front of the app
+  // whenever Drive is configured but not connected, and steps aside the moment
+  // it is. On a first visit, with nothing to connect to yet, it is still the
+  // introduction it always was.
+  const needsDrive = Boolean(settings.googleClientId.trim()) && !driveConnected;
+  const showWelcome = !skippedConnect && (needsDrive || (!welcomed && !papers.length));
   const reading = view.kind === 'paper' ? view.id : null;
   // Highlights only mean anything with a paper open, so the dock falls back to
   // Discover rather than showing an empty rail.
