@@ -1,4 +1,26 @@
-export type SourceId = 'arxiv' | 'openalex' | 'semanticscholar';
+export type SourceId = 'arxiv' | 'openalex' | 'semanticscholar' | 'crossref';
+
+/** What a query is asking for: papers about something, or a person. */
+export type SearchMode = 'papers' | 'authors';
+
+/**
+ * A person, as one of the indexes understands them. Author identity is
+ * genuinely ambiguous — two people share a name, one person is recorded under
+ * three spellings — so this carries whichever identifier the source has and
+ * enough context to tell two candidates apart.
+ */
+export interface AuthorRef {
+  /** Stable app-wide id, e.g. "openalex:A5023888391" or "s2:1741101". */
+  id: string;
+  source: SourceId;
+  name: string;
+  /** Where they are now, where the source knows. */
+  affiliation?: string;
+  orcid?: string;
+  worksCount?: number;
+  citedBy?: number;
+  hIndex?: number;
+}
 
 export interface PaperRef {
   /** Stable app-wide id, e.g. "arxiv:2010.08895" or "doi:10.1234/xyz". */
@@ -35,6 +57,7 @@ export interface Paper extends PaperRef {
   progress: number;
   lastOpenedAt?: string;
   drive?: DriveRecord;
+  github?: GitHubRecord;
 }
 
 export interface Collection {
@@ -65,12 +88,39 @@ export interface Highlight {
   orphaned?: boolean;
 }
 
+export interface GitHubRecord {
+  /** owner/repo this paper was last written to. */
+  repo?: string;
+  /** Path of the JSON sidecar in the repo. */
+  path?: string;
+  /** Commit the last write landed in. */
+  commit?: string;
+  syncedAt?: string;
+  error?: string;
+}
+
 export interface Settings {
   googleClientId: string;
   driveFolderName: string;
   autoSync: boolean;
   savePdf: boolean;
   theme: 'light' | 'dark';
+  /**
+   * Used for the OpenAlex and Crossref "polite pools" — which are faster and
+   * more reliable than the anonymous ones — and required by Unpaywall. Left
+   * empty, those calls are made anonymously and Unpaywall is skipped.
+   */
+  contactEmail: string;
+  /** owner/repo the annotation layer is mirrored to. Empty disables it. */
+  githubRepo: string;
+  githubBranch: string;
+  /**
+   * A fine-grained personal access token, repository-scoped, Contents:
+   * read/write. Held in this browser's localStorage — see Settings for what
+   * that means.
+   */
+  githubToken: string;
+  githubSync: boolean;
 }
 
 export interface GoogleUser {
