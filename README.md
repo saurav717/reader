@@ -1,8 +1,8 @@
 # Reader
 
 A reader for research papers. Search arXiv, OpenAlex and Semantic Scholar from one
-box, read the paper — the full text where there is one, the PDF where there is not —
-highlight it, and — if you connect Google Drive — keep a copy of every paper you add
+box, read the paper as its PDF — or reflowed as text, where there is one, to
+highlight it — and — if you connect Google Drive — keep a copy of every paper you add
 in your own Drive, with your annotations beside it.
 
 ![the library on the left, the paper in the middle, the highlights pane on the right, and the three-pane lookup box over a selection](docs/reader.png)
@@ -139,9 +139,21 @@ paper, and the reader goes and gets it:
 3. The file is fetched through `/api/pdf`, because a publisher's PDF is
    cross-origin and the browser will not read it from the page.
 
-The **Reflow / PDF** switch in the top bar appears whenever there is a PDF to
-show, and the button beside it saves the file. A paper with no reflowable text
-opens on its PDF rather than on an abstract you did not ask for.
+A paper opens on its PDF: the paper as it was published, figures, tables,
+typesetting and all, handed to the browser's own viewer. The **Reflow / PDF**
+switch in the top bar appears whenever there is a PDF to show, and the button
+beside it saves the file.
+
+Reflow is the other half of the switch, and the one you can highlight. Choosing
+either sets what the *next* paper opens in too — under **Reading** in Settings if
+you would rather set it there — so a reader who never wants the text rendering
+never sees it, and one who always does never sees a PDF. The reflowed text is
+only fetched once it is being looked at, so reading PDFs costs no round trip for
+an HTML rendering nobody reads.
+
+Where there is no PDF to open — no proxy to fetch it through, or no free copy
+anywhere OpenAlex or Semantic Scholar can see — the reader falls back to the
+reflowed text, or to the abstract, and says which.
 
 `/api/pdf` is the only route that fetches a URL this app did not choose, so it is
 deliberately narrow: https only, never at a private, loopback or link-local
@@ -221,16 +233,19 @@ node scripts/smoke.mjs         # in another
 
 A Playwright script that drives a real Chromium through search → add → read →
 highlight → open the PDF → download it → look up → comment → note → reload, checks
-the panels are on the sides they should be, that the highlights re-anchor and the
-note survives, and that a paper which is not on arXiv still opens on its PDF. It
+the panels are on the sides they should be, that a paper opens on its PDF and that
+the browser's viewer really renders it, that the highlights re-anchor, that the
+note and the chosen mode survive a reload, and that a paper which is not on arXiv
+opens on its PDF too. It
 writes screenshots to `.smoke/`, and stubs arXiv, the PDF routes, the dictionary,
 Wikipedia and OpenAlex, so it needs no network beyond the local server.
 
 ## Known limits
 
 - PDF mode hands the file to the browser's own viewer, so highlighting only works in
-  Reflow mode. Reflow needs an HTML rendering, which arXiv has for recent papers and
-  ar5iv has for most older ones; otherwise the reader falls back to the abstract.
+  Reflow mode — which is why the switch is there, and why choosing it sticks. Reflow
+  needs an HTML rendering, which arXiv has for recent papers and ar5iv has for most
+  older ones; otherwise the reader falls back to the abstract.
 - A PDF is only there to be had if the paper is open access. Behind a paywall, the
   best either index can offer is the landing page, and the reader says so rather
   than pretending the file is coming.

@@ -22,6 +22,7 @@ const defaultSettings: Settings = {
   autoSync: true,
   savePdf: true,
   theme: 'light',
+  readingMode: 'pdf',
 };
 
 function readSettings(): Settings {

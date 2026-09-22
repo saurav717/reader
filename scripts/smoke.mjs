@@ -30,14 +30,32 @@ const ARTICLE = {
   </div></body></html>`,
 };
 
-// Enough of a PDF for the app to accept it and hand it to the viewer; the
-// proxy's own rules about what is a PDF are tested in scripts/pdf-proxy.test.mjs.
-const PDF = Buffer.from(
-  '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n' +
-    '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
-    '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\n' +
-    'trailer<</Root 1 0 R>>\n%%EOF\n',
-);
+// A real one-page PDF, with a cross-reference table and text on the page, so
+// that the browser's viewer actually renders it rather than showing an empty
+// pane — the screenshot this test writes is only worth anything if it does.
+// The proxy's own rules about what is a PDF are in scripts/pdf-proxy.test.mjs.
+const PDF = (() => {
+  const page = 'BT /F1 24 Tf 72 700 Td (Fourier Neural Operator) Tj ET\n' +
+    'BT /F1 12 Tf 72 670 Td (A stand-in for the real paper.) Tj ET';
+  const objects = [
+    '<</Type/Catalog/Pages 2 0 R>>',
+    '<</Type/Pages/Kids[3 0 R]/Count 1>>',
+    '<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Resources<</Font<</F1 5 0 R>>>>/Contents 4 0 R>>',
+    `<</Length ${page.length}>>stream\n${page}\nendstream`,
+    '<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>',
+  ];
+  let body = '%PDF-1.4\n';
+  const offsets = [];
+  objects.forEach((object, index) => {
+    offsets.push(body.length);
+    body += `${index + 1} 0 obj${object}endobj\n`;
+  });
+  const startxref = body.length;
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) body += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  body += `trailer<</Size ${objects.length + 1}/Root 1 0 R>>\nstartxref\n${startxref}\n%%EOF\n`;
+  return Buffer.from(body, 'latin1');
+})();
 
 // The lookup box calls three keyless, CORS-open services. Stubbing them keeps
 // the smoke test offline and its assertions stable.
@@ -161,8 +179,24 @@ check('search returns a parsed result', (await page.locator('article.result h3')
 await page.locator('article.result h3').click();
 await page.getByRole('button', { name: /Add to collection/i }).click();
 await page.getByRole('button', { name: /^Read$/ }).click();
+
+console.log('\n== pdf ==');
+await page.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
+check('a paper opens on its PDF', await page.locator('.pdf-pane iframe').isVisible());
+check(
+  'the PDF comes from the proxy, not the publisher',
+  (await page.locator('.pdf-pane iframe').getAttribute('src'))?.startsWith('blob:'),
+);
+const download = page.locator('.topbar button[aria-label="Download the PDF"]');
+check('a download button sits next to the mode switch', await download.isVisible());
+const saved = page.waitForEvent('download', { timeout: 10000 });
+await download.click();
+check('it saves the file under the paper\'s name', (await saved).suggestedFilename().endsWith('.pdf'));
+
+console.log('\n== reflow ==');
+await page.locator('.segmented button', { hasText: 'Reflow' }).click();
 await page.waitForSelector('.paper-body p');
-check('reader shows the fetched full text', (await page.locator('.paper-body p').count()) === 3);
+check('the switch brings back the reflowed full text', (await page.locator('.paper-body p').count()) === 3);
 
 console.log('\n== highlight ==');
 await page.evaluate(() => {
@@ -197,22 +231,6 @@ check(
   'the left panel counts what is not started',
   (await page.locator('.library-panel .nav-item', { hasText: 'Not started' }).locator('.count').textContent()) === '1',
 );
-
-console.log('\n== pdf ==');
-await page.locator('.segmented button', { hasText: 'PDF' }).click();
-await page.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
-check('the PDF opens in the reader', await page.locator('.pdf-pane iframe').isVisible());
-check(
-  'the PDF comes from the proxy, not the publisher',
-  (await page.locator('.pdf-pane iframe').getAttribute('src'))?.startsWith('blob:'),
-);
-const download = page.locator('.topbar button[aria-label="Download the PDF"]');
-check('a download button sits next to the mode switch', await download.isVisible());
-const saved = page.waitForEvent('download', { timeout: 10000 });
-await download.click();
-check('it saves the file under the paper\'s name', (await saved).suggestedFilename().endsWith('.pdf'));
-await page.locator('.segmented button', { hasText: 'Reflow' }).click();
-await page.waitForSelector('.paper-body p');
 
 console.log('\n== lookup box ==');
 await page.evaluate(() => {
@@ -264,6 +282,10 @@ console.log('\n== persistence and re-anchoring ==');
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForSelector('.paper-body p', { timeout: 10000 }).catch(() => {});
 check('reader reopens on the paper you were reading', (await page.locator('.paper-body p').count()) === 3);
+check(
+  'it reopens in the mode you last chose, not the PDF',
+  (await page.locator('.pdf-pane').count()) === 0,
+);
 const afterReloadMarks = await page.locator('mark.hl').count();
 check('highlights re-anchor after a reload', afterReloadMarks === 2, `marks=${afterReloadMarks}`);
 const noteText = await page
@@ -318,6 +340,9 @@ await phone.getByLabel('Search papers').press('Enter');
 await phone.waitForSelector('article.result');
 await phone.locator('article.result h3').click();
 await phone.getByRole('button', { name: /^Read$/ }).click();
+await phone.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
+check('the phone opens on the PDF too', await phone.locator('.pdf-pane iframe').isVisible());
+await phone.locator('.segmented button', { hasText: 'Reflow' }).click();
 await phone.waitForSelector('.paper-body p');
 check('phone reader opens with the panel dismissed', (await phone.locator('.panel').count()) === 0);
 await phone.screenshot({ path: `${OUT}/mobile-reader.png` });
@@ -376,6 +401,10 @@ check(
   'the download button is there for it too',
   await oaPage.locator('.topbar button[aria-label="Download the PDF"]').isVisible(),
 );
+// The viewer is a browser component inside the frame, and it paints a moment
+// after the frame itself is there; without this the screenshot is of an empty
+// pane and proves nothing.
+await oaPage.waitForTimeout(2500);
 await oaPage.screenshot({ path: `${OUT}/pdf.png` });
 await oaPage.locator('.segmented button', { hasText: 'Reflow' }).click();
 await oaPage.waitForSelector('.paper-body');
