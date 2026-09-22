@@ -42,7 +42,12 @@ export interface PaperRef {
 }
 
 export interface DriveRecord {
+  /** The paper's own folder in Drive; every paper gets one of its own. */
   folderId?: string;
+  /** What that folder is called, for the tooltip on the link to it. */
+  folderName?: string;
+  /** Where the folder opens in Drive, for the link in the collections pane. */
+  folderLink?: string;
   pdfFileId?: string;
   /** Where the PDF opens in Drive's own viewer, for the link in the reader. */
   pdfLink?: string;
