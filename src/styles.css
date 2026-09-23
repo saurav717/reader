@@ -226,8 +226,11 @@ a.icon-btn:hover { color: var(--ink); }
 /* Everything beside the scrolling list — the search box, the source chips,
    the filter row, the banners — keeps the height it asks for. Only the list
    gives way when there is not enough room for all of it. */
+/* The reader's own scrolling column and the book are the ones that give way
+   in .main — left out here, they grew to the paper's full height, .main
+   clipped them, and the paper could not be scrolled at all. */
 .panel > :not(.scroll),
-.main > :not(.scroll) { flex-shrink: 0; }
+.main > :not(.scroll):not(.reader-scroll):not(.book-view) { flex-shrink: 0; }
 
 /* --------------------------------------------------------------- inputs -- */
 
@@ -403,7 +406,7 @@ kbd {
 .progress { height: 2px; background: var(--border-soft); flex-shrink: 0; }
 .progress span { display: block; height: 2px; background: var(--accent); }
 
-.reader-scroll { flex-grow: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 32px 24px 160px; }
+.reader-scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 32px 24px 160px; }
 .reader-column { max-width: 700px; margin: 0 auto; }
 
 .paper-title {
@@ -417,7 +420,7 @@ kbd {
 .paper-authors { margin: 0 0 22px; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
 
 .paper-body { font-family: var(--serif); font-size: var(--reading-size, 18.5px); line-height: 1.68; color: var(--ink); }
-.paper-body p { margin: 0 0 18px; }
+.paper-body p { margin: 0 0 18px; hyphens: auto; -webkit-hyphens: auto; overflow-wrap: break-word; }
 .paper-body h1, .paper-body h2, .paper-body h3, .paper-body h4 {
   font-family: var(--sans);
   line-height: 1.3;
@@ -999,4 +1002,186 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 @media (max-width: 640px) {
   .copy-line { padding: 5px 12px; }
   .copy-picker { left: 8px; right: 8px; }
+}
+
+/* ------------------------------------------------ arXiv's HTML (LaTeXML) --
+   arXiv's rendering comes without its stylesheet, so the classes LaTeXML
+   writes are given a look of their own here: the title block, sections,
+   equations, figures, tables, footnotes and the bibliography. */
+.paper-body .ltx_title_document { display: none; } /* the paper's title is already above */
+.paper-body .ltx_authors {
+  display: flex; flex-wrap: wrap; gap: 4px 18px;
+  margin: 0 0 26px; padding-bottom: 18px; border-bottom: 1px solid var(--border-soft);
+  font-family: var(--sans); font-size: 14px; line-height: 1.5; color: var(--ink-2);
+}
+.paper-body .ltx_creator { display: inline; }
+.paper-body .ltx_personname { font-weight: 500; color: var(--ink); }
+.paper-body .ltx_author_notes, .paper-body .ltx_contact, .paper-body .ltx_role_affiliation {
+  display: block; font-size: 12.5px; font-weight: 400; color: var(--muted);
+}
+.paper-body .ltx_authors .ltx_role_thanks, .paper-body .ltx_author_before, .paper-body .ltx_author_after { display: none; }
+.paper-body .ltx_date { display: block; font-family: var(--sans); font-size: 12.5px; color: var(--muted); margin: -14px 0 22px; }
+
+.paper-body .ltx_abstract {
+  margin: 0 0 30px; padding: 18px 22px 4px;
+  background: var(--surface); border: 1px solid var(--border-soft); border-radius: 10px;
+}
+.paper-body .ltx_abstract .ltx_title_abstract, .paper-body h6 {
+  margin: 0 0 10px; font-family: var(--sans); font-size: 11.5px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+.paper-body .ltx_abstract p { font-size: 0.94em; }
+.paper-body .ltx_keywords, .paper-body .ltx_classification { font-family: var(--sans); font-size: 13px; color: var(--ink-2); margin: 0 0 22px; }
+
+.paper-body h2 { font-size: 19px; letter-spacing: -0.005em; }
+.paper-body h3 { font-size: 16px; }
+.paper-body h4, .paper-body h5 { font-size: 14.5px; }
+.paper-body .ltx_title_section { padding-top: 10px; border-top: 1px solid var(--border-soft); margin-top: 40px; }
+.paper-body .ltx_tag_section, .paper-body .ltx_tag_subsection, .paper-body .ltx_tag_subsubsection { color: var(--accent); margin-right: 0.35em; }
+.paper-body .ltx_title_paragraph { display: inline; font-family: var(--sans); font-size: 0.86em; font-weight: 600; margin: 0 0.4em 0 0; }
+.paper-body .ltx_paragraph > .ltx_title_paragraph + .ltx_para > .ltx_p:first-child { display: inline; }
+.paper-body .ltx_para { margin: 0; }
+
+.paper-body .ltx_font_bold { font-weight: 600; }
+.paper-body .ltx_font_italic { font-style: italic; }
+.paper-body .ltx_font_smallcaps { font-variant: small-caps; }
+.paper-body .ltx_font_typewriter { font-family: var(--mono); font-size: 0.86em; }
+.paper-body .ltx_font_upright { font-style: normal; }
+.paper-body .ltx_centering, .paper-body .ltx_align_center { text-align: center; }
+.paper-body .ltx_align_right { text-align: right; }
+.paper-body .ltx_align_left { text-align: left; }
+.paper-body .ltx_ERROR { font-family: var(--mono); font-size: 0.8em; color: var(--muted); }
+.paper-body a { text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.paper-body .ltx_ref { text-decoration: none; }
+.paper-body .ltx_ref:hover { text-decoration: underline; }
+.paper-body sup, .paper-body sub { line-height: 0; }
+
+/* Equations: LaTeXML sets them in a table — no grid, the number to the right. */
+.paper-body table.ltx_equation, .paper-body table.ltx_equationgroup, .paper-body table.ltx_eqn_table {
+  width: 100%; margin: 14px 0 20px; font-family: inherit; font-size: inherit; border: 0;
+}
+.paper-body .ltx_eqn_table td, .paper-body .ltx_equation td, .paper-body .ltx_equationgroup td { border: 0; padding: 0; }
+.paper-body .ltx_eqn_cell { text-align: center; }
+.paper-body .ltx_eqn_center_padleft, .paper-body .ltx_eqn_center_padright { width: 50%; }
+.paper-body .ltx_eqn_eqno { text-align: right; white-space: nowrap; padding-left: 12px !important; font-family: var(--sans); font-size: 13px; color: var(--muted); }
+.paper-body math[display='block'] { display: block math; margin: 12px 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; }
+.paper-body .ltx_eqn_table math[display='block'] { margin: 0; }
+
+/* Figures and tables. */
+.paper-body figure.ltx_figure, .paper-body figure.ltx_table, .paper-body .ltx_float { margin: 28px 0; text-align: center; }
+.paper-body .ltx_flex_figure { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; gap: 12px; }
+.paper-body .ltx_flex_cell { flex: 1 1 0; min-width: 0; }
+.paper-body .ltx_flex_break { flex-basis: 100%; height: 0; }
+.paper-body img.ltx_graphics {
+  display: inline-block; margin: 0 auto; max-width: 100%; height: auto;
+  background: #fff; border-radius: 6px; padding: 4px; box-shadow: 0 0 0 1px var(--border-soft);
+}
+.paper-body figcaption, .paper-body .ltx_caption {
+  display: block; text-align: left; font-family: var(--sans); font-size: 13px; line-height: 1.55; color: var(--ink-2); margin: 10px 0 0;
+}
+.paper-body figure.ltx_table > .ltx_caption { margin: 0 0 10px; }
+.paper-body .ltx_tag_figure, .paper-body .ltx_tag_table { font-weight: 600; color: var(--ink); }
+.paper-body .ltx_inline-block { display: inline-block; max-width: 100%; }
+.paper-body .ltx_transformed_outer { display: block; max-width: 100%; overflow-x: auto; }
+.paper-body .ltx_transformed_inner { transform: none !important; }
+.paper-body table.ltx_tabular { width: auto; margin: 0 auto; border: 0; font-variant-numeric: tabular-nums; }
+.paper-body .ltx_tabular td, .paper-body .ltx_tabular th { border: 0; padding: 4px 9px; }
+.paper-body .ltx_tabular .ltx_border_t { border-top: 1px solid var(--ink-2); }
+.paper-body .ltx_tabular .ltx_border_tt { border-top: 2px solid var(--ink-2); }
+.paper-body .ltx_tabular .ltx_border_b { border-bottom: 1px solid var(--ink-2); }
+.paper-body .ltx_tabular .ltx_border_bb { border-bottom: 2px solid var(--ink-2); }
+.paper-body .ltx_tabular .ltx_border_l { border-left: 1px solid var(--border); }
+.paper-body .ltx_tabular .ltx_border_r { border-right: 1px solid var(--border); }
+.paper-body figure.ltx_table { overflow-x: auto; }
+
+/* Lists: LaTeXML writes its own bullets and numbers. */
+.paper-body ul.ltx_itemize, .paper-body ol.ltx_enumerate { list-style: none; padding-left: 28px; }
+.paper-body .ltx_item { position: relative; }
+.paper-body .ltx_item > .ltx_tag_item { position: absolute; left: -24px; width: 20px; text-align: right; color: var(--muted); }
+.paper-body .ltx_item .ltx_para > .ltx_p { margin-bottom: 8px; }
+
+/* Theorems and proofs. */
+.paper-body .ltx_theorem { margin: 22px 0; padding: 14px 18px 2px; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 8px 8px 0; }
+.paper-body .ltx_theorem .ltx_title_theorem { margin: 0 0 8px; font-size: 14px; }
+.paper-body .ltx_proof .ltx_title_proof { display: inline; font-size: 0.9em; font-style: italic; margin-right: 0.4em; }
+
+/* Footnotes: LaTeXML puts the note inside the sentence. Keep it there, but quiet. */
+.paper-body .ltx_note_mark { font-family: var(--sans); font-size: 0.66em; color: var(--accent); vertical-align: super; line-height: 0; }
+.paper-body .ltx_note_outer {
+  font-family: var(--sans); font-size: 0.72em; line-height: 1.5; color: var(--muted);
+}
+.paper-body .ltx_note_outer::before { content: ' ('; }
+.paper-body .ltx_note_outer::after { content: ')'; }
+.paper-body .ltx_note_content > .ltx_note_mark, .paper-body .ltx_note_type { display: none; }
+
+/* The bibliography. */
+.paper-body .ltx_bibliography { margin-top: 40px; }
+.paper-body .ltx_biblist { list-style: none; padding: 0; margin: 0; }
+.paper-body .ltx_bibitem {
+  position: relative; padding-left: 38px; margin: 0 0 10px;
+  font-family: var(--sans); font-size: 13px; line-height: 1.55; color: var(--ink-2);
+}
+.paper-body .ltx_tag_bibitem { position: absolute; left: 0; width: 32px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.paper-body .ltx_bibblock { display: inline; }
+.paper-body .ltx_bibitem .ltx_bibblock + .ltx_bibblock::before { content: ' '; }
+
+/* ---------------------------------------------------------------- book -- */
+.book-view {
+  flex: 1 1 0; min-height: 0; display: flex; flex-direction: column;
+  padding: 22px 28px 12px; background: var(--rail);
+}
+.book-spread {
+  position: relative; flex: 1 1 0; min-height: 0;
+  width: 100%; max-width: 1360px; margin: 0 auto;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px 6px 4px 4px;
+  box-shadow: var(--shadow-md), 0 1px 0 var(--border) inset;
+}
+/* The gutter: a fold down the middle, where the two pages meet. */
+.book-spread.two::before {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 64px; transform: translateX(-50%);
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.055) 42%, rgba(0, 0, 0, 0.1) 50%, rgba(0, 0, 0, 0.055) 58%, transparent);
+  pointer-events: none;
+}
+:root[data-theme='dark'] .book-spread.two::before {
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.18) 42%, rgba(0, 0, 0, 0.32) 50%, rgba(0, 0, 0, 0.18) 58%, transparent);
+}
+.book-pages {
+  position: absolute; inset: 40px 56px 36px;
+  column-gap: 112px; column-fill: auto;
+  overflow: hidden;
+}
+.book-spread:not(.two) .book-pages { inset: 28px 28px 24px; column-gap: 56px; }
+.book-pages .paper-body { font-size: var(--reading-size, 17px); line-height: 1.6; text-align: justify; }
+.book-pages .paper-body h1, .book-pages .paper-body h2, .book-pages .paper-body h3, .book-pages .paper-body h4,
+.book-pages .paper-body h5, .book-pages .paper-body h6 { text-align: left; break-after: avoid; }
+.book-pages .paper-title { font-size: 28px; }
+/* A margin is lost where a paragraph runs on from the page before, so the
+   space between paragraphs is padding in the book. */
+.book-pages .paper-body p { margin-bottom: 0; padding-bottom: 16px; }
+.book-pages figure, .book-pages img, .book-pages table, .book-pages .ltx_theorem, .book-pages .pdf-equation,
+.book-pages .ltx_bibitem, .book-pages .ltx_abstract { break-inside: avoid; }
+.book-pages img, .book-pages .pdf-crop { max-height: calc(var(--page-height, 600px) - 80px); width: auto; object-fit: contain; }
+.book-pages .ltx_abstract { text-align: left; }
+.book-pages figcaption, .book-pages .ltx_caption, .book-pages .ltx_bibitem { text-align: left; }
+.book-turn {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 36px; height: 64px; display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer;
+  opacity: 0.55; transition: opacity 0.15s, background 0.15s;
+}
+.book-turn.prev { left: 8px; }
+.book-turn.next { right: 8px; }
+.book-turn:hover:not(:disabled) { opacity: 1; background: rgba(127, 127, 127, 0.12); color: var(--ink); }
+.book-turn:disabled { opacity: 0; pointer-events: none; }
+.book-nav {
+  flex-shrink: 0; display: flex; align-items: center; gap: 14px;
+  width: 100%; max-width: 1360px; margin: 10px auto 0; padding: 0 4px;
+  font-family: var(--sans); font-size: 12px; color: var(--muted);
+}
+.book-folio { white-space: nowrap; font-variant-numeric: tabular-nums; min-width: 128px; }
+.book-nav input[type='range'] { flex-grow: 1; accent-color: var(--accent); }
+@media (max-width: 720px) {
+  .book-view { padding: 10px 8px 8px; }
+  .book-spread:not(.two) .book-pages { inset: 22px 20px 18px; }
+  .book-turn { display: none; }
 }

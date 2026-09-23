@@ -5,6 +5,9 @@
  * itself. This is the half that talks to pdf.js — loaded on demand, since
  * it is a large library that a reader in PDF mode never needs.
  */
+// Safari cannot `for await` over a ReadableStream, and pdf.js reads each
+// page's text that way — even in the legacy build.
+import './streamIterator';
 // The legacy build carries its own polyfills — the modern one leans on
 // what only the newest browsers have, `Map.prototype.getOrInsertComputed`
 // among them, and a reader in last year's browser gets nothing.

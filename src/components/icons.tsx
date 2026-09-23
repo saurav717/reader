@@ -219,3 +219,29 @@ export const GoogleMark = ({ size = 18 }: { size?: number }) => (
     <path fill="#EA4335" d="M24 10.8c3.2 0 6.1 1.1 8.4 3.3l6.3-6.3A21 21 0 0 0 24 2 22 22 0 0 0 4.7 14.5l7.2 5.7A13 13 0 0 1 24 10.8z" />
   </svg>
 );
+
+export const OpenBookIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M12 6.5C10.4 5.2 8 4.5 3.5 4.5v14c4.5 0 6.9.7 8.5 2 1.6-1.3 4-2 8.5-2v-14c-4.5 0-6.9.7-8.5 2Z" />
+    <path d="M12 6.5v14" />
+  </Icon>
+);
+
+export const ScrollPageIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="5.5" y="3.5" width="13" height="17" rx="2" />
+    <path d="M9 8h6M9 12h6M9 16h4" />
+  </Icon>
+);
+
+export const ChevronLeftIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="m15 6-6 6 6 6" />
+  </Icon>
+);
+
+export const ChevronRightIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="m9 6 6 6-6 6" />
+  </Icon>
+);

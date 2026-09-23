@@ -20,6 +20,7 @@ import SignInPrompt from './SignInPrompt';
 import CopyPicker, { type CopyNote } from './CopyPicker';
 import PdfDropIn from './PdfDropIn';
 import MiniBrowser from './MiniBrowser';
+import BookView from './BookView';
 import { findLocations, mergeLocations, paperLocations, scholarPaperUrl } from '../lib/locations';
 import type { PaperLocation } from '../types';
 import {
@@ -47,6 +48,8 @@ import {
   PanelLeftIcon,
   PanelRightIcon,
   SunIcon,
+  OpenBookIcon,
+  ScrollPageIcon,
 } from './icons';
 
 interface Props {
@@ -63,6 +66,18 @@ interface Props {
 }
 
 const SIZES = [16.5, 18.5, 21];
+
+/** Scrolling down one long column, or turning the pages of a book. Remembered on this device. */
+type Layout = 'scroll' | 'book';
+const LAYOUT_KEY = 'reader.layout';
+
+function savedLayout(): Layout {
+  try {
+    return localStorage.getItem(LAYOUT_KEY) === 'book' ? 'book' : 'scroll';
+  } catch {
+    return 'scroll';
+  }
+}
 
 interface PendingSelection {
   top: number;
@@ -108,6 +123,15 @@ export default function Reader({
   const [reflowProgress, setReflowProgress] = useState<ReflowProgress | null>(null);
   const [mode, setMode] = useState<ReadingMode>(preferredMode);
   const [sizeIndex, setSizeIndex] = useState(1);
+  const [layout, setLayout] = useState<Layout>(savedLayout);
+  const chooseLayout = useCallback((next: Layout) => {
+    setLayout(next);
+    try {
+      localStorage.setItem(LAYOUT_KEY, next);
+    } catch {
+      // A private window: the choice lasts as long as the page.
+    }
+  }, []);
   const [pending, setPending] = useState<PendingSelection | null>(null);
   const [lookup, setLookup] = useState<LookupTarget | null>(null);
 
@@ -805,7 +829,8 @@ export default function Reader({
     for (const entry of resolved) {
       paint(buildIndex(root), entry.at.start, entry.at.end, entry.highlight);
     }
-  }, [content, mine, onOrphans]);
+    // A new layout is a new copy of the text, unpainted.
+  }, [content, mine, onOrphans, layout]);
 
   useEffect(() => {
     const root = bodyRef.current;
@@ -813,7 +838,7 @@ export default function Reader({
     root.querySelectorAll('mark.hl').forEach((mark) => {
       mark.classList.toggle('is-selected', (mark as HTMLElement).dataset.highlightId === selectedHighlightId);
     });
-  }, [selectedHighlightId, content, mine]);
+  }, [selectedHighlightId, content, mine, layout]);
 
   const captureSelection = useCallback(() => {
     const root = bodyRef.current;
@@ -937,6 +962,85 @@ export default function Reader({
 
   const year = paper.published ? new Date(paper.published).getFullYear() : null;
 
+  // The paper itself, the same whether it scrolls or is turned like a book.
+  const article = (
+    <>
+      <div className="meta" style={{ marginBottom: 10 }}>
+        {paper.categories.slice(0, 3).map((category) => (
+          <span key={category} className="mono" style={{ border: '1px solid var(--border)', borderRadius: 5, padding: '2px 6px' }}>
+            {category}
+          </span>
+        ))}
+        {year ? <span>{year}</span> : null}
+        {paper.venue ? <span>{paper.venue}</span> : null}
+      </div>
+      <h1 className="paper-title">{paper.title}</h1>
+      <p className="paper-authors">{paper.authors.join(' · ')}</p>
+
+      {content?.notice ? (
+        <p className="banner warn" style={{ marginBottom: 20 }}>
+          {content.notice}
+          {pdfLookup === 'ready' && canFetchPdf ? (
+            <>
+              {' '}
+              <button type="button" className="link-btn" onClick={() => chooseMode('pdf')}>
+                Read the PDF instead
+              </button>
+              .
+            </>
+          ) : null}
+          {paper.landingUrl ? (
+            <>
+              {' '}
+              <a href={paper.landingUrl} target="_blank" rel="noreferrer noopener">
+                Open the source
+              </a>
+              .
+            </>
+          ) : null}
+        </p>
+      ) : null}
+
+      {loading ? (
+        <p style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13 }}>
+          <span className="spinner" />
+          {reflowProgress
+            ? reflowProgress.stage === 'reading'
+              ? ` Reading the PDF — page ${reflowProgress.done} of ${reflowProgress.total}…`
+              : ' Painting the figures and tables…'
+            : pdfBlob
+              ? ' Reading the PDF…'
+              : canFetchPdf && pdfLookup !== 'none' && !pdfError
+                ? driveProbe === 'checking'
+                  ? ' Looking in your Drive…'
+                  : pdfLookup === 'checking'
+                    ? ' Looking for the PDF…'
+                    : ' Fetching the PDF to reflow it…'
+                : ' Fetching the full text…'}
+        </p>
+      ) : null}
+
+      <div
+        ref={bodyRef}
+        className="paper-body"
+        onMouseUp={captureSelection}
+        onKeyUp={captureSelection}
+        onContextMenu={(event) => {
+          // Only take the menu over when there is something to look up.
+          if (openLookup()) event.preventDefault();
+        }}
+        onClick={(event) => {
+          const mark = (event.target as HTMLElement).closest('mark.hl') as HTMLElement | null;
+          if (mark?.dataset.highlightId) {
+            onSelectHighlight(mark.dataset.highlightId);
+            onNotes(true);
+          }
+        }}
+        dangerouslySetInnerHTML={{ __html: content?.html ?? '' }}
+      />
+    </>
+  );
+
   return (
     <div className="main">
       <div className="topbar">
@@ -1020,6 +1124,18 @@ export default function Reader({
           </a>
         ) : null}
 
+        {mode === 'reflow' ? (
+          <button
+            type="button"
+            className="icon-btn sm"
+            aria-pressed={layout === 'book'}
+            aria-label={layout === 'book' ? 'Read as one scrolling page' : 'Read as a book, two pages side by side'}
+            title={layout === 'book' ? 'Scroll view' : 'Book view — two pages side by side'}
+            onClick={() => chooseLayout(layout === 'book' ? 'scroll' : 'book')}
+          >
+            {layout === 'book' ? <ScrollPageIcon size={17} /> : <OpenBookIcon size={18} />}
+          </button>
+        ) : null}
         <button
           type="button"
           className="icon-btn sm"
@@ -1270,82 +1386,19 @@ export default function Reader({
             </div>
           )}
         </div>
-      ) : (
+      ) : layout === 'book' ? (
+          <BookView
+            contentKey={content}
+            initialProgress={paper.progress}
+            onProgress={(fraction) => setProgress(paper.id, fraction)}
+            style={{ ['--reading-size' as string]: `${SIZES[sizeIndex] - 1.5}px` }}
+          >
+            {article}
+          </BookView>
+        ) : (
         <div className="reader-scroll" ref={scrollRef} onScroll={onScroll}>
           <div className="reader-column" style={{ ['--reading-size' as string]: `${SIZES[sizeIndex]}px` }}>
-            <div className="meta" style={{ marginBottom: 10 }}>
-              {paper.categories.slice(0, 3).map((category) => (
-                <span key={category} className="mono" style={{ border: '1px solid var(--border)', borderRadius: 5, padding: '2px 6px' }}>
-                  {category}
-                </span>
-              ))}
-              {year ? <span>{year}</span> : null}
-              {paper.venue ? <span>{paper.venue}</span> : null}
-            </div>
-            <h1 className="paper-title">{paper.title}</h1>
-            <p className="paper-authors">{paper.authors.join(' · ')}</p>
-
-            {content?.notice ? (
-              <p className="banner warn" style={{ marginBottom: 20 }}>
-                {content.notice}
-                {pdfLookup === 'ready' && canFetchPdf ? (
-                  <>
-                    {' '}
-                    <button type="button" className="link-btn" onClick={() => chooseMode('pdf')}>
-                      Read the PDF instead
-                    </button>
-                    .
-                  </>
-                ) : null}
-                {paper.landingUrl ? (
-                  <>
-                    {' '}
-                    <a href={paper.landingUrl} target="_blank" rel="noreferrer noopener">
-                      Open the source
-                    </a>
-                    .
-                  </>
-                ) : null}
-              </p>
-            ) : null}
-
-            {loading ? (
-              <p style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13 }}>
-                <span className="spinner" />
-                {reflowProgress
-                  ? reflowProgress.stage === 'reading'
-                    ? ` Reading the PDF — page ${reflowProgress.done} of ${reflowProgress.total}…`
-                    : ' Painting the figures and tables…'
-                  : pdfBlob
-                    ? ' Reading the PDF…'
-                    : canFetchPdf && pdfLookup !== 'none' && !pdfError
-                      ? driveProbe === 'checking'
-                        ? ' Looking in your Drive…'
-                        : pdfLookup === 'checking'
-                          ? ' Looking for the PDF…'
-                          : ' Fetching the PDF to reflow it…'
-                      : ' Fetching the full text…'}
-              </p>
-            ) : null}
-
-            <div
-              ref={bodyRef}
-              className="paper-body"
-              onMouseUp={captureSelection}
-              onKeyUp={captureSelection}
-              onContextMenu={(event) => {
-                // Only take the menu over when there is something to look up.
-                if (openLookup()) event.preventDefault();
-              }}
-              onClick={(event) => {
-                const mark = (event.target as HTMLElement).closest('mark.hl') as HTMLElement | null;
-                if (mark?.dataset.highlightId) {
-                  onSelectHighlight(mark.dataset.highlightId);
-                  onNotes(true);
-                }
-              }}
-              dangerouslySetInnerHTML={{ __html: content?.html ?? '' }}
-            />
+            {article}
           </div>
         </div>
       )}
