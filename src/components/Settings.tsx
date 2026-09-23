@@ -326,7 +326,10 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             the proxy above. The same offer can instead open a browser <em>inside the reader</em>, in the PDF pane:
             a browser the proxy drives, shown here and driven from here, which needs no screen — the Node proxy
             with its Chromium on any machine, or the Cloudflare Worker with Cloudflare&rsquo;s Browser Rendering
-            bound to it.
+            bound to it. A site whose check for a person is Cloudflare&rsquo;s refuses Cloudflare&rsquo;s own browser
+            by design; give the Worker a Browserless token (<span className="mono">npx wrangler secret put
+            BROWSERLESS_TOKEN</span>) and such a site is opened in a browser at Browserless instead, on an address
+            of its own, where the box is yours to tick.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 12, lineHeight: 1.5, color: access?.available ? 'var(--accent)' : 'var(--muted)' }}>

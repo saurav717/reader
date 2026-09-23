@@ -260,6 +260,40 @@ describe("a site's check for a person, met by the PDF proxy", () => {
     assert.equal(body.loginWall, undefined);
     assert.equal(body.host, 'www.academia.edu');
   });
+
+  it('is asked from a browser at Browserless by the Worker that has one, and said to be met there when that browser gives no file either', async () => {
+    const { default: worker } = await import('../worker/index.js');
+    const asked = [];
+    upstream = (url) => {
+      asked.push(url);
+      // The file: the check. Browserless: no browser this time — which is the answer when the check needs a person too.
+      if (url.startsWith('https://production-sfo.browserless.io/')) return new Response('Too many concurrent sessions', { status: 429 });
+      return CHALLENGE();
+    };
+    const noted = [];
+    const env = {
+      BROWSERLESS_TOKEN: 'secret',
+      BROWSER_SESSION: { idFromName: (name) => name, get: () => ({ fetch: async (url) => (noted.push(String(url)), new Response('{"ok":true}')) }) },
+    };
+    const response = await worker.fetch(
+      new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://www.academia.edu/download/1/10.pdf'), {
+        headers: { Origin: 'https://saurav717.github.io' },
+      }),
+      env,
+    );
+    assert.equal(response.status, 502);
+    const body = await response.json();
+    assert.match(body.error, /^www\.academia\.edu checks for a person before it hands out the file, and the browser at Browserless met a box to tick/);
+    assert.equal(body.botCheck, true);
+    assert.equal(body.where, 'browserless');
+    // The pane offer stands, as from the Node proxy: the browser at Browserless may pass it with a person.
+    assert.equal(body.loginWall, true);
+    assert.equal(body.host, 'www.academia.edu');
+    // Browserless was asked, at its stealth Chromium, with the token — and the host noted for the pane.
+    const browserless = asked.find((url) => url.startsWith('https://production-sfo.browserless.io/'));
+    assert.match(browserless, /^https:\/\/production-sfo\.browserless\.io\/chromium\/stealth\?token=secret&timeout=90000$/);
+    assert.deepEqual(noted, ['https://browser-session/note-check?host=www.academia.edu']);
+  });
 });
 
 // ------------------------------------------- PubMed Central, for programs ----
