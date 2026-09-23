@@ -116,16 +116,21 @@ const PDF = await printer.pdf({ format: 'Letter', printBackground: true });
 await printer.close();
 check('Chromium printed a PDF', PDF.length > 10000 && PDF.subarray(0, 4).toString() === '%PDF', `${PDF.length} bytes`);
 
+/** The proxy and the indexes, stubbed: the printed paper is the only PDF, and there is no HTML rendering. */
+async function stub(target, pdf) {
+  await target.route('**/arxiv/query*', (route) => route.fulfill({ status: 200, contentType: 'application/atom+xml', body: ATOM }));
+  // No HTML rendering: the PDF is the only full text there is.
+  await target.route('**/arxiv/html*', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"none"}' }));
+  await target.route('**/arxiv/pdf*', (route) => route.fulfill({ status: 200, contentType: 'application/pdf', body: pdf }));
+  await target.route('**/pdf?*', (route) => route.fulfill({ status: 200, contentType: 'application/pdf', body: pdf }));
+  await target.route('**/api.openalex.org/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"results":[]}' }));
+  await target.route('**/api.crossref.org/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"message":{"items":[]}}' }));
+  await target.route('**/api.semanticscholar.org/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"data":[]}' }));
+  await target.route('**/scholar/*', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"none"}' }));
+}
+
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-await context.route('**/api/arxiv/query*', (route) => route.fulfill({ status: 200, contentType: 'application/atom+xml', body: ATOM }));
-// No HTML rendering: the PDF is the only full text there is.
-await context.route('**/api/arxiv/html*', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"none"}' }));
-await context.route('**/api/arxiv/pdf*', (route) => route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF }));
-await context.route('**/api/pdf*', (route) => route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF }));
-await context.route('**/api.openalex.org/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"results":[]}' }));
-await context.route('**/api.crossref.org/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"message":{"items":[]}}' }));
-await context.route('**/api.semanticscholar.org/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"data":[]}' }));
-await context.route('**/api/scholar*', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"none"}' }));
+await stub(context, PDF);
 
 /** Leaves exactly one source chip switched on, whatever the defaults are. */
 async function selectOnlySource(target, label) {
@@ -268,7 +273,7 @@ const blank = await browser.newPage();
 await blank.setContent('<body style="margin:0"><div style="width:612pt;height:792pt;background:#eee"></div></body>');
 const SCAN = await blank.pdf({ format: 'Letter', printBackground: true });
 await blank.close();
-await context.route('**/api/arxiv/pdf*', (route) =>
+await context.route('**/arxiv/pdf*', (route) =>
   route.fulfill({ status: 200, contentType: 'application/pdf', body: route.request().url().includes('1901.00001') ? SCAN : PDF }),
 );
 await page.getByRole('button', { name: /Back to the collection/i }).click();
@@ -289,6 +294,31 @@ check('a scan opens on the PDF instead', await page.locator('.pdf-pane iframe').
 await page.locator('.segmented button', { hasText: 'Reflow' }).click();
 await page.waitForSelector('.reader-column .banner', { timeout: 30000 });
 check('and Reflow says why there is no text', ((await page.locator('.reader-column .banner').textContent()) || '').includes('no text that can be read'));
+
+console.log('\n== without a worker ==');
+// A host that will not serve the worker script — or a browser that will
+// not start one — leaves pdf.js to read on the main thread, and the paper
+// must come out the same.
+const noWorker = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+await stub(noWorker, PDF);
+await noWorker.route('**/assets/pdf.worker*', (route) => route.fulfill({ status: 404, contentType: 'text/plain', body: 'gone' }));
+const bare = await noWorker.newPage();
+const bareWarnings = [];
+bare.on('console', (message) => message.type() === 'warning' && bareWarnings.push(message.text()));
+await bare.goto(BASE, { waitUntil: 'networkidle' });
+await bare.getByRole('button', { name: /Not now — keep everything in this browser/i }).click();
+await selectOnlySource(bare, 'arXiv');
+await bare.getByLabel('Search papers').fill('fourier neural operator');
+await bare.getByLabel('Search papers').press('Enter');
+await bare.waitForSelector('article.result');
+await bare.locator('article.result', { hasText: 'Fourier Neural Operator' }).locator('h3').click();
+await bare.getByRole('button', { name: /^Read$/ }).click();
+await bare.waitForSelector('.pdf-pane iframe', { timeout: 15000 });
+await bare.locator('.segmented button', { hasText: 'Reflow' }).click();
+await bare.waitForSelector('.paper-body h2', { timeout: 60000 });
+check('the paper is still read, on the main thread', (await bare.locator('.paper-body figure.pdf-table table').count()) === 2 && (await bare.locator('.paper-body figure.pdf-figure img').count()) === 1);
+check('and the console says why', bareWarnings.some((text) => text.includes('main thread')), bareWarnings.join(' | '));
+await noWorker.close();
 
 const real = errors.filter((error) => !/favicon|net::ERR_|Failed to load resource/.test(error));
 check('no page errors', real.length === 0, real.join(' | '));

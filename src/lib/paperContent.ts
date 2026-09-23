@@ -132,12 +132,23 @@ function abstractDocument(paper: Paper, notice?: string): PaperContent {
   };
 }
 
-export async function loadPaperContent(paper: Paper, signal?: AbortSignal): Promise<PaperContent> {
+/** The arXiv id in one of a paper's copies — "arxiv.org/pdf/2609.13072v1" — where there is one. */
+export function arxivIdFromUrl(url: string): string | undefined {
+  return /arxiv\.org\/(?:abs|pdf|html)\/((?:[a-z-]+(?:\.[A-Z]{2})?\/\d{7}|\d{4}\.\d{4,5})(?:v\d+)?)/i.exec(url)?.[1];
+}
+
+/**
+ * The HTML rendering arXiv keeps, or the abstract. A paper found through
+ * Scholar or a DOI may not carry its arXiv id itself; `arxivId` is the one
+ * found among its copies.
+ */
+export async function loadPaperContent(paper: Paper, signal?: AbortSignal, options: { arxivId?: string } = {}): Promise<PaperContent> {
   if (!hasProxy()) {
     return abstractDocument(paper, `${NO_PROXY_REASON} Showing the abstract — you can still highlight it.`);
   }
 
-  if (!paper.arxivId) {
+  const arxivId = paper.arxivId || options.arxivId;
+  if (!arxivId) {
     return abstractDocument(
       paper,
       'Reflowed text — the kind you can highlight — is only rendered for arXiv papers.',
@@ -145,7 +156,7 @@ export async function loadPaperContent(paper: Paper, signal?: AbortSignal): Prom
   }
 
   try {
-    const response = await fetch(api(`/arxiv/html?id=${encodeURIComponent(paper.arxivId)}`), { signal });
+    const response = await fetch(api(`/arxiv/html?id=${encodeURIComponent(arxivId)}`), { signal });
     if (!response.ok) {
       return abstractDocument(paper, 'arXiv has no HTML rendering of this paper — showing the abstract.');
     }
