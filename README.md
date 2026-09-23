@@ -832,8 +832,8 @@ no window, no pop-up — which is either of two:
   code: 429* is the same refusal from a Worker deployed before this reuse,
   and `npm run deploy:worker` brings it up to date. The sign-in outlasts the browser session
   only where the Worker has somewhere to keep its cookies: bind a KV
-  namespace as `SESSIONS` (the `[[kv_namespaces]]` block in `wrangler.toml`,
-  which ships with a placeholder where the namespace's id goes) and they
+  namespace as `SESSIONS` (the `[[kv_namespaces]]` block in `wrangler.toml`)
+  and they
   are saved when the browser closes or hands over a file, restored when the
   next one opens, and used to retry a login wall on `/pdf` — which is also
   what **Signed in — try the copies again** and **Forget sign-ins** act on

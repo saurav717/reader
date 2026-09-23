@@ -31,10 +31,9 @@ new_sqlite_classes = ["BrowserSession"]
 #
 #     npx wrangler kv namespace create SESSIONS
 #
-# It prints an id; put it in place of the placeholder below and redeploy.
-# `wrangler deploy` refuses the placeholder, so the Worker cannot go out
-# with the binding half made. To do without it, comment the three lines
-# out again: a sign-in then lasts as long as the browser session.
+# It prints an id, which is the one below; a Worker deployed to another
+# account needs that account's own. To do without it, comment the three
+# lines out: a sign-in then lasts as long as the browser session.
 [[kv_namespaces]]
 binding = "SESSIONS"
-id = "PASTE_THE_ID_FROM_wrangler_kv_namespace_create_SESSIONS"
+id = "4b383f85f5d041569dc04f04350b1c38"
