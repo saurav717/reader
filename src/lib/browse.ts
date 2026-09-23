@@ -222,6 +222,29 @@ export function browseSites(paper: PaperRef, locations: PaperLocation[] | null, 
   return sites.map(({ rank: _rank, ...site }) => site);
 }
 
+/**
+ * What to tell the person when the page the browser is on is a site's check
+ * for a person — Cloudflare's "Just a moment…" and its kin — rather than the
+ * site itself, or null when it is not. The check is the site's, and it
+ * either shows a box to tick or lets the browser through on its own; what
+ * the person needs to know is which page they are looking at and that the
+ * box, if one appears, is theirs to tick.
+ */
+export function botCheck(status: Pick<BrowseStatus, 'url' | 'title'> | null): string | null {
+  if (!status?.url) return null;
+  let host = '';
+  try {
+    host = new URL(status.url).hostname.replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+  const title = status.title || '';
+  const cloudflare = /[?&]__cf_chl(?:_rt)?_tk=/.test(status.url) || /^just a moment|attention required!?\s*\|\s*cloudflare/i.test(title);
+  const generic = /verify you are human|security verification|checking your browser|are you a robot|one more step/i.test(title);
+  if (!cloudflare && !generic) return null;
+  return `${host} is checking that a person is here before it shows the page. If a box to tick appears, tick it; when the check passes the page follows on its own. If it does not pass, open the file in a tab of your own and drop it on the paper instead.`;
+}
+
 /** A site typed by hand, made into something the proxy will open, or null. */
 export function siteFromInput(value: string): string | null {
   const trimmed = value.trim();

@@ -41,7 +41,7 @@ import {
   signInWindowOpen,
 } from './access.js';
 import { isPrivateHost, MAX_PDF_BYTES, rejectUrl } from './fetchPdf.js';
-import { acceptKey, BUTTONS, clamp, clicks, closedError, VIEWPORT } from './browseShared.js';
+import { acceptKey, BUTTONS, clamp, clicks, closedError, fetchFileInPage, VIEWPORT } from './browseShared.js';
 
 export { acceptKey, VIEWPORT };
 /** How long a frame poll waits before answering with nothing new. */
@@ -387,7 +387,10 @@ export async function grab() {
     // Mid-navigation; the candidates from the URL alone are still worth a try.
   }
   const urls = [...pdfCandidates(url), ...pdfLinksIn(html, url), url];
-  const bytes = await fetchFileThrough(page.context(), urls);
+  // The page fetches first, with the standing it has — a bot check passed
+  // binds its clearance to this page's user-agent, which the profile's own
+  // requests do not share — and the profile's fetch follows the links after.
+  const bytes = (await fetchFileInPage(page, urls, MAX_PDF_BYTES)) || (await fetchFileThrough(page.context(), urls));
   if (!bytes) {
     throw new Error(
       `no PDF was found from ${new URL(url).hostname} — open the file itself in the browser here, or sign in first if the page is asking for it`,

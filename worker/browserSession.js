@@ -22,10 +22,9 @@
  * with nobody polling closes the browser, through an alarm.
  */
 import puppeteer from '@cloudflare/puppeteer';
-import { BROWSER_UA } from '../server/scholar.js';
-import { rejectUrl } from '../server/fetchPdf.js';
+import { MAX_PDF_BYTES, rejectUrl } from '../server/fetchPdf.js';
 import { pdfCandidates, pdfLinksIn } from '../server/pdfLinks.js';
-import { closedError, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
+import { closedError, fetchFileInPage, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
 import {
   apply,
   availability,
@@ -225,7 +224,8 @@ export class BrowserSession {
         this.token = crypto.randomUUID();
         await this.state.storage.put('session', { token: this.token, id });
         await this.adopt(browser, id);
-        await this.page.setUserAgent(BROWSER_UA).catch(() => undefined);
+        // No user-agent override: the browser presents itself as what it is,
+        // string and client hints agreeing. See `open` in worker/browse.js.
         await restoreCookies(this.env, this.page);
       }
       this.pdf = null;
@@ -420,7 +420,9 @@ export class BrowserSession {
     const page = this.page;
     const url = page.url();
     if (this.pdf?.from) {
-      const bytes = await fetchFileWithCookies(page, [this.pdf.from]);
+      // The page fetches first: a file behind a bot check comes only to the
+      // browser that passed it, never to a fetch of the Worker's own.
+      const bytes = (await fetchFileInPage(page, [this.pdf.from], MAX_PDF_BYTES)) || (await fetchFileWithCookies(page, [this.pdf.from]));
       if (bytes) {
         this.pdf = { from: this.pdf.from, bytes };
         await saveCookies(this.env, page);
@@ -434,7 +436,8 @@ export class BrowserSession {
     } catch {
       // Mid-navigation; the candidates from the URL alone are still worth a try.
     }
-    const bytes = await fetchFileWithCookies(page, [...pdfCandidates(url), ...pdfLinksIn(html, url), url]);
+    const urls = [...pdfCandidates(url), ...pdfLinksIn(html, url), url];
+    const bytes = (await fetchFileInPage(page, urls, MAX_PDF_BYTES)) || (await fetchFileWithCookies(page, urls));
     if (!bytes) {
       throw new Error(
         `no PDF was found from ${new URL(url).hostname} — open the file itself in the browser here, or sign in first if the page is asking for it`,

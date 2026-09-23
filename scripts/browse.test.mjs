@@ -298,3 +298,66 @@ describe('what the Worker says when Cloudflare refuses a browser', () => {
     assert.match(RATE_LIMITED, /try again/);
   });
 });
+
+// ------------------------------------------- a site that checks for a person ----
+
+const { fetchFileInPage } = await import('../server/browseShared.js');
+const { botCheck } = await load('src/lib/browse.ts');
+
+describe('the file, fetched by the page itself', () => {
+  const pdf = new TextEncoder().encode('%PDF-1.4 a file');
+  const base64 = Buffer.from(pdf).toString('base64');
+  /** A page whose fetch() answers by URL: the base64 of a PDF, an HTML page, or a CORS refusal. */
+  const pageAnswering = (answers) => ({
+    asked: [],
+    async evaluate(_fn, { url }) {
+      this.asked.push(url);
+      const answer = answers[url];
+      if (answer === 'throws') throw new Error('Execution context was destroyed');
+      return answer === undefined ? null : answer;
+    },
+  });
+
+  it('returns the bytes of the first URL the page could fetch as a PDF, and skips the rest', async () => {
+    const page = pageAnswering({ 'https://a.example/landing': null, 'https://a.example/file.pdf': { base64 } });
+    const bytes = await fetchFileInPage(page, ['https://a.example/landing', 'https://a.example/file.pdf', 'https://a.example/other.pdf']);
+    assert.deepEqual([...bytes], [...pdf]);
+    assert.deepEqual(page.asked, ['https://a.example/landing', 'https://a.example/file.pdf']);
+  });
+
+  it('answers null when no URL gave a file, and asks each URL once', async () => {
+    const page = pageAnswering({});
+    assert.equal(await fetchFileInPage(page, ['https://a.example/x', 'https://a.example/x', 'not a url', 'ftp://a.example/y']), null);
+    assert.deepEqual(page.asked, ['https://a.example/x']);
+  });
+
+  it('carries on past a page that cannot be asked, and refuses what is not a PDF', async () => {
+    const page = pageAnswering({ 'https://a.example/1': 'throws', 'https://a.example/2': { base64: Buffer.from('<html>').toString('base64') } });
+    assert.equal(await fetchFileInPage(page, ['https://a.example/1', 'https://a.example/2']), null);
+    assert.deepEqual(page.asked, ['https://a.example/1', 'https://a.example/2']);
+  });
+
+  it('says when the file is too large rather than fetching it', async () => {
+    const page = pageAnswering({ 'https://a.example/big.pdf': { tooLarge: true } });
+    await assert.rejects(fetchFileInPage(page, ['https://a.example/big.pdf']), /too large/);
+  });
+});
+
+describe('what the app says on a site that checks for a person', () => {
+  it("names the site and says the box is the person's to tick, on Cloudflare's check", () => {
+    const byUrl = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf?__cf_chl_rt_tk=abc', title: '' });
+    assert.match(byUrl, /^academia\.edu is checking/);
+    assert.match(byUrl, /tick it/);
+    assert.match(botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: 'Just a moment...' }), /^academia\.edu/);
+    assert.match(botCheck({ url: 'https://example.org/', title: 'Attention Required! | Cloudflare' }), /^example\.org/);
+    assert.match(botCheck({ url: 'https://example.org/', title: 'Verify you are human' }), /^example\.org/);
+  });
+
+  it('says nothing on an ordinary page, or with nothing open', () => {
+    assert.equal(botCheck({ url: 'https://ieeexplore.ieee.org/document/1', title: 'A paper | IEEE Xplore' }), null);
+    assert.equal(botCheck({ url: 'https://example.org/?token=__cf_chl_rt_tk', title: '' }), null);
+    assert.equal(botCheck({ url: '', title: 'Just a moment...' }), null);
+    assert.equal(botCheck(null), null);
+    assert.equal(botCheck({ url: 'not a url', title: 'Just a moment...' }), null);
+  });
+});

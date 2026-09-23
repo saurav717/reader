@@ -850,6 +850,40 @@ on a machine behind one), split the way a shell would.
 `scripts/browse.test.mjs` pins what it refuses and how a click on the
 picture is read.
 
+#### A site that checks for a person first
+
+Some sites put a check in front of the file — academia.edu's downloads sit
+behind Cloudflare's, the page that says *Performing security verification*
+and, when it is not sure, shows a box to tick. In the pane that page is the
+site's page like any other: the status line under it says so by name, and
+the box, if one appears, is yours to click. When the check passes the page
+follows on to the file on its own, and the browser meets the PDF as above.
+
+Two things make that work, and both are the browser's own standing. The
+browser presents itself as what it is: its user-agent string and the
+client-hint headers Chrome sends beside it describe the same browser. (It
+used to be given a user-agent string typed in by hand, and a string on its
+own is worse than the truth — Chrome answers an override that comes without
+client-hint metadata by sending no `Sec-CH-UA` headers at all and an empty
+`navigator.userAgentData`, and a browser whose string and hints disagree is
+the one thing a check is sure about. Cloudflare's never showed the box; it
+looped.) And the file is fetched by the page that was let in: the clearance
+a check grants is a cookie bound to the browser that earned it, and a
+request from anywhere else carrying that cookie is challenged again and
+answered with the check's page, not the file. So *Fetch the PDF from this
+page* and the collection of a PDF the browser met both ask the page to
+`fetch()` the file itself first, with its own cookies, and fall back to the
+proxy's own fetch — with the cookies copied over, following the page's
+links — only for a URL the page may not read.
+
+What no proxy can promise is that the check passes. It is the site's call,
+made about the browser and the network it comes from, and a headless
+browser on Cloudflare's own network is not the most trusted of visitors. If
+it refuses — the box comes back, or never comes — the other two ways in
+still stand: the Node proxy on your own machine, whose Chromium and address
+are yours, or opening the file in a tab of your own and dropping it on the
+paper.
+
 ### With only the Worker: hand the file over yourself
 
 The Worker will never sign in for you, but the page can take a file from you.

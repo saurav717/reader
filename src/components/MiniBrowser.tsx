@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { accessAvailable, type AccessStatus } from '../lib/access';
 import {
+  botCheck,
   browseSites,
   closeBrowser,
   collectPdf,
@@ -79,6 +80,8 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
 
   const sites = useMemo(() => browseSites(paper, locations, signIn), [paper, locations, signIn]);
   const page = { width: status?.width || 1280, height: status?.height || 800 };
+  /** The site's check for a person, when that is what the page is; the box to tick is theirs. */
+  const check = stage === 'open' ? botCheck(status) : null;
 
   useEffect(() => {
     let live = true;
@@ -467,6 +470,8 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
           </>
         ) : problem ? (
           problem
+        ) : check ? (
+          check
         ) : focused ? (
           <>
             Keys go to the page. {status?.title ? <em>{status.title}</em> : null}
