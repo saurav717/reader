@@ -19,6 +19,9 @@ Right-click a selection in a paper and a box opens with three panes: what the wo
 papers to use the phrase, the most cited ones since, and links out — and a
 **comment** that highlights the passage as you type it, the way Acrobat does.
 
+Press **⌘\\** and a Claude window floats over the paper — see
+[Ask Claude](#ask-claude).
+
 ## Running it
 
 ```bash
@@ -1382,6 +1385,58 @@ None of it is a term-of-art oracle: the dictionary has nothing to say about
 "attention head", and OpenAlex's oldest match for a phrase is the oldest thing it
 has indexed, which is not always the thing that coined it.
 
+## Ask Claude
+
+A chat window that floats over whatever you are reading, in the manner of Cluely:
+glass rather than a panel, so the paper stays visible through it, and it reads your
+screen before it answers, so there is nothing to paste.
+
+![the Ask Claude window over a paper, answering a question about a selected sentence](docs/ask-claude.png)
+
+- **Open it** with **⌘\\** (or ⌘J, or the ✦ on the rail), from anywhere. **Esc**
+  from inside it, or ⌘\\ again, closes it.
+- **Ask about a passage**: select it, and press **Ask** on the selection toolbar.
+  The window opens with the passage quoted above the box, waiting for the question.
+- **It reads the screen** fresh for every question: the paper's details and
+  abstract, the paragraphs in view, the text you last selected, and your
+  highlights and notes. The whole text of the paper goes in the system prompt
+  behind a cache breakpoint, so the second question about a paper reads it from
+  Anthropic's cache at a tenth of the price. The ⚙ menu lists each part and has a
+  switch for it. In **PDF** mode the browser's own viewer draws the page, so the
+  text is not reachable — Claude has the details and abstract to go on, and says
+  so; switch to **Reflow** for the full text.
+- **Move it**: drag the title bar, resize from any edge or corner, double-click the
+  bar to send it home (and again to fill the workspace). ⌘ + an arrow moves it,
+  faster the longer the key is held; ⌘⇧ + an arrow throws it at that edge and
+  cycles a half, a third and two thirds. The slider in the bar sets how see-through
+  it is, and the button beside it cycles four frames — Frosted, Clear, Terminal and
+  Aurora. It keeps its place across reloads. On a phone it is a sheet across the
+  bottom.
+- **History**: every conversation is filed in this browser as soon as it is
+  answered, named after its first question. There is no account; clearing the
+  site's data clears them. What went with each question from the screen is not
+  stored.
+- **Models**: Opus 5, Sonnet 5 or Haiku 4.5, picked in the window. Opus and Sonnet
+  think adaptively at medium effort, and the summary of that thinking folds away
+  above the answer.
+
+### The key
+
+Anthropic offers no "sign in with Claude" for other websites, and a Claude.ai
+subscription cannot be spent from a web page, so the window asks for an **API key**
+from [console.anthropic.com](https://console.anthropic.com/settings/keys) the first
+time. It is kept in this browser's localStorage under its own name and sent straight
+to `api.anthropic.com` — the SDK adds the header Anthropic requires for calls made
+from a browser. Usage bills your own account. **Forget my key** under ⚙ removes it.
+
+The SDK (`@anthropic-ai/sdk`) is loaded the first time a question is sent, as a chunk
+of its own, so a visit that never asks anything never downloads it.
+
+The code: `src/components/Assistant.tsx` (the window), `src/lib/assistant.ts` (what is
+sent, the history, the SDK), `src/lib/screen.ts` (reading the passage in view and the
+selection), `src/lib/floatWindow.ts` (the window's geometry) and `src/lib/markdown.ts`
+(drawing the answers).
+
 ## Layout
 
 ```
@@ -1450,6 +1505,7 @@ npm run test:unit              # query building, merging, the Git mirror, the pr
 
 npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
+node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 
 npm run build                  # then, needing no server of its own:

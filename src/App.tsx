@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useStore } from './lib/store';
 import type { View } from './types.view';
+import { HIGHLIGHT_COLORS } from './types';
+import type { Screen } from './lib/assistant';
+import { setQuote } from './lib/assistant';
+import { clearSelection, currentSelection, paperText, trackSelection, visiblePassage } from './lib/screen';
+import Assistant from './components/Assistant';
 import CollectionView from './components/CollectionView';
 import CommandPalette from './components/CommandPalette';
 import Discover from './components/Discover';
@@ -9,11 +14,12 @@ import NotesRail from './components/NotesRail';
 import Reader from './components/Reader';
 import Settings from './components/Settings';
 import Welcome from './components/Welcome';
-import { GoogleMark, HighlighterIcon, LibraryIcon, SearchIcon, SettingsIcon } from './components/icons';
+import { GoogleMark, HighlighterIcon, LibraryIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
 
 const WELCOME_KEY = 'reader.welcomed';
 const VIEW_KEY = 'reader.view';
 const LAYOUT_KEY = 'reader.layout';
+const ASSISTANT_KEY = 'reader.assistant.open';
 
 /** What the right-hand dock is showing, if anything. */
 type Dock = 'discover' | 'notes' | null;
@@ -57,7 +63,7 @@ function readLayout(): Layout {
 }
 
 export default function App() {
-  const { ready, papers, collections, user, driveConnected, settings } = useStore();
+  const { ready, papers, collections, highlights, user, driveConnected, settings } = useStore();
   const [layout] = useState(readLayout);
   const [libraryOpen, setLibraryOpen] = useState(layout.libraryOpen);
   const [dock, setDock] = useState<Dock>(layout.dock);
@@ -73,6 +79,27 @@ export default function App() {
   // hold a refresh token — the visit starts disconnected, and offers to
   // reconnect before anything is collected that Drive would then have missed.
   const [skippedConnect, setSkippedConnect] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(() => localStorage.getItem(ASSISTANT_KEY) === 'true');
+
+  useEffect(() => {
+    localStorage.setItem(ASSISTANT_KEY, String(assistantOpen));
+  }, [assistantOpen]);
+
+  useEffect(trackSelection, []);
+
+  // A selection from one paper is not on screen once another is open.
+  const readingId = view.kind === 'paper' ? view.id : null;
+  useEffect(clearSelection, [readingId]);
+
+  // "Ask Claude" on a selection in the paper: open the window with the passage attached.
+  useEffect(() => {
+    const onAsk = (event: Event) => {
+      setQuote((event as CustomEvent<{ text: string }>).detail?.text ?? '');
+      setAssistantOpen(true);
+    };
+    window.addEventListener('reader:ask-claude', onAsk);
+    return () => window.removeEventListener('reader:ask-claude', onAsk);
+  }, []);
 
   // Reopening the tab should put you back on the paper you were reading.
   useEffect(() => {
@@ -95,6 +122,14 @@ export default function App() {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         setPaletteOpen((current) => !current);
+      }
+      // Summon and dismiss the Claude window from anywhere. ⌘\ is the key other
+      // apps put a side panel on, and no browser claims it; ⌘J is the second
+      // one. Shift is excluded: ⇧\ is `|`, and a shortcut that fires on two
+      // characters is one you trigger by accident.
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && (event.key === '\\' || event.key.toLowerCase() === 'j')) {
+        event.preventDefault();
+        setAssistantOpen((current) => !current);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -129,6 +164,49 @@ export default function App() {
       current.length === ids.length && current.every((id, index) => id === ids[index]) ? current : ids,
     );
   }, []);
+
+  /** What the Claude window may know about the page, read at the moment of sending. */
+  const readScreen = useCallback((): Screen => {
+    if (view.kind === 'paper') {
+      const paper = papers.find((p) => p.id === view.id);
+      if (paper) {
+        const fullText = paperText();
+        const kind = (color: string) => HIGHLIGHT_COLORS.find((c) => c.id === color)?.label ?? color;
+        return {
+          where: 'Reading a paper',
+          paper: {
+            id: paper.id,
+            title: paper.title,
+            authors: paper.authors,
+            published: paper.published,
+            venue: paper.venue,
+            arxivId: paper.arxivId,
+            doi: paper.doi,
+            url: paper.landingUrl,
+            abstract: paper.abstract,
+            // In PDF mode the browser's own viewer draws the page, and none of its text reaches the app.
+            mode: fullText ? 'Reflow (the app’s own text rendering)' : 'PDF (the text is not readable by the app)',
+            progress: Math.round((paper.progress || 0) * 100),
+          },
+          fullText,
+          visible: visiblePassage(),
+          selection: currentSelection(),
+          highlights: highlights
+            .filter((h) => h.paperId === paper.id && !h.orphaned)
+            .map((h) => ({ exact: h.exact, kind: kind(h.color), note: h.note, section: h.section })),
+        };
+      }
+    }
+    const name = view.kind === 'collection' ? collections.find((c) => c.id === view.id)?.name : undefined;
+    const where =
+      view.kind === 'collection'
+        ? `Browsing the collection “${name ?? 'Collection'}”`
+        : { all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', paper: 'Browsing the library' }[view.kind];
+    const library = Array.from(document.querySelectorAll('.paper-name'), (el) => el.textContent?.trim() ?? '').filter(Boolean);
+    return { where, library };
+  }, [view, papers, collections, highlights]);
+
+  const closeAssistant = useCallback(() => setAssistantOpen(false), []);
 
   if (!ready) {
     return (
@@ -186,6 +264,16 @@ export default function App() {
           onClick={() => setDock(dockPane === 'notes' ? null : 'notes')}
         >
           <HighlighterIcon size={19} />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-pressed={assistantOpen}
+          aria-label="Ask Claude"
+          title={assistantOpen ? 'Ask Claude is open — click to close it (⌘\\)' : 'Ask Claude about this paper (⌘\\)'}
+          onClick={() => setAssistantOpen(!assistantOpen)}
+        >
+          <SparkleIcon size={19} />
         </button>
         <div style={{ flexGrow: 1 }} />
         <button
@@ -293,6 +381,8 @@ export default function App() {
           onOpenSettings={() => setSettingsOpen(true)}
         />
       ) : null}
+
+      {assistantOpen && !showWelcome ? <Assistant onClose={closeAssistant} screen={readScreen} reading={Boolean(reading)} /> : null}
 
       {settingsOpen ? <Settings onClose={() => setSettingsOpen(false)} /> : null}
     </div>

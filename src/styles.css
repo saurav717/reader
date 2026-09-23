@@ -23,6 +23,13 @@
   --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
   --serif: 'Newsreader', Georgia, 'Times New Roman', serif;
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  /* The Ask Claude window. Its colour is a raw triple an alpha is multiplied
+     into — the window writes --win-tint, the slider in its title bar moves it. */
+  --win-rgb: 255 253 247;
+  --win-edge: 26 26 23;
+  --win-edge-a: 0.14;
+  --win-shadow: 0 24px 60px -20px rgba(26, 26, 23, 0.38), 0 2px 8px rgba(26, 26, 23, 0.12);
+  --accent-rgb: 31 94 82;
 }
 
 :root[data-theme='dark'] {
@@ -47,6 +54,11 @@
   --hl-green: rgba(169, 214, 184, 0.26);
   --hl-blue: rgba(156, 194, 230, 0.26);
   --hl-pink: rgba(235, 178, 184, 0.26);
+  --win-rgb: 29 31 37;
+  --win-edge: 255 255 255;
+  --win-edge-a: 0.13;
+  --win-shadow: 0 26px 70px -18px rgba(0, 0, 0, 0.8), 0 2px 10px rgba(0, 0, 0, 0.45);
+  --accent-rgb: 87 169 143;
 }
 
 * { box-sizing: border-box; }
@@ -1184,4 +1196,274 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
   .book-view { padding: 10px 8px 8px; }
   .book-spread:not(.two) .book-pages { inset: 22px 20px 18px; }
   .book-turn { display: none; }
+}
+
+/* ------------------------------------------------------------ ask claude -- */
+/* A window over the reader rather than a column beside it: dragged by its
+   bar, resized from any edge, and tinted instead of painted so the paper
+   underneath stays readable. `--win-tint` is the alpha; `data-win-style` is
+   the frame — blur, radius, rim, shadow. Picking a frame never touches the
+   transparency you settled on beyond the tint it was drawn for. */
+
+.assistant-win {
+  position: fixed;
+  z-index: 45;
+  display: flex;
+  flex-direction: column;
+  color: var(--ink);
+  font-size: 13px;
+  --win-tint: 0.72;
+  --win-blur: 22px;
+  --win-sat: 165%;
+  background-color: rgb(var(--win-rgb) / var(--win-tint));
+  -webkit-backdrop-filter: blur(var(--win-blur)) saturate(var(--win-sat));
+  backdrop-filter: blur(var(--win-blur)) saturate(var(--win-sat));
+  border: 1px solid rgb(var(--win-edge) / var(--win-edge-a));
+  border-radius: 14px;
+  box-shadow: var(--win-shadow), inset 0 1px 0 rgb(var(--win-edge) / 0.07);
+  overflow: hidden;
+  transition: box-shadow 0.16s ease, background-color 0.16s ease;
+}
+/* An unfocused window steps back, the way an unfocused terminal does. */
+.assistant-win.is-floating:not(:focus-within):not(:hover) {
+  background-color: rgb(var(--win-rgb) / calc(var(--win-tint) * 0.82));
+  box-shadow: 0 14px 34px -16px rgba(0, 0, 0, 0.5);
+}
+/* On a phone there is nothing to float over: a sheet across the bottom. */
+.assistant-win.is-sheet {
+  left: 8px; right: 8px; bottom: 8px; height: min(72vh, 620px);
+  background-color: rgb(var(--win-rgb) / 0.96);
+}
+
+.win-bar {
+  flex-shrink: 0;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 6px 0 12px;
+  background: rgb(var(--win-edge) / 0.045);
+  border-bottom: 1px solid rgb(var(--win-edge) / calc(var(--win-edge-a) * 0.8));
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.is-sheet .win-bar { cursor: default; }
+.win-mark { color: var(--accent); flex-shrink: 0; }
+.win-name { font-size: 12px; font-weight: 600; letter-spacing: 0.01em; }
+.win-ctl { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.win-btn {
+  height: 24px; min-width: 24px; padding: 0 6px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--ink-2); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 11px;
+}
+.win-btn:hover { background: rgb(var(--win-edge) / 0.09); color: var(--ink); }
+.win-tint { display: flex; align-items: center; gap: 5px; padding: 0 5px 0 2px; color: var(--muted); font-size: 11px; }
+.win-tint input {
+  -webkit-appearance: none; appearance: none; width: 54px; height: 3px;
+  background: var(--border); border-radius: 99px; outline: none; cursor: ew-resize;
+}
+.win-tint input::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--ink-2); cursor: ew-resize;
+}
+.win-tint input::-moz-range-thumb { width: 10px; height: 10px; border: 0; border-radius: 50%; background: var(--ink-2); }
+.win-tint input:hover::-webkit-slider-thumb { background: var(--accent); }
+
+/* Every surface inside gives up its own background, or the glass is glass
+   around an opaque brick. */
+.chat-toolbar {
+  flex-shrink: 0; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  padding: 6px 8px; border-bottom: 1px solid rgb(var(--win-edge) / 0.07);
+}
+.chat-model {
+  min-width: 0; max-width: 190px; height: 28px; padding: 0 8px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: rgb(var(--win-rgb) / 0.5); color: var(--ink); font: 12px var(--sans);
+}
+.chat-toolbar .btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
+.is-sheet .chat-model { max-width: 150px; }
+.chat-count {
+  margin-left: 5px; padding: 0 6px; border-radius: 99px; font-size: 10.5px;
+  background: rgb(var(--win-edge) / 0.09);
+}
+
+.chat-drawer {
+  flex-shrink: 0; max-height: 45%; overflow-y: auto; padding: 10px 12px 12px;
+  background: rgb(var(--win-rgb) / 0.4); border-bottom: 1px solid rgb(var(--win-edge) / 0.07);
+}
+.chat-set-title {
+  color: var(--muted); font: 10.5px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; margin: 0 0 6px;
+}
+.chat-set-row + .chat-set-title, p + .chat-set-title { margin-top: 12px; }
+.chat-set-row { display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; align-items: center; padding: 3px 0; cursor: pointer; }
+.chat-set-row input { margin: 0; accent-color: var(--accent); }
+.chat-set-row .chat-set-note { grid-column: 2; }
+.chat-set-note { color: var(--muted); font-size: 11.5px; line-height: 1.45; margin: 0 0 8px; }
+.chat-set-row .chat-set-note { margin: 0; }
+.chat-hist-row { display: flex; align-items: stretch; gap: 2px; border-radius: 8px; }
+.chat-hist-row:hover { background: rgb(var(--win-edge) / 0.06); }
+.chat-hist-row.is-on { background: var(--accent-soft); }
+.chat-hist-open {
+  flex-grow: 1; min-width: 0; display: grid; gap: 1px; text-align: left; padding: 6px 8px;
+  border: 0; background: none; border-radius: 8px; cursor: pointer;
+}
+.chat-hist-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-hist-meta { color: var(--muted); font-size: 11px; }
+.chat-hist-del {
+  flex-shrink: 0; border: 0; background: none; color: var(--muted); padding: 0 8px; border-radius: 8px;
+  cursor: pointer; font-size: 11px; opacity: 0;
+}
+.chat-hist-row:hover .chat-hist-del, .chat-hist-del:focus-visible { opacity: 1; }
+.chat-hist-del:hover { color: var(--danger); }
+@media (hover: none) { .chat-hist-del { opacity: 1; } }
+.chat-hist-foot { display: flex; align-items: flex-end; gap: 10px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgb(var(--win-edge) / 0.08); }
+.chat-hist-foot .chat-set-note { flex-grow: 1; margin: 0; }
+
+.chat-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px 12px 4px; }
+.chat-empty { color: var(--ink-2); line-height: 1.55; }
+.chat-empty p { margin: 0 0 10px; }
+.chat-empty ul { margin: 0; padding-left: 18px; color: var(--muted); }
+.chat-empty li { margin: 5px 0; }
+.chat-empty .link-btn { text-align: left; color: var(--ink-2); }
+
+/* The card that stands in for a sign-in screen there is no way to offer. */
+.chat-card {
+  border: 1px solid var(--border); border-radius: 12px; padding: 14px 15px;
+  background: rgb(var(--win-rgb) / 0.55);
+}
+.chat-card h3 { margin: 0 0 8px; font-size: 14px; }
+.chat-card p, .chat-card ol { margin: 0 0 10px; color: var(--ink-2); line-height: 1.55; }
+.chat-card ol { padding-left: 18px; }
+.chat-card li { margin: 4px 0; }
+.chat-card-note { margin: 10px 0 0 !important; color: var(--muted) !important; font-size: 11.5px; }
+.chat-key-row { display: flex; gap: 6px; }
+.chat-key-input {
+  flex-grow: 1; min-width: 0; height: 28px; padding: 0 10px; font: 12px var(--mono);
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+}
+.chat-key-input:focus { outline: none; border-color: var(--accent); }
+
+.chat-turn { margin: 0 0 14px; }
+.chat-user .chat-text {
+  margin-left: 28px; padding: 8px 11px; border-radius: 12px;
+  background: rgb(var(--accent-rgb) / 0.13); border: 1px solid rgb(var(--accent-rgb) / 0.18);
+  overflow-wrap: anywhere;
+}
+.chat-user blockquote { color: var(--ink-2); font-family: var(--serif); font-size: 13.5px; }
+.chat-text > :first-child { margin-top: 0; }
+.chat-text > :last-child { margin-bottom: 0; }
+.chat-claude .chat-text { font-size: 13.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.chat-text p { margin: 0 0 9px; }
+.chat-text ul, .chat-text ol { margin: 0 0 9px; padding-left: 20px; }
+.chat-text li { margin: 3px 0; }
+.chat-text h4, .chat-text h5, .chat-text h6 { margin: 12px 0 6px; font-size: 13.5px; font-weight: 600; }
+.chat-text hr { border: 0; border-top: 1px solid var(--border); margin: 12px 0; }
+.chat-text code { font: 12px var(--mono); background: rgb(var(--win-edge) / 0.07); padding: 1px 5px; border-radius: 5px; }
+.chat-text pre {
+  position: relative; margin: 0 0 10px; padding: 10px 12px; overflow-x: auto;
+  border: 1px solid var(--border-soft); border-radius: 9px;
+  background: rgb(var(--win-rgb) / 0.55); font: 12px/1.5 var(--mono);
+}
+.chat-text pre code { background: none; padding: 0; font-size: inherit; }
+.chat-text blockquote { margin: 0 0 9px; padding: 1px 0 1px 11px; border-left: 2px solid var(--border); color: var(--ink-2); }
+.chat-text table { border-collapse: collapse; margin: 0 0 10px; font-size: 12.5px; display: block; overflow-x: auto; }
+.chat-text th, .chat-text td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+.chat-text th { background: rgb(var(--win-edge) / 0.05); font-weight: 600; }
+.chat-copy { position: absolute; top: 5px; right: 5px; opacity: 0; transition: opacity 0.15s; }
+.chat-text pre:hover .chat-copy, .chat-copy:focus-visible { opacity: 1; }
+@media (hover: none) { .chat-copy { opacity: 1; } }
+.chat-thinking { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.chat-thinking summary { cursor: pointer; font: 10.5px var(--mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.chat-thinking div { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--border); line-height: 1.55; white-space: pre-wrap; }
+.chat-wait { display: flex; gap: 4px; margin: 4px 0; }
+.chat-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: chat-dot 1.1s infinite ease-in-out; }
+.chat-dot:nth-child(2) { animation-delay: 0.15s; }
+.chat-dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes chat-dot { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .chat-dot { animation: none; opacity: 0.6; } }
+.chat-err { margin: 6px 0 0; color: var(--danger); font-size: 12.5px; }
+.chat-note { margin: 6px 0 0; color: var(--muted); font-size: 12.5px; }
+
+/* The passage attached with "Ask" on a selection, waiting for its question. */
+.chat-quote {
+  flex-shrink: 0; display: flex; align-items: flex-start; gap: 6px;
+  margin: 0 10px; padding: 7px 6px 7px 10px; border-left: 2px solid var(--accent);
+  background: rgb(var(--accent-rgb) / 0.08); border-radius: 0 8px 8px 0;
+}
+.chat-quote-text { flex-grow: 1; font-family: var(--serif); font-size: 13px; line-height: 1.45; color: var(--ink-2); max-height: 5.8em; overflow: hidden; }
+
+.chat-compose { flex-shrink: 0; display: flex; gap: 6px; align-items: flex-end; padding: 8px 10px 10px; }
+.chat-compose textarea {
+  flex-grow: 1; min-width: 0; resize: none; overflow-y: auto; max-height: 160px;
+  padding: 7px 11px; border: 1px solid var(--border); border-radius: 10px;
+  background: rgb(var(--win-rgb) / 0.6); font: 13px/1.5 var(--sans);
+}
+.chat-compose textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.15); }
+.chat-compose textarea::placeholder { color: var(--muted); }
+.chat-compose textarea:disabled { opacity: 0.55; }
+.chat-compose .btn { height: 34px; }
+
+/* ---- the frames ---- "frosted" is the base above. */
+/* Clear: as little glass as stays readable, a wide blur doing the work. */
+.assistant-win.is-floating[data-win-style='clear'] {
+  --win-blur: 34px; --win-sat: 185%; border-radius: 16px;
+  border-color: rgb(var(--win-edge) / 0.16);
+}
+.assistant-win[data-win-style='clear'] .win-bar { background: rgb(var(--win-edge) / 0.025); }
+/* Terminal: a macOS window with transparency turned up. The lights are
+   decoration; the close button is the ✕ on the right. */
+.assistant-win.is-floating[data-win-style='terminal'] {
+  --win-blur: 9px; --win-sat: 120%; border-radius: 9px;
+  box-shadow: 0 20px 44px -14px rgba(0, 0, 0, 0.7), 0 0 0 0.5px rgba(0, 0, 0, 0.45);
+}
+.assistant-win[data-win-style='terminal'] .win-bar { background: rgb(var(--win-edge) / 0.07); }
+.assistant-win[data-win-style='terminal'] .win-name { font: 11px var(--mono); }
+.assistant-win[data-win-style='terminal'] .win-mark { display: none; }
+.assistant-win[data-win-style='terminal'] .win-bar::before {
+  content: ''; flex-shrink: 0; width: 38px; height: 10px;
+  background:
+    radial-gradient(circle 5px at 5px 5px, #ff5f57 98%, transparent) 0 0 / 14px 10px no-repeat,
+    radial-gradient(circle 5px at 5px 5px, #febc2e 98%, transparent) 14px 0 / 14px 10px no-repeat,
+    radial-gradient(circle 5px at 5px 5px, #28c840 98%, transparent) 28px 0 / 14px 10px no-repeat;
+}
+/* Aurora: the accent bled into the top corner and the rim. */
+.assistant-win.is-floating[data-win-style='aurora'] {
+  --win-blur: 26px; --win-sat: 175%;
+  border-color: rgb(var(--accent-rgb) / 0.32);
+  background-image: linear-gradient(168deg, rgb(var(--accent-rgb) / 0.2), rgb(var(--accent-rgb) / 0.03) 46%, transparent 74%);
+  box-shadow: 0 0 0 1px rgb(var(--accent-rgb) / 0.1), 0 30px 76px -22px rgba(0, 0, 0, 0.6), 0 0 70px -28px rgb(var(--accent-rgb) / 0.5);
+}
+.assistant-win[data-win-style='aurora'] .win-bar { background: transparent; border-bottom-color: rgb(var(--accent-rgb) / 0.22); }
+
+/* ---- resize grips: invisible strips that overhang the border a little,
+   because a 1px target is a target you miss. ---- */
+.win-grip { position: absolute; z-index: 2; touch-action: none; }
+.win-grip-n, .win-grip-s { left: 10px; right: 10px; height: 8px; cursor: ns-resize; }
+.win-grip-e, .win-grip-w { top: 10px; bottom: 10px; width: 8px; cursor: ew-resize; }
+.win-grip-n { top: -3px; }
+.win-grip-s { bottom: -3px; }
+.win-grip-w { left: -3px; }
+.win-grip-e { right: -3px; }
+.win-grip-ne, .win-grip-nw, .win-grip-se, .win-grip-sw { width: 15px; height: 15px; }
+.win-grip-nw { top: -3px; left: -3px; cursor: nwse-resize; }
+.win-grip-se { bottom: -3px; right: -3px; cursor: nwse-resize; }
+.win-grip-ne { top: -3px; right: -3px; cursor: nesw-resize; }
+.win-grip-sw { bottom: -3px; left: -3px; cursor: nesw-resize; }
+.win-grip-se::after {
+  content: ''; position: absolute; right: 4px; bottom: 4px; width: 7px; height: 7px;
+  border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted);
+  border-radius: 0 0 2px 0; opacity: 0; transition: opacity 0.12s;
+}
+.assistant-win:hover .win-grip-se::after { opacity: 0.5; }
+body.win-moving, body.win-moving * { user-select: none; }
+body.win-moving .assistant-win { transition: none; }
+
+/* Without backdrop-filter the tint is a washed-out panel, so the window goes
+   nearly solid instead — readable everywhere, pretty where it can be. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .assistant-win, .assistant-win.is-floating:not(:focus-within):not(:hover) { background-color: rgb(var(--win-rgb) / 0.97); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .assistant-win, .assistant-win.is-floating:not(:focus-within):not(:hover) { background-color: rgb(var(--win-rgb) / 0.98); }
 }

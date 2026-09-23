@@ -50,6 +50,7 @@ import {
   SunIcon,
   OpenBookIcon,
   ScrollPageIcon,
+  SparkleIcon,
 } from './icons';
 
 interface Props {
@@ -861,7 +862,7 @@ export default function Reader({
     const rect = range.getBoundingClientRect();
     setPending({
       top: rect.bottom + 8,
-      left: Math.max(12, Math.min(window.innerWidth - 340, rect.left)),
+      left: Math.max(12, Math.min(window.innerWidth - 400, rect.left)),
       selector: selectorFromOffsets(index, offsets.start, offsets.end),
       section: sectionFor(range, root),
     });
@@ -1433,6 +1434,17 @@ export default function Reader({
           </button>
           <button type="button" className="wide" onClick={() => void applyHighlight('yellow', true)} title="Highlight and write a note — N">
             <NoteIcon size={15} /> Note
+          </button>
+          <button
+            type="button"
+            className="wide"
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('reader:ask-claude', { detail: { text: pending.selector.exact } }));
+              setPending(null);
+            }}
+            title="Ask Claude about this passage — ⌘\\ opens the window any time"
+          >
+            <SparkleIcon size={15} /> Ask
           </button>
           <button
             type="button"

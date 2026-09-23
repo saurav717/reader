@@ -15,7 +15,11 @@ import { pathToFileURL } from 'node:url';
 
 const temporary = [];
 
-export async function load(entry) {
+/**
+ * `external` names packages to leave as imports rather than bundle — for a
+ * module that loads one lazily and whose tests never reach that path.
+ */
+export async function load(entry, { external = [] } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'reader-test-'));
   temporary.push(directory);
   const outfile = join(directory, 'bundle.mjs');
@@ -28,6 +32,7 @@ export async function load(entry) {
     target: 'node22',
     banner: { js: 'const __viteEnv = {};' },
     define: { 'import.meta.env': '__viteEnv' },
+    external,
     logLevel: 'silent',
   });
   return import(pathToFileURL(outfile).href);
