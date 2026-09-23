@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
-import { judgePdf, loadPaperContent, loadPaperContentFromPdf, type PaperContent, type ReflowProgress } from '../lib/paperContent';
+import { arxivIdFromUrl, judgePdf, loadPaperContent, loadPaperContentFromPdf, type PaperContent, type ReflowProgress } from '../lib/paperContent';
 import { hasProxy } from '../lib/api';
 import {
   fetchPaperPdf,
@@ -208,6 +208,10 @@ export default function Reader({
     [],
   );
 
+  /** The paper's copies, as they stand, for effects that must not re-run when the list arrives. */
+  const locationsRef = useRef<PaperLocation[] | null>(null);
+  locationsRef.current = locations;
+
   // Which file the text on screen was made from. A different file arriving
   // — dropped in, or brought back by the browser in the pane, after every
   // copy had refused — is read out afresh; the same file is not.
@@ -247,8 +251,12 @@ export default function Reader({
     setLoading(true);
     setReflowProgress(null);
     contentFor.current = pdfBlob;
+    // The arXiv id, for the HTML rendering: the paper's own, or the one in
+    // its copies — a paper found through Scholar carries none itself. Read
+    // from a ref: the list arriving must not start the reading over.
+    const arxivId = paper.arxivId || locationsRef.current?.map((location) => arxivIdFromUrl(location.url)).find(Boolean);
     const fallback = (reason: string) =>
-      loadPaperContent(paper, controller.signal).then((loaded) => ({
+      loadPaperContent(paper, controller.signal, { arxivId }).then((loaded) => ({
         ...loaded,
         notice: `${reason} ${loaded.notice ?? `Showing ${loaded.mode === 'html' ? 'the HTML rendering' : 'the abstract'} instead.`}`,
       }));
@@ -258,7 +266,7 @@ export default function Reader({
         )
       : pdfError
         ? fallback(`${pdfError.replace(/\.$/, '')}.`)
-        : loadPaperContent(paper, controller.signal);
+        : loadPaperContent(paper, controller.signal, { arxivId });
     load
       .then((loaded) => {
         if (!controller.signal.aborted) setContent(loaded);
@@ -266,11 +274,14 @@ export default function Reader({
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
-        // Worth a line in the console: this is a PDF pdf.js choked on.
+        // Worth a line in the console, and the reason is shown too: this is
+        // a PDF pdf.js choked on, and "could not be read" alone is nothing
+        // to go on.
         console.warn('Could not reflow the PDF', error);
-        loadPaperContent(paper, controller.signal)
+        const reason = (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').trim().slice(0, 200);
+        fallback(`The PDF could not be read${reason ? ` (${reason.replace(/\.$/, '')})` : ''}.`)
           .then((loaded) => {
-            if (!controller.signal.aborted) setContent({ ...loaded, notice: `The PDF could not be read. ${loaded.notice ?? ''}`.trim() });
+            if (!controller.signal.aborted) setContent(loaded);
           })
           .catch(() => undefined);
       })

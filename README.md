@@ -779,9 +779,16 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
 - **Footnotes** are the small text at the foot of each page, kept small and
   set after the text of that page.
 
+pdf.js parses in a web worker — the worker script is bundled into a `.js`
+file of its own, since a static host that does not know `.mjs` is JavaScript
+serves it as something else and a worker made from that never starts — and
+when the browser will not start the worker at all, the same code is loaded
+on the main thread and reads there, slower but the same. When a PDF cannot
+be read at all, the notice under the title says why, in pdf.js's words.
+
 `scripts/pdf-reflow.test.mjs` is that layout written down against made-up
 pages, and `scripts/reflow-smoke.mjs` prints a two-column paper with Chromium
-and reads it back through the app. Inline mathematics stays as the glyphs it
+and reads it back through the app — with the worker, and again without it. Inline mathematics stays as the glyphs it
 was set in, which is legible for *x* and *n* and not for much more; a scan,
 or a PDF whose fonts carry no mapping back to letters, has no text to read,
 and the reader says so and shows what it has.

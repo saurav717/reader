@@ -8,12 +8,65 @@
 // The legacy build carries its own polyfills — the modern one leans on
 // what only the newest browsers have, `Map.prototype.getOrInsertComputed`
 // among them, and a reader in last year's browser gets nothing.
-import { getDocument, GlobalWorkerOptions, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getDocument, GlobalWorkerOptions, OPS, PDFWorker } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
+// The worker script, bundled by Vite into a `.js` file of its own rather
+// than copied over as the `.mjs` pdf.js ships: a static host that does not
+// know `.mjs` is JavaScript serves it as something else, and a module
+// worker made from that never starts.
+import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?worker&url';
 import { layoutPages, renderHtml, type Crop, type GraphicBox, type Layout, type PageInput, type TextRun } from './pdfLayout';
 
 if (typeof window !== 'undefined' && !GlobalWorkerOptions.workerSrc) GlobalWorkerOptions.workerSrc = workerUrl;
+
+/** How long to give the worker script to start before reading on the main thread instead. */
+const WORKER_START_MS = 20_000;
+
+let engine: Promise<PDFWorker | null> | null = null;
+
+/**
+ * What pdf.js parses with: a web worker running the bundled worker script,
+ * or, when the browser will not start one — the script refused, the file
+ * not served as JavaScript, workers unavailable — the same code loaded on
+ * the main thread, where it is slower and stalls the page while it reads
+ * but reads all the same. Decided once, the first time a PDF is opened.
+ *
+ * pdf.js would fall back on its own, but by importing the worker script
+ * over again, which fails for the same reason the worker did; the module
+ * imported here is a chunk of the app, loaded the way the rest of it is.
+ */
+function engineReady(): Promise<PDFWorker | null> {
+  engine ??= (async () => {
+    if (typeof Worker !== 'undefined') {
+      let worker: Worker | null = null;
+      try {
+        worker = new Worker(workerUrl, { type: 'module' });
+        const started = await new Promise<boolean>((resolve) => {
+          const timer = setTimeout(() => resolve(false), WORKER_START_MS);
+          // The script says "ready" the moment it has loaded; a script that
+          // will not load says so with an error.
+          worker!.addEventListener('message', () => (clearTimeout(timer), resolve(true)), { once: true });
+          worker!.addEventListener('error', () => (clearTimeout(timer), resolve(false)), { once: true });
+        });
+        if (started) return PDFWorker.create({ port: worker });
+      } catch {
+        // No workers here at all.
+      }
+      worker?.terminate();
+    }
+    console.warn('pdf.js: the worker script would not start; PDFs are read on the main thread instead.');
+    const module = await import('./pdfWorkerMain');
+    (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker = module;
+    return null;
+  })();
+  return engine;
+}
+
+/** A document opened with whichever engine there is. */
+async function openDocument(data: Uint8Array) {
+  const worker = await engineReady();
+  return getDocument({ data, useSystemFonts: false, ...(worker ? { worker } : {}) });
+}
 
 type Matrix = [number, number, number, number, number, number];
 
@@ -217,7 +270,7 @@ export async function reflowPdf(
 ): Promise<ReflowedPdf | null> {
   const { signal, onProgress } = options;
   const data = new Uint8Array(await blob.arrayBuffer());
-  const task = getDocument({ data, useSystemFonts: false });
+  const task = await openDocument(data);
   const abort = () => void task.destroy();
   signal?.addEventListener('abort', abort, { once: true });
   const doc = await task.promise;
@@ -249,7 +302,7 @@ export async function reflowPdf(
  */
 export async function measurePdf(blob: Blob): Promise<{ pages: number; width: number; height: number }> {
   const data = new Uint8Array(await blob.arrayBuffer());
-  const task = getDocument({ data, useSystemFonts: false });
+  const task = await openDocument(data);
   try {
     const doc = await task.promise;
     const page = await doc.getPage(1);

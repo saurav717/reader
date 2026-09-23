@@ -23,4 +23,6 @@ export default defineConfig({
   // pdf.js is a large library, loaded on demand as its own chunk the first
   // time a PDF is reflowed; the warning about its size says nothing new.
   build: { outDir: 'dist', sourcemap: process.env.VITE_SOURCEMAP !== 'false', chunkSizeWarningLimit: 1500 },
+  // The pdf.js worker is an ES module and is started as one.
+  worker: { format: 'es' },
 });
