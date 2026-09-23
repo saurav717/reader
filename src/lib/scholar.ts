@@ -19,7 +19,7 @@
  * Scholar would refuse the proxy exactly as before — so the proxy has to be
  * one with a screen: `npm start` on your own machine.
  */
-import type { AuthorRef, PaperRef } from '../types';
+import type { AuthorRef, PaperOrder, PaperRef } from '../types';
 import { api, hasProxy } from './api';
 
 export interface ScholarResult {
@@ -178,20 +178,28 @@ export async function scholarAuthors(name: string, signal?: AbortSignal): Promis
     }));
 }
 
-/** Everything on one person's Scholar profile, which is their own list. */
-export async function scholarProfileWorks(userId: string, page = 0, signal?: AbortSignal): Promise<PaperRef[]> {
-  const start = page * 20;
+/**
+ * Everything on one person's Scholar profile, which is their own list —
+ * newest first, or most cited first, which is the order Scholar gives when
+ * not told otherwise and so the one the page is asked for without `sortby`.
+ */
+export async function scholarProfileWorks(
+  userId: string,
+  options: { page?: number; order?: PaperOrder; signal?: AbortSignal } = {},
+): Promise<PaperRef[]> {
+  const start = (options.page ?? 0) * 20;
+  const sort = options.order === 'cited' ? 'citations' : 'pubdate';
   const results = await ask<ScholarResult>(
-    `/scholar/profile?user=${encodeURIComponent(userId)}&start=${start}`,
+    `/scholar/profile?user=${encodeURIComponent(userId)}&start=${start}&sort=${sort}`,
     scholarPage('citations', {
       hl: 'en',
       user: userId,
       cstart: String(start),
       pagesize: '20',
       view_op: 'list_works',
-      sortby: 'pubdate',
+      ...(sort === 'pubdate' ? { sortby: 'pubdate' } : {}),
     }),
-    signal,
+    options.signal,
   );
   return results.map(fromScholar);
 }

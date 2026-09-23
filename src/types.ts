@@ -1,7 +1,10 @@
 export type SourceId = 'arxiv' | 'openalex' | 'semanticscholar' | 'crossref' | 'scholar';
 
-/** What a query is asking for: papers about something, or a person. */
-export type SearchMode = 'papers' | 'authors';
+/**
+ * The order a person's papers are listed in: newest first, which is how a
+ * profile reads, or most cited first, which is how it is judged.
+ */
+export type PaperOrder = 'newest' | 'cited';
 
 /**
  * A person, as one of the indexes understands them. Author identity is

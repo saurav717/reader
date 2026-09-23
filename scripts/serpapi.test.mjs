@@ -67,6 +67,12 @@ describe('the asks it makes', () => {
     assert.equal(works.searchParams.get('start'), '20');
   });
 
+  it('asks the author engine for the most cited first by leaving the order off', () => {
+    const works = new URL(serpUrl('profile', { user: 'oR9sCGYAAAAJ', start: 0, sort: 'citations' }, 'k'));
+    assert.equal(works.searchParams.get('sort'), null);
+    assert.equal(works.searchParams.get('author_id'), 'oR9sCGYAAAAJ');
+  });
+
   it('asks the author engine for one entry of a profile, opened', () => {
     const url = new URL(serpUrl('work', { user: 'oR9sCGYAAAAJ', citation: 'oR9sCGYAAAAJ:u5HHmVD_uO8C' }, 'k'));
     assert.equal(url.searchParams.get('engine'), 'google_scholar_author');

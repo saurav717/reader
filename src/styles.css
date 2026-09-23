@@ -366,6 +366,24 @@ kbd {
   background: var(--accent-soft); color: var(--accent-ink); font-size: 10.5px;
 }
 
+/* A person at the top of their page, the way Google Scholar lays one out: the
+   one card that is a heading rather than a result to open, and under it the
+   other people the name could have meant, then their papers and the order
+   they are in. */
+.result.person { cursor: default; background: var(--surface); border-color: var(--border); margin-bottom: 4px; }
+.result.person h3 { font-size: 17px; }
+.result.person .authors { margin-bottom: 6px; }
+.person-others { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 10px 6px; }
+.person-others .chip { font-size: 10.5px; padding: 3px 9px; }
+.person-works {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+  padding: 8px 10px 4px;
+}
+.segmented.sm button { font-size: 10.5px; padding: 3px 9px; }
+/* What to do when the person shown is not the one meant, said under the profile. */
+.author-advice { margin: 0; padding: 2px 10px 4px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+.author-advice .linklike { all: unset; color: var(--accent); cursor: pointer; text-decoration: underline; }
+
 /* --------------------------------------------------------------- reader -- */
 
 .main { flex-grow: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--paper); }

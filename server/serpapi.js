@@ -54,7 +54,9 @@ export function serpUrl(kind, params, key) {
     case 'profile':
       query.set('engine', 'google_scholar_author');
       query.set('author_id', params.user);
-      query.set('sort', 'pubdate');
+      // Newest first unless asked for the most cited, which is the engine's
+      // own order and takes no parameter.
+      if (params.sort !== 'citations') query.set('sort', 'pubdate');
       query.set('num', '20');
       if (params.start) query.set('start', String(params.start));
       break;
