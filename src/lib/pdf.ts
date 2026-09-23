@@ -211,13 +211,19 @@ export class PdfError extends Error {
   signIn?: SignInOffer;
   /** Set when a copy was behind a site's check for a person, and whose proxy met it. */
   check?: CheckOffer;
+  /** Set on the summary error: each copy that was asked, and what it said. */
+  tried?: CopyAttempt[];
 
-  constructor(message: string, options: { loginWall?: boolean; host?: string; signIn?: SignInOffer; check?: CheckOffer } = {}) {
+  constructor(
+    message: string,
+    options: { loginWall?: boolean; host?: string; signIn?: SignInOffer; check?: CheckOffer; tried?: CopyAttempt[] } = {},
+  ) {
     super(message);
     this.loginWall = Boolean(options.loginWall);
     this.host = options.host;
     this.signIn = options.signIn;
     this.check = options.check;
+    this.tried = options.tried;
   }
 }
 
@@ -355,12 +361,33 @@ function shareDownload(url: string, signal?: AbortSignal): Promise<Blob> {
 
 // ----------------------------------------------------------- every copy ----
 
+/** One copy that was asked for the file, and what came of it. */
+export interface CopyAttempt {
+  location: PaperLocation;
+  /** Why it was not the one shown: the proxy's refusal, or what the file looked like. */
+  error: string;
+  /** True when it did hand over a PDF, but one that did not look like the paper. */
+  doubtful?: boolean;
+}
+
+/**
+ * A second opinion on a PDF a copy handed over: why it is probably not the
+ * paper — a poster, slides — or null when it looks like one. `paperContent`'s
+ * `judgePdf` is the one the reader uses.
+ */
+export type PdfJudge = (blob: Blob, location: PaperLocation) => Promise<string | null>;
+
 export interface FetchedFromLocation {
   blob: Blob;
   /** Which of the copies actually answered. */
   location: PaperLocation;
-  /** The ones tried before it, and why each failed. */
-  tried: { location: PaperLocation; error: string }[];
+  /** The ones tried before it, and why each was passed over. */
+  tried: CopyAttempt[];
+  /**
+   * Set when every copy that answered looked wrong to the judge, and this is
+   * the best of them — shown, since it is what there is, with a word why.
+   */
+  doubt?: string;
 }
 
 /**
@@ -372,11 +399,21 @@ export interface FetchedFromLocation {
  * turn, best first, and the first one that returns actual PDF bytes wins. The
  * proxy does the deciding: it refuses anything that is not a PDF, which is
  * what makes "did this work" answerable rather than a guess.
+ *
+ * A PDF is not always the paper, though — a conference's link can be the
+ * poster. With a `judge`, a file it has doubts about is held back while the
+ * other copies are asked, and returned (with `doubt` saying why) only when
+ * none of them answers with anything better.
+ *
+ * A `preferred` copy — the one picked by hand — is asked on its own before
+ * any other is started, so a quicker copy cannot answer in its place; the
+ * rest are asked only if it will not hand the file over.
  */
 export async function fetchPdfFromLocations(
   paper: PaperRef,
   locations: PaperLocation[],
   signal?: AbortSignal,
+  options: { judge?: PdfJudge; preferred?: string } = {},
 ): Promise<FetchedFromLocation> {
   if (!hasProxy()) throw new PdfError(NO_PROXY_REASON);
   // A landing page is worth asking for too — plenty of them answer with the
@@ -396,15 +433,25 @@ export async function fetchPdfFromLocations(
   // from a browser at Browserless, which has one session to give on the
   // free plan. The downloads a win leaves in flight run on for whoever asks
   // next (see `shareDownload`), which is a couple of files at most.
-  const tried: { location: PaperLocation; error: string; loginWall: boolean; host?: string; check?: CheckOffer }[] = [];
+  const tried: (CopyAttempt & { loginWall: boolean; host?: string; check?: CheckOffer })[] = [];
+  /** The best-ranked file the judge had doubts about, kept in case nothing better comes. */
+  let held: { index: number; blob: Blob; doubt: string } | null = null;
+  const attempts = (): CopyAttempt[] => tried.map(({ location, error, doubtful }) => (doubtful ? { location, error, doubtful } : { location, error }));
   type Settled = { index: number; blob?: Blob; error?: unknown };
   const inFlight = new Map<number, Promise<Settled>>();
   const started = new Set<number>();
   const hostOf = (location: PaperLocation) => location.host.replace(/^www\./, '');
   const busy = () => new Set(Array.from(inFlight.keys(), (index) => hostOf(candidates[index])));
+  /** The copy picked by hand, while it has the floor to itself. */
+  let alone = options.preferred ? candidates.findIndex((location) => location.url === options.preferred) : -1;
   const launch = () => {
     const hosts = busy();
-    const index = candidates.findIndex((location, at) => !started.has(at) && !hosts.has(hostOf(location)));
+    const index =
+      alone >= 0
+        ? started.has(alone)
+          ? -1
+          : alone
+        : candidates.findIndex((location, at) => !started.has(at) && !hosts.has(hostOf(location)));
     if (index < 0) return false;
     started.add(index);
     const url = locationProxyUrl(paper, candidates[index]) as string;
@@ -421,8 +468,19 @@ export async function fetchPdfFromLocations(
   while (inFlight.size) {
     const settled = await Promise.race(inFlight.values());
     inFlight.delete(settled.index);
+    if (settled.index === alone) alone = -1;
     const location = candidates[settled.index];
-    if (settled.blob) return { blob: settled.blob, location, tried };
+    if (settled.blob) {
+      // With nothing else to try, a doubt would change nothing — and asking
+      // it means loading pdf.js, which a reader in PDF mode otherwise never does.
+      const doubt = options.judge && candidates.length > 1 ? await options.judge(settled.blob, location) : null;
+      if (!doubt) return { blob: settled.blob, location, tried: attempts() };
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      tried.push({ location, error: doubt, doubtful: true, loginWall: false });
+      if (!held || settled.index < held.index) held = { index: settled.index, blob: settled.blob, doubt };
+      while (started.size < candidates.length && inFlight.size < COPIES_AT_ONCE && launch());
+      continue;
+    }
     const error = settled.error;
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -434,6 +492,13 @@ export async function fetchPdfFromLocations(
       check: error instanceof PdfError ? error.check : undefined,
     });
     while (started.size < candidates.length && inFlight.size < COPIES_AT_ONCE && launch());
+  }
+
+  // Every copy has answered, and none with a file that looked like the
+  // paper: the best of the doubtful ones is still better than nothing.
+  if (held) {
+    const location = candidates[held.index];
+    return { blob: held.blob, location, tried: attempts().filter((entry) => entry.location !== location), doubt: held.doubt };
   }
 
   // Say which copies were tried: "it did not work" is not actionable, and the
@@ -459,7 +524,7 @@ export async function fetchPdfFromLocations(
       `${summary ? ` (tried ${summary})` : ''}` +
       `${signIn ? ` — ${walled?.location.label || signIn.host} asks for a sign-in` : ''}` +
       `${check && !signIn ? ` — ${check.host} checks for a person before it hands out the file` : ''}.`,
-    { loginWall: Boolean(signIn), host: signIn?.host, signIn, check },
+    { loginWall: Boolean(signIn), host: signIn?.host, signIn, check, tried: attempts() },
   );
 }
 
@@ -547,6 +612,10 @@ export interface FetchedPdf {
   from: PdfOrigin;
   /** Which copy answered, when it was not the one in Drive. */
   location?: PaperLocation;
+  /** The copies asked before it, and why each was passed over. */
+  tried?: CopyAttempt[];
+  /** Why the file shown may not be the paper, when every copy that answered looked doubtful. */
+  doubt?: string;
   /**
    * The copy in Drive this came from, when Drive was asked by name and had
    * one the library did not know about — for the caller to record, so the
@@ -652,6 +721,10 @@ export async function fetchPaperPdf(
     driveConnected?: boolean;
     /** The copies already resolved for this paper, if the caller has them. */
     locations?: PaperLocation[];
+    /** A second opinion on each file a copy hands over; see `fetchPdfFromLocations`. */
+    judge?: PdfJudge;
+    /** The copy picked by hand, asked alone before the rest; see `fetchPdfFromLocations`. */
+    preferred?: string;
   } = {},
   signal?: AbortSignal,
 ): Promise<FetchedPdf> {
@@ -675,6 +748,6 @@ export async function fetchPaperPdf(
   // rather than betting the whole thing on the one link a search result
   // happened to carry.
   const locations = options.locations ?? (await findLocations(paper, signal));
-  const fetched = await fetchPdfFromLocations(paper, locations, signal);
-  return { blob: fetched.blob, from: 'proxy', location: fetched.location };
+  const fetched = await fetchPdfFromLocations(paper, locations, signal, { judge: options.judge, preferred: options.preferred });
+  return { blob: fetched.blob, from: 'proxy', location: fetched.location, tried: fetched.tried, doubt: fetched.doubt };
 }

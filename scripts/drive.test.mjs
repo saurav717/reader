@@ -145,6 +145,7 @@ function stubDrive() {
         const file = files.get(fileId);
         if (!file) return new Response('not found', { status: 404 });
         file.name = metadata.name;
+        file.bytes = await init.body.get('file').text();
         return json({ id: fileId, name: file.name, webViewLink: `link:${fileId}` });
       }
       const fileId = id('file');
@@ -232,6 +233,23 @@ describe('the folder a paper lands in', () => {
     assert.equal(second.pdfFileId, first.pdfFileId);
     const uploads = drive.calls.filter((call) => call.url.includes('/upload/drive/v3/files'));
     assert.equal(uploads.length, 1, 'only the sidecar should be rewritten');
+  });
+
+  it('takes a different copy picked in the reader over the one saved before, in place', async () => {
+    // Saved first from the copy that answered first — the poster, as it turned out.
+    const first = await syncPaperToDrive(paper(), context({ pdf: new Blob(['%PDF-1.4 poster']) }));
+    const synced = paper({
+      drive: { folderId: first.folderId, pdfFileId: first.pdfFileId, pdfLink: first.pdfLink, metaFileId: first.metaFileId },
+    });
+
+    drive.calls.length = 0;
+    const second = await syncPaperToDrive(synced, context({ pdf: new Blob(['%PDF-1.4 the paper']), replacePdf: true }));
+
+    assert.equal(second.pdfFileId, first.pdfFileId, 'the same file, so its link still works');
+    assert.equal(drive.files.get(first.pdfFileId).bytes, '%PDF-1.4 the paper');
+    const pdfUploads = drive.calls.filter((call) => call.url.includes(`/upload/drive/v3/files/${first.pdfFileId}`));
+    assert.equal(pdfUploads.length, 1, 'the PDF is rewritten, not uploaded beside the old one');
+    assert.equal(second.notice, undefined);
   });
 });
 

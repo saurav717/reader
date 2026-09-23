@@ -17,11 +17,13 @@ import {
 import { hasProxy, NO_PROXY_FIX, NO_PROXY_REASON } from '../lib/api';
 import {
   findLocations,
+  versionLabel,
   scholarAuthorPapersUrl,
   scholarAuthorUrl,
   scholarPaperUrl,
 } from '../lib/locations';
 import { fetchPdfFromLocations, PdfError, type SignInOffer } from '../lib/pdf';
+import { judgePdf } from '../lib/paperContent';
 import SignInPrompt from './SignInPrompt';
 import CaptchaPrompt from './CaptchaPrompt';
 import PdfDropIn from './PdfDropIn';
@@ -96,10 +98,6 @@ function ResultHead({
     </div>
   );
 }
-
-/** `acceptedVersion` -> `accepted`, which is all a reader needs from it. */
-const versionLabel = (version?: string) =>
-  version ? version.replace(/Version$/i, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase() : '';
 
 /**
  * Everywhere this paper can be read, which is the question a search result
@@ -423,7 +421,9 @@ export default function Discover({ onClose, onOpen }: Props) {
           setSaving({ id: ref.id, step: 'Finding a copy…' });
           const locations = await findLocations(ref);
           setSaving({ id: ref.id, step: 'Downloading…' });
-          const fetched = await fetchPdfFromLocations(ref, locations);
+          // A copy that hands over a poster or slides is passed over for
+          // one that looks like the paper, where any of them does.
+          const fetched = await fetchPdfFromLocations(ref, locations, undefined, { judge: judgePdf });
           pdf = fetched.blob;
           from = ` from ${fetched.location.label}`;
         }

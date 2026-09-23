@@ -490,6 +490,95 @@ describe('downloading from whichever copy will answer', () => {
     await fetchPdfFromLocations(paper(), [at('https://arxiv.org/pdf/1706.03762', { kind: 'preprint' })]);
     assert.match(asked[0], /\/arxiv\/pdf\?id=1706\.03762/);
   });
+
+  // A copy whose file is a PDF but not the paper — the poster shown at the
+  // conference is the usual one. The judge's say-so is what tells them apart.
+  const posterJudge = async (blob) => ((await blob.text()).includes('poster') ? 'looks like a poster' : null);
+  const file = (body) => new Response(`%PDF-1.4 ${body}`, { status: 200, headers: { 'Content-Type': 'application/pdf' } });
+
+  it('passes over a file the judge doubts for a copy that is the paper', async () => {
+    handlers['proxy.example.workers.dev'] = async (url) => {
+      const target = url.searchParams.get('url');
+      if (target.includes('conference')) return file('poster');
+      // The paper is slower to come, and still the one shown.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return file('the paper');
+    };
+    const fetched = await fetchPdfFromLocations(
+      paper(),
+      [at('https://conference.example.org/poster.pdf', { label: 'The conference' }), at('https://repo.example.edu/full.pdf')],
+      undefined,
+      { judge: posterJudge },
+    );
+    assert.equal(fetched.location.host, 'repo.example.edu');
+    assert.equal(fetched.doubt, undefined);
+    assert.deepEqual(
+      fetched.tried.map((entry) => [entry.location.host, entry.error, entry.doubtful]),
+      [['conference.example.org', 'looks like a poster', true]],
+      'the poster is on record, for the list of copies',
+    );
+  });
+
+  it('shows the doubted file, saying why, when no copy has anything better', async () => {
+    handlers['proxy.example.workers.dev'] = (url) => {
+      const target = url.searchParams.get('url');
+      if (target.includes('meeting')) return file('poster');
+      return json({ error: 'Cloudflare checks for a person' }, 403);
+    };
+    const fetched = await fetchPdfFromLocations(
+      paper(),
+      [at('https://meeting.example.org/poster.pdf'), at('https://walled.example.com/full.pdf')],
+      undefined,
+      { judge: posterJudge },
+    );
+    assert.equal(fetched.location.host, 'meeting.example.org');
+    assert.equal(fetched.doubt, 'looks like a poster');
+    assert.deepEqual(fetched.tried.map((entry) => entry.location.host), ['walled.example.com']);
+  });
+
+  it('asks the copy picked by hand alone, so a quicker one cannot answer in its place', async () => {
+    const asked = [];
+    handlers['proxy.example.workers.dev'] = async (url) => {
+      const host = new URL(url.searchParams.get('url')).hostname;
+      asked.push(host);
+      if (host === 'picked.example.org') await new Promise((resolve) => setTimeout(resolve, 20));
+      return file(host);
+    };
+    const copies = [at('https://quick.example.com/a.pdf'), at('https://picked.example.org/b.pdf'), at('https://other.example.net/c.pdf')];
+    const fetched = await fetchPdfFromLocations(paper(), copies, undefined, { preferred: 'https://picked.example.org/b.pdf' });
+    assert.equal(fetched.location.host, 'picked.example.org');
+    assert.deepEqual(asked, ['picked.example.org'], 'nothing else was started while it was out');
+  });
+
+  it('goes on to the rest when the copy picked by hand refuses', async () => {
+    const asked = [];
+    handlers['proxy.example.workers.dev'] = (url) => {
+      const host = new URL(url.searchParams.get('url')).hostname;
+      asked.push(host);
+      return host === 'gone.example.org' ? json({ error: 'the link has rotted' }, 502) : file(host);
+    };
+    const fetched = await fetchPdfFromLocations(
+      paper(),
+      [at('https://fine.example.com/a.pdf'), at('https://gone.example.org/b.pdf')],
+      undefined,
+      { preferred: 'https://gone.example.org/b.pdf' },
+    );
+    assert.equal(fetched.location.host, 'fine.example.com');
+    assert.deepEqual(asked, ['gone.example.org', 'fine.example.com']);
+  });
+
+  it('carries what each copy said on the error when none hands over a file', async () => {
+    handlers['proxy.example.workers.dev'] = () => json({ error: 'the publisher answered 403' }, 502);
+    await assert.rejects(
+      fetchPdfFromLocations(paper(), [at('https://only.example.net/a.pdf')]),
+      (error) => {
+        assert.equal(error.tried.length, 1);
+        assert.equal(error.tried[0].location.host, 'only.example.net');
+        assert.match(error.tried[0].error, /the publisher answered 403/);
+        return true;
+      },
+    );
+  });
 });
 
 describe('whether there is a PDF to open at all', () => {

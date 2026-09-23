@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
-import { loadPaperContent, loadPaperContentFromPdf, type PaperContent, type ReflowProgress } from '../lib/paperContent';
+import { judgePdf, loadPaperContent, loadPaperContentFromPdf, type PaperContent, type ReflowProgress } from '../lib/paperContent';
 import { hasProxy } from '../lib/api';
 import {
   fetchPaperPdf,
   fetchPdfFromDrive,
+  fetchPdfFromLocations,
   PdfError,
   pdfAvailability,
   pdfSourceUrl,
@@ -13,8 +14,10 @@ import {
   type PdfOrigin,
   type CheckOffer,
   type SignInOffer,
+  type CopyAttempt,
 } from '../lib/pdf';
 import SignInPrompt from './SignInPrompt';
+import CopyPicker, { type CopyNote } from './CopyPicker';
 import PdfDropIn from './PdfDropIn';
 import MiniBrowser from './MiniBrowser';
 import { findLocations, mergeLocations, paperLocations, scholarPaperUrl } from '../lib/locations';
@@ -34,6 +37,7 @@ import LookupPopover, { type LookupTarget } from './LookupPopover';
 import {
   ArrowLeftIcon,
   BookIcon,
+  ChevronDownIcon,
   CloudCheckIcon,
   CopyIcon,
   DownloadIcon,
@@ -85,6 +89,7 @@ export default function Reader({
     setProgress,
     markOpened,
     setPaperPdfUrl,
+    setPaperPdfChoice,
     setPaperDriveFile,
     settings,
     updateSettings,
@@ -135,6 +140,25 @@ export default function Reader({
   const probedFor = useRef<string | null>(null);
   /** The browser inside the reader, open in the PDF pane in place of the failure. */
   const [browsing, setBrowsing] = useState(false);
+  /**
+   * Why the file on screen may not be the paper — "looks like a poster" —
+   * when every copy that answered looked doubtful, or the copy in Drive does.
+   */
+  const [pdfDoubt, setPdfDoubt] = useState<string | null>(null);
+  /** What each copy said when it was asked, by URL, for the list of copies. */
+  const [copyNotes, setCopyNotes] = useState<Record<string, CopyNote>>({});
+  /** The list of copies, open to read a different one. */
+  const [pickerOpen, setPickerOpen] = useState(false);
+  /** A copy picked by hand, being fetched. The file on screen stays until it arrives. */
+  const [switching, setSwitching] = useState<PaperLocation | null>(null);
+  /** A copy picked by hand that would not hand over the file, and what to do about it. */
+  const [switchError, setSwitchError] = useState<{
+    location: PaperLocation;
+    message: string;
+    signIn: SignInOffer | null;
+    check: CheckOffer | null;
+  } | null>(null);
+  const switchAbort = useRef<AbortController | null>(null);
   const [saving, setSaving] = useState(false);
   // Once the reading mode has been chosen by hand, stop choosing it for them.
   const modeChosen = useRef(false);
@@ -323,6 +347,13 @@ export default function Reader({
     setSaving(false);
     setBrowsing(false);
     setDriveProbe('idle');
+    setPdfDoubt(null);
+    setCopyNotes({});
+    setPickerOpen(false);
+    setSwitching(null);
+    setSwitchError(null);
+    switchAbort.current?.abort();
+    switchAbort.current = null;
     probedFor.current = null;
     // Changing the preference mid-paper is already handled by chooseMode.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -356,10 +387,39 @@ export default function Reader({
 
   // The places to try, with a link resolved after the list came back folded
   // in: the list is cached per paper, so it would not pick the link up itself.
-  const knownLocations = useMemo(
-    () => (locations && pdfTarget ? mergeLocations([paperLocations(pdfTarget), locations]) : locations),
-    [locations, pdfTarget],
+  //
+  // A copy picked by hand goes first, whatever its rank: it is the one they
+  // chose to read, and asking the rest first would bring the poster back.
+  const pdfChoice = paper?.pdfChoice;
+  const knownLocations = useMemo(() => {
+    const merged = locations && pdfTarget ? mergeLocations([paperLocations(pdfTarget), locations]) : locations;
+    if (!merged || !pdfChoice) return merged;
+    const chosen = merged.find((location) => location.url === pdfChoice);
+    return chosen ? [chosen, ...merged.filter((location) => location !== chosen)] : merged;
+  }, [locations, pdfTarget, pdfChoice]);
+
+  // A second look at each file a copy hands over, so a poster or a deck of
+  // slides is passed over for a copy that is the paper. Never at the copy
+  // they picked themselves: they have seen it.
+  const judge = useCallback(
+    (blob: Blob, location: PaperLocation) => (location.url === pdfChoice ? Promise.resolve(null) : judgePdf(blob)),
+    [pdfChoice],
   );
+
+  /** What each copy said, kept for the list of copies. */
+  const noteAttempts = useCallback((tried: CopyAttempt[] | undefined) => {
+    if (!tried?.length) return;
+    setCopyNotes((notes) => {
+      const next = { ...notes };
+      for (const attempt of tried) {
+        next[attempt.location.url] = {
+          text: attempt.doubtful ? attempt.error : attempt.error.replace(/^Could not fetch the PDF — /, 'refused: ').replace(/\.$/, ''),
+          doubtful: attempt.doubtful,
+        };
+      }
+      return next;
+    });
+  }, []);
 
   // Reading the copy in Drive rather than fetching the paper again is worth it
   // whenever there is one: it is the same file, and it comes back without the
@@ -425,6 +485,14 @@ export default function Reader({
         setPdfLocation(null);
         setPdfError(null);
         setDriveProbe('found');
+        // The copy saved to Drive may be the poster the paper was first
+        // fetched as; said, so the list of copies is one click away. Not
+        // for a copy they picked, which is what Drive holds since.
+        if (!pdfChoice) {
+          void judgePdf(found.blob).then((doubt) => {
+            if (!controller.signal.aborted) setPdfDoubt(doubt);
+          });
+        }
         // Found in Drive by name: remembered, so the next open asks by id.
         if (found.drive) void setPaperDriveFile(pdfTarget.id, found.drive);
       })
@@ -444,6 +512,8 @@ export default function Reader({
         setDriveProbe('idle');
       }
     };
+    // The choice is read when Drive answers, not a reason to ask it again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, pdfBlob, pdfTarget, driveConnected, settings.googleClientId, driveLookup, setPaperDriveFile]);
 
   // Then the copies, through the proxy, once Drive has said it has nothing —
@@ -466,21 +536,27 @@ export default function Reader({
     setPdfSignIn(null);
     setPdfCheck(null);
     // Drive has been asked already, above; the copies are what is left.
-    fetchPaperPdf(pdfTarget, { ...driveOptions, driveConnected: false }, controller.signal)
-      .then(({ blob, from, location }) => {
+    fetchPaperPdf(pdfTarget, { ...driveOptions, driveConnected: false, judge, preferred: pdfChoice }, controller.signal)
+      .then(({ blob, from, location, tried, doubt }) => {
         if (controller.signal.aborted) return;
         setPdfBlob(blob);
         setPdfFrom(from);
         setPdfLocation(location ?? null);
+        setPdfDoubt(doubt ?? null);
+        noteAttempts(tried);
       })
       .catch((error) => {
         if (controller.signal.aborted) return;
         setPdfError(error instanceof Error ? error.message : String(error));
         setPdfSignIn(error instanceof PdfError ? error.signIn ?? null : null);
         setPdfCheck(error instanceof PdfError ? error.check ?? null : null);
+        if (error instanceof PdfError) noteAttempts(error.tried);
       });
     return () => controller.abort();
-  }, [mode, pdfBlob, pdfTarget, driveOptions, driveConnected, settings.googleClientId, driveProbe, pdfLookup, pdfAttempt, browsing, pdfError]);
+    // The judge changes with the choice, which is only ever made with a file
+    // on screen — when this has nothing left to do.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, pdfBlob, pdfTarget, driveOptions, driveConnected, settings.googleClientId, driveProbe, pdfLookup, pdfAttempt, browsing, pdfError, noteAttempts]);
 
   // Putting a paper in Drive as it is read.
   //
@@ -539,30 +615,111 @@ export default function Reader({
    * effect above has already had its turn for this paper, with nothing to
    * send.
    */
+  //
+  // It is also how a different copy, picked by hand, takes the place of the
+  // one on screen — the poster the paper opened on, say. Whatever Drive
+  // held before is replaced with it, so the next open, here or in another
+  // browser, is on the copy that was picked and not the one first saved.
   const takePdf = useCallback(
-    (blob: Blob, from: PdfOrigin) => {
+    (blob: Blob, from: PdfOrigin, location: PaperLocation | null = null) => {
       setBrowsing(false);
       setPdfBlob(blob);
       setPdfFrom(from);
-      setPdfLocation(null);
+      setPdfLocation(location);
       setPdfError(null);
       setPdfSignIn(null);
-      if (paper && driveConnected && settings.savePdf && !paper.drive?.pdfFileId) {
+      setPdfCheck(null);
+      setPdfDoubt(null);
+      setSwitchError(null);
+      setPickerOpen(false);
+      if (paper && location) void setPaperPdfChoice(paper.id, location.url);
+      if (paper && driveConnected && settings.savePdf) {
         askedToSave.current.add(paper.id);
         sentPdf.current.add(paper.id);
-        syncPaper(paper.id, { pdf: blob });
+        syncPaper(paper.id, { pdf: blob, replacePdf: true });
       }
     },
-    [driveConnected, paper, settings.savePdf, syncPaper],
+    [driveConnected, paper, settings.savePdf, setPaperPdfChoice, syncPaper],
   );
   const takeFile = useCallback((blob: Blob) => takePdf(blob, 'file'), [takePdf]);
 
-  /** Every copy again, after a sign-in made in the browser inside the reader. */
+  /**
+   * One copy, picked by hand from the list: fetched on its own, and shown in
+   * place of the file on screen once it arrives. Until then — and if it will
+   * not hand the file over — the file on screen stays where it is.
+   */
+  const pickCopy = useCallback(
+    (location: PaperLocation) => {
+      if (!pdfTarget) return;
+      switchAbort.current?.abort();
+      const controller = new AbortController();
+      switchAbort.current = controller;
+      setPickerOpen(false);
+      setSwitchError(null);
+      setSwitching(location);
+      fetchPdfFromLocations(pdfTarget, [location], controller.signal)
+        .then(({ blob }) => {
+          if (controller.signal.aborted) return;
+          setCopyNotes(({ [location.url]: _gone, ...rest }) => rest);
+          takePdf(blob, 'proxy', location);
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          const failure = error instanceof PdfError ? error : null;
+          // The summary names the one copy; what it said is the useful part.
+          const said = failure?.tried?.[0]?.error ?? (error instanceof Error ? error.message : String(error));
+          noteAttempts(failure?.tried);
+          setSwitchError({
+            location,
+            message: said.replace(/^Could not fetch the PDF — /, '').replace(/\.$/, ''),
+            signIn: failure?.signIn ?? null,
+            check: failure?.check ?? null,
+          });
+        })
+        .finally(() => {
+          if (switchAbort.current === controller) {
+            switchAbort.current = null;
+            setSwitching(null);
+          }
+        });
+    },
+    [noteAttempts, pdfTarget, takePdf],
+  );
+
+  /** Back to letting the reader choose, the next time the paper opens. */
+  const forgetChoice = useCallback(() => {
+    if (paper) void setPaperPdfChoice(paper.id, undefined);
+    setPickerOpen(false);
+  }, [paper, setPaperPdfChoice]);
+
+  /**
+   * Every copy again, after a sign-in made in the browser inside the reader —
+   * or, when the browser was opened for a copy picked by hand with another
+   * one on screen, that copy.
+   */
   const retryCopies = useCallback(() => {
     setBrowsing(false);
+    if (pdfBlob && switchError) {
+      pickCopy(switchError.location);
+      return;
+    }
     setPdfError(null);
     setPdfSignIn(null);
     setPdfAttempt((attempt) => attempt + 1);
+  }, [pdfBlob, pickCopy, switchError]);
+
+  // The line that says which copy is on screen, and opens the list of the
+  // others. Wherever the PDF is what is being read — in the viewer, or read
+  // out into Reflow — and there is a proxy to fetch another copy through.
+  const readingPdf = mode === 'pdf' || content?.mode === 'pdf';
+  const showCopies = Boolean(readingPdf && hasProxy() && knownLocations?.length && (pdfBlob || switching));
+  const browseAvailable = hasProxy();
+  const closePicker = useCallback(() => setPickerOpen(false), []);
+  /** The browser in the pane lives in the PDF view, so that is where it opens — for this paper only. */
+  const browseHere = useCallback(() => {
+    modeChosen.current = true;
+    setMode('pdf');
+    setBrowsing(true);
   }, []);
 
   // Where to send a person when the file will not come here: the single link
@@ -896,13 +1053,109 @@ export default function Reader({
         <span style={{ width: `${Math.round(paper.progress * 100)}%` }} />
       </div>
 
+      {showCopies && knownLocations ? (
+        <div className="copy-bar">
+          <div className="copy-line">
+            <span className="copy-lead">Reading the copy</span>
+            <button
+              type="button"
+              className="copy-current"
+              aria-expanded={pickerOpen}
+              aria-haspopup="dialog"
+              onClick={() => setPickerOpen((open) => !open)}
+              title="Read a different copy of this paper"
+            >
+              {pdfFrom === 'drive'
+                ? 'in your Drive'
+                : pdfFrom === 'file'
+                  ? 'from your file'
+                  : pdfFrom === 'browser'
+                    ? 'from the browser here'
+                    : pdfLocation
+                      ? `at ${pdfLocation.label}`
+                      : 'found first'}
+              <ChevronDownIcon size={13} />
+            </button>
+            {switching ? (
+              <span className="copy-status">
+                <span className="spinner" /> Fetching the copy at {switching.label}…
+              </span>
+            ) : pdfDoubt ? (
+              <span className="copy-status doubtful">
+                It {pdfDoubt}.{' '}
+                <button type="button" className="link-btn" onClick={() => setPickerOpen(true)}>
+                  Pick another copy
+                </button>
+              </span>
+            ) : (
+              <span className="copy-status">
+                {(() => {
+                  const others = knownLocations.length - (pdfFrom === 'proxy' && pdfLocation ? 1 : 0);
+                  return others <= 0 ? '· the only copy known' : `· ${others === 1 ? 'one other' : `${others} others`} to pick from`;
+                })()}
+              </span>
+            )}
+          </div>
+          {pickerOpen ? (
+            <CopyPicker
+              locations={knownLocations}
+              current={pdfFrom === 'proxy' ? pdfLocation?.url ?? null : null}
+              choice={pdfChoice}
+              notes={copyNotes}
+              switching={switching?.url ?? null}
+              onPick={pickCopy}
+              onBrowse={
+                browseAvailable
+                  ? () => {
+                      setPickerOpen(false);
+                      browseHere();
+                    }
+                  : undefined
+              }
+              onFile={takeFile}
+              onForget={pdfChoice ? forgetChoice : undefined}
+              onClose={closePicker}
+            />
+          ) : null}
+          {switchError ? (
+            <p className="banner warn copy-error">
+              The copy at {switchError.location.label} would not hand over the PDF — {switchError.message}. You are still
+              reading the copy you had.
+              {switchError.check?.where === 'cloudflare' ? (
+                <>
+                  {' '}
+                  That is Cloudflare checking for a person, which the proxy's requests never pass — but your own browser
+                  does.
+                </>
+              ) : null}{' '}
+              {switchError.check?.where !== 'cloudflare' && browseAvailable ? (
+                <>
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={browseHere}
+                  >
+                    {switchError.signIn ? `Browse to ${switchError.signIn.host} and sign in here` : `Browse to ${switchError.location.host} here`}
+                  </button>
+                  .
+                </>
+              ) : null}
+              <PdfDropIn host={switchError.location.host} url={switchError.location.url} onFile={takeFile} />{' '}
+              <button type="button" className="link-btn" onClick={() => setSwitchError(null)}>
+                Dismiss
+              </button>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {mode === 'pdf' ? (
         <div className="pdf-pane">
-          {browsing && !pdfObjectUrl ? (
+          {browsing ? (
             <MiniBrowser
               paper={paper}
               locations={knownLocations}
-              signIn={pdfSignIn}
+              signIn={switchError?.signIn ?? pdfSignIn}
               onPdf={(blob) => takePdf(blob, 'browser')}
               onRetry={retryCopies}
               onClose={() => setBrowsing(false)}

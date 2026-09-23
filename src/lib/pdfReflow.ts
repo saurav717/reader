@@ -241,3 +241,21 @@ export async function reflowPdf(
     void task.destroy();
   }
 }
+
+/**
+ * How many pages a PDF has and how big the first one is, in points — enough
+ * to tell a paper from a poster or a deck of slides (see `pdfShape`). The
+ * file is opened, not read: no page's text or drawing is looked at.
+ */
+export async function measurePdf(blob: Blob): Promise<{ pages: number; width: number; height: number }> {
+  const data = new Uint8Array(await blob.arrayBuffer());
+  const task = getDocument({ data, useSystemFonts: false });
+  try {
+    const doc = await task.promise;
+    const page = await doc.getPage(1);
+    const { width, height } = page.getViewport({ scale: 1 });
+    return { pages: doc.numPages, width, height };
+  } finally {
+    void task.destroy();
+  }
+}

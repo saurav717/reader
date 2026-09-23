@@ -105,6 +105,38 @@ cookie banner or a captcha in the way.
 
 The line under the title in the reader then says which copy you are looking at.
 
+### Reading a different copy
+
+The first copy to hand over a PDF is not always the paper. A conference's link
+is often the **poster** that was shown there, a repository deposit can be the
+talk's **slides**, and a workshop copy may be a two-page abstract. They are all
+PDFs, so the proxy passes them. What gives them away is their shape: a poster
+is one or two enormous pages, slides are landscape, an abstract is a page or
+two. So each file a copy hands over is measured with pdf.js before it is
+shown (`src/lib/pdfShape.ts`). A file that looks like a poster, slides or an
+abstract is held back while the other copies are asked. It is shown only when
+none of them has anything better, and then the reader says why it may not be
+the paper. Adding a paper from the search pane makes the same check, so the
+poster is not the file that goes to Drive.
+
+The bar under the progress line says which copy is on screen — **Reading the
+copy at Caltech Repository ▾** — and opens the list of every copy. Each one
+says what it answered when it was asked (*looks like a poster — one page of
+48×36 in*, *refused: …*), so a copy is never picked blind. Pick one and it is
+fetched on its own. The file on screen stays until the new one arrives, and
+stays for good if the new copy will not hand its file over. A refusal says
+why and offers the way round. A copy behind a sign-in can be opened in the
+browser in the pane. A copy behind Cloudflare's check for a person is linked,
+so you can open it in a tab of your own (your browser passes the check), then
+drop the file on the bar.
+
+The copy you pick is remembered for that paper. The next open asks that copy
+first, and alone, so a quicker copy cannot answer in its place, and it is
+never second-guessed for its shape. The file replaces the one in Drive
+in place, keeping its id and link, so the next open reads the copy you
+picked from any browser, not the one saved first. **Forget my pick** goes back
+to the ranked order.
+
 ### Google Scholar
 
 Scholar publishes no API, so `server/scholar.js` asks for the same pages a person
@@ -1319,6 +1351,7 @@ npm run test:unit              # query building, merging, the Git mirror, the pr
 
 npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
+node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 
 npm run build                  # then, needing no server of its own:
 node scripts/versions-drive.mjs

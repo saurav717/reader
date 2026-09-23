@@ -469,3 +469,7 @@ export function scholarAuthorUrl(name: string): string {
 export function scholarAuthorPapersUrl(name: string): string {
   return `https://scholar.google.com/scholar?q=${encodeURIComponent(`author:"${name}"`)}`;
 }
+
+/** `acceptedVersion` -> `accepted`, which is all a reader needs from it. */
+export const versionLabel = (version?: string): string =>
+  version ? version.replace(/Version$/i, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase() : '';
