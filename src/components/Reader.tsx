@@ -726,8 +726,9 @@ export default function Reader({
                   That check is Cloudflare's, and the Worker's requests never pass it — Cloudflare tells every site it
                   protects that requests from its Workers and its rendering browsers are bots, so the browser in this
                   pane meets the same box, however many times it is ticked. Your own browser passes it without
-                  noticing: open the file in a tab of your own and drop it here, or run the proxy on your own machine
-                  (Settings → Paper proxy).
+                  noticing: open the file in a tab of your own and drop it here, or run the proxy on your own machine —{' '}
+                  <span className="mono">npm run home</span> in the reader repository prints an address for Settings →
+                  Paper proxy, and the pane here becomes your own browser.
                 </span>
               ) : null}
               {hasProxy() ? (
