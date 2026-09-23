@@ -221,11 +221,12 @@ export class PdfError extends Error {
   }
 }
 
-async function downloadPdf(url: string): Promise<Blob> {
+async function downloadPdf(url: string, signal?: AbortSignal): Promise<Blob> {
   let response: Response;
   try {
-    response = await fetch(url);
-  } catch {
+    response = await fetch(url, { signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new PdfError('Could not reach the PDF.');
   }
   if (!response.ok) {
@@ -264,7 +265,7 @@ async function downloadPdf(url: string): Promise<Blob> {
  * is after the first has finished. One paper's worth of bytes — the viewer is
  * holding the same blob anyway — against fetching a whole PDF twice.
  */
-const inFlight = new Map<string, Promise<Blob>>();
+const inFlight = new Map<string, { promise: Promise<Blob>; controller: AbortController; waiting: number }>();
 const KEEP_MS = 60_000;
 let recent: { url: string; blob: Blob; at: number } | null = null;
 
@@ -295,23 +296,61 @@ export async function fetchPdf(paper: PaperRef, signal?: AbortSignal): Promise<B
   return shareDownload(url, signal);
 }
 
-/** One download per URL, however many callers are waiting on it. */
+/**
+ * One download per URL, however many callers are waiting on it — and none
+ * once the last of them has gone. A caller that gives up takes its own
+ * promise with it; when nobody is left waiting the download itself is
+ * stopped, since through the proxy it is not only bandwidth: a copy behind
+ * a site's check is fetched from a browser at Browserless, whose one
+ * session on the free plan is the one the pane in the reader needs when
+ * the person leaves the copies to sign in there instead. A caller with no
+ * signal is counted as waiting for good.
+ */
 function shareDownload(url: string, signal?: AbortSignal): Promise<Blob> {
   if (recent && recent.url === url && Date.now() - recent.at < KEEP_MS) return Promise.resolve(recent.blob);
 
   let shared = inFlight.get(url);
   if (!shared) {
-    shared = downloadPdf(url)
-      .then((blob) => {
-        recent = { url, blob, at: Date.now() };
-        return blob;
-      })
-      .finally(() => inFlight.delete(url));
-    inFlight.set(url, shared);
+    const controller = new AbortController();
+    const entry = {
+      controller,
+      waiting: 0,
+      promise: downloadPdf(url, controller.signal)
+        .then((blob) => {
+          recent = { url, blob, at: Date.now() };
+          return blob;
+        })
+        .finally(() => {
+          if (inFlight.get(url) === entry) inFlight.delete(url);
+        }),
+    };
     // Nobody may be listening yet, and an unhandled rejection is noisy.
-    shared.catch(() => undefined);
+    entry.promise.catch(() => undefined);
+    inFlight.set(url, entry);
+    shared = entry;
   }
-  return signal ? Promise.race([shared, whenAborted(signal)]) : shared;
+  if (!signal) {
+    shared.waiting = Number.POSITIVE_INFINITY;
+    return shared.promise;
+  }
+  const entry = shared;
+  entry.waiting += 1;
+  let left = false;
+  const leave = () => {
+    if (left) return;
+    left = true;
+    entry.waiting -= 1;
+    if (entry.waiting <= 0 && inFlight.get(url) === entry) {
+      inFlight.delete(url);
+      entry.controller.abort();
+    }
+  };
+  return Promise.race([entry.promise, whenAborted(signal)]).finally(() => {
+    // Settled either way: this caller is no longer waiting. Only an abort
+    // can leave the download with nobody on it, since a download that
+    // finished has finished for everyone.
+    if (signal.aborted) leave();
+  });
 }
 
 // ----------------------------------------------------------- every copy ----
@@ -352,14 +391,22 @@ export async function fetchPdfFromLocations(
   // ten copies could be minutes before the reader said anything. The window
   // starts in rank order, so the copies most likely to answer without a
   // wall have the head start; a copy that answers is the file whichever it
-  // is. The downloads a win leaves in flight run on for whoever asks next
-  // (see `shareDownload`), which is a couple of files at most.
+  // is. One copy per site at a time, though: two copies at one publisher
+  // answer alike, and a site with a check in front of its files is asked
+  // from a browser at Browserless, which has one session to give on the
+  // free plan. The downloads a win leaves in flight run on for whoever asks
+  // next (see `shareDownload`), which is a couple of files at most.
   const tried: { location: PaperLocation; error: string; loginWall: boolean; host?: string; check?: CheckOffer }[] = [];
   type Settled = { index: number; blob?: Blob; error?: unknown };
   const inFlight = new Map<number, Promise<Settled>>();
-  let next = 0;
+  const started = new Set<number>();
+  const hostOf = (location: PaperLocation) => location.host.replace(/^www\./, '');
+  const busy = () => new Set(Array.from(inFlight.keys(), (index) => hostOf(candidates[index])));
   const launch = () => {
-    const index = next++;
+    const hosts = busy();
+    const index = candidates.findIndex((location, at) => !started.has(at) && !hosts.has(hostOf(location)));
+    if (index < 0) return false;
+    started.add(index);
     const url = locationProxyUrl(paper, candidates[index]) as string;
     inFlight.set(
       index,
@@ -368,8 +415,9 @@ export async function fetchPdfFromLocations(
         (error: unknown) => ({ index, error }),
       ),
     );
+    return true;
   };
-  while (next < candidates.length && inFlight.size < COPIES_AT_ONCE) launch();
+  while (started.size < candidates.length && inFlight.size < COPIES_AT_ONCE && launch());
   while (inFlight.size) {
     const settled = await Promise.race(inFlight.values());
     inFlight.delete(settled.index);
@@ -385,7 +433,7 @@ export async function fetchPdfFromLocations(
       host: error instanceof PdfError ? error.host : undefined,
       check: error instanceof PdfError ? error.check : undefined,
     });
-    if (next < candidates.length) launch();
+    while (started.size < candidates.length && inFlight.size < COPIES_AT_ONCE && launch());
   }
 
   // Say which copies were tried: "it did not work" is not actionable, and the

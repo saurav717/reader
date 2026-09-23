@@ -430,8 +430,8 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
             <p className="mini-browser-note">
               <span className="spinner" />
               <span>
-                Cloudflare would not start another browser just now; it will allow one in{' '}
-                {Math.max(0, Math.ceil((retry.at - now) / 1000))}&nbsp;s, and the pane will try again then.{' '}
+                The proxy could not start another browser just now; the pane will try again in{' '}
+                {Math.max(0, Math.ceil((retry.at - now) / 1000))}&nbsp;s.{' '}
                 <button type="button" className="link-btn" onClick={() => void open(retry.url, retry.attempt)}>
                   Try now
                 </button>

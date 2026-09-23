@@ -189,6 +189,30 @@ export function refusal(error, limits, { daily = false } = {}) {
   return made;
 }
 
+/** How long the pane waits before asking Browserless again, when its browsers were all in use. */
+export const BROWSERLESS_BUSY_RETRY_S = 20;
+
+export const BROWSERLESS_BUSY =
+  "Browserless would not start another browser just now: this plan's browsers are all in use, or one was asked for too soon after the last. " +
+  'A session of this account is most likely still running — the last pane, closed a moment ago, or a copy of the paper being fetched through Browserless — ' +
+  'and it ends when it is done or its time is up (two minutes on the free plan).';
+
+/**
+ * The refusal Browserless's "too many requests" becomes: the same shape as
+ * Cloudflare's rate limit (`refusal`), so the pane counts it down and tries
+ * again on its own, with Browserless's own words on the end.
+ */
+export function browserlessBusy(error) {
+  const raw = String(error?.message || error || '');
+  const said = (raw.match(/message:\s*(.+)$/s) || [])[1]?.trim().replace(/[.\s]+$/, '');
+  const made = new Error([BROWSERLESS_BUSY, said ? `Browserless said: ${said}.` : ''].filter(Boolean).join(' '));
+  made.code = 'rate-limited';
+  made.retryAfter = BROWSERLESS_BUSY_RETRY_S;
+  made.daily = false;
+  made.browsers = null;
+  return made;
+}
+
 /**
  * How long each step of opening the browser may take before it is given
  * up on. Puppeteer waits three minutes for any answer over the protocol,
@@ -939,9 +963,21 @@ export class BrowserSession {
     if (at === 'browserless') {
       // Browserless rations nothing by the minute, keeps no session to take
       // over, and says what is wrong in its own words: started, or not.
-      const browser = await within(this.deadlines.launch, 'starting a browser at Browserless', this.driver.launch(this.env, { at }), (late) =>
-        late.close?.().catch?.(() => undefined),
-      );
+      let browser;
+      try {
+        browser = await within(this.deadlines.launch, 'starting a browser at Browserless', this.driver.launch(this.env, { at }), (late) =>
+          late.close?.().catch?.(() => undefined),
+        );
+      } catch (error) {
+        // Its browsers all in use — one of this account's is still running:
+        // the last pane's, closed a moment ago and not yet gone, or a copy
+        // `/pdf` is fetching through Browserless, whose session runs until
+        // the file is had or its time is up — is a wait, not a fault, and
+        // handed up as one, for the pane to count down and try again.
+        if (!browserless.tooBusy(error)) throw error;
+        this.note(`Browserless refused a browser: ${String(error?.message || error)}`);
+        throw browserlessBusy(error);
+      }
       this.note(`started a browser at Browserless (${browser.sessionId()})`);
       return { browser, id: browser.sessionId() };
     }

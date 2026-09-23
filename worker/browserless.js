@@ -125,6 +125,27 @@ export function sessionCapIn(message) {
 }
 
 /**
+ * What a refusal said, fit for a sentence: its text, or, when the body is
+ * a web page — nginx's "429 Too Many Requests" page is what the plan's
+ * browsers all being in use comes back as — the page's title or heading
+ * rather than its markup. Pure: pinned by the tests.
+ */
+export function saidIn(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+  if (/^\s*</.test(raw) || /<\/?(html|body|head|h1|title)\b/i.test(raw)) {
+    const inner = (tag) => (raw.match(new RegExp(`<${tag}[^>]*>([^<]*)<`, 'i')) || [])[1]?.trim();
+    return (inner('title') || inner('h1') || raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()).slice(0, 200);
+  }
+  return raw.slice(0, 200);
+}
+
+/** Whether a refusal is Browserless saying its browsers are all in use, or asked for too often: a wait cures it. */
+export function tooBusy(error) {
+  return error?.status === 429 || /code:\s*429\b/.test(String(error?.message || ''));
+}
+
+/**
  * A WebSocket to Browserless, the way a Worker opens one: a fetch with
  * `Upgrade: websocket` over https, whose answer carries the socket. A
  * refusal — a bad token, the plan's browsers all in use — comes back as a
@@ -136,8 +157,10 @@ export async function openSocket(address, doFetch = globalThis.fetch) {
   const socket = response.webSocket;
   if (!socket) {
     const text = await response.text().catch(() => '');
-    const said = text.trim().slice(0, 200);
-    throw new Error(`Browserless would not open a browser: code: ${response.status}${said ? `: message: ${said}` : ''}`);
+    const said = saidIn(text);
+    const error = new Error(`Browserless would not open a browser: code: ${response.status}${said ? `: message: ${said}` : ''}`);
+    error.status = response.status;
+    throw error;
   }
   socket.accept();
   return socket;

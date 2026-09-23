@@ -1115,9 +1115,22 @@ per page; the next click is whole. A paid plan allows longer, and `BROWSERLESS_S
 raises the ask; a session asked for longer than the plan allows is
 refused before any browser starts, with the cap in the refusal, and the
 Worker asks again at that cap rather than giving up.
-Browserless's own refusals — a bad token, the plan's browsers all in use
-— come back in its words, in the line under the page and in `lastError`
-on `/browse/status`. To take the Worker out of the picture and ask
+Browserless's own refusals — a bad token, say — come back in its words, in
+the line under the page and in `lastError` on `/browse/status`. One of them
+is a wait rather than a fault, and is treated as one: *429 Too Many
+Requests* is its browsers all being in use (the free plan has one), or one
+asked for too soon after the last, and a session of the account's is most
+likely still running — the last pane's, closed a moment ago and not yet
+gone, or a copy `/pdf` is fetching through Browserless, whose session runs
+until the file is had or its time is up. The Worker hands that up the way
+it hands up Cloudflare's rate limit, and the pane counts twenty seconds down
+and tries again on its own, twice, with Browserless's own words (the page's
+title, not its markup) under the countdown. Two things in the reader keep
+that slot free for the pane: the copies are asked one per site at a time,
+so two copies at academia.edu are not two sessions at Browserless; and
+opening the pane while the copies are still being asked stops them — the
+download nobody is waiting for is cancelled, not merely left — and asks
+them again only if the pane closes without a file. To take the Worker out of the picture and ask
 Browserless from your own machine, at the same address the Worker uses:
 
 ```bash
