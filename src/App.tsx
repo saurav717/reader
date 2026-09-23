@@ -68,9 +68,10 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [welcomed, setWelcomed] = useState(() => localStorage.getItem(WELCOME_KEY) === 'true');
   // Dismissing the opening screen is remembered for this page load only. A
-  // token cannot outlive the tab — there is no backend to hold a refresh token
-  // — so every visit starts disconnected, and every visit offers to reconnect
-  // before anything is collected that Drive would then have missed.
+  // sign-in is kept in this browser for the hour Google's token lasts, so a
+  // reload comes back connected; once it has run out — there is no backend to
+  // hold a refresh token — the visit starts disconnected, and offers to
+  // reconnect before anything is collected that Drive would then have missed.
   const [skippedConnect, setSkippedConnect] = useState(false);
 
   // Reopening the tab should put you back on the paper you were reading.

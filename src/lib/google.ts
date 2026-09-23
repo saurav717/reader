@@ -1,8 +1,13 @@
 /**
  * Google sign-in and Drive, entirely in the browser via Google Identity
  * Services. There is no backend, so nothing here can hold a refresh token:
- * access tokens live in memory for the session and are re-requested silently
- * when they expire.
+ * the access token Google hands out lasts about an hour, and is re-requested
+ * on the grant already given when it expires.
+ *
+ * For that hour it is kept in `localStorage`, beside who it belongs to, so a
+ * reload or a reopened tab is still signed in rather than starting over at
+ * the connect screen. It goes when it expires, when Drive refuses it, and on
+ * sign-out — which also revokes it.
  *
  * Sign-in asks only for identity. Drive is a second, incremental consent for
  * `drive.file` — the app can only ever see files it created itself.
@@ -92,9 +97,62 @@ interface StoredToken {
   accessToken: string;
   expiresAt: number;
   scopes: string[];
+  /** Whose it is, once the profile has been read; kept so a reload need not ask again. */
+  user?: GoogleUser;
 }
 
-let token: StoredToken | null = null;
+const SESSION_KEY = 'reader.google.session';
+
+/**
+ * The session the last page load left behind, if it is still live. Anything
+ * malformed or expired is cleared rather than trusted. Storage may be missing
+ * or refused (a private window, a test), and then there is simply nothing.
+ */
+function readSession(): StoredToken | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoredToken>;
+    const live =
+      typeof parsed.accessToken === 'string' &&
+      typeof parsed.expiresAt === 'number' &&
+      Array.isArray(parsed.scopes) &&
+      parsed.expiresAt > Date.now();
+    if (!live) {
+      localStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+    return parsed as StoredToken;
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(next: StoredToken | null): void {
+  try {
+    if (next) localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    else localStorage.removeItem(SESSION_KEY);
+  } catch {
+    // Nothing to do: the session then lasts the page load, as it used to.
+  }
+}
+
+let token: StoredToken | null = readSession();
+
+function setToken(next: StoredToken | null): void {
+  token = next;
+  writeSession(next);
+}
+
+/** Drop a token Google or Drive no longer honours, so the next need asks afresh. */
+function forgetToken(): void {
+  setToken(null);
+}
+
+/** The person the restored session belongs to, for a page that has just loaded. */
+export function restoredUser(): GoogleUser | null {
+  return token && token.expiresAt > Date.now() ? (token.user ?? null) : null;
+}
 
 /**
  * The one thing to do about a consent screen that is still in Testing. It is
@@ -141,8 +199,10 @@ function requestToken(clientId: string, scope: string, prompt: string): Promise<
           accessToken: response.access_token,
           expiresAt: Date.now() + (response.expires_in ?? 3600) * 1000 - 60_000,
           scopes: (response.scope || scope).split(' '),
+          // A renewal is for the same person; a first sign-in learns who below.
+          user: token?.user,
         };
-        token = next;
+        setToken(next);
         resolve(next);
       },
       error_callback: (error) => reject(new Error(describe(error.type, error.message))),
@@ -179,7 +239,15 @@ async function fetchProfile(accessToken: string): Promise<GoogleUser> {
   });
   if (!response.ok) throw new Error(`Could not read your Google profile (${response.status})`);
   const payload = (await response.json()) as { name?: string; email?: string; picture?: string };
-  return { name: payload.name || payload.email || 'Signed in', email: payload.email || '', picture: payload.picture };
+  const user: GoogleUser = {
+    name: payload.name || payload.email || 'Signed in',
+    email: payload.email || '',
+    picture: payload.picture,
+  };
+  // The token this profile was read with is the one to remember it against; a
+  // token that changed underneath (a sign-out mid-request) is left alone.
+  if (token && token.accessToken === accessToken) setToken({ ...token, user });
+  return user;
 }
 
 export function signIn(clientId: string): Promise<GoogleUser> {
@@ -213,7 +281,7 @@ export async function ensureDriveToken(clientId: string): Promise<string> {
 
 export function signOut(): void {
   const active = token?.accessToken;
-  token = null;
+  forgetToken();
   if (active) window.google?.accounts.oauth2.revoke(active);
 }
 
@@ -242,6 +310,9 @@ async function driveFetch(accessToken: string, url: string, init: RequestInit = 
     headers: { Authorization: `Bearer ${accessToken}`, ...(init.headers || {}) },
   });
   if (!response.ok) {
+    // A token Drive no longer accepts is not worth keeping: forgotten, the
+    // next call asks Google for another on the grant that still stands.
+    if (response.status === 401 && token?.accessToken === accessToken) forgetToken();
     const detail = await response.text().catch(() => '');
     throw new DriveRequestError(
       response.status,

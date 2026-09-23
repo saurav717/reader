@@ -38,6 +38,16 @@ globalThis.document = {
 };
 globalThis.window = {};
 
+// The browser's storage, as far as this module uses it: a session is kept
+// there for the hour its token lasts, so a reload comes back signed in.
+const stored = new Map();
+globalThis.localStorage = {
+  getItem: (key) => (stored.has(key) ? stored.get(key) : null),
+  setItem: (key, value) => stored.set(key, String(value)),
+  removeItem: (key) => stored.delete(key),
+};
+const SESSION_KEY = 'reader.google.session';
+
 const realFetch = globalThis.fetch;
 after(async () => {
   globalThis.fetch = realFetch;
@@ -79,6 +89,7 @@ const WITH_DRIVE = `${IDENTITY} https://www.googleapis.com/auth/drive.file`;
 beforeEach(() => {
   delete globalThis.window.google;
   scripts.length = 0;
+  stored.clear();
   globalThis.fetch = async () => ({
     ok: true,
     json: async () => ({ name: 'A Reader', email: 'reader@example.com' }),
@@ -189,6 +200,64 @@ describe('what counts as connected', () => {
     const calls = install(grant(WITH_DRIVE));
     assert.equal(await module.ensureDriveToken('client-id'), 'token');
     assert.equal(await module.ensureDriveToken('client-id'), 'token');
+    assert.equal(calls.length, 1);
+  });
+});
+
+describe('staying signed in across a reload', () => {
+  it('keeps the token and who it belongs to, and a fresh page load has both', async () => {
+    const first = await fresh();
+    install(grant(WITH_DRIVE));
+    await first.connectDrive('client-id');
+
+    // A reload is a new copy of the module with the same storage underneath.
+    const reloaded = await fresh();
+    assert.deepEqual(reloaded.restoredUser(), { name: 'A Reader', email: 'reader@example.com' });
+    assert.equal(reloaded.hasDriveAccess(), true);
+    // And Drive is usable at once, without another window.
+    const calls = install(grant(WITH_DRIVE));
+    assert.equal(await reloaded.ensureDriveToken('client-id'), 'token');
+    assert.equal(calls.length, 0);
+  });
+
+  it('starts over when the stored token has expired, and clears it', async () => {
+    stored.set(
+      SESSION_KEY,
+      JSON.stringify({ accessToken: 'stale', expiresAt: Date.now() - 1, scopes: WITH_DRIVE.split(' '), user: { name: 'A', email: 'a@b' } }),
+    );
+    const module = await fresh();
+    assert.equal(module.restoredUser(), null);
+    assert.equal(module.hasDriveAccess(), false);
+    assert.equal(stored.has(SESSION_KEY), false);
+  });
+
+  it('ignores anything in storage that is not a session', async () => {
+    stored.set(SESSION_KEY, '{"accessToken": 42}');
+    const module = await fresh();
+    assert.equal(module.restoredUser(), null);
+    assert.equal(stored.has(SESSION_KEY), false);
+  });
+
+  it('forgets the session on sign-out', async () => {
+    const module = await fresh();
+    install(grant(IDENTITY));
+    await module.signIn('client-id');
+    assert.equal(stored.has(SESSION_KEY), true);
+    module.signOut();
+    assert.equal(stored.has(SESSION_KEY), false);
+    assert.equal((await fresh()).restoredUser(), null);
+  });
+
+  it('drops a token Drive refuses, so the next call asks Google again', async () => {
+    const module = await fresh();
+    install(grant(WITH_DRIVE));
+    const accessToken = await module.ensureDriveToken('client-id');
+    globalThis.fetch = async () => ({ ok: false, status: 401, text: async () => 'Invalid Credentials' });
+    await assert.rejects(module.findFile(accessToken, 'paper.pdf', 'folder'), /401/);
+    assert.equal(module.hasDriveAccess(), false);
+    assert.equal(stored.has(SESSION_KEY), false);
+    const calls = install(grant(WITH_DRIVE));
+    await module.ensureDriveToken('client-id');
     assert.equal(calls.length, 1);
   });
 });
