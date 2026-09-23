@@ -60,6 +60,21 @@ const json = (body, status, headers) =>
     headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers },
   });
 
+/**
+ * The one session object, which holds the browser. It lives where its
+ * first request came from, which is near the person and, when the browser
+ * is at Browserless, far from the browser — and every frame and every
+ * click crosses that distance. BROWSER_SESSION_LOCATION, a plain var,
+ * asks for it to be made near the browser instead (wnam for Browserless's
+ * San Francisco, weur for London or Amsterdam); the object is named by
+ * the hint, so changing it makes a new one there.
+ */
+function sessionStub(env) {
+  const hint = String(env.BROWSER_SESSION_LOCATION || '').trim().toLowerCase();
+  const name = hint ? `the-browser@${hint}` : 'the-browser';
+  return env.BROWSER_SESSION.get(env.BROWSER_SESSION.idFromName(name), hint ? { locationHint: hint } : undefined);
+}
+
 export default {
   async fetch(request, env = {}) {
     // A SerpApi key, as a secret: `npx wrangler secret put SERPAPI_KEY`. With
@@ -91,12 +106,23 @@ export default {
         if (changes && request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
         if (changes && !fromThisApp) return json({ error: 'not from this app' }, 403, headers);
 
+        // The stream: a WebSocket the session object answers with frames
+        // and takes input on, handed through as it came, upgrade and all.
+        // Only from this app — a browser sends its Origin on the handshake
+        // — since what goes over it drives a signed-in browser.
+        if (path === '/browse/stream') {
+          if (!fromThisApp) return json({ error: 'not from this app' }, 403, headers);
+          if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') return json({ error: 'a WebSocket upgrade' }, 426, headers);
+          if (!env.BROWSER_SESSION) return json({ error: 'no session object holds the browser here; poll /browse/frame instead' }, 404, headers);
+          return sessionStub(env).fetch(new URL(`https://browser-session/stream${url.search}`), { headers: request.headers });
+        }
+
         // Held open in a Durable Object where one is bound (the fast way,
         // and what wrangler.toml ships); reconnected per request otherwise.
         // The status too: the object knows whether it holds a browser, whether
         // an open is in flight and for how long, and what last went wrong.
         if (env.BROWSER_SESSION) {
-          const stub = env.BROWSER_SESSION.get(env.BROWSER_SESSION.idFromName('the-browser'));
+          const stub = sessionStub(env);
           const inner = new URL(`https://browser-session${path.replace(/^\/browse/, '')}${url.search}`);
           const answer = await stub.fetch(inner, {
             method: request.method,
@@ -453,8 +479,9 @@ export default {
             const got = await browserless.fetchFile(env, target, { restoreCookies: browse.restoreCookies, saveCookies: browse.saveCookies });
             if (got?.bytes) return servePdf(got.bytes);
             if (env.BROWSER_SESSION) {
-              const stub = env.BROWSER_SESSION.get(env.BROWSER_SESSION.idFromName('the-browser'));
-              await stub.fetch(`https://browser-session/note-check?host=${encodeURIComponent(host)}`, { method: 'POST' }).catch(() => undefined);
+              await sessionStub(env)
+                .fetch(`https://browser-session/note-check?host=${encodeURIComponent(host)}`, { method: 'POST' })
+                .catch(() => undefined);
             }
             return json(
               {

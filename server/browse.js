@@ -355,7 +355,12 @@ export async function input(event) {
       return page.mouse.up({ button, clickCount: clicks(event.clickCount) });
     case 'wheel':
       await page.mouse.move(x, y);
-      return page.mouse.wheel(clamp(event.dx, 2000) * Math.sign(Number(event.dx) || 0), clamp(event.dy, 2000) * Math.sign(Number(event.dy) || 0));
+      // The size of the scroll, bounded, with its direction put back: the
+      // bound alone floors a scroll up at nothing.
+      return page.mouse.wheel(
+        clamp(Math.abs(Number(event.dx) || 0), 2000) * Math.sign(Number(event.dx) || 0),
+        clamp(Math.abs(Number(event.dy) || 0), 2000) * Math.sign(Number(event.dy) || 0),
+      );
     case 'keydown':
       if (!acceptKey(event.key)) return undefined;
       return page.keyboard.down(event.key).catch(() => undefined);

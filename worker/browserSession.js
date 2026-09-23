@@ -31,7 +31,7 @@
  */
 import { MAX_PDF_BYTES, rejectUrl } from '../server/fetchPdf.js';
 import { pdfCandidates, pdfLinksIn } from '../server/pdfLinks.js';
-import { challengedHost, checkAfter, closedError, fetchFileInPage, isMainDocument, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
+import { BUTTONS, challengedHost, checkAfter, clamp, clicks, closedError, fetchFileInPage, isMainDocument, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
 import {
   apply,
   availability,
@@ -246,6 +246,44 @@ export function isRemembered(hosts, host, now = Date.now()) {
   return typeof until === 'number' && until > now;
 }
 
+/** A batch of input as the pane sends it — an array, or `{ events }`, or one event — or null when it is too much at once. */
+export function eventsIn(body) {
+  const events = Array.isArray(body) ? body : Array.isArray(body?.events) ? body.events : [body];
+  return events.length > 64 ? null : events;
+}
+
+/** The mouse's buttons as DevTools counts them. */
+const BUTTON_FLAGS = { left: 1, right: 2, middle: 4 };
+
+/** The button DevTools wants named on a move, from the buttons down. */
+export function buttonOf(buttons) {
+  if (buttons & 1) return 'left';
+  if (buttons & 2) return 'right';
+  if (buttons & 4) return 'middle';
+  return 'none';
+}
+
+/**
+ * Whether the page itself came as a refusal of the visitor rather than as
+ * the page or a sign-in: 403 and 429 are what a site answers a network it
+ * will not serve with, and a page at that status from Cloudflare's browser
+ * is one to try from a browser elsewhere. A 401 is a sign-in, and stays.
+ */
+export function refusedOutright(response) {
+  try {
+    const status = Number(response.status?.());
+    return status === 403 || status === 429;
+  } catch {
+    return false;
+  }
+}
+
+/** A stream's watcher, taken off the set; the socket is closed by whoever calls, after the last status. */
+function gone(object, watcher) {
+  watcher.closed = true;
+  object.streams.delete(watcher);
+}
+
 /** The host a URL names, as the app and the check name it: without a `www.`. */
 export function hostOf(url) {
   try {
@@ -298,6 +336,10 @@ export class BrowserSession {
     this.seq = 0;
     this.changed = 0;
     this.waiters = new Set();
+    /** The panes streaming frames over a WebSocket, each with what it last got. */
+    this.streams = new Set();
+    /** Where the mouse is on the page and which buttons are down, for input sent without waiting. */
+    this.mouse = { x: 0, y: 0, buttons: 0 };
     this.url = '';
     this.title = '';
     this.loading = false;
@@ -368,21 +410,20 @@ export class BrowserSession {
         const after = Number(url.searchParams.get('after'));
         return json(await this.waitForChange(Number.isFinite(after) ? after : -1));
       }
+      // The stream: one WebSocket that carries every frame and status the
+      // moment there is one, and takes input the other way — where a poll
+      // brought one frame a round trip and a request carried one batch.
+      if (path === '/stream') {
+        if (!live) return json(this.idle(), 409);
+        if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') return json({ error: 'a WebSocket upgrade' }, 426);
+        return this.stream();
+      }
       if (!live) throw closedError();
       if (path === '/input') {
         const body = await request.json().catch(() => ({}));
-        const events = Array.isArray(body) ? body : Array.isArray(body?.events) ? body.events : [body];
-        if (events.length > 64) return json({ error: 'too many events at once' }, 400);
-        this.touch();
-        // To the page they were meant for: a hand-over mid-batch swaps the
-        // page, and the rest of the batch — a release, a key up — is for
-        // the one that is gone, not the one that came.
-        const page = this.page;
-        for (const event of events) {
-          if (this.page !== page || !page || page.isClosed()) break;
-          if (event?.type === 'down' || event?.type === 'keydown') this.acted = true;
-          await apply(page, event || {});
-        }
+        const events = eventsIn(body);
+        if (!events) return json({ error: 'too many events at once' }, 400);
+        this.takeInput(events);
         return json({ ok: true });
       }
       if (path === '/grab' || path === '/pdf') {
@@ -521,6 +562,144 @@ export class BrowserSession {
   wake() {
     for (const resolve of this.waiters) resolve();
     this.waiters.clear();
+    for (const watcher of this.streams) this.push(watcher);
+  }
+
+  // ------------------------------------------------------------ stream ----
+
+  /**
+   * A WebSocket to the pane: the status, with the frame, sent whenever
+   * something is newer than what this socket last got — which is what a
+   * poll asked for, without the round trip between one frame and the
+   * next — and input taken off it as it comes. Closed, with the last
+   * status, when the browser goes.
+   */
+  stream() {
+    const pair = new WebSocketPair();
+    const [client, server] = [pair[0], pair[1]];
+    server.accept();
+    const watcher = { socket: server, after: -1, closed: false };
+    this.streams.add(watcher);
+    const gone = () => {
+      watcher.closed = true;
+      this.streams.delete(watcher);
+    };
+    server.addEventListener('message', (event) => {
+      if (watcher.closed) return;
+      let body;
+      try {
+        body = JSON.parse(typeof event.data === 'string' ? event.data : '');
+      } catch {
+        return;
+      }
+      const events = eventsIn(body);
+      if (!events || !this.browser || !this.page || !this.token) return;
+      this.takeInput(events);
+    });
+    server.addEventListener('close', gone);
+    server.addEventListener('error', gone);
+    this.push(watcher);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /** The status since what this socket last got, when anything is newer; the browser gone closes it after. */
+  push(watcher) {
+    if (watcher.closed) return;
+    const open = Boolean(this.browser && this.page && this.token);
+    if (open && this.seq <= watcher.after && this.changed <= watcher.after) return;
+    const after = watcher.after;
+    watcher.after = this.seq;
+    if (!open) gone(this, watcher);
+    void this.status(after)
+      .then((status) => {
+        try {
+          watcher.socket.send(JSON.stringify(status));
+        } catch {
+          // Closed under us; the close event takes it off the set.
+        }
+        if (!open) {
+          try {
+            watcher.socket.close(1000, 'the browser closed');
+          } catch {
+            // Closed already.
+          }
+        }
+      })
+      .catch(() => undefined);
+  }
+
+  // ------------------------------------------------------------- input ----
+
+  /**
+   * Input, sent to the page as it comes and not waited for: the answer to
+   * a click used to wait for the browser to take it, a scroll for two such
+   * waits, and the next batch from the pane for the answer — a round trip
+   * to the browser for every event, which from an object far from its
+   * browser is most of a second a scroll. Now every event in a batch goes
+   * down the wire at once, in order, and the pane hears back at once. To
+   * the page the batch was meant for: a hand-over mid-batch swaps the
+   * page, and the rest — a release, a key up — is for the one that went.
+   */
+  takeInput(events) {
+    this.touch();
+    const page = this.page;
+    const cdp = this.cdp;
+    for (const event of events) {
+      if (this.page !== page || !page || page.isClosed()) break;
+      if (event?.type === 'down' || event?.type === 'keydown') this.acted = true;
+      this.dispatch(page, cdp, event || {});
+    }
+  }
+
+  /**
+   * One event, to the page. The mouse goes over the page's own DevTools
+   * session with the state kept here — where it is, which buttons are
+   * down — so nothing waits and nothing is refused (Puppeteer keeps the
+   * mouse's state per page and refuses a release it saw no press for).
+   * Keys, text and navigation go through Puppeteer as before, which sends
+   * on the call and is not waited for either. Without a session of the
+   * page's, the old way.
+   */
+  dispatch(page, cdp, event) {
+    const mouse = this.mouse;
+    const flag = BUTTON_FLAGS[BUTTONS.has(event.button) ? event.button : 'left'];
+    const button = BUTTONS.has(event.button) ? event.button : 'left';
+    const send = (params) => {
+      cdp.send('Input.dispatchMouseEvent', { modifiers: page.keyboard?._modifiers || 0, x: mouse.x, y: mouse.y, ...params }).catch(() => undefined);
+    };
+    const moved = () => send({ type: 'mouseMoved', buttons: mouse.buttons, button: buttonOf(mouse.buttons) });
+    if (cdp && ['move', 'down', 'up', 'wheel'].includes(event.type)) {
+      switch (event.type) {
+        case 'move':
+          mouse.x = clamp(event.x, VIEWPORT.width);
+          mouse.y = clamp(event.y, VIEWPORT.height);
+          return moved();
+        case 'down':
+          mouse.x = clamp(event.x, VIEWPORT.width);
+          mouse.y = clamp(event.y, VIEWPORT.height);
+          moved();
+          mouse.buttons |= flag;
+          return send({ type: 'mousePressed', button, buttons: mouse.buttons, clickCount: clicks(event.clickCount) });
+        case 'up':
+          mouse.buttons &= ~flag;
+          return send({ type: 'mouseReleased', button, buttons: mouse.buttons, clickCount: clicks(event.clickCount) });
+        case 'wheel':
+          mouse.x = clamp(event.x, VIEWPORT.width);
+          mouse.y = clamp(event.y, VIEWPORT.height);
+          moved();
+          return send({
+            type: 'mouseWheel',
+            button: 'none',
+            buttons: mouse.buttons,
+            deltaX: clamp(Math.abs(Number(event.dx) || 0), 2000) * Math.sign(Number(event.dx) || 0),
+            deltaY: clamp(Math.abs(Number(event.dy) || 0), 2000) * Math.sign(Number(event.dy) || 0),
+          });
+        default:
+          return undefined;
+      }
+    }
+    void apply(page, event).catch(() => undefined);
+    return undefined;
   }
 
   /** Note a change the frame counter does not cover — the URL, the title, a PDF. */
@@ -859,6 +1038,7 @@ export class BrowserSession {
     }
     this.page = page;
     this.url = page.url();
+    this.mouse = { x: 0, y: 0, buttons: 0 };
     await page.setViewport(VIEWPORT).catch(() => undefined);
     if (!page.__readerAttached) {
       page.__readerAttached = true;
@@ -893,8 +1073,16 @@ export class BrowserSession {
         const next = host ? checkAfter(this.check, host, this.acted) : null;
         this.acted = false;
         // Cloudflare's check, met by Cloudflare's browser, which it never
-        // passes — with a browser elsewhere to hand the session to.
-        if (host && this.where === 'cloudflare' && browserless.configured(this.env)) void this.handOver(response.url(), host);
+        // passes — with a browser elsewhere to hand the session to. And a
+        // site refusing Cloudflare's browser in its own words, with no box
+        // at all — "unusual activity from your network", a 403 or a 429
+        // for the page itself — is handed over the same way: the site's
+        // objection is to the address, which is the one thing a browser
+        // elsewhere changes.
+        if (this.where === 'cloudflare' && browserless.configured(this.env)) {
+          if (host) void this.handOver(response.url(), host);
+          else if (refusedOutright(response)) void this.handOver(response.url(), hostOf(response.url()));
+        }
         if (JSON.stringify(next) === JSON.stringify(this.check)) return;
         this.check = next;
         this.bump();

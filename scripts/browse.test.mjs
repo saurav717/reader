@@ -7,7 +7,7 @@
 //
 //   node --test scripts/browse.test.mjs
 
-import { after, describe, it } from 'node:test';
+import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
@@ -149,7 +149,80 @@ describe('the page the person sees', () => {
 
 // ------------------------------------------------------------- the app ----
 
-const { browseSites, keyName, siteFromInput, toPagePoint } = await load('src/lib/browse.ts');
+const { browseSites, InputQueue, keyName, siteFromInput, streamUrl, toPagePoint } = await load('src/lib/browse.ts');
+
+describe('input from the pane, queued', () => {
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('goes over the stream while one is open, and by request otherwise, in order', async () => {
+    const over = [];
+    const posted = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      posted.push(JSON.parse(init.body).events);
+      return new Response('{"ok":true}', { headers: { 'content-type': 'application/json' } });
+    };
+    try {
+      const queue = new InputQueue();
+      queue.push({ type: 'move', x: 1, y: 1 });
+      await tick();
+      assert.equal(posted.length, 1, 'no stream: a request');
+      queue.via = (events) => (over.push(events), true);
+      queue.push({ type: 'down', x: 1, y: 1 });
+      queue.push({ type: 'up', x: 1, y: 1 });
+      await tick();
+      assert.equal(posted.length, 1);
+      assert.deepEqual(over.flat().map((e) => e.type), ['down', 'up']);
+      // A stream not yet open says no, and the request carries it.
+      queue.via = () => false;
+      queue.push({ type: 'keydown', key: 'a' });
+      await tick();
+      assert.equal(posted.length, 2);
+      assert.equal(posted[1][0].type, 'keydown');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('replaces a move waiting to go, and adds a scroll waiting to go onto the next', async () => {
+    const over = [];
+    const queue = new InputQueue();
+    let hold = true;
+    queue.via = (events) => {
+      if (hold) return false;
+      over.push(events);
+      return true;
+    };
+    const realFetch = globalThis.fetch;
+    // The first flush goes by request and is held, so the rest queue behind it.
+    let release;
+    globalThis.fetch = () => new Promise((resolve) => (release = () => resolve(new Response('{"ok":true}', { headers: { 'content-type': 'application/json' } }))));
+    try {
+      queue.push({ type: 'move', x: 0, y: 0 });
+      await tick();
+      hold = false;
+      queue.push({ type: 'move', x: 1, y: 1 });
+      queue.push({ type: 'move', x: 2, y: 2 });
+      queue.push({ type: 'wheel', x: 2, y: 2, dx: 0, dy: 100 });
+      queue.push({ type: 'wheel', x: 3, y: 3, dx: 5, dy: -40 });
+      queue.push({ type: 'down', x: 3, y: 3 });
+      release();
+      await tick();
+      await tick();
+      assert.deepEqual(over.flat(), [
+        { type: 'move', x: 2, y: 2 },
+        { type: 'wheel', x: 3, y: 3, dx: 5, dy: 60 },
+        { type: 'down', x: 3, y: 3 },
+      ]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it('has a stream address only once a session is open', () => {
+    assert.equal(streamUrl(), null);
+  });
+});
 
 const paper = { id: 'doi:10.1000/x', source: 'openalex', title: 'A paper', authors: [], abstract: '', published: '2021', categories: [] };
 const at = (url, extra) => ({ url, host: new URL(url).hostname, label: new URL(url).hostname, kind: 'unknown', isPdf: false, via: 'paper', ...extra });
@@ -293,6 +366,37 @@ describe('the Worker entry', () => {
     const entry = await import('../worker/index.js');
     assert.equal(typeof entry.BrowserSession, 'function');
     assert.equal(typeof entry.default.fetch, 'function');
+  });
+
+  it('hands the stream through to the session object, upgrade and all, from this app only', async () => {
+    const { default: entry } = await import('../worker/index.js');
+    const got = [];
+    const stub = { fetch: async (url, init) => (got.push({ url: String(url), init }), new Response('upgraded', { status: 200 })) };
+    const env = { BROWSER_SESSION: { idFromName: (name) => ({ name }), get: (id, options) => (got.push({ id, options }), stub) } };
+    const from = { Origin: 'https://saurav717.github.io' };
+    const elsewhere = await entry.fetch(new Request('https://proxy.example/browse/stream?session=tok', { headers: { Origin: 'https://evil.example', Upgrade: 'websocket' } }), env);
+    assert.equal(elsewhere.status, 403);
+    const plain = await entry.fetch(new Request('https://proxy.example/browse/stream?session=tok', { headers: from }), env);
+    assert.equal(plain.status, 426);
+    const without = await entry.fetch(new Request('https://proxy.example/browse/stream?session=tok', { headers: { ...from, Upgrade: 'websocket' } }), { BROWSER: {} });
+    assert.equal(without.status, 404);
+    const through = await entry.fetch(new Request('https://proxy.example/browse/stream?session=tok', { headers: { ...from, Upgrade: 'websocket' } }), env);
+    assert.equal(through.status, 200);
+    assert.equal(await through.text(), 'upgraded', 'the object\'s answer, untouched');
+    assert.deepEqual(got[0], { id: { name: 'the-browser' }, options: undefined });
+    assert.equal(got[1].url, 'https://browser-session/stream?session=tok');
+    assert.equal(got[1].init.headers.get('upgrade'), 'websocket');
+  });
+
+  it('makes the session object where it is asked to, named by the place, so a change of place makes a new one', async () => {
+    const { default: entry } = await import('../worker/index.js');
+    const got = [];
+    const env = {
+      BROWSER_SESSION_LOCATION: 'wnam',
+      BROWSER_SESSION: { idFromName: (name) => ({ name }), get: (id, options) => (got.push({ id, options }), { fetch: async () => new Response('{"open":false}') }) },
+    };
+    await entry.fetch(new Request('https://proxy.example/browse/status'), env);
+    assert.deepEqual(got[0], { id: { name: 'the-browser@wnam' }, options: { locationHint: 'wnam' } });
   });
 });
 
@@ -1466,23 +1570,18 @@ describe('input across a hand-over, and a session Browserless ended', () => {
     const object = new BrowserSession(fake.state, { BROWSER: {} });
     await object.adopt(fake.browser, 'a-session');
     object.token = 'tok';
-    const first = fake.page;
-    const seen = [];
-    const second = { ...first, isClosed: () => false, mouse: { move: async () => seen.push('second'), down: async () => seen.push('second'), up: async () => seen.push('second') } };
-    first.mouse = {
-      move: async () => seen.push('first'),
-      down: async () => {
-        seen.push('first');
-        // The hand-over lands between the press and the release.
-        object.page = second;
-      },
-      up: async () => seen.push('first'),
+    const sent = [];
+    const second = { ...fake.page, isClosed: () => false };
+    fake.cdp.send = async (method, params) => {
+      sent.push(params?.type || method);
+      // The hand-over lands between the press and the release.
+      if (params?.type === 'mousePressed') object.page = second;
     };
     const answer = await object
       .fetch(new Request('https://browser-session/input?session=tok', { method: 'POST', body: JSON.stringify([{ type: 'move', x: 1, y: 1 }, { type: 'down', x: 1, y: 1 }, { type: 'up', x: 1, y: 1 }]) }))
       .then((r) => r.json());
     assert.equal(answer.ok, true);
-    assert.deepEqual(seen, ['first', 'first', 'first'], 'the release is not sent to the page that came, whose mouse never saw the press');
+    assert.deepEqual(sent, ['mouseMoved', 'mouseMoved', 'mousePressed'], 'the release is not sent to the page that came, whose mouse never saw the press');
   });
 
   it("says why, on the closed status, when the browser at Browserless went while the pane was open", async () => {
@@ -1512,5 +1611,268 @@ describe('input across a hand-over, and a session Browserless ended', () => {
     object2.token = 'tok';
     gone();
     assert.equal((await object2.status(-1)).ended, undefined);
+  });
+});
+
+// ------------------------------------------- the stream, and input unwaited ----
+
+/** A WebSocketPair as the Workers runtime has it, for the object to answer a stream with. */
+class FakeSocket {
+  constructor() {
+    this.sent = [];
+    this.listeners = {};
+    this.accepted = false;
+    this.closed = null;
+  }
+  accept() {
+    this.accepted = true;
+  }
+  addEventListener(event, handler) {
+    (this.listeners[event] ||= []).push(handler);
+  }
+  send(data) {
+    if (this.closed) throw new Error('closed');
+    this.sent.push(data);
+  }
+  close(code, reason) {
+    this.closed = { code, reason };
+    for (const handler of this.listeners.close || []) handler({ code, reason });
+  }
+  /** What the pane sends, arriving. */
+  arrives(data) {
+    for (const handler of this.listeners.message || []) handler({ data });
+  }
+}
+class FakeWebSocketPair {
+  constructor() {
+    this[0] = new FakeSocket();
+    this[1] = new FakeSocket();
+  }
+}
+
+describe('the stream of frames from the session object', () => {
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  // Node's Response refuses a 101; the Workers runtime's takes one, with the socket on it.
+  const RealResponse = globalThis.Response;
+  before(() => {
+    globalThis.Response = class extends RealResponse {
+      constructor(body, init) {
+        if (init?.status === 101) {
+          super(body, { ...init, status: 200 });
+          this.upgraded = true;
+          this.webSocket = init.webSocket;
+        } else super(body, init);
+      }
+      get status() {
+        return this.upgraded ? 101 : super.status;
+      }
+    };
+  });
+  after(() => {
+    globalThis.Response = RealResponse;
+  });
+  const streaming = async () => {
+    globalThis.WebSocketPair = FakeWebSocketPair;
+    const fake = fakeSession();
+    const handlers = {};
+    fake.cdp.on = (event, handler) => (handlers[event] = handler);
+    fake.cdp.send = async (method) => {
+      fake.cdp.sent.push(method);
+    };
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    await object.adopt(fake.browser, 'a-session');
+    object.token = 'tok';
+    const response = await object.fetch(new Request('https://browser-session/stream?session=tok', { headers: { Upgrade: 'websocket' } }));
+    assert.equal(response.status, 101);
+    const client = response.webSocket;
+    const server = [...object.streams][0].socket;
+    return { fake, handlers, object, client, server };
+  };
+
+  it('is a WebSocket upgrade for the open session only', async () => {
+    globalThis.WebSocketPair = FakeWebSocketPair;
+    const fake = fakeSession();
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    const closed = await object.fetch(new Request('https://browser-session/stream?session=none', { headers: { Upgrade: 'websocket' } }));
+    assert.equal(closed.status, 409);
+    await object.adopt(fake.browser, 'a-session');
+    object.token = 'tok';
+    const plain = await object.fetch(new Request('https://browser-session/stream?session=tok'));
+    assert.equal(plain.status, 426);
+  });
+
+  it('sends the status at once, then each frame as it is painted, and nothing when nothing is newer', async () => {
+    const { fake, handlers, object, server } = await streaming();
+    await tick();
+    assert.equal(server.accepted, true);
+    assert.equal(server.sent.length, 1);
+    const first = JSON.parse(server.sent[0]);
+    assert.equal(first.open, true);
+    assert.equal(first.session, 'tok');
+    // A frame from Chrome: pushed, with the frame, and acknowledged to Chrome.
+    handlers['Page.screencastFrame']({ data: 'jpeg-1', sessionId: 's1' });
+    await tick();
+    assert.equal(server.sent.length, 2);
+    const second = JSON.parse(server.sent[1]);
+    assert.equal(second.frame, 'jpeg-1');
+    assert.ok(second.seq > first.seq);
+    assert.ok(fake.cdp.sent.includes('Page.screencastFrameAck'));
+    // Something else changing — the title — is pushed too, without a frame.
+    object.title = 'A paper';
+    object.bump();
+    await tick();
+    assert.equal(server.sent.length, 3);
+    assert.equal(JSON.parse(server.sent[2]).frame, undefined);
+    assert.equal(JSON.parse(server.sent[2]).title, 'A paper');
+    // A wake with nothing newer sends nothing.
+    object.wake();
+    await tick();
+    assert.equal(server.sent.length, 3);
+  });
+
+  it('takes input off the socket, and stops listening when the pane closes it', async () => {
+    const { fake, object, server } = await streaming();
+    await tick();
+    server.arrives(JSON.stringify({ events: [{ type: 'move', x: 10, y: 20 }, { type: 'keydown', key: 'a' }] }));
+    assert.equal(object.acted, true);
+    assert.deepEqual(object.mouse, { x: 10, y: 20, buttons: 0 });
+    assert.ok(fake.cdp.sent.includes('Input.dispatchMouseEvent'));
+    server.arrives('not json');
+    server.arrives(JSON.stringify(Array.from({ length: 65 }, () => ({ type: 'move', x: 0, y: 0 }))));
+    assert.deepEqual(object.mouse, { x: 10, y: 20, buttons: 0 }, 'too much at once is dropped whole');
+    server.close(1000, 'pane closed');
+    assert.equal(object.streams.size, 0);
+    object.bump();
+    await tick();
+    assert.equal(server.sent.filter((s) => JSON.parse(s).title === 'x').length, 0);
+  });
+
+  it('sends the closed status and closes the socket when the browser goes', async () => {
+    const { object, server } = await streaming();
+    await tick();
+    await object.forget();
+    await tick();
+    const last = JSON.parse(server.sent[server.sent.length - 1]);
+    assert.equal(last.open, false);
+    assert.deepEqual(server.closed, { code: 1000, reason: 'the browser closed' });
+    assert.equal(object.streams.size, 0);
+  });
+});
+
+const { buttonOf, eventsIn, refusedOutright } = await import('../worker/browserSession.js');
+
+describe('input sent to the page without waiting', () => {
+
+  it('shapes a batch as the pane sends it, and refuses too much at once', () => {
+    assert.deepEqual(eventsIn([{ type: 'move' }]), [{ type: 'move' }]);
+    assert.deepEqual(eventsIn({ events: [{ type: 'move' }] }), [{ type: 'move' }]);
+    assert.deepEqual(eventsIn({ type: 'move' }), [{ type: 'move' }]);
+    assert.equal(eventsIn(Array.from({ length: 65 }, () => ({}))), null);
+    assert.equal(buttonOf(0), 'none');
+    assert.equal(buttonOf(1), 'left');
+    assert.equal(buttonOf(2), 'right');
+    assert.equal(buttonOf(4), 'middle');
+  });
+
+  it("answers before the browser has taken anything, with every event on the wire in order and the mouse's state kept", async () => {
+    const fake = fakeSession();
+    const sent = [];
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    await object.adopt(fake.browser, 'a-session');
+    // The browser never answers an input: nothing here may wait for it.
+    fake.cdp.send = (method, params) => {
+      sent.push({ method, params });
+      return method.startsWith('Input.') ? new Promise(() => undefined) : Promise.resolve();
+    };
+    object.token = 'tok';
+    let keys = [];
+    fake.page.keyboard = { _modifiers: 0, down: async (key) => keys.push(`down ${key}`), up: async (key) => keys.push(`up ${key}`), sendCharacter: async (text) => keys.push(`text ${text}`) };
+    const started = Date.now();
+    const answer = await object
+      .fetch(
+        new Request('https://browser-session/input?session=tok', {
+          method: 'POST',
+          body: JSON.stringify([
+            { type: 'move', x: 5, y: 6 },
+            { type: 'down', x: 5, y: 6, button: 'left', clickCount: 1 },
+            { type: 'up', x: 5, y: 6, button: 'left', clickCount: 1 },
+            { type: 'wheel', x: 7, y: 8, dx: 0, dy: -120 },
+            { type: 'keydown', key: 'a' },
+            { type: 'insert', text: 'bc' },
+            { type: 'keyup', key: 'a' },
+          ]),
+        }),
+      )
+      .then((r) => r.json());
+    assert.equal(answer.ok, true);
+    assert.ok(Date.now() - started < 1000, 'answered at once');
+    const mouse = sent.filter((s) => s.method === 'Input.dispatchMouseEvent').map((s) => s.params);
+    assert.deepEqual(
+      mouse.map((p) => [p.type, p.x, p.y, p.buttons, p.button]),
+      [
+        ['mouseMoved', 5, 6, 0, 'none'],
+        ['mouseMoved', 5, 6, 0, 'none'],
+        ['mousePressed', 5, 6, 1, 'left'],
+        ['mouseReleased', 5, 6, 0, 'left'],
+        ['mouseMoved', 7, 8, 0, 'none'],
+        ['mouseWheel', 7, 8, 0, 'none'],
+      ],
+    );
+    assert.equal(mouse[5].deltaY, -120);
+    assert.equal(mouse[2].clickCount, 1);
+    assert.deepEqual(keys, ['down a', 'text bc', 'up a']);
+    assert.deepEqual(object.mouse, { x: 7, y: 8, buttons: 0 });
+    assert.equal(object.acted, true);
+    // No acknowledgement was waited for: the browser never gave one.
+  });
+
+  it("goes the old way, through Puppeteer, on a page without a DevTools session of its own", async () => {
+    const fake = fakeSession();
+    fake.page.createCDPSession = async () => {
+      throw new Error('no session');
+    };
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    await object.adopt(fake.browser, 'a-session');
+    object.token = 'tok';
+    const moves = [];
+    fake.page.mouse = { move: async (x, y) => moves.push([x, y]), down: async () => undefined, up: async () => undefined };
+    await object.fetch(new Request('https://browser-session/input?session=tok', { method: 'POST', body: JSON.stringify([{ type: 'move', x: 1, y: 2 }]) }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(moves, [[1, 2]]);
+  });
+
+  it('knows a site refusing the visitor outright by the status of the page itself', () => {
+    assert.equal(refusedOutright({ status: () => 403 }), true);
+    assert.equal(refusedOutright({ status: () => 429 }), true);
+    assert.equal(refusedOutright({ status: () => 401 }), false, 'a sign-in, not a refusal');
+    assert.equal(refusedOutright({ status: () => 200 }), false);
+    assert.equal(refusedOutright({}), false);
+  });
+
+  it("hands a session over when a site refuses Cloudflare's browser in its own words, with no box at all", async () => {
+    const fake = fakeSession();
+    const handlers = {};
+    fake.page.on = (event, handler) => (handlers[event] ||= []).push(handler);
+    fake.page.mainFrame = () => 'main';
+    const object = new BrowserSession(fake.state, { BROWSER: {}, BROWSERLESS_TOKEN: 't' });
+    const launches = [];
+    object.driver = {
+      launch: async (_env, options) => {
+        launches.push(options);
+        throw new Error('not this time');
+      },
+    };
+    await object.adopt(fake.browser, 'cf-session');
+    object.token = 'tok';
+    const refusal = { url: () => 'https://www.researchgate.net/login', headers: () => ({ 'content-type': 'text/html' }), status: () => 403, request: () => ({ resourceType: () => 'document' }), frame: () => 'main' };
+    handlers.response.forEach((handler) => handler(refusal));
+    assert.ok(object.moving, 'the hand-over began');
+    await object.moving;
+    assert.deepEqual(launches, [{ at: 'browserless' }]);
+    assert.equal(await object.remembered('researchgate.net'), true);
+    // The page itself, 200, from Cloudflare's browser: nothing to hand over.
+    handlers.response.forEach((handler) => handler({ ...refusal, status: () => 200 }));
+    assert.equal(object.moving, null);
+    assert.equal(launches.length, 1);
   });
 });

@@ -222,6 +222,87 @@ export async function sendInput(events: BrowseInput[]): Promise<void> {
   });
 }
 
+/** The stream's address for the open session — the proxy's, over ws or wss — or null without a proxy or a session. */
+export function streamUrl(): string | null {
+  if (!hasProxy() || !session) return null;
+  let url: URL;
+  try {
+    url = new URL(api(withSession('/browse/stream')), typeof location === 'undefined' ? 'http://localhost/' : location.href);
+  } catch {
+    return null;
+  }
+  if (url.protocol === 'https:') url.protocol = 'wss:';
+  else if (url.protocol === 'http:') url.protocol = 'ws:';
+  else return null;
+  return url.toString();
+}
+
+/** A stream of frames from the proxy, with input going the other way. */
+export interface BrowseStream {
+  /** Send input over the stream. False when it is not open, for the request to carry it instead. */
+  send(events: BrowseInput[]): boolean;
+  close(): void;
+}
+
+/**
+ * The frames over one WebSocket rather than a poll a frame: the Worker's
+ * session object pushes each status the moment something is newer, and
+ * takes input off the same socket, so a scroll or a keystroke never waits
+ * behind a frame. A proxy without one — the Node proxy, the dev server —
+ * refuses the upgrade, `onEnd` says so having never opened, and the pane
+ * polls as before. Null where there is nothing to open a stream to.
+ */
+export function openStream(handlers: { onStatus: (status: BrowseStatus) => void; onEnd: (opened: boolean) => void }): BrowseStream | null {
+  const url = streamUrl();
+  if (!url || typeof WebSocket === 'undefined') return null;
+  let socket: WebSocket;
+  try {
+    socket = new WebSocket(url);
+  } catch {
+    return null;
+  }
+  let opened = false;
+  let ended = false;
+  const end = () => {
+    if (ended) return;
+    ended = true;
+    handlers.onEnd(opened);
+  };
+  socket.onopen = () => {
+    opened = true;
+  };
+  socket.onmessage = (event) => {
+    let payload: Partial<BrowseStatus>;
+    try {
+      payload = JSON.parse(String(event.data)) as Partial<BrowseStatus>;
+    } catch {
+      return;
+    }
+    handlers.onStatus({ ...UNAVAILABLE, ...payload });
+  };
+  socket.onclose = end;
+  socket.onerror = end;
+  return {
+    send: (events) => {
+      if (socket.readyState !== WebSocket.OPEN) return false;
+      try {
+        socket.send(JSON.stringify({ events }));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    close: () => {
+      ended = true;
+      try {
+        socket.close();
+      } catch {
+        // Never opened, or closed already.
+      }
+    },
+  };
+}
+
 async function pdfFrom(path: string, init?: RequestInit): Promise<Blob> {
   const response = await fetch(api(withSession(path)), init);
   if (!response.ok) {
@@ -428,27 +509,35 @@ export function toPagePoint(
 }
 
 /**
- * Input, sent in order and one request at a time. Mouse movement is the
- * one thing that arrives faster than it can be sent, and only the latest
- * position matters, so a move waiting to go is replaced rather than queued.
+ * Input, sent in order: over the stream while one is open (`via`), which
+ * keeps order on its own, else one request at a time. Mouse movement is
+ * the one thing that arrives faster than it can be sent, and only the
+ * latest position matters, so a move waiting to go is replaced rather
+ * than queued; a scroll waiting to go takes the next scroll's distance
+ * onto its own, since a page scrolled twice is a page scrolled the sum.
  */
 export class InputQueue {
   private pending: BrowseInput[] = [];
   private sending = false;
   private failed: ((error: Error) => void) | null;
+  /** A way to send that keeps order on its own — the stream — tried before a request; set while one is open. */
+  via: ((events: BrowseInput[]) => boolean) | null = null;
 
   constructor(onError?: (error: Error) => void) {
     this.failed = onError ?? null;
   }
 
   push(event: BrowseInput): void {
-    if (event.type === 'move') {
-      const last = this.pending[this.pending.length - 1];
-      if (last?.type === 'move') {
-        this.pending[this.pending.length - 1] = event;
-        void this.flush();
-        return;
-      }
+    const last = this.pending[this.pending.length - 1];
+    if (event.type === 'move' && last?.type === 'move') {
+      this.pending[this.pending.length - 1] = event;
+      void this.flush();
+      return;
+    }
+    if (event.type === 'wheel' && last?.type === 'wheel') {
+      this.pending[this.pending.length - 1] = { ...event, dx: last.dx + event.dx, dy: last.dy + event.dy };
+      void this.flush();
+      return;
     }
     this.pending.push(event);
     void this.flush();
@@ -459,6 +548,7 @@ export class InputQueue {
     this.sending = true;
     const batch = this.pending.splice(0, this.pending.length);
     try {
+      if (this.via?.(batch)) return;
       await sendInput(batch);
     } catch (error) {
       this.failed?.(error instanceof Error ? error : new Error(String(error)));
