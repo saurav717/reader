@@ -1244,7 +1244,7 @@ outside the open-access subset is answered as before. No checking site
 is fetched twice, and every step asks a service that expects to be asked
 by a program, so a refusal is an answer rather than a wall.
 
-#### OpenReview, from its API
+#### OpenReview, from its API, signed in
 
 OpenReview answers a fetch of a paper's PDF on openreview.net with a 403
 and sends a browser to a check of its own: `/challenge?redirect=/pdf?id=…`,
@@ -1254,18 +1254,40 @@ the pane used to take it for an ordinary page. But the box is Cloudflare's,
 and from the Worker's browser it never passes. It ticks, says
 *Verification hiccup, retrying…*, and comes back, as often as anyone ticks it.
 
-OpenReview also keeps an API for programs, the one its own Python client
-uses. It is on `api2.openreview.net` for current venues and
-`api.openreview.net` for older ones, and both serve a note's PDF at
-`/pdf?id=…` with no check in front. So `/pdf` asks the API first for any OpenReview URL: the
-file, the forum, an attachment, or the check page itself, whose `redirect`
-names the paper (`server/openreview.js`). The site is asked only if neither
-API has the file. In the pane, OpenReview's check page is now known as a
-check by where it is (`challengedHost`). A pane that lands on it, or on
-an OpenReview file, has the proxy ask the API, so the paper opens with nobody
-ticking anything, and *Fetch the PDF from this page* on a forum does the same.
+OpenReview's API is where programs are meant to ask: `api2.openreview.net`
+for current venues, `api.openreview.net` for older ones, a note's PDF at
+`/pdf?id=…`. Since September 2026 the check stands in front of that too.
+An anonymous request answers `403 ChallengeRequiredError`, from a home
+address as from the Worker. A signed-in one does not. The check page says
+as much (*Have an OpenReview account? Sign in to skip this check*), and the
+API signs a program in the way OpenReview's own Python client does: `POST
+/login` with an email and a password, and a bearer token back. So give the
+proxy an OpenReview account:
+
+```bash
+npx --yes wrangler@4 secret put OPENREVIEW_USERNAME   # the account's email
+npx --yes wrangler@4 secret put OPENREVIEW_PASSWORD   # then npm run deploy:worker
+```
+
+(or the same two names in the environment of the Node proxy). `/pdf` then
+signs in to each API once, keeps the token for as long as the Worker
+instance lives, signs in again when a request says the token has expired,
+and asks the API for any OpenReview URL: the file, the forum, an
+attachment, or the check page itself, whose `redirect` names the paper
+(`server/openreview.js`). A note the current API does not have is asked
+of the old one. The Worker never asks openreview.net itself, which only
+ever answers it with the check. When the API will not hand the file over,
+the failure says what each host answered, and, when that was the check
+and no account is set, which two secrets would get past it. The account
+only reads papers, but it is yours, and anyone who can reach the Worker's
+`/pdf` fetches OpenReview papers as you: a spare account is the tidy choice.
+
+In the pane, OpenReview's check page is known as a check by where it is
+(`challengedHost`). A pane that lands on it, or on an OpenReview file, has
+the proxy ask the API, so the paper opens with nobody ticking anything,
+and *Fetch the PDF from this page* on a forum does the same.
 `scripts/pdf-proxy.test.mjs` and `scripts/browse.test.mjs` pin the URLs
-it reads, the order it asks in, and the words under the page.
+it reads, the order it asks in, the sign-in and its renewal, and the words.
 
 ### With only the Worker: hand the file over yourself
 

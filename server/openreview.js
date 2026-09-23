@@ -6,12 +6,12 @@
 // not Cloudflare's challenge page, so it carries no `cf-mitigated` header,
 // but it is Cloudflare's box, and from the Worker's browser — Cloudflare's
 // own, which Cloudflare tells every site is a bot — it never passes: the
-// box ticks, says "Verification hiccup, retrying…", and comes back. But
-// OpenReview keeps an API for programs (the one its own Python client
-// talks to), on api2.openreview.net for the venues of its current API and
-// api.openreview.net for the older ones, and both serve a note's PDF at
-// /pdf?id=… with no check in the way. So an OpenReview URL is asked for
-// there first, and the web site only if the API has no file for it.
+// box ticks, says "Verification hiccup, retrying…", and comes back. So an
+// OpenReview URL is asked for from OpenReview's API instead (the one its
+// own Python client talks to), on api2.openreview.net for the venues of its
+// current API and api.openreview.net for the older ones, which serve a
+// note's PDF at /pdf?id=… — signed in, where the proxy has an account,
+// since the check now stands in front of an anonymous request there too.
 //
 // Web APIs only: the Worker imports this file too.
 
@@ -73,4 +73,103 @@ export function isOpenReviewChallenge(target) {
   } catch {
     return false;
   }
+}
+
+// ------------------------------------------------------- signed in ----
+//
+// Since September 2026 OpenReview puts its check in front of the API too:
+// an anonymous GET of /pdf?id=… on either host answers 403
+// ChallengeRequiredError, from a home address as from the Worker. A
+// signed-in request does not meet it — the check page itself says "Have an
+// OpenReview account? Sign in to skip this check" — and the API signs a
+// program in the way its own Python client does: POST /login with the
+// account's email and password, and a bearer token back. So with an
+// account given to the proxy (OPENREVIEW_USERNAME and OPENREVIEW_PASSWORD,
+// secrets on the Worker, the environment for the Node proxy) each API is
+// signed in to once, its token kept, and signed in to again when a request
+// says the token has expired.
+
+/** The account the proxy signs in to OpenReview with, or null. */
+export function openReviewAccount(env) {
+  const id = String(env?.OPENREVIEW_USERNAME || '').trim();
+  const password = String(env?.OPENREVIEW_PASSWORD || '');
+  return id && password ? { id, password } : null;
+}
+
+/** Tokens by API host and account, kept for as long as this instance lives. */
+const tokens = new Map();
+
+async function signIn(host, account, { fetch, userAgent }) {
+  const response = await fetch(`https://${host}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': userAgent },
+    body: JSON.stringify({ id: account.id, password: account.password }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || typeof body?.token !== 'string' || !body.token) {
+    const why = [body?.name, body?.message].filter(Boolean).join(': ') || `answered ${response.status}`;
+    throw new Error(`${host} would not sign the account in (${why})`);
+  }
+  return body.token;
+}
+
+async function refusal(response) {
+  const body = await response
+    .clone()
+    .json()
+    .catch(() => null);
+  return typeof body?.name === 'string' ? body.name : '';
+}
+
+/**
+ * The file an OpenReview URL names, from OpenReview's API: `{ response }`
+ * with the API's answer when one handed it over, else `{ response: null,
+ * said }` with what each host answered, for the error. Signed in when the
+ * proxy has an account (`env`), anonymously otherwise.
+ */
+export async function fetchOpenReview(target, { env, fetch = globalThis.fetch, userAgent } = {}) {
+  const account = openReviewAccount(env);
+  const said = [];
+  for (const file of openReviewFiles(target)) {
+    const host = new URL(file).hostname;
+    const key = `${host} ${account?.id || ''}`;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const headers = { 'User-Agent': userAgent, Accept: 'application/pdf,*/*' };
+      if (account) {
+        let token = tokens.get(key);
+        if (!token) {
+          try {
+            token = await signIn(host, account, { fetch, userAgent });
+          } catch (error) {
+            said.push(String(error?.message || error));
+            break;
+          }
+          tokens.set(key, token);
+        }
+        headers.Authorization = `Bearer ${token}`;
+      }
+      let response;
+      try {
+        response = await fetch(file, { headers });
+      } catch (error) {
+        said.push(`${host}: ${String(error?.message || error)}`);
+        break;
+      }
+      if (response.ok) return { response, said };
+      const name = await refusal(response);
+      // An expired token is signed in again, once; anything else is the answer.
+      if (account && response.status === 401 && attempt === 0) {
+        tokens.delete(key);
+        continue;
+      }
+      said.push(`${host} answered ${response.status}${name ? ` (${name})` : ''}`);
+      break;
+    }
+  }
+  return { response: null, said };
+}
+
+/** Whether what the API said is its check for a person, which an account gets past. */
+export function saidChallenge(said) {
+  return said.some((line) => /ChallengeRequiredError/.test(line));
 }

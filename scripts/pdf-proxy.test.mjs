@@ -21,7 +21,7 @@ const PDF = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(2048, 0x20), 
 /** Answers the next fetch, whatever URL it is for. */
 let upstream = () => new Response('nothing stubbed', { status: 500 });
 const realFetch = globalThis.fetch;
-globalThis.fetch = async (input) => upstream(String(input instanceof Request ? input.url : input));
+globalThis.fetch = async (input, init) => upstream(String(input instanceof Request ? input.url : input), init);
 
 const server = createServer((req, res) => apiRouter(req, res));
 await new Promise((resolve) => server.listen(0, resolve));
@@ -451,5 +451,81 @@ describe('a paper on OpenReview, fetched from its API rather than past its check
     );
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), 'application/pdf');
+  });
+});
+
+describe("OpenReview's API refusing the Worker too", () => {
+  const ask = async (env = {}) => {
+    const { default: worker } = await import('../worker/index.js');
+    return worker.fetch(
+      new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://openreview.net/pdf?id=D2Q6VabcXY'), { headers: { Origin: 'https://saurav717.github.io' } }),
+      env,
+    );
+  };
+  const challenge = () =>
+    new Response(JSON.stringify({ name: 'ChallengeRequiredError', message: 'Challenge verification required', status: 403 }), {
+      status: 403,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  it('says what each API answered, and what would get past it, without asking the site', async () => {
+    const asked = [];
+    upstream = (url) => {
+      asked.push(url);
+      return challenge();
+    };
+    const response = await ask();
+    assert.equal(response.status, 502);
+    const body = await response.json();
+    assert.match(body.error, /api2\.openreview\.net answered 403 \(ChallengeRequiredError\); api\.openreview\.net answered 403 \(ChallengeRequiredError\)/);
+    assert.match(body.error, /OPENREVIEW_USERNAME and OPENREVIEW_PASSWORD/);
+    assert.equal(body.botCheck, true);
+    assert.equal(body.host, 'openreview.net');
+    assert.ok(asked.every((url) => !url.startsWith('https://openreview.net/')));
+  });
+
+  it('signs in with the account it is given, and reads the old API when the new one has no such note', async () => {
+    const logins = [];
+    upstream = (url, init) => {
+      if (url.endsWith('/login')) {
+        logins.push({ url, body: JSON.parse(init.body) });
+        return new Response(JSON.stringify({ token: `t-${new URL(url).hostname}` }), { status: 200 });
+      }
+      const auth = init?.headers?.Authorization;
+      if (!auth) return challenge();
+      if (url.startsWith('https://api2.')) return new Response(JSON.stringify({ name: 'NotFoundError' }), { status: 404 });
+      return auth === 'Bearer t-api.openreview.net' ? pdfResponse() : new Response('{}', { status: 401 });
+    };
+    const response = await ask({ OPENREVIEW_USERNAME: 'me@example.org', OPENREVIEW_PASSWORD: 'secret' });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/pdf');
+    assert.deepEqual(logins.map((login) => login.url), ['https://api2.openreview.net/login', 'https://api.openreview.net/login']);
+    assert.deepEqual(logins[0].body, { id: 'me@example.org', password: 'secret' });
+  });
+
+  it('signs in again when a kept token has expired', async () => {
+    let logins = 0;
+    upstream = (url, init) => {
+      if (url.endsWith('/login')) {
+        logins += 1;
+        return new Response(JSON.stringify({ token: `fresh-${logins}` }), { status: 200 });
+      }
+      return init?.headers?.Authorization === `Bearer fresh-${logins}` && logins > 1
+        ? pdfResponse()
+        : new Response(JSON.stringify({ name: 'TokenExpiredError' }), { status: 401 });
+    };
+    const response = await ask({ OPENREVIEW_USERNAME: 'other@example.org', OPENREVIEW_PASSWORD: 'secret' });
+    assert.equal(response.status, 200);
+    assert.equal(logins, 2);
+  });
+
+  it('says so when the account will not sign in', async () => {
+    upstream = (url) =>
+      url.endsWith('/login')
+        ? new Response(JSON.stringify({ name: 'MultiError', message: 'Invalid username or password' }), { status: 400 })
+        : challenge();
+    const body = await (await ask({ OPENREVIEW_USERNAME: 'wrong@example.org', OPENREVIEW_PASSWORD: 'nope' })).json();
+    assert.match(body.error, /api2\.openreview\.net would not sign the account in \(MultiError: Invalid username or password\)/);
+    assert.doesNotMatch(body.error, /OPENREVIEW_USERNAME/);
   });
 });

@@ -12,7 +12,7 @@
  * Then rebuild the app with VITE_API_BASE=https://<your-worker>.workers.dev
  */
 import { disposition, fetchChecked, readPdf, rejectUrl } from '../server/fetchPdf.js';
-import { openReviewFiles } from '../server/openreview.js';
+import { fetchOpenReview, openReviewAccount, openReviewFiles, saidChallenge } from '../server/openreview.js';
 import { pmcFiles } from '../server/pmc.js';
 import {
   authorSearchUrl,
@@ -407,28 +407,49 @@ export default {
         const reason = rejectUrl(target);
         if (reason) return json({ error: reason }, 400, headers);
 
-        // A paper on OpenReview is asked for from its API first: the web
-        // site answers every fetch with a check of its own, and Cloudflare's
-        // browser never passes it (server/openreview.js).
-        for (const file of openReviewFiles(target)) {
-          try {
-            const { response: answer } = await fetchChecked(file, { userAgent: UA });
-            if (answer.ok) {
-              const bytes = await readPdf(answer, answer.headers.get('content-type'));
-              return new Response(bytes, {
-                headers: {
-                  ...headers,
-                  'Content-Type': 'application/pdf',
-                  'Content-Length': String(bytes.length),
-                  'Content-Disposition': disposition(url.searchParams),
-                  'Cache-Control': 'public, max-age=86400',
-                  'X-Content-Type-Options': 'nosniff',
-                },
-              });
+        const servePdfBytes = (bytes) =>
+          new Response(bytes, {
+            headers: {
+              ...headers,
+              'Content-Type': 'application/pdf',
+              'Content-Length': String(bytes.length),
+              'Content-Disposition': disposition(url.searchParams),
+              'Cache-Control': 'public, max-age=86400',
+              'X-Content-Type-Options': 'nosniff',
+            },
+          });
+        // A paper on OpenReview is asked for from its API, never the site,
+        // which answers every fetch with a check Cloudflare's browser never
+        // passes; signed in with the account the Worker is given, since the
+        // check now stands in front of the API too (server/openreview.js).
+        if (openReviewFiles(target).length) {
+          const { response: answer, said } = await fetchOpenReview(target, { env, userAgent: UA });
+          if (answer) {
+            try {
+              return servePdfBytes(await readPdf(answer, answer.headers.get('content-type')));
+            } catch (error) {
+              said.push(String(error?.message || error));
             }
-          } catch {
-            // The next file, or the site itself.
           }
+          // The site itself answers every fetch from here with its check, so
+          // there is no use asking it: say what the API said instead, and
+          // what would get past it.
+          const fix = openReviewAccount(env)
+            ? ''
+            : saidChallenge(said)
+              ? ' — give the Worker an OpenReview account (the OPENREVIEW_USERNAME and OPENREVIEW_PASSWORD secrets) and it signs in, which skips the check'
+              : '';
+          return json(
+            {
+              error: `OpenReview's API would not hand over the file (${said.join('; ') || 'no answer'})${fix}`,
+              botCheck: true,
+              loginWall: true,
+              where: 'cloudflare',
+              host: 'openreview.net',
+            },
+            502,
+            headers,
+          );
         }
 
         let response;
