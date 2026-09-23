@@ -44,8 +44,15 @@ const POLL_MS = 8_000;
  * was closed without saying so should not run the clock for long.
  */
 const IDLE_MS = 2 * 60_000;
-/** How long to wait before asking Cloudflare for a new browser a second time, after it said no. */
+/**
+ * How long to wait between asking Cloudflare for a new browser again, after
+ * it said no, and for how long in all. Its limit is a few new browsers a
+ * minute, and a few alive at once for `KEEP_ALIVE_MS` after their last
+ * connection, so most refusals clear within the minute; the request is held
+ * that long rather than handing the person a refusal to click through.
+ */
 const RATE_LIMIT_RETRY_MS = 12_000;
+const RATE_LIMIT_PATIENCE_MS = 50_000;
 
 /**
  * What a refusal to start a browser means, worded for the person. Cloudflare
@@ -53,7 +60,7 @@ const RATE_LIMIT_RETRY_MS = 12_000;
  * minutes of browser time a day on its free plan.
  */
 export const RATE_LIMITED =
-  'Cloudflare would not start another browser just now: its free plan allows only a few new browsers a minute, a few alive at once, and some minutes of browser time a day. Wait a minute and try again — a browser already open is reused rather than started again — or move the Worker to the Workers Paid plan.';
+  'Cloudflare would not start another browser just now, even after most of a minute of asking: its free plan allows only a few new browsers a minute, a few alive at once, and some minutes of browser time a day. Wait a minute and try again — a browser already open is reused rather than started again — or move the Worker to the Workers Paid plan.';
 
 const rateLimited = (error) => /429|rate limit|too many/i.test(String(error?.message || error));
 
@@ -261,42 +268,48 @@ export class BrowserSession {
    * this object had before it was evicted, then any session of the
    * account's that nothing is connected to — one left by an earlier
    * eviction, or by the stateless fallback — and only then a new one, asked
-   * for twice with a pause between when Cloudflare says it has handed out
-   * enough for the minute.
+   * for again every few seconds for most of a minute when Cloudflare says it
+   * has handed out enough for the minute, looking between asks for a session
+   * that has come free meanwhile.
    */
   async acquire() {
     const kept = await this.state.storage.get('session').catch(() => null);
-    const tried = new Set();
-    const candidates = [];
-    if (kept?.id) candidates.push(kept.id);
-    try {
-      for (const session of await puppeteer.sessions(this.env.BROWSER)) {
-        if (!session.connectionId && session.sessionId) candidates.push(session.sessionId);
-      }
-    } catch {
-      // Not knowable; a new one, then.
-    }
-    for (const id of candidates) {
-      if (tried.has(id)) continue;
-      tried.add(id);
+    const adopt = async (first) => {
+      // Tried afresh each pass: a session busy a moment ago may be free now.
+      const tried = new Set();
+      const candidates = first ? [first] : [];
       try {
-        return { browser: await puppeteer.connect(this.env.BROWSER, id), id };
+        for (const session of await puppeteer.sessions(this.env.BROWSER)) {
+          if (!session.connectionId && session.sessionId) candidates.push(session.sessionId);
+        }
       } catch {
-        // Gone, or taken; the next.
+        // Not knowable; a new one, then.
       }
-    }
-    try {
-      const browser = await puppeteer.launch(this.env.BROWSER, { keep_alive: KEEP_ALIVE_MS });
-      return { browser, id: browser.sessionId() };
-    } catch (error) {
-      if (!rateLimited(error)) throw error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_RETRY_MS));
-    try {
-      const browser = await puppeteer.launch(this.env.BROWSER, { keep_alive: KEEP_ALIVE_MS });
-      return { browser, id: browser.sessionId() };
-    } catch (error) {
-      throw new Error(rateLimited(error) ? RATE_LIMITED : String(error?.message || error));
+      for (const id of candidates) {
+        if (tried.has(id)) continue;
+        tried.add(id);
+        try {
+          return { browser: await puppeteer.connect(this.env.BROWSER, id), id };
+        } catch {
+          // Gone, or taken; the next.
+        }
+      }
+      return null;
+    };
+    const started = Date.now();
+    let first = kept?.id || null;
+    for (;;) {
+      const adopted = await adopt(first);
+      if (adopted) return adopted;
+      first = null;
+      try {
+        const browser = await puppeteer.launch(this.env.BROWSER, { keep_alive: KEEP_ALIVE_MS });
+        return { browser, id: browser.sessionId() };
+      } catch (error) {
+        if (!rateLimited(error)) throw error;
+        if (Date.now() - started + RATE_LIMIT_RETRY_MS > RATE_LIMIT_PATIENCE_MS) throw new Error(RATE_LIMITED);
+      }
+      await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_RETRY_MS));
     }
   }
 
