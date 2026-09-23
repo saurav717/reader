@@ -245,3 +245,10 @@ export const ChevronRightIcon = (props: IconProps) => (
     <path d="m9 6 6 6-6 6" />
   </Icon>
 );
+
+export const SparkleIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M12 3.5c.5 3.9 2.6 6 6.5 6.5-3.9.5-6 2.6-6.5 6.5-.5-3.9-2.6-6-6.5-6.5 3.9-.5 6-2.6 6.5-6.5Z" />
+    <path d="M18.5 15.5c.2 1.6 1 2.4 2.5 2.5-1.5.2-2.3 1-2.5 2.5-.2-1.5-1-2.3-2.5-2.5 1.5-.1 2.3-.9 2.5-2.5Z" />
+  </Icon>
+);
