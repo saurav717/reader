@@ -453,3 +453,24 @@ describe('a paper on OpenReview, fetched from its API rather than past its check
     assert.equal(response.headers.get('content-type'), 'application/pdf');
   });
 });
+
+describe("OpenReview's API refusing the Worker too", () => {
+  it('says what each API answered, without asking the site that only answers with its check', async () => {
+    const { default: worker } = await import('../worker/index.js');
+    const asked = [];
+    upstream = (url) => {
+      asked.push(url);
+      return new Response('forbidden', { status: 403, headers: url.startsWith('https://api.openreview.net/') ? { 'cf-mitigated': 'challenge' } : {} });
+    };
+    const response = await worker.fetch(
+      new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://openreview.net/pdf?id=D2Q6VabcXY'), { headers: { Origin: 'https://saurav717.github.io' } }),
+      {},
+    );
+    assert.equal(response.status, 502);
+    const body = await response.json();
+    assert.match(body.error, /api2\.openreview\.net answered 403; api\.openreview\.net answered 403 with Cloudflare's check/);
+    assert.equal(body.botCheck, true);
+    assert.equal(body.host, 'openreview.net');
+    assert.ok(asked.every((url) => !url.startsWith('https://openreview.net/')));
+  });
+});

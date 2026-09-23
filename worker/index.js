@@ -410,25 +410,67 @@ export default {
         // A paper on OpenReview is asked for from its API first: the web
         // site answers every fetch with a check of its own, and Cloudflare's
         // browser never passes it (server/openreview.js).
-        for (const file of openReviewFiles(target)) {
+        const servePdfBytes = (bytes) =>
+          new Response(bytes, {
+            headers: {
+              ...headers,
+              'Content-Type': 'application/pdf',
+              'Content-Length': String(bytes.length),
+              'Content-Disposition': disposition(url.searchParams),
+              'Cache-Control': 'public, max-age=86400',
+              'X-Content-Type-Options': 'nosniff',
+            },
+          });
+        const openReview = openReviewFiles(target);
+        const apiSaid = [];
+        for (const file of openReview) {
+          const apiHost = new URL(file).hostname;
           try {
             const { response: answer } = await fetchChecked(file, { userAgent: UA });
-            if (answer.ok) {
-              const bytes = await readPdf(answer, answer.headers.get('content-type'));
-              return new Response(bytes, {
-                headers: {
-                  ...headers,
-                  'Content-Type': 'application/pdf',
-                  'Content-Length': String(bytes.length),
-                  'Content-Disposition': disposition(url.searchParams),
-                  'Cache-Control': 'public, max-age=86400',
-                  'X-Content-Type-Options': 'nosniff',
-                },
-              });
+            if (!answer.ok) {
+              const mitigated = (answer.headers.get('cf-mitigated') || '').trim().toLowerCase() === 'challenge';
+              // OpenReview's own refusal names itself: ChallengeRequiredError
+              // is its check for a person, now in front of the API too.
+              const named = await answer
+                .clone()
+                .json()
+                .then((body) => (typeof body?.name === 'string' ? body.name : ''))
+                .catch(() => '');
+              apiSaid.push(`${apiHost} answered ${answer.status}${mitigated ? " with Cloudflare's check" : named ? ` (${named})` : ''}`);
+              continue;
             }
-          } catch {
-            // The next file, or the site itself.
+            return servePdfBytes(await readPdf(answer, answer.headers.get('content-type')));
+          } catch (error) {
+            apiSaid.push(`${apiHost}: ${String(error?.message || error)}`);
           }
+        }
+        // OpenReview sits behind Cloudflare, which may refuse a Worker's
+        // fetch where it lets an ordinary address through: with a browser
+        // elsewhere, the API is asked again from there.
+        if (openReview.length && browserless.configured(env)) {
+          try {
+            const got = await browserless.fetchFile(env, openReview[0], { restoreCookies: browse.restoreCookies, saveCookies: browse.saveCookies });
+            if (got?.bytes) return servePdfBytes(got.bytes);
+            apiSaid.push('Browserless did not get the file either');
+          } catch (error) {
+            apiSaid.push(`Browserless: ${String(error?.message || error)}`);
+          }
+        }
+        // The site itself answers every fetch from here with its check, so
+        // there is no use asking it: say what the API said instead, and
+        // offer the pane and the drop-in as for any check.
+        if (openReview.length) {
+          return json(
+            {
+              error: `OpenReview's API would not hand over the file (${apiSaid.join('; ')}), and openreview.net answers the Worker with its check for a person`,
+              botCheck: true,
+              loginWall: true,
+              where: 'cloudflare',
+              host: 'openreview.net',
+            },
+            502,
+            headers,
+          );
         }
 
         let response;
