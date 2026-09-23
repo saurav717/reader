@@ -54,11 +54,11 @@ after(async () => {
 
 /** Answers by host, so one stub can serve the four lookups at once. */
 let handlers = {};
-globalThis.fetch = async (input) => {
+globalThis.fetch = async (input, init = {}) => {
   const url = new URL(String(input));
   const handler = handlers[url.hostname];
   if (!handler) return new Response('{}', { status: 404 });
-  return handler(url);
+  return handler(url, init);
 };
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
@@ -405,6 +405,65 @@ describe('downloading from whichever copy will answer', () => {
     assert.deepEqual(asked.slice(0, COPIES_AT_ONCE), ['slow.example.com', 'refuses.example.com', 'quick.example.edu'], 'started in rank order');
     assert.equal(most, COPIES_AT_ONCE, 'a window of copies in flight, not one and not all');
     assert.ok(!asked.includes('last.example.org'), 'a win stops the queue');
+  });
+
+  it('asks one copy per site at a time, whatever the window allows', async () => {
+    const asked = [];
+    const perHost = new Map();
+    let mostAtOnePlace = 0;
+    handlers['proxy.example.workers.dev'] = async (url) => {
+      const host = new URL(url.searchParams.get('url')).hostname;
+      asked.push(host);
+      perHost.set(host, (perHost.get(host) || 0) + 1);
+      mostAtOnePlace = Math.max(mostAtOnePlace, perHost.get(host));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      perHost.set(host, perHost.get(host) - 1);
+      return json({ error: 'that link gave a web page rather than a PDF' }, 415);
+    };
+
+    await assert.rejects(
+      fetchPdfFromLocations(paper(), [
+        at('https://www.academia.edu/download/1/a.pdf'),
+        at('https://www.academia.edu/download/2/b.pdf'),
+        at('https://academia.edu/download/3/c.pdf'),
+        at('https://ieeexplore.ieee.org/stamp/d.pdf'),
+        at('https://link.springer.com/content/pdf/e.pdf'),
+      ]),
+      /None of the 5 known copies/,
+    );
+    assert.equal(asked.length, 5, 'every copy was still asked');
+    assert.equal(mostAtOnePlace, 1, 'never two at one site at once');
+    // The window is filled from other sites while a site is busy, so the head start is not lost.
+    assert.deepEqual(asked.slice(0, 3), ['www.academia.edu', 'ieeexplore.ieee.org', 'link.springer.com']);
+  });
+
+  it('stops a download nobody is waiting for any more, and leaves one somebody is', async () => {
+    const signals = [];
+    handlers['proxy.example.workers.dev'] = (url, init) =>
+      new Promise((resolve, reject) => {
+        signals.push(init.signal);
+        const timer = setTimeout(() => resolve(new Response('%PDF-1.4 ...', { status: 200, headers: { 'Content-Type': 'application/pdf' } })), 200);
+        init.signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      });
+
+    const copies = [at('https://one.example.org/a.pdf'), at('https://two.example.org/b.pdf')];
+    const leaving = new AbortController();
+    const staying = new AbortController();
+    const left = fetchPdfFromLocations(paper(), copies, leaving.signal);
+    const stayed = fetchPdfFromLocations(paper(), copies, staying.signal);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(signals.length, 2, 'one download per copy, shared by both callers');
+
+    leaving.abort();
+    await assert.rejects(left, (error) => error.name === 'AbortError');
+    assert.ok(signals.every((signal) => !signal.aborted), 'somebody is still waiting on them');
+
+    staying.abort();
+    await assert.rejects(stayed, (error) => error.name === 'AbortError');
+    assert.ok(signals.every((signal) => signal.aborted), 'nobody is: the downloads themselves are stopped');
   });
 
   it('names the copies it tried when none of them answers', async () => {

@@ -1278,6 +1278,23 @@ describe('the address the Worker connects to Browserless at', () => {
       elsewhere.openSocket('wss://production-sfo.browserless.io/?token=t', async () => new Response('Bad or missing token', { status: 403 })),
       /Browserless would not open a browser: code: 403: message: Bad or missing token/,
     );
+    // nginx's page for the plan's browsers all being in use: its title, not its markup.
+    const busyPage = '<html>\r\n<head><title>429 Too Many Requests</title></head>\r\n<body>\r\n<center><h1>429 Too Many Requests</h1></center>\r\n<hr><center>openresty</center>\r\n</body>\r\n</html>';
+    await assert.rejects(
+      elsewhere.openSocket('wss://production-sfo.browserless.io/?token=t', async () => new Response(busyPage, { status: 429 })),
+      (error) => {
+        assert.equal(error.message, 'Browserless would not open a browser: code: 429: message: 429 Too Many Requests');
+        assert.equal(error.status, 429);
+        assert.equal(elsewhere.tooBusy(error), true);
+        return true;
+      },
+    );
+    assert.equal(elsewhere.saidIn('<h1>Nope</h1>'), 'Nope');
+    assert.equal(elsewhere.saidIn('<p>no title, <b>no heading</b></p>'), 'no title, no heading');
+    assert.equal(elsewhere.saidIn('  plain words  '), 'plain words');
+    assert.equal(elsewhere.saidIn(''), '');
+    assert.equal(elsewhere.tooBusy(new Error('Browserless would not open a browser: code: 403: message: Bad token')), false);
+    assert.equal(elsewhere.tooBusy(new Error('Browserless would not open a browser: code: 429: message: Too many concurrent sessions')), true);
   });
 
   it('drives what it connects to like any browser, under a session id of its own, and lets go when the handshake fails', async () => {
@@ -1495,6 +1512,32 @@ describe('the session handed to a browser at Browserless', () => {
     second.arrives(arrival(CHECK, { 'cf-mitigated': 'challenge' }));
     assert.deepEqual((await object.status(-1)).check, { host: 'academia.edu', times: 1, answered: 0 });
     assert.equal(object.moving, null);
+  });
+
+  it('hands up Browserless being busy as a wait the pane counts down, not a fault, when a site opens there', async () => {
+    const { BROWSERLESS_BUSY, BROWSERLESS_BUSY_RETRY_S } = await import('../worker/browserSession.js');
+    const { object, launches } = await held(undefined, { launch: 'refuse' });
+    await object.remember('academia.edu');
+    await assert.rejects(
+      () => object.open(CHECK),
+      (error) => {
+        assert.equal(error.code, 'rate-limited');
+        assert.equal(error.retryAfter, BROWSERLESS_BUSY_RETRY_S);
+        assert.equal(error.daily, false);
+        assert.equal(error.message, `${BROWSERLESS_BUSY} Browserless said: Too many concurrent sessions.`);
+        return true;
+      },
+    );
+    assert.deepEqual(launches, [{ at: 'browserless' }]);
+    assert.match(object.log.map((entry) => entry.what).join('\n'), /Browserless refused a browser: .*429/);
+    // And through the object's front door it is a 429 with the wait on it, as Cloudflare's is.
+    const response = await object.fetch(new Request(`https://do/open?url=${encodeURIComponent(CHECK)}`));
+    assert.equal(response.status, 429);
+    const body = await response.json();
+    assert.equal(body.retryAfter, BROWSERLESS_BUSY_RETRY_S);
+    assert.equal(body.daily, false);
+    assert.match(body.error, /this plan's browsers are all in use/);
+    assert.equal(response.headers.get('Retry-After'), String(BROWSERLESS_BUSY_RETRY_S));
   });
 
   it("stays on Cloudflare's browser, and says why in the status, when Browserless gives none", async () => {

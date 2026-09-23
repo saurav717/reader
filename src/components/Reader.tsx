@@ -385,6 +385,13 @@ export default function Reader({
     if (mode !== 'pdf' || !pdfTarget || pdfBlob) return;
     if (pdfLookup !== 'ready' || !driveOptions.locations) return;
     if (driveConnected && settings.googleClientId && driveProbe !== 'missing') return;
+    // The browser in the pane, opened while the copies were still being
+    // asked: they stand aside — a copy behind a site's check is fetched
+    // from the one browser at Browserless the pane now needs — and are
+    // asked again if the pane closes without a file. A failure already on
+    // screen is not asked again by the pane closing; a sign-in made there
+    // clears it and asks (`retryCopies`).
+    if (browsing || pdfError) return;
     const controller = new AbortController();
     setPdfError(null);
     setPdfSignIn(null);
@@ -404,7 +411,7 @@ export default function Reader({
         setPdfCheck(error instanceof PdfError ? error.check ?? null : null);
       });
     return () => controller.abort();
-  }, [mode, pdfBlob, pdfTarget, driveOptions, driveConnected, settings.googleClientId, driveProbe, pdfLookup, pdfAttempt]);
+  }, [mode, pdfBlob, pdfTarget, driveOptions, driveConnected, settings.googleClientId, driveProbe, pdfLookup, pdfAttempt, browsing, pdfError]);
 
   // Putting a paper in Drive as it is read.
   //
