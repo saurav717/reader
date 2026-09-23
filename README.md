@@ -708,12 +708,56 @@ Reflow is the other half of the switch, and the one you can highlight. Choosing
 either sets what the *next* paper opens in too — under **Reading** in Settings if
 you would rather set it there — so a reader who never wants the text rendering
 never sees it, and one who always does never sees a PDF. The reflowed text is
-only fetched once it is being looked at, so reading PDFs costs no round trip for
-an HTML rendering nobody reads.
+only made once it is being looked at, so reading PDFs costs nothing for a
+rendering nobody reads.
+
+Wherever there is a PDF, the reflowed text is the PDF, read out in full. The
+whole file is opened in the browser with [pdf.js](https://mozilla.github.io/pdf.js/)
+— loaded on demand, the first time it is needed — and every page's glyphs and
+drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
+
+- **Text.** Glyph runs on one baseline are a line; lines a line-height apart
+  are a paragraph; a word broken at the line's end is mended; a run in a
+  bold, italic or monospaced face keeps it, and a run raised or lowered on
+  the line is a superscript or subscript. Two columns are read down one and
+  then the other (a recursive XY-cut, which also puts a full-width title
+  before the columns under it), and a paragraph that runs from the foot of
+  one column to the top of the next, or across a page, is one paragraph.
+  Headings are the lines set larger or bolder than the body, with levels from
+  their numbering; bullets become lists; the references become one entry
+  each; running heads, page numbers and the arXiv stamp are left out; the
+  title and authors are left to the reader's own heading, which already
+  shows them; and accents TeX sets apart from their letters ("na¨ıve") are
+  put back.
+- **Figures.** A line that says *Figure 3.* is a caption, and the figure is
+  everything between it and the running text on the far side of it — the
+  drawings, the axis labels, the legend, the other panels. That region is
+  painted from the page itself, at twice its size, and shown as an image
+  under its caption, so a plot looks exactly as it was typeset. The labels
+  inside it are in the picture, not the text.
+- **Tables.** *Table 2.* is a caption too, and the rows under it are read
+  into a real table: cells that overlap horizontally are a column, cells on
+  one baseline a row, a heading that spans two columns gets a colspan. A
+  table whose cells cannot be told apart is painted instead, like a figure.
+- **Equations.** A line numbered *(3)* at the column's edge, or set mostly in
+  a mathematics font, is display mathematics, and mathematics read glyph by
+  glyph out of a PDF is not worth reading — so the equation and the lines a
+  fraction or a sum spreads over are painted from the page and shown in
+  their place.
+- **Footnotes** are the small text at the foot of each page, kept small and
+  set after the text of that page.
+
+`scripts/pdf-reflow.test.mjs` is that layout written down against made-up
+pages, and `scripts/reflow-smoke.mjs` prints a two-column paper with Chromium
+and reads it back through the app. Inline mathematics stays as the glyphs it
+was set in, which is legible for *x* and *n* and not for much more; a scan,
+or a PDF whose fonts carry no mapping back to letters, has no text to read,
+and the reader says so and shows what it has.
 
 Where there is no PDF to open — no proxy to fetch it through, or no free copy
-anywhere OpenAlex or Semantic Scholar can see — the reader falls back to the
-reflowed text, or to the abstract, and says which.
+anywhere OpenAlex or Semantic Scholar can see — or where every copy refused
+to hand it over, the reader falls back to the HTML rendering arXiv keeps for
+recent papers (ar5iv for older ones), or to the abstract, and says which.
 
 `/api/pdf` is the only route that fetches a URL this app did not choose, so it is
 deliberately narrow: https only, never at a private, loopback or link-local
@@ -1332,8 +1376,12 @@ tests start failing.
 
 - PDF mode hands the file to the browser's own viewer, so highlighting only works in
   Reflow mode — which is why the switch is there, and why choosing it sticks. Reflow
-  needs an HTML rendering, which arXiv has for recent papers and ar5iv has for most
-  older ones; otherwise the reader falls back to the abstract.
+  reads the text out of the PDF itself, so it is as good as the file: inline
+  mathematics comes out as the glyphs it was set in, a figure's text lives in
+  the picture rather than the text, and a scan has no text to read at all.
+  Without a PDF, Reflow needs an HTML rendering, which arXiv has for recent
+  papers and ar5iv has for most older ones; otherwise it falls back to the
+  abstract.
 - A PDF is only there to be had if the paper is open access, or your institution
   subscribes to it. Behind a paywall, every copy in the versions list is the
   publisher's, none of them will answer an anonymous request, and the reader says

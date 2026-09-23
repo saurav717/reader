@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
-import { loadPaperContent, type PaperContent } from '../lib/paperContent';
+import { loadPaperContent, loadPaperContentFromPdf, type PaperContent, type ReflowProgress } from '../lib/paperContent';
 import { hasProxy } from '../lib/api';
 import {
   fetchPaperPdf,
@@ -99,6 +99,8 @@ export default function Reader({
 
   const [content, setContent] = useState<PaperContent | null>(null);
   const [loading, setLoading] = useState(false);
+  /** How far the PDF has been read, while the reflowed text is being made from it. */
+  const [reflowProgress, setReflowProgress] = useState<ReflowProgress | null>(null);
   const [mode, setMode] = useState<ReadingMode>(preferredMode);
   const [sizeIndex, setSizeIndex] = useState(1);
   const [pending, setPending] = useState<PendingSelection | null>(null);
@@ -162,26 +164,102 @@ export default function Reader({
   useEffect(() => {
     setContent(null);
     setLoading(false);
+    setReflowProgress(null);
   }, [paperId, paper?.arxivId]);
 
-  // The reflowed text is only fetched once it is being looked at: for a paper
-  // read as a PDF, the HTML rendering is a round trip nobody asked for.
+  // The images a reflowed PDF refers to are handed back once its text is
+  // off the screen: when other content replaces it, and when the reader
+  // closes. (Not in an effect's cleanup keyed on the content: StrictMode
+  // runs that once at mount, with the content still on screen.)
+  const shown = useRef<PaperContent | null>(null);
+  useEffect(() => {
+    if (shown.current && shown.current !== content) shown.current.release?.();
+    shown.current = content;
+  }, [content]);
+  useEffect(
+    () => () => {
+      shown.current?.release?.();
+      shown.current = null;
+    },
+    [],
+  );
+
+  // Which file the text on screen was made from. A different file arriving
+  // — dropped in, or brought back by the browser in the pane, after every
+  // copy had refused — is read out afresh; the same file is not.
+  const contentFor = useRef<Blob | null>(null);
+  useEffect(() => {
+    if (content && pdfBlob && contentFor.current !== pdfBlob) setContent(null);
+  }, [content, pdfBlob]);
+
+  // A PDF can be shown if there is a proxy to fetch it through — or if Drive
+  // already holds a copy, which comes back to the browser directly and so
+  // opens even on a deployment that has no server at all.
+  const driveCopy = Boolean(paper?.drive?.pdfFileId && driveConnected && settings.googleClientId) || driveProbe === 'found';
+  const canFetchPdf = hasProxy() || driveCopy;
+
+  // Whether there is a PDF to open at all: the copy in Drive, a single link,
+  // or any of the places the paper is published. Only when every one of those
+  // has come back empty is there nothing to show.
+  const pdfLookup = pdfAvailability({ pdfUrl, resolved: pdfResolved, driveCopy, locations });
+
+  // The reflowed text is only made once it is being looked at: for a paper
+  // read as a PDF, reading the file out is work nobody asked for.
+  //
+  // The PDF is the text, wherever there is one: the whole paper — figures,
+  // tables, equations and all — read out of the file and set as a document
+  // to highlight. So a reader in Reflow mode waits for the file the PDF
+  // effects below are fetching, and only a paper with no PDF to be had, or
+  // one whose copies would not hand it over, falls back to the HTML
+  // rendering arXiv keeps, and after that to the abstract.
   useEffect(() => {
     if (!paper || mode !== 'reflow' || content) return;
+    const expectPdf = canFetchPdf && pdfLookup !== 'none' && !pdfError;
+    if (expectPdf && !pdfBlob) {
+      setLoading(true);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
-    loadPaperContent(paper, controller.signal)
+    setReflowProgress(null);
+    contentFor.current = pdfBlob;
+    const fallback = (reason: string) =>
+      loadPaperContent(paper, controller.signal).then((loaded) => ({
+        ...loaded,
+        notice: `${reason} ${loaded.notice ?? `Showing ${loaded.mode === 'html' ? 'the HTML rendering' : 'the abstract'} instead.`}`,
+      }));
+    const load = pdfBlob
+      ? loadPaperContentFromPdf(paper, pdfBlob, { signal: controller.signal, onProgress: setReflowProgress }).then(
+          (reflowed) => reflowed ?? fallback('This PDF has no text that can be read — it may be a scan.'),
+        )
+      : pdfError
+        ? fallback(`${pdfError.replace(/\.$/, '')}.`)
+        : loadPaperContent(paper, controller.signal);
+    load
       .then((loaded) => {
         if (!controller.signal.aborted) setContent(loaded);
+        else loaded.release?.();
       })
-      .catch(() => undefined)
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        // Worth a line in the console: this is a PDF pdf.js choked on.
+        console.warn('Could not reflow the PDF', error);
+        loadPaperContent(paper, controller.signal)
+          .then((loaded) => {
+            if (!controller.signal.aborted) setContent({ ...loaded, notice: `The PDF could not be read. ${loaded.notice ?? ''}`.trim() });
+          })
+          .catch(() => undefined);
+      })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) {
+          setLoading(false);
+          setReflowProgress(null);
+        }
       });
     return () => controller.abort();
-    // Only the identity of the paper matters for what we fetch.
+    // Only the identity of the paper, and the file, matter for what we make.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paperId, paper?.arxivId, mode, content]);
+  }, [paperId, paper?.arxivId, mode, content, pdfBlob, pdfError, canFetchPdf, pdfLookup]);
 
   // Find a single link to the PDF. arXiv and most open-access results already
   // say where theirs is; for the rest we go back to OpenAlex and Semantic
@@ -234,17 +312,6 @@ export default function Reader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId, paper?.arxivId, paper?.doi]);
 
-  // A PDF can be shown if there is a proxy to fetch it through — or if Drive
-  // already holds a copy, which comes back to the browser directly and so
-  // opens even on a deployment that has no server at all.
-  const driveCopy = Boolean(paper?.drive?.pdfFileId && driveConnected && settings.googleClientId) || driveProbe === 'found';
-  const canFetchPdf = hasProxy() || driveCopy;
-
-  // Whether there is a PDF to open at all: the copy in Drive, a single link,
-  // or any of the places the paper is published. Only when every one of those
-  // has come back empty is there nothing to show.
-  const pdfLookup = pdfAvailability({ pdfUrl, resolved: pdfResolved, driveCopy, locations });
-
   // A new paper opens the way they read the last one, with no PDF held over.
   useEffect(() => {
     modeChosen.current = false;
@@ -274,8 +341,8 @@ export default function Reader({
   // abstract they did not ask for.
   useEffect(() => {
     if (modeChosen.current || !content) return;
-    if (content.mode === 'abstract' && pdfLookup === 'ready' && canFetchPdf) setMode('pdf');
-  }, [content, pdfLookup, canFetchPdf]);
+    if (content.mode === 'abstract' && pdfLookup === 'ready' && canFetchPdf && !pdfError) setMode('pdf');
+  }, [content, pdfLookup, canFetchPdf, pdfError]);
 
   // What the PDF routes need, and nothing that changes while reading: the paper
   // object itself is replaced on every progress tick, which would otherwise
@@ -335,8 +402,10 @@ export default function Reader({
     }),
     [paper?.drive?.pdfFileId, paper?.drive?.folderId, settings.driveFolderName, settings.googleClientId, driveConnected],
   );
+  // Whichever way the paper is being read: the PDF is what Reflow mode
+  // reads out too.
   useEffect(() => {
-    if (mode !== 'pdf' || !pdfTarget || pdfBlob) return;
+    if (!pdfTarget || pdfBlob) return;
     if (!driveConnected || !settings.googleClientId) return;
     if (probedFor.current === pdfTarget.id) return;
     probedFor.current = pdfTarget.id;
@@ -382,7 +451,7 @@ export default function Reader({
   // The proxy waits for the list this component is already resolving, rather
   // than resolving it twice.
   useEffect(() => {
-    if (mode !== 'pdf' || !pdfTarget || pdfBlob) return;
+    if (!pdfTarget || pdfBlob) return;
     if (pdfLookup !== 'ready' || !driveOptions.locations) return;
     if (driveConnected && settings.googleClientId && driveProbe !== 'missing') return;
     // The browser in the pane, opened while the copies were still being
@@ -436,9 +505,9 @@ export default function Reader({
     if (paper.drive?.pdfFileId) return; // Drive has it already.
     if (pdfFrom === 'drive') return; // It came from Drive: Drive has it, whatever the library recorded.
     if (pdfLookup !== 'ready') return;
-    // Reading it as a PDF: the viewer is already fetching the file, so wait for
-    // it. This effect runs again when the blob arrives.
-    if (mode === 'pdf' && !pdfBlob && !pdfError) return;
+    // The file is already being fetched — for the viewer, or for the text
+    // to reflow — so wait for it. This effect runs again when the blob arrives.
+    if (canFetchPdf && !pdfBlob && !pdfError) return;
     if (pdfBlob) {
       if (sentPdf.current.has(paper.id)) return;
       sentPdf.current.add(paper.id);
@@ -451,8 +520,8 @@ export default function Reader({
     askedToSave.current.add(paper.id);
     syncPaper(paper.id);
   }, [
+    canFetchPdf,
     driveConnected,
-    mode,
     paper,
     pdfBlob,
     pdfError,
@@ -724,7 +793,17 @@ export default function Reader({
                   ? ` · PDF from ${pdfLocation.label}`
                   : ' · PDF'
               : content
-                ? ` · ${content.sourceLabel}`
+                ? ` · ${content.sourceLabel}${
+                    content.mode === 'pdf'
+                      ? pdfFrom === 'drive'
+                        ? ' in your Drive'
+                        : pdfFrom === 'file'
+                          ? ' from your file'
+                          : pdfLocation
+                            ? ` from ${pdfLocation.label}`
+                            : ''
+                      : ''
+                  }`
                 : ''}
             {` · ${Math.round(paper.progress * 100)}%`}
             {driveConnected && driveBusy ? ' · saving to Drive…' : ''}
@@ -967,7 +1046,20 @@ export default function Reader({
 
             {loading ? (
               <p style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13 }}>
-                <span className="spinner" /> Fetching the full text…
+                <span className="spinner" />
+                {reflowProgress
+                  ? reflowProgress.stage === 'reading'
+                    ? ` Reading the PDF — page ${reflowProgress.done} of ${reflowProgress.total}…`
+                    : ' Painting the figures and tables…'
+                  : pdfBlob
+                    ? ' Reading the PDF…'
+                    : canFetchPdf && pdfLookup !== 'none' && !pdfError
+                      ? driveProbe === 'checking'
+                        ? ' Looking in your Drive…'
+                        : pdfLookup === 'checking'
+                          ? ' Looking for the PDF…'
+                          : ' Fetching the PDF to reflow it…'
+                      : ' Fetching the full text…'}
               </p>
             ) : null}
 

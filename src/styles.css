@@ -915,3 +915,21 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
   .row-grid { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .collection-head { padding: 20px 16px 0; }
 }
+
+/* A paper reflowed from its PDF: the figures, tables and equations are
+   painted from the page itself, so they keep a page's white behind them
+   whatever the theme. */
+.paper-body .pdf-figure, .paper-body .pdf-table { margin: 22px 0; }
+.paper-body .pdf-crop { max-width: 100%; height: auto; display: block; margin: 0 auto; background: #fff; border-radius: 6px; box-shadow: 0 0 0 1px var(--border-soft); }
+.paper-body .pdf-figure .pdf-crop { padding: 6px; box-sizing: border-box; }
+.paper-body .pdf-equation { margin: 14px 0 18px; text-align: center; }
+.paper-body .pdf-equation .pdf-crop { display: inline-block; max-width: 100%; padding: 4px 8px; box-sizing: border-box; box-shadow: none; }
+.paper-body .pdf-table figcaption { margin: 0 0 8px; }
+.paper-body .pdf-table table { font-size: 13.5px; }
+.paper-body .pdf-table th { font-weight: 600; background: var(--rail); }
+.paper-body .pdf-table td:empty, .paper-body .pdf-table th:empty { border-color: transparent; }
+.paper-body .pdf-footnote { font-family: var(--sans); font-size: 12.5px; color: var(--muted); margin: 0 0 8px; padding-left: 14px; border-left: 2px solid var(--border); }
+.paper-body .pdf-footnote + :not(.pdf-footnote) { margin-top: 18px; }
+.paper-body ul, .paper-body ol { margin: 0 0 18px; padding-left: 26px; }
+.paper-body li { margin: 0 0 6px; }
+.paper-body code { font-family: var(--mono); font-size: 0.86em; }
