@@ -32,6 +32,10 @@
  *                        is what a check likes best and what costs units
  *                        by the megabyte; unset, the browser's own address.
  *   BROWSERLESS_COUNTRY  the proxy's country, "us" say, when one is set.
+ *   BROWSERLESS_SESSION_MS  how long a session in the pane may run. The free
+ *                        plan allows two minutes, which is the default; a
+ *                        paid plan allows more, and this raises it. A cap
+ *                        Browserless names in a refusal is obeyed either way.
  *
  * Web APIs and the Workers runtime only: the WebSocket is opened with a
  * fetch carrying `Upgrade: websocket`, which is how a Worker opens one.
@@ -44,9 +48,14 @@ import { challengedHost, checkAfter, fetchFileInPage, isMainDocument, VIEWPORT }
 export const DEFAULT_URL = 'wss://production-sfo.browserless.io';
 /** The path that asks for Browserless's stealth Chromium, which hides what a check looks for in a driven browser. */
 const STEALTH_PATH = '/chromium/stealth';
-/** How long a session may run: a person ticking a box, signing in, reading. Browserless's own default is half a minute. */
-export const SESSION_MS = 10 * 60_000;
-/** How long a fetch of one file may hold a browser, check and all. */
+/**
+ * How long a session may run: a person ticking a box, signing in, reading.
+ * Browserless's own default is half a minute; its free plan allows two
+ * minutes at most, and refuses a longer ask outright — so this is the
+ * default, and BROWSERLESS_SESSION_MS raises it on a plan that allows more.
+ */
+export const SESSION_MS = 120_000;
+/** How long a fetch of one file may hold a browser, check and all. Under the free plan's cap. */
 const FETCH_SESSION_MS = 90_000;
 /** How long any single ask over the DevTools protocol may take; the same bound as Cloudflare's browser gets. */
 const PROTOCOL_TIMEOUT_MS = 30_000;
@@ -82,8 +91,14 @@ export function endpoint({ token, url = DEFAULT_URL, proxy = '', country = '', t
   return `${base}${STEALTH_PATH}?${query}`;
 }
 
+/** How long a session in the pane may run, from the settings: the plan's two minutes unless raised. */
+export function sessionMsOf(env) {
+  const set = Number(String(env?.BROWSERLESS_SESSION_MS || '').trim());
+  return Number.isFinite(set) && set >= 1000 ? Math.round(set) : SESSION_MS;
+}
+
 /** The address from the Worker's own settings. */
-export function endpointFor(env, { timeoutMs = SESSION_MS } = {}) {
+export function endpointFor(env, { timeoutMs = sessionMsOf(env) } = {}) {
   return endpoint({
     token: env?.BROWSERLESS_TOKEN,
     url: env?.BROWSERLESS_URL,
@@ -95,6 +110,19 @@ export function endpointFor(env, { timeoutMs = SESSION_MS } = {}) {
 
 /** The address, safe to write down: everything but the token. */
 export const redacted = (address) => String(address).replace(/token=[^&]*/, 'token=…');
+
+/**
+ * The most a session may run on this plan, when Browserless refused a
+ * longer ask and said so — "must be a whole number of milliseconds between
+ * 1 and 120,000 (your plan's maximum session time, 2 minutes)" — or null
+ * when the refusal was about something else. Pure: pinned by the tests.
+ */
+export function sessionCapIn(message) {
+  const match = String(message || '').match(/'timeout'[^]*?between\s+1\s+and\s+([\d,]+)/i);
+  if (!match) return null;
+  const cap = Number(match[1].replace(/,/g, ''));
+  return Number.isFinite(cap) && cap >= 1000 ? cap : null;
+}
 
 /**
  * A WebSocket to Browserless, the way a Worker opens one: a fetch with
@@ -119,13 +147,22 @@ export async function openSocket(address, doFetch = globalThis.fetch) {
  * A Browserless browser, driven over the DevTools protocol like Cloudflare's
  * own: the socket wrapped in the same transport, the same connection with
  * the same protocol timeout, and a session id of this browser's own, so
- * the object knows whose it is. The pieces are injectable for the tests.
+ * the object knows whose it is. A session asked for longer than the plan
+ * allows is refused before any browser starts, with the plan's cap in the
+ * refusal; it is asked for again at that cap, once. The pieces are
+ * injectable for the tests.
  */
-export async function launch(env, { open = openSocket, connect = connectToCDPBrowser, timeoutMs = SESSION_MS } = {}) {
+export async function launch(env, { open = openSocket, connect = connectToCDPBrowser, timeoutMs = sessionMsOf(env) } = {}) {
   if (!configured(env)) throw new Error('This Worker has no BROWSERLESS_TOKEN, so there is no browser elsewhere to hand a check to.');
-  const address = endpointFor(env, { timeoutMs });
   const id = `${ID_PREFIX}${crypto.randomUUID()}`;
-  const socket = await open(address);
+  let socket;
+  try {
+    socket = await open(endpointFor(env, { timeoutMs }));
+  } catch (error) {
+    const cap = sessionCapIn(error?.message);
+    if (!cap || cap >= timeoutMs) throw error;
+    socket = await open(endpointFor(env, { timeoutMs: cap }));
+  }
   const transport = new WorkersWebSocketTransport(socket, id);
   try {
     return await connect(transport, { sessionId: id, protocolTimeout: PROTOCOL_TIMEOUT_MS });

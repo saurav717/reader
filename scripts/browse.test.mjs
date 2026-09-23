@@ -1055,7 +1055,7 @@ const elsewhere = await import('../worker/browserless.js');
 describe('the address the Worker connects to Browserless at', () => {
   it('is the stealth Chromium, with the token, the session length, and the proxy when one is asked for', () => {
     const address = elsewhere.endpoint({ token: 'secret' });
-    assert.equal(address, 'wss://production-sfo.browserless.io/chromium/stealth?token=secret&timeout=600000');
+    assert.equal(address, 'wss://production-sfo.browserless.io/chromium/stealth?token=secret&timeout=120000');
     const home = elsewhere.endpoint({ token: 'secret', url: 'wss://production-lon.browserless.io/', proxy: 'residential', country: 'GB', timeoutMs: 90_000 });
     assert.equal(home, 'wss://production-lon.browserless.io/chromium/stealth?token=secret&timeout=90000&proxy=residential&proxyCountry=gb');
     // A country without a proxy is nothing to route through.
@@ -1074,6 +1074,48 @@ describe('the address the Worker connects to Browserless at', () => {
     assert.equal(elsewhere.configured({}), false);
     assert.equal(elsewhere.isBrowserless('browserless:abc'), true);
     assert.equal(elsewhere.isBrowserless('abc'), false);
+    // The session length: the free plan's two minutes, unless a var raises it.
+    assert.equal(elsewhere.sessionMsOf({}), 120_000);
+    assert.equal(elsewhere.sessionMsOf({ BROWSERLESS_SESSION_MS: '600000' }), 600_000);
+    assert.equal(elsewhere.sessionMsOf({ BROWSERLESS_SESSION_MS: 'ten minutes' }), 120_000);
+    assert.match(elsewhere.endpointFor({ BROWSERLESS_TOKEN: 't', BROWSERLESS_SESSION_MS: '300000' }), /timeout=300000/);
+  });
+
+  it("reads the plan's cap on session time out of a refusal, and asks again at it", async () => {
+    const said =
+      "Browserless would not open a browser: code: 400: message: The 'timeout' value must be a whole number of milliseconds between 1 and 120,000 (your plan's maximum session time, 2 minutes). Received \"600000\". Use a smaller timeout, or upgrade your plan for a longer one.";
+    assert.equal(elsewhere.sessionCapIn(said), 120_000);
+    assert.equal(elsewhere.sessionCapIn('Browserless would not open a browser: code: 403: message: Bad token'), null);
+    assert.equal(elsewhere.sessionCapIn(''), null);
+    const opened = [];
+    const socket = { accept: () => undefined, addEventListener: () => undefined, close: () => undefined };
+    const browser = await elsewhere.launch(
+      { BROWSERLESS_TOKEN: 't', BROWSERLESS_SESSION_MS: '600000' },
+      {
+        open: async (address) => {
+          opened.push(address);
+          if (opened.length === 1) throw new Error(said);
+          return socket;
+        },
+        connect: async (_transport, options) => ({ sessionId: () => options.sessionId }),
+      },
+    );
+    assert.match(browser.sessionId(), /^browserless:/);
+    assert.equal(opened.length, 2);
+    assert.match(opened[0], /timeout=600000/);
+    assert.match(opened[1], /timeout=120000/);
+    // A refusal about anything else is not asked again.
+    await assert.rejects(
+      elsewhere.launch(
+        { BROWSERLESS_TOKEN: 't' },
+        {
+          open: async () => {
+            throw new Error('Browserless would not open a browser: code: 403: message: Bad token');
+          },
+        },
+      ),
+      /Bad token/,
+    );
   });
 
   it('opens the socket the way a Worker does, and words a refusal from what came back instead', async () => {
