@@ -4,7 +4,7 @@
 // publishers and repositories an open-access PDF link points at.
 
 import { disposition, fetchChecked, readPdf, rejectUrl } from './fetchPdf.js';
-import { openReviewFiles } from './openreview.js';
+import { fetchOpenReview, openReviewFiles } from './openreview.js';
 import { pmcFiles } from './pmc.js';
 import * as access from './access.js';
 import {
@@ -218,12 +218,14 @@ async function pdf(url, res) {
 
   // A paper on OpenReview is asked for from its API first: the web site
   // answers every fetch with a check of its own (server/openreview.js).
-  for (const file of openReviewFiles(target)) {
-    try {
-      const { response } = await fetchChecked(file, { userAgent: UA });
-      if (response.ok) return servePdf(res, url, await readPdf(response, response.headers.get('content-type')));
-    } catch {
-      // The next file, or the site itself.
+  if (openReviewFiles(target).length) {
+    const { response } = await fetchOpenReview(target, { env: process.env, userAgent: UA });
+    if (response) {
+      try {
+        return servePdf(res, url, await readPdf(response, response.headers.get('content-type')));
+      } catch {
+        // The site itself, then.
+      }
     }
   }
 

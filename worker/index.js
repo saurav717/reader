@@ -12,7 +12,7 @@
  * Then rebuild the app with VITE_API_BASE=https://<your-worker>.workers.dev
  */
 import { disposition, fetchChecked, readPdf, rejectUrl } from '../server/fetchPdf.js';
-import { openReviewFiles } from '../server/openreview.js';
+import { fetchOpenReview, openReviewAccount, openReviewFiles, saidChallenge } from '../server/openreview.js';
 import { pmcFiles } from '../server/pmc.js';
 import {
   authorSearchUrl,
@@ -407,9 +407,6 @@ export default {
         const reason = rejectUrl(target);
         if (reason) return json({ error: reason }, 400, headers);
 
-        // A paper on OpenReview is asked for from its API first: the web
-        // site answers every fetch with a check of its own, and Cloudflare's
-        // browser never passes it (server/openreview.js).
         const servePdfBytes = (bytes) =>
           new Response(bytes, {
             headers: {
@@ -421,48 +418,30 @@ export default {
               'X-Content-Type-Options': 'nosniff',
             },
           });
-        const openReview = openReviewFiles(target);
-        const apiSaid = [];
-        for (const file of openReview) {
-          const apiHost = new URL(file).hostname;
-          try {
-            const { response: answer } = await fetchChecked(file, { userAgent: UA });
-            if (!answer.ok) {
-              const mitigated = (answer.headers.get('cf-mitigated') || '').trim().toLowerCase() === 'challenge';
-              // OpenReview's own refusal names itself: ChallengeRequiredError
-              // is its check for a person, now in front of the API too.
-              const named = await answer
-                .clone()
-                .json()
-                .then((body) => (typeof body?.name === 'string' ? body.name : ''))
-                .catch(() => '');
-              apiSaid.push(`${apiHost} answered ${answer.status}${mitigated ? " with Cloudflare's check" : named ? ` (${named})` : ''}`);
-              continue;
+        // A paper on OpenReview is asked for from its API, never the site,
+        // which answers every fetch with a check Cloudflare's browser never
+        // passes; signed in with the account the Worker is given, since the
+        // check now stands in front of the API too (server/openreview.js).
+        if (openReviewFiles(target).length) {
+          const { response: answer, said } = await fetchOpenReview(target, { env, userAgent: UA });
+          if (answer) {
+            try {
+              return servePdfBytes(await readPdf(answer, answer.headers.get('content-type')));
+            } catch (error) {
+              said.push(String(error?.message || error));
             }
-            return servePdfBytes(await readPdf(answer, answer.headers.get('content-type')));
-          } catch (error) {
-            apiSaid.push(`${apiHost}: ${String(error?.message || error)}`);
           }
-        }
-        // OpenReview sits behind Cloudflare, which may refuse a Worker's
-        // fetch where it lets an ordinary address through: with a browser
-        // elsewhere, the API is asked again from there.
-        if (openReview.length && browserless.configured(env)) {
-          try {
-            const got = await browserless.fetchFile(env, openReview[0], { restoreCookies: browse.restoreCookies, saveCookies: browse.saveCookies });
-            if (got?.bytes) return servePdfBytes(got.bytes);
-            apiSaid.push('Browserless did not get the file either');
-          } catch (error) {
-            apiSaid.push(`Browserless: ${String(error?.message || error)}`);
-          }
-        }
-        // The site itself answers every fetch from here with its check, so
-        // there is no use asking it: say what the API said instead, and
-        // offer the pane and the drop-in as for any check.
-        if (openReview.length) {
+          // The site itself answers every fetch from here with its check, so
+          // there is no use asking it: say what the API said instead, and
+          // what would get past it.
+          const fix = openReviewAccount(env)
+            ? ''
+            : saidChallenge(said)
+              ? ' — give the Worker an OpenReview account (the OPENREVIEW_USERNAME and OPENREVIEW_PASSWORD secrets) and it signs in, which skips the check'
+              : '';
           return json(
             {
-              error: `OpenReview's API would not hand over the file (${apiSaid.join('; ')}), and openreview.net answers the Worker with its check for a person`,
+              error: `OpenReview's API would not hand over the file (${said.join('; ') || 'no answer'})${fix}`,
               botCheck: true,
               loginWall: true,
               where: 'cloudflare',

@@ -23,6 +23,14 @@ class_name = "BrowserSession"
 tag = "v1"
 new_sqlite_classes = ["BrowserSession"]
 
+# OpenReview papers are fetched from OpenReview's API, which asks an
+# anonymous request for a check a Worker cannot pass. Signed in, it asks
+# nothing: give the Worker an OpenReview account (README, "OpenReview,
+# from its API, signed in") as two secrets:
+#
+#     npx wrangler secret put OPENREVIEW_USERNAME
+#     npx wrangler secret put OPENREVIEW_PASSWORD
+
 # A browser elsewhere, for the sites whose check for a person is Cloudflare's
 # — academia.edu, Europe PMC — which Cloudflare's own browser never passes,
 # by Cloudflare's design (worker/browserless.js). With a Browserless token

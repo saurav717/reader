@@ -318,9 +318,9 @@ async function pdfFrom(path: string, init?: RequestInit): Promise<Blob> {
  * openreview.net — for the forum, the file, an attachment, or the check
  * OpenReview puts in front of any of them (`/challenge?redirect=…`) — or
  * null for any other page. The proxy asks OpenReview's API for such a URL
- * rather than the site (server/openreview.js), and the API has no check,
- * so the file comes without anyone ticking a box the Worker's browser
- * could never pass.
+ * rather than the site (server/openreview.js), signed in with an account
+ * where it has one, which skips the check — so the file comes without
+ * anyone ticking a box the Worker's browser could never pass.
  */
 export function openReviewPdfUrl(pageUrl: string | null | undefined): string | null {
   let url: URL;
@@ -490,7 +490,7 @@ export function botCheck(status: Pick<BrowseStatus, 'url' | 'title' | 'check' | 
   const answered = (seen?.answered ?? 0) > 0;
   const own = 'Open the file in a tab of your own and drop it on the paper instead';
   if (openReview && openReviewPdfUrl(status.url)) {
-    return `${host} is checking that a person is here, with Cloudflare's box, which the proxy's browser may never pass — so there is no need to tick it: the file is being asked for from OpenReview's API instead, which has no check. If that does not bring it, ${own.charAt(0).toLowerCase()}${own.slice(1)}.`;
+    return `${host} is checking that a person is here, with Cloudflare's box, which the proxy's browser may never pass — so there is no need to tick it: the file is being asked for from OpenReview's API instead, signed in with the proxy's OpenReview account where it has one, which skips the check. If that does not bring it, ${own.charAt(0).toLowerCase()}${own.slice(1)}.`;
   }
   if (cloudflares && where === 'cloudflare') {
     if (status.fallback === 'browserless') {
