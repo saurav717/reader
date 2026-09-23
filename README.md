@@ -1017,6 +1017,21 @@ title. Nothing leaves the browser except to Drive, and no proxy is involved at
 all — which makes it the route that works from the site on GitHub Pages as it
 is, and from any publisher, IEEE or not.
 
+**Or skip the drop: watch my Downloads folder.** In Chrome and Edge the same
+place offers to take the file from the folder it lands in. Press it, point
+the dialog at your Downloads folder (a read-only permission that lasts the
+tab), open the paper at the publisher in a tab of your own, and save the PDF
+the way you would anyway: the reader notices the new file, waits for it to
+finish downloading, checks that it is a PDF, and opens the paper on it — no
+drag, no file dialog. It is the way through every wall at once, since your
+own browser passes a site's check for a person, holds your institution's
+sign-in, and is nobody's idea of a datacenter; and it is what to reach for
+from the site on GitHub Pages when a publisher's check refuses the Worker,
+as Cloudflare's always does. Only the folder's listing and the first bytes
+of a new PDF are read (`src/lib/downloads.ts`; `scripts/downloads.test.mjs`
+pins which file is taken and which is left alone — a part-file still being
+written, a file that was there before, a login page saved as `.pdf`).
+
 ## How highlighting works
 
 A highlight is stored as the quoted text plus 32 characters either side, not as a
