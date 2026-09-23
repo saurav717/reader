@@ -528,4 +528,25 @@ describe("OpenReview's API refusing the Worker too", () => {
     assert.match(body.error, /api2\.openreview\.net would not sign the account in \(MultiError: Invalid username or password\)/);
     assert.doesNotMatch(body.error, /OPENREVIEW_USERNAME/);
   });
+
+  it('gives up on an API that does not answer, and says so, rather than holding the request until the browser does', async () => {
+    const { fetchOpenReview } = await import('../server/openreview.js');
+    // An API that never answers, until its deadline aborts the ask.
+    const hang = (url, init) =>
+      new Promise((resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal.reason));
+      });
+    const started = Date.now();
+    const { response, said } = await fetchOpenReview('https://openreview.net/pdf?id=D2Q6VabcXY', { fetch: hang, userAgent: 'test', timeoutMs: 50 });
+    assert.equal(response, null);
+    assert.ok(Date.now() - started < 2000);
+    assert.deepEqual(said, ['api2.openreview.net did not answer within 1 s', 'api.openreview.net did not answer within 1 s']);
+    const signedIn = await fetchOpenReview('https://openreview.net/pdf?id=D2Q6VabcXY', {
+      fetch: hang,
+      userAgent: 'test',
+      timeoutMs: 1500,
+      env: { OPENREVIEW_USERNAME: 'slow@example.org', OPENREVIEW_PASSWORD: 'secret' },
+    });
+    assert.match(signedIn.said[0], /api2\.openreview\.net would not sign the account in \(did not answer within 2 s\)/);
+  });
 });

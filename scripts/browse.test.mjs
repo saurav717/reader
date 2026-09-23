@@ -1984,3 +1984,31 @@ describe('input sent to the page without waiting', () => {
     assert.equal(launches.length, 1);
   });
 });
+
+// ------------------------------------ OpenReview's check, going round and round ----
+
+const { endlessCheck, CHECK_LOOP_TIMES } = await load('src/lib/browse.ts');
+
+describe("OpenReview's check going round, which the pane stops rather than watches", () => {
+  const challenge = 'https://openreview.net/challenge?redirect=%2Fforum%3Fid%3DD2Q6VabcXY';
+  it("is a loop from the start in Cloudflare's own browser, which it never lets through", () => {
+    assert.equal(endlessCheck({ url: challenge, where: 'cloudflare' }), true);
+    // A Worker that did not say whose browser it was is told by its session id.
+    assert.equal(endlessCheck({ url: challenge, session: 'abc' }), true);
+    // Browserless gave no browser, so the session stayed where the box never passes.
+    assert.equal(endlessCheck({ url: challenge, where: 'cloudflare', fallback: 'browserless', fallbackError: 'Bad token' }), true);
+  });
+  it('waits for the check to come back from a browser that could pass it', () => {
+    assert.equal(endlessCheck({ url: challenge, where: 'cloudflare', fallback: 'browserless' }), false);
+    assert.equal(endlessCheck({ url: challenge, where: 'proxy', check: { host: 'openreview.net', times: 1, answered: 0 } }), false);
+    assert.equal(endlessCheck({ url: challenge, where: 'proxy', check: { host: 'openreview.net', times: CHECK_LOOP_TIMES - 1, answered: 1 } }), false);
+    assert.equal(endlessCheck({ url: challenge, where: 'proxy', check: { host: 'openreview.net', times: CHECK_LOOP_TIMES, answered: 0 } }), true);
+    assert.equal(endlessCheck({ url: challenge, where: 'browserless', check: { host: 'openreview.net', times: CHECK_LOOP_TIMES + 2, answered: 3 } }), true);
+  });
+  it('leaves every other page alone', () => {
+    assert.equal(endlessCheck({ url: 'https://openreview.net/forum?id=D2Q6VabcXY', where: 'cloudflare' }), false);
+    assert.equal(endlessCheck({ url: 'https://example.org/challenge', where: 'cloudflare', check: { host: 'example.org', times: 9, answered: 0 } }), false);
+    assert.equal(endlessCheck({ url: '', where: 'cloudflare' }), false);
+    assert.equal(endlessCheck(null), false);
+  });
+});

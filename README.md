@@ -1291,6 +1291,20 @@ In the pane, OpenReview's check page is known as a check by where it is
 (`challengedHost`). A pane that lands on it, or on an OpenReview file, has
 the proxy ask the API, so the paper opens with nobody ticking anything,
 and *Fetch the PDF from this page* on a forum does the same.
+
+The check itself is not left running. From Cloudflare's own browser its
+box says *Success!*, *Verifying…*, and OpenReview sends the browser back
+to the check — round and round for as long as the pane is open, spending
+the day's browser time. So the pane stops it (`endlessCheck` in
+`src/lib/browse.ts`): in the Worker's browser at once, in any other once
+the check has come three times running. It closes the proxy's browser and
+says so. Then it waits on the API ask, and if that fails too it offers the
+file from a tab of your own, dropped on the pane. Each ask of the API — the
+sign-in, and the file, body and all — has thirty seconds to answer. Before
+that deadline an API that stopped answering held the request open until the
+browser gave up, and Safari says only *Load failed*. A connection that
+breaks mid-file is now said as that, too.
+
 `scripts/pdf-proxy.test.mjs` and `scripts/browse.test.mjs` pin the URLs
 it reads, the order it asks in, the sign-in and its renewal, and the words.
 

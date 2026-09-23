@@ -1130,7 +1130,7 @@ export default function Reader({
           ) : null}
           {switchError ? (
             <p className="banner warn copy-error">
-              The copy at {switchError.location.label} would not hand over the PDF — {switchError.message}. You are still
+              The copy {/^from /i.test(switchError.location.label) ? switchError.location.label : `at ${switchError.location.label}`} would not hand over the PDF — {switchError.message}. You are still
               reading the copy you had.
               {switchError.check?.where === 'cloudflare' ? (
                 <>
@@ -1170,6 +1170,7 @@ export default function Reader({
               onPdf={(blob) => takePdf(blob, 'browser')}
               onRetry={retryCopies}
               onClose={() => setBrowsing(false)}
+              onFile={takeFile}
             />
           ) : pdfError || pdfLookup === 'none' ? (
             <p className="banner warn" style={{ margin: 16 }}>

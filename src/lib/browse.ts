@@ -347,13 +347,25 @@ export function openReviewPdfUrl(pageUrl: string | null | undefined): string | n
 }
 
 /** A PDF fetched by the proxy's own `/pdf` route, as a blob. */
-export async function proxyPdf(url: string, name: string): Promise<Blob> {
-  const response = await fetch(api(`/pdf?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`));
+export async function proxyPdf(url: string, name: string, signal?: AbortSignal): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch(api(`/pdf?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`), { signal });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new Error(`the proxy could not be reached (${error instanceof Error ? error.message : String(error)})`);
+  }
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { error?: string };
     throw new Error(payload.error || `the proxy answered ${response.status}`);
   }
-  const blob = await response.blob();
+  let blob: Blob;
+  try {
+    blob = await response.blob();
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new Error(`the connection to the proxy broke before the whole file arrived (${error instanceof Error ? error.message : String(error)})`);
+  }
   return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
 }
 
@@ -509,6 +521,35 @@ export function botCheck(status: Pick<BrowseStatus, 'url' | 'title' | 'check' | 
     return `${host}'s check has come back after you answered it: the site is refusing this browser, and ticking the box again rarely changes its mind. ${own}.`;
   }
   return `${host} is checking that a person is here before it shows the page. If a box to tick appears, tick it; when the check passes the page follows on its own. If it does not pass, open the file in a tab of your own and drop it on the paper instead.`;
+}
+
+/** How many times running OpenReview's check may come before the pane calls it a loop, from a browser it could pass in. */
+export const CHECK_LOOP_TIMES = 3;
+
+/**
+ * Whether the page is OpenReview's check going round with no way out —
+ * "Verifying your browser", the box says *Success!*, and the page sends
+ * the browser back to the check. From Cloudflare's own browser (the
+ * Worker's, with no browser elsewhere to hand it to) that is certain from
+ * the first time, since OpenReview's box never passes there; from any
+ * other it is the check having come back `CHECK_LOOP_TIMES` times running.
+ * Left alone it goes round for as long as the pane is open, spending the
+ * day's browser time, so the pane closes the browser and says so instead.
+ */
+export function endlessCheck(status: Pick<BrowseStatus, 'url' | 'check' | 'where' | 'session' | 'fallback' | 'fallbackError'> | null): boolean {
+  if (!status?.url) return false;
+  let url: URL;
+  try {
+    url = new URL(status.url);
+  } catch {
+    return false;
+  }
+  if (url.hostname.toLowerCase().replace(/^www\./, '') !== 'openreview.net' || !/^\/challenge\/?$/i.test(url.pathname)) return false;
+  const where = status.where ?? (status.session ? 'cloudflare' : 'proxy');
+  const handedOn = status.fallback === 'browserless' && !status.fallbackError;
+  if (where === 'cloudflare' && !handedOn) return true;
+  const times = status.check?.host === 'openreview.net' ? status.check.times : 0;
+  return times >= CHECK_LOOP_TIMES;
 }
 
 /** A site typed by hand, made into something the proxy will open, or null. */

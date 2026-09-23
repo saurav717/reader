@@ -99,12 +99,37 @@ export function openReviewAccount(env) {
 /** Tokens by API host and account, kept for as long as this instance lives. */
 const tokens = new Map();
 
-async function signIn(host, account, { fetch, userAgent }) {
-  const response = await fetch(`https://${host}/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': userAgent },
-    body: JSON.stringify({ id: account.id, password: account.password }),
-  });
+/**
+ * How long each ask of the API — a sign-in, or a file, body and all — may
+ * take. Without one an API that stops answering held the request open
+ * until the browser gave up on it, and Safari says only "Load failed".
+ */
+export const OPENREVIEW_TIMEOUT_MS = 30_000;
+
+/** A signal that fires after `ms`, where the runtime has one. */
+function deadline(ms) {
+  return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(ms) : undefined;
+}
+
+/** What a failed ask said, with a deadline run out said as one. */
+function failure(error, ms) {
+  const name = error?.name || '';
+  if (name === 'TimeoutError' || name === 'AbortError') return `did not answer within ${Math.ceil(ms / 1000)} s`;
+  return String(error?.message || error);
+}
+
+async function signIn(host, account, { fetch, userAgent, timeoutMs }) {
+  let response;
+  try {
+    response = await fetch(`https://${host}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': userAgent },
+      body: JSON.stringify({ id: account.id, password: account.password }),
+      signal: deadline(timeoutMs),
+    });
+  } catch (error) {
+    throw new Error(`${host} would not sign the account in (${failure(error, timeoutMs)})`);
+  }
   const body = await response.json().catch(() => null);
   if (!response.ok || typeof body?.token !== 'string' || !body.token) {
     const why = [body?.name, body?.message].filter(Boolean).join(': ') || `answered ${response.status}`;
@@ -127,7 +152,7 @@ async function refusal(response) {
  * said }` with what each host answered, for the error. Signed in when the
  * proxy has an account (`env`), anonymously otherwise.
  */
-export async function fetchOpenReview(target, { env, fetch = globalThis.fetch, userAgent } = {}) {
+export async function fetchOpenReview(target, { env, fetch = globalThis.fetch, userAgent, timeoutMs = OPENREVIEW_TIMEOUT_MS } = {}) {
   const account = openReviewAccount(env);
   const said = [];
   for (const file of openReviewFiles(target)) {
@@ -139,7 +164,7 @@ export async function fetchOpenReview(target, { env, fetch = globalThis.fetch, u
         let token = tokens.get(key);
         if (!token) {
           try {
-            token = await signIn(host, account, { fetch, userAgent });
+            token = await signIn(host, account, { fetch, userAgent, timeoutMs });
           } catch (error) {
             said.push(String(error?.message || error));
             break;
@@ -150,9 +175,10 @@ export async function fetchOpenReview(target, { env, fetch = globalThis.fetch, u
       }
       let response;
       try {
-        response = await fetch(file, { headers });
+        // The deadline covers the body too, which the caller reads after.
+        response = await fetch(file, { headers, signal: deadline(timeoutMs) });
       } catch (error) {
-        said.push(`${host}: ${String(error?.message || error)}`);
+        said.push(`${host} ${failure(error, timeoutMs)}`);
         break;
       }
       if (response.ok) return { response, said };
