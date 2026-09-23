@@ -35,6 +35,8 @@ import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icon
 interface Props {
   onClose: () => void;
   onOpen: (paperId: string) => void;
+  /** A search asked for from elsewhere — a card in the paper — run when it changes. */
+  ask?: { query: string; at: number } | null;
 }
 
 const labelFor = (id: SourceId) => sourceList().find((source) => source.id === id)?.label ?? id;
@@ -208,7 +210,7 @@ function Profile({ author }: { author: AuthorRef }) {
   );
 }
 
-export default function Discover({ onClose, onOpen }: Props) {
+export default function Discover({ onClose, onOpen, ask }: Props) {
   const { papers, collections, addPaper, createCollection, driveConnected, settings, syncPaperNow } = useStore();
   const [query, setQuery] = useState('');
   /** The query as it was searched, which is what the panel is about until the next one. */
@@ -421,6 +423,17 @@ export default function Discover({ onClose, onOpen }: Props) {
       finish(controller);
     }
   };
+
+  // Run once per ask — `at` tells a repeat of the same query from the first.
+  const handledAsk = useRef<number | null>(null);
+  useEffect(() => {
+    if (!ask || handledAsk.current === ask.at) return;
+    handledAsk.current = ask.at;
+    setQuery(ask.query);
+    void run(ask.query);
+    // `run` is this render's; the ask is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ask]);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();

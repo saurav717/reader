@@ -264,7 +264,7 @@ export function fromOpenAlex(work: OpenAlexWork): PaperRef {
   };
 }
 
-async function openAlexWorks(params: URLSearchParams, signal?: AbortSignal): Promise<PaperRef[]> {
+export async function openAlexWorks(params: URLSearchParams, signal?: AbortSignal): Promise<PaperRef[]> {
   const response = await fetch(`https://api.openalex.org/works?${politely(params)}`, { signal });
   if (!response.ok) throw new Error(`OpenAlex search failed (${response.status})`);
   const payload = (await response.json()) as { results: OpenAlexWork[] };
@@ -387,7 +387,7 @@ function fromCrossref(item: CrossrefItem): PaperRef {
   };
 }
 
-async function crossrefWorks(params: URLSearchParams, signal?: AbortSignal): Promise<PaperRef[]> {
+export async function crossrefWorks(params: URLSearchParams, signal?: AbortSignal): Promise<PaperRef[]> {
   params.set(
     'select',
     'DOI,title,abstract,author,issued,container-title,subject,URL,link,is-referenced-by-count',

@@ -19,6 +19,10 @@ Right-click a selection in a paper and a box opens with three panes: what the wo
 papers to use the phrase, the most cited ones since, and links out — and a
 **comment** that highlights the passage as you type it, the way Acrobat does.
 
+Rest the pointer on an author's name or a citation and a card says who they
+are — their Google Scholar profile, institution, counts and best-known papers —
+or what was cited — see [Who wrote it, and what it cites](#who-wrote-it-and-what-it-cites).
+
 Press **⌘\\** and a Claude window floats over the paper — see
 [Ask Claude](#ask-claude).
 
@@ -1363,6 +1367,47 @@ In the reader: select text, then click a colour or press `1`–`4`; `N` highligh
 opens a note. `⌘K` / `Ctrl-K` opens the palette, which searches your library and
 arXiv together.
 
+## Who wrote it, and what it cites
+
+Rest the pointer on an author's name under the title and a card opens with
+who they are: where they were when they wrote this paper and where they are
+now, their citations, h-index, i10-index and paper count, the topics they
+work on and their three most cited papers, with links to their **Google
+Scholar profile**, ORCID and OpenAlex, and to every paper of theirs in
+Discover. The person is found through the paper's own record at OpenAlex,
+which names each author by id, so two people with one name are not
+confused; only when OpenAlex has no record of the paper is the name looked
+up on its own, and the card says so. The Scholar profile is asked of the
+proxy — Scholar sends no CORS headers — and among several profiles with the
+name, the one at the institution OpenAlex names is taken ("MIT" and
+`mit.edu` count as Massachusetts Institute of Technology); its citation
+count, verified email and interests go on the card. Without a proxy the
+link is Scholar's own search for the name.
+
+Rest it on a citation — `[12]`, `[3, 5–7]`, `(Vaswani et al., 2017)`,
+`Vaswani et al. (2017)` — and the card shows the entry as the bibliography
+prints it at once, then the paper it is: title, authors, venue, year, how
+often it is cited and its abstract, with its PDF, arXiv page, DOI and
+Scholar a click away, **Add or read** to find it in Discover, and **In the
+bibliography** to go to the entry (in the book it turns to the page). A
+citation of several papers has a tab for each. The bibliography's own
+entries open the same card when the pointer rests on one a little longer.
+A tap does what the hover does, where there is no pointer to rest.
+
+arXiv's HTML rendering links every citation to its entry already. A PDF
+has only the text, so `src/lib/citations.ts` finds the citations in it and
+marks them, and a bracketed number or a name and year is taken for a
+citation only when the bibliography has an entry it names — `[0, 1]` stays
+an interval. The marks add elements and no text, so highlights made before
+them still land where they were. An entry is found by the DOI or arXiv id it
+prints, else by the title read off it, at OpenAlex and then Crossref, and a
+search result is taken only when its title is in the entry: a search always
+finds something, and a neighbour is worse than nothing. Every answer is kept
+for the session, so a card hovered over twice asks once.
+`scripts/citations.test.mjs` pins the finding and the reading, and
+`scripts/hover-smoke.mjs` hovers over a printed paper's authors and
+citations in Chromium.
+
 ## The lookup box
 
 Right-click a selection — or use **Look up** on the selection toolbar, which a
@@ -1501,12 +1546,13 @@ view live in `localStorage`.
 ```bash
 npm test                       # everything below that needs no network
 npm run test:api               # the PDF proxy's rules, and the institutional sign-in around it
-npm run test:unit              # query building, merging, the Git mirror, the proxy setting
+npm run test:unit              # query building, merging, citations, the Git mirror, the proxy setting
 
 npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
 node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
+node scripts/hover-smoke.mjs    # the cards over an author's name and a citation
 
 npm run build                  # then, needing no server of its own:
 node scripts/versions-drive.mjs
