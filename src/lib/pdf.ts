@@ -190,13 +190,15 @@ export interface SignInOffer {
  * such a check never passes, by Cloudflare's own design (it identifies its
  * rendering browsers as bots to every site it protects), so the reader
  * says so and points at a tab of the person's own; from the Node proxy a
- * window or the browser in the pane may pass it.
+ * window or the browser in the pane may pass it; and from the Worker with
+ * a browser at Browserless, that browser met a box to tick, which the pane
+ * — opened there — offers to the person.
  */
 export interface CheckOffer {
   host: string;
   /** The file's own URL, to open in a tab of your own, where your browser passes the check. */
   url: string;
-  where: 'cloudflare' | 'proxy';
+  where: 'cloudflare' | 'proxy' | 'browserless';
 }
 
 export class PdfError extends Error {
@@ -233,7 +235,11 @@ async function downloadPdf(url: string): Promise<Blob> {
     const detail = body?.error;
     const check =
       body?.botCheck && body.host
-        ? { host: body.host, url: new URL(url, location.href).searchParams.get('url') || `https://${body.host}/`, where: body.where === 'proxy' ? ('proxy' as const) : ('cloudflare' as const) }
+        ? {
+            host: body.host,
+            url: new URL(url, location.href).searchParams.get('url') || `https://${body.host}/`,
+            where: body.where === 'proxy' ? ('proxy' as const) : body.where === 'browserless' ? ('browserless' as const) : ('cloudflare' as const),
+          }
         : undefined;
     throw new PdfError(detail ? `Could not fetch the PDF — ${detail}.` : 'Could not fetch the PDF.', {
       loginWall: Boolean(body?.loginWall),

@@ -241,6 +241,11 @@ describe('the browser from the Worker', () => {
     const without = worker.availability({});
     assert.equal(without.available, false);
     assert.match(without.reason, /wrangler\.toml/);
+    assert.match(without.reason, /BROWSERLESS_TOKEN/);
+    // A browser elsewhere: Cloudflare's first with both, named as where a check is handed; alone, the only one.
+    assert.deepEqual(worker.availability({ BROWSER: {}, BROWSERLESS_TOKEN: 't' }), { available: true, where: 'cloudflare', fallback: 'browserless' });
+    assert.deepEqual(worker.availability({ BROWSERLESS_TOKEN: 't' }), { available: true, where: 'browserless' });
+    assert.deepEqual(worker.availability({ BROWSERLESS_TOKEN: '  ' }), without);
     assert.equal(worker.idle({}).open, false);
     assert.equal(worker.idle({ BROWSER: {}, SESSIONS: {} }).persistent, true);
     assert.equal(worker.idle({ BROWSER: {} }).persistent, false);
@@ -908,6 +913,17 @@ describe('what the app says on a site that checks for a person', () => {
     assert.doesNotMatch(fromWorker, /tick it;/);
     // A Worker deployed before it said whose browser it is still hands out a session id, which only it does.
     assert.match(botCheck({ url: 'https://example.org/', title: 'Just a moment...', session: 'abc' }), /not expected to pass/);
+    // With a browser at Browserless to hand the session to, the check is a moment's wait, not a dead end.
+    const handing = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: 'Just a moment...', where: 'cloudflare', fallback: 'browserless' });
+    assert.match(handing, /^academia\.edu is checking/);
+    assert.match(handing, /handed to a browser at Browserless/);
+    assert.match(handing, /yours to tick/);
+    assert.doesNotMatch(handing, /not expected to pass/);
+    // Handed over, the browser is Browserless's, and the box is the person's to tick as from the Node proxy.
+    const there = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: '', where: 'browserless', check: { host: 'academia.edu', times: 1, answered: 0 } });
+    assert.match(there, /^academia\.edu is checking/);
+    assert.match(there, /tick it;/);
+    assert.doesNotMatch(there, /rendering browsers are bots/);
     // The proxy's word that the page is the check beats a title that says nothing.
     const byHeader = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: '', where: 'cloudflare', check: { host: 'academia.edu', times: 1, answered: 0 } });
     assert.match(byHeader, /not expected to pass/);
@@ -1024,5 +1040,352 @@ describe('how the proxy notices a site\'s check for a person', () => {
     arrives(challenge);
     await object.open('https://example.org/');
     assert.equal((await object.status(-1)).check, null);
+  });
+});
+
+// ------------------------------------------ a browser elsewhere: Browserless ----
+
+const elsewhere = await import('../worker/browserless.js');
+
+describe('the address the Worker connects to Browserless at', () => {
+  it('is the stealth Chromium, with the token, the session length, and the proxy when one is asked for', () => {
+    const address = elsewhere.endpoint({ token: 'secret' });
+    assert.equal(address, 'wss://production-sfo.browserless.io/chromium/stealth?token=secret&timeout=600000');
+    const home = elsewhere.endpoint({ token: 'secret', url: 'wss://production-lon.browserless.io/', proxy: 'residential', country: 'GB', timeoutMs: 90_000 });
+    assert.equal(home, 'wss://production-lon.browserless.io/chromium/stealth?token=secret&timeout=90000&proxy=residential&proxyCountry=gb');
+    // A country without a proxy is nothing to route through.
+    assert.equal(elsewhere.endpoint({ token: 'secret', country: 'us' }).includes('proxyCountry'), false);
+    assert.throws(() => elsewhere.endpoint({ token: 'secret', url: 'https://example.org/path' }), /wss:\/\//);
+  });
+
+  it('comes from the Worker settings, and is written down without the token', () => {
+    const env = { BROWSERLESS_TOKEN: ' secret ', BROWSERLESS_PROXY: 'residential' };
+    const address = elsewhere.endpointFor(env);
+    assert.match(address, /token=secret&/);
+    assert.equal(elsewhere.redacted(address).includes('secret'), false);
+    assert.match(elsewhere.redacted(address), /token=…&timeout=/);
+    assert.equal(elsewhere.configured(env), true);
+    assert.equal(elsewhere.configured({ BROWSERLESS_TOKEN: '' }), false);
+    assert.equal(elsewhere.configured({}), false);
+    assert.equal(elsewhere.isBrowserless('browserless:abc'), true);
+    assert.equal(elsewhere.isBrowserless('abc'), false);
+  });
+
+  it('opens the socket the way a Worker does, and words a refusal from what came back instead', async () => {
+    const calls = [];
+    const socket = { accepted: false, accept: () => (socket.accepted = true), addEventListener: () => undefined };
+    const opened = await elsewhere.openSocket('wss://production-sfo.browserless.io/chromium/stealth?token=t', async (url, init) => {
+      calls.push({ url, init });
+      return { webSocket: socket, status: 101 };
+    });
+    assert.equal(opened, socket);
+    assert.equal(socket.accepted, true);
+    assert.equal(calls[0].url, 'https://production-sfo.browserless.io/chromium/stealth?token=t');
+    assert.equal(calls[0].init.headers.Upgrade, 'websocket');
+    await assert.rejects(
+      elsewhere.openSocket('wss://production-sfo.browserless.io/?token=t', async () => new Response('Bad or missing token', { status: 403 })),
+      /Browserless would not open a browser: code: 403: message: Bad or missing token/,
+    );
+  });
+
+  it('drives what it connects to like any browser, under a session id of its own, and lets go when the handshake fails', async () => {
+    const env = { BROWSERLESS_TOKEN: 't' };
+    const socket = { closed: false, accept: () => undefined, addEventListener: () => undefined, close: () => (socket.closed = true) };
+    let seen;
+    const browser = await elsewhere.launch(env, {
+      open: async () => socket,
+      connect: async (transport, options) => {
+        seen = { transport, options };
+        return { sessionId: () => options.sessionId };
+      },
+    });
+    assert.match(browser.sessionId(), /^browserless:[0-9a-f-]{36}$/);
+    assert.equal(seen.options.sessionId, browser.sessionId());
+    assert.equal(seen.options.protocolTimeout, 30_000);
+    assert.equal(seen.transport.ws, socket);
+    await assert.rejects(
+      elsewhere.launch(env, {
+        open: async () => socket,
+        connect: async () => {
+          throw new Error('no answer');
+        },
+      }),
+      /no answer/,
+    );
+    assert.equal(socket.closed, true, 'the socket is closed rather than left holding a browser');
+    await assert.rejects(elsewhere.launch({}, { open: async () => socket }), /BROWSERLESS_TOKEN/);
+  });
+});
+
+describe('a file behind a check, fetched from a Browserless page', () => {
+  const main = { name: 'main' };
+  const arrival = (url, headers) => ({ url: () => url, headers: () => headers, request: () => ({ resourceType: () => 'document' }), frame: () => main });
+  const PDF = '%PDF-1.4 a paper';
+  const makeBrowser = ({ arrivals = [], file = true } = {}) => {
+    const handlers = {};
+    const visited = [];
+    const page = {
+      mainFrame: () => main,
+      url: () => visited[visited.length - 1] || 'about:blank',
+      setViewport: async () => undefined,
+      on: (event, handler) => (handlers[event] ||= []).push(handler),
+      goto: async (url) => {
+        visited.push(url);
+        // The page's own responses, in order, as the navigation brings them.
+        for (const [at, headers] of arrivals) handlers.response.forEach((handler) => handler(arrival(at, headers)));
+      },
+      // The page's own fetch of the file, with its cookies (`fetchFileInPage`).
+      evaluate: async () => (file ? { base64: btoa(PDF) } : null),
+    };
+    const browser = { closed: false, pages: async () => [page], newPage: async () => page, close: async () => (browser.closed = true) };
+    return { browser, page, visited, handlers };
+  };
+
+  it('does nothing without a token, and never for a URL the proxy refuses', async () => {
+    let launched = 0;
+    const launch = async () => {
+      launched += 1;
+      throw new Error('should not be asked');
+    };
+    assert.equal(await elsewhere.fetchFile({}, 'https://www.academia.edu/download/1/10.pdf', { launch }), null);
+    assert.equal(await elsewhere.fetchFile({ BROWSERLESS_TOKEN: 't' }, 'http://www.academia.edu/download/1/10.pdf', { launch }), null);
+    assert.equal(await elsewhere.fetchFile({ BROWSERLESS_TOKEN: 't' }, 'https://10.0.0.1/x.pdf', { launch }), null);
+    assert.equal(launched, 0);
+  });
+
+  it('hands back the file when the check passes on its own, with the cookies kept, and closes the browser', async () => {
+    const url = 'https://www.academia.edu/download/1/10.pdf';
+    const fake = makeBrowser({ arrivals: [[url, { 'cf-mitigated': 'challenge' }], [url, { 'content-type': 'application/pdf' }]] });
+    let launchedWith;
+    const kept = [];
+    const got = await elsewhere.fetchFile({ BROWSERLESS_TOKEN: 't' }, url, {
+      launch: async (_env, options) => {
+        launchedWith = options;
+        return fake.browser;
+      },
+      restoreCookies: async () => kept.push('restored'),
+      saveCookies: async () => kept.push('saved'),
+    });
+    assert.equal(new TextDecoder().decode(got.bytes), PDF);
+    assert.deepEqual(fake.visited, [url]);
+    assert.deepEqual(kept, ['restored', 'saved']);
+    assert.equal(launchedWith.timeoutMs, 90_000, 'a session long enough for the check, not for a person');
+    assert.equal(fake.browser.closed, true);
+  });
+
+  it('says the check needs a person when it is still there after the wait, and closes the browser', async () => {
+    const url = 'https://www.academia.edu/download/1/10.pdf';
+    const fake = makeBrowser({ arrivals: [[url, { 'cf-mitigated': 'challenge' }], [url, { 'cf-mitigated': 'challenge' }]] });
+    const started = Date.now();
+    const got = await elsewhere.fetchFile({ BROWSERLESS_TOKEN: 't' }, url, { launch: async () => fake.browser, waitMs: 30 });
+    assert.deepEqual(got, { check: { host: 'academia.edu', times: 2, answered: 0 } });
+    assert.ok(Date.now() - started < 2000);
+    assert.equal(fake.browser.closed, true);
+  });
+
+  it('gives nothing when the page is not a file, or Browserless gives no browser', async () => {
+    const url = 'https://www.academia.edu/download/1/10.pdf';
+    const fake = makeBrowser({ arrivals: [[url, { 'content-type': 'text/html' }]], file: false });
+    assert.equal(await elsewhere.fetchFile({ BROWSERLESS_TOKEN: 't' }, url, { launch: async () => fake.browser }), null);
+    assert.equal(fake.browser.closed, true);
+    assert.equal(
+      await elsewhere.fetchFile({ BROWSERLESS_TOKEN: 't' }, url, {
+        launch: async () => {
+          throw new Error('code: 429: too many browsers');
+        },
+      }),
+      null,
+    );
+  });
+});
+
+const { BrowserSession, challengedAfter, isRemembered, hostOf } = await import('../worker/browserSession.js');
+
+describe('the session handed to a browser at Browserless', () => {
+  const main = { name: 'main' };
+  const arrival = (url, headers) => ({ url: () => url, headers: () => headers, request: () => ({ resourceType: () => 'document' }), frame: () => main });
+  const CHECK = 'https://www.academia.edu/download/1/10.pdf';
+
+  /** A page that records what happens to it, and lets a response be delivered to it. */
+  const fakePage = () => {
+    const handlers = {};
+    const visited = [];
+    const page = {
+      closed: false,
+      isClosed: () => page.closed,
+      mainFrame: () => main,
+      url: () => visited[visited.length - 1] || 'about:blank',
+      goto: async (url) => visited.push(url),
+      title: async () => '',
+      setViewport: async () => undefined,
+      screenshot: async () => 'a-jpeg',
+      createCDPSession: async () => ({ send: async () => undefined, detach: async () => undefined, on: () => undefined }),
+      cookies: async () => [],
+      on: (event, handler) => (handlers[event] ||= []).push(handler),
+      once: () => undefined,
+      visited,
+      arrives: (response) => (handlers.response || []).forEach((handler) => handler(response)),
+    };
+    return page;
+  };
+  const fakeBrowser = (id, page) => ({ id, closed: false, sessionId: () => id, on: () => undefined, pages: async () => [page], newPage: async () => page, close: async () => (page.browser.closed = true) });
+
+  /** An object holding Cloudflare's browser, with a driver that can start one at Browserless. */
+  const held = async (env = { BROWSER: {}, BROWSERLESS_TOKEN: 't' }, { launch = 'ok' } = {}) => {
+    const fake = fakeSession();
+    const object = new BrowserSession(fake.state, env);
+    const first = fakePage();
+    const cloudflares = fakeBrowser('cf-session', first);
+    first.browser = cloudflares;
+    const launches = [];
+    const second = fakePage();
+    const browserlesss = fakeBrowser('browserless:new', second);
+    second.browser = browserlesss;
+    object.driver = {
+      launch: async (_env, options) => {
+        launches.push(options);
+        if (launch === 'refuse') throw new Error('Browserless would not open a browser: code: 429: message: Too many concurrent sessions');
+        return browserlesss;
+      },
+      connect: async () => {
+        throw new Error('nothing to connect to');
+      },
+      sessions: async () => [],
+      limits: async () => null,
+    };
+    await object.adopt(cloudflares, 'cf-session');
+    object.token = 'tok';
+    await fake.state.storage.put('session', { token: 'tok', id: 'cf-session' });
+    return { object, fake, first, second, cloudflares, browserlesss, launches };
+  };
+
+  it('remembers a host for a week, and forgets the stale ones', () => {
+    const now = 1_000_000;
+    const hosts = challengedAfter({ 'old.example': now - 1, 'kept.example': now + 5 }, 'academia.edu', now);
+    assert.deepEqual(hosts, { 'kept.example': now + 5, 'academia.edu': now + 7 * 24 * 60 * 60_000 });
+    assert.equal(isRemembered(hosts, 'academia.edu', now), true);
+    assert.equal(isRemembered(hosts, 'academia.edu', now + 8 * 24 * 60 * 60_000), false);
+    assert.equal(isRemembered(hosts, 'nobody.example', now), false);
+    assert.equal(isRemembered(null, 'academia.edu', now), false);
+    assert.deepEqual(challengedAfter('not an object', 'a.example', now), { 'a.example': now + 7 * 24 * 60 * 60_000 });
+    assert.equal(hostOf('https://www.academia.edu/download/1'), 'academia.edu');
+    assert.equal(hostOf('not a url'), '');
+  });
+
+  it("is handed over when Cloudflare's check comes to Cloudflare's browser: the same page opens there, the token holds, Cloudflare's browser is closed", async () => {
+    const { object, first, second, cloudflares, launches, fake } = await held();
+    assert.equal((await object.status(-1)).where, 'cloudflare');
+    assert.equal((await object.status(-1)).fallback, 'browserless');
+    first.arrives(arrival(CHECK, { 'cf-mitigated': 'challenge' }));
+    assert.ok(object.moving, 'the hand-over began');
+    // The check is still reported meanwhile, for the line under the page.
+    assert.deepEqual((await object.status(-1)).check, { host: 'academia.edu', times: 1, answered: 0 });
+    await object.moving;
+    assert.deepEqual(launches, [{ at: 'browserless' }]);
+    const status = await object.status(-1);
+    assert.equal(status.open, true);
+    assert.equal(status.session, 'tok');
+    assert.equal(status.where, 'browserless');
+    assert.equal(status.check, null);
+    assert.equal(status.url, CHECK);
+    assert.deepEqual(second.visited, [CHECK]);
+    assert.equal(object.browser.id, 'browserless:new');
+    assert.equal(cloudflares.closed, true);
+    assert.equal(object.id, 'browserless:new');
+    assert.deepEqual(await fake.state.storage.get('session'), { token: 'tok', id: 'browserless:new' });
+    assert.equal(isRemembered(await fake.state.storage.get('challenged'), 'academia.edu'), true);
+    assert.match(object.log.map((entry) => entry.what).join('\n'), /handing the session to a browser at Browserless[\s\S]*handed over to Browserless/);
+    // The check's page coming again, from Cloudflare's browser still finishing, starts no second hand-over.
+    first.arrives(arrival(CHECK, { 'cf-mitigated': 'challenge' }));
+    assert.equal(object.moving, null);
+    assert.deepEqual(launches.length, 1);
+    // From the browser at Browserless the check is the person's to tick, and counted as before.
+    second.arrives(arrival(CHECK, { 'cf-mitigated': 'challenge' }));
+    assert.deepEqual((await object.status(-1)).check, { host: 'academia.edu', times: 1, answered: 0 });
+    assert.equal(object.moving, null);
+  });
+
+  it("stays on Cloudflare's browser, and says why in the status, when Browserless gives none", async () => {
+    const { object, first, cloudflares, launches } = await held(undefined, { launch: 'refuse' });
+    first.arrives(arrival(CHECK, { 'cf-mitigated': 'challenge' }));
+    await object.moving;
+    assert.equal(launches.length, 1);
+    const status = await object.status(-1);
+    assert.equal(status.where, 'cloudflare');
+    assert.equal(status.open, true);
+    assert.deepEqual(status.check, { host: 'academia.edu', times: 1, answered: 0 });
+    assert.equal(cloudflares.closed, false);
+    assert.match(object.lastError.message, /Too many concurrent sessions/);
+  });
+
+  it('is not handed over without a token, nor from a browser that is already Browserless\'s', async () => {
+    const { object, first, launches } = await held({ BROWSER: {} });
+    first.arrives(arrival(CHECK, { 'cf-mitigated': 'challenge' }));
+    assert.equal(object.moving, null);
+    assert.equal(launches.length, 0);
+    assert.equal((await object.status(-1)).fallback, undefined);
+  });
+
+  it('opens a remembered host at Browserless straight away, letting go of Cloudflare\'s browser, and the next site at Cloudflare\'s again', async () => {
+    const { object, fake, cloudflares, launches, second } = await held();
+    await fake.state.storage.put('challenged', challengedAfter({}, 'academia.edu', Date.now()));
+    await object.open('https://www.academia.edu/download/2/20.pdf');
+    assert.deepEqual(launches, [{ at: 'browserless' }]);
+    assert.equal(cloudflares.closed, true);
+    assert.equal((await object.status(-1)).where, 'browserless');
+    assert.deepEqual(second.visited, ['https://www.academia.edu/download/2/20.pdf']);
+    // Another site is Cloudflare's browser's again: the one at Browserless is let go, and Cloudflare asked.
+    let askedCloudflare = 0;
+    object.driver.launch = async (_env, options) => {
+      launches.push(options);
+      askedCloudflare += 1;
+      const page = fakePage();
+      const browser = fakeBrowser('cf-again', page);
+      page.browser = browser;
+      return browser;
+    };
+    object.driver.limits = async () => ({ activeSessions: [], maxConcurrentSessions: 3, allowedBrowserAcquisitions: 3, timeUntilNextAllowedBrowserAcquisition: 0 });
+    await object.open('https://example.org/');
+    assert.equal(second.browser.closed, true, "Browserless's browser is closed, not kept");
+    assert.equal(askedCloudflare, 1);
+    assert.equal(launches.length, 2);
+    assert.equal(launches[1]?.at, undefined, "Cloudflare's, asked for as before");
+    assert.equal((await object.status(-1)).where, 'cloudflare');
+  });
+
+  it("uses Browserless for everything when there is no browser of Cloudflare's", async () => {
+    const { object, launches } = await held({ BROWSERLESS_TOKEN: 't' });
+    await object.forget();
+    await object.open('https://example.org/');
+    assert.deepEqual(launches, [{ at: 'browserless' }]);
+    const status = await object.status(-1);
+    assert.equal(status.where, 'browserless');
+    assert.equal(status.fallback, undefined);
+    assert.equal(status.open, true);
+  });
+
+  it('closes a browser at Browserless when the pane closes, rather than keeping it, and never reconnects to one', async () => {
+    const { object, fake, second, first } = await held();
+    first.arrives(arrival(CHECK, { 'cf-mitigated': 'challenge' }));
+    await object.moving;
+    const answer = await (await object.fetch(new Request('https://browser-session/close?session=tok', { method: 'POST' }))).json();
+    assert.equal(answer.open, false);
+    assert.equal(second.browser.closed, true);
+    assert.equal(object.browser, null);
+    assert.equal(await fake.state.storage.get('session'), undefined);
+    // An object evicted with a Browserless session in storage does not try to take it back.
+    await fake.state.storage.put('session', { token: 'again', id: 'browserless:gone' });
+    object.token = null;
+    const frame = await (await object.fetch(new Request('https://browser-session/frame?session=again&after=-1'))).json();
+    assert.equal(frame.open, false);
+  });
+
+  it("remembers a host `/pdf` met the check at, so the pane opens there at Browserless", async () => {
+    const { object, fake, launches } = await held();
+    const noted = await (await object.fetch(new Request('https://browser-session/note-check?host=www.europepmc.org', { method: 'POST' }))).json();
+    assert.equal(noted.ok, true);
+    assert.equal(isRemembered(await fake.state.storage.get('challenged'), 'europepmc.org'), true);
+    await object.open('https://europepmc.org/article/MED/1?pdf=1');
+    assert.deepEqual(launches, [{ at: 'browserless' }]);
   });
 });

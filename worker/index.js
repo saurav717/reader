@@ -27,6 +27,7 @@ import {
 } from '../server/scholar.js';
 import { askSerp } from '../server/serpapi.js';
 import * as browse from './browse.js';
+import * as browserless from './browserless.js';
 
 // The Durable Object that holds the browser session open; the runtime needs
 // it exported from the entry. See worker/browserSession.js.
@@ -438,9 +439,35 @@ export default {
         // identifies its own rendering browsers as bots to every site it
         // protects — so this is said plainly, for the app to point elsewhere,
         // rather than as a login wall that a sign-in here would get past.
+        //
+        // Unless there is a browser elsewhere (worker/browserless.js): then
+        // the file is asked for from a Browserless page, which passes the
+        // checks that need no box and hands the file back; one that needs a
+        // person is said so, with the host remembered by the session object,
+        // so that the pane the app then offers opens at Browserless straight
+        // away — and the offer stands, as it does from the Node proxy.
         if ((response.headers.get('cf-mitigated') || '').trim().toLowerCase() === 'challenge') {
           const pmc = await fromPmc();
           if (pmc) return servePdf(pmc);
+          if (browserless.configured(env)) {
+            const got = await browserless.fetchFile(env, target, { restoreCookies: browse.restoreCookies, saveCookies: browse.saveCookies });
+            if (got?.bytes) return servePdf(got.bytes);
+            if (env.BROWSER_SESSION) {
+              const stub = env.BROWSER_SESSION.get(env.BROWSER_SESSION.idFromName('the-browser'));
+              await stub.fetch(`https://browser-session/note-check?host=${encodeURIComponent(host)}`, { method: 'POST' }).catch(() => undefined);
+            }
+            return json(
+              {
+                error: `${host} checks for a person before it hands out the file, and the browser at Browserless met a box to tick — open a browser here and tick it`,
+                botCheck: true,
+                loginWall: true,
+                where: 'browserless',
+                host,
+              },
+              502,
+              headers,
+            );
+          }
           return json(
             {
               error: `${host} checks for a person before it hands out the file, and Cloudflare refuses the Worker's requests to such a check`,

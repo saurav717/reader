@@ -23,6 +23,26 @@ class_name = "BrowserSession"
 tag = "v1"
 new_sqlite_classes = ["BrowserSession"]
 
+# A browser elsewhere, for the sites whose check for a person is Cloudflare's
+# — academia.edu, Europe PMC — which Cloudflare's own browser never passes,
+# by Cloudflare's design (worker/browserless.js). With a Browserless token
+# the Worker still opens Cloudflare's free browser first, and hands the
+# session to a browser at Browserless only when a page comes back as that
+# check; `/pdf` asks such a file from a Browserless page too. The token is
+# a secret, never a var:
+#
+#     npx wrangler secret put BROWSERLESS_TOKEN
+#
+# The three settings below are optional, and plain vars. The region is the
+# nearest of Browserless's; the proxy makes the browser leave from a home
+# address, which such a check likes best and which Browserless meters by
+# the megabyte on top of the browser time — try without it first.
+#
+# [vars]
+# BROWSERLESS_URL = "wss://production-sfo.browserless.io"   # or -lon, -ams
+# BROWSERLESS_PROXY = "residential"
+# BROWSERLESS_COUNTRY = "us"
+
 # Somewhere to keep the cookies of a sign-in made in that browser, so it
 # holds for the next paper and lets /pdf through a login wall — and so the
 # browser, which Cloudflare rations, is not needed again for a publisher

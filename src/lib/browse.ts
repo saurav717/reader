@@ -51,12 +51,19 @@ export interface BrowseStatus {
   /** What Cloudflare last said it would allow, from the Worker; the Node proxy has no such limits. */
   browsers?: BrowserLimits | null;
   /**
-   * Whose browser it is: Cloudflare's, driven by the Worker, or the proxy's
-   * own on its own machine. It matters when a site's check for a person is
+   * Whose browser it is: Cloudflare's, driven by the Worker; the proxy's
+   * own on its own machine; or Browserless's, driven by the Worker on an
+   * address of its own. It matters when a site's check for a person is
    * Cloudflare's too — see `botCheck`. A proxy deployed before this says
    * nothing, and the Worker is then told by the session id it alone hands out.
    */
-  where?: 'cloudflare' | 'proxy';
+  where?: 'cloudflare' | 'proxy' | 'browserless';
+  /**
+   * Where the Worker hands a session whose page came as Cloudflare's check,
+   * which Cloudflare's own browser never passes: a browser at Browserless,
+   * when the Worker has a token for one. Absent otherwise.
+   */
+  fallback?: 'browserless';
   /** The site's check for a person, when that is what the page is — noticed by the proxy from the response itself. */
   check?: BrowseCheck | null;
 }
@@ -329,8 +336,11 @@ export function browseSites(paper: PaperRef, locations: PaperLocation[] | null, 
  * rendering browsers make as a bot to every site it protects, and no number
  * of ticks changes that. Saying so is the kindest thing the pane can do,
  * since the box otherwise comes back for as long as anyone keeps ticking it.
+ * Unless the Worker has a browser elsewhere to hand the session to
+ * (`status.fallback`): then the check is a moment's wait, and the page
+ * comes again from that browser, whose box is the person's to tick.
  */
-export function botCheck(status: Pick<BrowseStatus, 'url' | 'title' | 'check' | 'where' | 'session'> | null): string | null {
+export function botCheck(status: Pick<BrowseStatus, 'url' | 'title' | 'check' | 'where' | 'session' | 'fallback'> | null): string | null {
   if (!status?.url) return null;
   let host = '';
   try {
@@ -349,6 +359,9 @@ export function botCheck(status: Pick<BrowseStatus, 'url' | 'title' | 'check' | 
   const answered = (seen?.answered ?? 0) > 0;
   const own = 'Open the file in a tab of your own and drop it on the paper instead';
   if (cloudflares && where === 'cloudflare') {
+    if (status.fallback === 'browserless') {
+      return `${host} is checking that a person is here, and the check is Cloudflare's, which Cloudflare's own browser never passes — so this session is being handed to a browser at Browserless, on an address of its own. A moment: the page opens again there, and a box that appears then is yours to tick.`;
+    }
     const why =
       "the check is Cloudflare's and so is this browser, and Cloudflare tells every site it protects that its rendering browsers are bots";
     return answered

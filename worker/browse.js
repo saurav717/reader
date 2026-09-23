@@ -38,6 +38,7 @@ import { BROWSER_UA } from '../server/scholar.js';
 import { fetchChecked, MAX_PDF_BYTES, rejectUrl } from '../server/fetchPdf.js';
 import { pdfCandidates, pdfLinksIn } from '../server/pdfLinks.js';
 import { acceptKey, BUTTONS, clamp, clicks, closedError, fetchFileInPage, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
+import * as browserless from './browserless.js';
 
 /**
  * How long a session outlives the last connection to it. Long enough for
@@ -54,16 +55,22 @@ const MAX_PAGE_HOPS = 4;
 const COOKIES_KEY = 'browser-cookies';
 
 export const NO_BROWSER =
-  'This Worker has no browser binding. Add `[browser] binding = "BROWSER"` to wrangler.toml — Browser Rendering is on Cloudflare\'s free plan — and redeploy it with `npm run deploy:worker`.';
+  'This Worker has no browser binding. Add `[browser] binding = "BROWSER"` to wrangler.toml — Browser Rendering is on Cloudflare\'s free plan — and redeploy it with `npm run deploy:worker`; or set a BROWSERLESS_TOKEN secret for a browser at Browserless instead.';
 
 /**
  * Whether this Worker can open a browser, and if not, why — and, when it
- * can, that the browser is Cloudflare's own, which the app needs to know
- * when a site's check for a person is Cloudflare's too (see `botCheck` in
- * src/lib/browse.ts).
+ * can, whose the browser is, which the app needs to know when a site's
+ * check for a person is Cloudflare's too (see `botCheck` in
+ * src/lib/browse.ts): Cloudflare's own, with the binding; Browserless's,
+ * with a token and no binding; and, with both, Cloudflare's first, with
+ * Browserless's named as where a check Cloudflare's cannot pass is handed
+ * to (`fallback`). See worker/browserless.js.
  */
 export function availability(env) {
-  return env?.BROWSER ? { available: true, where: 'cloudflare' } : { available: false, reason: NO_BROWSER };
+  const elsewhere = browserless.configured(env);
+  if (env?.BROWSER) return elsewhere ? { available: true, where: 'cloudflare', fallback: 'browserless' } : { available: true, where: 'cloudflare' };
+  if (elsewhere) return { available: true, where: 'browserless' };
+  return { available: false, reason: NO_BROWSER };
 }
 
 /** What the app is told when nothing is open. */
@@ -75,11 +82,21 @@ export function idle(env, extra = {}) {
 
 /**
  * How a browser is reached. Taken as parameters so a test can point these
- * at a Chromium of its own; in the Worker they are Cloudflare's.
+ * at a Chromium of its own; in the Worker they are Cloudflare's — or, asked
+ * for with `at: 'browserless'`, or without a binding to Cloudflare's,
+ * Browserless's (worker/browserless.js). A Browserless session cannot be
+ * connected to again once let go, and Cloudflare's lists and limits know
+ * nothing of it.
  */
 export const defaultDriver = {
-  launch: async (env) => connectSession(env, (await puppeteer.acquire(env.BROWSER, { keep_alive: KEEP_ALIVE_MS })).sessionId),
-  connect: (env, session) => connectSession(env, session),
+  launch: async (env, { at } = {}) => {
+    if (at === 'browserless' || !env?.BROWSER) return browserless.launch(env);
+    return connectSession(env, (await puppeteer.acquire(env.BROWSER, { keep_alive: KEEP_ALIVE_MS })).sessionId);
+  },
+  connect: (env, session) => {
+    if (browserless.isBrowserless(session)) return Promise.reject(new Error(`Browserless session ${session} cannot be connected to again`));
+    return connectSession(env, session);
+  },
   sessions: (env) => puppeteer.sessions(env.BROWSER),
   limits: (env) => puppeteer.limits(env.BROWSER),
 };
@@ -230,6 +247,8 @@ async function snapshot(page, env, session) {
 export async function open(env, url, driver = defaultDriver) {
   const reason = rejectUrl(url);
   if (reason) throw new Error(reason);
+  // Stateless, this reconnects to the session on every request, which
+  // only Cloudflare's browser allows; Browserless's is the Durable Object's.
   if (!env?.BROWSER) throw new Error(NO_BROWSER);
   const browser = await driver.launch(env);
   const session = browser.sessionId();

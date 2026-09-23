@@ -729,6 +729,13 @@ export default function Reader({
                   noticing: open the file in a tab of your own and drop it here, or run the proxy on your own machine
                   (Settings → Paper proxy).
                 </span>
+              ) : pdfCheck?.where === 'browserless' ? (
+                <span className="sign-in-note">
+                  {' '}
+                  That check is Cloudflare's, which the Worker's own requests never pass; the browser at Browserless
+                  met a box to tick, which needs a person. Open a browser here and tick it — it opens at Browserless,
+                  on an address of its own — or open the file in a tab of your own and drop it here.
+                </span>
               ) : null}
               {hasProxy() ? (
                 <span className="sign-in-note">

@@ -43,6 +43,7 @@ import {
   restoreCookies,
   saveCookies,
 } from './browse.js';
+import * as browserless from './browserless.js';
 
 /** How long a frame poll waits before answering with nothing new. */
 const POLL_MS = 8_000;
@@ -218,6 +219,37 @@ export const DEADLINES = {
 };
 /** How long a session that would not answer is left alone for. Longer than Cloudflare keeps an unconnected one. */
 const AVOID_MS = 3 * 60_000;
+/**
+ * How long a host is remembered as one whose check for a person is
+ * Cloudflare's, so that the next open there starts at Browserless rather
+ * than meeting the check from Cloudflare's browser first and moving.
+ */
+export const REMEMBER_MS = 7 * 24 * 60 * 60_000;
+
+/** The hosts remembered, with this one added and the stale ones dropped. Pure: pinned by the tests. */
+export function challengedAfter(hosts, host, now = Date.now()) {
+  const kept = {};
+  for (const [name, until] of Object.entries(hosts && typeof hosts === 'object' ? hosts : {})) {
+    if (typeof until === 'number' && until > now) kept[name] = until;
+  }
+  if (host) kept[host] = now + REMEMBER_MS;
+  return kept;
+}
+
+/** Whether a host is remembered, and the memory not stale. */
+export function isRemembered(hosts, host, now = Date.now()) {
+  const until = hosts && typeof hosts === 'object' && host ? hosts[host] : undefined;
+  return typeof until === 'number' && until > now;
+}
+
+/** The host a URL names, as the app and the check name it: without a `www.`. */
+export function hostOf(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
 
 /**
  * The promise's answer, or — after `ms` — an error naming what took too
@@ -276,6 +308,10 @@ export class BrowserSession {
     this.check = null;
     /** Whether the person has done something to the page since it last arrived — the box ticked, say. */
     this.acted = false;
+    /** Whose browser is held: Cloudflare's, or Browserless's (worker/browserless.js); null when none is. */
+    this.where = null;
+    /** The hand-over of the session to a browser at Browserless, while one is in flight. */
+    this.moving = null;
     this.lastSeen = 0;
     this.opening = null;
     /** How Cloudflare's browser is reached; a test points this at a fake. */
@@ -310,6 +346,12 @@ export class BrowserSession {
     try {
       if (path === '/status') return json(await this.report());
       if (path === '/open') return json({ ok: true, ...(await this.open(url.searchParams.get('url') || '')) });
+      // `/pdf` met a host's check for a person: remembered, so that a pane
+      // opened there starts at Browserless (see worker/index.js).
+      if (path === '/note-check') {
+        await this.remember(hostOf(`https://${url.searchParams.get('host') || ''}`));
+        return json({ ok: true });
+      }
 
       const token = url.searchParams.get('session') || '';
       const live = await this.ensure(token);
@@ -416,6 +458,8 @@ export class BrowserSession {
     if (!this.browser || !this.page || !this.token) return this.idle();
     return {
       ...availability(this.env),
+      // Whose browser it is now, which a hand-over changes mid-session.
+      ...(this.where ? { where: this.where } : {}),
       open: true,
       session: this.token,
       persistent: Boolean(this.env.SESSIONS),
@@ -495,8 +539,12 @@ export class BrowserSession {
   async open(url) {
     const reason = rejectUrl(url);
     if (reason) throw new Error(reason);
-    if (!this.env.BROWSER) throw new Error(NO_BROWSER);
+    if (!availability(this.env).available) throw new Error(NO_BROWSER);
     if (this.opening) await this.opening.catch(() => undefined);
+    if (this.moving) await this.moving.catch(() => undefined);
+    // Whose browser this site gets: Cloudflare's, unless there is none, or
+    // the site is one whose check Cloudflare's browser was refused by.
+    const at = await this.browserFor(url);
     this.openingSince = Date.now();
     const run = ++this.run;
     // An open given up on — its deadline passed, or another open begun —
@@ -510,6 +558,12 @@ export class BrowserSession {
       throw error;
     };
     const work = async () => {
+      // A browser of the wrong kind — Cloudflare's, for a site whose check
+      // it cannot pass — is let go, so the one started below is the right one.
+      if (this.browser && this.where && this.where !== at) {
+        this.note(`letting go of ${this.where}'s browser: ${hostOf(url)} is for ${at}'s`);
+        await this.letGo(this.browser);
+      }
       // A browser already open is kept and pointed at the new site — the one
       // the pane is showing, or the one kept since the pane closed: starting
       // browsers is the thing Cloudflare rations, so one is started only
@@ -533,7 +587,7 @@ export class BrowserSession {
         // The session held before an eviction is read before it is forgotten, so it can be tried first.
         const kept = await this.state.storage.get('session').catch(() => null);
         await this.forget();
-        const { browser, id } = await this.acquire(kept);
+        const { browser, id } = await this.acquire(kept, at);
         await still(browser);
         try {
           await within(this.deadlines.adopt, 'taking the browser', this.adopt(browser, id));
@@ -569,6 +623,11 @@ export class BrowserSession {
       await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS }).catch(() => {
         // A slow or refused page is still a page the person can see and act on.
       });
+      await still();
+      // The page came as Cloudflare's check, and the session is being handed
+      // to a browser at Browserless: waited for, so the first status is that
+      // browser's page and not a check the person would tick for nothing.
+      if (this.moving) await this.moving.catch(() => undefined);
       await still();
       this.loading = false;
       // The screencast starts with the first paint after it is asked for; a
@@ -655,7 +714,16 @@ export class BrowserSession {
    * the limit met and how long until another try, for the app to count
    * down and try again on its own.
    */
-  async acquire(kept) {
+  async acquire(kept, at = 'cloudflare') {
+    if (at === 'browserless') {
+      // Browserless rations nothing by the minute, keeps no session to take
+      // over, and says what is wrong in its own words: started, or not.
+      const browser = await within(this.deadlines.launch, 'starting a browser at Browserless', this.driver.launch(this.env, { at }), (late) =>
+        late.close?.().catch?.(() => undefined),
+      );
+      this.note(`started a browser at Browserless (${browser.sessionId()})`);
+      return { browser, id: browser.sessionId() };
+    }
     if (kept === undefined) kept = await this.state.storage.get('session').catch(() => null);
     const started = this.now();
     let first = kept?.id || null;
@@ -715,8 +783,9 @@ export class BrowserSession {
     } catch {
       // Not knowable; a new one, then.
     }
-    // A few a pass, since each look costs up to its deadline.
-    for (const id of candidates.filter((id) => (this.avoid.get(id) || 0) <= Date.now()).slice(0, 3)) {
+    // A few a pass, since each look costs up to its deadline. A Browserless
+    // session held before an eviction is gone with it: nothing reconnects.
+    for (const id of candidates.filter((id) => !browserless.isBrowserless(id) && (this.avoid.get(id) || 0) <= Date.now()).slice(0, 3)) {
       try {
         return { browser: await this.connectTo(id), id };
       } catch (error) {
@@ -734,6 +803,7 @@ export class BrowserSession {
   async adopt(browser, id) {
     this.browser = browser;
     this.id = id;
+    this.where = browserless.isBrowserless(id) ? 'browserless' : 'cloudflare';
     this.touch();
     browser.on('disconnected', () => {
       if (this.browser === browser) {
@@ -791,6 +861,9 @@ export class BrowserSession {
         const host = challengedHost(response);
         const next = host ? checkAfter(this.check, host, this.acted) : null;
         this.acted = false;
+        // Cloudflare's check, met by Cloudflare's browser, which it never
+        // passes — with a browser elsewhere to hand the session to.
+        if (host && this.where === 'cloudflare' && browserless.configured(this.env)) void this.handOver(response.url(), host);
         if (JSON.stringify(next) === JSON.stringify(this.check)) return;
         this.check = next;
         this.bump();
@@ -901,6 +974,9 @@ export class BrowserSession {
   async release() {
     const { browser, page } = this;
     if (!browser || !page || page.isClosed()) return this.close();
+    // A browser at Browserless is closed, not kept: its time is metered,
+    // and starting another is not the thing rationed there.
+    if (this.where === 'browserless') return this.close();
     await saveCookies(this.env, page).catch(() => undefined);
     if (this.cdp) {
       await this.cdp.send('Page.stopScreencast').catch(() => undefined);
@@ -936,12 +1012,118 @@ export class BrowserSession {
     return { open: false };
   }
 
+  // ------------------------------------------------- a browser elsewhere ----
+
+  /**
+   * Whose browser a site gets: Browserless's where there is no other, or
+   * where the site is remembered as one whose check for a person is
+   * Cloudflare's — met from Cloudflare's browser once, or by `/pdf` —
+   * and Cloudflare's otherwise, since it is the free one.
+   */
+  async browserFor(url) {
+    if (!this.env.BROWSER) return 'browserless';
+    if (!browserless.configured(this.env)) return 'cloudflare';
+    return (await this.remembered(hostOf(url))) ? 'browserless' : 'cloudflare';
+  }
+
+  /** Remember a host as one whose check Cloudflare's browser cannot pass, for a while. */
+  async remember(host) {
+    if (!host) return;
+    const hosts = (await this.state.storage.get('challenged').catch(() => null)) || {};
+    await this.state.storage.put('challenged', challengedAfter(hosts, host, this.now())).catch(() => undefined);
+  }
+
+  /** Whether a host is so remembered. */
+  async remembered(host) {
+    if (!host) return false;
+    const hosts = (await this.state.storage.get('challenged').catch(() => null)) || {};
+    return isRemembered(hosts, host, this.now());
+  }
+
+  /**
+   * Cloudflare's check, met by Cloudflare's browser: the session is handed
+   * to a browser at Browserless — started, given the sign-in's cookies,
+   * pointed at the same page — and Cloudflare's is closed. The token stays,
+   * so the pane carries on as it was, with the status saying whose browser
+   * it is now; the host is remembered, so the next open there starts at
+   * Browserless. Should Browserless not give a browser, Cloudflare's is
+   * kept, and the app says the check will not pass from it. One hand-over
+   * at a time: the check's page comes more than once while it runs.
+   */
+  async handOver(url, host) {
+    if (this.moving) return this.moving;
+    const from = this.browser;
+    const token = this.token;
+    this.moving = (async () => {
+      await this.remember(host);
+      this.note(`${host} checks for a person; handing the session to a browser at Browserless`);
+      let browser;
+      try {
+        browser = await within(this.deadlines.launch, 'starting a browser at Browserless', this.driver.launch(this.env, { at: 'browserless' }), (late) =>
+          late.close?.().catch?.(() => undefined),
+        );
+      } catch (error) {
+        this.lastError = { message: String(error?.message || error), code: error?.code || null, at: new Date().toISOString(), url };
+        this.note(`Browserless gave no browser: ${String(error?.message || error)}`);
+        return;
+      }
+      if (this.browser !== from || this.token !== token) {
+        // Let go of meanwhile — the pane closed, the open abandoned — so this one is not wanted either.
+        await browser.close().catch(() => undefined);
+        return;
+      }
+      const id = browser.sessionId();
+      try {
+        // Taken as this session's in place of Cloudflare's, the token kept:
+        // `adopt` swaps the browser and moves the screencast to its page.
+        await within(this.deadlines.adopt, 'taking the browser at Browserless', this.adopt(browser, id));
+        await this.state.storage.put('session', { token: this.token, id }).catch(() => undefined);
+        await within(this.deadlines.page, 'putting the sign-in back', restoreCookies(this.env, this.page)).catch(() => undefined);
+        this.check = null;
+        this.acted = false;
+        this.pdf = null;
+        this.frame = null;
+        this.url = url;
+        this.loading = true;
+        this.bump();
+        await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS }).catch(() => undefined);
+        this.loading = false;
+        if (!this.frame) {
+          try {
+            const data = await within(this.deadlines.picture, 'the first picture', this.page.screenshot({ type: 'jpeg', quality: 60, encoding: 'base64' }));
+            this.frame = { seq: ++this.seq, data };
+          } catch {
+            // The next paint will bring one.
+          }
+        }
+        this.bump();
+        this.note(`handed over to Browserless (${id}) at ${url}`);
+      } catch (error) {
+        this.lastError = { message: String(error?.message || error), code: error?.code || null, at: new Date().toISOString(), url };
+        this.note(`the hand-over failed: ${String(error?.message || error)}`);
+        await this.letGo(browser);
+      } finally {
+        // Cloudflare's browser, closed for good either way: it is one of
+        // the few allowed alive, and nothing drives it now.
+        try {
+          await within(this.deadlines.close, "closing Cloudflare's browser", from.close());
+        } catch {
+          await from?.disconnect?.().catch?.(() => undefined);
+        }
+      }
+    })().finally(() => {
+      this.moving = null;
+    });
+    return this.moving;
+  }
+
   /** Drop everything about the session, without touching the browser. */
   async forget() {
     if (this.cdp) await this.cdp.detach().catch(() => undefined);
     this.browser = null;
     this.page = null;
     this.cdp = null;
+    this.where = null;
     this.token = null;
     this.frame = null;
     this.pdf = null;

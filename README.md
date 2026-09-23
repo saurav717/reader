@@ -987,6 +987,61 @@ tab of your own; from the Node proxy the sign-in offer stands, since a
 window on your machine, or the browser in the pane, passes such a check.
 `scripts/pdf-proxy.test.mjs` pins both answers.
 
+#### Through Browserless, from the Worker
+
+The way round that needs nothing of your own running anywhere is a browser
+that is neither Cloudflare's nor yours. [Browserless](https://www.browserless.io)
+runs Chromiums on addresses of its own and speaks the same DevTools protocol
+over a WebSocket that Cloudflare's browser does, so the Worker can drive one
+of those exactly as it drives Cloudflare's — the same session object, the
+same screencast into the pane, the same fetch of the file by the page that
+was let in (`worker/browserless.js`). What changes is whose browser it is,
+which is the one thing such a check is about: from a browser on an address
+of its own the box, when one appears, is yours to tick, and the tick counts.
+
+It is opt-in, and a fallback. Make an account (the free plan has some
+thousand units a month; a session is a unit per half minute), take the API
+token from its dashboard, and give it to the Worker as a secret:
+
+```bash
+npx --yes wrangler@4 secret put BROWSERLESS_TOKEN    # then npm run deploy:worker
+```
+
+With the token set, the Worker still opens Cloudflare's free browser first
+for every site, and only when a page comes back as Cloudflare's check —
+the `cf-mitigated: challenge` header, seen by the session object from the
+page's own response — does it hand the session over: a browser at
+Browserless is started, given the sign-in's cookies, pointed at the same
+page, and Cloudflare's is closed, with the pane's token unchanged so the
+pane carries on as it was. The line under the page says what is happening
+while it does, and then whose browser it is. The host is remembered for a
+week, so the next paper from academia.edu opens at Browserless straight
+away rather than meeting the check first. `/pdf` does the same for a file
+asked for plainly: a fetch answered with the check is asked for again from
+a Browserless page, which passes the checks that need no box on its own
+and hands the file back — most do, from a real browser on an ordinary
+address — and one that needs a person is reported as met *there*, with
+the host remembered, so that **Browse to a copy** opens the pane at
+Browserless with the box ready to tick. A Worker with the token and no
+`[browser]` binding uses Browserless for everything.
+
+Three optional settings go in `wrangler.toml` as plain vars, beside the
+secret: `BROWSERLESS_URL` picks the region (`wss://production-sfo.browserless.io`
+is the default; `-lon` and `-ams` exist), `BROWSERLESS_PROXY = "residential"`
+makes the browser leave from a home address, which such a check likes
+best and which Browserless meters by the megabyte on top of the browser
+time — try without it first, and turn it on if the box keeps coming back
+after a tick — and `BROWSERLESS_COUNTRY` picks that address's country.
+A browser at Browserless is closed the moment the pane closes rather than
+kept for the next open, since its time is what is metered and starting
+one is not what is rationed there; and a Browserless session cannot be
+reconnected to, so a session object evicted mid-page starts afresh.
+Browserless's own refusals — a bad token, the plan's browsers all in use
+— come back in its words, in the status line. `scripts/browse.test.mjs`
+pins the address it connects at (never with the token in a log), the
+hand-over, the memory, and what `/pdf` does with the file; `scripts/pdf-proxy.test.mjs`
+pins the answer when Browserless met the box too.
+
 #### PubMed Central, the way it means programs to be asked
 
 One family of such sites has a way round that needs no person at all.
