@@ -18,8 +18,16 @@
  * time, as on the Node proxy). Opening hands the app a token that every
  * request after must carry; the browser session's own id is kept in the
  * object's storage so that, should the object be evicted while idle, the
- * next request reconnects to the same browser and carries on. Five minutes
+ * next request reconnects to the same browser and carries on. Two minutes
  * with nobody polling closes the browser, through an alarm.
+ *
+ * Closing the pane does not close the browser straight away: it is kept,
+ * blank, for most of a minute, because the next thing the person does is
+ * so often to open the pane again — at another site, or after the copies
+ * were tried once more with the sign-in just made — and starting browsers
+ * is what Cloudflare rations most tightly (a few a minute on the free
+ * plan). A browser kept is one pointed at the new site; a browser closed
+ * is one asked for again, and refused.
  */
 import puppeteer from '@cloudflare/puppeteer';
 import { MAX_PDF_BYTES, rejectUrl } from '../server/fetchPdf.js';
@@ -45,6 +53,13 @@ const POLL_MS = 8_000;
  */
 const IDLE_MS = 2 * 60_000;
 /**
+ * How long a browser is kept after the pane closes, for the next open to
+ * reuse. Long enough to cover picking another site or trying the copies
+ * again first; short, because every second of it is browser time the free
+ * plan counts by the day, and nobody may come back.
+ */
+const LINGER_MS = 45_000;
+/**
  * How long to wait between asking Cloudflare for a new browser again, after
  * it said no, and for how long in all. Its limit is a few new browsers a
  * minute, and a few alive at once for `KEEP_ALIVE_MS` after their last
@@ -60,9 +75,20 @@ const RATE_LIMIT_PATIENCE_MS = 50_000;
  * minutes of browser time a day on its free plan.
  */
 export const RATE_LIMITED =
-  'Cloudflare would not start another browser just now, even after most of a minute of asking: its free plan allows only a few new browsers a minute, a few alive at once, and some minutes of browser time a day. Wait a minute and try again — a browser already open is reused rather than started again — or move the Worker to the Workers Paid plan.';
+  'Cloudflare would not start another browser just now, even after most of a minute of asking: its free plan allows only a few new browsers a minute, a few alive at once, and some minutes of browser time a day. Wait a minute and try again — a browser already open is reused rather than started again, and one is kept for most of a minute after the pane closes so that a second try needs none — or move the Worker to the Workers Paid plan.';
 
-const rateLimited = (error) => /429|rate limit|too many/i.test(String(error?.message || error));
+export const rateLimited = (error) => /429|rate limit|too many/i.test(String(error?.message || error));
+
+/**
+ * The refusal, worded for the person, with Cloudflare's own reason on the
+ * end where it gave one — the minute's allowance and the day's are refused
+ * with the same status code, and only its words tell them apart.
+ */
+export function rateLimitedMessage(error) {
+  const raw = String(error?.message || error || '');
+  const said = (raw.match(/message:\s*(.+)$/s) || [])[1]?.trim().replace(/[.\s]+$/, '');
+  return said ? `${RATE_LIMITED} Cloudflare said: ${said}.` : RATE_LIMITED;
+}
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8' } });
@@ -118,7 +144,7 @@ export class BrowserSession {
         const bytes = await this.grab();
         return new Response(bytes, { headers: { 'Content-Type': 'application/pdf', 'Content-Length': String(bytes.length) } });
       }
-      if (path === '/close') return json({ ok: true, ...(await this.close()) });
+      if (path === '/close') return json({ ok: true, ...(await this.release()) });
       return json({ error: 'not found' }, 404);
     } catch (error) {
       if (error?.code === 'closed') return json({ error: 'no browser is open' }, 409);
@@ -126,10 +152,16 @@ export class BrowserSession {
     }
   }
 
-  /** The alarm: close a browser nobody has looked at for a while. */
+  /**
+   * The alarm: close a browser nobody has looked at for a while — sooner
+   * when the pane was closed and the browser is only being kept in case.
+   */
   async alarm() {
-    if (this.browser && Date.now() - this.lastSeen >= IDLE_MS) await this.close();
-    else if (this.browser) await this.state.storage.setAlarm(Date.now() + IDLE_MS);
+    if (!this.browser) return;
+    const limit = this.token ? IDLE_MS : LINGER_MS;
+    const since = Date.now() - this.lastSeen;
+    if (since >= limit) await this.close();
+    else await this.state.storage.setAlarm(Date.now() + (limit - since));
   }
 
   // ------------------------------------------------------------ status ----
@@ -139,7 +171,7 @@ export class BrowserSession {
   }
 
   async status(after) {
-    if (!this.browser || !this.page) return this.idle();
+    if (!this.browser || !this.page || !this.token) return this.idle();
     return {
       ...availability(this.env),
       open: true,
@@ -222,19 +254,26 @@ export class BrowserSession {
     if (!this.env.BROWSER) throw new Error(NO_BROWSER);
     if (this.opening) await this.opening.catch(() => undefined);
     this.opening = (async () => {
-      // A browser already open is kept and pointed at the new site: starting
+      // A browser already open is kept and pointed at the new site — the one
+      // the pane is showing, or the one kept since the pane closed: starting
       // browsers is the thing Cloudflare rations, so one is started only
       // when there is none to reuse.
       if (!this.browser || !this.page || this.page.isClosed()) {
         await this.forget();
         const { browser, id } = await this.acquire();
-        this.token = crypto.randomUUID();
-        await this.state.storage.put('session', { token: this.token, id });
         await this.adopt(browser, id);
         // No user-agent override: the browser presents itself as what it is,
         // string and client hints agreeing. See `open` in worker/browse.js.
         await restoreCookies(this.env, this.page);
+      } else if (!this.cdp) {
+        // Kept since the pane closed, with its screencast stopped: started again.
+        await this.attach(this.page);
       }
+      if (!this.token) {
+        this.token = crypto.randomUUID();
+        await this.state.storage.put('session', { token: this.token, id: this.id });
+      }
+      this.touch();
       this.pdf = null;
       this.url = url;
       this.loading = true;
@@ -307,7 +346,7 @@ export class BrowserSession {
         return { browser, id: browser.sessionId() };
       } catch (error) {
         if (!rateLimited(error)) throw error;
-        if (Date.now() - started + RATE_LIMIT_RETRY_MS > RATE_LIMIT_PATIENCE_MS) throw new Error(RATE_LIMITED);
+        if (Date.now() - started + RATE_LIMIT_RETRY_MS > RATE_LIMIT_PATIENCE_MS) throw new Error(rateLimitedMessage(error));
       }
       await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_RETRY_MS));
     }
@@ -462,6 +501,40 @@ export class BrowserSession {
     return bytes;
   }
 
+  /**
+   * The pane closed: the browser is kept for `LINGER_MS`, blank and with
+   * its screencast stopped, for the next open to point somewhere — and
+   * nothing the app still holds can reach it, since its token is dropped.
+   * The alarm closes it for real if nobody comes back.
+   */
+  async release() {
+    const { browser, page } = this;
+    if (!browser || !page || page.isClosed()) return this.close();
+    await saveCookies(this.env, page).catch(() => undefined);
+    if (this.cdp) {
+      await this.cdp.send('Page.stopScreencast').catch(() => undefined);
+      await this.cdp.detach().catch(() => undefined);
+      this.cdp = null;
+    }
+    this.token = null;
+    this.frame = null;
+    this.pdf = null;
+    this.url = '';
+    this.title = '';
+    this.loading = false;
+    // The id stays, without a token, so that an object evicted meanwhile
+    // still knows which session to adopt first.
+    await this.state.storage.put('session', { token: null, id: this.id }).catch(() => undefined);
+    // Off the site, so nothing it left running spends the time the browser
+    // is kept for; the sign-in's cookies are in the jar, not the page.
+    await page.goto('about:blank').catch(() => undefined);
+    this.touch();
+    await this.state.storage.setAlarm(Date.now() + LINGER_MS).catch(() => undefined);
+    this.wake();
+    return { open: false };
+  }
+
+  /** Close the browser for good: the alarm's way, after a linger or an idle nobody came back from. */
   async close() {
     const browser = this.browser;
     if (browser && this.page) await saveCookies(this.env, this.page).catch(() => undefined);
