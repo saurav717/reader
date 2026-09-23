@@ -308,9 +308,12 @@ export async function apply(page, event) {
       return page.mouse.up({ button, clickCount: clicks(event.clickCount) }).catch(() => undefined);
     case 'wheel':
       await page.mouse.move(x, y);
+      // The size of the scroll, bounded, with its direction put back: the
+      // bound alone floors a scroll up at nothing, which is what a wheel
+      // that would not scroll up was.
       return page.mouse.wheel({
-        deltaX: clamp(event.dx, 2000) * Math.sign(Number(event.dx) || 0),
-        deltaY: clamp(event.dy, 2000) * Math.sign(Number(event.dy) || 0),
+        deltaX: clamp(Math.abs(Number(event.dx) || 0), 2000) * Math.sign(Number(event.dx) || 0),
+        deltaY: clamp(Math.abs(Number(event.dy) || 0), 2000) * Math.sign(Number(event.dy) || 0),
       });
     case 'keydown':
       if (!acceptKey(event.key)) return undefined;

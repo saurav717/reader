@@ -45,6 +45,16 @@ new_sqlite_classes = ["BrowserSession"]
 # BROWSERLESS_PROXY = "residential"
 # BROWSERLESS_COUNTRY = "us"
 # BROWSERLESS_SESSION_MS = "600000"
+#
+# Where the session object that holds the browser lives. Left unset it is
+# made near whoever first opened the pane, which is far from a browser at
+# Browserless, and every frame and every click crosses that distance twice
+# (worker/index.js). Set it to the region of the browser instead — wnam
+# for Browserless's San Francisco, weur for London or Amsterdam — and the
+# object sits next to the browser; the one long hop left is the pane's,
+# which the stream (a WebSocket) pays once per frame, not once per poll.
+#
+# BROWSER_SESSION_LOCATION = "wnam"
 
 # Somewhere to keep the cookies of a sign-in made in that browser, so it
 # holds for the next paper and lets /pdf through a login wall — and so the

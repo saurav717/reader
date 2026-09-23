@@ -20,6 +20,7 @@ import {
   InputQueue,
   keyName,
   nextFrame,
+  openStream,
   openBrowser,
   siteFromInput,
   toPagePoint,
@@ -118,16 +119,52 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
     };
   }, []);
 
-  // The frames: one request held by the proxy until something changes, then
-  // the next. Stops with the component, and closes the browser with it.
+  // The frames: over a stream where the proxy has one (the Worker), each
+  // pushed the moment it is painted, with input going back over the same
+  // socket; else one request held by the proxy until something changes,
+  // then the next. Stops with the component, and closes the browser with it.
   useEffect(() => {
     if (stage !== 'open') return;
     const controller = new AbortController();
     polling.current = controller;
     let after = -1;
     let misses = 0;
-    void (async () => {
-      while (!controller.signal.aborted) {
+    let done = false;
+    // What a status means, whichever way it came. True once the pane is
+    // finished with the browser: closed, or the PDF collected.
+    const take = async (next: BrowseStatus): Promise<boolean> => {
+      if (controller.signal.aborted || done) return true;
+      after = Math.max(after, next.seq);
+      setStatus(next);
+      if (next.frame) setFrame(next.frame);
+      // The address follows the page — a sign-in bounces through several
+      // — unless it is being typed into.
+      if (next.url && /^https?:/.test(next.url) && !editingAddress.current) setAddress(next.url);
+      if (!next.open && !next.pdf) {
+        done = true;
+        setProblem(next.ended || 'The browser closed on the proxy.');
+        setStage('choose');
+        return true;
+      }
+      if (next.pdf && !collected.current) {
+        collected.current = true;
+        done = true;
+        setStage('collecting');
+        try {
+          const blob = await collectPdf(pdfFileName(paper));
+          await closeBrowser();
+          onPdf(blob, next.pdf.from);
+        } catch (error) {
+          collected.current = false;
+          setProblem(error instanceof Error ? error.message : String(error));
+          setStage('open');
+        }
+        return true;
+      }
+      return false;
+    };
+    const poll = async () => {
+      while (!controller.signal.aborted && !done) {
         let next: BrowseStatus;
         try {
           next = await nextFrame(after, controller.signal);
@@ -142,36 +179,23 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
           await new Promise((resolve) => setTimeout(resolve, 1000 * misses));
           continue;
         }
-        if (controller.signal.aborted) return;
-        after = Math.max(after, next.seq);
-        setStatus(next);
-        if (next.frame) setFrame(next.frame);
-        // The address follows the page — a sign-in bounces through several
-        // — unless it is being typed into.
-        if (next.url && /^https?:/.test(next.url) && !editingAddress.current) setAddress(next.url);
-        if (!next.open && !next.pdf) {
-          setProblem(next.ended || 'The browser closed on the proxy.');
-          setStage('choose');
-          return;
-        }
-        if (next.pdf && !collected.current) {
-          collected.current = true;
-          setStage('collecting');
-          try {
-            const blob = await collectPdf(pdfFileName(paper));
-            await closeBrowser();
-            onPdf(blob, next.pdf.from);
-          } catch (error) {
-            collected.current = false;
-            setProblem(error instanceof Error ? error.message : String(error));
-            setStage('open');
-          }
-          return;
-        }
+        if (await take(next)) return;
       }
-    })();
+    };
+    const stream = openStream({
+      onStatus: (next) => void take(next),
+      // Refused (a proxy without one), or gone mid-page: polling carries on from here.
+      onEnd: () => {
+        queue.via = null;
+        if (!controller.signal.aborted && !done) void poll();
+      },
+    });
+    if (stream) queue.via = (events) => stream.send(events);
+    else void poll();
     return () => {
       controller.abort();
+      queue.via = null;
+      stream?.close();
       polling.current = null;
     };
     // Only opening and closing the page starts and stops the frames.

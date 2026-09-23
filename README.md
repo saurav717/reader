@@ -907,9 +907,29 @@ no window, no pop-up — which is either of two:
 
 Settings says which of the forms the proxy it is talking to can do.
 
-The pictures are polled: one request the proxy holds until there is a newer
-frame or something else has changed, so a page nobody is doing anything to
-costs one held connection and no traffic. One page is open at a time, it is
+The pictures come over one WebSocket from the Worker (`/browse/stream`):
+its session object pushes each status the moment something is newer than
+what the pane last got — a frame as Chrome paints it, the URL, a PDF met
+— and takes input off the same socket, so a scroll or a keystroke never
+waits behind a frame, and a frame never waits for a round trip. From the
+Node proxy, or a Worker deployed before the stream, the pictures are
+polled instead: one request the proxy holds until there is a newer frame
+or something else has changed, then the next — one frame a round trip,
+which is what made the pane from the Worker feel slow. Either way a page
+nobody is doing anything to costs one held connection and no traffic.
+Input is not waited for either: the Worker's session object used to
+apply each event with Puppeteer and wait for the browser to take it before
+the next — a click two round trips to the browser, a scroll two more, and
+the pane's next batch behind the answer — which, from an object far from
+its browser, was most of a second a scroll. Now every event in a batch
+goes down the wire at once, in order, over the page's own DevTools session
+with the mouse's state kept in the object, and the pane hears back at
+once; a scroll waiting to go takes the next scroll's distance onto its
+own. The object itself lives where its first request came from, near the
+person; with the browser at Browserless that is far from the browser, and
+`BROWSER_SESSION_LOCATION` in `wrangler.toml` (`wnam` for San Francisco,
+`weur` for London or Amsterdam) makes a new object next to it, leaving
+the pane's own hop as the only long one. One page is open at a time, it is
 closed when the reader leaves it, and the proxy closes it itself after five
 minutes with nobody watching. Only a POST from this app can open, drive or
 close it — a page on another site could otherwise steer a signed-in browser
