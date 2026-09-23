@@ -87,6 +87,17 @@ export const RATE_LIMITED =
 
 export const rateLimited = (error) => /429|rate limit|too many/i.test(String(error?.message || error));
 
+/**
+ * Whether the refusal is the day's browser time, spent — which no wait
+ * short of tomorrow cures, so it is said at once rather than counted
+ * down. Told from Cloudflare's words, since the status code is the same.
+ */
+export const dailyLimited = (error) => /today|daily|per day|time limit|browser time|quota/i.test(String(error?.message || error));
+
+/** What the day's browser time being spent means, worded for the person. */
+export const DAY_SPENT =
+  "Cloudflare's free plan gives this Worker some minutes of browser time a day, and today's are spent, so no browser will start until its day rolls over. Until then the Node proxy on your own machine (`npm start` in the reader repository, pointed at from Settings → Paper proxy) has no such limit — or move the Worker to the Workers Paid plan, which has hours a month.";
+
 /** A wait, said for a person: "12 seconds", "about 3 minutes". */
 export function saidWait(ms) {
   const seconds = Math.max(1, Math.ceil(ms / 1000));
@@ -139,10 +150,14 @@ export function waitFor(limits) {
  * seconds until Cloudflare said it would allow another browser, or a
  * minute where it said nothing.
  */
-export function refusal(error, limits) {
-  const made = new Error(rateLimitedMessage(error, limits));
+export function refusal(error, limits, { daily = false } = {}) {
+  const raw = String(error?.message || error || '');
+  const said = (raw.match(/message:\s*(.+)$/s) || [])[1]?.trim().replace(/[.\s]+$/, '');
+  const made = new Error(daily ? [DAY_SPENT, said ? `Cloudflare said: ${said}.` : ''].filter(Boolean).join(' ') : rateLimitedMessage(error, limits));
   made.code = 'rate-limited';
-  made.retryAfter = Math.max(1, Math.ceil((limits?.nextInMs || WAIT_MAX_MS) / 1000));
+  // No wait to count down for the day: it is the person's to come back from.
+  made.retryAfter = daily ? null : Math.max(1, Math.ceil((limits?.nextInMs || WAIT_MAX_MS) / 1000));
+  made.daily = daily;
   made.browsers = limits || null;
   return made;
 }
@@ -245,6 +260,12 @@ export class BrowserSession {
     this.openingSince = 0;
     /** Counts the opens; an open whose number is no longer this one was abandoned, and stops at its next step. */
     this.run = 0;
+    /**
+     * The last few things that happened, with when — kept in storage as
+     * well, since the object is evicted between a refusal and anyone
+     * coming to look at the status, and memory goes with it.
+     */
+    this.log = [];
   }
 
   // ---------------------------------------------------------- requests ----
@@ -281,8 +302,8 @@ export class BrowserSession {
     } catch (error) {
       if (error?.code === 'closed') return json({ error: 'no browser is open' }, 409);
       if (error?.code === 'rate-limited') {
-        return json({ error: error.message, retryAfter: error.retryAfter, browsers: error.browsers || null }, 429, {
-          'Retry-After': String(error.retryAfter),
+        return json({ error: error.message, retryAfter: error.retryAfter, daily: Boolean(error.daily), browsers: error.browsers || null }, 429, {
+          ...(error.retryAfter ? { 'Retry-After': String(error.retryAfter) } : {}),
         });
       }
       if (error?.code === 'timeout') return json({ error: error.message, retryAfter: 5 }, 504);
@@ -316,10 +337,11 @@ export class BrowserSession {
    * that went wrong. Nothing here waits on the browser.
    */
   async report() {
+    await this.recall();
     let browsers = this.limits;
     try {
-      browsers = await within(this.deadlines.ask, 'asking Cloudflare its limits', limitsOf(this.env, this.driver));
-      if (browsers) this.limits = browsers;
+      const fresh = await within(this.deadlines.ask, 'asking Cloudflare its limits', limitsOf(this.env, this.driver));
+      if (fresh) browsers = this.limits = fresh;
     } catch {
       // What it last said, then.
     }
@@ -333,7 +355,24 @@ export class BrowserSession {
       opening: this.opening ? { forMs: Date.now() - this.openingSince } : null,
       avoiding: [...this.avoid.entries()].filter(([, until]) => until > Date.now()).map(([id]) => id),
       lastError: this.lastError,
+      log: this.log,
     };
+  }
+
+  /** Write down what just happened, here and in storage. */
+  note(what) {
+    this.log = [...this.log, { at: new Date().toISOString(), what }].slice(-20);
+    this.state.storage.put('diagnostics', { log: this.log, lastError: this.lastError, limits: this.limits }).catch(() => undefined);
+  }
+
+  /** What an earlier instance wrote down, when this one has nothing of its own yet. */
+  async recall() {
+    if (this.log.length || this.lastError) return;
+    const kept = await this.state.storage.get('diagnostics').catch(() => null);
+    if (!kept) return;
+    this.log = Array.isArray(kept.log) ? kept.log : [];
+    this.lastError = kept.lastError || null;
+    if (!this.limits && kept.limits) this.limits = kept.limits;
   }
 
   async status(after) {
@@ -514,9 +553,11 @@ export class BrowserSession {
     try {
       const status = await mine;
       this.lastError = null;
+      this.note(`opened ${url}`);
       return status;
     } catch (error) {
       this.lastError = { message: String(error?.message || error), code: error?.code || null, at: new Date().toISOString(), url };
+      this.note(`open failed (${error?.code || 'error'}): ${String(error?.message || error)}`);
       if (error?.code === 'timeout') {
         this.run += 1; // whatever step is still running stops at its next
         if (this.id) this.avoid.set(this.id, Date.now() + AVOID_MS);
@@ -581,7 +622,10 @@ export class BrowserSession {
     let refused = null;
     for (;;) {
       const adopted = await this.adoptFree(first);
-      if (adopted) return adopted;
+      if (adopted) {
+        this.note(`took over browser session ${adopted.id}`);
+        return adopted;
+      }
       first = null;
       const limits = await within(this.deadlines.ask, 'asking Cloudflare its limits', limitsOf(this.env, this.driver)).catch(() => null);
       this.limits = limits;
@@ -595,9 +639,13 @@ export class BrowserSession {
           const browser = await within(this.deadlines.launch, 'starting a browser', this.driver.launch(this.env), (late) =>
             late.close?.().catch?.(() => undefined),
           );
+          this.note(`started browser session ${browser.sessionId()}`);
           return { browser, id: browser.sessionId() };
         } catch (error) {
           if (!rateLimited(error)) throw error;
+          this.note(`Cloudflare refused a browser: ${String(error?.message || error)}`);
+          // The day's time spent is not a minute's wait; said now.
+          if (dailyLimited(error)) throw refusal(error, limits, { daily: true });
           refused = error;
         }
       }
@@ -627,7 +675,10 @@ export class BrowserSession {
       try {
         return { browser: await this.connectTo(id), id };
       } catch (error) {
-        if (error?.code === 'timeout') this.avoid.set(id, Date.now() + AVOID_MS);
+        if (error?.code === 'timeout') {
+          this.avoid.set(id, Date.now() + AVOID_MS);
+          this.note(`session ${id} did not answer; left alone for a while`);
+        }
         // Gone, or taken, or not answering; the next.
       }
     }
@@ -819,6 +870,7 @@ export class BrowserSession {
   /** Close the browser for good: the alarm's way, after a linger or an idle nobody came back from. */
   async close() {
     const browser = this.browser;
+    if (browser) this.note(`closed browser session ${this.id}`);
     if (browser && this.page) await within(this.deadlines.close, 'keeping the cookies', saveCookies(this.env, this.page)).catch(() => undefined);
     await this.letGo(browser);
     return { open: false };

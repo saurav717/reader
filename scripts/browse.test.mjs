@@ -620,6 +620,47 @@ describe('how the Worker gets a browser', () => {
     assert.equal(status.lastError, null);
   });
 
+  it("says at once, with no countdown, when Cloudflare's refusal is the day's browser time", async () => {
+    const room = { activeSessions: [], maxConcurrentSessions: 4, allowedBrowserAcquisitions: 1, timeUntilNextAllowedBrowserAcquisition: 0 };
+    const driver = fakeDriver({ limits: [room] });
+    driver.launch = async () => {
+      driver.asked.launch += 1;
+      throw new Error('Unable to create new browser: code: 429: message: Browser time limit exceeded for today');
+    };
+    const { object } = await objectWith(driver);
+    const response = await object.fetch(new Request('https://browser-session/open?url=https%3A%2F%2Fexample.org%2F', { method: 'POST' }));
+    assert.equal(response.status, 429);
+    assert.equal(response.headers.get('Retry-After'), null);
+    const body = await response.json();
+    assert.equal(body.daily, true);
+    assert.equal(body.retryAfter, null);
+    assert.match(body.error, /^Cloudflare's free plan gives this Worker some minutes of browser time a day, and today's are spent/);
+    assert.match(body.error, /Cloudflare said: Browser time limit exceeded for today\.$/);
+    assert.equal(driver.asked.launch, 1, 'asked once, and not again');
+    assert.deepEqual(object.slept, []);
+  });
+
+  it('writes down what happened where a later instance can read it, since eviction empties memory', async () => {
+    const { BrowserSession } = await import('../worker/browserSession.js');
+    const room = { activeSessions: [], maxConcurrentSessions: 4, allowedBrowserAcquisitions: 1, timeUntilNextAllowedBrowserAcquisition: 0 };
+    const driver = fakeDriver({ limits: [room], launch: 'refuse' });
+    const { object, fake } = await objectWith(driver);
+    const first = await object.fetch(new Request('https://browser-session/open?url=https%3A%2F%2Fexample.org%2F', { method: 'POST' }));
+    assert.equal(first.status, 429);
+    // A fresh instance on the same storage, as after an eviction.
+    const later = new BrowserSession(fake.state, { BROWSER: {} });
+    later.driver = fakeDriver({ limits: ['fails'] });
+    const status = await (await later.fetch(new Request('https://browser-session/status'))).json();
+    assert.equal(status.seq, 0, 'a fresh instance');
+    assert.match(status.lastError.message, /^Cloudflare would not start another browser just now/);
+    assert.equal(status.lastError.code, 'rate-limited');
+    assert.equal(status.lastError.url, 'https://example.org/');
+    assert.ok(status.log.length >= 2);
+    assert.match(status.log[0].what, /^Cloudflare refused a browser: Unable to create new browser: code: 429: message: Rate limit exceeded/);
+    assert.match(status.log[status.log.length - 1].what, /^open failed \(rate-limited\)/);
+    assert.deepEqual(status.browsers, { alive: 0, max: 4, allowed: 1, nextInMs: 0 }, "what Cloudflare last said, when it won't say now");
+  });
+
   it('opens a new page in the browser it holds when the page went, rather than asking for another browser', async () => {
     const { BrowserSession } = await import('../worker/browserSession.js');
     const fake = fakeSession();
