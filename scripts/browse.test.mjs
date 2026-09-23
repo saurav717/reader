@@ -919,6 +919,11 @@ describe('what the app says on a site that checks for a person', () => {
     assert.match(handing, /handed to a browser at Browserless/);
     assert.match(handing, /yours to tick/);
     assert.doesNotMatch(handing, /not expected to pass/);
+    // Browserless gave no browser: said, in its words, with the way out.
+    const refused = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: 'Just a moment...', where: 'cloudflare', fallback: 'browserless', fallbackError: 'Browserless would not open a browser: code: 403: message: Bad token.' });
+    assert.match(refused, /Browserless gave none — Browserless would not open a browser: code: 403: message: Bad token — so it stays here/);
+    assert.match(refused, /tab of your own/);
+    assert.doesNotMatch(refused, /A moment/);
     // Handed over, the browser is Browserless's, and the box is the person's to tick as from the Node proxy.
     const there = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: '', where: 'browserless', check: { host: 'academia.edu', times: 1, answered: 0 } });
     assert.match(there, /^academia\.edu is checking/);
@@ -1316,6 +1321,11 @@ describe('the session handed to a browser at Browserless', () => {
     assert.deepEqual(status.check, { host: 'academia.edu', times: 1, answered: 0 });
     assert.equal(cloudflares.closed, false);
     assert.match(object.lastError.message, /Too many concurrent sessions/);
+    // The line under the page can say so: the refusal rides the status, in Browserless's words.
+    assert.match(status.fallbackError, /^Browserless would not open a browser: code: 429: message: Too many concurrent sessions$/);
+    // Opening somewhere else starts clean.
+    await object.open('https://example.org/');
+    assert.equal((await object.status(-1)).fallbackError, undefined);
   });
 
   it('is not handed over without a token, nor from a browser that is already Browserless\'s', async () => {

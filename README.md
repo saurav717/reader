@@ -1037,7 +1037,17 @@ kept for the next open, since its time is what is metered and starting
 one is not what is rationed there; and a Browserless session cannot be
 reconnected to, so a session object evicted mid-page starts afresh.
 Browserless's own refusals — a bad token, the plan's browsers all in use
-— come back in its words, in the status line. `scripts/browse.test.mjs`
+— come back in its words, in the line under the page and in `lastError`
+on `/browse/status`. To take the Worker out of the picture and ask
+Browserless from your own machine, at the same address the Worker uses:
+
+```bash
+BROWSERLESS_TOKEN=… node scripts/browserless-live.mjs https://www.academia.edu/download/78156473/10.pdf
+```
+
+says whether Browserless gave a browser, whether the page came as the
+check, whether the check passed on its own, and what the page is showing,
+and leaves a picture in `browserless-live.png`. `scripts/browse.test.mjs`
 pins the address it connects at (never with the token in a log), the
 hand-over, the memory, and what `/pdf` does with the file; `scripts/pdf-proxy.test.mjs`
 pins the answer when Browserless met the box too.
