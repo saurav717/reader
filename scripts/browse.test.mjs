@@ -620,6 +620,26 @@ describe('how the Worker gets a browser', () => {
     assert.equal(status.lastError, null);
   });
 
+  it("says it is most likely the day's time, after one more look, when Cloudflare refuses a start its limits allow", async () => {
+    const { contradicted } = await import('../worker/browserSession.js');
+    assert.equal(contradicted({ alive: 0, max: 4, allowed: 1, nextInMs: 0 }), true);
+    assert.equal(contradicted({ alive: 4, max: 4, allowed: 1, nextInMs: 0 }), false);
+    assert.equal(contradicted({ alive: 0, max: 4, allowed: 0, nextInMs: 30_000 }), false);
+    assert.equal(contradicted(null), false);
+    const room = { activeSessions: [], maxConcurrentSessions: 4, allowedBrowserAcquisitions: 1, timeUntilNextAllowedBrowserAcquisition: 0 };
+    const driver = fakeDriver({ limits: [room], launch: 'refuse' });
+    const { object } = await objectWith(driver);
+    const response = await object.fetch(new Request('https://browser-session/open?url=https%3A%2F%2Fexample.org%2F', { method: 'POST' }));
+    assert.equal(response.status, 429);
+    const body = await response.json();
+    assert.equal(body.retryAfter, null, 'no countdown: no wait cures it');
+    assert.equal(body.daily, true);
+    assert.match(body.error, /^Cloudflare says a browser may start, yet refuses to start one/);
+    assert.match(body.error, /Cloudflare said: Rate limit exceeded\.$/);
+    assert.equal(driver.asked.launch, 2, 'one more look, then said');
+    assert.deepEqual(object.slept, [12_000]);
+  });
+
   it("says at once, with no countdown, when Cloudflare's refusal is the day's browser time", async () => {
     const room = { activeSessions: [], maxConcurrentSessions: 4, allowedBrowserAcquisitions: 1, timeUntilNextAllowedBrowserAcquisition: 0 };
     const driver = fakeDriver({ limits: [room] });
@@ -652,7 +672,7 @@ describe('how the Worker gets a browser', () => {
     later.driver = fakeDriver({ limits: ['fails'] });
     const status = await (await later.fetch(new Request('https://browser-session/status'))).json();
     assert.equal(status.seq, 0, 'a fresh instance');
-    assert.match(status.lastError.message, /^Cloudflare would not start another browser just now/);
+    assert.match(status.lastError.message, /^Cloudflare says a browser may start, yet refuses to start one/);
     assert.equal(status.lastError.code, 'rate-limited');
     assert.equal(status.lastError.url, 'https://example.org/');
     assert.ok(status.log.length >= 2);

@@ -863,7 +863,13 @@ no window, no pop-up — which is either of two:
   The day's browser time being spent is told apart from a minute's:
   Cloudflare refuses both with the same code, but its words differ, and
   when they say the day is spent the refusal says so at once, with no
-  wait to count down, since none short of tomorrow cures it.
+  wait to count down, since none short of tomorrow cures it. Its words
+  do not always differ — *Rate limit exceeded* has been all it said with
+  the day spent — so a refusal that its limits contradict (a start
+  allowed, nothing to wait for, room for one more, and refused all the
+  same) is looked at once more and then said to be most likely the day's
+  time, with no countdown either; the Browser Rendering page of the
+  Cloudflare dashboard shows today's use and settles it.
   `/browse/status` on the Worker shows what the object holds and what
   Cloudflare last said its limits were, which is the place to look when
   it keeps refusing or hangs: `held` and `page` say whether a browser is
