@@ -237,7 +237,7 @@ const worker = await import('../worker/browse.js');
 
 describe('the browser from the Worker', () => {
   it('has a browser only with the binding, and says how to add one', () => {
-    assert.deepEqual(worker.availability({ BROWSER: {} }), { available: true });
+    assert.deepEqual(worker.availability({ BROWSER: {} }), { available: true, where: 'cloudflare' });
     const without = worker.availability({});
     assert.equal(without.available, false);
     assert.match(without.reason, /wrangler\.toml/);
@@ -887,13 +887,48 @@ describe('the file, fetched by the page itself', () => {
 });
 
 describe('what the app says on a site that checks for a person', () => {
-  it("names the site and says the box is the person's to tick, on Cloudflare's check", () => {
-    const byUrl = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf?__cf_chl_rt_tk=abc', title: '' });
+  it("names the site and says the box is the person's to tick, on Cloudflare's check from the proxy's own browser", () => {
+    const byUrl = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf?__cf_chl_rt_tk=abc', title: '', where: 'proxy' });
     assert.match(byUrl, /^academia\.edu is checking/);
     assert.match(byUrl, /tick it/);
-    assert.match(botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: 'Just a moment...' }), /^academia\.edu/);
-    assert.match(botCheck({ url: 'https://example.org/', title: 'Attention Required! | Cloudflare' }), /^example\.org/);
-    assert.match(botCheck({ url: 'https://example.org/', title: 'Verify you are human' }), /^example\.org/);
+    assert.match(botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: 'Just a moment...', where: 'proxy' }), /^academia\.edu/);
+    assert.match(botCheck({ url: 'https://example.org/', title: 'Attention Required! | Cloudflare', where: 'proxy' }), /^example\.org/);
+    assert.match(botCheck({ url: 'https://example.org/', title: 'Verify you are human', where: 'proxy' }), /^example\.org/);
+    // A proxy that says nothing about whose browser it is, and hands out no session id, is the Node proxy.
+    assert.match(botCheck({ url: 'https://example.org/', title: 'Just a moment...' }), /tick it/);
+  });
+
+  it("says Cloudflare's check will not pass from Cloudflare's own browser, before the box is ever ticked", () => {
+    const fromWorker = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: 'Just a moment...', where: 'cloudflare' });
+    assert.match(fromWorker, /^academia\.edu is checking/);
+    assert.match(fromWorker, /not expected to pass from here/);
+    assert.match(fromWorker, /rendering browsers are bots/);
+    assert.match(fromWorker, /tab of your own/);
+    assert.match(fromWorker, /Settings → Paper proxy/);
+    assert.doesNotMatch(fromWorker, /tick it;/);
+    // A Worker deployed before it said whose browser it is still hands out a session id, which only it does.
+    assert.match(botCheck({ url: 'https://example.org/', title: 'Just a moment...', session: 'abc' }), /not expected to pass/);
+    // The proxy's word that the page is the check beats a title that says nothing.
+    const byHeader = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: '', where: 'cloudflare', check: { host: 'academia.edu', times: 1, answered: 0 } });
+    assert.match(byHeader, /not expected to pass/);
+    // A check the proxy saw on another host is not this page's.
+    assert.equal(botCheck({ url: 'https://example.org/', title: '', where: 'cloudflare', check: { host: 'academia.edu', times: 1, answered: 0 } }), null);
+  });
+
+  it('says the check came back after it was answered, and what to do instead', () => {
+    const came = { host: 'academia.edu', times: 3, answered: 1 };
+    const fromWorker = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: '', where: 'cloudflare', check: came });
+    assert.match(fromWorker, /^academia\.edu's check has come back after you answered it/);
+    assert.match(fromWorker, /however many times the box is ticked/);
+    assert.match(fromWorker, /tab of your own/);
+    const fromProxy = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: '', where: 'proxy', check: came });
+    assert.match(fromProxy, /^academia\.edu's check has come back after you answered it/);
+    assert.match(fromProxy, /refusing this browser/);
+    assert.match(fromProxy, /tab of your own/);
+    assert.doesNotMatch(fromProxy, /Paper proxy/, 'the proxy is already their own');
+    // Come back on its own — the check's first pass running its scripts — is still the check, to tick.
+    const ran = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: '', where: 'proxy', check: { host: 'academia.edu', times: 2, answered: 0 } });
+    assert.match(ran, /tick it/);
   });
 
   it('says nothing on an ordinary page, or with nothing open', () => {
@@ -902,5 +937,92 @@ describe('what the app says on a site that checks for a person', () => {
     assert.equal(botCheck({ url: '', title: 'Just a moment...' }), null);
     assert.equal(botCheck(null), null);
     assert.equal(botCheck({ url: 'not a url', title: 'Just a moment...' }), null);
+    // The check over: the proxy reports none, and the page is the site's.
+    assert.equal(botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: '', where: 'cloudflare', check: null }), null);
+  });
+});
+
+// ------------------------------------ the check, noticed from the response ----
+
+const { challengedHost, checkAfter, isMainDocument } = await import('../server/browseShared.js');
+
+describe('how the proxy notices a site\'s check for a person', () => {
+  const main = { name: 'main' };
+  const page = { mainFrame: () => main };
+  const response = ({ url = 'https://www.academia.edu/download/1/10.pdf', headers = {}, type = 'document', frame = main } = {}) => ({
+    url: () => url,
+    headers: () => headers,
+    request: () => ({ resourceType: () => type }),
+    frame: () => frame,
+  });
+
+  it("knows Cloudflare's challenge page by the header Cloudflare puts on it, whatever the page says", () => {
+    assert.equal(challengedHost(response({ headers: { 'cf-mitigated': 'challenge' } })), 'academia.edu');
+    assert.equal(challengedHost(response({ headers: { 'cf-mitigated': 'Challenge ' } })), 'academia.edu');
+    assert.equal(challengedHost(response({ headers: { 'cf-mitigated': 'block' } })), null);
+    assert.equal(challengedHost(response({ headers: {} })), null);
+    assert.equal(challengedHost(response({ url: 'not a url', headers: { 'cf-mitigated': 'challenge' } })), null);
+    assert.equal(challengedHost({ headers: () => { throw new Error('gone'); }, url: () => '' }), null);
+  });
+
+  it('looks only at the page itself, never at its frames and fetches', () => {
+    assert.equal(isMainDocument(response(), page), true);
+    assert.equal(isMainDocument(response({ type: 'xhr' }), page), false);
+    assert.equal(isMainDocument(response({ frame: { name: 'the widget' } }), page), false, "the check's own widget is a frame from Cloudflare's domain");
+    assert.equal(isMainDocument(response({ frame: null }), page), true, "a response with no frame to name is the page's");
+    assert.equal(isMainDocument({ request: () => { throw new Error('gone'); } }, page), false);
+  });
+
+  it('counts the check coming, and how many of those came after the person answered it', () => {
+    const first = checkAfter(null, 'academia.edu', false);
+    assert.deepEqual(first, { host: 'academia.edu', times: 1, answered: 0 });
+    // The check's scripts ran and it came back on its own: still the check, not yet refused.
+    const ran = checkAfter(first, 'academia.edu', false);
+    assert.deepEqual(ran, { host: 'academia.edu', times: 2, answered: 0 });
+    // The box ticked, and the check back: that is the site refusing the browser.
+    const refused = checkAfter(ran, 'academia.edu', true);
+    assert.deepEqual(refused, { host: 'academia.edu', times: 3, answered: 1 });
+    // Another host's check starts over, ticked or not.
+    assert.deepEqual(checkAfter(refused, 'example.org', true), { host: 'example.org', times: 1, answered: 0 });
+    assert.equal(checkAfter(refused, null, true), null);
+  });
+
+  it('is reported by the Worker\'s session from the page it holds, and cleared when the site itself comes', async () => {
+    const { BrowserSession } = await import('../worker/browserSession.js');
+    const fake = fakeSession();
+    const handlers = {};
+    fake.page.on = (event, handler) => {
+      (handlers[event] ||= []).push(handler);
+    };
+    const arrives = (response) => handlers.response.forEach((handler) => handler(response));
+    fake.page.mainFrame = () => main;
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    await object.adopt(fake.browser, 'a-session');
+    object.token = 'tok';
+    const call = (path, method = 'GET', body) =>
+      object.fetch(new Request(`https://browser-session${path}`, { method, body: body ? JSON.stringify(body) : undefined })).then((r) => r.json());
+
+    assert.equal((await object.status(-1)).check, null);
+    const challenge = response({ headers: { 'cf-mitigated': 'challenge', 'content-type': 'text/html' } });
+    arrives(challenge);
+    assert.deepEqual((await object.status(-1)).check, { host: 'academia.edu', times: 1, answered: 0 });
+    // The widget's own frame, and the page's fetches, say nothing.
+    arrives(response({ headers: { 'cf-mitigated': 'challenge' }, frame: { name: 'widget' } }));
+    arrives(response({ headers: { 'cf-mitigated': 'challenge' }, type: 'xhr' }));
+    assert.deepEqual((await object.status(-1)).check, { host: 'academia.edu', times: 1, answered: 0 });
+    // The person ticks the box; the check comes back.
+    fake.page.mouse = { move: async () => undefined, down: async () => undefined, up: async () => undefined };
+    assert.equal((await call('/input?session=tok', 'POST', [{ type: 'move', x: 1, y: 1 }, { type: 'down', x: 1, y: 1 }, { type: 'up', x: 1, y: 1 }])).ok, true);
+    arrives(challenge);
+    assert.deepEqual((await object.status(-1)).check, { host: 'academia.edu', times: 2, answered: 1 });
+    // The site itself comes: the check is over.
+    arrives(response({ headers: { 'content-type': 'text/html' } }));
+    assert.equal((await object.status(-1)).check, null);
+    // Opening somewhere else starts clean.
+    fake.page.goto = async () => undefined;
+    fake.page.url = () => 'https://example.org/';
+    arrives(challenge);
+    await object.open('https://example.org/');
+    assert.equal((await object.status(-1)).check, null);
   });
 });

@@ -56,9 +56,14 @@ const COOKIES_KEY = 'browser-cookies';
 export const NO_BROWSER =
   'This Worker has no browser binding. Add `[browser] binding = "BROWSER"` to wrangler.toml — Browser Rendering is on Cloudflare\'s free plan — and redeploy it with `npm run deploy:worker`.';
 
-/** Whether this Worker can open a browser, and if not, why. */
+/**
+ * Whether this Worker can open a browser, and if not, why — and, when it
+ * can, that the browser is Cloudflare's own, which the app needs to know
+ * when a site's check for a person is Cloudflare's too (see `botCheck` in
+ * src/lib/browse.ts).
+ */
 export function availability(env) {
-  return env?.BROWSER ? { available: true } : { available: false, reason: NO_BROWSER };
+  return env?.BROWSER ? { available: true, where: 'cloudflare' } : { available: false, reason: NO_BROWSER };
 }
 
 /** What the app is told when nothing is open. */

@@ -50,6 +50,27 @@ export interface BrowseStatus {
   persistent?: boolean;
   /** What Cloudflare last said it would allow, from the Worker; the Node proxy has no such limits. */
   browsers?: BrowserLimits | null;
+  /**
+   * Whose browser it is: Cloudflare's, driven by the Worker, or the proxy's
+   * own on its own machine. It matters when a site's check for a person is
+   * Cloudflare's too — see `botCheck`. A proxy deployed before this says
+   * nothing, and the Worker is then told by the session id it alone hands out.
+   */
+  where?: 'cloudflare' | 'proxy';
+  /** The site's check for a person, when that is what the page is — noticed by the proxy from the response itself. */
+  check?: BrowseCheck | null;
+}
+
+/**
+ * A site's check for a person, as the proxy sees it come: which host's,
+ * how many times running its page has come, and how many of those came
+ * after the person did something to it — ticked the box, say. A check
+ * that comes back after it was answered is the site refusing the browser.
+ */
+export interface BrowseCheck {
+  host: string;
+  times: number;
+  answered: number;
 }
 
 /**
@@ -295,10 +316,21 @@ export function browseSites(paper: PaperRef, locations: PaperLocation[] | null, 
  * for a person — Cloudflare's "Just a moment…" and its kin — rather than the
  * site itself, or null when it is not. The check is the site's, and it
  * either shows a box to tick or lets the browser through on its own; what
- * the person needs to know is which page they are looking at and that the
- * box, if one appears, is theirs to tick.
+ * the person needs to know is which page they are looking at, whether the
+ * box is worth ticking, and what to do instead when it is not.
+ *
+ * Two things decide that. The proxy says, from the response itself, whether
+ * the page is Cloudflare's check and whether it has come back after the
+ * person answered it (`status.check`); the title and the URL are the fallback
+ * for a proxy that does not. And the proxy says whose browser it is
+ * (`status.where`): when the check is Cloudflare's and the browser is
+ * Cloudflare's own — the Worker's, through Browser Rendering — the check
+ * will not pass, by Cloudflare's own design: it identifies every request its
+ * rendering browsers make as a bot to every site it protects, and no number
+ * of ticks changes that. Saying so is the kindest thing the pane can do,
+ * since the box otherwise comes back for as long as anyone keeps ticking it.
  */
-export function botCheck(status: Pick<BrowseStatus, 'url' | 'title'> | null): string | null {
+export function botCheck(status: Pick<BrowseStatus, 'url' | 'title' | 'check' | 'where' | 'session'> | null): string | null {
   if (!status?.url) return null;
   let host = '';
   try {
@@ -307,9 +339,25 @@ export function botCheck(status: Pick<BrowseStatus, 'url' | 'title'> | null): st
     return null;
   }
   const title = status.title || '';
-  const cloudflare = /[?&]__cf_chl(?:_rt)?_tk=/.test(status.url) || /^just a moment|attention required!?\s*\|\s*cloudflare/i.test(title);
+  const seen = status.check && status.check.host === host ? status.check : null;
+  const cloudflareTitled = /[?&]__cf_chl(?:_rt)?_tk=/.test(status.url) || /^just a moment|attention required!?\s*\|\s*cloudflare/i.test(title);
   const generic = /verify you are human|security verification|checking your browser|are you a robot|one more step/i.test(title);
-  if (!cloudflare && !generic) return null;
+  if (!seen && !cloudflareTitled && !generic) return null;
+  // The header the proxy saw is Cloudflare's own mark; the title is the guess.
+  const cloudflares = Boolean(seen) || cloudflareTitled;
+  const where = status.where ?? (status.session ? 'cloudflare' : 'proxy');
+  const answered = (seen?.answered ?? 0) > 0;
+  const own = 'Open the file in a tab of your own and drop it on the paper instead';
+  if (cloudflares && where === 'cloudflare') {
+    const why =
+      "the check is Cloudflare's and so is this browser, and Cloudflare tells every site it protects that its rendering browsers are bots";
+    return answered
+      ? `${host}'s check has come back after you answered it, and it will keep coming back: ${why}, so from here the check does not pass however many times the box is ticked. ${own}, or run the proxy on your own machine (Settings → Paper proxy), whose browser is its own.`
+      : `${host} is checking that a person is here before it shows the page. It is not expected to pass from here — ${why} — and if the box comes back after you tick it, that is why. ${own}, or run the proxy on your own machine (Settings → Paper proxy), whose browser is its own.`;
+  }
+  if (answered) {
+    return `${host}'s check has come back after you answered it: the site is refusing this browser, and ticking the box again rarely changes its mind. ${own}.`;
+  }
   return `${host} is checking that a person is here before it shows the page. If a box to tick appears, tick it; when the check passes the page follows on its own. If it does not pass, open the file in a tab of your own and drop it on the paper instead.`;
 }
 

@@ -84,3 +84,64 @@ export async function fetchFileInPage(page, urls, maxBytes = 64 * 1024 * 1024) {
   }
   return null;
 }
+
+// ------------------------------------------- a site that checks for a person ----
+
+/**
+ * Whether this response is the page itself — the main frame's document —
+ * rather than one of the frames, scripts and fetches a page makes. A
+ * check's own widget is served from Cloudflare's domain in a frame of its
+ * own, and counts for nothing here. Works on a Playwright response and a
+ * Puppeteer response alike: `request().resourceType()`, `frame()` and
+ * `mainFrame()` are the same on both.
+ */
+export function isMainDocument(response, page) {
+  try {
+    if (response.request?.().resourceType?.() !== 'document') return false;
+    const frame = response.frame?.();
+    return !frame || !page?.mainFrame || frame === page.mainFrame();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The host whose check for a person this response is, or null when it is
+ * a page like any other. Cloudflare marks every challenge page it serves —
+ * "Just a moment…", "Performing security verification", with a box to tick
+ * or without — with a `cf-mitigated: challenge` header, whatever the page
+ * says and whatever its status code; this is Cloudflare's own way of
+ * telling a page's scripts that what came back is the check and not the
+ * thing asked for, so it is surer than the title. The host is the site's,
+ * as the app names it: without a `www.`.
+ */
+export function challengedHost(response) {
+  try {
+    const mitigated = String(response.headers()?.['cf-mitigated'] || '')
+      .trim()
+      .toLowerCase();
+    if (mitigated !== 'challenge') return null;
+    return new URL(response.url()).hostname.replace(/^www\./, '') || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The check as the status reports it, once a host has served its check
+ * page again: how many times running it has come for that host, and how
+ * many of those came after the person did something to the page — ticked
+ * the box, say. The first is the check; a check that comes back after it
+ * was answered is the site refusing this browser, which is what the app
+ * needs to know to say so. Another host's check starts over; a page from
+ * the host that is not the check ends it (`null`).
+ */
+export function checkAfter(previous, host, acted = false) {
+  if (!host) return null;
+  const same = previous?.host === host;
+  return {
+    host,
+    times: same ? previous.times + 1 : 1,
+    answered: same ? previous.answered + (acted ? 1 : 0) : 0,
+  };
+}

@@ -547,7 +547,14 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
         ) : problem ? (
           problem
         ) : check ? (
-          check
+          <span>
+            {check}{' '}
+            {status?.url && /^https:/.test(status.url) ? (
+              <a href={status.url} target="_blank" rel="noreferrer">
+                Open it in a tab of your own
+              </a>
+            ) : null}
+          </span>
         ) : focused ? (
           <>
             Keys go to the page. {status?.title ? <em>{status.title}</em> : null}

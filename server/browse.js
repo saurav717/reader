@@ -41,7 +41,7 @@ import {
   signInWindowOpen,
 } from './access.js';
 import { isPrivateHost, MAX_PDF_BYTES, rejectUrl } from './fetchPdf.js';
-import { acceptKey, BUTTONS, clamp, clicks, closedError, fetchFileInPage, VIEWPORT } from './browseShared.js';
+import { acceptKey, BUTTONS, challengedHost, checkAfter, clamp, clicks, closedError, fetchFileInPage, isMainDocument, VIEWPORT } from './browseShared.js';
 
 export { acceptKey, VIEWPORT };
 /** How long a frame poll waits before answering with nothing new. */
@@ -88,6 +88,8 @@ export async function status(after = -1) {
     loading: session.loading,
     frame: frame && frame.seq > after ? frame.data : undefined,
     pdf: session.pdf ? { from: session.pdf.from, size: session.pdf.bytes.length } : null,
+    /** The site's check for a person, when that is what the page is, and whether it came back after being answered. */
+    check: session.check,
   };
 }
 
@@ -157,6 +159,9 @@ export async function open(url) {
     loading: true,
     changed: 0,
     pdf: null,
+    check: null,
+    /** Whether the person has done something to the page since it last arrived — the box ticked, say. */
+    acted: false,
     lastSeen: Date.now(),
     idle: null,
   };
@@ -222,6 +227,19 @@ async function attach(page) {
         session.loading = false;
         changed();
       }
+    });
+    // The page itself arriving — as the site's check for a person, or as
+    // the site — says whether the check is on, and whether it came back
+    // after the person answered it (see `checkAfter`). Only the page: the
+    // check's own widget is a frame from Cloudflare's domain.
+    page.on('response', (response) => {
+      if (session?.page !== page || !isMainDocument(response, page)) return;
+      const host = challengedHost(response);
+      const next = host ? checkAfter(session.check, host, session.acted) : null;
+      session.acted = false;
+      if (JSON.stringify(next) === JSON.stringify(session.check)) return;
+      session.check = next;
+      changed();
     });
     // A file, arriving as a download: headless Chromium has no PDF viewer.
     page.on('download', (download) => {
@@ -321,6 +339,9 @@ export async function input(event) {
   if (!live()) throw closedError();
   touch();
   const { page } = session;
+  // A click or a key is the person answering the page — the box ticked, say
+  // — which is what tells a check that comes back after it from a check.
+  if (event.type === 'down' || event.type === 'keydown') session.acted = true;
   const x = clamp(event.x, VIEWPORT.width);
   const y = clamp(event.y, VIEWPORT.height);
   const button = BUTTONS.has(event.button) ? event.button : 'left';

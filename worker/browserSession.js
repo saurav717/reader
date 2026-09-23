@@ -31,7 +31,7 @@
  */
 import { MAX_PDF_BYTES, rejectUrl } from '../server/fetchPdf.js';
 import { pdfCandidates, pdfLinksIn } from '../server/pdfLinks.js';
-import { closedError, fetchFileInPage, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
+import { challengedHost, checkAfter, closedError, fetchFileInPage, isMainDocument, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
 import {
   apply,
   availability,
@@ -267,6 +267,15 @@ export class BrowserSession {
     this.loading = false;
     /** A PDF the browser met: its bytes where they could be read, else where to fetch it from. */
     this.pdf = null;
+    /**
+     * The site's check for a person, when that is what the page is: which
+     * host's, how many times running it has come, and how many of those
+     * after the person did something to it (see `checkAfter`). The app
+     * says, from this, whether the box is worth ticking.
+     */
+    this.check = null;
+    /** Whether the person has done something to the page since it last arrived — the box ticked, say. */
+    this.acted = false;
     this.lastSeen = 0;
     this.opening = null;
     /** How Cloudflare's browser is reached; a test points this at a fake. */
@@ -315,7 +324,10 @@ export class BrowserSession {
         const events = Array.isArray(body) ? body : Array.isArray(body?.events) ? body.events : [body];
         if (events.length > 64) return json({ error: 'too many events at once' }, 400);
         this.touch();
-        for (const event of events) await apply(this.page, event || {});
+        for (const event of events) {
+          if (event?.type === 'down' || event?.type === 'keydown') this.acted = true;
+          await apply(this.page, event || {});
+        }
         return json({ ok: true });
       }
       if (path === '/grab' || path === '/pdf') {
@@ -415,6 +427,7 @@ export class BrowserSession {
       loading: this.loading,
       frame: this.frame && this.frame.seq > after ? this.frame.data : undefined,
       pdf: this.pdf ? { from: this.pdf.from, size: this.pdf.bytes ? this.pdf.bytes.length : 0 } : null,
+      check: this.check,
       browsers: this.limits,
     };
   }
@@ -549,6 +562,8 @@ export class BrowserSession {
       await still();
       this.touch();
       this.pdf = null;
+      this.check = null;
+      this.acted = false;
       this.url = url;
       this.loading = true;
       await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS }).catch(() => {
@@ -767,6 +782,19 @@ export class BrowserSession {
           this.bump();
         }
       });
+      // The page itself arriving — as the site's check for a person, or as
+      // the site — is what says whether the check is on, and whether it came
+      // back after the person answered it. Only the page: the check's own
+      // widget is a frame from Cloudflare's domain and says nothing.
+      page.on('response', (response) => {
+        if (this.page !== page || !isMainDocument(response, page)) return;
+        const host = challengedHost(response);
+        const next = host ? checkAfter(this.check, host, this.acted) : null;
+        this.acted = false;
+        if (JSON.stringify(next) === JSON.stringify(this.check)) return;
+        this.check = next;
+        this.bump();
+      });
       // A PDF, met: its bytes where the response can be read, else where to
       // fetch it from with the session's cookies when it is collected.
       page.on('response', (response) => {
@@ -882,6 +910,8 @@ export class BrowserSession {
     this.token = null;
     this.frame = null;
     this.pdf = null;
+    this.check = null;
+    this.acted = false;
     this.url = '';
     this.title = '';
     this.loading = false;
@@ -915,6 +945,8 @@ export class BrowserSession {
     this.token = null;
     this.frame = null;
     this.pdf = null;
+    this.check = null;
+    this.acted = false;
     this.url = '';
     this.title = '';
     this.loading = false;
