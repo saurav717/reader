@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import { arxivIdFromUrl, judgePdf, loadPaperContent, loadPaperContentFromPdf, type PaperContent, type ReflowProgress } from '../lib/paperContent';
 import { hasProxy } from '../lib/api';
@@ -35,6 +35,8 @@ import {
 } from '../lib/anchor';
 import { HIGHLIGHT_COLORS, type HighlightColor, type ReadingMode } from '../types';
 import LookupPopover, { type LookupTarget } from './LookupPopover';
+import HoverCard, { type CitedEntry, type HoverTarget } from './HoverCard';
+import { CITE_CLASS, REF_CLASS, entryText, parseReference } from '../lib/citations';
 import {
   ArrowLeftIcon,
   BookIcon,
@@ -190,6 +192,124 @@ export default function Reader({
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // The cards over an author's name and over a citation. One is open at a
+  // time; it opens a moment after the pointer arrives, so that moving across
+  // the text does not flash one up at every citation on the way, and stays
+  // while the pointer crosses the gap to it.
+  const [hover, setHover] = useState<(HoverTarget & { element: Element | null }) | null>(null);
+  const hoverTimer = useRef<number | undefined>(undefined);
+  const hoverElement = useRef<Element | null>(null);
+  const holdHover = useCallback(() => window.clearTimeout(hoverTimer.current), []);
+  const closeHover = useCallback(() => {
+    window.clearTimeout(hoverTimer.current);
+    hoverElement.current = null;
+    setHover(null);
+  }, []);
+  const leaveHover = useCallback((delay = 220) => {
+    window.clearTimeout(hoverTimer.current);
+    hoverTimer.current = window.setTimeout(() => {
+      hoverElement.current = null;
+      setHover(null);
+    }, delay);
+  }, []);
+  const openHover = useCallback((element: Element, make: () => HoverTarget | null, delay = 380) => {
+    window.clearTimeout(hoverTimer.current);
+    if (hoverElement.current === element) return;
+    hoverTimer.current = window.setTimeout(() => {
+      // Not while text is being selected: the selection has a toolbar of its own.
+      if (!window.getSelection()?.isCollapsed) return;
+      const target = make();
+      if (!target) return;
+      hoverElement.current = element;
+      setHover({ ...target, element });
+    }, delay);
+  }, []);
+  useEffect(() => () => window.clearTimeout(hoverTimer.current), []);
+  // It points at a place on the screen, so it goes when the page moves.
+  useEffect(() => {
+    if (!hover) return;
+    const onScroll = (event: Event) => {
+      if (!(event.target instanceof Node && document.querySelector('.hover-card')?.contains(event.target))) closeHover();
+    };
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', closeHover);
+    return () => {
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', closeHover);
+    };
+  }, [hover, closeHover]);
+  useEffect(closeHover, [paperId, closeHover]);
+
+  /**
+   * Bibliography entries by id, as the card shows them. `cited` is the
+   * citation's own text, the label for an entry that has no number.
+   */
+  const entriesFor = useCallback((ids: string[], cited = ''): CitedEntry[] => {
+    const root = bodyRef.current;
+    if (!root) return [];
+    return ids.flatMap((id) => {
+      const element = root.querySelector(`[id="${CSS.escape(id)}"]`);
+      if (!element) return [];
+      const text = entryText(element);
+      const tag = element.querySelector('.ltx_tag_bibitem')?.textContent?.replace(/[[\]]/g, '').trim();
+      const parsed = parseReference(element.textContent || '');
+      const label =
+        tag ||
+        (parsed.number !== undefined ? String(parsed.number) : '') ||
+        (ids.length === 1 ? cited.replace(/[()[\]]/g, '').trim() : '') ||
+        `${text.split(/[\s,]+/)[0]}${parsed.year ? ` ${parsed.year}` : ''}`;
+      return [{ id, label, text }];
+    });
+  }, []);
+
+  /** Bring an entry of the bibliography into view, and mark it for a moment. */
+  const revealEntry = useCallback(
+    (id: string) => {
+      const element = bodyRef.current?.querySelector(`[id="${CSS.escape(id)}"]`);
+      if (!element) return;
+      closeHover();
+      const handled = !window.dispatchEvent(new CustomEvent('reader:reveal', { detail: { element }, cancelable: true }));
+      if (!handled) element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      element.classList.remove('ref-flash');
+      void (element as HTMLElement).offsetWidth;
+      element.classList.add('ref-flash');
+      window.setTimeout(() => element.classList.remove('ref-flash'), 1800);
+    },
+    [closeHover],
+  );
+
+  const onBodyOver = useCallback(
+    (event: React.MouseEvent | React.FocusEvent, delay?: number) => {
+      const target = event.target as Element;
+      const cite = target.closest(`.${CITE_CLASS}`);
+      if (cite) {
+        openHover(cite, () => {
+          const ids = (cite.getAttribute('data-refs') || '').split(/\s+/).filter(Boolean);
+          const entries = entriesFor(ids, cite.textContent || '');
+          return entries.length ? { kind: 'cite', entries, anchor: cite.getBoundingClientRect() } : null;
+        }, delay);
+        return;
+      }
+      // An entry of the bibliography says what it is too, a little more slowly
+      // — it is also text being read — and the card opens by the pointer.
+      const entry = target.closest(`.${REF_CLASS}`);
+      if (entry?.id && 'clientX' in event) {
+        const { clientX, clientY } = event;
+        openHover(
+          entry,
+          () => {
+            const entries = entriesFor([entry.id]);
+            return entries.length ? { kind: 'cite', entries, anchor: new DOMRect(clientX, clientY - 10, 0, 20) } : null;
+          },
+          650,
+        );
+        return;
+      }
+      if (hoverElement.current || hoverTimer.current) leaveHover();
+    },
+    [entriesFor, leaveHover, openHover],
+  );
 
   const mine = useMemo(
     () => highlights.filter((highlight) => highlight.paperId === paperId),
@@ -976,7 +1096,36 @@ export default function Reader({
         {paper.venue ? <span>{paper.venue}</span> : null}
       </div>
       <h1 className="paper-title">{paper.title}</h1>
-      <p className="paper-authors">{paper.authors.join(' · ')}</p>
+      <p className="paper-authors">
+        {paper.authors.map((name, position) => {
+          const show = (element: HTMLElement, delay?: number) =>
+            openHover(element, () => ({ kind: 'author', name, position, anchor: element.getBoundingClientRect() }), delay);
+          return (
+            <Fragment key={`${position}-${name}`}>
+              {position ? ' · ' : null}
+              <span
+                className="author-name"
+                role="button"
+                tabIndex={0}
+                aria-haspopup="dialog"
+                onMouseEnter={(event) => show(event.currentTarget)}
+                onMouseLeave={() => leaveHover()}
+                onFocus={(event) => show(event.currentTarget, 0)}
+                onBlur={() => leaveHover()}
+                onClick={(event) => show(event.currentTarget, 0)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    show(event.currentTarget, 0);
+                  }
+                }}
+              >
+                {name}
+              </span>
+            </Fragment>
+          );
+        })}
+      </p>
 
       {content?.notice ? (
         <p className="banner warn" style={{ marginBottom: 20 }}>
@@ -1030,7 +1179,21 @@ export default function Reader({
           // Only take the menu over when there is something to look up.
           if (openLookup()) event.preventDefault();
         }}
+        onMouseOver={onBodyOver}
+        onMouseLeave={() => leaveHover()}
+        onFocus={onBodyOver}
+        onBlur={() => leaveHover()}
         onClick={(event) => {
+          // A citation goes to its entry once its card is up; before that —
+          // a tap, where there is no hovering — it puts the card up.
+          const cite = (event.target as HTMLElement).closest(`.${CITE_CLASS}`);
+          if (cite && window.getSelection()?.isCollapsed !== false) {
+            event.preventDefault();
+            const first = (cite.getAttribute('data-refs') || '').split(/\s+/)[0];
+            if (hover?.element === cite && first) revealEntry(first);
+            else onBodyOver(event, 0);
+            return;
+          }
           const mark = (event.target as HTMLElement).closest('mark.hl') as HTMLElement | null;
           if (mark?.dataset.highlightId) {
             onSelectHighlight(mark.dataset.highlightId);
@@ -1457,6 +1620,17 @@ export default function Reader({
             <CopyIcon size={15} />
           </button>
         </div>
+      ) : null}
+
+      {hover ? (
+        <HoverCard
+          target={hover}
+          paper={{ id: paper.id, title: paper.title, doi: paper.doi, arxivId: paper.arxivId }}
+          onEnter={holdHover}
+          onLeave={() => leaveHover()}
+          onClose={closeHover}
+          onJump={revealEntry}
+        />
       ) : null}
 
       {lookup ? (

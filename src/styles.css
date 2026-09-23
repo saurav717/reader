@@ -1137,6 +1137,103 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 .paper-body .ltx_bibblock { display: inline; }
 .paper-body .ltx_bibitem .ltx_bibblock + .ltx_bibblock::before { content: ' '; }
 
+/* ---------------------------------------------------------- hover cards -- */
+
+/* What can be hovered for a card: the names in the byline and the citations. */
+.author-name {
+  cursor: default;
+  border-radius: 3px;
+  text-decoration: underline dotted color-mix(in srgb, var(--muted) 60%, transparent);
+  text-underline-offset: 3px;
+}
+.author-name:hover, .author-name:focus-visible { color: var(--accent-ink); text-decoration-color: var(--accent); outline: none; }
+.paper-body .cite { color: var(--accent); cursor: pointer; border-radius: 3px; text-decoration: none; }
+.paper-body .cite:hover, .paper-body .cite:focus-visible { background: var(--accent-soft); outline: none; }
+.paper-body .ref-entry { border-radius: 4px; transition: background-color 0.6s; }
+.paper-body .ref-flash { background: var(--accent-soft); transition: none; }
+
+.hover-card {
+  position: fixed;
+  z-index: 46;
+  max-height: min(460px, calc(100vh - 24px));
+  overflow-y: auto;
+  padding: 12px 14px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  animation: hover-card-in 0.12s ease-out;
+}
+@keyframes hover-card-in { from { opacity: 0; transform: translateY(3px); } }
+.hover-card.above { animation-name: hover-card-in-above; }
+@keyframes hover-card-in-above { from { opacity: 0; transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .hover-card { animation: none; } }
+.hover-card p { margin: 0; }
+.hover-card a { color: var(--accent); text-decoration: none; }
+.hover-card a:hover { text-decoration: underline; }
+
+.hc-head { margin-bottom: 8px; }
+.hc-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.hc-name { font-family: var(--serif); font-size: 17px; font-weight: 600; line-height: 1.25; }
+.hc-kicker { font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.hc-sub { color: var(--ink-2); font-size: 12px; }
+.hc-meta { color: var(--muted); font-size: 11.5px; }
+.hc-label { margin-bottom: 3px !important; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.hc-note { margin-top: 8px !important; color: var(--muted); font-size: 11.5px; }
+.hc-loading { display: flex; align-items: center; gap: 8px; margin: 6px 0 4px !important; color: var(--muted); font-size: 12px; }
+
+.hc-stats { display: flex; gap: 6px; margin: 2px 0 8px; padding: 0; }
+.hc-stats > div { flex: 1; padding: 5px 7px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--panel); }
+.hc-stats dt { font-size: 10px; color: var(--muted); }
+.hc-stats dd { margin: 0; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hc-scholar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; margin-bottom: 6px !important; font-size: 12px; color: var(--ink-2); }
+.hc-scholar.muted { color: var(--muted); gap: 8px; }
+.hc-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.hc-chip { padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 10.5px; color: var(--ink-2); }
+
+.hc-works ul { list-style: none; margin: 0 0 4px; padding: 0; }
+.hc-works li { display: flex; flex-direction: column; margin-bottom: 5px; }
+.hc-work {
+  all: unset; cursor: pointer; font-family: var(--serif); font-size: 13px; line-height: 1.3; color: var(--ink);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.hc-work:hover, .hc-work:focus-visible { color: var(--accent-ink); text-decoration: underline; }
+
+.hc-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: -2px 0 8px; }
+.hc-tabs button {
+  padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; background: transparent;
+  font: inherit; font-size: 11px; color: var(--ink-2); cursor: pointer;
+}
+.hc-tabs button[aria-selected='true'] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.hc-printed {
+  padding: 6px 9px; border-left: 2px solid var(--border); background: var(--panel); border-radius: 0 6px 6px 0;
+  font-family: var(--serif); font-size: 12.5px; color: var(--ink-2);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.hc-paper { margin-top: 9px; }
+.hc-title { font-family: var(--serif); font-size: 15px; font-weight: 600; line-height: 1.3; margin-bottom: 2px !important; }
+.hover-card .hc-title a { color: var(--ink); }
+.hover-card .hc-title a:hover { color: var(--accent-ink); }
+.hc-abstract {
+  margin-top: 6px !important; color: var(--ink-2); font-size: 12px;
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.hc-links {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-soft); font-size: 11.5px;
+}
+.hc-action {
+  display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none;
+  font: inherit; font-size: 11.5px; color: var(--accent); cursor: pointer;
+}
+.hc-links .hc-action { margin-left: auto; }
+.hc-action:hover { text-decoration: underline; }
+
 /* ---------------------------------------------------------------- book -- */
 .book-view {
   flex: 1 1 0; min-height: 0; display: flex; flex-direction: column;

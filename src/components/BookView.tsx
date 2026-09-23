@@ -112,6 +112,22 @@ export default function BookView({ children, contentKey, initialProgress, onProg
     [onProgress, spreads, stride],
   );
 
+  // Turn to the page an element is on — a bibliography entry a citation's
+  // card was asked to go to — rather than letting it be scrolled into view,
+  // which would leave the columns part-way between two spreads.
+  useEffect(() => {
+    const onReveal = (event: Event) => {
+      const pages = pagesRef.current;
+      const element = (event as CustomEvent<{ element: Element }>).detail?.element;
+      if (!pages || !element || !pages.contains(element)) return;
+      event.preventDefault();
+      const x = element.getBoundingClientRect().left - pages.getBoundingClientRect().left + pages.scrollLeft;
+      go(Math.floor(x / stride()));
+    };
+    window.addEventListener('reader:reveal', onReveal);
+    return () => window.removeEventListener('reader:reveal', onReveal);
+  }, [go, stride]);
+
   // Arrow keys, Page Up/Down and the space bar turn the page.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

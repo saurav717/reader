@@ -3,6 +3,7 @@ import type { Paper } from '../types';
 import { api, hasProxy, NO_PROXY_REASON } from './api';
 import type { ReflowProgress } from './pdfReflow';
 import { pdfShape } from './pdfShape';
+import { withCitations } from './citations';
 
 export interface PaperContent {
   html: string;
@@ -55,7 +56,8 @@ export async function loadPaperContentFromPdf(
     FORBID_TAGS: ['style', 'link'],
   });
   return {
-    html: clean,
+    // The citations marked, so that hovering over one says what it cites.
+    html: withCitations(clean),
     mode: 'pdf',
     sourceLabel: `Reflowed from the PDF · ${reflowed.pages} ${reflowed.pages === 1 ? 'page' : 'pages'}`,
     release: reflowed.release,
@@ -176,7 +178,7 @@ export async function loadPaperContent(paper: Paper, signal?: AbortSignal, optio
     });
 
     return {
-      html: clean,
+      html: withCitations(clean),
       mode: 'html',
       sourceLabel: payload.source === 'ar5iv' ? 'ar5iv HTML' : 'arXiv HTML',
     };

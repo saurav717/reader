@@ -101,6 +101,20 @@ export default function App() {
     return () => window.removeEventListener('reader:ask-claude', onAsk);
   }, []);
 
+  // "All their papers" or "Add or read" on a card in the paper: the search
+  // is Discover's, which is where a paper is added and opened from.
+  const [discoverAsk, setDiscoverAsk] = useState<{ query: string; at: number } | null>(null);
+  useEffect(() => {
+    const onDiscover = (event: Event) => {
+      const query = (event as CustomEvent<{ query: string }>).detail?.query?.trim();
+      if (!query) return;
+      setDiscoverAsk({ query, at: Date.now() });
+      setDock('discover');
+    };
+    window.addEventListener('reader:discover', onDiscover);
+    return () => window.removeEventListener('reader:discover', onDiscover);
+  }, []);
+
   // Reopening the tab should put you back on the paper you were reading.
   useEffect(() => {
     localStorage.setItem(VIEW_KEY, JSON.stringify(view));
@@ -361,7 +375,7 @@ export default function App() {
           ) : null}
 
           {dockPane === 'discover' ? (
-            <Discover onClose={() => setDock(null)} onOpen={openPaper} />
+            <Discover onClose={() => setDock(null)} onOpen={openPaper} ask={discoverAsk} />
           ) : (
             <NotesRail
               paperId={view.kind === 'paper' ? view.id : ''}
