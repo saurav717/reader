@@ -36,4 +36,4 @@ new_sqlite_classes = ["BrowserSession"]
 # lines out: a sign-in then lasts as long as the browser session.
 [[kv_namespaces]]
 binding = "SESSIONS"
-id = "4b383f85f5d041569dc04f04350b1c3"
+id = "4b383f85f5d041569dc04f04350b1c38"
