@@ -4,6 +4,7 @@ import { loadPaperContent, type PaperContent } from '../lib/paperContent';
 import { hasProxy } from '../lib/api';
 import {
   fetchPaperPdf,
+  fetchPdfFromDrive,
   PdfError,
   pdfAvailability,
   pdfSourceUrl,
@@ -121,6 +122,15 @@ export default function Reader({
   const [pdfCheck, setPdfCheck] = useState<CheckOffer | null>(null);
   /** Bumped to ask for the file again after a sign-in. */
   const [pdfAttempt, setPdfAttempt] = useState(0);
+  /**
+   * What Drive said when it was asked for this paper, before any copy was:
+   * asked the moment the paper opens, so a paper already in Drive is on
+   * screen before the indexes have said where else it is, and the copies
+   * are fetched only once Drive has said it has nothing.
+   */
+  const [driveProbe, setDriveProbe] = useState<'idle' | 'checking' | 'found' | 'missing'>('idle');
+  /** Which paper the probe above is for, so it is made once per paper and not once per render. */
+  const probedFor = useRef<string | null>(null);
   /** The browser inside the reader, open in the PDF pane in place of the failure. */
   const [browsing, setBrowsing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -227,7 +237,7 @@ export default function Reader({
   // A PDF can be shown if there is a proxy to fetch it through — or if Drive
   // already holds a copy, which comes back to the browser directly and so
   // opens even on a deployment that has no server at all.
-  const driveCopy = Boolean(paper?.drive?.pdfFileId && driveConnected && settings.googleClientId);
+  const driveCopy = Boolean(paper?.drive?.pdfFileId && driveConnected && settings.googleClientId) || driveProbe === 'found';
   const canFetchPdf = hasProxy() || driveCopy;
 
   // Whether there is a PDF to open at all: the copy in Drive, a single link,
@@ -245,6 +255,8 @@ export default function Reader({
     setLocations(null);
     setSaving(false);
     setBrowsing(false);
+    setDriveProbe('idle');
+    probedFor.current = null;
     // Changing the preference mid-paper is already handled by chooseMode.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
@@ -307,25 +319,83 @@ export default function Reader({
     ],
   );
 
-  // Fetch the file itself, once, when the PDF pane is first opened. Drive
-  // needs no list of copies and is asked at once; the proxy waits for the list
-  // this component is already resolving, rather than resolving it twice.
+  // Drive first, and at once. It needs no list of copies — the id on record,
+  // or the paper's name — so it is asked the moment the PDF pane opens,
+  // while the indexes are still being asked where else the paper is, and a
+  // paper already in Drive is on screen before that list is back. What it
+  // needs is kept apart from the list, so the list arriving does not start
+  // the look over.
+  const driveLookup = useMemo(
+    () => ({
+      driveFileId: paper?.drive?.pdfFileId,
+      driveFolderId: paper?.drive?.folderId,
+      rootFolderName: settings.driveFolderName,
+      clientId: settings.googleClientId,
+      driveConnected,
+    }),
+    [paper?.drive?.pdfFileId, paper?.drive?.folderId, settings.driveFolderName, settings.googleClientId, driveConnected],
+  );
   useEffect(() => {
     if (mode !== 'pdf' || !pdfTarget || pdfBlob) return;
-    if (pdfLookup !== 'ready') return;
-    if (!driveCopy && !driveOptions.locations) return;
+    if (!driveConnected || !settings.googleClientId) return;
+    if (probedFor.current === pdfTarget.id) return;
+    probedFor.current = pdfTarget.id;
+    const controller = new AbortController();
+    let settled = false;
+    setDriveProbe('checking');
+    fetchPdfFromDrive(pdfTarget, driveLookup, controller.signal)
+      .then((found) => {
+        if (controller.signal.aborted) return;
+        settled = true;
+        if (!found) {
+          setDriveProbe('missing');
+          return;
+        }
+        setPdfBlob(found.blob);
+        setPdfFrom('drive');
+        setPdfLocation(null);
+        setPdfError(null);
+        setDriveProbe('found');
+        // Found in Drive by name: remembered, so the next open asks by id.
+        if (found.drive) void setPaperDriveFile(pdfTarget.id, found.drive);
+      })
+      .catch(() => {
+        // A copy that could not be read, or a grant that lapsed: the
+        // publisher is still there, and that is what is asked next.
+        if (controller.signal.aborted) return;
+        settled = true;
+        setDriveProbe('missing');
+      });
+    return () => {
+      controller.abort();
+      // A look cut short — the pane left before Drive answered — is made
+      // again when the pane is next opened, rather than counted as an answer.
+      if (!settled) {
+        probedFor.current = null;
+        setDriveProbe('idle');
+      }
+    };
+  }, [mode, pdfBlob, pdfTarget, driveConnected, settings.googleClientId, driveLookup, setPaperDriveFile]);
+
+  // Then the copies, through the proxy, once Drive has said it has nothing —
+  // never both at once, since the file is one download whichever answers.
+  // The proxy waits for the list this component is already resolving, rather
+  // than resolving it twice.
+  useEffect(() => {
+    if (mode !== 'pdf' || !pdfTarget || pdfBlob) return;
+    if (pdfLookup !== 'ready' || !driveOptions.locations) return;
+    if (driveConnected && settings.googleClientId && driveProbe !== 'missing') return;
     const controller = new AbortController();
     setPdfError(null);
     setPdfSignIn(null);
     setPdfCheck(null);
-    fetchPaperPdf(pdfTarget, driveOptions, controller.signal)
-      .then(({ blob, from, location, drive }) => {
+    // Drive has been asked already, above; the copies are what is left.
+    fetchPaperPdf(pdfTarget, { ...driveOptions, driveConnected: false }, controller.signal)
+      .then(({ blob, from, location }) => {
         if (controller.signal.aborted) return;
         setPdfBlob(blob);
         setPdfFrom(from);
         setPdfLocation(location ?? null);
-        // Found in Drive by name: remembered, so the next open asks by id.
-        if (drive) void setPaperDriveFile(pdfTarget.id, drive);
       })
       .catch((error) => {
         if (controller.signal.aborted) return;
@@ -334,7 +404,7 @@ export default function Reader({
         setPdfCheck(error instanceof PdfError ? error.check ?? null : null);
       });
     return () => controller.abort();
-  }, [mode, pdfBlob, pdfTarget, driveOptions, driveCopy, pdfLookup, pdfAttempt, setPaperDriveFile]);
+  }, [mode, pdfBlob, pdfTarget, driveOptions, driveConnected, settings.googleClientId, driveProbe, pdfLookup, pdfAttempt]);
 
   // Putting a paper in Drive as it is read.
   //
@@ -742,7 +812,7 @@ export default function Reader({
 
       {mode === 'pdf' ? (
         <div className="pdf-pane">
-          {browsing && (pdfError || pdfLookup === 'none') ? (
+          {browsing && !pdfObjectUrl ? (
             <MiniBrowser
               paper={paper}
               locations={knownLocations}
@@ -822,10 +892,31 @@ export default function Reader({
               style={{ flexGrow: 1, border: 0, width: '100%', background: 'var(--rail)' }}
             />
           ) : (
-            <p style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted)', fontSize: 13, padding: 16 }}>
-              <span className="spinner" />
-              {pdfLookup === 'checking' ? ' Looking for the PDF…' : ' Fetching the PDF…'}
-            </p>
+            <div style={{ padding: 16, color: 'var(--muted)', fontSize: 13 }}>
+              <p style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                <span className="spinner" />
+                {driveProbe === 'checking'
+                  ? ' Looking in your Drive…'
+                  : pdfLookup === 'checking'
+                    ? ' Looking for the PDF…'
+                    : knownLocations?.length
+                      ? ` Fetching the PDF — ${knownLocations.length === 1 ? 'one copy' : `${knownLocations.length} copies`} to try…`
+                      : ' Fetching the PDF…'}
+              </p>
+              {/* The way in through a sign-in, offered while the copies are
+                  still being asked rather than only once every one of them
+                  has refused: a paper behind a login is a paper whose copies
+                  all refuse, and waiting for each to say so is the slow part. */}
+              {hasProxy() && knownLocations?.length ? (
+                <p style={{ margin: '10px 0 0' }}>
+                  Behind a login?{' '}
+                  <button type="button" className="link-btn" onClick={() => setBrowsing(true)}>
+                    Browse to a copy and sign in here
+                  </button>
+                  {' — a browser opens in this pane, at the site you pick, without waiting for the copies to answer.'}
+                </p>
+              ) : null}
+            </div>
           )}
         </div>
       ) : (

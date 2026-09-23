@@ -268,6 +268,9 @@ const inFlight = new Map<string, Promise<Blob>>();
 const KEEP_MS = 60_000;
 let recent: { url: string; blob: Blob; at: number } | null = null;
 
+/** How many of a paper's copies are asked for at once. */
+export const COPIES_AT_ONCE = 3;
+
 /** Rejects the way an aborted fetch does, so callers need no special case. */
 function whenAborted(signal: AbortSignal): Promise<never> {
   return new Promise((_, reject) => {
@@ -342,22 +345,47 @@ export async function fetchPdfFromLocations(
   const candidates = locations.filter((location) => locationProxyUrl(paper, location));
   if (!candidates.length) throw new PdfError('No open-access copy of this paper could be found anywhere we can see.');
 
+  // A few at a time, best copy first, and the first to answer wins. One at a
+  // time was the sum of every refusal before the one that answered — and a
+  // refusal is not quick: a publisher's page fetched in full, a login wall
+  // followed, a check for a person met and handed to another browser — so
+  // ten copies could be minutes before the reader said anything. The window
+  // starts in rank order, so the copies most likely to answer without a
+  // wall have the head start; a copy that answers is the file whichever it
+  // is. The downloads a win leaves in flight run on for whoever asks next
+  // (see `shareDownload`), which is a couple of files at most.
   const tried: { location: PaperLocation; error: string; loginWall: boolean; host?: string; check?: CheckOffer }[] = [];
-  for (const location of candidates) {
+  type Settled = { index: number; blob?: Blob; error?: unknown };
+  const inFlight = new Map<number, Promise<Settled>>();
+  let next = 0;
+  const launch = () => {
+    const index = next++;
+    const url = locationProxyUrl(paper, candidates[index]) as string;
+    inFlight.set(
+      index,
+      shareDownload(url, signal).then(
+        (blob) => ({ index, blob }),
+        (error: unknown) => ({ index, error }),
+      ),
+    );
+  };
+  while (next < candidates.length && inFlight.size < COPIES_AT_ONCE) launch();
+  while (inFlight.size) {
+    const settled = await Promise.race(inFlight.values());
+    inFlight.delete(settled.index);
+    const location = candidates[settled.index];
+    if (settled.blob) return { blob: settled.blob, location, tried };
+    const error = settled.error;
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const url = locationProxyUrl(paper, location) as string;
-    try {
-      return { blob: await shareDownload(url, signal), location, tried };
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') throw error;
-      tried.push({
-        location,
-        error: error instanceof Error ? error.message : String(error),
-        loginWall: error instanceof PdfError && error.loginWall,
-        host: error instanceof PdfError ? error.host : undefined,
-        check: error instanceof PdfError ? error.check : undefined,
-      });
-    }
+    tried.push({
+      location,
+      error: error instanceof Error ? error.message : String(error),
+      loginWall: error instanceof PdfError && error.loginWall,
+      host: error instanceof PdfError ? error.host : undefined,
+      check: error instanceof PdfError ? error.check : undefined,
+    });
+    if (next < candidates.length) launch();
   }
 
   // Say which copies were tried: "it did not work" is not actionable, and the
@@ -512,6 +540,39 @@ export async function findPdfInDrive(
 }
 
 /**
+ * The copy in Drive, or null when Drive has none: by the id the library
+ * recorded, else by name (see `findPdfInDrive`). Needs no list of the
+ * paper's copies, so the reader asks this the moment a paper opens, while
+ * the indexes are still being asked where else it is — a paper already in
+ * Drive is on screen before that list is back. What goes wrong reading a
+ * copy Drive does have (deleted by hand, the grant lapsed) is thrown, so the
+ * caller can tell "nothing there" from "could not be read".
+ */
+export async function fetchPdfFromDrive(
+  paper: PaperRef,
+  options: {
+    driveFileId?: string;
+    driveFolderId?: string;
+    rootFolderName?: string;
+    clientId?: string;
+    driveConnected?: boolean;
+  },
+  signal?: AbortSignal,
+): Promise<FetchedPdf | null> {
+  const { driveFileId, driveFolderId, rootFolderName, clientId, driveConnected } = options;
+  if (!driveConnected || !clientId) return null;
+  const token = await ensureDriveToken(clientId);
+  let fileId = driveFileId;
+  let found: FetchedPdf['drive'];
+  if (!fileId) {
+    found = (await findPdfInDrive(token, paper, { rootFolderName, folderId: driveFolderId })) ?? undefined;
+    fileId = found?.pdfFileId;
+  }
+  if (!fileId) return null;
+  return { blob: await downloadFile(token, fileId, signal), from: 'drive', drive: found };
+}
+
+/**
  * The PDF, preferring the copy in Drive.
  *
  * Once a paper has been synced, Drive holds the same bytes the proxy fetched —
@@ -546,27 +607,17 @@ export async function fetchPaperPdf(
   } = {},
   signal?: AbortSignal,
 ): Promise<FetchedPdf> {
-  const { driveFileId, driveFolderId, rootFolderName, clientId, driveConnected } = options;
+  const { clientId, driveConnected } = options;
 
   if (driveConnected && clientId) {
-    let known = Boolean(driveFileId);
     try {
-      const token = await ensureDriveToken(clientId);
-      let fileId = driveFileId;
-      let found: FetchedPdf['drive'];
-      if (!fileId) {
-        found = (await findPdfInDrive(token, paper, { rootFolderName, folderId: driveFolderId })) ?? undefined;
-        fileId = found?.pdfFileId;
-        known = Boolean(fileId);
-      }
-      if (fileId) {
-        return { blob: await downloadFile(token, fileId, signal), from: 'drive', drive: found };
-      }
+      const found = await fetchPdfFromDrive(paper, options, signal);
+      if (found) return found;
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') throw error;
       // The copy may have been deleted, or the grant may have lapsed. The
       // publisher is still there, so this is not worth failing over.
-      if (known && !hasProxy()) {
+      if (!hasProxy()) {
         throw new PdfError('The copy in your Drive could not be read, and there is no server to fetch it through.');
       }
     }

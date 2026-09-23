@@ -359,6 +359,47 @@ describe('the browser from the Worker', () => {
     assert.equal(await worker.forgetCookies({}), false);
     assert.deepEqual(await worker.storedCookies(env), []);
   });
+
+  it('puts a kept sign-in back in one call, and one at a time only when the batch is refused', async () => {
+    const kept = [
+      { name: 'a', value: '1', domain: '.x.org', path: '/' },
+      { name: 'b', value: '2', domain: '.y.org', path: '/' },
+      { name: 'c', value: '3', domain: '.z.org', path: '/' },
+    ];
+    const store = new Map([['browser-cookies', JSON.stringify(kept)]]);
+    const env = { SESSIONS: { get: async (k) => store.get(k) ?? null, put: async (k, v) => store.set(k, v), delete: async (k) => store.delete(k) } };
+    const fakePage = (session) => ({ createCDPSession: async () => session, setCookie: async () => { throw new Error('not this way'); } });
+
+    // A hundred cookies is one call, not two hundred.
+    const sent = [];
+    const session = { send: async (method, params) => { sent.push([method, params]); return {}; }, detached: 0, detach: async () => { session.detached += 1; } };
+    assert.equal(await worker.restoreCookies(env, fakePage(session)), 3);
+    assert.deepEqual(sent.map(([method]) => method), ['Network.setCookies']);
+    assert.deepEqual(sent[0][1].cookies.map((c) => c.name), ['a', 'b', 'c']);
+    assert.equal(session.detached, 1, 'a session it opened is closed');
+
+    // Handed the cookies and a session, it reads nothing and opens nothing.
+    const given = [];
+    const cdp = { send: async (method, params) => { given.push([method, params]); return {}; }, detach: async () => { throw new Error('not mine to close'); } };
+    assert.equal(await worker.restoreCookies({}, fakePage(null), { cookies: kept.slice(0, 2), cdp }), 2);
+    assert.deepEqual(given.map(([method]) => method), ['Network.setCookies']);
+
+    // One bad cookie refuses the batch: then each on its own, the bad one skipped.
+    const single = [];
+    const fussy = {
+      send: async (method, params) => {
+        single.push(method);
+        if (method === 'Network.setCookies') throw new Error('Invalid cookie fields');
+        return { success: params.name !== 'b' };
+      },
+      detach: async () => undefined,
+    };
+    assert.equal(await worker.restoreCookies(env, fakePage(fussy)), 2);
+    assert.deepEqual(single, ['Network.setCookies', 'Network.setCookie', 'Network.setCookie', 'Network.setCookie']);
+
+    // Nothing kept: nothing asked of the browser.
+    assert.equal(await worker.restoreCookies({}, fakePage(null)), 0);
+  });
 });
 
 describe('the Worker entry', () => {
