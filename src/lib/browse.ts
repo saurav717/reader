@@ -66,6 +66,8 @@ export interface BrowseStatus {
   fallback?: 'browserless';
   /** Why the last hand-over gave no browser at Browserless, in Browserless's words; absent when it did, or none was tried. */
   fallbackError?: string;
+  /** Why the browser went while the pane was open, when the proxy knows — Browserless's time for a session up, say. On a closed status only. */
+  ended?: string;
   /** The site's check for a person, when that is what the page is — noticed by the proxy from the response itself. */
   check?: BrowseCheck | null;
 }

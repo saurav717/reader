@@ -1441,3 +1441,76 @@ describe('the session handed to a browser at Browserless', () => {
     assert.deepEqual(launches, [{ at: 'browserless' }]);
   });
 });
+
+describe('input across a hand-over, and a session Browserless ended', () => {
+  const { apply } = worker;
+
+  it('lets a release whose press went to the page before pass, rather than failing the batch', async () => {
+    const page = {
+      mouse: {
+        move: async () => undefined,
+        down: async () => {
+          throw new Error("'left' is already pressed.");
+        },
+        up: async () => {
+          throw new Error("'left' is not pressed.");
+        },
+      },
+    };
+    await apply(page, { type: 'down', x: 1, y: 1 });
+    await apply(page, { type: 'up', x: 1, y: 1 });
+  });
+
+  it('applies a batch to the page it was meant for, and stops when that page is swapped mid-batch', async () => {
+    const fake = fakeSession();
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    await object.adopt(fake.browser, 'a-session');
+    object.token = 'tok';
+    const first = fake.page;
+    const seen = [];
+    const second = { ...first, isClosed: () => false, mouse: { move: async () => seen.push('second'), down: async () => seen.push('second'), up: async () => seen.push('second') } };
+    first.mouse = {
+      move: async () => seen.push('first'),
+      down: async () => {
+        seen.push('first');
+        // The hand-over lands between the press and the release.
+        object.page = second;
+      },
+      up: async () => seen.push('first'),
+    };
+    const answer = await object
+      .fetch(new Request('https://browser-session/input?session=tok', { method: 'POST', body: JSON.stringify([{ type: 'move', x: 1, y: 1 }, { type: 'down', x: 1, y: 1 }, { type: 'up', x: 1, y: 1 }]) }))
+      .then((r) => r.json());
+    assert.equal(answer.ok, true);
+    assert.deepEqual(seen, ['first', 'first', 'first'], 'the release is not sent to the page that came, whose mouse never saw the press');
+  });
+
+  it("says why, on the closed status, when the browser at Browserless went while the pane was open", async () => {
+    const { ENDED_AT_BROWSERLESS } = await import('../worker/browserSession.js');
+    const fake = fakeSession();
+    const object = new BrowserSession(fake.state, { BROWSER: {}, BROWSERLESS_TOKEN: 't' });
+    let onDisconnected;
+    fake.browser.on = (event, handler) => {
+      if (event === 'disconnected') onDisconnected = handler;
+    };
+    await object.adopt(fake.browser, 'browserless:x');
+    object.token = 'tok';
+    assert.equal((await object.status(-1)).where, 'browserless');
+    onDisconnected();
+    const closed = await (await object.fetch(new Request('https://browser-session/frame?session=tok&after=-1'))).json();
+    assert.equal(closed.open, false);
+    assert.equal(closed.ended, ENDED_AT_BROWSERLESS);
+    assert.match(closed.ended, /two minutes/);
+    // Cloudflare's browser going says nothing of the kind; and the next open starts clean.
+    const again = fakeSession();
+    const object2 = new BrowserSession(again.state, { BROWSER: {}, BROWSERLESS_TOKEN: 't' });
+    let gone;
+    again.browser.on = (event, handler) => {
+      if (event === 'disconnected') gone = handler;
+    };
+    await object2.adopt(again.browser, 'cf-session');
+    object2.token = 'tok';
+    gone();
+    assert.equal((await object2.status(-1)).ended, undefined);
+  });
+});

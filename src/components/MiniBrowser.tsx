@@ -150,7 +150,7 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
         // — unless it is being typed into.
         if (next.url && /^https?:/.test(next.url) && !editingAddress.current) setAddress(next.url);
         if (!next.open && !next.pdf) {
-          setProblem('The browser closed on the proxy.');
+          setProblem(next.ended || 'The browser closed on the proxy.');
           setStage('choose');
           return;
         }

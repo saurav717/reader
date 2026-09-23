@@ -297,11 +297,15 @@ export async function apply(page, event) {
   switch (event.type) {
     case 'move':
       return page.mouse.move(x, y);
+    // Puppeteer keeps the mouse's state per page, and refuses a release
+    // whose press it did not see — which is what a click split across a
+    // hand-over looks like: the press on the page before, the release on
+    // the page after. Refused, not failed: the next click is whole.
     case 'down':
       await page.mouse.move(x, y);
-      return page.mouse.down({ button, clickCount: clicks(event.clickCount) });
+      return page.mouse.down({ button, clickCount: clicks(event.clickCount) }).catch(() => undefined);
     case 'up':
-      return page.mouse.up({ button, clickCount: clicks(event.clickCount) });
+      return page.mouse.up({ button, clickCount: clicks(event.clickCount) }).catch(() => undefined);
     case 'wheel':
       await page.mouse.move(x, y);
       return page.mouse.wheel({
