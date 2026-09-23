@@ -387,3 +387,69 @@ describe('a paper in PubMed Central, fetched the way PubMed Central means progra
     assert.equal(response.headers.get('content-type'), 'application/pdf');
   });
 });
+
+const { isOpenReviewChallenge, openReviewFiles, openReviewNoteIn } = await import('../server/openreview.js');
+
+describe('a paper on OpenReview, fetched from its API rather than past its check', () => {
+  it('reads the note from every URL of OpenReview that names one', () => {
+    assert.deepEqual(openReviewNoteIn('https://openreview.net/pdf?id=D2Q6VabcXY'), { id: 'D2Q6VabcXY', name: '' });
+    assert.deepEqual(openReviewNoteIn('https://openreview.net/forum?id=D2Q6VabcXY&noteId=zzz'), { id: 'D2Q6VabcXY', name: '' });
+    assert.deepEqual(openReviewNoteIn('https://openreview.net/attachment?id=D2Q6VabcXY&name=supplementary_material'), {
+      id: 'D2Q6VabcXY',
+      name: 'supplementary_material',
+    });
+    assert.deepEqual(openReviewNoteIn('https://openreview.net/challenge?redirect=%2Fpdf%3Fid%3DD2Q6VabcXY'), { id: 'D2Q6VabcXY', name: '' });
+    assert.equal(openReviewNoteIn('https://openreview.net/challenge?redirect=https%3A%2F%2Fevil.example%2Fpdf%3Fid%3DD2Q6VabcXY'), null);
+    assert.equal(openReviewNoteIn('https://openreview.net/challenge?redirect=%2F%2Fevil.example%2Fpdf%3Fid%3DD2Q6VabcXY'), null);
+    assert.equal(openReviewNoteIn('https://openreview.net/group?id=ICLR.cc/2026/Conference'), null);
+    assert.equal(openReviewNoteIn('https://example.org/pdf?id=D2Q6VabcXY'), null);
+    assert.equal(openReviewNoteIn('not a url'), null);
+  });
+
+  it('asks the current API first, then the old one', () => {
+    assert.deepEqual(openReviewFiles('https://openreview.net/challenge?redirect=%2Fpdf%3Fid%3DD2Q6VabcXY'), [
+      'https://api2.openreview.net/pdf?id=D2Q6VabcXY',
+      'https://api.openreview.net/pdf?id=D2Q6VabcXY',
+    ]);
+    assert.deepEqual(openReviewFiles('https://www.mdpi.com/1424-8220/21/12/4240/pdf'), []);
+  });
+
+  it('knows the check page by where it is', () => {
+    assert.equal(isOpenReviewChallenge('https://openreview.net/challenge?redirect=%2Fpdf%3Fid%3DD2Q6VabcXY'), true);
+    assert.equal(isOpenReviewChallenge('https://openreview.net/pdf?id=D2Q6VabcXY'), false);
+    assert.equal(isOpenReviewChallenge('https://example.org/challenge'), false);
+  });
+
+  it('serves the file from the API without asking the site', async () => {
+    const asked = [];
+    upstream = (url) => {
+      asked.push(url);
+      if (url.startsWith('https://api2.openreview.net/pdf?id=D2Q6VabcXY')) return pdfResponse();
+      return new Response('forbidden', { status: 403 });
+    };
+    const response = await get('https://openreview.net/pdf?id=D2Q6VabcXY');
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/pdf');
+    assert.deepEqual(asked, ['https://api2.openreview.net/pdf?id=D2Q6VabcXY']);
+  });
+
+  it('falls back to the old API, then to the site and its answer', async () => {
+    upstream = (url) => (url.startsWith('https://api.openreview.net/') ? pdfResponse() : new Response('not found', { status: 404 }));
+    assert.equal((await get('https://openreview.net/forum?id=D2Q6VabcXY')).status, 200);
+    upstream = () => new Response('forbidden', { status: 403 });
+    const refused = await get('https://openreview.net/pdf?id=D2Q6VabcXY');
+    assert.equal(refused.status, 502);
+    assert.equal((await refused.json()).loginWall, true);
+  });
+
+  it('is what the Worker serves too', async () => {
+    const { default: worker } = await import('../worker/index.js');
+    upstream = (url) => (url.startsWith('https://api2.openreview.net/') ? pdfResponse() : new Response('forbidden', { status: 403 }));
+    const response = await worker.fetch(
+      new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://openreview.net/pdf?id=D2Q6VabcXY'), { headers: { Origin: 'https://saurav717.github.io' } }),
+      {},
+    );
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/pdf');
+  });
+});

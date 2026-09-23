@@ -995,7 +995,19 @@ describe('the browser kept after the pane closes', () => {
 // ------------------------------------------- a site that checks for a person ----
 
 const { fetchFileInPage } = await import('../server/browseShared.js');
-const { botCheck } = await load('src/lib/browse.ts');
+const { botCheck, openReviewPdfUrl } = await load('src/lib/browse.ts');
+
+describe("the file an OpenReview page stands for, which the pane asks OpenReview's API for", () => {
+  it('reads it from the check, the file, the forum and an attachment, and nothing else', () => {
+    assert.equal(openReviewPdfUrl('https://openreview.net/challenge?redirect=%2Fpdf%3Fid%3DD2Q6VabcXY'), 'https://openreview.net/pdf?id=D2Q6VabcXY');
+    assert.equal(openReviewPdfUrl('https://openreview.net/forum?id=D2Q6VabcXY'), 'https://openreview.net/pdf?id=D2Q6VabcXY');
+    assert.equal(openReviewPdfUrl('https://openreview.net/attachment?id=D2Q6VabcXY&name=pdf'), 'https://openreview.net/attachment?id=D2Q6VabcXY&name=pdf');
+    assert.equal(openReviewPdfUrl('https://openreview.net/challenge?redirect=%2F%2Fevil.example%2Fpdf%3Fid%3DD2Q6VabcXY'), null);
+    assert.equal(openReviewPdfUrl('https://openreview.net/group?id=ICLR.cc'), null);
+    assert.equal(openReviewPdfUrl('https://example.org/pdf?id=D2Q6VabcXY'), null);
+    assert.equal(openReviewPdfUrl(null), null);
+  });
+});
 
 describe('the file, fetched by the page itself', () => {
   const pdf = new TextEncoder().encode('%PDF-1.4 a file');
@@ -1058,6 +1070,12 @@ describe('what the app says on a site that checks for a person', () => {
     assert.doesNotMatch(fromWorker, /tick it;/);
     // A Worker deployed before it said whose browser it is still hands out a session id, which only it does.
     assert.match(botCheck({ url: 'https://example.org/', title: 'Just a moment...', session: 'abc' }), /not expected to pass/);
+    // OpenReview's own check page, with Cloudflare's box inside: no box to tick, the API is asked instead.
+    const openReview = botCheck({ url: 'https://openreview.net/challenge?redirect=%2Fpdf%3Fid%3DD2Q6VabcXY', title: 'Verifying your browser | OpenReview', where: 'cloudflare' });
+    assert.match(openReview, /^openreview\.net is checking/);
+    assert.match(openReview, /no need to tick it/);
+    assert.match(openReview, /OpenReview's API/);
+    assert.match(botCheck({ url: 'https://example.org/', title: 'Verifying your browser', where: 'proxy' }), /^example\.org/);
     // With a browser at Browserless to hand the session to, the check is a moment's wait, not a dead end.
     const handing = botCheck({ url: 'https://www.academia.edu/download/1/10.pdf', title: 'Just a moment...', where: 'cloudflare', fallback: 'browserless' });
     assert.match(handing, /^academia\.edu is checking/);
@@ -1129,6 +1147,12 @@ describe('how the proxy notices a site\'s check for a person', () => {
     assert.equal(challengedHost(response({ headers: {} })), null);
     assert.equal(challengedHost(response({ url: 'not a url', headers: { 'cf-mitigated': 'challenge' } })), null);
     assert.equal(challengedHost({ headers: () => { throw new Error('gone'); }, url: () => '' }), null);
+  });
+
+  it("knows OpenReview's own check page, which carries no header, by where it is", () => {
+    assert.equal(challengedHost(response({ url: 'https://openreview.net/challenge?redirect=%2Fpdf%3Fid%3DD2Q6VabcXY' })), 'openreview.net');
+    assert.equal(challengedHost(response({ url: 'https://openreview.net/pdf?id=D2Q6VabcXY' })), null);
+    assert.equal(challengedHost(response({ url: 'https://example.org/challenge' })), null);
   });
 
   it('looks only at the page itself, never at its frames and fetches', () => {

@@ -313,6 +313,50 @@ async function pdfFrom(path: string, init?: RequestInit): Promise<Blob> {
   return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
 }
 
+/**
+ * The paper an OpenReview page is about, as the URL of its file on
+ * openreview.net — for the forum, the file, an attachment, or the check
+ * OpenReview puts in front of any of them (`/challenge?redirect=…`) — or
+ * null for any other page. The proxy asks OpenReview's API for such a URL
+ * rather than the site (server/openreview.js), and the API has no check,
+ * so the file comes without anyone ticking a box the Worker's browser
+ * could never pass.
+ */
+export function openReviewPdfUrl(pageUrl: string | null | undefined): string | null {
+  let url: URL;
+  try {
+    url = new URL(pageUrl || '');
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase().replace(/^www\./, '');
+  if (!['openreview.net', 'api.openreview.net', 'api2.openreview.net'].includes(host)) return null;
+  if (/^\/challenge\/?$/i.test(url.pathname)) {
+    const redirect = url.searchParams.get('redirect');
+    return redirect?.startsWith('/') && !redirect.startsWith('//') ? openReviewPdfUrl(new URL(redirect, 'https://openreview.net/').href) : null;
+  }
+  const route = url.pathname.replace(/\/+$/, '').toLowerCase();
+  const id = url.searchParams.get('id') || '';
+  if (!/^[A-Za-z0-9_-]{5,40}$/.test(id)) return null;
+  if (route === '/pdf' || route === '/forum') return `https://openreview.net/pdf?id=${encodeURIComponent(id)}`;
+  const name = url.searchParams.get('name') || '';
+  if (route === '/attachment' && /^[A-Za-z0-9_-]{1,40}$/.test(name)) {
+    return `https://openreview.net/attachment?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}`;
+  }
+  return null;
+}
+
+/** A PDF fetched by the proxy's own `/pdf` route, as a blob. */
+export async function proxyPdf(url: string, name: string): Promise<Blob> {
+  const response = await fetch(api(`/pdf?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`));
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as { error?: string };
+    throw new Error(payload.error || `the proxy answered ${response.status}`);
+  }
+  const blob = await response.blob();
+  return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+}
+
 /** The PDF from the page the browser is on, found and fetched by the proxy with the browser's sign-in. */
 export function grabPdf(name: string): Promise<Blob> {
   return pdfFrom(`/browse/grab?name=${encodeURIComponent(name)}`, { method: 'POST' });
@@ -436,13 +480,18 @@ export function botCheck(status: Pick<BrowseStatus, 'url' | 'title' | 'check' | 
   const title = status.title || '';
   const seen = status.check && status.check.host === host ? status.check : null;
   const cloudflareTitled = /[?&]__cf_chl(?:_rt)?_tk=/.test(status.url) || /^just a moment|attention required!?\s*\|\s*cloudflare/i.test(title);
-  const generic = /verify you are human|security verification|checking your browser|are you a robot|one more step/i.test(title);
-  if (!seen && !cloudflareTitled && !generic) return null;
+  const generic = /verify you are human|security verification|(?:checking|verifying) your browser|are you a robot|one more step/i.test(title);
+  // OpenReview's check is a page of its own with Cloudflare's box inside.
+  const openReview = /^\/challenge\/?$/i.test(new URL(status.url).pathname) && host === 'openreview.net';
+  if (!seen && !cloudflareTitled && !generic && !openReview) return null;
   // The header the proxy saw is Cloudflare's own mark; the title is the guess.
-  const cloudflares = Boolean(seen) || cloudflareTitled;
+  const cloudflares = Boolean(seen) || cloudflareTitled || openReview;
   const where = status.where ?? (status.session ? 'cloudflare' : 'proxy');
   const answered = (seen?.answered ?? 0) > 0;
   const own = 'Open the file in a tab of your own and drop it on the paper instead';
+  if (openReview && openReviewPdfUrl(status.url)) {
+    return `${host} is checking that a person is here, with Cloudflare's box, which the proxy's browser may never pass — so there is no need to tick it: the file is being asked for from OpenReview's API instead, which has no check. If that does not bring it, ${own.charAt(0).toLowerCase()}${own.slice(1)}.`;
+  }
   if (cloudflares && where === 'cloudflare') {
     if (status.fallback === 'browserless') {
       if (status.fallbackError) {
