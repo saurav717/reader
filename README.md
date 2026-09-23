@@ -758,6 +758,23 @@ never sees it, and one who always does never sees a PDF. The reflowed text is
 only made once it is being looked at, so reading PDFs costs nothing for a
 rendering nobody reads.
 
+Reflow scrolls as one long column, or — with the book button beside the text
+size — reads like a book: two pages side by side with a fold between them, or
+one tall page when the window is narrow or held upright. Turn the page with
+the arrows on either side, the arrow keys, Page Up/Down, the space bar, a
+swipe or the wheel; the slider under the pages jumps anywhere, and the paper
+reopens on the page it was left at. The choice is remembered on the device.
+It is the same text laid out in CSS columns, so highlighting and looking
+things up work the same in both. `scripts/book-smoke.mjs` checks both
+layouts at desktop and iPad sizes.
+
+arXiv's HTML rendering comes without its stylesheet, so `src/styles.css`
+gives LaTeXML's classes a look of its own — the title block, the abstract,
+numbered sections, equations with their numbers, figures, ruled tables,
+footnotes and the bibliography. And Safari cannot `for await` over a stream,
+which pdf.js does to read a page's text: `src/lib/streamIterator.ts` fills
+that in, without which every PDF failed to reflow in Safari.
+
 Wherever there is a PDF, the reflowed text is the PDF, read out in full. The
 whole file is opened in the browser with [pdf.js](https://mozilla.github.io/pdf.js/)
 — loaded on demand, the first time it is needed — and every page's glyphs and
