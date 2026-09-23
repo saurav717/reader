@@ -28,7 +28,7 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
         </h1>
         <p style={{ margin: '0 0 26px', fontSize: 14, lineHeight: 1.6, color: 'var(--ink-2)' }}>
           {returning
-            ? 'This page has no server to keep you signed in, so each visit reconnects — one click, and Google will not ask again what you have already agreed to. Papers you add then go to your Drive as you collect them.'
+            ? 'A sign-in lasts as long as the token Google gives it, about an hour, and this one has run out. One click reconnects, and Google will not ask again what you have already agreed to. Papers you add then go to your Drive as you collect them.'
             : 'Search arXiv, OpenAlex and Semantic Scholar, collect what you want to read, and highlight it. Sign in with Google and every paper you add is saved to your own Drive with its highlights alongside.'}
         </p>
 

@@ -446,12 +446,15 @@ it roughly that way. The app cannot read anything in your Drive that it did not
 create, which is the whole point of using that scope rather than the blanket
 one. **Not now** goes straight to the app with everything kept in this browser.
 
-It asks **on every visit**, because it has to. A page with no backend cannot
-hold a refresh token, so the token dies with the tab, and a paper added before
-you reconnect is a paper Drive never hears about. The asking is cheap after the
-first time: the app remembers *that* you connected, and reconnecting reuses the
-grant you already gave — Google's window opens and closes again without a
-question. Sign out, and it forgets.
+It asks **once an hour at most**, not on every visit. The sign-in is kept in
+this browser for as long as the token Google issued lasts — about an hour — so
+a reload, or a tab closed and reopened, comes back signed in and connected
+with no window at all. A page with no backend cannot hold a refresh token,
+though, so once that hour is up the visit starts disconnected, and the screen
+stands in front again: a paper added before you reconnect is a paper Drive
+never hears about. The asking is cheap then: the app remembers *that* you
+connected, and reconnecting reuses the grant you already gave — Google's
+window opens and closes again without a question. Sign out, and it forgets.
 
 Settings keeps both consents separately, for signing in without Drive at all.
 
@@ -469,10 +472,12 @@ Add a paper, open it, and look for the cloud tick in the reader's top bar —
 click it and Drive opens on the file. In Drive itself, **My Drive →
 Papers_collection**.
 
-Tokens live in memory only, because there is no backend to hold a refresh token.
-After an hour the app quietly asks Google for a new one using the grant you have
-already given, with no dialog. Closing the tab ends the session; **Sign out**
-revokes the token outright.
+The token is kept in this browser's `localStorage` for the hour it lives, so
+a reload does not sign you out; there is no backend to hold a refresh token,
+so nothing longer-lived is kept anywhere. After the hour the app asks Google
+for a new one using the grant you have already given, with no dialog, and a
+token Drive refuses is dropped at once so the next request asks afresh.
+**Sign out** revokes the token outright and forgets it.
 
 ### What lands in Drive
 
@@ -1082,10 +1087,12 @@ tests start failing.
   without a proxy the only thing that reaches Drive is the metadata sidecar. The
   Worker in `worker/` is what makes the rest of it work, and Settings → Paper proxy
   is where its address goes.
-- Tokens are held in memory only — there is no backend to hold a refresh token — so
-  Drive re-authorises silently on the first sync after an hour.
-- The GitHub token is the exception, and has to be stored in `localStorage` for the
-  mirror to work without a backend. See above.
+- The Google token is kept in `localStorage` for the hour it lives, so a reload
+  stays signed in; there is no backend to hold a refresh token, so after that
+  hour Drive re-authorises on the grant already given, and the connect screen
+  asks first if the page is opened fresh.
+- The GitHub token has no expiry of its own, and has to be stored in `localStorage`
+  for the mirror to work without a backend. See above.
 - Semantic Scholar rate-limits unauthenticated search fairly aggressively; its author
   endpoints are the first to say so.
 - Author disambiguation is the indexes', not ours. OpenAlex and Semantic Scholar each

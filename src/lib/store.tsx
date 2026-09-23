@@ -171,8 +171,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [settings, setSettings] = useState<Settings>(readSettings);
-  const [user, setUser] = useState<GoogleUser | null>(null);
-  const [driveConnected, setDriveConnected] = useState(false);
+  // A sign-in outlives the page load: the token is kept in this browser for
+  // the hour Google gives it, so a reload comes back signed in and connected.
+  const [user, setUser] = useState<GoogleUser | null>(google.restoredUser);
+  const [driveConnected, setDriveConnected] = useState(google.hasDriveAccess);
   const [driveRemembered, setDriveRemembered] = useState(() => localStorage.getItem(DRIVE_KEY) === 'true');
   const [authError, setAuthError] = useState<string | null>(null);
   const [syncLog, setSyncLog] = useState<SyncEntry[]>([]);
