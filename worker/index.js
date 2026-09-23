@@ -30,6 +30,7 @@ import * as browse from './browse.js';
 // The Durable Object that holds the browser session open; the runtime needs
 // it exported from the entry. See worker/browserSession.js.
 export { BrowserSession } from './browserSession.js';
+import { RATE_LIMITED } from './browserSession.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 const UA = 'reader/0.1 (personal research reading tool)';
@@ -170,6 +171,8 @@ export default {
         } catch (error) {
           if (error?.code === 'closed') return json({ error: 'no browser is open' }, 409, headers);
           if (String(error?.message || '').includes('browser binding')) return json({ error: String(error.message) }, 400, headers);
+          // Cloudflare's own refusal, worded for the person (see the Durable Object, which also waits it out).
+          if (/429|rate limit|too many/i.test(String(error?.message || ''))) return json({ error: RATE_LIMITED }, 429, headers);
           throw error;
         }
       }

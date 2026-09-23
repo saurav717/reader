@@ -824,12 +824,16 @@ no window, no pop-up — which is either of two:
   browser time a day; the Workers Paid plan has hours a month — so the
   object starts one only when it has none: picking another site points the
   open browser at it, a session left idle by an eviction is adopted rather
-  than replaced, a refusal is retried once after a pause, and a browser is
+  than replaced, a refusal is asked again every few seconds for most of a
+  minute (looking for a freed session between asks), and a browser is
   closed the moment the pane is or two minutes after anyone last looked.
-  A day's minutes spent shows as *Cloudflare would not start another
-  browser just now*. The sign-in outlasts the browser session
+  A minute's or a day's allowance spent shows as *Cloudflare would not
+  start another browser just now*; the bare *Unable to create new browser:
+  code: 429* is the same refusal from a Worker deployed before this reuse,
+  and `npm run deploy:worker` brings it up to date. The sign-in outlasts the browser session
   only where the Worker has somewhere to keep its cookies: bind a KV
-  namespace as `SESSIONS` (the commented block in `wrangler.toml`) and they
+  namespace as `SESSIONS` (the `[[kv_namespaces]]` block in `wrangler.toml`,
+  which ships with a placeholder where the namespace's id goes) and they
   are saved when the browser closes or hands over a file, restored when the
   next one opens, and used to retry a login wall on `/pdf` — which is also
   what **Signed in — try the copies again** and **Forget sign-ins** act on
