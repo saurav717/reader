@@ -35,7 +35,7 @@ import puppeteer from '@cloudflare/puppeteer';
 import { BROWSER_UA } from '../server/scholar.js';
 import { fetchChecked, MAX_PDF_BYTES, rejectUrl } from '../server/fetchPdf.js';
 import { pdfCandidates, pdfLinksIn } from '../server/pdfLinks.js';
-import { acceptKey, BUTTONS, clamp, clicks, closedError, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
+import { acceptKey, BUTTONS, clamp, clicks, closedError, fetchFileInPage, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
 
 /**
  * How long a session outlives the last connection to it. Long enough for
@@ -159,7 +159,14 @@ export async function open(env, url, driver = defaultDriver) {
   try {
     const page = (await browser.pages())[0] || (await browser.newPage());
     await page.setViewport(VIEWPORT);
-    await page.setUserAgent(BROWSER_UA).catch(() => undefined);
+    // The browser presents itself as what it is. It used to be given a
+    // user-agent string typed in by hand, and a string on its own is worse
+    // than the truth: Chrome answers an override that comes without
+    // client-hint metadata by sending no `Sec-CH-UA` headers at all and an
+    // empty `navigator.userAgentData`, and a browser whose string and hints
+    // disagree is the one thing a bot check is sure about. Cloudflare's
+    // check then never showed the box to tick; it looped. (The README, under
+    // "A site that checks for a person first", says what to expect now.)
     await restoreCookies(env, page);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS }).catch(() => {
       // A slow or refused page is still a page the person can see and act on.
@@ -251,7 +258,9 @@ export async function grab(env, session, driver = defaultDriver) {
       showingPdf = /\.pdf(\?|$)/i.test(url);
     }
     const urls = showingPdf ? [url] : [...pdfCandidates(url), ...pdfLinksIn(html, url), url];
-    const bytes = await fetchFileWithCookies(page, urls);
+    // The page fetches first, with the standing it has earned — a bot check
+    // passed, a sign-in made — and the Worker's own fetch follows the links.
+    const bytes = (await fetchFileInPage(page, urls, MAX_PDF_BYTES)) || (await fetchFileWithCookies(page, urls));
     if (!bytes) {
       throw new Error(
         `no PDF was found from ${new URL(url).hostname} — open the file itself in the browser here, or sign in first if the page is asking for it`,
