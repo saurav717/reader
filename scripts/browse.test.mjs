@@ -305,6 +305,263 @@ describe('what the Worker says when Cloudflare refuses a browser', () => {
     assert.match(worded, /Cloudflare said: Too many browsers this minute\.$/);
     assert.equal(rateLimitedMessage(new Error('429')), RATE_LIMITED);
   });
+
+  it("reads Cloudflare's limits into a shape, whatever it left out", async () => {
+    const { shapeLimits } = await import('../worker/browse.js');
+    assert.deepEqual(
+      shapeLimits({ activeSessions: [{ id: 'a' }, { id: 'b' }], maxConcurrentSessions: 3, allowedBrowserAcquisitions: 0, timeUntilNextAllowedBrowserAcquisition: 21_500 }),
+      { alive: 2, max: 3, allowed: 0, nextInMs: 21_500 },
+    );
+    assert.deepEqual(shapeLimits({}), { alive: null, max: null, allowed: null, nextInMs: 0 });
+    assert.deepEqual(shapeLimits({ timeUntilNextAllowedBrowserAcquisition: -5, allowedBrowserAcquisitions: 'x' }), { alive: null, max: null, allowed: null, nextInMs: 0 });
+    assert.equal(shapeLimits(null), null);
+    assert.equal(shapeLimits('nope'), null);
+  });
+
+  it('names the limit met, from what Cloudflare said its limits are', async () => {
+    const { rateLimitedMessage, refusal, saidWait, waitFor, whichLimit, RATE_LIMITED, RATE_LIMIT_RETRY_MS } = await import('../worker/browserSession.js');
+    const full = { alive: 3, max: 3, allowed: 1, nextInMs: 0 };
+    const minute = { alive: 1, max: 3, allowed: 0, nextInMs: 21_500 };
+    const unknown = { alive: 1, max: 3, allowed: 0, nextInMs: 0 };
+    assert.match(whichLimit(full), /^All 3 of the browsers it allows alive at once are alive/);
+    assert.match(whichLimit(minute), /next is allowed in 22 seconds\.$/);
+    assert.match(whichLimit(unknown), /did not say when/);
+    assert.equal(whichLimit({ alive: 1, max: 3, allowed: 2, nextInMs: 0 }), '');
+    assert.equal(whichLimit(null), '');
+    assert.equal(saidWait(500), '1 second');
+    assert.equal(saidWait(180_000), 'about 3 minutes');
+    // The limit met sits between the plan and Cloudflare's own words.
+    const worded = rateLimitedMessage(new Error('Unable to create new browser: code: 429: message: Rate limit exceeded'), minute);
+    assert.ok(worded.startsWith(RATE_LIMITED));
+    assert.match(worded, /used up; the next is allowed in 22 seconds\. Cloudflare said: Rate limit exceeded\.$/);
+    // The wait is what Cloudflare named, within reason; a few seconds when it named none.
+    assert.equal(waitFor(minute), 21_500);
+    assert.equal(waitFor({ ...minute, nextInMs: 100 }), 2_000);
+    assert.equal(waitFor({ ...minute, nextInMs: 600_000 }), 60_000);
+    assert.equal(waitFor(full), RATE_LIMIT_RETRY_MS);
+    assert.equal(waitFor(null), RATE_LIMIT_RETRY_MS);
+    // The refusal carries the wait in seconds for the app, a minute when unknown.
+    const refused = refusal(new Error('429'), minute);
+    assert.equal(refused.code, 'rate-limited');
+    assert.equal(refused.retryAfter, 22);
+    assert.deepEqual(refused.browsers, minute);
+    assert.equal(refusal(null, null).retryAfter, 60);
+    assert.equal(refusal(null, null).browsers, null);
+    assert.equal(refusal(null, full).retryAfter, 60);
+  });
+});
+
+// ------------------------------------------------- getting a browser at all ----
+
+/**
+ * A stand-in for Cloudflare's browser API: what it lists as alive, what it
+ * says its limits are (a script, one answer per ask), and whether it will
+ * start a browser. Every ask is written down.
+ */
+function fakeDriver({ sessions = [], limits = [], launch = 'refuse' } = {}) {
+  const asked = { sessions: 0, limits: 0, launch: 0, connect: [] };
+  const lists = Array.isArray(sessions[0]) ? sessions : [sessions];
+  const browserNamed = (id) => ({ id, sessionId: () => id, on: () => undefined, pages: async () => [], newPage: async () => fakeSession().page, close: async () => undefined });
+  return {
+    asked,
+    sessions: async () => {
+      const list = lists[Math.min(asked.sessions, lists.length - 1)] || [];
+      asked.sessions += 1;
+      return list;
+    },
+    limits: async () => {
+      const answer = limits[Math.min(asked.limits, limits.length - 1)];
+      asked.limits += 1;
+      if (answer === 'fails') throw new Error('Unable to fetch account limits: code: 500: message: boom');
+      return answer;
+    },
+    connect: async (_env, id) => {
+      asked.connect.push(id);
+      if (String(id).startsWith('gone')) throw new Error(`Unable to connect to existing session ${id}`);
+      return browserNamed(id);
+    },
+    launch: async () => {
+      asked.launch += 1;
+      const answer = Array.isArray(launch) ? launch[Math.min(asked.launch - 1, launch.length - 1)] : launch;
+      if (answer === 'refuse') throw new Error('Unable to create new browser: code: 429: message: Rate limit exceeded');
+      return browserNamed('new');
+    },
+  };
+}
+
+describe('how the Worker gets a browser', () => {
+  const objectWith = async (driver) => {
+    const { BrowserSession } = await import('../worker/browserSession.js');
+    const fake = fakeSession();
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    object.driver = driver;
+    object.slept = [];
+    // Sleeping is instant here, and the clock moves by what was slept.
+    let clock = Date.now();
+    object.now = () => clock;
+    object.sleep = async (ms) => {
+      object.slept.push(ms);
+      clock += ms;
+    };
+    return { object, fake };
+  };
+
+  it('takes over a session nothing is connected to before asking for a new one', async () => {
+    const driver = fakeDriver({ sessions: [{ sessionId: 'held', connectionId: 'c1' }, { sessionId: 'free' }] });
+    const { object } = await objectWith(driver);
+    const got = await object.acquire();
+    assert.equal(got.id, 'free');
+    assert.deepEqual(driver.asked.connect, ['free']);
+    assert.equal(driver.asked.launch, 0);
+    assert.equal(driver.asked.limits, 0, 'nothing to ask when there is one to take');
+  });
+
+  it('tries the session it had before it was evicted first, and the free ones when that is gone', async () => {
+    const driver = fakeDriver({ sessions: [{ sessionId: 'free' }] });
+    const { object, fake } = await objectWith(driver);
+    await fake.state.storage.put('session', { token: null, id: 'gone-mine' });
+    const got = await object.acquire();
+    assert.equal(got.id, 'free');
+    assert.deepEqual(driver.asked.connect, ['gone-mine', 'free']);
+    assert.equal(driver.asked.launch, 0);
+  });
+
+  it('asks Cloudflare what it will allow, and starts a browser when it will', async () => {
+    const driver = fakeDriver({ limits: [{ activeSessions: [], maxConcurrentSessions: 3, allowedBrowserAcquisitions: 3, timeUntilNextAllowedBrowserAcquisition: 0 }], launch: 'ok' });
+    const { object } = await objectWith(driver);
+    const got = await object.acquire();
+    assert.equal(got.id, 'new');
+    assert.equal(driver.asked.limits, 1);
+    assert.equal(driver.asked.launch, 1);
+    assert.deepEqual(object.slept, []);
+    assert.deepEqual(object.limits, { alive: 0, max: 3, allowed: 3, nextInMs: 0 });
+  });
+
+  it("waits exactly as long as Cloudflare says, once, rather than asking for a browser meanwhile", async () => {
+    const spent = { activeSessions: [{ id: 'a' }], maxConcurrentSessions: 3, allowedBrowserAcquisitions: 0, timeUntilNextAllowedBrowserAcquisition: 21_500 };
+    const back = { ...spent, allowedBrowserAcquisitions: 1, timeUntilNextAllowedBrowserAcquisition: 0 };
+    const driver = fakeDriver({ limits: [spent, back], launch: 'ok' });
+    const { object } = await objectWith(driver);
+    const got = await object.acquire();
+    assert.equal(got.id, 'new');
+    assert.deepEqual(object.slept, [21_500]);
+    assert.equal(driver.asked.launch, 1, 'asked only once Cloudflare said it would answer');
+    assert.equal(driver.asked.sessions, 2, 'looked for a freed session again after the wait');
+  });
+
+  it('looks again every few seconds when every browser is alive and held, and takes one that comes free', async () => {
+    const full = { activeSessions: [{ id: 'a' }, { id: 'b' }, { id: 'c' }], maxConcurrentSessions: 3, allowedBrowserAcquisitions: 2, timeUntilNextAllowedBrowserAcquisition: 0 };
+    const driver = fakeDriver({
+      sessions: [[{ sessionId: 'a', connectionId: '1' }, { sessionId: 'b', connectionId: '2' }, { sessionId: 'c', connectionId: '3' }], [{ sessionId: 'a', connectionId: '1' }, { sessionId: 'b' }]],
+      limits: [full],
+      launch: 'refuse',
+    });
+    const { object } = await objectWith(driver);
+    const got = await object.acquire();
+    assert.equal(got.id, 'b');
+    assert.equal(driver.asked.launch, 0, 'a start cannot succeed with every browser alive, so none was asked for');
+    assert.deepEqual(object.slept, [12_000]);
+  });
+
+  it('gives up at once, saying how long, when the wait Cloudflare names is longer than it will hold the request', async () => {
+    const spent = { activeSessions: [{ id: 'a' }], maxConcurrentSessions: 3, allowedBrowserAcquisitions: 0, timeUntilNextAllowedBrowserAcquisition: 55_000 };
+    const driver = fakeDriver({ limits: [spent] });
+    const { object } = await objectWith(driver);
+    await assert.rejects(object.acquire(), (error) => {
+      assert.equal(error.code, 'rate-limited');
+      assert.equal(error.retryAfter, 55);
+      assert.match(error.message, /next is allowed in 55 seconds/);
+      assert.deepEqual(error.browsers, { alive: 1, max: 3, allowed: 0, nextInMs: 55_000 });
+      return true;
+    });
+    assert.equal(driver.asked.launch, 0);
+    assert.deepEqual(object.slept, []);
+  });
+
+  it('gives up after most of a minute of looking when Cloudflare names no time', async () => {
+    const full = { activeSessions: [{ id: 'a' }, { id: 'b' }, { id: 'c' }], maxConcurrentSessions: 3, allowedBrowserAcquisitions: 3, timeUntilNextAllowedBrowserAcquisition: 0 };
+    const driver = fakeDriver({ limits: [full], launch: 'refuse' });
+    const { object } = await objectWith(driver);
+    await assert.rejects(object.acquire(), (error) => {
+      assert.equal(error.code, 'rate-limited');
+      assert.equal(error.retryAfter, 60);
+      assert.match(error.message, /All 3 of the browsers it allows alive at once are alive/);
+      assert.doesNotMatch(error.message, /Cloudflare said/, 'nothing was asked for, so Cloudflare said nothing');
+      return true;
+    });
+    assert.deepEqual(object.slept, [12_000, 12_000, 12_000, 12_000]);
+    assert.equal(driver.asked.launch, 0);
+    assert.equal(driver.asked.sessions, 5, 'looked for a freed session on every pass');
+  });
+
+  it('asks for a browser when Cloudflare says one may be started, and waits out its refusal when it refuses anyway', async () => {
+    const room = { activeSessions: [{ id: 'a' }], maxConcurrentSessions: 3, allowedBrowserAcquisitions: 1, timeUntilNextAllowedBrowserAcquisition: 0 };
+    const driver = fakeDriver({ limits: [room], launch: ['refuse', 'ok'] });
+    const { object } = await objectWith(driver);
+    const got = await object.acquire();
+    assert.equal(got.id, 'new');
+    assert.equal(driver.asked.launch, 2);
+    assert.deepEqual(object.slept, [12_000]);
+  });
+
+  it('carries on the old way when Cloudflare will not say what its limits are', async () => {
+    const driver = fakeDriver({ limits: ['fails'], launch: ['refuse', 'ok'] });
+    const { object } = await objectWith(driver);
+    const got = await object.acquire();
+    assert.equal(got.id, 'new');
+    assert.equal(object.limits, null);
+    assert.deepEqual(object.slept, [12_000]);
+  });
+
+  it('hands out the refusal as a 429 with the wait on it, for the app to count down', async () => {
+    const spent = { activeSessions: [{ id: 'a' }], maxConcurrentSessions: 3, allowedBrowserAcquisitions: 0, timeUntilNextAllowedBrowserAcquisition: 55_000 };
+    const { object } = await objectWith(fakeDriver({ limits: [spent] }));
+    const response = await object.fetch(new Request('https://browser-session/open?url=https%3A%2F%2Fexample.org%2F', { method: 'POST' }));
+    assert.equal(response.status, 429);
+    assert.equal(response.headers.get('Retry-After'), '55');
+    const body = await response.json();
+    assert.equal(body.retryAfter, 55);
+    assert.equal(body.browsers.alive, 1);
+    assert.match(body.error, /^Cloudflare would not start another browser just now/);
+    // And the status says what Cloudflare last said, for anyone looking.
+    const status = await (await object.fetch(new Request('https://browser-session/status'))).json();
+    assert.deepEqual(status.browsers, { alive: 1, max: 3, allowed: 0, nextInMs: 55_000 });
+  });
+
+  it('opens a new page in the browser it holds when the page went, rather than asking for another browser', async () => {
+    const { BrowserSession } = await import('../worker/browserSession.js');
+    const fake = fakeSession();
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    object.acquire = async () => {
+      throw new Error('a new browser was asked for');
+    };
+    const replacement = fakeSession().page;
+    fake.browser.newPage = async () => replacement;
+    await object.adopt(fake.browser, 'kept-session');
+    fake.page.closed = true;
+    const opened = await object.open('https://example.org/paper');
+    assert.equal(opened.open, true);
+    assert.equal(object.page, replacement);
+    assert.equal(object.browser, fake.browser);
+    assert.equal(fake.browser.closed, false);
+  });
+
+  it('lets go of a browser that will not give a page, so it does not sit holding one of the few allowed', async () => {
+    const { BrowserSession } = await import('../worker/browserSession.js');
+    const fake = fakeSession();
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    const fresh = fakeSession();
+    object.acquire = async () => ({ browser: fresh.browser, id: 'fresh' });
+    fake.browser.newPage = async () => {
+      throw new Error('Target closed');
+    };
+    await object.adopt(fake.browser, 'kept-session');
+    fake.page.closed = true;
+    const opened = await object.open('https://example.org/paper');
+    assert.equal(opened.open, true);
+    assert.equal(fake.browser.closed, true, 'the useless browser was closed, not left held');
+    assert.equal(object.browser, fresh.browser);
+  });
 });
 
 // ------------------------------------------ the browser kept after a close ----

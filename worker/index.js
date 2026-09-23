@@ -30,7 +30,7 @@ import * as browse from './browse.js';
 // The Durable Object that holds the browser session open; the runtime needs
 // it exported from the entry. See worker/browserSession.js.
 export { BrowserSession } from './browserSession.js';
-import { rateLimited, rateLimitedMessage } from './browserSession.js';
+import { rateLimited, refusal } from './browserSession.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 const UA = 'reader/0.1 (personal research reading tool)';
@@ -110,13 +110,19 @@ export default {
         }
 
         try {
-          if (path === '/browse/status') return json(browse.idle(env), 200, { ...headers, 'Cache-Control': 'no-store' });
+          // With what Cloudflare will allow just now on it — how many browsers
+          // are alive against how many may be, and whether another may be
+          // started — which is the one place to look when it refuses.
+          if (path === '/browse/status') {
+            return json({ ...browse.idle(env), browsers: await browse.limitsOf(env) }, 200, { ...headers, 'Cache-Control': 'no-store' });
+          }
           if (path === '/browse/open') {
             if (request.method !== 'POST') return json({ error: 'POST to open the browser' }, 405, headers);
             if (!fromThisApp) return json({ error: 'not from this app' }, 403, headers);
             try {
               return json({ ok: true, ...(await browse.open(env, url.searchParams.get('url') || '')) }, 200, { ...headers, 'Cache-Control': 'no-store' });
             } catch (error) {
+              if (rateLimited(error)) throw error; // worded below, with the wait
               return json({ error: String(error?.message || error) }, 400, headers);
             }
           }
@@ -171,8 +177,16 @@ export default {
         } catch (error) {
           if (error?.code === 'closed') return json({ error: 'no browser is open' }, 409, headers);
           if (String(error?.message || '').includes('browser binding')) return json({ error: String(error.message) }, 400, headers);
-          // Cloudflare's own refusal, worded for the person (see the Durable Object, which also waits it out).
-          if (rateLimited(error)) return json({ error: rateLimitedMessage(error) }, 429, headers);
+          // Cloudflare's own refusal, worded for the person, with which limit
+          // it met and how long to wait (see the Durable Object, which also
+          // waits it out; this fallback does not).
+          if (rateLimited(error)) {
+            const refused = refusal(error, await browse.limitsOf(env));
+            return json({ error: refused.message, retryAfter: refused.retryAfter, browsers: refused.browsers }, 429, {
+              ...headers,
+              'Retry-After': String(refused.retryAfter),
+            });
+          }
           throw error;
         }
       }

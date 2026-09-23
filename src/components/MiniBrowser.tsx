@@ -12,6 +12,7 @@ import {
 import { accessAvailable, type AccessStatus } from '../lib/access';
 import {
   botCheck,
+  BrowseError,
   browseSites,
   closeBrowser,
   collectPdf,
@@ -45,6 +46,23 @@ interface Props {
 type Stage = 'choose' | 'opening' | 'open' | 'collecting';
 
 /**
+ * A try the pane will make on its own, once Cloudflare will allow another
+ * browser: where to, when, and how many such tries came before it — a
+ * refusal that names a wait is counted down and tried again, a few times,
+ * before it is left to the person.
+ */
+interface Retry {
+  url: string;
+  at: number;
+  attempt: number;
+}
+
+/** How many times the pane tries again on its own before leaving it to the person. */
+const AUTOMATIC_RETRIES = 2;
+/** The longest wait the pane counts down on its own; a longer one — the day's browser time — is the person's to wait. */
+const LONGEST_COUNTDOWN_S = 120;
+
+/**
  * A browser in the place the paper would be.
  *
  * When every copy of a paper wants a sign-in, this offers the sites the
@@ -70,6 +88,11 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
   const [custom, setCustom] = useState('');
   const [focused, setFocused] = useState(false);
   const [grabbing, setGrabbing] = useState(false);
+  /** The try the pane will make on its own, when Cloudflare said how long to wait; and the clock it counts down by. */
+  const [retry, setRetry] = useState<Retry | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+  /** The last site asked for, for "Try again" after a refusal. */
+  const lastUrl = useRef<string | null>(null);
 
   const screen = useRef<HTMLImageElement>(null);
   const polling = useRef<AbortController | null>(null);
@@ -162,11 +185,13 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
     [],
   );
 
-  const open = async (url: string) => {
+  const open = async (url: string, attempt = 0) => {
     setProblem(null);
+    setRetry(null);
     setStage('opening');
     setFrame(null);
     collected.current = false;
+    lastUrl.current = url;
     try {
       const opened = await openBrowser(url);
       setStatus(opened);
@@ -174,10 +199,34 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
       if (opened.frame) setFrame(opened.frame);
       setStage('open');
     } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
       setStage('choose');
+      // Cloudflare rationing browsers, with a time: counted down here and
+      // tried again then, without the person having to — a few times, in
+      // case the next try is refused too, and then it is theirs.
+      const wait = error instanceof BrowseError && error.rateLimited ? error.retryAfter : null;
+      if (wait && wait <= LONGEST_COUNTDOWN_S && attempt < AUTOMATIC_RETRIES) {
+        setRetry({ url, at: Date.now() + wait * 1000, attempt: attempt + 1 });
+        setNow(Date.now());
+        return;
+      }
+      setProblem(error instanceof Error ? error.message : String(error));
     }
   };
+
+  // The countdown to a try the pane makes on its own: a tick a second for
+  // the number shown, and the try itself when the time comes.
+  useEffect(() => {
+    if (!retry) return;
+    const tick = () => {
+      const at = Date.now();
+      setNow(at);
+      if (at >= retry.at) void open(retry.url, retry.attempt);
+    };
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+    // `open` only sets state; the try is what `retry` describes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retry]);
 
   const grab = async () => {
     if (grabbing || collected.current) return;
@@ -351,7 +400,31 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
               <span className="spinner" /> Opening the proxy&rsquo;s browser…
             </p>
           ) : null}
-          {problem ? <p className="banner error">{problem}</p> : null}
+          {retry ? (
+            <p className="mini-browser-note">
+              <span className="spinner" />
+              <span>
+                Cloudflare would not start another browser just now; it will allow one in{' '}
+                {Math.max(0, Math.ceil((retry.at - now) / 1000))}&nbsp;s, and the pane will try again then.{' '}
+                <button type="button" className="link-btn" onClick={() => void open(retry.url, retry.attempt)}>
+                  Try now
+                </button>
+              </span>
+            </p>
+          ) : null}
+          {problem ? (
+            <p className="banner error">
+              {problem}
+              {lastUrl.current ? (
+                <>
+                  {' '}
+                  <button type="button" className="link-btn" onClick={() => void open(lastUrl.current as string)}>
+                    Try again
+                  </button>
+                </>
+              ) : null}
+            </p>
+          ) : null}
         </div>
       </div>
     );
