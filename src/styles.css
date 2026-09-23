@@ -933,3 +933,52 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 .paper-body ul, .paper-body ol { margin: 0 0 18px; padding-left: 26px; }
 .paper-body li { margin: 0 0 6px; }
 .paper-body code { font-family: var(--mono); font-size: 0.86em; }
+
+/* Which copy of the paper is on screen, and the list of the others. */
+.copy-bar { position: relative; flex-shrink: 0; border-bottom: 1px solid var(--border-soft); background: var(--paper); }
+.copy-line {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px;
+  padding: 5px 16px; font-size: 11.5px; color: var(--muted); min-width: 0;
+}
+.copy-lead { white-space: nowrap; }
+.copy-current {
+  display: inline-flex; align-items: center; gap: 3px; max-width: 100%;
+  font: inherit; font-weight: 500; color: var(--accent-ink);
+  background: var(--accent-soft); border: 0; border-radius: 5px; padding: 2px 6px; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.copy-current:hover, .copy-current[aria-expanded='true'] { color: var(--accent-on); background: var(--accent); }
+.copy-status { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.copy-status.doubtful { color: var(--ink); }
+.copy-status .spinner { width: 11px; height: 11px; }
+.copy-picker {
+  position: absolute; z-index: 30; top: 100%; left: 12px; right: 12px; max-width: 520px;
+  max-height: min(70vh, 560px); overflow: auto; margin-top: 2px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow-md); padding: 10px;
+}
+.copy-picker .eyebrow { margin: 0 4px 6px; font-size: 10.5px; color: var(--muted); }
+.copy-picker ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.copy-option {
+  width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center;
+  text-align: left; font: inherit; font-size: 12.5px; color: var(--ink);
+  background: transparent; border: 0; border-radius: 7px; padding: 7px 8px; cursor: pointer;
+}
+.copy-option:hover:not([disabled]), .copy-option:focus-visible { background: var(--panel); outline: none; }
+.copy-option[disabled] { cursor: default; }
+.copy-option.showing { background: var(--accent-soft); }
+.copy-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.copy-host { margin-left: 6px; font-weight: 400; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.copy-tags { display: inline-flex; align-items: center; gap: 4px; }
+.copy-tags .spinner { width: 11px; height: 11px; }
+.copy-state { font-size: 10px; color: var(--accent-ink); font-weight: 500; }
+.copy-note { grid-column: 1 / -1; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.copy-note.doubtful { color: var(--ink-2); font-style: italic; }
+.copy-more { margin-top: 8px; padding: 8px 4px 0; border-top: 1px solid var(--border-soft); font-size: 11.5px; color: var(--muted); }
+.copy-more p { margin: 0 0 6px; }
+.copy-more .link-btn, .copy-error .link-btn { text-decoration: underline; font-weight: 500; }
+.copy-error { margin: 0 16px 8px; font-size: 12px; }
+@media (max-width: 640px) {
+  .copy-line { padding: 5px 12px; }
+  .copy-picker { left: 8px; right: 8px; }
+}

@@ -112,6 +112,12 @@ export interface Paper extends PaperRef {
   /** 0..1, how far down the reader the person has scrolled. */
   progress: number;
   lastOpenedAt?: string;
+  /**
+   * The copy of the paper picked by hand in the reader — its URL, one of the
+   * paper's locations. Asked first the next time the paper opens, ahead of
+   * the ranking, and never second-guessed for looking like a poster.
+   */
+  pdfChoice?: string;
   drive?: DriveRecord;
   github?: GitHubRecord;
 }

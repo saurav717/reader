@@ -125,6 +125,8 @@ interface StoreValue {
   markOpened: (id: string) => void;
   /** Remember a PDF link we had to go and find, so the next open is instant. */
   setPaperPdfUrl: (id: string, pdfUrl: string) => Promise<void>;
+  /** Remember which copy of the paper was picked by hand, or forget it with undefined. */
+  setPaperPdfChoice: (id: string, url: string | undefined) => Promise<void>;
   /**
    * Record a copy of the paper the reader found in Drive by name — saved from
    * another browser, say — so the next open goes straight to it by id.
@@ -147,8 +149,12 @@ interface StoreValue {
   driveRemembered: boolean;
   signOut: () => void;
 
-  /** `pdf` is a copy the caller already has; it is uploaded as-is. */
-  syncPaper: (id: string, options?: { pdf?: Blob }) => void;
+  /**
+   * `pdf` is a copy the caller already has; it is uploaded as-is. With
+   * `replacePdf` it goes over the file Drive already holds — a different copy
+   * of the paper, picked by hand — rather than being skipped because Drive has one.
+   */
+  syncPaper: (id: string, options?: { pdf?: Blob; replacePdf?: boolean }) => void;
   /**
    * The same, but it resolves once that paper has been through the queue — for
    * the callers that need Drive to hold the file before they go on, such as
@@ -192,8 +198,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   latest.current = { papers, collections, highlights, settings };
 
   const queue = useRef<string[]>([]);
-  /** PDFs the reader has already fetched, waiting to be uploaded with them. */
-  const queuedPdfs = useRef<Map<string, Blob>>(new Map());
+  /**
+   * PDFs the reader has already fetched, waiting to be uploaded with them —
+   * `replace` when it is a copy picked by hand, which goes over the one
+   * Drive already holds rather than being skipped because there is one.
+   */
+  const queuedPdfs = useRef<Map<string, { blob: Blob; replace: boolean }>>(new Map());
   /** Callers waiting to hear that a particular paper has finished syncing. */
   const waiters = useRef<Map<string, ((outcome: SyncOutcome) => void)[]>>(new Map());
   const running = useRef(false);
@@ -276,7 +286,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     try {
       while (queue.current.length) {
         const paperId = queue.current.shift() as string;
-        const pdf = queuedPdfs.current.get(paperId);
+        const queued = queuedPdfs.current.get(paperId);
         queuedPdfs.current.delete(paperId);
         const paper = latest.current.papers.find((item) => item.id === paperId);
         if (!paper) {
@@ -290,7 +300,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             collections: latest.current.collections,
             highlights: latest.current.highlights,
             settings: latest.current.settings,
-            pdf,
+            pdf: queued?.blob,
+            replacePdf: queued?.replace,
           });
           // Removed while the upload was in flight: saving the result would
           // put the paper straight back in the library.
@@ -341,11 +352,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [note, savePaper, settle]);
 
   const syncPaper = useCallback(
-    (id: string, options: { pdf?: Blob } = {}) => {
+    (id: string, options: { pdf?: Blob; replacePdf?: boolean } = {}) => {
       if (!driveConnected) return;
       // The reader hands over the copy it is showing, so the upload is the
       // file already on screen rather than a second trip to the publisher.
-      if (options.pdf) queuedPdfs.current.set(id, options.pdf);
+      if (options.pdf) queuedPdfs.current.set(id, { blob: options.pdf, replace: Boolean(options.replacePdf) });
       if (!queue.current.includes(id)) queue.current.push(id);
       note(id, 'queued');
       void drainQueue();
@@ -609,6 +620,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [savePaper],
   );
 
+  const setPaperPdfChoice = useCallback(
+    async (id: string, url: string | undefined) => {
+      const paper = latest.current.papers.find((item) => item.id === id);
+      if (!paper || paper.pdfChoice === url) return;
+      const updated: Paper = { ...paper, pdfChoice: url };
+      await savePaper(updated);
+      latest.current.papers = latest.current.papers.map((item) => (item.id === id ? updated : item));
+    },
+    [savePaper],
+  );
+
   const setPaperDriveFile = useCallback(
     async (id: string, found: { folderId: string; pdfFileId: string; pdfLink?: string }) => {
       const paper = latest.current.papers.find((item) => item.id === id);
@@ -783,6 +805,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setProgress,
       markOpened,
       setPaperPdfUrl,
+      setPaperPdfChoice,
       setPaperDriveFile,
       createCollection,
       renameCollection,
@@ -805,7 +828,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }),
     [
       ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog,
-      addPaper, removePaper, setPaperCollections, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperDriveFile,
+      addPaper, removePaper, setPaperCollections, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile,
       createCollection, renameCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
       githubConnected, githubLog, githubPending, pushToGitHub,

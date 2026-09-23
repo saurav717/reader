@@ -73,7 +73,7 @@ export interface SyncResult {
  */
 export async function syncPaperToDrive(
   paper: Paper,
-  context: { collections: Collection[]; highlights: Highlight[]; settings: Settings; pdf?: Blob },
+  context: { collections: Collection[]; highlights: Highlight[]; settings: Settings; pdf?: Blob; replacePdf?: boolean },
 ): Promise<SyncResult> {
   const { settings } = context;
   if (!settings.googleClientId) throw new Error('No Google client ID is configured');
@@ -121,7 +121,25 @@ export async function syncPaperToDrive(
       pdfFileId = existing?.id;
       pdfLink = existing?.webViewLink ?? pdfLink;
     }
-    if (!pdfFileId && context.pdf) {
+    if (pdfFileId && context.pdf && context.replacePdf) {
+      // A different copy of the paper, picked by hand in the reader — the
+      // one saved first was the poster, say. It goes over the file Drive
+      // holds, which keeps its id and its link, so the next open (from this
+      // browser or another) reads the copy that was picked.
+      try {
+        const replaced = await uploadFile(accessToken, {
+          name: `${stem}.pdf`,
+          mimeType: 'application/pdf',
+          parentId: folderId,
+          body: context.pdf,
+          fileId: pdfFileId,
+        });
+        pdfFileId = replaced.id;
+        pdfLink = replaced.webViewLink ?? pdfLink;
+      } catch (error) {
+        notice = `${error instanceof Error ? error.message : String(error)} Drive still holds the copy saved before.`;
+      }
+    } else if (!pdfFileId && context.pdf) {
       // The reader already has the file open. Upload that, rather than asking
       // the publisher for the same bytes a second time.
       try {

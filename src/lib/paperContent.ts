@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify';
 import type { Paper } from '../types';
 import { api, hasProxy, NO_PROXY_REASON } from './api';
 import type { ReflowProgress } from './pdfReflow';
+import { pdfShape } from './pdfShape';
 
 export interface PaperContent {
   html: string;
@@ -14,6 +15,21 @@ export interface PaperContent {
 }
 
 export type { ReflowProgress };
+
+/**
+ * Why a PDF is probably not the paper — "looks like a poster" — or null when
+ * it looks like one (see `pdfShape`). pdf.js is loaded to measure it, the
+ * first time it is needed. A file pdf.js cannot open is not second-guessed
+ * here — whether it renders is the viewer's business — so it counts as a paper.
+ */
+export async function judgePdf(pdf: Blob): Promise<string | null> {
+  try {
+    const { measurePdf } = await import('./pdfReflow');
+    return pdfShape(await measurePdf(pdf));
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The paper reflowed from its PDF: every page read out — text, figures,
