@@ -762,6 +762,71 @@ fetch asks IEEE's stamp endpoints for it by article number; for everyone else
 the page's `citation_pdf_url` — the tag publishers put there for Google Scholar
 — is followed to the file. `scripts/access.test.mjs` pins both.
 
+### The proxy at home, reachable from anywhere: `npm run home`
+
+Every wall the reader meets from the Cloudflare Worker — a site's check for
+a person, Google Scholar's opinion of a datacenter, a publisher's sign-in —
+waves an ordinary browser on an ordinary connection through. The Worker
+cannot become one: it runs on Cloudflare's network, which Cloudflare itself
+marks as a bot to every site it protects, and no setting in your own
+Cloudflare account reaches the sites' rules. Your own machine is that
+ordinary browser, and this makes it the proxy with one command:
+
+```bash
+git clone https://github.com/saurav717/reader.git && cd reader
+npm install          # with the Chromium
+npm run home
+```
+
+It builds the app if it has not been built, starts the proxy on this
+machine with `SCHOLAR_BROWSER=1` (Scholar through a real Chromium, and
+the captcha shown to you when Google asks), and opens a [Cloudflare
+Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+to it with `cloudflared`, which has to be installed
+([downloads](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/);
+without it the proxy still starts, reachable from this machine alone). Then
+it prints an address:
+
+```
+The proxy is reachable from anywhere at:
+
+    https://quiet-otter-halt-bare.trycloudflare.com
+
+Paste that into Settings → Paper proxy on the site and press Test it.
+```
+
+From then on the site on GitHub Pages — on this machine, on another, on a
+phone — fetches through your machine. Only the site's requests to the
+proxy go through the tunnel; what the proxy fetches from publishers and
+from Scholar leaves from your own connection, which is the point. The
+browser in the PDF pane is your Chromium, so a box to tick there is one
+you can tick and the tick counts; the sign-in window opens on your
+screen; Scholar answers. It works while the machine is on and awake.
+
+Two kinds of tunnel. Without anything set, a **quick tunnel**: no
+Cloudflare account, a random `*.trycloudflare.com` address, new on every
+start, so it is pasted again next time. With a domain in your Cloudflare
+account, a **named tunnel** at a fixed address: create it under Zero Trust
+→ Networks → Tunnels in the dashboard, route a hostname to
+`http://localhost:8080`, and run
+
+```bash
+READER_TUNNEL_TOKEN=… READER_TUNNEL_HOST=proxy.example.org npm run home
+```
+
+with the token the dashboard shows. A named tunnel can carry [Cloudflare
+Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)
+in front, so only your own sign-in reaches the proxy at all.
+
+Either way the proxy is on a public address, so `npm run home` starts it
+with `READER_ONLY_FROM_APP=1`: it answers only requests that carry the
+site's own origin (`ALLOWED_ORIGINS` extends the list), which a browser
+sends on every request the reader makes and which curl, a scanner or a
+link followed by hand do not. That keeps strangers from fetching through
+your machine by accident; Access keeps them out on purpose.
+`scripts/home.test.mjs` pins how the address is read and how the tunnel
+is told what to do.
+
 ### A browser inside the reader: sign in without a screen on the proxy
 
 The window above needs the proxy's screen to open on, and the proxy is not

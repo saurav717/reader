@@ -12,12 +12,13 @@
     "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false || tsc -b",
     "test:api": "node --test scripts/pdf-proxy.test.mjs scripts/access.test.mjs scripts/scholar-captcha.test.mjs scripts/browse.test.mjs scripts/serpapi.test.mjs",
     "build:pages": "VITE_BASE=/reader/ VITE_SOURCEMAP=false VITE_API_BASE=${VITE_API_BASE:-none} vite build --outDir dist-pages --emptyOutDir",
-    "test:unit": "node --test scripts/search.test.mjs scripts/locations.test.mjs scripts/scholar.test.mjs scripts/github.test.mjs scripts/proxy-setting.test.mjs scripts/google-signin.test.mjs scripts/drive.test.mjs scripts/downloads.test.mjs",
-    "test": "node --test scripts/pdf-proxy.test.mjs scripts/access.test.mjs scripts/scholar-captcha.test.mjs scripts/browse.test.mjs scripts/serpapi.test.mjs scripts/search.test.mjs scripts/locations.test.mjs scripts/scholar.test.mjs scripts/github.test.mjs scripts/google-signin.test.mjs scripts/drive.test.mjs scripts/downloads.test.mjs",
+    "test:unit": "node --test scripts/search.test.mjs scripts/locations.test.mjs scripts/scholar.test.mjs scripts/github.test.mjs scripts/proxy-setting.test.mjs scripts/google-signin.test.mjs scripts/drive.test.mjs scripts/downloads.test.mjs scripts/home.test.mjs",
+    "test": "node --test scripts/pdf-proxy.test.mjs scripts/access.test.mjs scripts/scholar-captcha.test.mjs scripts/browse.test.mjs scripts/serpapi.test.mjs scripts/search.test.mjs scripts/locations.test.mjs scripts/scholar.test.mjs scripts/github.test.mjs scripts/google-signin.test.mjs scripts/drive.test.mjs scripts/downloads.test.mjs scripts/home.test.mjs",
     "test:scholar": "node scripts/scholar-live.mjs",
     "check:worker": "npx --yes wrangler@4 deploy --dry-run",
     "deploy:worker": "npx --yes wrangler@4 deploy",
-    "fetch": "node scripts/fetch-paper.mjs"
+    "fetch": "node scripts/fetch-paper.mjs",
+    "home": "node scripts/home.mjs"
   },
   "dependencies": {
     "dompurify": "^3.2.7",
