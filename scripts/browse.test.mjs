@@ -528,6 +528,98 @@ describe('how the Worker gets a browser', () => {
     assert.deepEqual(status.browsers, { alive: 1, max: 3, allowed: 0, nextInMs: 55_000 });
   });
 
+  it('gives up on a session that never answers, leaves it alone after, and takes the next', async () => {
+    const driver = fakeDriver({ sessions: [{ sessionId: 'mute' }, { sessionId: 'free' }] });
+    driver.connect = async (_env, id) => {
+      driver.asked.connect.push(id);
+      if (id === 'mute') return new Promise(() => undefined); // never answers
+      return { id, sessionId: () => id, on: () => undefined, pages: async () => [], close: async () => undefined };
+    };
+    const { object } = await objectWith(driver);
+    object.deadlines.connect = 30;
+    const got = await object.acquire();
+    assert.equal(got.id, 'free');
+    assert.deepEqual(driver.asked.connect, ['mute', 'free']);
+    assert.ok(object.avoid.get('mute') > Date.now(), 'the mute session is avoided');
+    // Asked again, the mute session is not even tried.
+    driver.asked.connect.length = 0;
+    await object.acquire();
+    assert.deepEqual(driver.asked.connect, ['free']);
+  });
+
+  it('answers the open with what took too long rather than hanging, lets the browser go, and says so in the status', async () => {
+    const { BrowserSession } = await import('../worker/browserSession.js');
+    const fake = fakeSession();
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    object.deadlines = { ...object.deadlines, adopt: 30, close: 30, ask: 30 };
+    object.driver = fakeDriver({ limits: [{ activeSessions: [], maxConcurrentSessions: 3, allowedBrowserAcquisitions: 3, timeUntilNextAllowedBrowserAcquisition: 0 }] });
+    let letGo = false;
+    const stuck = {
+      sessionId: () => 'stuck',
+      on: () => undefined,
+      pages: () => new Promise(() => undefined), // never answers
+      close: async () => (letGo = true),
+    };
+    object.acquire = async () => ({ browser: stuck, id: 'stuck' });
+    const started = Date.now();
+    const response = await object.fetch(new Request('https://browser-session/open?url=https%3A%2F%2Fexample.org%2F', { method: 'POST' }));
+    assert.equal(response.status, 504);
+    const body = await response.json();
+    assert.match(body.error, /taking the browser took longer than 0 seconds/);
+    assert.ok(Date.now() - started < 5_000, 'answered promptly');
+    assert.equal(letGo, true, 'the browser that would not answer was closed');
+    assert.equal(object.browser, null);
+    assert.equal(object.opening, null);
+    assert.ok(object.avoid.get('stuck') > Date.now(), 'and is avoided');
+    const status = await (await object.fetch(new Request('https://browser-session/status'))).json();
+    assert.equal(status.open, false);
+    assert.equal(status.held, false);
+    assert.equal(status.opening, null);
+    assert.deepEqual(status.avoiding, ['stuck']);
+    assert.match(status.lastError.message, /took longer/);
+    assert.equal(status.lastError.code, 'timeout');
+    assert.equal(status.lastError.url, 'https://example.org/');
+    assert.deepEqual(status.browsers, { alive: 0, max: 3, allowed: 3, nextInMs: 0 });
+  });
+
+  it('answers the open when the whole of it runs out, and the abandoned open stops at its next step', async () => {
+    const { BrowserSession } = await import('../worker/browserSession.js');
+    const fake = fakeSession();
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    object.deadlines = { ...object.deadlines, open: 40, close: 30 };
+    let release;
+    const late = fakeSession();
+    let closedLate = false;
+    late.browser.close = async () => (closedLate = true);
+    object.acquire = () => new Promise((resolve) => (release = () => resolve({ browser: late.browser, id: 'late' })));
+    const response = await object.fetch(new Request('https://browser-session/open?url=https%3A%2F%2Fexample.org%2F', { method: 'POST' }));
+    assert.equal(response.status, 504);
+    assert.match((await response.json()).error, /opening the browser took longer than 0 seconds/);
+    // The browser that arrives after the open was given up on is let go, not held.
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(closedLate, true);
+    assert.equal(object.browser, null);
+  });
+
+  it('reports what it holds and how long an open has been in flight', async () => {
+    const { BrowserSession } = await import('../worker/browserSession.js');
+    const fake = fakeSession();
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    object.driver = fakeDriver({ limits: ['fails'] });
+    await object.adopt(fake.browser, 'kept-session');
+    object.token = 'open';
+    const status = await (await object.fetch(new Request('https://browser-session/status'))).json();
+    assert.equal(status.open, true);
+    assert.equal(status.held, true);
+    assert.equal(status.page, true);
+    assert.equal(status.id, 'kept-session');
+    assert.equal(status.opening, null);
+    assert.equal(status.frame, undefined);
+    assert.equal(status.browsers, null);
+    assert.equal(status.lastError, null);
+  });
+
   it('opens a new page in the browser it holds when the page went, rather than asking for another browser', async () => {
     const { BrowserSession } = await import('../worker/browserSession.js');
     const fake = fakeSession();

@@ -91,7 +91,9 @@ export default {
 
         // Held open in a Durable Object where one is bound (the fast way,
         // and what wrangler.toml ships); reconnected per request otherwise.
-        if (env.BROWSER_SESSION && !['/browse/status'].includes(path)) {
+        // The status too: the object knows whether it holds a browser, whether
+        // an open is in flight and for how long, and what last went wrong.
+        if (env.BROWSER_SESSION) {
           const stub = env.BROWSER_SESSION.get(env.BROWSER_SESSION.idFromName('the-browser'));
           const inner = new URL(`https://browser-session${path.replace(/^\/browse/, '')}${url.search}`);
           const answer = await stub.fetch(inner, {
