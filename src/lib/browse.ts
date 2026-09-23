@@ -48,6 +48,52 @@ export interface BrowseStatus {
   session?: string;
   /** Whether a sign-in made here outlasts the session — kept in a profile, or in a KV namespace. */
   persistent?: boolean;
+  /** What Cloudflare last said it would allow, from the Worker; the Node proxy has no such limits. */
+  browsers?: BrowserLimits | null;
+}
+
+/**
+ * What Cloudflare will allow the Worker just now: how many browsers are
+ * alive against how many may be at once, whether another may be started
+ * this minute, and if not how long until one may. Null where unknown.
+ */
+export interface BrowserLimits {
+  alive: number | null;
+  max: number | null;
+  allowed: number | null;
+  nextInMs: number;
+}
+
+/**
+ * What the proxy answered with, when it would not: the status, and — when
+ * Cloudflare would not start a browser — how many seconds until it said it
+ * would, for the pane to count down and try again on its own.
+ */
+export class BrowseError extends Error {
+  status: number;
+  retryAfter: number | null;
+  browsers: BrowserLimits | null;
+
+  constructor(message: string, status: number, retryAfter: number | null = null, browsers: BrowserLimits | null = null) {
+    super(message);
+    this.name = 'BrowseError';
+    this.status = status;
+    this.retryAfter = retryAfter;
+    this.browsers = browsers;
+  }
+
+  /** Whether this is Cloudflare rationing browsers, which a wait will cure, rather than something wrong. */
+  get rateLimited(): boolean {
+    return this.status === 429;
+  }
+}
+
+/** The error a refusal makes, with the wait when the proxy named one. */
+function refused(status: number, payload: { error?: string; retryAfter?: unknown; browsers?: unknown }): BrowseError {
+  const seconds = Number(payload.retryAfter);
+  const retryAfter = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null;
+  const browsers = payload.browsers && typeof payload.browsers === 'object' ? (payload.browsers as BrowserLimits) : null;
+  return new BrowseError(payload.error || `The proxy answered ${status}.`, status, retryAfter, browsers);
 }
 
 export type BrowseInput =
@@ -78,8 +124,8 @@ function withSession(path: string): string {
 
 async function ask<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(api(withSession(path)), { ...init, headers: { Accept: 'application/json', ...(init?.headers || {}) } });
-  const payload = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new Error(payload.error || `The proxy answered ${response.status}.`);
+  const payload = (await response.json().catch(() => ({}))) as T & { error?: string; retryAfter?: unknown; browsers?: unknown };
+  if (!response.ok) throw refused(response.status, payload);
   return payload;
 }
 
@@ -107,8 +153,8 @@ export async function openBrowser(url: string): Promise<BrowseStatus> {
  */
 export async function nextFrame(after: number, signal?: AbortSignal): Promise<BrowseStatus> {
   const response = await fetch(api(withSession(`/browse/frame?after=${after}`)), { headers: { Accept: 'application/json' }, signal });
-  const payload = (await response.json().catch(() => ({}))) as Partial<BrowseStatus> & { error?: string };
-  if (!response.ok) throw new Error(payload.error || `The proxy answered ${response.status}.`);
+  const payload = (await response.json().catch(() => ({}))) as Partial<BrowseStatus> & { error?: string; retryAfter?: unknown };
+  if (!response.ok) throw refused(response.status, payload);
   return { ...UNAVAILABLE, ...payload };
 }
 
@@ -125,8 +171,8 @@ export async function sendInput(events: BrowseInput[]): Promise<void> {
 async function pdfFrom(path: string, init?: RequestInit): Promise<Blob> {
   const response = await fetch(api(withSession(path)), init);
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new Error(payload.error || `The proxy answered ${response.status}.`);
+    const payload = (await response.json().catch(() => ({}))) as { error?: string; retryAfter?: unknown };
+    throw refused(response.status, payload);
   }
   const blob = await response.blob();
   return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });

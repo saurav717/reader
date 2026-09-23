@@ -70,10 +70,48 @@ export function idle(env, extra = {}) {
  * How a browser is reached. Taken as parameters so a test can point these
  * at a Chromium of its own; in the Worker they are Cloudflare's.
  */
-const defaultDriver = {
+export const defaultDriver = {
   launch: (env) => puppeteer.launch(env.BROWSER, { keep_alive: KEEP_ALIVE_MS }),
   connect: (env, session) => puppeteer.connect(env.BROWSER, session),
+  sessions: (env) => puppeteer.sessions(env.BROWSER),
+  limits: (env) => puppeteer.limits(env.BROWSER),
 };
+
+/**
+ * What Cloudflare will allow just now, asked rather than guessed: how many
+ * browsers are alive against how many may be at once, whether another may
+ * be started this minute, and if not how long until one may. Asking is not
+ * an acquisition, so it never counts against the minute the way asking for
+ * a browser and being refused may. Null where the Worker has no browser,
+ * or Cloudflare would not say.
+ */
+export async function limitsOf(env, driver = defaultDriver) {
+  if (!env?.BROWSER) return null;
+  try {
+    return shapeLimits(await driver.limits(env));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Cloudflare's answer, in the shape the app and the refusals use. Its
+ * `timeUntilNextAllowedBrowserAcquisition` is taken as milliseconds, like
+ * `keep_alive` and the session times in the same API; the Durable Object
+ * asks again after the wait either way, so a misread costs a few extra
+ * asks, never a browser. Pure: pinned by the tests.
+ */
+export function shapeLimits(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const count = (value) => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null);
+  const wait = Number(raw.timeUntilNextAllowedBrowserAcquisition);
+  return {
+    alive: Array.isArray(raw.activeSessions) ? raw.activeSessions.length : null,
+    max: count(raw.maxConcurrentSessions),
+    allowed: count(raw.allowedBrowserAcquisitions),
+    nextInMs: Number.isFinite(wait) && wait > 0 ? Math.round(wait) : 0,
+  };
+}
 
 async function connect(env, session, driver) {
   if (!env?.BROWSER) throw new Error(NO_BROWSER);

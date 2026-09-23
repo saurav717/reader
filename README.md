@@ -828,17 +828,38 @@ no window, no pop-up — which is either of two:
   plan a few new browsers a minute, three alive at once, and ten minutes of
   browser time a day; the Workers Paid plan has hours a month — so the
   object starts one only when it has none: picking another site points the
-  open browser at it, a session left idle by an eviction is adopted rather
-  than replaced, a refusal is asked again every few seconds for most of a
-  minute (looking for a freed session between asks), and closing the pane
-  keeps the browser for most of a minute — blank, for the next open to
-  point at another site, since picking another site or trying the copies
-  again is so often what follows — before it is closed for good, as it is
-  two minutes after anyone last looked at an open pane.
-  A minute's or a day's allowance spent shows as *Cloudflare would not
-  start another browser just now*; the bare *Unable to create new browser:
-  code: 429* is the same refusal from a Worker deployed before this reuse,
-  and `npm run deploy:worker` brings it up to date. The sign-in outlasts the browser session
+  open browser at it, a page the site closed is replaced by a new page in
+  the same browser, a session left idle by an eviction is adopted rather
+  than replaced, and so is any session of the account's that nothing is
+  connected to; and closing the pane keeps the browser for most of a
+  minute — blank, for the next open to point at another site, since
+  picking another site or trying the copies again is so often what
+  follows — before it is closed for good, as it is two minutes after
+  anyone last looked at an open pane.
+  Before it asks Cloudflare for a browser it asks what Cloudflare will
+  allow (`puppeteer.limits()`: how many are alive against how many may be,
+  and whether another may be started this minute, and if not, in how
+  long). A minute's allowance spent is waited out for exactly the time
+  named, with the request held, rather than asked again every few seconds
+  — a refused ask may count against the minute the way an answered one
+  does, so the old way could keep the minute spent on its own. A full
+  house — every browser it allows alive and held by something — is looked
+  at again every few seconds for one that has come free. After most of a
+  minute of that the refusal is shown: *Cloudflare would not start another
+  browser just now*, followed by which limit it was and how long until
+  another try, with Cloudflare's own words on the end. The pane counts that
+  wait down and tries again on its own, twice, before leaving it to you.
+  `/browse/status` on the Worker shows what Cloudflare last said its
+  limits were, which is the place to look when it keeps refusing: three
+  alive and none free means something is still connected to each (a pane
+  open in another tab, or the last connection not yet let go — each is
+  freed a minute and a half after whatever drove it disconnects); no new
+  browsers allowed and no time named, for longer than a minute, means the
+  day's browser time is spent, and the Node proxy on your own machine —
+  which has no such limit — or the Workers Paid plan is the way on. The
+  bare *Unable to create new browser: code: 429* is the same refusal from
+  a Worker deployed before this reuse, and `npm run deploy:worker` brings
+  it up to date. The sign-in outlasts the browser session
   only where the Worker has somewhere to keep its cookies: bind a KV
   namespace as `SESSIONS` (the `[[kv_namespaces]]` block in `wrangler.toml`)
   and they
