@@ -20,5 +20,7 @@ export default defineConfig({
   server: { port: 5173 },
   // Sourcemaps are useful locally but needless weight in a repo that is
   // committed as build output.
-  build: { outDir: 'dist', sourcemap: process.env.VITE_SOURCEMAP !== 'false' },
+  // pdf.js is a large library, loaded on demand as its own chunk the first
+  // time a PDF is reflowed; the warning about its size says nothing new.
+  build: { outDir: 'dist', sourcemap: process.env.VITE_SOURCEMAP !== 'false', chunkSizeWarningLimit: 1500 },
 });

@@ -1,12 +1,49 @@
 import DOMPurify from 'dompurify';
 import type { Paper } from '../types';
 import { api, hasProxy, NO_PROXY_REASON } from './api';
+import type { ReflowProgress } from './pdfReflow';
 
 export interface PaperContent {
   html: string;
-  mode: 'html' | 'abstract';
+  /** Reflowed from the PDF itself, from an HTML rendering, or the abstract alone. */
+  mode: 'pdf' | 'html' | 'abstract';
   sourceLabel: string;
   notice?: string;
+  /** Hands back what the HTML refers to — the images painted from a PDF — once it is off the screen. */
+  release?: () => void;
+}
+
+export type { ReflowProgress };
+
+/**
+ * The paper reflowed from its PDF: every page read out — text, figures,
+ * tables, equations — and set as a document. pdf.js is loaded on demand,
+ * since a reader in PDF mode never needs it. Null when the file has no
+ * text to read — a scan, or fonts that cannot be mapped back to letters —
+ * so the caller can fall back to the HTML rendering or the abstract.
+ */
+export async function loadPaperContentFromPdf(
+  paper: Paper,
+  pdf: Blob,
+  options: { signal?: AbortSignal; onProgress?: (progress: ReflowProgress) => void } = {},
+): Promise<PaperContent | null> {
+  const { reflowPdf } = await import('./pdfReflow');
+  const reflowed = await reflowPdf(pdf, { title: paper.title, signal: options.signal, onProgress: options.onProgress });
+  if (!reflowed) return null;
+  // The HTML is our own, but it went through a PDF's strings on the way,
+  // and the images are blob: URLs, which the default policy strips.
+  const clean = DOMPurify.sanitize(reflowed.html, {
+    USE_PROFILES: { html: true },
+    ADD_ATTR: ['loading', 'width', 'height', 'colspan'],
+    ALLOWED_URI_REGEXP: /^(?:blob:|https?:|#)/i,
+    FORBID_TAGS: ['style', 'link'],
+  });
+  return {
+    html: clean,
+    mode: 'pdf',
+    sourceLabel: `Reflowed from the PDF · ${reflowed.pages} ${reflowed.pages === 1 ? 'page' : 'pages'}`,
+    release: reflowed.release,
+  };
 }
 
 const STRIP = [
