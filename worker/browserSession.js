@@ -226,6 +226,10 @@ const AVOID_MS = 3 * 60_000;
  */
 export const REMEMBER_MS = 7 * 24 * 60 * 60_000;
 
+/** What the pane says when the browser at Browserless went while it was open: the plan's time for a session, most likely. */
+export const ENDED_AT_BROWSERLESS =
+  "The browser at Browserless closed: its plan allows a session so long (two minutes on the free plan; BROWSERLESS_SESSION_MS raises it on a paid one), and the time is up. Open the site again for another — a check already passed there does not carry over, so tick the box again if it comes.";
+
 /** The hosts remembered, with this one added and the stale ones dropped. Pure: pinned by the tests. */
 export function challengedAfter(hosts, host, now = Date.now()) {
   const kept = {};
@@ -314,6 +318,8 @@ export class BrowserSession {
     this.moving = null;
     /** Why the last hand-over gave no browser at Browserless, for the line under the page; null when it did, or none was tried. */
     this.fallbackError = null;
+    /** Why the browser went while the pane was open, when that is known — Browserless's time for a session up, say — for the pane to say. */
+    this.ended = null;
     this.lastSeen = 0;
     this.opening = null;
     /** How Cloudflare's browser is reached; a test points this at a fake. */
@@ -368,9 +374,14 @@ export class BrowserSession {
         const events = Array.isArray(body) ? body : Array.isArray(body?.events) ? body.events : [body];
         if (events.length > 64) return json({ error: 'too many events at once' }, 400);
         this.touch();
+        // To the page they were meant for: a hand-over mid-batch swaps the
+        // page, and the rest of the batch — a release, a key up — is for
+        // the one that is gone, not the one that came.
+        const page = this.page;
         for (const event of events) {
+          if (this.page !== page || !page || page.isClosed()) break;
           if (event?.type === 'down' || event?.type === 'keydown') this.acted = true;
-          await apply(this.page, event || {});
+          await apply(page, event || {});
         }
         return json({ ok: true });
       }
@@ -407,7 +418,15 @@ export class BrowserSession {
   // ------------------------------------------------------------ status ----
 
   idle() {
-    return { ...availability(this.env), open: false, seq: this.seq, pdf: null, persistent: Boolean(this.env.SESSIONS), browsers: this.limits };
+    return {
+      ...availability(this.env),
+      open: false,
+      seq: this.seq,
+      pdf: null,
+      persistent: Boolean(this.env.SESSIONS),
+      browsers: this.limits,
+      ...(this.ended ? { ended: this.ended } : {}),
+    };
   }
 
   /**
@@ -623,6 +642,7 @@ export class BrowserSession {
       this.check = null;
       this.acted = false;
       this.fallbackError = null;
+      this.ended = null;
       this.url = url;
       this.loading = true;
       await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS }).catch(() => {
@@ -812,6 +832,12 @@ export class BrowserSession {
     this.touch();
     browser.on('disconnected', () => {
       if (this.browser === browser) {
+        // A browser at Browserless goes when its plan's time for a session
+        // is up, pane open or not; said, so the pane can say why it closed.
+        if (this.token && this.where === 'browserless') {
+          this.ended = ENDED_AT_BROWSERLESS;
+          this.note(`the browser at Browserless (${id}) went: its session's time is up, or it was closed there`);
+        }
         this.browser = null;
         this.page = null;
         this.cdp = null;
@@ -1134,6 +1160,7 @@ export class BrowserSession {
     this.cdp = null;
     this.where = null;
     this.fallbackError = null;
+    this.ended = null;
     this.token = null;
     this.frame = null;
     this.pdf = null;

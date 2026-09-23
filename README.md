@@ -1038,8 +1038,13 @@ one is not what is rationed there; and a Browserless session cannot be
 reconnected to, so a session object evicted mid-page starts afresh. A
 session runs **two minutes on the free plan**, which is that plan's cap
 on session time and so the default asked for: enough to tick a box and
-have the file follow, and the pane simply closes when it is up, to be
-opened again. A paid plan allows longer, and `BROWSERLESS_SESSION_MS`
+have the file follow. When it is up the pane closes and says why, and
+the site is a click away from opening again — at Browserless straight
+away, since the host is remembered, though a check passed in the session
+that ended does not carry over. A click split across the hand-over — the
+press on Cloudflare's page, the release on Browserless's — is let pass
+rather than failing the batch, since Puppeteer keeps the mouse's state
+per page; the next click is whole. A paid plan allows longer, and `BROWSERLESS_SESSION_MS`
 raises the ask; a session asked for longer than the plan allows is
 refused before any browser starts, with the cap in the refusal, and the
 Worker asks again at that cap rather than giving up.
