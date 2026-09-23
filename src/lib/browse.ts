@@ -64,6 +64,8 @@ export interface BrowseStatus {
    * when the Worker has a token for one. Absent otherwise.
    */
   fallback?: 'browserless';
+  /** Why the last hand-over gave no browser at Browserless, in Browserless's words; absent when it did, or none was tried. */
+  fallbackError?: string;
   /** The site's check for a person, when that is what the page is — noticed by the proxy from the response itself. */
   check?: BrowseCheck | null;
 }
@@ -340,7 +342,7 @@ export function browseSites(paper: PaperRef, locations: PaperLocation[] | null, 
  * (`status.fallback`): then the check is a moment's wait, and the page
  * comes again from that browser, whose box is the person's to tick.
  */
-export function botCheck(status: Pick<BrowseStatus, 'url' | 'title' | 'check' | 'where' | 'session' | 'fallback'> | null): string | null {
+export function botCheck(status: Pick<BrowseStatus, 'url' | 'title' | 'check' | 'where' | 'session' | 'fallback' | 'fallbackError'> | null): string | null {
   if (!status?.url) return null;
   let host = '';
   try {
@@ -360,6 +362,9 @@ export function botCheck(status: Pick<BrowseStatus, 'url' | 'title' | 'check' | 
   const own = 'Open the file in a tab of your own and drop it on the paper instead';
   if (cloudflares && where === 'cloudflare') {
     if (status.fallback === 'browserless') {
+      if (status.fallbackError) {
+        return `${host} is checking that a person is here, and the check is Cloudflare's, which Cloudflare's own browser never passes. It was to be handed to a browser at Browserless, but Browserless gave none — ${status.fallbackError.replace(/[.\s]+$/, '')} — so it stays here, where the box will not pass. ${own}, or check the token and the plan at Browserless and open this site again.`;
+      }
       return `${host} is checking that a person is here, and the check is Cloudflare's, which Cloudflare's own browser never passes — so this session is being handed to a browser at Browserless, on an address of its own. A moment: the page opens again there, and a box that appears then is yours to tick.`;
     }
     const why =

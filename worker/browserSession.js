@@ -312,6 +312,8 @@ export class BrowserSession {
     this.where = null;
     /** The hand-over of the session to a browser at Browserless, while one is in flight. */
     this.moving = null;
+    /** Why the last hand-over gave no browser at Browserless, for the line under the page; null when it did, or none was tried. */
+    this.fallbackError = null;
     this.lastSeen = 0;
     this.opening = null;
     /** How Cloudflare's browser is reached; a test points this at a fake. */
@@ -458,8 +460,10 @@ export class BrowserSession {
     if (!this.browser || !this.page || !this.token) return this.idle();
     return {
       ...availability(this.env),
-      // Whose browser it is now, which a hand-over changes mid-session.
+      // Whose browser it is now, which a hand-over changes mid-session — and
+      // why it did not, when Browserless gave no browser to hand it to.
       ...(this.where ? { where: this.where } : {}),
+      ...(this.fallbackError ? { fallbackError: this.fallbackError } : {}),
       open: true,
       session: this.token,
       persistent: Boolean(this.env.SESSIONS),
@@ -618,6 +622,7 @@ export class BrowserSession {
       this.pdf = null;
       this.check = null;
       this.acted = false;
+      this.fallbackError = null;
       this.url = url;
       this.loading = true;
       await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS }).catch(() => {
@@ -1064,7 +1069,9 @@ export class BrowserSession {
         );
       } catch (error) {
         this.lastError = { message: String(error?.message || error), code: error?.code || null, at: new Date().toISOString(), url };
-        this.note(`Browserless gave no browser: ${String(error?.message || error)}`);
+        this.fallbackError = String(error?.message || error);
+        this.note(`Browserless gave no browser: ${this.fallbackError}`);
+        this.bump();
         return;
       }
       if (this.browser !== from || this.token !== token) {
@@ -1083,6 +1090,7 @@ export class BrowserSession {
         this.acted = false;
         this.pdf = null;
         this.frame = null;
+        this.fallbackError = null;
         this.url = url;
         this.loading = true;
         this.bump();
@@ -1100,7 +1108,8 @@ export class BrowserSession {
         this.note(`handed over to Browserless (${id}) at ${url}`);
       } catch (error) {
         this.lastError = { message: String(error?.message || error), code: error?.code || null, at: new Date().toISOString(), url };
-        this.note(`the hand-over failed: ${String(error?.message || error)}`);
+        this.fallbackError = String(error?.message || error);
+        this.note(`the hand-over failed: ${this.fallbackError}`);
         await this.letGo(browser);
       } finally {
         // Cloudflare's browser, closed for good either way: it is one of
@@ -1124,6 +1133,7 @@ export class BrowserSession {
     this.page = null;
     this.cdp = null;
     this.where = null;
+    this.fallbackError = null;
     this.token = null;
     this.frame = null;
     this.pdf = null;
