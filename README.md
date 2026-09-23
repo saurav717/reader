@@ -849,8 +849,23 @@ no window, no pop-up — which is either of two:
   browser just now*, followed by which limit it was and how long until
   another try, with Cloudflare's own words on the end. The pane counts that
   wait down and tries again on its own, twice, before leaving it to you.
-  `/browse/status` on the Worker shows what Cloudflare last said its
-  limits were, which is the place to look when it keeps refusing: three
+  Every step of opening has a deadline of its own — a look at Cloudflare's
+  sessions or limits, a connection to a session, a start, taking the
+  browser, the first picture, and the whole open at a minute and a half —
+  because Puppeteer waits three minutes for any answer over the protocol
+  and Cloudflare will accept a connection to a session whose Chrome has
+  stopped answering, so without them a click could leave *Opening the
+  proxy's browser…* spinning for minutes with every click after queued
+  behind it. A step that runs out is answered with what took too long,
+  the session it was on is left alone for a few minutes, the connection
+  let go, and the next click starts afresh; the app gives up on its side
+  after two minutes with a sentence saying where to look.
+  `/browse/status` on the Worker shows what the object holds and what
+  Cloudflare last said its limits were, which is the place to look when
+  it keeps refusing or hangs: `held` and `page` say whether a browser is
+  held and has a page, `opening` how long an open has been in flight,
+  `avoiding` which sessions would not answer lately, `lastError` what
+  last went wrong and when, and `browsers` the limits — three
   alive and none free means something is still connected to each (a pane
   open in another tab, or the last connection not yet let go — each is
   freed a minute and a half after whatever drove it disconnects); no new

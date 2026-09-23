@@ -139,10 +139,29 @@ export async function browseStatus(): Promise<BrowseStatus> {
   }
 }
 
+/**
+ * How long an open is waited for. The Worker gives up on its own before
+ * this — every step of opening has a deadline there — so this is for a
+ * proxy that never answers at all: the spinner ends with a sentence.
+ */
+export const OPEN_TIMEOUT_MS = 120_000;
+
 /** Open the browser at a site. */
 export async function openBrowser(url: string): Promise<BrowseStatus> {
   session = null;
-  const opened = { ...UNAVAILABLE, ...(await ask<Partial<BrowseStatus>>(`/browse/open?url=${encodeURIComponent(url)}`, { method: 'POST' })) };
+  let answer: Partial<BrowseStatus>;
+  try {
+    answer = await ask<Partial<BrowseStatus>>(`/browse/open?url=${encodeURIComponent(url)}`, { method: 'POST', signal: AbortSignal.timeout(OPEN_TIMEOUT_MS) });
+  } catch (error) {
+    if (error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+      throw new BrowseError(
+        `The proxy did not answer within ${Math.round(OPEN_TIMEOUT_MS / 1000)} seconds. Its /browse/status says what it is doing; try again in a moment, and if it keeps happening, redeploy the Worker from the current app repository.`,
+        504,
+      );
+    }
+    throw error;
+  }
+  const opened = { ...UNAVAILABLE, ...answer };
   session = opened.session || null;
   return opened;
 }

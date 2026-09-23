@@ -147,6 +147,65 @@ export function refusal(error, limits) {
   return made;
 }
 
+/**
+ * How long each step of opening the browser may take before it is given
+ * up on. Puppeteer waits three minutes for any answer over the protocol,
+ * and Cloudflare will accept a connection to a session whose Chrome is no
+ * longer answering, so without these a session that has died quietly —
+ * or a held browser whose socket went without saying so — left the open
+ * request pending for minutes, and every click after it queued behind.
+ * A step that runs out is abandoned: the session it was on is avoided
+ * for a while, the connection let go, and the request answered with what
+ * took too long, so the next click starts afresh.
+ */
+export const DEADLINES = {
+  /** The whole of an open, from the click to the first picture. Longer than the rate-limit patience plus a start. */
+  open: 90_000,
+  /** One look at Cloudflare's sessions or limits. */
+  ask: 8_000,
+  /** Connecting to a session, to the first protocol answer. */
+  connect: 15_000,
+  /** Starting a browser and connecting to it. */
+  launch: 30_000,
+  /** Taking a browser as this session's: its pages listed, the screencast started. */
+  adopt: 20_000,
+  /** A new page in a held browser. */
+  page: 10_000,
+  /** The first picture. */
+  picture: 10_000,
+  /** Closing a browser for good, before it is merely disconnected from. */
+  close: 5_000,
+};
+/** How long a session that would not answer is left alone for. Longer than Cloudflare keeps an unconnected one. */
+const AVOID_MS = 3 * 60_000;
+
+/**
+ * The promise's answer, or — after `ms` — an error naming what took too
+ * long, after which whatever it was is not waited for. The promise itself
+ * runs on; a caller that must not leak what it gives (a connection) says
+ * so with `abandoned`, called with the answer should one come later.
+ */
+export function within(ms, what, promise, abandoned = null) {
+  let timer;
+  let late = false;
+  const clock = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      late = true;
+      reject(timedOut(what, ms));
+    }, ms);
+  });
+  if (abandoned) {
+    promise.then((answer) => (late ? abandoned(answer) : undefined)).catch(() => undefined);
+  }
+  return Promise.race([promise, clock]).finally(() => clearTimeout(timer));
+}
+
+function timedOut(what, ms) {
+  const error = new Error(`${what} took longer than ${Math.round(ms / 1000)} seconds`);
+  error.code = 'timeout';
+  return error;
+}
+
 const json = (body, status = 200, headers = {}) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers } });
 
@@ -176,6 +235,16 @@ export class BrowserSession {
     this.now = () => Date.now();
     /** What Cloudflare last said its limits were, for the status and the refusals. */
     this.limits = null;
+    /** How long each step may take; a test shortens these. */
+    this.deadlines = { ...DEADLINES };
+    /** Sessions that would not answer, and until when each is left alone. */
+    this.avoid = new Map();
+    /** The last thing that went wrong opening, and when — for the status, since nobody can see the logs. */
+    this.lastError = null;
+    /** When the open in flight began, for the status to say how long it has been. */
+    this.openingSince = 0;
+    /** Counts the opens; an open whose number is no longer this one was abandoned, and stops at its next step. */
+    this.run = 0;
   }
 
   // ---------------------------------------------------------- requests ----
@@ -184,7 +253,7 @@ export class BrowserSession {
     const url = new URL(request.url);
     const path = url.pathname;
     try {
-      if (path === '/status') return json(await this.status(-1));
+      if (path === '/status') return json(await this.report());
       if (path === '/open') return json({ ok: true, ...(await this.open(url.searchParams.get('url') || '')) });
 
       const token = url.searchParams.get('session') || '';
@@ -216,6 +285,7 @@ export class BrowserSession {
           'Retry-After': String(error.retryAfter),
         });
       }
+      if (error?.code === 'timeout') return json({ error: error.message, retryAfter: 5 }, 504);
       return json({ error: String(error?.message || error) }, path === '/grab' || path === '/pdf' ? 404 : 400);
     }
   }
@@ -236,6 +306,34 @@ export class BrowserSession {
 
   idle() {
     return { ...availability(this.env), open: false, seq: this.seq, pdf: null, persistent: Boolean(this.env.SESSIONS), browsers: this.limits };
+  }
+
+  /**
+   * The status with what can be seen of the object from outside, for
+   * whoever is looking at `/browse/status` because the pane is stuck:
+   * whether a browser is held at all, whether an open is in flight and for
+   * how long, what Cloudflare says its limits are now, and the last thing
+   * that went wrong. Nothing here waits on the browser.
+   */
+  async report() {
+    let browsers = this.limits;
+    try {
+      browsers = await within(this.deadlines.ask, 'asking Cloudflare its limits', limitsOf(this.env, this.driver));
+      if (browsers) this.limits = browsers;
+    } catch {
+      // What it last said, then.
+    }
+    return {
+      ...(await this.status(-1)),
+      frame: undefined,
+      browsers,
+      held: Boolean(this.browser),
+      page: Boolean(this.page && !this.page.isClosed()),
+      id: this.id || null,
+      opening: this.opening ? { forMs: Date.now() - this.openingSince } : null,
+      avoiding: [...this.avoid.entries()].filter(([, until]) => until > Date.now()).map(([id]) => id),
+      lastError: this.lastError,
+    };
   }
 
   async status(after) {
@@ -305,8 +403,8 @@ export class BrowserSession {
       if (!kept || kept.token !== token) return false;
       this.token = kept.token;
       try {
-        const browser = await this.driver.connect(this.env, kept.id);
-        await this.adopt(browser, kept.id);
+        const browser = await this.connectTo(kept.id);
+        await within(this.deadlines.adopt, 'taking the browser back', this.adopt(browser, kept.id));
       } catch {
         await this.forget();
         return false;
@@ -322,7 +420,19 @@ export class BrowserSession {
     if (reason) throw new Error(reason);
     if (!this.env.BROWSER) throw new Error(NO_BROWSER);
     if (this.opening) await this.opening.catch(() => undefined);
-    this.opening = (async () => {
+    this.openingSince = Date.now();
+    const run = ++this.run;
+    // An open given up on — its deadline passed, or another open begun —
+    // runs on in the background until its next step, where this stops it,
+    // letting go of a browser it got that nothing else knows of.
+    const still = async (browser = null) => {
+      if (this.run === run) return;
+      if (browser && browser !== this.browser) await this.letGo(browser);
+      const error = new Error('this open was abandoned');
+      error.code = 'abandoned';
+      throw error;
+    };
+    const work = async () => {
       // A browser already open is kept and pointed at the new site — the one
       // the pane is showing, or the one kept since the pane closed: starting
       // browsers is the thing Cloudflare rations, so one is started only
@@ -336,31 +446,43 @@ export class BrowserSession {
         // take one over while something is connected to it.
         const browser = this.browser;
         try {
-          await this.attach(await browser.newPage());
+          const page = await within(this.deadlines.page, 'opening a page in the browser', browser.newPage());
+          await within(this.deadlines.adopt, 'starting the picture', this.attach(page));
         } catch {
-          await browser.close().catch(() => undefined);
-          if (this.browser === browser) {
-            this.browser = null;
-            this.page = null;
-            this.cdp = null;
-          }
+          await this.letGo(browser);
         }
       }
       if (!this.browser || !this.page || this.page.isClosed()) {
+        // The session held before an eviction is read before it is forgotten, so it can be tried first.
+        const kept = await this.state.storage.get('session').catch(() => null);
         await this.forget();
-        const { browser, id } = await this.acquire();
-        await this.adopt(browser, id);
-        // No user-agent override: the browser presents itself as what it is,
-        // string and client hints agreeing. See `open` in worker/browse.js.
-        await restoreCookies(this.env, this.page);
+        const { browser, id } = await this.acquire(kept);
+        await still(browser);
+        try {
+          await within(this.deadlines.adopt, 'taking the browser', this.adopt(browser, id));
+          // No user-agent override: the browser presents itself as what it is,
+          // string and client hints agreeing. See `open` in worker/browse.js.
+          await within(this.deadlines.page, 'putting the sign-in back', restoreCookies(this.env, this.page));
+        } catch (error) {
+          // A browser that will not be taken is let go and avoided, not held.
+          this.avoid.set(id, Date.now() + AVOID_MS);
+          await this.letGo(browser);
+          throw error;
+        }
       } else if (!this.cdp) {
         // Kept since the pane closed, with its screencast stopped: started again.
-        await this.attach(this.page);
+        try {
+          await within(this.deadlines.adopt, 'starting the picture', this.attach(this.page));
+        } catch (error) {
+          await this.letGo(this.browser);
+          throw error;
+        }
       }
       if (!this.token) {
         this.token = crypto.randomUUID();
         await this.state.storage.put('session', { token: this.token, id: this.id });
       }
+      await still();
       this.touch();
       this.pdf = null;
       this.url = url;
@@ -368,12 +490,13 @@ export class BrowserSession {
       await this.page.goto(url, { waitUntil: 'domcontentloaded', timeout: NAVIGATION_TIMEOUT_MS }).catch(() => {
         // A slow or refused page is still a page the person can see and act on.
       });
+      await still();
       this.loading = false;
       // The screencast starts with the first paint after it is asked for; a
       // page already painted may not send one, so the first picture is taken.
       if (!this.frame) {
         try {
-          const data = await this.page.screenshot({ type: 'jpeg', quality: 60, encoding: 'base64' });
+          const data = await within(this.deadlines.picture, 'the first picture', this.page.screenshot({ type: 'jpeg', quality: 60, encoding: 'base64' }));
           this.frame = { seq: ++this.seq, data };
         } catch {
           // The next paint will bring one.
@@ -382,12 +505,54 @@ export class BrowserSession {
       this.bump();
       await this.state.storage.setAlarm(Date.now() + IDLE_MS);
       return this.status(-1);
-    })();
+    };
+    // The whole open has a deadline of its own, so the request is answered
+    // whatever step hung — and the browser it was on is let go, so the
+    // next click starts afresh rather than behind it.
+    const mine = within(this.deadlines.open, 'opening the browser', work());
+    this.opening = mine;
     try {
-      return await this.opening;
+      const status = await mine;
+      this.lastError = null;
+      return status;
+    } catch (error) {
+      this.lastError = { message: String(error?.message || error), code: error?.code || null, at: new Date().toISOString(), url };
+      if (error?.code === 'timeout') {
+        this.run += 1; // whatever step is still running stops at its next
+        if (this.id) this.avoid.set(this.id, Date.now() + AVOID_MS);
+        await this.letGo(this.browser);
+      }
+      throw error;
     } finally {
-      this.opening = null;
+      if (this.opening === mine) this.opening = null;
     }
+  }
+
+  /**
+   * Done with a browser, for good: closed, given a moment to be, else
+   * disconnected from — never left held, since a held browser is one of
+   * the few Cloudflare allows alive and nothing else can take it over.
+   * Everything about the session is forgotten with it.
+   */
+  async letGo(browser) {
+    if (this.browser === browser || !browser) await this.forget();
+    if (!browser) return;
+    try {
+      await within(this.deadlines.close, 'closing the browser', browser.close());
+    } catch {
+      try {
+        await browser.disconnect();
+      } catch {
+        // Gone already.
+      }
+    }
+  }
+
+  /** A connection to a session, given its deadline; one that answers late is let go rather than leaked. */
+  connectTo(id) {
+    return within(this.deadlines.connect, `connecting to browser session ${id}`, this.driver.connect(this.env, id), (browser) =>
+      browser.disconnect?.().catch?.(() => undefined),
+    );
   }
 
   /**
@@ -409,8 +574,8 @@ export class BrowserSession {
    * the limit met and how long until another try, for the app to count
    * down and try again on its own.
    */
-  async acquire() {
-    const kept = await this.state.storage.get('session').catch(() => null);
+  async acquire(kept) {
+    if (kept === undefined) kept = await this.state.storage.get('session').catch(() => null);
     const started = this.now();
     let first = kept?.id || null;
     let refused = null;
@@ -418,7 +583,7 @@ export class BrowserSession {
       const adopted = await this.adoptFree(first);
       if (adopted) return adopted;
       first = null;
-      const limits = await limitsOf(this.env, this.driver);
+      const limits = await within(this.deadlines.ask, 'asking Cloudflare its limits', limitsOf(this.env, this.driver)).catch(() => null);
       this.limits = limits;
       // Asked for a browser only when Cloudflare says it will answer, or
       // will not say: not with the minute spent, and not with every browser
@@ -427,7 +592,9 @@ export class BrowserSession {
       const askable = !limits || (!full && (limits.allowed === null || limits.allowed > 0));
       if (askable) {
         try {
-          const browser = await this.driver.launch(this.env);
+          const browser = await within(this.deadlines.launch, 'starting a browser', this.driver.launch(this.env), (late) =>
+            late.close?.().catch?.(() => undefined),
+          );
           return { browser, id: browser.sessionId() };
         } catch (error) {
           if (!rateLimited(error)) throw error;
@@ -449,17 +616,19 @@ export class BrowserSession {
   async adoptFree(first) {
     const candidates = first ? [first] : [];
     try {
-      for (const session of await this.driver.sessions(this.env)) {
+      for (const session of await within(this.deadlines.ask, "asking Cloudflare for its sessions", this.driver.sessions(this.env))) {
         if (!session.connectionId && session.sessionId && !candidates.includes(session.sessionId)) candidates.push(session.sessionId);
       }
     } catch {
       // Not knowable; a new one, then.
     }
-    for (const id of candidates) {
+    // A few a pass, since each look costs up to its deadline.
+    for (const id of candidates.filter((id) => (this.avoid.get(id) || 0) <= Date.now()).slice(0, 3)) {
       try {
-        return { browser: await this.driver.connect(this.env, id), id };
-      } catch {
-        // Gone, or taken; the next.
+        return { browser: await this.connectTo(id), id };
+      } catch (error) {
+        if (error?.code === 'timeout') this.avoid.set(id, Date.now() + AVOID_MS);
+        // Gone, or taken, or not answering; the next.
       }
     }
     return null;
@@ -650,9 +819,8 @@ export class BrowserSession {
   /** Close the browser for good: the alarm's way, after a linger or an idle nobody came back from. */
   async close() {
     const browser = this.browser;
-    if (browser && this.page) await saveCookies(this.env, this.page).catch(() => undefined);
-    await this.forget();
-    if (browser) await browser.close().catch(() => undefined);
+    if (browser && this.page) await within(this.deadlines.close, 'keeping the cookies', saveCookies(this.env, this.page)).catch(() => undefined);
+    await this.letGo(browser);
     return { open: false };
   }
 
