@@ -830,8 +830,11 @@ no window, no pop-up — which is either of two:
   object starts one only when it has none: picking another site points the
   open browser at it, a session left idle by an eviction is adopted rather
   than replaced, a refusal is asked again every few seconds for most of a
-  minute (looking for a freed session between asks), and a browser is
-  closed the moment the pane is or two minutes after anyone last looked.
+  minute (looking for a freed session between asks), and closing the pane
+  keeps the browser for most of a minute — blank, for the next open to
+  point at another site, since picking another site or trying the copies
+  again is so often what follows — before it is closed for good, as it is
+  two minutes after anyone last looked at an open pane.
   A minute's or a day's allowance spent shows as *Cloudflare would not
   start another browser just now*; the bare *Unable to create new browser:
   code: 429* is the same refusal from a Worker deployed before this reuse,

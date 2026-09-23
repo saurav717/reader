@@ -293,9 +293,117 @@ describe('the Worker entry', () => {
 
 describe('what the Worker says when Cloudflare refuses a browser', () => {
   it('has a message for the person about the free plan, not a status code', async () => {
-    const { RATE_LIMITED } = await import('../worker/browserSession.js');
+    const { RATE_LIMITED, rateLimited, rateLimitedMessage } = await import('../worker/browserSession.js');
     assert.match(RATE_LIMITED, /free plan/);
     assert.match(RATE_LIMITED, /try again/);
+    assert.equal(rateLimited(new Error('Unable to create new browser: code: 429: message: nope')), true);
+    assert.equal(rateLimited(new Error('Unable to create new browser: code: 500: message: boom')), false);
+    // Cloudflare's own reason rides on the end, since the minute's allowance
+    // and the day's are refused with the same code.
+    const worded = rateLimitedMessage(new Error('Unable to create new browser: code: 429: message: Too many browsers this minute.'));
+    assert.ok(worded.startsWith(RATE_LIMITED));
+    assert.match(worded, /Cloudflare said: Too many browsers this minute\.$/);
+    assert.equal(rateLimitedMessage(new Error('429')), RATE_LIMITED);
+  });
+});
+
+// ------------------------------------------ the browser kept after a close ----
+
+/**
+ * A stand-in for the Durable Object's surroundings and for Cloudflare's
+ * browser: enough of a page to be pointed somewhere, drawn and listened
+ * to, and a storage that remembers what it is told. No browser is started;
+ * asking for one is the failure these tests are about.
+ */
+function fakeSession() {
+  const store = new Map();
+  const alarms = [];
+  const state = {
+    storage: {
+      get: async (key) => store.get(key),
+      put: async (key, value) => store.set(key, value),
+      delete: async (key) => store.delete(key),
+      setAlarm: async (at) => alarms.push(at),
+      deleteAlarm: async () => alarms.push(null),
+    },
+  };
+  const visited = [];
+  const cdp = { sent: [], send: async (method) => cdp.sent.push(method), detach: async () => undefined, on: () => undefined };
+  const page = {
+    closed: false,
+    isClosed: () => page.closed,
+    url: () => visited[visited.length - 1] || 'about:blank',
+    goto: async (url) => visited.push(url),
+    title: async () => '',
+    setViewport: async () => undefined,
+    screenshot: async () => 'a-jpeg',
+    createCDPSession: async () => cdp,
+    cookies: async () => [],
+    on: () => undefined,
+    once: () => undefined,
+  };
+  const browser = { closed: false, on: () => undefined, pages: async () => [page], close: async () => (browser.closed = true) };
+  return { state, store, alarms, visited, cdp, page, browser };
+}
+
+describe('the browser kept after the pane closes', () => {
+  const call = (object, path, method = 'GET') => object.fetch(new Request(`https://browser-session${path}`, { method })).then((r) => r.json());
+
+  it('is pointed at the next site rather than replaced, and closed only when nobody comes back', async () => {
+    const { BrowserSession } = await import('../worker/browserSession.js');
+    const fake = fakeSession();
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    let asked = 0;
+    object.acquire = async () => {
+      asked += 1;
+      throw new Error('a new browser was asked for');
+    };
+    await object.adopt(fake.browser, 'kept-session');
+    object.token = 'first';
+    await fake.state.storage.put('session', { token: 'first', id: 'kept-session' });
+
+    // The pane closes: the browser stays, blank, out of the old token's reach.
+    const closed = await call(object, '/close?session=first', 'POST');
+    assert.equal(closed.open, false);
+    assert.equal(fake.browser.closed, false);
+    assert.equal(fake.visited[fake.visited.length - 1], 'about:blank');
+    assert.equal(object.token, null);
+    assert.deepEqual(fake.store.get('session'), { token: null, id: 'kept-session' });
+    const linger = fake.alarms[fake.alarms.length - 1] - Date.now();
+    assert.ok(linger > 30_000 && linger <= 45_000, `kept for ${linger}ms`);
+    assert.equal((await call(object, '/frame?session=first&after=-1')).open, false);
+    assert.match((await call(object, '/input?session=first', 'POST')).error, /no browser is open/);
+
+    // The pane opens again, somewhere else: the same browser, no new one.
+    const opened = await call(object, '/open?url=https%3A%2F%2Fexample.org%2Fpaper', 'POST');
+    assert.equal(opened.ok, true);
+    assert.equal(opened.open, true);
+    assert.ok(opened.session && opened.session !== 'first');
+    assert.equal(asked, 0);
+    assert.equal(fake.visited[fake.visited.length - 1], 'https://example.org/paper');
+    assert.ok(fake.cdp.sent.filter((m) => m === 'Page.startScreencast').length >= 2, 'the screencast starts again');
+    assert.equal((await call(object, `/frame?session=${opened.session}&after=-1`)).open, true);
+
+    // Closed and left: the alarm closes the browser for good.
+    await call(object, `/close?session=${opened.session}`, 'POST');
+    object.lastSeen = Date.now() - 60_000;
+    await object.alarm();
+    assert.equal(fake.browser.closed, true);
+    assert.equal(object.browser, null);
+  });
+
+  it('closes a browser whose pane is open only after the longer idle', async () => {
+    const { BrowserSession } = await import('../worker/browserSession.js');
+    const fake = fakeSession();
+    const object = new BrowserSession(fake.state, { BROWSER: {} });
+    await object.adopt(fake.browser, 'kept-session');
+    object.token = 'open';
+    object.lastSeen = Date.now() - 60_000;
+    await object.alarm();
+    assert.equal(fake.browser.closed, false, 'a minute is not idle for an open pane');
+    object.lastSeen = Date.now() - 3 * 60_000;
+    await object.alarm();
+    assert.equal(fake.browser.closed, true);
   });
 });
 
