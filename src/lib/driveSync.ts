@@ -3,10 +3,10 @@ import { hasProxy } from './api';
 import { findLocations } from './locations';
 import { fetchPdfFromLocations } from './pdf';
 import { DriveRequestError, ensureDriveToken, ensureFolder, findFile, moveFile, uploadFile } from './google';
-import { baseName, sidecar } from './sidecar';
+import { baseName, ROOT_FOLDER, sidecar } from './sidecar';
 
-/** The folder at the top level of Drive that every paper folder sits in. */
-export const ROOT_FOLDER = 'Papers_collection';
+export { ROOT_FOLDER };
+
 /**
  * The folder inside the root that a removed paper's files are moved to. They
  * are moved rather than deleted because the library is the only index of

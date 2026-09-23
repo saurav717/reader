@@ -1,6 +1,7 @@
 import type { Paper, PaperLocation, PaperRef } from '../types';
 import { api, hasProxy, NO_PROXY_REASON } from './api';
-import { downloadFile, ensureDriveToken } from './google';
+import { downloadFile, ensureDriveToken, findFile, findFolder } from './google';
+import { baseName, ROOT_FOLDER } from './sidecar';
 import { findLocations } from './locations';
 import { fromOpenAlex, openAlexPdf, type OpenAlexWork } from './sources';
 import { contactEmail } from './contact';
@@ -470,6 +471,44 @@ export interface FetchedPdf {
   from: PdfOrigin;
   /** Which copy answered, when it was not the one in Drive. */
   location?: PaperLocation;
+  /**
+   * The copy in Drive this came from, when Drive was asked by name and had
+   * one the library did not know about — for the caller to record, so the
+   * next open needs no lookup.
+   */
+  drive?: { folderId: string; pdfFileId: string; pdfLink?: string };
+}
+
+/**
+ * Whether Drive already holds this paper's PDF, by the name the sync gives it:
+ * `<root>/<paper>/<paper>.pdf`. The library records the file's id when it
+ * does the saving — but the file can be there without the record: saved
+ * from another browser, saved before the library was cleared, or saved by a
+ * sync whose result never made it back. Drive is the shared copy; the
+ * library is only this browser's memory of it. So a paper with no id on
+ * record is looked for by name before anything is asked of the proxy.
+ *
+ * `folderId` short-cuts to the paper's own folder when the library knows it
+ * (a paper synced as metadata only), which makes it one request rather
+ * than three. A look, never a create: a paper that is not in Drive leaves
+ * nothing behind, and nothing is cached between looks, so a folder deleted
+ * or renamed by hand in Drive is seen as it is on the next open.
+ */
+export async function findPdfInDrive(
+  accessToken: string,
+  paper: PaperRef,
+  options: { rootFolderName?: string; folderId?: string } = {},
+): Promise<{ folderId: string; pdfFileId: string; pdfLink?: string } | null> {
+  const stem = baseName(paper);
+  let folderId = options.folderId ?? null;
+  if (!folderId) {
+    const rootId = await findFolder(accessToken, options.rootFolderName || ROOT_FOLDER);
+    if (!rootId) return null;
+    folderId = await findFolder(accessToken, stem, rootId);
+    if (!folderId) return null;
+  }
+  const file = await findFile(accessToken, `${stem}.pdf`, folderId);
+  return file ? { folderId, pdfFileId: file.id, pdfLink: file.webViewLink } : null;
 }
 
 /**
@@ -480,6 +519,13 @@ export interface FetchedPdf {
  * directly. So a paper that has been saved reads back without the proxy at all,
  * which also means it still opens on a deployment that has no server.
  *
+ * Drive is asked first whenever it is connected: by the file id the library
+ * recorded when it saved the paper, or, with none on record, by name — so a
+ * paper saved from another browser, or one whose save the library did not
+ * hear about, still opens on its copy in Drive rather than going back to the
+ * publisher (and back through the sign-in) for the same bytes. Only when
+ * Drive has nothing is a copy fetched through the proxy.
+ *
  * Drive is only ever the *second* place a PDF can come from: putting it there
  * means uploading bytes, and getting the bytes in the first place is the
  * cross-origin fetch the browser will not do. There is no asking Drive to go
@@ -489,6 +535,10 @@ export async function fetchPaperPdf(
   paper: PaperRef,
   options: {
     driveFileId?: string;
+    /** The paper's own folder in Drive, when the library knows it: a shorter look. */
+    driveFolderId?: string;
+    /** The top-level folder the papers are kept in, when it is not the default. */
+    rootFolderName?: string;
     clientId?: string;
     driveConnected?: boolean;
     /** The copies already resolved for this paper, if the caller has them. */
@@ -496,17 +546,27 @@ export async function fetchPaperPdf(
   } = {},
   signal?: AbortSignal,
 ): Promise<FetchedPdf> {
-  const { driveFileId, clientId, driveConnected } = options;
+  const { driveFileId, driveFolderId, rootFolderName, clientId, driveConnected } = options;
 
-  if (driveFileId && driveConnected && clientId) {
+  if (driveConnected && clientId) {
+    let known = Boolean(driveFileId);
     try {
       const token = await ensureDriveToken(clientId);
-      return { blob: await downloadFile(token, driveFileId, signal), from: 'drive' };
+      let fileId = driveFileId;
+      let found: FetchedPdf['drive'];
+      if (!fileId) {
+        found = (await findPdfInDrive(token, paper, { rootFolderName, folderId: driveFolderId })) ?? undefined;
+        fileId = found?.pdfFileId;
+        known = Boolean(fileId);
+      }
+      if (fileId) {
+        return { blob: await downloadFile(token, fileId, signal), from: 'drive', drive: found };
+      }
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') throw error;
       // The copy may have been deleted, or the grant may have lapsed. The
       // publisher is still there, so this is not worth failing over.
-      if (!hasProxy()) {
+      if (known && !hasProxy()) {
         throw new PdfError('The copy in your Drive could not be read, and there is no server to fetch it through.');
       }
     }

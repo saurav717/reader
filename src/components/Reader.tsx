@@ -84,6 +84,7 @@ export default function Reader({
     setProgress,
     markOpened,
     setPaperPdfUrl,
+    setPaperDriveFile,
     settings,
     updateSettings,
     driveConnected,
@@ -284,14 +285,26 @@ export default function Reader({
   // Reading the copy in Drive rather than fetching the paper again is worth it
   // whenever there is one: it is the same file, and it comes back without the
   // proxy — so a synced paper opens even where there is no server at all.
+  // Drive is asked by the id the library recorded, or by name when it has
+  // none: the file can be there without this browser knowing, and going back
+  // to the publisher for it would mean going back through its sign-in.
   const driveOptions = useMemo(
     () => ({
       driveFileId: paper?.drive?.pdfFileId,
+      driveFolderId: paper?.drive?.folderId,
+      rootFolderName: settings.driveFolderName,
       clientId: settings.googleClientId,
       driveConnected,
       locations: knownLocations ?? undefined,
     }),
-    [paper?.drive?.pdfFileId, settings.googleClientId, driveConnected, knownLocations],
+    [
+      paper?.drive?.pdfFileId,
+      paper?.drive?.folderId,
+      settings.driveFolderName,
+      settings.googleClientId,
+      driveConnected,
+      knownLocations,
+    ],
   );
 
   // Fetch the file itself, once, when the PDF pane is first opened. Drive
@@ -306,11 +319,13 @@ export default function Reader({
     setPdfSignIn(null);
     setPdfCheck(null);
     fetchPaperPdf(pdfTarget, driveOptions, controller.signal)
-      .then(({ blob, from, location }) => {
+      .then(({ blob, from, location, drive }) => {
         if (controller.signal.aborted) return;
         setPdfBlob(blob);
         setPdfFrom(from);
         setPdfLocation(location ?? null);
+        // Found in Drive by name: remembered, so the next open asks by id.
+        if (drive) void setPaperDriveFile(pdfTarget.id, drive);
       })
       .catch((error) => {
         if (controller.signal.aborted) return;
@@ -319,7 +334,7 @@ export default function Reader({
         setPdfCheck(error instanceof PdfError ? error.check ?? null : null);
       });
     return () => controller.abort();
-  }, [mode, pdfBlob, pdfTarget, driveOptions, driveCopy, pdfLookup, pdfAttempt]);
+  }, [mode, pdfBlob, pdfTarget, driveOptions, driveCopy, pdfLookup, pdfAttempt, setPaperDriveFile]);
 
   // Putting a paper in Drive as it is read.
   //
@@ -329,17 +344,35 @@ export default function Reader({
   // them sit in Drive as metadata and nothing else. Opening a paper is the
   // moment the file is actually at hand, so that is when it goes up, and the
   // copy that goes up is the one on screen rather than a second download.
+  //
+  // The file is not always at hand on the first try. A paper behind a login
+  // fails first, and the sync that failure queues saves the metadata only;
+  // the file arrives on a later attempt — after a sign-in in the window on
+  // the proxy or in the browser in this pane, when the copies are tried
+  // again — and that copy has to go up too, whatever was queued before it.
+  // So what has been asked for is kept in two parts: whether a sync has been
+  // queued at all, and whether one was queued with the file.
   const askedToSave = useRef<Set<string>>(new Set());
+  const sentPdf = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!paper || !settings.syncOnOpen || !settings.savePdf || !driveConnected) return;
     if (paper.drive?.pdfFileId) return; // Drive has it already.
-    if (pdfLookup !== 'ready' || !hasProxy()) return; // Nothing we can fetch.
-    if (askedToSave.current.has(paper.id)) return;
+    if (pdfFrom === 'drive') return; // It came from Drive: Drive has it, whatever the library recorded.
+    if (pdfLookup !== 'ready') return;
     // Reading it as a PDF: the viewer is already fetching the file, so wait for
     // it. This effect runs again when the blob arrives.
     if (mode === 'pdf' && !pdfBlob && !pdfError) return;
+    if (pdfBlob) {
+      if (sentPdf.current.has(paper.id)) return;
+      sentPdf.current.add(paper.id);
+      askedToSave.current.add(paper.id);
+      syncPaper(paper.id, { pdf: pdfBlob });
+      return;
+    }
+    if (!hasProxy()) return; // Nothing we can fetch.
+    if (askedToSave.current.has(paper.id)) return;
     askedToSave.current.add(paper.id);
-    syncPaper(paper.id, pdfBlob && pdfFrom !== 'drive' ? { pdf: pdfBlob } : undefined);
+    syncPaper(paper.id);
   }, [
     driveConnected,
     mode,
@@ -370,6 +403,7 @@ export default function Reader({
       setPdfSignIn(null);
       if (paper && driveConnected && settings.savePdf && !paper.drive?.pdfFileId) {
         askedToSave.current.add(paper.id);
+        sentPdf.current.add(paper.id);
         syncPaper(paper.id, { pdf: blob });
       }
     },
