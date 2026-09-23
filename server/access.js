@@ -101,7 +101,9 @@ export async function browseAvailability() {
         'Playwright is installed on the proxy but its Chromium is not. Run `npx playwright install chromium` there, or set READER_BROWSER_CHANNEL=chrome to use the Chrome you already have.',
     };
   }
-  return { available: true };
+  // Its own browser, on its own machine: not Cloudflare's, which matters to
+  // a site whose check for a person is Cloudflare's (src/lib/browse.ts).
+  return { available: true, where: 'proxy' };
 }
 
 /**

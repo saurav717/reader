@@ -947,12 +947,32 @@ proxy's own fetch — with the cookies copied over, following the page's
 links — only for a URL the page may not read.
 
 What no proxy can promise is that the check passes. It is the site's call,
-made about the browser and the network it comes from, and a headless
-browser on Cloudflare's own network is not the most trusted of visitors. If
-it refuses — the box comes back, or never comes — the other two ways in
-still stand: the Node proxy on your own machine, whose Chromium and address
-are yours, or opening the file in a tab of your own and dropping it on the
-paper.
+made about the browser and the network it comes from — and **from the
+Worker, Cloudflare's check never passes, by Cloudflare's own design.** The
+browser the Worker drives is Cloudflare's, and Cloudflare tells every site
+it protects that requests from its rendering browsers are bots, whatever
+the browser looks like and whoever is behind it — its documentation says so
+in as many words, and offers a WAF skip rule to a site that wants to let
+them in, which academia.edu has no reason to write. So the box ticks,
+the widget says it is verifying, the page reloads, and the box is back:
+not a failed solve but a refused visitor, and no number of ticks changes
+it. The pane says so rather than letting anyone find out by ticking. The
+proxy notices the check from the response itself — Cloudflare marks every
+challenge page it serves with a `cf-mitigated: challenge` header, which is
+surer than the page's title — and counts how many times it has come, and
+how many of those after the person did something to the page, which is
+what a check coming back after the box was ticked looks like. The status
+carries that (`check`) and whose browser it is (`where`), and the line
+under the page is worded from both: from the Worker, that the check is
+Cloudflare's and so is the browser, and is not expected to pass from
+here; from the Node proxy, that the box is theirs to tick, and, if it
+comes back after a tick, that the site is refusing this browser. Either
+way the line ends with the way out — **Open it in a tab of your own**,
+where your own browser passes such a check without noticing, and the
+file dropped on the paper — and the two other ways in still stand: the
+Node proxy on your own machine, whose Chromium and address are yours, or
+the drop-in itself. `scripts/browse.test.mjs` pins the header, the
+counting, and the words.
 
 ### With only the Worker: hand the file over yourself
 
