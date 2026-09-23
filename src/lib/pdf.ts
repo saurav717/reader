@@ -255,9 +255,25 @@ async function downloadPdf(url: string, signal?: AbortSignal): Promise<Blob> {
       check,
     });
   }
-  const blob = await response.blob();
+  const blob = await readBody(response, signal);
   // Keep the type honest: a blob URL only renders in the viewer if it says PDF.
   return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' });
+}
+
+/**
+ * A response's body, with a connection that broke or was cut short on the
+ * way said as that. The browser's own words for it are no help — Safari's
+ * are "Load failed", Chrome's "Failed to fetch" — and they arrived under
+ * a copy's name as if the site had said them.
+ */
+async function readBody(response: Response, signal?: AbortSignal): Promise<Blob> {
+  try {
+    return await response.blob();
+  } catch (error) {
+    if ((error instanceof DOMException && error.name === 'AbortError') || signal?.aborted) throw error;
+    const said = error instanceof Error ? error.message : String(error);
+    throw new PdfError(`Could not fetch the PDF — the connection to the proxy broke before the whole file arrived (${said})`);
+  }
 }
 
 /**

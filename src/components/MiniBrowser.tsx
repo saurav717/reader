@@ -16,6 +16,7 @@ import {
   browseSites,
   closeBrowser,
   collectPdf,
+  endlessCheck,
   grabPdf,
   InputQueue,
   keyName,
@@ -32,6 +33,7 @@ import {
 import { pdfFileName, type SignInOffer } from '../lib/pdf';
 import type { PaperLocation, PaperRef } from '../types';
 import { ArrowLeftIcon, CloseIcon } from './icons';
+import PdfDropIn from './PdfDropIn';
 
 interface Props {
   paper: PaperRef;
@@ -44,9 +46,23 @@ interface Props {
   /** Done browsing without a file — but the sign-in holds, so the copies are worth another try. */
   onRetry: () => void;
   onClose: () => void;
+  /** A PDF handed over by hand, for when no browser of the proxy's will get it. */
+  onFile?: (blob: Blob) => void;
 }
 
-type Stage = 'choose' | 'opening' | 'open' | 'collecting';
+type Stage = 'choose' | 'opening' | 'open' | 'collecting' | 'stuck';
+
+/**
+ * OpenReview's check going round with no way out (`endlessCheck`), after
+ * the pane closed the browser: the page it was on, the file that page
+ * stands for, and how asking OpenReview's API for that file is going.
+ */
+interface Stuck {
+  page: string;
+  file: string | null;
+  asking: boolean;
+  error?: string;
+}
 
 /**
  * The file an OpenReview page stands for, when the page is its check or
@@ -61,6 +77,16 @@ function openReviewFile(pageUrl: string | null | undefined): string | null {
     return null;
   }
   return openReviewPdfUrl(pageUrl);
+}
+
+/**
+ * What OpenReview's API said, for after "would not hand over the file
+ * either —": the proxy's own words already begin that way.
+ */
+function apiSaid(error: unknown): string {
+  const said = (error instanceof Error ? error.message : String(error)).replace(/[.\s]+$/, '');
+  const inner = said.match(/^OpenReview['’]s API would not hand over the file \((.*)\)(.*)$/s);
+  return inner ? `${inner[1]}${inner[2]}` : said;
 }
 
 /**
@@ -98,7 +124,7 @@ const LONGEST_COUNTDOWN_S = 120;
  * no window, no pop-up: the Node proxy with a Chromium, or the Cloudflare
  * Worker with Browser Rendering bound. A proxy with neither says so here.
  */
-export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, onClose }: Props) {
+export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, onClose, onFile }: Props) {
   const [access, setAccess] = useState<AccessStatus | null>(null);
   const [stage, setStage] = useState<Stage>('choose');
   const [status, setStatus] = useState<BrowseStatus | null>(null);
@@ -119,14 +145,50 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
   /** Whether the address is being typed, in which case the page's own URL must not overwrite it. */
   const editingAddress = useRef(false);
   const collected = useRef(false);
-  /** The OpenReview files already asked of its API, so a page shown again is not asked twice. */
-  const askedOpenReview = useRef(new Set<string>());
+  /** The OpenReview files asked of its API, by file, so a page shown again is not asked twice. */
+  const askedOpenReview = useRef(new Map<string, Promise<Blob>>());
+  const [stuck, setStuck] = useState<Stuck | null>(null);
   const queue = useMemo(() => new InputQueue((error) => setProblem(error.message)), []);
 
   const sites = useMemo(() => browseSites(paper, locations, signIn), [paper, locations, signIn]);
   const page = { width: status?.width || 1280, height: status?.height || 800 };
   /** The site's check for a person, when that is what the page is; the box to tick is theirs. */
   const check = stage === 'open' ? botCheck(status) : null;
+
+  /** OpenReview's API asked for a file, once however many pages stand for it. */
+  const askOpenReview = (file: string): Promise<Blob> => {
+    let asked = askedOpenReview.current.get(file);
+    if (!asked) {
+      asked = proxyPdf(file, pdfFileName(paper));
+      askedOpenReview.current.set(file, asked);
+    }
+    return asked;
+  };
+
+  // With the browser closed on OpenReview's check, the file is had from
+  // OpenReview's API, or the pane says why not and what is left.
+  useEffect(() => {
+    if (stage !== 'stuck' || !stuck?.file || !stuck.asking) return;
+    let live = true;
+    const file = stuck.file;
+    askOpenReview(file).then(
+      (blob) => {
+        if (!live || collected.current) return;
+        collected.current = true;
+        setStage('collecting');
+        onPdf(blob, file);
+      },
+      (error: unknown) => {
+        if (!live) return;
+        setStuck((now) => (now && now.file === file ? { ...now, asking: false, error: apiSaid(error) } : now));
+      },
+    );
+    return () => {
+      live = false;
+    };
+    // `askOpenReview` and `onPdf` are the same ask whenever they are called.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, stuck?.file, stuck?.asking]);
 
   useEffect(() => {
     let live = true;
@@ -163,11 +225,21 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
       // the proxy asks OpenReview's API for it instead, which has none, so
       // nobody is left ticking a box the proxy's browser may never pass.
       const direct = openReviewFile(next.url);
+      // The check going round — the box says it passed, the page sends the
+      // browser back to it — is stopped, not watched: the browser is closed,
+      // since every turn spends browser time and none gets closer, and the
+      // pane says what is being done instead.
+      if (endlessCheck(next) && !collected.current && next.url) {
+        done = true;
+        setStuck({ page: next.url, file: direct, asking: Boolean(direct) });
+        setStage('stuck');
+        void closeBrowser();
+        return true;
+      }
       if (direct && !askedOpenReview.current.has(direct) && !collected.current) {
-        askedOpenReview.current.add(direct);
         void (async () => {
           try {
-            const blob = await proxyPdf(direct, pdfFileName(paper));
+            const blob = await askOpenReview(direct);
             if (collected.current || controller.signal.aborted) return;
             collected.current = true;
             done = true;
@@ -176,7 +248,7 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
             onPdf(blob, direct);
           } catch (error) {
             if (!collected.current && !controller.signal.aborted) {
-              setProblem(`OpenReview's API would not hand over the file either — ${error instanceof Error ? error.message : String(error)}. Open it in a tab of your own and drop it on the paper instead.`);
+              setProblem(`OpenReview's API would not hand over the file either — ${apiSaid(error)}. Open it in a tab of your own and drop it on the paper instead.`);
             }
           }
         })();
@@ -257,6 +329,7 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
     setRetry(null);
     setStage('opening');
     setFrame(null);
+    setStuck(null);
     collected.current = false;
     lastUrl.current = url;
     try {
@@ -311,7 +384,7 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
       const direct = openReviewPdfUrl(status?.url);
       if (direct) {
         try {
-          const blob = await proxyPdf(direct, pdfFileName(paper));
+          const blob = await askOpenReview(direct);
           collected.current = true;
           polling.current?.abort();
           await closeBrowser();
@@ -423,6 +496,93 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
           <span className="mono">npm start</span> in the reader repository on any machine with Playwright's Chromium,
           pointed at from Settings → Paper proxy.
         </p>
+      </div>
+    );
+  }
+
+  if (stuck && (stage === 'stuck' || stage === 'collecting')) {
+    let host = 'the site';
+    try {
+      host = new URL(stuck.page).hostname.replace(/^www\./, '');
+    } catch {
+      // Said without it.
+    }
+    const where = status?.where ?? (status?.session ? 'cloudflare' : 'proxy');
+    const why =
+      where === 'cloudflare'
+        ? `Its box says it passed, and then ${host} sends the browser back to it — from this browser, which is Cloudflare's own, it always will: Cloudflare tells the sites it protects that its rendering browsers are bots.`
+        : `Its box says it passed, and then ${host} sends the browser back to it — it has come ${status?.check?.times ?? 'several'} times running.`;
+    return (
+      <div className="mini-browser">
+        <div className="mini-browser-head">
+          <span className="mini-browser-title">{host} keeps sending the browser back to its check</span>
+          <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the browser">
+            <CloseIcon size={16} />
+          </button>
+        </div>
+        <div className="mini-browser-choose">
+          <p className="lede">
+            {host} answered with its check, <em>Verifying your browser</em>, and would not let the page through. {why}{' '}
+            So the proxy&rsquo;s browser has been closed rather than left going round, spending browser time.
+          </p>
+          {stage === 'collecting' ? (
+            <p className="mini-browser-note">
+              <span className="spinner" /> The PDF arrived from OpenReview&rsquo;s API — opening it here.
+            </p>
+          ) : stuck.asking ? (
+            <p className="mini-browser-note">
+              <span className="spinner" /> Asking OpenReview&rsquo;s API for the file instead, which has no box to tick…
+            </p>
+          ) : stuck.file ? (
+            <p className="banner error">
+              OpenReview&rsquo;s API would not hand over the file either — {stuck.error}.{' '}
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => {
+                  if (stuck.file) askedOpenReview.current.delete(stuck.file);
+                  setStuck({ ...stuck, asking: true, error: undefined });
+                }}
+              >
+                Ask the API again
+              </button>
+            </p>
+          ) : null}
+          {stage === 'stuck' && !stuck.asking ? (
+            <p className="banner warn">
+              Your own browser passes the check.
+              {onFile ? (
+                <PdfDropIn host={host} url={stuck.file || stuck.page} onFile={(blob) => onFile(blob)} />
+              ) : (
+                <>
+                  {' '}
+                  <a href={stuck.file || stuck.page} target="_blank" rel="noreferrer noopener">
+                    Open it at {host} in a tab of your own
+                  </a>
+                  , download the PDF, and drop it on the paper.
+                </>
+              )}{' '}
+              {where === 'cloudflare' ? null : (
+                <>
+                  <button type="button" className="link-btn" onClick={() => void open(stuck.page)}>
+                    Open the page here again
+                  </button>
+                  {' · '}
+                </>
+              )}
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => {
+                  setStuck(null);
+                  setStage('choose');
+                }}
+              >
+                Another site
+              </button>
+            </p>
+          ) : null}
+        </div>
       </div>
     );
   }
