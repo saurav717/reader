@@ -464,7 +464,9 @@ export default function Discover({ onClose, onOpen }: Props) {
     setSaveNotice(null);
     setSaving({ id: ref.id, step: 'Saving your file to Drive…' });
     try {
-      const outcome = await syncPaperNow(ref.id, { pdf });
+      // Their file, picked by hand: it takes the place of any copy Drive
+      // already holds rather than being skipped because there is one.
+      const outcome = await syncPaperNow(ref.id, { pdf, replacePdf: true });
       if (outcome.state === 'error') {
         setSaveError({ id: ref.id, message: `Drive would not take it: ${outcome.message}` });
         return;

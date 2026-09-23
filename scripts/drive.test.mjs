@@ -110,7 +110,15 @@ function stubDrive() {
         const found = folders.get(`${parent}/${name}`);
         return json({ files: found ? [{ id: found, name }] : [] });
       }
-      const match = [...files].find(([, file]) => file.name === name && file.parents.includes(parent));
+      // Every file of a type in a folder, for the stale copies a replacement clears out.
+      if (name === undefined) {
+        const mimeType = /mimeType = '([^']+)'/.exec(q)?.[1];
+        const listed = [...files].filter(
+          ([, file]) => !file.trashed && file.parents.includes(parent) && (!mimeType || file.mimeType === mimeType),
+        );
+        return json({ files: listed.map(([fileId, file]) => ({ id: fileId, name: file.name, webViewLink: `link:${fileId}` })) });
+      }
+      const match = [...files].find(([, file]) => !file.trashed && file.name === name && file.parents.includes(parent));
       return json({ files: match ? [{ id: match[0], name, webViewLink: `link:${match[0]}` }] : [] });
     }
 
@@ -145,13 +153,23 @@ function stubDrive() {
         const file = files.get(fileId);
         if (!file) return new Response('not found', { status: 404 });
         file.name = metadata.name;
+        if (metadata.trashed === false) file.trashed = false;
         file.bytes = await init.body.get('file').text();
         return json({ id: fileId, name: file.name, webViewLink: `link:${fileId}` });
       }
       const fileId = id('file');
       const bytes = await init.body.get('file').text();
-      files.set(fileId, { name: metadata.name, parents: metadata.parents ?? [], bytes });
+      files.set(fileId, { name: metadata.name, mimeType: metadata.mimeType, parents: metadata.parents ?? [], bytes });
       return json({ id: fileId, name: metadata.name, webViewLink: `link:${fileId}` });
+    }
+
+    // Putting a file in the trash.
+    if (method === 'PATCH' && /\/drive\/v3\/files\//.test(request.pathname) && init.body?.includes?.('trashed')) {
+      const fileId = decodeURIComponent(request.pathname.split('/').pop());
+      const file = files.get(fileId);
+      if (!file) return new Response('not found', { status: 404 });
+      file.trashed = JSON.parse(init.body).trashed;
+      return json({ id: fileId });
     }
 
     // Moving: add the new parent, drop the old ones.
@@ -179,7 +197,7 @@ function stubDrive() {
     files,
     folderId: (parent, name) => folders.get(`${parent}/${name}`),
     parentOfFolder: (folderId) => folderById(folderId)?.parent,
-    addFile: (fileId, name, parent) => files.set(fileId, { name, parents: [parent] }),
+    addFile: (fileId, name, parent, extra = {}) => files.set(fileId, { name, parents: [parent], ...extra }),
   };
 }
 
@@ -250,6 +268,59 @@ describe('the folder a paper lands in', () => {
     const pdfUploads = drive.calls.filter((call) => call.url.includes(`/upload/drive/v3/files/${first.pdfFileId}`));
     assert.equal(pdfUploads.length, 1, 'the PDF is rewritten, not uploaded beside the old one');
     assert.equal(second.notice, undefined);
+  });
+
+  it('leaves the picked copy as the only PDF in the folder, the earlier ones in the trash', async () => {
+    const first = await syncPaperToDrive(paper(), context({ pdf: new Blob(['%PDF-1.4 poster']) }));
+    // A second copy saved beside it, from another browser at the same moment.
+    drive.addFile('file-dup', `${STEM}.pdf`, first.folderId, { mimeType: 'application/pdf', bytes: '%PDF-1.4 slides' });
+    const synced = paper({
+      drive: { folderId: first.folderId, pdfFileId: first.pdfFileId, pdfLink: first.pdfLink, metaFileId: first.metaFileId },
+    });
+
+    const second = await syncPaperToDrive(synced, context({ pdf: new Blob(['%PDF-1.4 the paper']), replacePdf: true }));
+
+    assert.equal(second.pdfFileId, first.pdfFileId);
+    assert.equal(drive.files.get(first.pdfFileId).bytes, '%PDF-1.4 the paper');
+    assert.equal(drive.files.get('file-dup').trashed, true, 'the stale copy goes to the trash');
+    assert.notEqual(drive.files.get(first.pdfFileId).trashed, true);
+    assert.notEqual(drive.files.get(first.metaFileId).trashed, true, 'the sidecar is not a PDF and stays');
+  });
+
+  it('uploads the picked copy afresh when the one on record was deleted in Drive by hand', async () => {
+    const first = await syncPaperToDrive(paper(), context({ pdf: new Blob(['%PDF-1.4 poster']) }));
+    drive.files.delete(first.pdfFileId);
+    const synced = paper({
+      drive: { folderId: first.folderId, pdfFileId: first.pdfFileId, pdfLink: first.pdfLink, metaFileId: first.metaFileId },
+    });
+
+    const second = await syncPaperToDrive(synced, context({ pdf: new Blob(['%PDF-1.4 the paper']), replacePdf: true }));
+
+    assert.notEqual(second.pdfFileId, first.pdfFileId);
+    assert.equal(drive.files.get(second.pdfFileId).bytes, '%PDF-1.4 the paper');
+    assert.deepEqual(drive.files.get(second.pdfFileId).parents, [first.folderId]);
+    assert.equal(second.notice, undefined);
+  });
+
+  it('brings the file on record back out of the trash when it is replaced', async () => {
+    const first = await syncPaperToDrive(paper(), context({ pdf: new Blob(['%PDF-1.4 poster']) }));
+    drive.files.get(first.pdfFileId).trashed = true;
+    const synced = paper({
+      drive: { folderId: first.folderId, pdfFileId: first.pdfFileId, pdfLink: first.pdfLink, metaFileId: first.metaFileId },
+    });
+
+    const second = await syncPaperToDrive(synced, context({ pdf: new Blob(['%PDF-1.4 the paper']), replacePdf: true }));
+
+    assert.equal(second.pdfFileId, first.pdfFileId);
+    assert.equal(drive.files.get(first.pdfFileId).trashed, false);
+    assert.equal(drive.files.get(first.pdfFileId).bytes, '%PDF-1.4 the paper');
+  });
+
+  it('puts the picked copy in a folder that had no PDF yet', async () => {
+    const result = await syncPaperToDrive(paper(), context({ pdf: new Blob(['%PDF-1.4 the paper']), replacePdf: true }));
+    assert.ok(result.pdfFileId);
+    assert.equal(drive.files.get(result.pdfFileId).bytes, '%PDF-1.4 the paper');
+    assert.equal(result.notice, undefined);
   });
 });
 

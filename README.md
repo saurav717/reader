@@ -134,8 +134,13 @@ The copy you pick is remembered for that paper. The next open asks that copy
 first, and alone, so a quicker copy cannot answer in its place, and it is
 never second-guessed for its shape. The file replaces the one in Drive
 in place, keeping its id and link, so the next open reads the copy you
-picked from any browser, not the one saved first. **Forget my pick** goes back
-to the ranked order.
+picked from any browser, not the one saved first. Any other PDF left in the
+paper's folder — an earlier copy saved twice — goes to Drive's trash, so the
+folder holds the copy you picked and nothing beside it. If the file on record
+was deleted in Drive by hand, the pick is uploaded afresh; if it was put in
+the trash, it comes back out with the new copy in it. A file you hand over
+yourself, from the reader or from Discover, replaces the one in Drive the same
+way. **Forget my pick** goes back to the ranked order.
 
 ### Google Scholar
 

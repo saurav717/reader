@@ -2,7 +2,17 @@ import type { Collection, Highlight, Paper, Settings } from '../types';
 import { hasProxy } from './api';
 import { findLocations } from './locations';
 import { fetchPdfFromLocations } from './pdf';
-import { DriveRequestError, ensureDriveToken, ensureFolder, findFile, moveFile, uploadFile } from './google';
+import {
+  DriveRequestError,
+  ensureDriveToken,
+  ensureFolder,
+  findFile,
+  listFiles,
+  moveFile,
+  trashFile,
+  uploadFile,
+  type DriveFile,
+} from './google';
 import { baseName, ROOT_FOLDER, sidecar } from './sidecar';
 
 export { ROOT_FOLDER };
@@ -121,23 +131,18 @@ export async function syncPaperToDrive(
       pdfFileId = existing?.id;
       pdfLink = existing?.webViewLink ?? pdfLink;
     }
-    if (pdfFileId && context.pdf && context.replacePdf) {
+    if (context.pdf && context.replacePdf) {
       // A different copy of the paper, picked by hand in the reader — the
-      // one saved first was the poster, say. It goes over the file Drive
-      // holds, which keeps its id and its link, so the next open (from this
-      // browser or another) reads the copy that was picked.
+      // one saved first was the poster, say. It takes the place of whatever
+      // Drive holds, so the next open (from this browser or another) reads
+      // the copy that was picked.
       try {
-        const replaced = await uploadFile(accessToken, {
-          name: `${stem}.pdf`,
-          mimeType: 'application/pdf',
-          parentId: folderId,
-          body: context.pdf,
-          fileId: pdfFileId,
-        });
+        const replaced = await replacePdf(accessToken, { stem, folderId, fileId: pdfFileId, pdf: context.pdf });
         pdfFileId = replaced.id;
         pdfLink = replaced.webViewLink ?? pdfLink;
       } catch (error) {
-        notice = `${error instanceof Error ? error.message : String(error)} Drive still holds the copy saved before.`;
+        const kept = pdfFileId ? 'Drive still holds the copy saved before.' : 'Saved the metadata only.';
+        notice = `${error instanceof Error ? error.message : String(error)} ${kept}`;
       }
     } else if (!pdfFileId && context.pdf) {
       // The reader already has the file open. Upload that, rather than asking
@@ -205,6 +210,37 @@ export async function syncPaperToDrive(
     syncedAt: new Date().toISOString(),
     notice,
   };
+}
+
+/**
+ * Puts `pdf` in the paper's folder as its one PDF. It goes over the file Drive
+ * already holds, which keeps that file's id and link; when there is none, or
+ * it was deleted by hand since, it is uploaded afresh. Any other PDF left in
+ * the folder — an earlier copy saved twice, from two browsers at once — goes
+ * to Drive's trash, so what the folder holds is the copy that was picked and
+ * nothing beside it.
+ */
+async function replacePdf(
+  accessToken: string,
+  { stem, folderId, fileId, pdf }: { stem: string; folderId: string; fileId?: string; pdf: Blob },
+): Promise<DriveFile> {
+  const file = { name: `${stem}.pdf`, mimeType: 'application/pdf', parentId: folderId, body: pdf };
+  let replaced: DriveFile | null = null;
+  if (fileId) {
+    replaced = await uploadFile(accessToken, { ...file, fileId }).catch((error: unknown) => {
+      if (error instanceof DriveRequestError && error.status === 404) return null;
+      throw error;
+    });
+  }
+  if (!replaced) replaced = await uploadFile(accessToken, file);
+
+  // The copy that was picked is in; a stale one that will not go to the
+  // trash is left where it is rather than failing the save.
+  const others = await listFiles(accessToken, folderId, 'application/pdf').catch(() => [] as DriveFile[]);
+  for (const other of others) {
+    if (other.id !== replaced.id) await trashFile(accessToken, other.id).catch(() => undefined);
+  }
+  return replaced;
 }
 
 /** True when Drive holds something of this paper's that removing it has to deal with. */
