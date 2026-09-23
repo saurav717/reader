@@ -702,25 +702,38 @@ peoplePage.on('pageerror', (error) => errors.push(String(error)));
 await peoplePage.goto(BASE, { waitUntil: 'networkidle' });
 await peoplePage.getByRole('button', { name: /Not now — keep everything in this browser/i }).click();
 await peoplePage.waitForSelector('.discover-panel');
-await peoplePage.getByRole('button', { name: 'Authors', exact: true }).click();
-await peoplePage.getByLabel('Search for a person').fill('Banach');
-await peoplePage.getByLabel('Search for a person').press('Enter');
-await peoplePage.waitForSelector('article.result');
-const person = peoplePage.locator('article.result', { hasText: 'Stefan Banach' });
-check('author search finds the person', (await person.count()) === 1);
+// One box for both: a name is searched as a person as well as as a topic, and
+// the person, when there is one, is what the panel shows.
+await peoplePage.getByLabel('Search papers and people').fill('Banach');
+await peoplePage.getByLabel('Search papers and people').press('Enter');
+await peoplePage.waitForSelector('article.result.person');
+const person = peoplePage.locator('article.result.person', { hasText: 'Stefan Banach' });
+check('a name finds the person', (await person.count()) === 1);
 check(
   'and says what is known about them',
   ((await person.textContent()) || '').includes('41k citations'),
   (await person.textContent()) || '',
 );
-await person.locator('h3').click();
-// The "Papers by" header renders as soon as the person is picked, so waiting
+check(
+  'with the profile at the top of the panel',
+  await peoplePage.evaluate(() => document.querySelector('.discover-panel .scroll article.result')?.classList.contains('person')),
+);
+// The "Papers by" header renders as soon as the person is found, so waiting
 // on it alone would race the request that fetches what they wrote.
 await peoplePage.waitForSelector('text=Papers by');
-await peoplePage.waitForSelector('article.result', { timeout: 10000 });
+await peoplePage.waitForSelector('article.result:not(.person)', { timeout: 10000 });
 check(
-  'opening a person lists their papers',
+  'and their papers are listed under it',
   await peoplePage.locator('article.result', { hasText: 'On operators between function spaces' }).isVisible(),
+);
+const order = peoplePage.getByRole('group', { name: 'Order of the papers' });
+check('newest first, to begin with', (await order.getByRole('button', { name: 'Newest' }).getAttribute('aria-pressed')) === 'true');
+await order.getByRole('button', { name: 'Most cited' }).click();
+await peoplePage.waitForSelector('article.result:not(.person)', { timeout: 10000 });
+check(
+  'and can be listed most cited first instead',
+  (await order.getByRole('button', { name: 'Most cited' }).getAttribute('aria-pressed')) === 'true' &&
+    (await peoplePage.locator('article.result', { hasText: 'On operators between function spaces' }).isVisible()),
 );
 await peoplePage.screenshot({ path: `${OUT}/authors.png` });
 

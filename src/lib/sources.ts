@@ -1,4 +1,4 @@
-import type { AuthorRef, PaperRef, SourceId } from '../types';
+import type { AuthorRef, PaperOrder, PaperRef, SourceId } from '../types';
 import { api, hasProxy } from './api';
 import { politely } from './contact';
 import { ScholarError, scholarAuthors, scholarProfileWorks, searchScholar } from './scholar';
@@ -50,7 +50,7 @@ export function sourceList(): { id: SourceId; label: string; authors: boolean }[
   }));
 }
 
-/** The subset that can answer "who is this person", for the Authors tab. */
+/** The subset that can answer "who is this person". */
 export function authorSources(): { id: SourceId; label: string; authors: boolean }[] {
   return sourceList().filter((source) => source.authors);
 }
@@ -515,13 +515,76 @@ export interface AuthorOutcome {
   errors: SourceError[];
 }
 
+// Words that a query about a topic is made of and a person's name is not.
+// A name particle — van, von, de, da, la, del, bin, al — is not among them.
+const TOPIC_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'for', 'from', 'how', 'in', 'is', 'it', 'of', 'on',
+  'or', 'that', 'the', 'to', 'via', 'with', 'what', 'why', 'using', 'towards', 'toward', 'based',
+]);
+
+/**
+ * The person a query might be asking for, or null when it plainly is not one.
+ *
+ * There is one search box, so the question of whether a query names a person
+ * is answered by its shape: one to four words, letters only — no digits, no
+ * quotes, no arXiv id — and none of them a word a topic is made of. `author:`
+ * in front settles it either way, the way it does on Google Scholar. What
+ * comes back is a guess, and a cheap one to be wrong about: a topic that
+ * passes finds nobody by that name, and the paper results stand on their own.
+ */
+export function nameInQuery(query: string): string | null {
+  const trimmed = clean(query);
+  const forced = /^author:\s*/i.exec(trimmed);
+  if (forced) {
+    const name = trimmed.slice(forced[0].length).replace(/^"|"$/g, '').trim();
+    return name || null;
+  }
+  if (!trimmed || /["\d]/.test(trimmed) || arxivIdFromQuery(trimmed)) return null;
+  const words = trimmed.split(' ');
+  if (words.length > 4) return null;
+  if (!words.every((word) => /^[\p{L}][\p{L}.'’-]*$/u.test(word))) return null;
+  if (words.some((word) => TOPIC_WORDS.has(word.toLowerCase()))) return null;
+  return trimmed;
+}
+
+/** A name as its parts: lower-case letters, accents stripped, one entry per word. */
+function nameParts(name: string): string[] {
+  return name
+    .normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
+    .toLowerCase()
+    .split(/[^\p{L}]+/u)
+    .filter(Boolean);
+}
+
+/**
+ * Whether a record could be the person asked for. The indexes match loosely
+ * — Scholar's profile search matches on affiliation and interests as well as
+ * on the name — and a query that only looks like a name should not put a
+ * stranger at the top of the panel. Each word of the query has to fit a part
+ * of the name, in either direction, so an initial fits the name it stands
+ * for and a first name fits its initial: "J Smith" is John Smith, "Stefan
+ * Banach" is S. Banach. A two-word query also fits the name run together, so
+ * "Le Cun" is LeCun; a single word does not, or "Mit" would be every Smith.
+ */
+export function nameMatches(name: string, query: string): boolean {
+  const parts = nameParts(name);
+  const words = nameParts(query);
+  if (!parts.length || !words.length) return false;
+  const fits = (word: string) => parts.some((part) => part.startsWith(word) || word.startsWith(part));
+  if (words.every(fits)) return true;
+  return words.length > 1 && parts.join('').includes(words.join(''));
+}
+
 /**
  * People matching a name, from whichever indexes keep author records.
  *
  * Both of them disambiguate imperfectly, so the same person can appear twice
  * with different counts. Rather than guessing which record is right, near-
  * identical names are folded together keeping the fullest one, and the rest
- * are shown as the separate candidates they are.
+ * are shown as the separate candidates they are. A record whose name does
+ * not fit the query at all is left out: the name search runs on any query
+ * that could be a name, and an index's loose match on a topic is not a person.
  */
 export async function searchAuthors(
   name: string,
@@ -558,7 +621,7 @@ export async function searchAuthors(
       return;
     }
     for (const author of outcome.value) {
-      if (!author.name) continue;
+      if (!author.name || !nameMatches(author.name, trimmed)) continue;
       const key = `${author.orcid || normalise(author.name)}`;
       const existing = byName.get(key);
       if (existing) {
@@ -577,28 +640,69 @@ export async function searchAuthors(
   return { authors, errors };
 }
 
-/** Everything a given person has written, newest and most-cited first. */
+/**
+ * When a paper came out, for ordering; nothing known sorts last, behind any
+ * date there is (a finite value, so two unknowns compare as equal rather
+ * than as the NaN two infinities subtract to).
+ */
+const NEVER = -1e16;
+const publishedAt = (paper: PaperRef): number => {
+  const time = paper.published ? Date.parse(paper.published) : NaN;
+  return Number.isNaN(time) ? NEVER : time;
+};
+
+/**
+ * The papers in the order asked for: newest first, or most cited first, the
+ * other measure breaking ties. Applied to what a source returns as well as
+ * asked of it, because not every source can be asked — Semantic Scholar
+ * lists a person's papers in an order of its own — and a page of results is
+ * shown as a whole either way.
+ */
+export function sortPapers(papers: PaperRef[], order: PaperOrder): PaperRef[] {
+  const byDate = (a: PaperRef, b: PaperRef) => publishedAt(b) - publishedAt(a);
+  const byCitations = (a: PaperRef, b: PaperRef) => (b.citedBy ?? 0) - (a.citedBy ?? 0);
+  return [...papers].sort((a, b) =>
+    order === 'cited' ? byCitations(a, b) || byDate(a, b) : byDate(a, b) || byCitations(a, b),
+  );
+}
+
+/**
+ * Everything a given person has written, in the order asked for — newest
+ * first unless told otherwise. The order is asked of the source, so that the
+ * pages follow on from one another, and applied again to what comes back.
+ */
 export async function papersByAuthor(
   author: AuthorRef,
-  options: { page?: number; limit?: number; signal?: AbortSignal } = {},
+  options: { page?: number; limit?: number; order?: PaperOrder; signal?: AbortSignal } = {},
 ): Promise<PaperRef[]> {
   const limit = options.limit ?? PAGE_SIZE;
   const page = options.page ?? 0;
+  const order = options.order ?? 'newest';
+  const found = await authorWorks(author, page, limit, order, options.signal);
+  return sortPapers(found, order);
+}
 
+async function authorWorks(
+  author: AuthorRef,
+  page: number,
+  limit: number,
+  order: PaperOrder,
+  signal?: AbortSignal,
+): Promise<PaperRef[]> {
   if (author.id.startsWith('openalex:')) {
     const params = new URLSearchParams({
       per_page: String(limit),
       page: String(page + 1),
-      sort: 'cited_by_count:desc',
+      sort: order === 'cited' ? 'cited_by_count:desc' : 'publication_date:desc',
     });
     params.set('filter', `author.id:${author.id.slice('openalex:'.length)}`);
-    return openAlexWorks(params, options.signal);
+    return openAlexWorks(params, signal);
   }
 
   if (author.id.startsWith('scholar:') && author.scholarUserId) {
     // A person's own profile is the best list of what they have written: it is
     // the one they curate, and it includes what no index has a record of.
-    return scholarProfileWorks(author.scholarUserId, page, options.signal);
+    return scholarProfileWorks(author.scholarUserId, { page, order, signal });
   }
 
   if (author.id.startsWith('s2:')) {
@@ -607,9 +711,11 @@ export async function papersByAuthor(
       limit: String(limit),
       offset: String(page * limit),
     });
+    // Semantic Scholar lists a person's papers in an order of its own and
+    // takes no other; each page is put in order once it is here.
     const response = await fetch(
       `https://api.semanticscholar.org/graph/v1/author/${encodeURIComponent(author.id.slice(3))}/papers?${params}`,
-      { signal: options.signal },
+      { signal },
     );
     if (!response.ok) throw s2Error(response.status, 'author papers');
     const payload = (await response.json()) as { data?: SemanticScholarPaper[] };

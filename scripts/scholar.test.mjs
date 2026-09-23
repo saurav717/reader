@@ -79,10 +79,19 @@ describe('the pages it asks for', () => {
     assert.equal(isScholarUrl(url.href), true);
   });
 
-  it('asks a profile for the works it lists', () => {
+  it('asks a profile for the works it lists, newest first', () => {
     const url = new URL(profileUrl('oR9sCGYAAAAJ'));
     assert.equal(url.searchParams.get('user'), 'oR9sCGYAAAAJ');
     assert.equal(url.searchParams.get('view_op'), 'list_works');
+    assert.equal(url.searchParams.get('sortby'), 'pubdate');
+  });
+
+  it('asks for the most cited first by leaving the order off, which is Scholar’s own', () => {
+    const url = new URL(profileUrl('oR9sCGYAAAAJ', { sort: 'citations' }));
+    assert.equal(url.searchParams.get('sortby'), null);
+    assert.equal(url.searchParams.get('view_op'), 'list_works');
+    // Anything else is newest first, which is the order the app asks for.
+    assert.equal(new URL(profileUrl('oR9sCGYAAAAJ', { sort: 'title' })).searchParams.get('sortby'), 'pubdate');
   });
 
   it('asks a cluster for every version of one paper', () => {

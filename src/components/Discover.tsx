@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import {
   arxivIdFromQuery,
   authorSources,
   defaultSources,
   lookupArxiv,
+  nameInQuery,
   PAGE_SIZE,
   papersByAuthor,
   search,
@@ -28,7 +29,7 @@ import SignInPrompt from './SignInPrompt';
 import CaptchaPrompt from './CaptchaPrompt';
 import PdfDropIn from './PdfDropIn';
 import { whySaveToDriveUnavailable } from '../lib/driveSync';
-import type { AuthorRef, PaperLocation, PaperRef, SearchMode, SourceId } from '../types';
+import type { AuthorRef, PaperLocation, PaperOrder, PaperRef, SourceId } from '../types';
 import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
 
 interface Props {
@@ -165,14 +166,62 @@ function Locations({ paper }: { paper: PaperRef }) {
   );
 }
 
+/** The same complaint from both halves of a search is said once. */
+const dedupe = (errors: SourceError[]) =>
+  errors.filter(
+    (error, position) =>
+      errors.findIndex((other) => other.source === error.source && other.message === error.message) === position,
+  );
+
+/**
+ * A person, at the top of their page. Not a result to open: it is the heading
+ * everything under it belongs to, the way Google Scholar lays out a profile.
+ */
+function Profile({ author }: { author: AuthorRef }) {
+  return (
+    <article className="result person" aria-label={`${author.name}, profile`}>
+      <h3>{author.name}</h3>
+      {author.affiliation ? <p className="authors">{author.affiliation}</p> : null}
+      <div className="meta">
+        <span>{labelFor(author.source)}</span>
+        {author.worksCount ? <span>{compact(author.worksCount)} papers</span> : null}
+        {author.citedBy ? <span>{compact(author.citedBy)} citations</span> : null}
+        {author.hIndex ? <span>h-index {author.hIndex}</span> : null}
+        {author.orcid ? <span className="mono">ORCID {author.orcid}</span> : null}
+        {author.verifiedEmail ? <span>verified at {author.verifiedEmail}</span> : null}
+      </div>
+      {author.interests?.length ? (
+        <p className="authors" style={{ margin: '6px 0 4px' }}>
+          {author.interests.slice(0, 4).join(' · ')}
+        </p>
+      ) : null}
+      <a
+        className="loc-scholar"
+        href={author.scholarProfileUrl || scholarAuthorUrl(author.name)}
+        target="_blank"
+        rel="noreferrer noopener"
+      >
+        {author.scholarProfileUrl ? 'Their Google Scholar profile' : 'Look them up on Google Scholar'}{' '}
+        <ExternalIcon size={10} />
+      </a>
+    </article>
+  );
+}
+
 export default function Discover({ onClose, onOpen }: Props) {
   const { papers, collections, addPaper, createCollection, driveConnected, settings, syncPaperNow } = useStore();
   const [query, setQuery] = useState('');
-  const [mode, setMode] = useState<SearchMode>('papers');
+  /** The query as it was searched, which is what the panel is about until the next one. */
+  const [asked, setAsked] = useState('');
   const [sources, setSources] = useState<SourceId[]>(defaultSources);
   const [results, setResults] = useState<PaperRef[]>([]);
-  const [authors, setAuthors] = useState<AuthorRef[]>([]);
+  /** Everyone the query could have meant, likeliest first; `viewing` is the one on screen. */
+  const [people, setPeople] = useState<AuthorRef[]>([]);
   const [viewing, setViewing] = useState<AuthorRef | null>(null);
+  /** How a person's papers are listed. Kept across searches: it is a preference, not a query. */
+  const [order, setOrder] = useState<PaperOrder>('newest');
+  /** The results are every paper with the name on it, asked for by the link that says so. */
+  const [byName, setByName] = useState(false);
   const [errors, setErrors] = useState<SourceError[]>([]);
   const [busy, setBusy] = useState(false);
   const [more, setMore] = useState(false);
@@ -191,6 +240,8 @@ export default function Discover({ onClose, onOpen }: Props) {
    * captcha has been solved, say, when the same question gets an answer.
    */
   const lastRun = useRef<(() => void) | null>(null);
+  /** The next page of whatever is on screen, which depends on how it was asked for. */
+  const nextPage = useRef<((page: number, signal: AbortSignal) => Promise<PaperRef[]>) | null>(null);
 
   useEffect(() => {
     if (!target && collections.length) setTarget(collections[0].id);
@@ -227,121 +278,135 @@ export default function Discover({ onClose, onOpen }: Props) {
     setErrors(reported ? [reported] : []);
   };
 
-  /** Papers matching a topic, a title, or an arXiv id. */
-  const runPapers = useCallback(
-    async (text: string) => {
-      lastRun.current = () => void runPapers(text);
-      const controller = begin();
-      setViewing(null);
-      setAuthors([]);
-      setPage(0);
-      try {
-        const directId = arxivIdFromQuery(text);
-        if (directId && hasProxy() && sources.includes('arxiv')) {
-          const direct = await lookupArxiv(directId, controller.signal);
-          if (direct.length) {
-            setResults(direct);
-            setMore(false);
-            return;
-          }
-        }
-        const outcome = await search(text, sources, { signal: controller.signal, page: 0 });
-        setResults(outcome.results);
-        setErrors(outcome.errors);
-        setMore(!outcome.exhausted);
-      } catch (error) {
-        fail(error);
-      } finally {
-        finish(controller);
-      }
-    },
-    [sources],
-  );
-
-  /** People matching a name. */
-  const runAuthors = useCallback(
-    async (text: string) => {
-      lastRun.current = () => void runAuthors(text);
-      const controller = begin();
-      setViewing(null);
-      setResults([]);
-      setPage(0);
-      setMore(false);
-      try {
-        const outcome = await searchAuthors(text, sources, { signal: controller.signal });
-        setAuthors(outcome.authors);
-        setErrors(outcome.errors);
-        // Nobody by that name has a record in either index — which is the
-        // normal case for anyone who is not a prolific author. Rather than an
-        // empty panel, go straight to the broader search: every paper with the
-        // name on it, across every source.
-        if (!outcome.authors.length) {
-          const byName = await searchByAuthorName(text, sources, { signal: controller.signal, page: 0 });
-          setResults(byName.results);
-          setMore(!byName.exhausted);
-          if (byName.errors.length) setErrors(byName.errors);
-        }
-      } catch (error) {
-        fail(error);
-      } finally {
-        finish(controller);
-      }
-    },
-    [sources],
-  );
-
-  /** Everything one chosen person has written. */
-  const openAuthor = useCallback(
-    async (author: AuthorRef) => {
-      lastRun.current = () => void openAuthor(author);
-      const controller = begin();
-      setViewing(author);
-      setPage(0);
-      try {
-        const found = await papersByAuthor(author, { signal: controller.signal, page: 0 });
-        setResults(found);
-        setMore(found.length >= PAGE_SIZE);
-      } catch (error) {
-        fail(error);
-      } finally {
-        finish(controller);
-      }
-    },
-    [],
-  );
+  /** A fresh list, whichever question it answers. */
+  const clear = () => {
+    setViewing(null);
+    setPeople([]);
+    setByName(false);
+    setResults([]);
+    setPage(0);
+    setMore(false);
+    nextPage.current = null;
+  };
 
   /**
-   * The fallback when none of the author records is the right person: match on
-   * the name across every source's author field instead of on an identifier.
+   * Everything one person has written, under their profile, in the order
+   * asked for. Runs on the search's own controller when it follows straight
+   * on from finding them, so that a new query cancels both halves at once.
    */
-  const runByName = useCallback(
-    async (text: string) => {
-      lastRun.current = () => void runByName(text);
-      const controller = begin();
-      setViewing(null);
-      setAuthors([]);
-      setPage(0);
-      try {
-        const outcome = await searchByAuthorName(text, sources, { signal: controller.signal, page: 0 });
-        setResults(outcome.results);
-        setErrors(outcome.errors);
-        setMore(!outcome.exhausted);
-      } catch (error) {
-        fail(error);
-      } finally {
-        finish(controller);
-      }
-    },
-    [sources],
-  );
+  const loadWorks = async (author: AuthorRef, by: PaperOrder, controller: AbortController) => {
+    setViewing(author);
+    setOrder(by);
+    setByName(false);
+    setResults([]);
+    setPage(0);
+    setMore(false);
+    nextPage.current = (next, signal) => papersByAuthor(author, { page: next, order: by, signal });
+    const found = await papersByAuthor(author, { page: 0, order: by, signal: controller.signal });
+    setResults(found);
+    setMore(found.length >= PAGE_SIZE);
+  };
 
-  const loadMore = useCallback(async () => {
+  /** Another of the people found, or the same one in the other order. */
+  const openAuthor = async (author: AuthorRef, by: PaperOrder = order) => {
+    lastRun.current = () => void openAuthor(author, by);
+    const controller = begin();
+    try {
+      await loadWorks(author, by, controller);
+    } catch (error) {
+      fail(error);
+    } finally {
+      finish(controller);
+    }
+  };
+
+  /**
+   * One query, both questions. Papers matching it are always asked for; a
+   * query that could be a person's name asks who that is as well, and when
+   * someone comes back the panel becomes their page — profile on top, papers
+   * under it, newest first — the way Google Scholar lays a person out. A
+   * topic that merely looks like a name finds nobody, and the papers stand
+   * on their own; `author:` in front asks for the person only, and lists
+   * every paper with the name on it when no index has a record of them.
+   */
+  const run = async (text: string, options: { people?: boolean } = {}) => {
+    lastRun.current = () => void run(text, options);
+    const controller = begin();
+    const trimmed = text.trim();
+    setAsked(trimmed);
+    clear();
+    const name = options.people === false ? null : nameInQuery(trimmed);
+    const forced = name !== null && /^author:/i.test(trimmed);
+    const askPeople = name !== null && sources.some((id) => authorSources().some((source) => source.id === id));
+    try {
+      const directId = arxivIdFromQuery(trimmed);
+      if (directId && hasProxy() && sources.includes('arxiv')) {
+        const direct = await lookupArxiv(directId, controller.signal);
+        if (direct.length) {
+          setResults(direct);
+          return;
+        }
+      }
+      const findPapers = (next: number, signal: AbortSignal) =>
+        forced
+          ? searchByAuthorName(name, sources, { signal, page: next })
+          : search(trimmed, sources, { signal, page: next });
+      // Both questions go out at once, and the papers are shown as soon as
+      // they are in rather than held for the people: Scholar's profile search
+      // is the slower of the two by some way, and a topic that merely looks
+      // like a name should not wait on it for nothing.
+      const whoAsked = askPeople ? searchAuthors(name, sources, { signal: controller.signal }) : null;
+      const found = await findPapers(0, controller.signal);
+      setErrors(found.errors);
+      setByName(forced);
+      nextPage.current = (next, signal) => findPapers(next, signal).then((outcome) => outcome.results);
+      setResults(found.results);
+      setMore(!found.exhausted);
+      if (!whoAsked) return;
+      const who = await whoAsked;
+      if (controller.signal.aborted) return;
+      setErrors(dedupe([...found.errors, ...who.errors]));
+      setPeople(who.authors);
+      if (who.authors.length) await loadWorks(who.authors[0], order, controller);
+    } catch (error) {
+      fail(error);
+    } finally {
+      finish(controller);
+    }
+  };
+
+  /**
+   * The fallback when none of the people found is the right one, or nobody
+   * was: match on the name across every source's author field instead of on
+   * an identifier. Broader and noisier than a profile, but it works for
+   * anyone who is not a prolific author.
+   */
+  const runByName = async (text: string) => {
+    lastRun.current = () => void runByName(text);
+    const controller = begin();
+    clear();
+    setByName(true);
+    nextPage.current = (next, signal) =>
+      searchByAuthorName(text, sources, { signal, page: next }).then((outcome) => outcome.results);
+    try {
+      const outcome = await searchByAuthorName(text, sources, { signal: controller.signal, page: 0 });
+      setResults(outcome.results);
+      setErrors(outcome.errors);
+      setMore(!outcome.exhausted);
+    } catch (error) {
+      fail(error);
+    } finally {
+      finish(controller);
+    }
+  };
+
+  const loadMore = async () => {
+    const fetchPage = nextPage.current;
+    if (!fetchPage) return;
     const controller = begin();
     const next = page + 1;
     try {
-      const found = viewing
-        ? await papersByAuthor(viewing, { signal: controller.signal, page: next })
-        : (await search(query, sources, { signal: controller.signal, page: next })).results;
+      const found = await fetchPage(next, controller.signal);
       // The merge is per-page, so a paper already on screen is dropped rather
       // than shown twice when two pages overlap.
       setResults((current) => {
@@ -355,12 +420,12 @@ export default function Discover({ onClose, onOpen }: Props) {
     } finally {
       finish(controller);
     }
-  }, [page, query, sources, viewing]);
+  };
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!query.trim()) return;
-    void (mode === 'authors' ? runAuthors(query) : runPapers(query));
+    void run(query);
   };
 
   const toggleSource = (id: SourceId) => {
@@ -478,8 +543,25 @@ export default function Discover({ onClose, onOpen }: Props) {
     onOpen(ref.id);
   };
 
-  const visibleSources = mode === 'authors' ? authorSources() : sourceList();
+  const visibleSources = sourceList();
   const noSources = !sources.some((id) => visibleSources.some((source) => source.id === id));
+  /** The name the last search could have been asking for, which the advice under it is about. */
+  const askedName = nameInQuery(asked);
+  const others = viewing ? people.filter((person) => person.id !== viewing.id) : [];
+
+  /** The two ways round the profiles: every paper with the name on it, or Scholar's own search. */
+  const byNameLinks = (name: string) => (
+    <>
+      <button type="button" className="linklike" onClick={() => void runByName(name)}>
+        Search every paper with that name on it
+      </button>
+      , or look them up{' '}
+      <a className="loc-scholar" href={scholarAuthorPapersUrl(name)} target="_blank" rel="noreferrer noopener">
+        on Google Scholar <ExternalIcon size={10} />
+      </a>
+      .
+    </>
+  );
 
   return (
     <aside className="panel discover-panel" aria-label="Discover">
@@ -490,20 +572,9 @@ export default function Discover({ onClose, onOpen }: Props) {
         </button>
       </div>
 
-      <div style={{ padding: '0 16px 10px' }}>
-        <div className="segmented" role="group" aria-label="What to search for">
-          <button type="button" aria-pressed={mode === 'papers'} onClick={() => setMode('papers')}>
-            Papers
-          </button>
-          <button type="button" aria-pressed={mode === 'authors'} onClick={() => setMode('authors')}>
-            Authors
-          </button>
-        </div>
-      </div>
-
       <form style={{ padding: '0 16px 12px' }} onSubmit={submit}>
         <label className="vh" htmlFor="discover-query">
-          {mode === 'authors' ? 'Search for a person' : 'Search papers'}
+          Search papers and people
         </label>
         <div className="field">
           <SearchIcon size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
@@ -511,7 +582,7 @@ export default function Discover({ onClose, onOpen }: Props) {
             id="discover-query"
             type="search"
             value={query}
-            placeholder={mode === 'authors' ? 'Author name' : 'Title, topic, "exact phrase" or arXiv id'}
+            placeholder={'Title, topic, "exact phrase", arXiv id or a person'}
             onChange={(event) => setQuery(event.target.value)}
           />
           {busy ? <span className="spinner" aria-label="Searching" /> : null}
@@ -587,7 +658,7 @@ export default function Discover({ onClose, onOpen }: Props) {
         <div style={{ padding: '0 16px 12px' }}>
           {errors.map((error) => (
             <p
-              key={error.source}
+              key={`${error.source}:${error.message}`}
               className={`banner ${error.source === 'scholar' ? 'warn' : 'error'}`}
               style={{ marginTop: 0, marginBottom: 6 }}
             >
@@ -601,78 +672,72 @@ export default function Discover({ onClose, onOpen }: Props) {
         </div>
       ) : null}
 
-      {viewing ? (
-        <div style={{ padding: '0 16px 10px' }}>
-          <button type="button" className="btn sm" onClick={() => void runAuthors(query)}>
-            ← Back to people
-          </button>
-          <p style={{ margin: '8px 0 0', fontSize: 12.5, color: 'var(--ink-2)' }}>
-            Papers by <strong style={{ fontWeight: 600 }}>{viewing.name}</strong>
-            {viewing.affiliation ? ` · ${viewing.affiliation}` : ''}
-          </p>
-        </div>
-      ) : null}
-
       <div className="scroll" style={{ padding: '0 8px 16px' }}>
-        {!results.length && !authors.length && !busy && !noSources ? (
+        {!results.length && !viewing && !busy && !noSources ? (
           <p style={{ padding: '10px 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            {mode === 'authors'
-              ? 'Find a person, then open everything they have written. OpenAlex and Semantic Scholar each keep their own author records, so the same person can appear twice.'
+            {asked
+              ? 'Nothing found. Try fewer words, or turn another source on above.'
               : hasProxy()
-                ? 'Search arXiv, OpenAlex, Semantic Scholar and Crossref at once, merged into one ranked list. Quote a phrase to match it exactly, or paste an arXiv id to jump straight to a paper.'
-                : 'Search OpenAlex, Semantic Scholar and Crossref, all of which index arXiv.'}
+                ? "Search arXiv, OpenAlex, Semantic Scholar, Crossref and Google Scholar at once, merged into one ranked list. A person's name opens their profile with everything they wrote beneath it, newest first. Quote a phrase to match it exactly, or paste an arXiv id to jump straight to a paper."
+                : "Search OpenAlex, Semantic Scholar and Crossref, all of which index arXiv. A person's name opens their profile with everything they wrote beneath it, newest first."}
           </p>
         ) : null}
 
-        {mode === 'authors' && !viewing
-          ? authors.map((author) => (
-              <article key={author.id} className="result">
-                <ResultHead onActivate={() => void openAuthor(author)}>
-                  <h3>{author.name}</h3>
-                  {author.affiliation ? <p className="authors">{author.affiliation}</p> : null}
-                  <div className="meta">
-                    <span>{labelFor(author.source)}</span>
-                    {author.worksCount ? <span>{compact(author.worksCount)} papers</span> : null}
-                    {author.citedBy ? <span>{compact(author.citedBy)} citations</span> : null}
-                    {author.hIndex ? <span>h-index {author.hIndex}</span> : null}
-                    {author.orcid ? <span className="mono">ORCID {author.orcid}</span> : null}
-                    {author.verifiedEmail ? <span>verified at {author.verifiedEmail}</span> : null}
-                  </div>
-                </ResultHead>
-                {author.interests?.length ? (
-                  <p className="authors" style={{ margin: '2px 0 4px' }}>
-                    {author.interests.slice(0, 4).join(' · ')}
-                  </p>
-                ) : null}
-                <a
-                  className="loc-scholar"
-                  href={author.scholarProfileUrl || scholarAuthorUrl(author.name)}
-                  target="_blank"
-                  rel="noreferrer noopener"
+        {viewing ? (
+          <>
+            <Profile author={viewing} />
+            {others.length ? (
+              <div className="person-others">
+                <span className="eyebrow">Could also be</span>
+                {others.map((person) => (
+                  <button
+                    key={person.id}
+                    type="button"
+                    className="chip"
+                    title={[person.affiliation, labelFor(person.source)].filter(Boolean).join(' · ')}
+                    onClick={() => void openAuthor(person)}
+                  >
+                    {person.name} · {labelFor(person.source)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <p className="author-advice">
+              Not who you meant? {byNameLinks(askedName || viewing.name)}
+            </p>
+            <div className="person-works">
+              <p className="eyebrow" style={{ margin: 0 }}>
+                Papers by {viewing.name}
+              </p>
+              <div className="segmented sm" role="group" aria-label="Order of the papers">
+                <button
+                  type="button"
+                  aria-pressed={order === 'newest'}
+                  onClick={() => order !== 'newest' && void openAuthor(viewing, 'newest')}
                 >
-                  {author.scholarProfileUrl ? 'Their Google Scholar profile' : 'Look them up on Google Scholar'}{' '}
-                  <ExternalIcon size={10} />
-                </a>
-              </article>
-            ))
-          : null}
+                  Newest
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={order === 'cited'}
+                  onClick={() => order !== 'cited' && void openAuthor(viewing, 'cited')}
+                >
+                  Most cited
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
 
-        {mode === 'authors' && !viewing && query.trim() && !busy ? (
-          <p className="author-advice" style={{ padding: '4px 10px 0', fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-            {authors.length ? 'None of these the right person? ' : 'No index keeps a record under that name. '}
-            <button
-              type="button"
-              className="linklike"
-              onClick={() => void runByName(query)}
-              style={{ all: 'unset', color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline' }}
-            >
-              {authors.length ? 'Search every paper with that name on it' : 'Search every paper with that name again'}
-            </button>
-            , or look them up{' '}
-            <a className="loc-scholar" href={scholarAuthorPapersUrl(query.trim())} target="_blank" rel="noreferrer noopener">
-              on Google Scholar <ExternalIcon size={10} />
-            </a>
-            .
+        {!viewing && byName && asked ? (
+          <p className="eyebrow" style={{ padding: '6px 10px 4px' }}>
+            Every paper with {askedName || asked} on it
+          </p>
+        ) : null}
+
+        {!viewing && !byName && askedName && !busy ? (
+          <p className="author-advice">
+            Looking for a person? No index keeps a profile under that name. {byNameLinks(askedName)}
           </p>
         ) : null}
 
@@ -784,6 +849,12 @@ export default function Discover({ onClose, onOpen }: Props) {
             </article>
           );
         })}
+
+        {viewing && !results.length && !busy ? (
+          <p style={{ padding: '4px 10px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+            {labelFor(viewing.source)} lists nothing under this record.
+          </p>
+        ) : null}
 
         {more && results.length && !busy ? (
           <div style={{ padding: '8px 10px' }}>

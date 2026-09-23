@@ -17,6 +17,7 @@ import {
   parseResults,
   plainFetch,
   profileUrl,
+  profileSort,
   searchUrl,
   versionsUrl,
   workUrl,
@@ -466,7 +467,13 @@ function scholarProfile(url, res) {
   const user = (url.searchParams.get('user') || '').trim();
   if (!/^[\w-]{6,32}$/.test(user)) return send(res, 400, { error: 'bad Scholar profile id' });
   const start = Math.max(0, Number(url.searchParams.get('start')) || 0);
-  return scholar(res, { kind: 'profile', params: { user, start }, url: profileUrl(user, { start }), parse: parseProfileWorks });
+  const sort = profileSort(url.searchParams.get('sort'));
+  return scholar(res, {
+    kind: 'profile',
+    params: { user, start, sort },
+    url: profileUrl(user, { start, sort }),
+    parse: parseProfileWorks,
+  });
 }
 
 /** Valid as far as the routes are concerned: a profile id, and an entry's `<user>:<code>`. */

@@ -10,7 +10,8 @@ import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
 
-const { arxivQuery, arxivIdFromQuery, search } = await load('src/lib/sources.ts');
+const { arxivQuery, arxivIdFromQuery, nameInQuery, nameMatches, papersByAuthor, search, searchAuthors, sortPapers } =
+  await load('src/lib/sources.ts');
 
 const realFetch = globalThis.fetch;
 after(async () => {
@@ -206,6 +207,144 @@ describe('merging what the sources return', () => {
     handlers['api.openalex.org'] = () => json({ results: [openAlexWork()] });
     return search('q', ['openalex']).then((outcome) => {
       assert.equal(outcome.exhausted, true);
+    });
+  });
+});
+
+describe('telling a person from a topic', () => {
+  it('takes a short run of words for a name', () => {
+    assert.equal(nameInQuery('Stefan Banach'), 'Stefan Banach');
+    assert.equal(nameInQuery('banach'), 'banach');
+    assert.equal(nameInQuery('Y. LeCun'), 'Y. LeCun');
+    assert.equal(nameInQuery("Gabriel García Márquez"), 'Gabriel García Márquez');
+    assert.equal(nameInQuery('Jan van der Berg'), 'Jan van der Berg');
+  });
+
+  it('does not take a phrase, a number, an arXiv id or a sentence for one', () => {
+    assert.equal(nameInQuery('"attention is all you need"'), null);
+    assert.equal(nameInQuery('2010.08895'), null);
+    assert.equal(nameInQuery('resnet 2015'), null);
+    assert.equal(nameInQuery('a survey of neural operators for pde'), null);
+    // The words a topic is made of, which no name has in it.
+    assert.equal(nameInQuery('learning with noise'), null);
+    assert.equal(nameInQuery('theory of everything'), null);
+  });
+
+  it('is settled by author: in front, the way it is on Scholar', () => {
+    assert.equal(nameInQuery('author:"Ilya Sutskever"'), 'Ilya Sutskever');
+    assert.equal(nameInQuery('author: theory of everything'), 'theory of everything');
+  });
+});
+
+describe('whether a record could be the person asked for', () => {
+  it('fits an initial to the name it stands for, either way round', () => {
+    assert.equal(nameMatches('John Smith', 'J Smith'), true);
+    assert.equal(nameMatches('S. Banach', 'Stefan Banach'), true);
+    assert.equal(nameMatches('Yann LeCun', 'Y. LeCun'), true);
+  });
+
+  it('fits the words in any order, with or without accents', () => {
+    assert.equal(nameMatches('Zongyi Li', 'Li Zongyi'), true);
+    assert.equal(nameMatches('Gabriel García Márquez', 'garcia marquez'), true);
+  });
+
+  it('fits a name run together, but not a single word buried in another', () => {
+    assert.equal(nameMatches('Yann LeCun', 'Le Cun'), true);
+    // Every Smith would fit "MIT" otherwise.
+    assert.equal(nameMatches('John Smith', 'mit'), false);
+  });
+
+  it('does not fit a stranger the index matched on a label', () => {
+    assert.equal(nameMatches('Alice Example', 'graph neural networks'), false);
+    assert.equal(nameMatches('Alice Example', 'transformers'), false);
+  });
+});
+
+const openAlexAuthor = (overrides = {}) => ({
+  id: 'https://openalex.org/A1',
+  display_name: 'Stefan Banach',
+  orcid: null,
+  works_count: 58,
+  cited_by_count: 41000,
+  ...overrides,
+});
+
+describe('finding a person', () => {
+  it('leaves out the people an index matched on something other than the name', () => {
+    handlers['api.openalex.org'] = () =>
+      json({
+        results: [
+          openAlexAuthor(),
+          openAlexAuthor({ id: 'https://openalex.org/A2', display_name: 'Alice Example', cited_by_count: 90000 }),
+        ],
+      });
+
+    return searchAuthors('Banach', ['openalex']).then((outcome) => {
+      assert.deepEqual(
+        outcome.authors.map((author) => author.name),
+        ['Stefan Banach'],
+      );
+    });
+  });
+});
+
+const paper = (overrides = {}) => ({
+  id: overrides.id || overrides.title,
+  source: 'openalex',
+  title: 'A Title',
+  authors: [],
+  abstract: '',
+  published: '',
+  categories: [],
+  ...overrides,
+});
+
+describe('the order a person’s papers are in', () => {
+  const papers = [
+    paper({ title: 'old and cited', published: '1932-01-01', citedBy: 900 }),
+    paper({ title: 'new', published: '2024-06-01', citedBy: 3 }),
+    paper({ title: 'undated', citedBy: 40 }),
+    paper({ title: 'newest', published: '2025-02-01' }),
+  ];
+
+  it('puts the newest first, and what has no date last', () => {
+    assert.deepEqual(
+      sortPapers(papers, 'newest').map((entry) => entry.title),
+      ['newest', 'new', 'old and cited', 'undated'],
+    );
+  });
+
+  it('puts the most cited first, newest among equals', () => {
+    assert.deepEqual(
+      sortPapers(papers, 'cited').map((entry) => entry.title),
+      ['old and cited', 'undated', 'new', 'newest'],
+    );
+  });
+
+  it('asks OpenAlex for that order, so the pages follow on', async () => {
+    const asked = [];
+    handlers['api.openalex.org'] = (url) => {
+      asked.push(url.searchParams.get('sort'));
+      return json({ results: [openAlexWork()] });
+    };
+    const author = { id: 'openalex:A1', source: 'openalex', name: 'Stefan Banach' };
+    await papersByAuthor(author, { order: 'newest' });
+    await papersByAuthor(author, { order: 'cited' });
+    await papersByAuthor(author);
+    assert.deepEqual(asked, ['publication_date:desc', 'cited_by_count:desc', 'publication_date:desc']);
+  });
+
+  it('puts a page from Semantic Scholar, which takes no order, in order itself', () => {
+    handlers['api.semanticscholar.org'] = () =>
+      json({
+        data: [
+          { paperId: 'p1', title: 'older', year: 2001, citationCount: 5, authors: [] },
+          { paperId: 'p2', title: 'newer', year: 2019, citationCount: 1, authors: [] },
+        ],
+      });
+    const author = { id: 's2:1', source: 'semanticscholar', name: 'Anyone' };
+    return papersByAuthor(author, { order: 'newest' }).then((found) => {
+      assert.deepEqual(found.map((entry) => entry.title), ['newer', 'older']);
     });
   });
 });

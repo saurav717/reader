@@ -47,7 +47,7 @@ called straight from the page.
 
 ## Searching
 
-The **Papers** tab searches every selected source at once and merges the answers
+One box searches every selected source at once and merges the answers
 into one list. Sources are merged rather than concatenated: two records of the same
 paper — matched on DOI, then arXiv id, then a normalised title — become one entry
 that takes the best field from each, so the abstract can come from one index and the
@@ -59,15 +59,25 @@ index ranked first, without their scores having to mean the same thing.
 Quote a phrase to match it exactly. A query that *is* an arXiv id jumps straight to
 that paper; one that merely contains a number does not.
 
-The **Authors** tab searches OpenAlex's and Semantic Scholar's author records —
-affiliation, paper count, citations, h-index, ORCID — and opening a person lists
-what they wrote. Neither index disambiguates people perfectly, so two records of the
-same person can appear; when none of them is the right person, "search every paper
-with that name on it" falls back to matching the name across every source's author
-field instead of on an identifier. A name neither index keeps a record for — which
-is most people who are not prolific authors — falls back to that broader search on
-its own rather than showing an empty panel, and offers the person's Google Scholar
-profile alongside it.
+A query that could be a person's name — a few words, no digits, no quotes, none
+of them a word a topic is made of — also asks OpenAlex's, Semantic Scholar's and
+Scholar's author records who that is, and when someone comes back the panel is laid
+out the way Google Scholar lays out a person: their **profile at the top** —
+affiliation, paper count, citations, h-index, ORCID, interests — and **everything
+they wrote beneath it, newest first**, or most cited first at the flick of a
+switch. The order is asked of the source, so the pages follow on from one another,
+and applied again to what comes back, since Semantic Scholar lists a person's
+papers in an order of its own. A record whose name does not fit the query is left
+out, so a topic that merely looks like a name — *graph neural networks* — finds
+nobody and its paper results stand on their own; `author:` in front of a query
+settles it the other way.
+
+None of the indexes disambiguates people perfectly, so the other records the name
+could mean sit under the profile as chips, and "search every paper with that name
+on it" falls back to matching the name across every source's author field instead
+of on an identifier. A name no index keeps a record for — which is most people who
+are not prolific authors — shows the paper results with that fallback and the
+person's Google Scholar page offered alongside.
 
 | Source | Needs the proxy | Papers | Authors | On by default |
 | --- | --- | --- | --- | --- |
@@ -1366,8 +1376,9 @@ src/lib/anchor.ts       text-quote anchoring: resolve, paint, unpaint
 src/lib/api.ts          where the proxy is: the build's default, the setting
                         that overrides it, and the check behind "Test it"
 src/lib/sources.ts      arXiv / OpenAlex / Semantic Scholar / Crossref search,
-                        author search, the merge, and the OpenAlex lineage
-                        query behind the lookup box
+                        author search and a person's papers in order, the
+                        merge, and the OpenAlex lineage query behind the
+                        lookup box
 src/lib/sidecar.ts      the annotation format both mirrors write
 src/lib/github.ts       the Git mirror: notes, index, BibTeX, one commit a flush
 src/lib/contact.ts      the address OpenAlex, Crossref and Unpaywall ask for
@@ -1443,7 +1454,8 @@ highlight → open the PDF → download it → look up → comment → note → 
 the panels are on the sides they should be, that a paper opens on its PDF and that
 the browser's viewer really renders it, that the highlights re-anchor, that the note
 and the chosen mode survive a reload, that results from several sources merge into
-one list, that an author search finds a person and opens their papers, that a paper
+one list, that a person's name puts their profile at the top with their papers under
+it in either order, that a paper
 which is not on arXiv opens on its PDF too, that a synced paper is read back out of
 Drive rather than fetched through the proxy twice, and that a paper collected before
 Drive was connected is uploaded when it is opened — the copy on screen, fetched once. It writes screenshots to

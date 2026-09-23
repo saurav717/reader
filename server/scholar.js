@@ -49,16 +49,26 @@ export function searchUrl(query, { start = 0, sinceYear, patents = false } = {})
   return `${SCHOLAR_HOST}/scholar?${params}`;
 }
 
-/** Everything one person has written, by their Scholar profile id. */
-export function profileUrl(userId, { start = 0, pageSize = 20 } = {}) {
+/** The two orders a profile lists its works in. Scholar's own default is by citations. */
+export const PROFILE_SORTS = ['pubdate', 'citations'];
+
+/** `pubdate` or `citations`, whatever was asked for. */
+export const profileSort = (value) => (value === 'citations' ? 'citations' : 'pubdate');
+
+/**
+ * Everything one person has written, by their Scholar profile id, newest
+ * first unless `sort` is `citations` — which is the order Scholar gives
+ * when not told otherwise, so the parameter is left off for it.
+ */
+export function profileUrl(userId, { start = 0, pageSize = 20, sort = 'pubdate' } = {}) {
   const params = new URLSearchParams({
     hl: 'en',
     user: userId,
     cstart: String(start),
     pagesize: String(pageSize),
     view_op: 'list_works',
-    sortby: 'pubdate',
   });
+  if (profileSort(sort) === 'pubdate') params.set('sortby', 'pubdate');
   return `${SCHOLAR_HOST}/citations?${params}`;
 }
 

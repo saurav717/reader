@@ -22,6 +22,7 @@ import {
   parseProfileWorks,
   parseResults,
   profileUrl,
+  profileSort,
   searchUrl,
   versionsUrl,
   workUrl,
@@ -277,13 +278,14 @@ export default {
           const cluster = (url.searchParams.get('cluster') || '').trim();
           const citation = (url.searchParams.get('citation') || '').trim();
           const start = Math.max(0, Number(url.searchParams.get('start')) || 0);
+          const sort = profileSort(url.searchParams.get('sort'));
           const params =
             kind === 'search'
               ? query && { query, start: Math.min(90, start) }
               : kind === 'authors'
                 ? name && { name }
                 : kind === 'profile'
-                  ? /^[\w-]{6,32}$/.test(user) && { user, start }
+                  ? /^[\w-]{6,32}$/.test(user) && { user, start, sort }
                   : kind === 'versions'
                     ? /^\d{1,25}$/.test(cluster) && { cluster }
                     : kind === 'work'
@@ -311,7 +313,10 @@ export default {
               ? (url.searchParams.get('name') || '').trim() && authorSearchUrl((url.searchParams.get('name') || '').trim())
               : path === '/scholar/profile'
                 ? /^[\w-]{6,32}$/.test(url.searchParams.get('user') || '') &&
-                  profileUrl(url.searchParams.get('user'), { start: Math.max(0, Number(url.searchParams.get('start')) || 0) })
+                  profileUrl(url.searchParams.get('user'), {
+                    start: Math.max(0, Number(url.searchParams.get('start')) || 0),
+                    sort: profileSort(url.searchParams.get('sort')),
+                  })
                 : path === '/scholar/versions'
                   ? /^\d{1,25}$/.test(url.searchParams.get('cluster') || '') && versionsUrl(url.searchParams.get('cluster'))
                   : path === '/scholar/work'
