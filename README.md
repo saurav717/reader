@@ -974,6 +974,36 @@ Node proxy on your own machine, whose Chromium and address are yours, or
 the drop-in itself. `scripts/browse.test.mjs` pins the header, the
 counting, and the words.
 
+It is not one site's quirk: every site that puts Cloudflare's check in
+front of its files — academia.edu, Europe PMC, and more each month —
+loops the same way from the Worker's browser, and the proxy's plain
+fetch of the file meets the same check first. So `/pdf` looks for the
+same header on what comes back, and answers a check as a check
+(`botCheck`, with `where` the fetch was made from) rather than as a
+login wall a sign-in would get past: from the Worker the reader then
+says, under the failure, that the check is Cloudflare's and the Worker's
+requests never pass it, and puts the file's own URL on the drop-in for a
+tab of your own; from the Node proxy the sign-in offer stands, since a
+window on your machine, or the browser in the pane, passes such a check.
+`scripts/pdf-proxy.test.mjs` pins both answers.
+
+#### PubMed Central, the way it means programs to be asked
+
+One family of such sites has a way round that needs no person at all.
+A paper's PubMed Central copy is offered by the indexes as a page on
+ncbi.nlm.nih.gov or europepmc.org, and both put a check in front of an
+anonymous fetch — Europe PMC Cloudflare's, NCBI its own. But both keep
+interfaces meant for programs, with no check on them: NCBI's [OA Web
+Service](https://www.ncbi.nlm.nih.gov/pmc/tools/oa-service/) names, for
+every article in the open-access subset, the PDF on its FTP host — which
+serves the same paths over https to anyone — and Europe PMC's REST API on
+ebi.ac.uk turns a PubMed id into a PMC id. So when a PMC or Europe PMC
+URL will not hand over its file, `/pdf` asks the OA service for it
+(`server/pmc.js`) and serves that instead, on either proxy; an article
+outside the open-access subset is answered as before. No checking site
+is fetched twice, and every step asks a service that expects to be asked
+by a program, so a refusal is an answer rather than a wall.
+
 ### With only the Worker: hand the file over yourself
 
 The Worker will never sign in for you, but the page can take a file from you.

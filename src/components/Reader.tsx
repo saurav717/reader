@@ -10,6 +10,7 @@ import {
   resolvePdfUrl,
   saveBlob,
   type PdfOrigin,
+  type CheckOffer,
   type SignInOffer,
 } from '../lib/pdf';
 import SignInPrompt from './SignInPrompt';
@@ -115,6 +116,8 @@ export default function Reader({
   const [pdfError, setPdfError] = useState<string | null>(null);
   /** Set beside the error when a publisher's copy wanted a sign-in. */
   const [pdfSignIn, setPdfSignIn] = useState<SignInOffer | null>(null);
+  /** A copy behind a site's check for a person, and whose proxy met it — from the Worker, one that never passes. */
+  const [pdfCheck, setPdfCheck] = useState<CheckOffer | null>(null);
   /** Bumped to ask for the file again after a sign-in. */
   const [pdfAttempt, setPdfAttempt] = useState(0);
   /** The browser inside the reader, open in the PDF pane in place of the failure. */
@@ -301,6 +304,7 @@ export default function Reader({
     const controller = new AbortController();
     setPdfError(null);
     setPdfSignIn(null);
+    setPdfCheck(null);
     fetchPaperPdf(pdfTarget, driveOptions, controller.signal)
       .then(({ blob, from, location }) => {
         if (controller.signal.aborted) return;
@@ -312,6 +316,7 @@ export default function Reader({
         if (controller.signal.aborted) return;
         setPdfError(error instanceof Error ? error.message : String(error));
         setPdfSignIn(error instanceof PdfError ? error.signIn ?? null : null);
+        setPdfCheck(error instanceof PdfError ? error.check ?? null : null);
       });
     return () => controller.abort();
   }, [mode, pdfBlob, pdfTarget, driveOptions, driveCopy, pdfLookup, pdfAttempt]);
@@ -715,6 +720,16 @@ export default function Reader({
           ) : pdfError || pdfLookup === 'none' ? (
             <p className="banner warn" style={{ margin: 16 }}>
               {pdfError || 'No PDF of this paper is free to read anywhere we can see.'}
+              {pdfCheck?.where === 'cloudflare' ? (
+                <span className="sign-in-note">
+                  {' '}
+                  That check is Cloudflare's, and the Worker's requests never pass it — Cloudflare tells every site it
+                  protects that requests from its Workers and its rendering browsers are bots, so the browser in this
+                  pane meets the same box, however many times it is ticked. Your own browser passes it without
+                  noticing: open the file in a tab of your own and drop it here, or run the proxy on your own machine
+                  (Settings → Paper proxy).
+                </span>
+              ) : null}
               {hasProxy() ? (
                 <span className="sign-in-note">
                   {' '}
@@ -744,7 +759,11 @@ export default function Reader({
                 </>
               ) : null}
               {pdfError ? (
-                <PdfDropIn host={pdfSignIn?.host} url={pdfSignIn?.url || pdfLink || undefined} onFile={takeFile} />
+                <PdfDropIn
+                  host={pdfSignIn?.host || pdfCheck?.host}
+                  url={pdfSignIn?.url || pdfCheck?.url || pdfLink || undefined}
+                  onFile={takeFile}
+                />
               ) : null}{' '}
               <button type="button" className="link-btn" onClick={() => chooseMode('reflow')}>
                 Read the text instead

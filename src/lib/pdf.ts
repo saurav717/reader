@@ -184,6 +184,21 @@ export interface SignInOffer {
   url: string;
 }
 
+/**
+ * A copy behind a site's check for a person — Cloudflare's "Verify you are
+ * human" — rather than a sign-in, and whose proxy met it. From the Worker
+ * such a check never passes, by Cloudflare's own design (it identifies its
+ * rendering browsers as bots to every site it protects), so the reader
+ * says so and points at a tab of the person's own; from the Node proxy a
+ * window or the browser in the pane may pass it.
+ */
+export interface CheckOffer {
+  host: string;
+  /** The file's own URL, to open in a tab of your own, where your browser passes the check. */
+  url: string;
+  where: 'cloudflare' | 'proxy';
+}
+
 export class PdfError extends Error {
   /** True when the publisher answered with a login wall rather than the file. */
   loginWall: boolean;
@@ -191,12 +206,15 @@ export class PdfError extends Error {
   host?: string;
   /** Set on the summary error when at least one copy was behind a login. */
   signIn?: SignInOffer;
+  /** Set when a copy was behind a site's check for a person, and whose proxy met it. */
+  check?: CheckOffer;
 
-  constructor(message: string, options: { loginWall?: boolean; host?: string; signIn?: SignInOffer } = {}) {
+  constructor(message: string, options: { loginWall?: boolean; host?: string; signIn?: SignInOffer; check?: CheckOffer } = {}) {
     super(message);
     this.loginWall = Boolean(options.loginWall);
     this.host = options.host;
     this.signIn = options.signIn;
+    this.check = options.check;
   }
 }
 
@@ -210,12 +228,17 @@ async function downloadPdf(url: string): Promise<Blob> {
   if (!response.ok) {
     const body = await response
       .json()
-      .then((payload: { error?: string; loginWall?: boolean; host?: string }) => payload)
+      .then((payload: { error?: string; loginWall?: boolean; host?: string; botCheck?: boolean; where?: string }) => payload)
       .catch(() => undefined);
     const detail = body?.error;
+    const check =
+      body?.botCheck && body.host
+        ? { host: body.host, url: new URL(url, location.href).searchParams.get('url') || `https://${body.host}/`, where: body.where === 'proxy' ? ('proxy' as const) : ('cloudflare' as const) }
+        : undefined;
     throw new PdfError(detail ? `Could not fetch the PDF — ${detail}.` : 'Could not fetch the PDF.', {
       loginWall: Boolean(body?.loginWall),
       host: body?.host,
+      check,
     });
   }
   const blob = await response.blob();
@@ -312,7 +335,7 @@ export async function fetchPdfFromLocations(
   const candidates = locations.filter((location) => locationProxyUrl(paper, location));
   if (!candidates.length) throw new PdfError('No open-access copy of this paper could be found anywhere we can see.');
 
-  const tried: { location: PaperLocation; error: string; loginWall: boolean; host?: string }[] = [];
+  const tried: { location: PaperLocation; error: string; loginWall: boolean; host?: string; check?: CheckOffer }[] = [];
   for (const location of candidates) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const url = locationProxyUrl(paper, location) as string;
@@ -325,6 +348,7 @@ export async function fetchPdfFromLocations(
         error: error instanceof Error ? error.message : String(error),
         loginWall: error instanceof PdfError && error.loginWall,
         host: error instanceof PdfError ? error.host : undefined,
+        check: error instanceof PdfError ? error.check : undefined,
       });
     }
   }
@@ -343,11 +367,16 @@ export async function fetchPdfFromLocations(
   // which is where the institutional sign-in link lives.
   const walled = tried.find((entry) => entry.loginWall);
   const signIn = walled ? signInOffer(walled.host || walled.location.host, locations) : undefined;
+  // A check for a person is named too, with the file's own URL to open in a
+  // tab of the person's own — the one browser such a check is sure to pass.
+  const checked = tried.find((entry) => entry.check)?.check;
+  const check = checked ? { ...checked, url: tried.find((entry) => entry.check === checked)?.location.url || checked.url } : undefined;
   throw new PdfError(
     `None of the ${candidates.length} known ${candidates.length === 1 ? 'copy' : 'copies'} of this paper would hand over a PDF` +
       `${summary ? ` (tried ${summary})` : ''}` +
-      `${signIn ? ` — ${walled?.location.label || signIn.host} asks for a sign-in` : ''}.`,
-    { loginWall: Boolean(signIn), host: signIn?.host, signIn },
+      `${signIn ? ` — ${walled?.location.label || signIn.host} asks for a sign-in` : ''}` +
+      `${check && !signIn ? ` — ${check.host} checks for a person before it hands out the file` : ''}.`,
+    { loginWall: Boolean(signIn), host: signIn?.host, signIn, check },
   );
 }
 

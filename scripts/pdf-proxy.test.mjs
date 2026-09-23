@@ -220,3 +220,136 @@ describe('a proxy on this machine, called from the site', () => {
     assert.equal(response.headers.get('access-control-allow-origin'), null);
   });
 });
+
+// ------------------------------------- a site that checks for a person ----
+
+const CHALLENGE = () =>
+  new Response('<html><title>Just a moment...</title><body>Performing security verification</body></html>', {
+    status: 403,
+    headers: { 'content-type': 'text/html', 'cf-mitigated': 'challenge' },
+  });
+
+describe("a site's check for a person, met by the PDF proxy", () => {
+  it('is told apart from a login wall by the header Cloudflare puts on it, and named as this proxy\'s own browser\'s to pass', async () => {
+    upstream = CHALLENGE;
+    const response = await get('https://europepmc.org/article/MED/1?pdf=1');
+    assert.equal(response.status, 502);
+    const body = await response.json();
+    assert.match(body.error, /^europepmc\.org checks for a person before it hands out the file/);
+    assert.equal(body.botCheck, true);
+    assert.equal(body.where, 'proxy');
+    // A window on this machine, or the browser in the pane, may still pass it: the sign-in offer stands.
+    assert.equal(body.loginWall, true);
+    assert.equal(body.host, 'europepmc.org');
+  });
+
+  it("is said plainly by the Worker, whose requests never pass it, and not offered as a sign-in", async () => {
+    const { default: worker } = await import('../worker/index.js');
+    upstream = CHALLENGE;
+    const response = await worker.fetch(
+      new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://www.academia.edu/download/1/10.pdf'), {
+        headers: { Origin: 'https://saurav717.github.io' },
+      }),
+      {},
+    );
+    assert.equal(response.status, 502);
+    const body = await response.json();
+    assert.match(body.error, /^www\.academia\.edu checks for a person before it hands out the file, and Cloudflare refuses the Worker's requests/);
+    assert.equal(body.botCheck, true);
+    assert.equal(body.where, 'cloudflare');
+    assert.equal(body.loginWall, undefined);
+    assert.equal(body.host, 'www.academia.edu');
+  });
+});
+
+// ------------------------------------------- PubMed Central, for programs ----
+
+const { oaFilesIn, pmcFiles, pmcIdIn } = await import('../server/pmc.js');
+
+const OA_XML = `<?xml version="1.0"?><OA><records retmax="1"><record id="PMC8266834" citation="Sensors 2021" license="CC BY">
+<link format="tgz" updated="2021-07-10" href="ftp://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_package/ab/cd/PMC8266834.tar.gz" />
+<link format="pdf" updated="2021-07-10" href="ftp://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_pdf/ab/cd/sensors-21-04240.PMC8266834.pdf" />
+</record></records></OA>`;
+const EBI = JSON.stringify({ resultList: { result: [{ id: '34241106', source: 'MED', pmcid: 'PMC8266834', isOpenAccess: 'Y' }] } });
+
+describe('a paper in PubMed Central, fetched the way PubMed Central means programs to', () => {
+  it("reads a PMC id, or a PubMed id to look one up, from the sites' URLs and no others", () => {
+    assert.deepEqual(pmcIdIn('https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8266834/pdf/'), { pmcid: 'PMC8266834' });
+    assert.deepEqual(pmcIdIn('https://pmc.ncbi.nlm.nih.gov/articles/PMC8266834/'), { pmcid: 'PMC8266834' });
+    assert.deepEqual(pmcIdIn('https://europepmc.org/articles/PMC8266834?pdf=render'), { pmcid: 'PMC8266834' });
+    assert.deepEqual(pmcIdIn('https://europepmc.org/article/PMC/pmc8266834'), { pmcid: 'PMC8266834' });
+    assert.deepEqual(pmcIdIn('https://europepmc.org/article/MED/34241106'), { pmid: '34241106' });
+    assert.deepEqual(pmcIdIn('https://europepmc.org/abstract/MED/34241106'), { pmid: '34241106' });
+    assert.equal(pmcIdIn('https://www.ncbi.nlm.nih.gov/pubmed/34241106'), null);
+    assert.equal(pmcIdIn('https://www.mdpi.com/1424-8220/21/12/4240/pdf'), null);
+    assert.equal(pmcIdIn('not a url'), null);
+  });
+
+  it("takes the PDF the OA Web Service names, on NCBI's FTP host over https, and nothing else", () => {
+    assert.deepEqual(oaFilesIn(OA_XML), ['https://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_pdf/ab/cd/sensors-21-04240.PMC8266834.pdf']);
+    assert.deepEqual(oaFilesIn('<OA><error code="idIsNotOpenAccess">not open access</error></OA>'), []);
+    assert.deepEqual(oaFilesIn('<OA><records><record><link format="pdf" href="ftp://evil.example/x.pdf"/></record></records></OA>'), []);
+    assert.deepEqual(oaFilesIn(''), []);
+  });
+
+  it('asks Europe PMC for the PMC id of a PubMed id, then NCBI for the file, and gives up quietly when either has nothing', async () => {
+    const asked = [];
+    const fetchFake = async (url) => {
+      asked.push(String(url));
+      if (String(url).startsWith('https://www.ebi.ac.uk/europepmc/webservices/rest/search?')) return new Response(EBI, { status: 200 });
+      if (String(url).startsWith('https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id=PMC8266834')) return new Response(OA_XML, { status: 200 });
+      return new Response('no', { status: 404 });
+    };
+    assert.deepEqual(await pmcFiles('https://europepmc.org/article/MED/34241106', { fetch: fetchFake, userAgent: 'test' }), [
+      'https://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_pdf/ab/cd/sensors-21-04240.PMC8266834.pdf',
+    ]);
+    assert.equal(asked.length, 2);
+    assert.match(asked[0], /EXT_ID%3A34241106%20AND%20SRC%3AMED/);
+    assert.deepEqual(await pmcFiles('https://www.mdpi.com/1424-8220/21/12/4240', { fetch: fetchFake }), []);
+    assert.deepEqual(await pmcFiles('https://europepmc.org/article/MED/999', { fetch: async () => new Response('{}', { status: 200 }) }), []);
+    assert.deepEqual(await pmcFiles('https://pmc.ncbi.nlm.nih.gov/articles/PMC1/', { fetch: async () => { throw new Error('offline'); } }), []);
+  });
+
+  it("is what the proxy serves when PubMed Central's page would not hand over the file", async () => {
+    upstream = (url) => {
+      if (url.startsWith('https://www.ebi.ac.uk/')) return new Response(EBI, { status: 200 });
+      if (url.startsWith('https://www.ncbi.nlm.nih.gov/pmc/utils/oa/')) return new Response(OA_XML, { status: 200 });
+      if (url.startsWith('https://ftp.ncbi.nlm.nih.gov/')) return pdfResponse();
+      return CHALLENGE();
+    };
+    const response = await get('https://europepmc.org/article/MED/34241106');
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/pdf');
+    assert.equal((await response.arrayBuffer()).byteLength, PDF.length);
+
+    // NCBI's own page saying no, too.
+    upstream = (url) => {
+      if (url.startsWith('https://www.ncbi.nlm.nih.gov/pmc/utils/oa/')) return new Response(OA_XML, { status: 200 });
+      if (url.startsWith('https://ftp.ncbi.nlm.nih.gov/')) return pdfResponse();
+      return new Response('forbidden', { status: 403 });
+    };
+    assert.equal((await get('https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8266834/pdf/')).status, 200);
+
+    // Not in the open-access subset: what the page said, then.
+    upstream = (url) => (url.startsWith('https://www.ncbi.nlm.nih.gov/pmc/utils/oa/') ? new Response('<OA><error code="idIsNotOpenAccess"/></OA>') : new Response('forbidden', { status: 403 }));
+    const refused = await get('https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1/pdf/');
+    assert.equal(refused.status, 502);
+    assert.equal((await refused.json()).loginWall, true);
+  });
+
+  it('is what the Worker serves too', async () => {
+    const { default: worker } = await import('../worker/index.js');
+    upstream = (url) => {
+      if (url.startsWith('https://www.ebi.ac.uk/')) return new Response(EBI, { status: 200 });
+      if (url.startsWith('https://www.ncbi.nlm.nih.gov/pmc/utils/oa/')) return new Response(OA_XML, { status: 200 });
+      if (url.startsWith('https://ftp.ncbi.nlm.nih.gov/')) return pdfResponse();
+      return CHALLENGE();
+    };
+    const response = await worker.fetch(
+      new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://europepmc.org/article/MED/34241106'), { headers: { Origin: 'https://saurav717.github.io' } }),
+      {},
+    );
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'application/pdf');
+  });
+});

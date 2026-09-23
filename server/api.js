@@ -4,6 +4,7 @@
 // publishers and repositories an open-access PDF link points at.
 
 import { disposition, fetchChecked, readPdf, rejectUrl } from './fetchPdf.js';
+import { pmcFiles } from './pmc.js';
 import * as access from './access.js';
 import {
   authorSearchUrl,
@@ -184,17 +185,34 @@ async function pdf(url, res) {
 
   // A login wall is the one failure a person can do something about: sign in
   // through their institution, in a window this proxy opens, and ask again.
-  // The answer says when that is what happened, so the app can offer it.
-  const loginWall = async (status, error) => {
+  // The answer says when that is what happened, so the app can offer it —
+  // and when what stood in the way was a site's check for a person rather
+  // than a sign-in (`botCheck`), which a window on this machine passes too.
+  const loginWall = async (status, error, extra = {}) => {
+    const pmc = await fromPmc();
+    if (pmc) return servePdf(res, url, pmc);
     if (access.everSignedIn()) {
       try {
         const bytes = await access.fetchWithSession(target);
         return servePdf(res, url, bytes);
       } catch (retry) {
-        return send(res, status, { error: `${error}; ${retry?.message || retry}`, loginWall: true, host });
+        return send(res, status, { error: `${error}; ${retry?.message || retry}`, loginWall: true, host, ...extra });
       }
     }
-    return send(res, status, { error, loginWall: true, host });
+    return send(res, status, { error, loginWall: true, host, ...extra });
+  };
+  // A paper in PubMed Central whose page would not hand over the file is
+  // asked for the way PubMed Central means programs to (server/pmc.js).
+  const fromPmc = async () => {
+    for (const file of await pmcFiles(target, { userAgent: UA })) {
+      try {
+        const { response } = await fetchChecked(file, { userAgent: UA });
+        if (response.ok) return await readPdf(response, response.headers.get('content-type'));
+      } catch {
+        // The next file, or none.
+      }
+    }
+    return null;
   };
 
   let result;
@@ -204,9 +222,19 @@ async function pdf(url, res) {
     return send(res, 400, { error: String(error?.message || error) });
   }
   const { response } = result;
+  // Cloudflare marks the check it serves in place of a page, whatever the
+  // status code — see `challengedHost` in server/browseShared.js.
+  if ((response.headers.get('cf-mitigated') || '').trim().toLowerCase() === 'challenge') {
+    return loginWall(502, `${host} checks for a person before it hands out the file, and this proxy's own fetch cannot answer that check`, {
+      botCheck: true,
+      where: 'proxy',
+    });
+  }
   if (!response.ok) {
     const error = `the publisher answered ${response.status} for that PDF`;
     if (response.status === 401 || response.status === 403) return loginWall(502, error);
+    const pmc = await fromPmc();
+    if (pmc) return servePdf(res, url, pmc);
     return send(res, response.status === 404 ? 404 : 502, { error });
   }
 
