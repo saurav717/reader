@@ -254,16 +254,6 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             deploy</span>, free tier — and paste its address here. Without it, search still works through
             OpenAlex, Crossref and Semantic Scholar, but there are no PDFs to read or to save.
           </p>
-          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            <strong>Or run it at home, and reach it from here.</strong> The Worker runs on Cloudflare&rsquo;s network,
-            which every site behind Cloudflare&rsquo;s check for a person refuses by design, and Google Scholar
-            with it. Your own machine is refused by neither: <span className="mono">npm run home</span> in the
-            reader repository starts the proxy there, with its own Chromium and your own connection, opens a
-            tunnel to it, and prints an address to paste here. The browser in the PDF pane is then that Chromium,
-            so a box to tick there is one you can tick; the sign-in window opens on your screen; and Scholar
-            answers. It works while that machine is on. The proxy answers this site alone, and a named tunnel
-            can put Cloudflare Access in front as well — the README says how.
-          </p>
 
           <label className="setting">
             <span className="vh">Proxy URL</span>
