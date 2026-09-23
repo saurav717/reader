@@ -160,7 +160,7 @@ interface StoreValue {
    * the callers that need Drive to hold the file before they go on, such as
    * opening a paper on the copy that was just saved.
    */
-  syncPaperNow: (id: string, options?: { pdf?: Blob }) => Promise<SyncOutcome>;
+  syncPaperNow: (id: string, options?: { pdf?: Blob; replacePdf?: boolean }) => Promise<SyncOutcome>;
   syncAll: () => void;
   syncStateFor: (id: string) => SyncState;
 
@@ -356,7 +356,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (!driveConnected) return;
       // The reader hands over the copy it is showing, so the upload is the
       // file already on screen rather than a second trip to the publisher.
-      if (options.pdf) queuedPdfs.current.set(id, { blob: options.pdf, replace: Boolean(options.replacePdf) });
+      // A copy picked by hand stays a replacement even if a later file for the
+      // same paper is queued before the first one has gone up.
+      if (options.pdf) {
+        const replace = Boolean(options.replacePdf || queuedPdfs.current.get(id)?.replace);
+        queuedPdfs.current.set(id, { blob: options.pdf, replace });
+      }
       if (!queue.current.includes(id)) queue.current.push(id);
       note(id, 'queued');
       void drainQueue();
@@ -372,7 +377,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
    * than only into the sync log.
    */
   const syncPaperNow = useCallback(
-    (id: string, options: { pdf?: Blob } = {}) => {
+    (id: string, options: { pdf?: Blob; replacePdf?: boolean } = {}) => {
       if (!driveConnected) {
         return Promise.resolve<SyncOutcome>({ state: 'skipped', message: 'Drive is not connected.' });
       }

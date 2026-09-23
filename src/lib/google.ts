@@ -381,6 +381,36 @@ export async function findFile(accessToken: string, name: string, parentId: stri
 }
 
 /**
+ * Every file of one type directly inside a folder — the app's own only, since
+ * `drive.file` shows it nothing else. Used when a paper's PDF is replaced, to
+ * find any earlier copy that is still sitting beside the new one.
+ */
+export async function listFiles(accessToken: string, parentId: string, mimeType: string): Promise<DriveFile[]> {
+  const params = new URLSearchParams({
+    q: `'${escapeQuery(parentId)}' in parents and mimeType = '${escapeQuery(mimeType)}' and trashed = false`,
+    fields: 'files(id,name,webViewLink)',
+    spaces: 'drive',
+    pageSize: '100',
+  });
+  const payload = (await (await driveFetch(accessToken, `https://www.googleapis.com/drive/v3/files?${params}`)).json()) as {
+    files: DriveFile[];
+  };
+  return payload.files ?? [];
+}
+
+/**
+ * Puts a file the app owns in Drive's trash — not deleted: Drive keeps it
+ * there for thirty days, and it can be restored from the trash in that time.
+ */
+export async function trashFile(accessToken: string, fileId: string): Promise<void> {
+  await driveFetch(accessToken, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trashed: true }),
+  });
+}
+
+/**
  * Re-parents a file the app owns — or a folder, which to Drive is a file with
  * a folder's MIME type, so moving a paper's whole folder is this one request.
  * Used when the layout in Drive changes under a library that is already
@@ -430,6 +460,9 @@ export async function uploadFile(
 ): Promise<DriveFile> {
   const metadata: Record<string, unknown> = { name: options.name, mimeType: options.mimeType };
   if (!options.fileId) metadata.parents = [options.parentId];
+  // A file rewritten in place may have been put in the trash by hand since;
+  // writing to it there would leave the new bytes where nobody looks.
+  else metadata.trashed = false;
 
   const form = new FormData();
   form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
