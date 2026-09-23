@@ -306,6 +306,31 @@ describe('what the Worker says when Cloudflare refuses a browser', () => {
     assert.equal(rateLimitedMessage(new Error('429')), RATE_LIMITED);
   });
 
+  it('closes the socket to a session whose handshake fails, so the session does not live on held', async () => {
+    const { connectSession, PROTOCOL_TIMEOUT_MS } = await import('../worker/browse.js');
+    const made = [];
+    const create = async (_binding, id) => {
+      const transport = { id, closed: false, close: () => (transport.closed = true) };
+      made.push(transport);
+      return transport;
+    };
+    const env = { BROWSER: {} };
+    // A handshake that fails: the socket is closed and the failure passed on.
+    await assert.rejects(
+      connectSession(env, 'mute', { create, connect: async () => { throw new Error('Browser.getVersion timed out'); } }),
+      /timed out/,
+    );
+    assert.equal(made[0].closed, true);
+    // One that answers: the browser, with the socket left to it — and the protocol timeout set.
+    let options;
+    const browser = await connectSession(env, 'fine', { create, connect: async (transport, given) => { options = given; return { transport }; } });
+    assert.equal(browser.transport, made[1]);
+    assert.equal(made[1].closed, false);
+    assert.equal(options.sessionId, 'fine');
+    assert.equal(options.protocolTimeout, PROTOCOL_TIMEOUT_MS);
+    assert.ok(PROTOCOL_TIMEOUT_MS < 60_000, 'well under Puppeteer\'s three minutes');
+  });
+
   it("reads Cloudflare's limits into a shape, whatever it left out", async () => {
     const { shapeLimits } = await import('../worker/browse.js');
     assert.deepEqual(
@@ -620,6 +645,26 @@ describe('how the Worker gets a browser', () => {
     assert.equal(status.lastError, null);
   });
 
+  it("says it is most likely the day's time, after one more look, when Cloudflare refuses a start its limits allow", async () => {
+    const { contradicted } = await import('../worker/browserSession.js');
+    assert.equal(contradicted({ alive: 0, max: 4, allowed: 1, nextInMs: 0 }), true);
+    assert.equal(contradicted({ alive: 4, max: 4, allowed: 1, nextInMs: 0 }), false);
+    assert.equal(contradicted({ alive: 0, max: 4, allowed: 0, nextInMs: 30_000 }), false);
+    assert.equal(contradicted(null), false);
+    const room = { activeSessions: [], maxConcurrentSessions: 4, allowedBrowserAcquisitions: 1, timeUntilNextAllowedBrowserAcquisition: 0 };
+    const driver = fakeDriver({ limits: [room], launch: 'refuse' });
+    const { object } = await objectWith(driver);
+    const response = await object.fetch(new Request('https://browser-session/open?url=https%3A%2F%2Fexample.org%2F', { method: 'POST' }));
+    assert.equal(response.status, 429);
+    const body = await response.json();
+    assert.equal(body.retryAfter, null, 'no countdown: no wait cures it');
+    assert.equal(body.daily, true);
+    assert.match(body.error, /^Cloudflare says a browser may start, yet refuses to start one/);
+    assert.match(body.error, /Cloudflare said: Rate limit exceeded\.$/);
+    assert.equal(driver.asked.launch, 2, 'one more look, then said');
+    assert.deepEqual(object.slept, [12_000]);
+  });
+
   it("says at once, with no countdown, when Cloudflare's refusal is the day's browser time", async () => {
     const room = { activeSessions: [], maxConcurrentSessions: 4, allowedBrowserAcquisitions: 1, timeUntilNextAllowedBrowserAcquisition: 0 };
     const driver = fakeDriver({ limits: [room] });
@@ -652,7 +697,7 @@ describe('how the Worker gets a browser', () => {
     later.driver = fakeDriver({ limits: ['fails'] });
     const status = await (await later.fetch(new Request('https://browser-session/status'))).json();
     assert.equal(status.seq, 0, 'a fresh instance');
-    assert.match(status.lastError.message, /^Cloudflare would not start another browser just now/);
+    assert.match(status.lastError.message, /^Cloudflare says a browser may start, yet refuses to start one/);
     assert.equal(status.lastError.code, 'rate-limited');
     assert.equal(status.lastError.url, 'https://example.org/');
     assert.ok(status.log.length >= 2);

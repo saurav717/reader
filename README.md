@@ -849,6 +849,16 @@ no window, no pop-up — which is either of two:
   browser just now*, followed by which limit it was and how long until
   another try, with Cloudflare's own words on the end. The pane counts that
   wait down and tries again on its own, twice, before leaving it to you.
+  The connection to a session is made by the Worker itself rather than
+  by `puppeteer.connect`, for two things that does not do: an ask over
+  the protocol that gets no answer fails in thirty seconds rather than
+  Puppeteer's three minutes, on every call on a page and not only the
+  connection; and when the first ask over a fresh socket fails, the
+  socket is closed. Cloudflare accepts the socket for a session whose
+  Chrome has stopped answering, and a session with a socket open is
+  alive, held, and spending the day's browser time until Cloudflare's own
+  cap ends it ten minutes on — which is how one such session spent a
+  whole day's allowance before anyone had pressed a card.
   Every step of opening has a deadline of its own — a look at Cloudflare's
   sessions or limits, a connection to a session, a start, taking the
   browser, the first picture, and the whole open at a minute and a half —
@@ -863,7 +873,13 @@ no window, no pop-up — which is either of two:
   The day's browser time being spent is told apart from a minute's:
   Cloudflare refuses both with the same code, but its words differ, and
   when they say the day is spent the refusal says so at once, with no
-  wait to count down, since none short of tomorrow cures it.
+  wait to count down, since none short of tomorrow cures it. Its words
+  do not always differ — *Rate limit exceeded* has been all it said with
+  the day spent — so a refusal that its limits contradict (a start
+  allowed, nothing to wait for, room for one more, and refused all the
+  same) is looked at once more and then said to be most likely the day's
+  time, with no countdown either; the Browser Rendering page of the
+  Cloudflare dashboard shows today's use and settles it.
   `/browse/status` on the Worker shows what the object holds and what
   Cloudflare last said its limits were, which is the place to look when
   it keeps refusing or hangs: `held` and `page` say whether a browser is

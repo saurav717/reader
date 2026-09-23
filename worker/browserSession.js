@@ -94,6 +94,24 @@ export const rateLimited = (error) => /429|rate limit|too many/i.test(String(err
  */
 export const dailyLimited = (error) => /today|daily|per day|time limit|browser time|quota/i.test(String(error?.message || error));
 
+/**
+ * Whether Cloudflare's limits say a browser may start — nothing named to
+ * wait for, room for one more, a start allowed — so that a refusal
+ * contradicts them. The limits know the minute's and the concurrent
+ * allowances and nothing of the day's, so a start allowed and refused
+ * all the same is what the day's browser time being spent looks like.
+ */
+export function contradicted(limits) {
+  if (!limits) return false;
+  const { alive, max, allowed, nextInMs } = limits;
+  const full = alive !== null && max !== null && max > 0 && alive >= max;
+  return !full && allowed !== null && allowed > 0 && nextInMs === 0;
+}
+
+/** What a refusal that contradicts the limits most likely means, worded for the person. */
+export const LIKELY_DAY_SPENT =
+  "Cloudflare says a browser may start, yet refuses to start one. On the free plan that is what the day's browser time being spent looks like — its limits know the minute's and the concurrent allowances, not the day's — and the Browser Rendering page of the Cloudflare dashboard shows today's use. Until its day rolls over, the Node proxy on your own machine (`npm start` in the reader repository, pointed at from Settings → Paper proxy) has no such limit; or move the Worker to the Workers Paid plan, which has hours a month.";
+
 /** What the day's browser time being spent means, worded for the person. */
 export const DAY_SPENT =
   "Cloudflare's free plan gives this Worker some minutes of browser time a day, and today's are spent, so no browser will start until its day rolls over. Until then the Node proxy on your own machine (`npm start` in the reader repository, pointed at from Settings → Paper proxy) has no such limit — or move the Worker to the Workers Paid plan, which has hours a month.";
@@ -153,11 +171,18 @@ export function waitFor(limits) {
 export function refusal(error, limits, { daily = false } = {}) {
   const raw = String(error?.message || error || '');
   const said = (raw.match(/message:\s*(.+)$/s) || [])[1]?.trim().replace(/[.\s]+$/, '');
-  const made = new Error(daily ? [DAY_SPENT, said ? `Cloudflare said: ${said}.` : ''].filter(Boolean).join(' ') : rateLimitedMessage(error, limits));
+  // A refusal the limits contradict is most likely the day's time too, and said so.
+  const likely = !daily && Boolean(error) && contradicted(limits);
+  const message = daily
+    ? [DAY_SPENT, said ? `Cloudflare said: ${said}.` : ''].filter(Boolean).join(' ')
+    : likely
+      ? [LIKELY_DAY_SPENT, said ? `Cloudflare said: ${said}.` : ''].filter(Boolean).join(' ')
+      : rateLimitedMessage(error, limits);
+  const made = new Error(message);
   made.code = 'rate-limited';
   // No wait to count down for the day: it is the person's to come back from.
-  made.retryAfter = daily ? null : Math.max(1, Math.ceil((limits?.nextInMs || WAIT_MAX_MS) / 1000));
-  made.daily = daily;
+  made.retryAfter = daily || likely ? null : Math.max(1, Math.ceil((limits?.nextInMs || WAIT_MAX_MS) / 1000));
+  made.daily = daily || likely;
   made.browsers = limits || null;
   return made;
 }
@@ -620,6 +645,7 @@ export class BrowserSession {
     const started = this.now();
     let first = kept?.id || null;
     let refused = null;
+    let contradictions = 0;
     for (;;) {
       const adopted = await this.adoptFree(first);
       if (adopted) {
@@ -647,6 +673,10 @@ export class BrowserSession {
           // The day's time spent is not a minute's wait; said now.
           if (dailyLimited(error)) throw refusal(error, limits, { daily: true });
           refused = error;
+          // Refused with the limits saying it may start: looked at once
+          // more, in case the limits lag, and then said — a minute of
+          // asking would not cure the day's time, and costs the person.
+          if (contradicted(limits) && ++contradictions >= 2) throw refusal(error, limits);
         }
       }
       const wait = waitFor(limits);
