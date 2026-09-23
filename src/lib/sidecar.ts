@@ -16,7 +16,10 @@ export function slug(value: string): string {
     .trim();
 }
 
-export function baseName(paper: Paper): string {
+/** The folder at the top level of Drive that every paper folder sits in. */
+export const ROOT_FOLDER = 'Papers_collection';
+
+export function baseName(paper: Pick<Paper, 'id' | 'title' | 'arxivId'>): string {
   const stem = slug(paper.title) || paper.id.replace(/[^\w.-]/g, '-');
   return paper.arxivId ? `${stem} (arXiv ${paper.arxivId})` : stem;
 }

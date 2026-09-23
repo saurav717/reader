@@ -557,7 +557,10 @@ quiet:
 2. **It is fetched through the proxy**, in full, and handed to the browser's own
    viewer as a blob. In full, because a failure you can explain beats a blank
    grey pane. If Drive already holds a copy, it comes from there instead and the
-   line under the title says **PDF from your Drive**.
+   line under the title says **PDF from your Drive** — asked for by the id the
+   library recorded when it saved the paper, or, with none on record, by name,
+   so a copy saved from another browser counts too. Drive is asked before any
+   publisher is.
 3. **The same bytes go to Drive** — `Papers_collection/<title>/<title>.pdf`,
    beside the `.json` sidecar of your highlights. The copy uploaded is the one
    on screen, so reading a paper and saving it is one download, not two. The
@@ -636,6 +639,19 @@ the line under the title says **PDF from your Drive** when that is where it came
 from. A paper already in Drive therefore opens even on a deployment with no
 server at all. If the copy has been deleted or the grant has lapsed, the reader
 falls back to the proxy without saying anything.
+
+The library records the file's id when it does the saving, and asks by that id.
+But the file can be in Drive without this browser's library knowing — saved
+from another browser or another machine, saved before the library was cleared,
+or saved by a sync whose answer never made it back — so a paper with no id on
+record is looked for by name first, `Papers_collection/<paper>/<paper>.pdf`
+(one look, straight to the folder, for a paper synced as metadata only; three
+for one the library has never synced), and only when Drive has nothing is a
+copy asked for through the proxy. A copy found that way is recorded, so the
+next open asks by id. It is a look and never a create: a paper Drive does not
+have leaves no folder behind. This is what makes a paper behind a login a
+one-time sign-in: the copy the sign-in got goes to Drive, and every open after
+that reads it from there without going near the publisher.
 
 Drive can only ever be the *second* place a PDF comes from. Putting a file there
 means uploading bytes, and getting the bytes in the first place is exactly the
@@ -720,7 +736,9 @@ pick your institution, log in with its account, come back to the paper. Then
 close the window, or press **I have signed in**, and the reader asks for the
 paper again — and this time the proxy asks through that signed-in browser,
 which is what turns the page into the file. It is saved to Drive and opened
-like any other.
+like any other — the copy fetched after the sign-in, not a second download —
+and from then on the paper opens on that copy: Drive is asked before the
+publisher is, so the sign-in is for the first open only.
 
 The session is kept in a browser profile of the proxy's own (`~/.reader/browser-profile`,
 or `READER_PROFILE_DIR`), so the next paper from the same publisher needs no
@@ -804,6 +822,15 @@ copy again, which now goes through the sign-in just made: it is the same
 profile as the window's (`~/.reader/browser-profile`), so a sign-in made
 either way holds for both, and for the next paper from that publisher.
 **Settings → Institutional access → Forget sign-ins** deletes it as before.
+
+Whichever of the three gets the file — met by the browser, fetched from the
+page, or the copies tried again — it goes to Drive like any other copy, and
+the next open of the paper reads it from Drive rather than asking the
+publisher again. (It used not to, for the copies tried again: the failure
+that came first had already queued the paper's save, with the metadata and
+nothing else, and the copy that arrived after the sign-in was shown but never
+sent. Now a file that arrives on a later attempt goes up whatever was queued
+before it.)
 
 It needs a proxy with a browser to drive, and nothing else — no `DISPLAY`,
 no window, no pop-up — which is either of two:

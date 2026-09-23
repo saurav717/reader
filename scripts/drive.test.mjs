@@ -8,8 +8,10 @@
 import { describe, it, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { cleanup, load } from './bundle.mjs';
+import { cleanup, loadTogether } from './bundle.mjs';
 
+// The sync and the reader's fetch share one Google module — one token, one
+// stubbed Drive — so what one puts there the other can find.
 const {
   syncPaperToDrive,
   driveFolderUrl,
@@ -19,7 +21,9 @@ const {
   junkPaperInDrive,
   describeRemovalInDrive,
   isInDrive,
-} = await load('src/lib/driveSync.ts');
+  fetchPaperPdf,
+  findPdfInDrive,
+} = await loadTogether(['src/lib/driveSync.ts', 'src/lib/pdf.ts']);
 
 const realFetch = globalThis.fetch;
 after(async () => {
@@ -114,6 +118,11 @@ function stubDrive() {
     if (method === 'GET' && /\/drive\/v3\/files\/[^?]+/.test(request.pathname)) {
       const fileId = decodeURIComponent(request.pathname.split('/').pop());
       const file = files.get(fileId);
+      // The bytes themselves, for the reader opening a paper on its copy here.
+      if (request.searchParams.get('alt') === 'media') {
+        if (!file) return new Response('not found', { status: 404 });
+        return new Response(file.bytes ?? '%PDF-1.4 stub', { headers: { 'Content-Type': 'application/pdf' } });
+      }
       if (file) return json({ id: fileId, name: file.name, webViewLink: `link:${fileId}`, parents: file.parents });
       const folder = folderById(fileId);
       if (!folder) return new Response('not found', { status: 404 });
@@ -139,7 +148,8 @@ function stubDrive() {
         return json({ id: fileId, name: file.name, webViewLink: `link:${fileId}` });
       }
       const fileId = id('file');
-      files.set(fileId, { name: metadata.name, parents: metadata.parents ?? [] });
+      const bytes = await init.body.get('file').text();
+      files.set(fileId, { name: metadata.name, parents: metadata.parents ?? [], bytes });
       return json({ id: fileId, name: metadata.name, webViewLink: `link:${fileId}` });
     }
 
@@ -431,5 +441,76 @@ describe('what the notice says about Drive before a paper is removed', () => {
   it('falls back to the default root name', () => {
     const notice = describeRemovalInDrive(paper({ drive: { folderId: 'f' } }), { driveConnected: true });
     assert.match(notice.text, new RegExp(`${ROOT_FOLDER}/${JUNK_FOLDER}`));
+  });
+});
+
+
+describe('opening a paper reads the copy in Drive first', () => {
+  let drive;
+  beforeEach(() => {
+    drive = stubDrive();
+  });
+  const opts = { clientId: 'test-client', driveConnected: true, rootFolderName: ROOT_FOLDER };
+
+  it('finds the file by name when the library has no id for it, and says where it was', async () => {
+    // Saved from another browser: Drive has the file, this library does not know.
+    const saved = await syncPaperToDrive(paper(), context({ pdf: new Blob(['%PDF-1.4 saved elsewhere']) }));
+
+    drive.calls.length = 0;
+    const opened = await fetchPaperPdf(paper(), opts);
+
+    assert.equal(opened.from, 'drive');
+    assert.equal(await opened.blob.text(), '%PDF-1.4 saved elsewhere');
+    assert.deepEqual(opened.drive, { folderId: saved.folderId, pdfFileId: saved.pdfFileId, pdfLink: saved.pdfLink });
+    // Three looks and one download; nothing created, and nothing asked of a proxy.
+    assert.equal(drive.calls.filter((call) => call.method !== 'GET').length, 0);
+    assert.equal(drive.calls.filter((call) => call.url.includes('alt=media')).length, 1);
+    assert.ok(drive.calls.every((call) => call.url.startsWith('https://www.googleapis.com/')));
+  });
+
+  it('goes straight to the paper\'s folder when the library knows it', async () => {
+    const saved = await syncPaperToDrive(paper(), context({ pdf: new Blob(['%PDF-1.4']) }));
+
+    drive.calls.length = 0;
+    const opened = await fetchPaperPdf(paper(), { ...opts, driveFolderId: saved.folderId });
+
+    assert.equal(opened.from, 'drive');
+    const looks = drive.calls.filter((call) => call.url.includes('q='));
+    assert.equal(looks.length, 1, 'one look, for the file itself');
+  });
+
+  it('still opens by the id it recorded, without a look', async () => {
+    const saved = await syncPaperToDrive(paper(), context({ pdf: new Blob(['%PDF-1.4']) }));
+
+    drive.calls.length = 0;
+    const opened = await fetchPaperPdf(paper(), { ...opts, driveFileId: saved.pdfFileId });
+
+    assert.equal(opened.from, 'drive');
+    assert.equal(opened.drive, undefined, 'nothing new for the library to record');
+    assert.equal(drive.calls.filter((call) => call.url.includes('q=')).length, 0);
+  });
+
+  it('leaves nothing behind for a paper Drive does not have, and goes on to the copies', async () => {
+    await syncPaperToDrive(paper(), context({ pdf: new Blob(['%PDF-1.4']) }));
+    const other = paper({ id: 'arxiv:1706.03762', arxivId: '1706.03762', title: 'Attention Is All You Need' });
+
+    drive.calls.length = 0;
+    // No proxy in a test bundle, so no copy can answer — and the copies
+    // being tried at all is what says Drive was passed over first.
+    await assert.rejects(() => fetchPaperPdf(other, opts), /known cop/);
+
+    assert.equal(drive.calls.filter((call) => call.method !== 'GET').length, 0, 'a look must not create folders');
+    assert.equal(drive.folderId(drive.folderId('root', ROOT_FOLDER), 'Attention Is All You Need (arXiv 1706.03762)'), undefined);
+    assert.equal(drive.calls.filter((call) => call.url.includes('alt=media')).length, 0);
+  });
+
+  it('is not asked at all when Drive is not connected', async () => {
+    await assert.rejects(() => fetchPaperPdf(paper(), { ...opts, driveConnected: false }), /known cop/);
+    assert.equal(drive.calls.filter((call) => call.url.includes('googleapis.com')).length, 0);
+  });
+
+  it('answers null, not a folder, when the root itself is missing', async () => {
+    assert.equal(await findPdfInDrive('token', paper(), { rootFolderName: ROOT_FOLDER }), null);
+    assert.equal(drive.folderId('root', ROOT_FOLDER), undefined);
   });
 });

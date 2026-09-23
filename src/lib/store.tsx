@@ -11,7 +11,7 @@ import {
 import type { Collection, GoogleUser, Highlight, HighlightColor, Paper, PaperRef, Settings } from '../types';
 import { COLLECTION_COLORS } from '../types';
 import { db } from './db';
-import { ROOT_FOLDER, isInDrive, junkPaperInDrive, syncPaperToDrive } from './driveSync';
+import { ROOT_FOLDER, driveFolderUrl, isInDrive, junkPaperInDrive, syncPaperToDrive } from './driveSync';
 import { pathFor, syncPapersToGitHub, targetFrom } from './github';
 import { setContactEmail } from './contact';
 import { setProxyBase } from './api';
@@ -125,6 +125,11 @@ interface StoreValue {
   markOpened: (id: string) => void;
   /** Remember a PDF link we had to go and find, so the next open is instant. */
   setPaperPdfUrl: (id: string, pdfUrl: string) => Promise<void>;
+  /**
+   * Record a copy of the paper the reader found in Drive by name — saved from
+   * another browser, say — so the next open goes straight to it by id.
+   */
+  setPaperDriveFile: (id: string, found: { folderId: string; pdfFileId: string; pdfLink?: string }) => Promise<void>;
 
   createCollection: (name: string) => Promise<Collection>;
   renameCollection: (id: string, name: string) => Promise<void>;
@@ -604,6 +609,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [savePaper],
   );
 
+  const setPaperDriveFile = useCallback(
+    async (id: string, found: { folderId: string; pdfFileId: string; pdfLink?: string }) => {
+      const paper = latest.current.papers.find((item) => item.id === id);
+      if (!paper || paper.drive?.pdfFileId === found.pdfFileId) return;
+      const updated: Paper = {
+        ...paper,
+        drive: {
+          ...(paper.drive || {}),
+          folderId: found.folderId,
+          folderLink: driveFolderUrl(found.folderId),
+          pdfFileId: found.pdfFileId,
+          pdfLink: found.pdfLink,
+          error: undefined,
+        },
+      };
+      await savePaper(updated);
+      latest.current.papers = latest.current.papers.map((item) => (item.id === id ? updated : item));
+    },
+    [savePaper],
+  );
+
   const createCollection = useCallback(async (name: string) => {
     const collection: Collection = {
       id: newId(),
@@ -757,6 +783,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setProgress,
       markOpened,
       setPaperPdfUrl,
+      setPaperDriveFile,
       createCollection,
       renameCollection,
       deleteCollection,
@@ -778,7 +805,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }),
     [
       ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog,
-      addPaper, removePaper, setPaperCollections, togglePaperTag, setProgress, markOpened, setPaperPdfUrl,
+      addPaper, removePaper, setPaperCollections, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperDriveFile,
       createCollection, renameCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
       githubConnected, githubLog, githubPending, pushToGitHub,

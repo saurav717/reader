@@ -326,7 +326,14 @@ function escapeQuery(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-export async function ensureFolder(accessToken: string, name: string, parentId?: string): Promise<string> {
+/**
+ * The id of a folder by name under a parent (the top of Drive when none is
+ * given), or null when there is no such folder. A look and nothing more: the
+ * reader asks this before opening a paper, to see whether Drive already holds
+ * it, and a look must not leave folders behind for papers that were never
+ * saved.
+ */
+export async function findFolder(accessToken: string, name: string, parentId?: string): Promise<string | null> {
   const clauses = [
     `name = '${escapeQuery(name)}'`,
     `mimeType = '${FOLDER_MIME}'`,
@@ -337,7 +344,12 @@ export async function ensureFolder(accessToken: string, name: string, parentId?:
   const found = (await (await driveFetch(accessToken, `https://www.googleapis.com/drive/v3/files?${params}`)).json()) as {
     files: { id: string }[];
   };
-  if (found.files?.length) return found.files[0].id;
+  return found.files?.[0]?.id ?? null;
+}
+
+export async function ensureFolder(accessToken: string, name: string, parentId?: string): Promise<string> {
+  const existing = await findFolder(accessToken, name, parentId);
+  if (existing) return existing;
 
   const created = (await (
     await driveFetch(accessToken, 'https://www.googleapis.com/drive/v3/files?fields=id', {
