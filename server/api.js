@@ -45,21 +45,6 @@ const ALLOWED_ORIGINS = new Set(
     .filter(Boolean),
 );
 
-/**
- * Whether the proxy answers only the site: set (READER_ONLY_FROM_APP=1) by
- * `npm run home`, which puts the proxy on a public address through a tunnel,
- * where a proxy that answered anyone would be one anyone could fetch
- * through. A browser sends the page's origin on every cross-origin request
- * the reader makes, so the site is not kept out; a request with no origin
- * — curl, a scanner, a link followed by hand — is.
- */
-const ONLY_FROM_APP = process.env.READER_ONLY_FROM_APP === '1';
-
-/** Whether the request carries an origin this proxy answers to. */
-function fromAllowedOrigin(req) {
-  return ALLOWED_ORIGINS.has(req.headers.origin || '');
-}
-
 /** CORS headers for a cross-origin caller we allow, else none. */
 function corsHeaders(req) {
   const origin = req.headers.origin;
@@ -523,9 +508,6 @@ async function asset(url, res) {
 }
 
 export default async function apiRouter(req, res, next) {
-  if (ONLY_FROM_APP && req.method !== 'OPTIONS' && !fromAllowedOrigin(req)) {
-    return send(res, 403, { error: 'this proxy answers the reader alone' });
-  }
   const url = new URL(req.url || '/', 'http://localhost');
   const cors = corsHeaders(req);
   if (req.method === 'OPTIONS') {
