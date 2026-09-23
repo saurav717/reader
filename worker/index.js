@@ -12,6 +12,7 @@
  * Then rebuild the app with VITE_API_BASE=https://<your-worker>.workers.dev
  */
 import { disposition, fetchChecked, readPdf, rejectUrl } from '../server/fetchPdf.js';
+import { pmcFiles } from '../server/pmc.js';
 import {
   authorSearchUrl,
   getScholar,
@@ -390,6 +391,8 @@ export default {
         // cookies were kept, the file is asked for again with them first,
         // which is what makes one sign-in last for the next paper.
         const loginWall = async (status, error) => {
+          const pmc = await fromPmc();
+          if (pmc) return servePdf(pmc);
           const cookie = browse.cookieHeaderFor(await browse.storedCookies(env), target);
           if (cookie) {
             try {
@@ -415,10 +418,45 @@ export default {
               'X-Content-Type-Options': 'nosniff',
             },
           });
+        // A paper in PubMed Central whose page would not hand over the file
+        // is asked for the way PubMed Central means programs to (server/pmc.js).
+        const fromPmc = async () => {
+          for (const file of await pmcFiles(target, { userAgent: UA })) {
+            try {
+              const { response: answer } = await fetchChecked(file, { userAgent: UA });
+              if (answer.ok) return await readPdf(answer, answer.headers.get('content-type'));
+            } catch {
+              // The next file, or none.
+            }
+          }
+          return null;
+        };
 
+        // A site's check for a person, served in place of the file: Cloudflare
+        // marks it with this header whatever the status code. A Worker cannot
+        // answer it, and its browser cannot pass it either — Cloudflare
+        // identifies its own rendering browsers as bots to every site it
+        // protects — so this is said plainly, for the app to point elsewhere,
+        // rather than as a login wall that a sign-in here would get past.
+        if ((response.headers.get('cf-mitigated') || '').trim().toLowerCase() === 'challenge') {
+          const pmc = await fromPmc();
+          if (pmc) return servePdf(pmc);
+          return json(
+            {
+              error: `${host} checks for a person before it hands out the file, and Cloudflare refuses the Worker's requests to such a check`,
+              botCheck: true,
+              where: 'cloudflare',
+              host,
+            },
+            502,
+            headers,
+          );
+        }
         if (!response.ok) {
           const error = `the publisher answered ${response.status} for that PDF`;
           if (response.status === 401 || response.status === 403) return loginWall(502, error);
+          const pmc = await fromPmc();
+          if (pmc) return servePdf(pmc);
           return json({ error }, response.status === 404 ? 404 : 502, headers);
         }
 
