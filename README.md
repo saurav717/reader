@@ -1244,6 +1244,29 @@ outside the open-access subset is answered as before. No checking site
 is fetched twice, and every step asks a service that expects to be asked
 by a program, so a refusal is an answer rather than a wall.
 
+#### OpenReview, from its API
+
+OpenReview answers a fetch of a paper's PDF on openreview.net with a 403
+and sends a browser to a check of its own: `/challenge?redirect=/pdf?id=…`,
+*Verifying your browser*, with Cloudflare's Turnstile box inside. It is not
+Cloudflare's challenge page, so it carries no `cf-mitigated` header, and
+the pane used to take it for an ordinary page. But the box is Cloudflare's,
+and from the Worker's browser it never passes. It ticks, says
+*Verification hiccup, retrying…*, and comes back, as often as anyone ticks it.
+
+OpenReview also keeps an API for programs, the one its own Python client
+uses. It is on `api2.openreview.net` for current venues and
+`api.openreview.net` for older ones, and both serve a note's PDF at
+`/pdf?id=…` with no check in front. So `/pdf` asks the API first for any OpenReview URL: the
+file, the forum, an attachment, or the check page itself, whose `redirect`
+names the paper (`server/openreview.js`). The site is asked only if neither
+API has the file. In the pane, OpenReview's check page is now known as a
+check by where it is (`challengedHost`). A pane that lands on it, or on
+an OpenReview file, has the proxy ask the API, so the paper opens with nobody
+ticking anything, and *Fetch the PDF from this page* on a forum does the same.
+`scripts/pdf-proxy.test.mjs` and `scripts/browse.test.mjs` pin the URLs
+it reads, the order it asks in, and the words under the page.
+
 ### With only the Worker: hand the file over yourself
 
 The Worker will never sign in for you, but the page can take a file from you.

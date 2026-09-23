@@ -22,6 +22,8 @@ import {
   nextFrame,
   openStream,
   openBrowser,
+  openReviewPdfUrl,
+  proxyPdf,
   siteFromInput,
   toPagePoint,
   type BrowseSite,
@@ -45,6 +47,21 @@ interface Props {
 }
 
 type Stage = 'choose' | 'opening' | 'open' | 'collecting';
+
+/**
+ * The file an OpenReview page stands for, when the page is its check or
+ * the file itself — what was asked for is then the paper. A forum page is
+ * left to "Fetch the PDF from this page", since it may be another paper's.
+ */
+function openReviewFile(pageUrl: string | null | undefined): string | null {
+  try {
+    const path = new URL(pageUrl || '').pathname.replace(/\/+$/, '').toLowerCase();
+    if (!['/challenge', '/pdf', '/attachment'].includes(path)) return null;
+  } catch {
+    return null;
+  }
+  return openReviewPdfUrl(pageUrl);
+}
 
 /**
  * A try the pane will make on its own, once Cloudflare will allow another
@@ -102,6 +119,8 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
   /** Whether the address is being typed, in which case the page's own URL must not overwrite it. */
   const editingAddress = useRef(false);
   const collected = useRef(false);
+  /** The OpenReview files already asked of its API, so a page shown again is not asked twice. */
+  const askedOpenReview = useRef(new Set<string>());
   const queue = useMemo(() => new InputQueue((error) => setProblem(error.message)), []);
 
   const sites = useMemo(() => browseSites(paper, locations, signIn), [paper, locations, signIn]);
@@ -140,6 +159,28 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
       // The address follows the page — a sign-in bounces through several
       // — unless it is being typed into.
       if (next.url && /^https?:/.test(next.url) && !editingAddress.current) setAddress(next.url);
+      // OpenReview's check, or its file, which it answers with the check:
+      // the proxy asks OpenReview's API for it instead, which has none, so
+      // nobody is left ticking a box the proxy's browser may never pass.
+      const direct = openReviewFile(next.url);
+      if (direct && !askedOpenReview.current.has(direct) && !collected.current) {
+        askedOpenReview.current.add(direct);
+        void (async () => {
+          try {
+            const blob = await proxyPdf(direct, pdfFileName(paper));
+            if (collected.current || controller.signal.aborted) return;
+            collected.current = true;
+            done = true;
+            setStage('collecting');
+            await closeBrowser();
+            onPdf(blob, direct);
+          } catch (error) {
+            if (!collected.current && !controller.signal.aborted) {
+              setProblem(`OpenReview's API would not hand over the file either — ${error instanceof Error ? error.message : String(error)}. Open it in a tab of your own and drop it on the paper instead.`);
+            }
+          }
+        })();
+      }
       if (!next.open && !next.pdf) {
         done = true;
         setProblem(next.ended || 'The browser closed on the proxy.');
@@ -265,6 +306,21 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
       await closeBrowser();
       onPdf(blob, status?.url || '');
     } catch (error) {
+      // An OpenReview page the browser could not get the file from — its
+      // check stands in front of it — is asked of OpenReview's API instead.
+      const direct = openReviewPdfUrl(status?.url);
+      if (direct) {
+        try {
+          const blob = await proxyPdf(direct, pdfFileName(paper));
+          collected.current = true;
+          polling.current?.abort();
+          await closeBrowser();
+          onPdf(blob, direct);
+          return;
+        } catch {
+          // Say what the page said.
+        }
+      }
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {
       setGrabbing(false);

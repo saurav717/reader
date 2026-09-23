@@ -3,6 +3,8 @@
 // the person sees, which keys are passed on, and the shape of a session's
 // answer. Web APIs only.
 
+import { isOpenReviewChallenge } from './openreview.js';
+
 /** The size of the page the person sees. Frames are the same size, so the app scales them, not the proxy. */
 export const VIEWPORT = { width: 1280, height: 800 };
 
@@ -113,14 +115,17 @@ export function isMainDocument(response, page) {
  * says and whatever its status code; this is Cloudflare's own way of
  * telling a page's scripts that what came back is the check and not the
  * thing asked for, so it is surer than the title. The host is the site's,
- * as the app names it: without a `www.`.
+ * as the app names it: without a `www.`. OpenReview's own check page,
+ * which carries no such header, counts as one too.
  */
 export function challengedHost(response) {
   try {
     const mitigated = String(response.headers()?.['cf-mitigated'] || '')
       .trim()
       .toLowerCase();
-    if (mitigated !== 'challenge') return null;
+    // OpenReview's check is a page of its own, with Cloudflare's box inside
+    // and no header on it: it is known by where it is (server/openreview.js).
+    if (mitigated !== 'challenge' && !isOpenReviewChallenge(response.url())) return null;
     return new URL(response.url()).hostname.replace(/^www\./, '') || null;
   } catch {
     return null;

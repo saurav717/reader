@@ -12,6 +12,7 @@
  * Then rebuild the app with VITE_API_BASE=https://<your-worker>.workers.dev
  */
 import { disposition, fetchChecked, readPdf, rejectUrl } from '../server/fetchPdf.js';
+import { openReviewFiles } from '../server/openreview.js';
 import { pmcFiles } from '../server/pmc.js';
 import {
   authorSearchUrl,
@@ -405,6 +406,30 @@ export default {
         const target = url.searchParams.get('url') || '';
         const reason = rejectUrl(target);
         if (reason) return json({ error: reason }, 400, headers);
+
+        // A paper on OpenReview is asked for from its API first: the web
+        // site answers every fetch with a check of its own, and Cloudflare's
+        // browser never passes it (server/openreview.js).
+        for (const file of openReviewFiles(target)) {
+          try {
+            const { response: answer } = await fetchChecked(file, { userAgent: UA });
+            if (answer.ok) {
+              const bytes = await readPdf(answer, answer.headers.get('content-type'));
+              return new Response(bytes, {
+                headers: {
+                  ...headers,
+                  'Content-Type': 'application/pdf',
+                  'Content-Length': String(bytes.length),
+                  'Content-Disposition': disposition(url.searchParams),
+                  'Cache-Control': 'public, max-age=86400',
+                  'X-Content-Type-Options': 'nosniff',
+                },
+              });
+            }
+          } catch {
+            // The next file, or the site itself.
+          }
+        }
 
         let response;
         try {
