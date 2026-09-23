@@ -32,6 +32,8 @@
  * a sign-in lasts as long as the session.
  */
 import puppeteer from '@cloudflare/puppeteer';
+import { WorkersWebSocketTransport } from '@cloudflare/puppeteer/internal/cloudflare/WorkersWebSocketTransport.js';
+import { connectToCDPBrowser } from '@cloudflare/puppeteer/internal/cloudflare/utils.js';
 import { BROWSER_UA } from '../server/scholar.js';
 import { fetchChecked, MAX_PDF_BYTES, rejectUrl } from '../server/fetchPdf.js';
 import { pdfCandidates, pdfLinksIn } from '../server/pdfLinks.js';
@@ -71,11 +73,43 @@ export function idle(env, extra = {}) {
  * at a Chromium of its own; in the Worker they are Cloudflare's.
  */
 export const defaultDriver = {
-  launch: (env) => puppeteer.launch(env.BROWSER, { keep_alive: KEEP_ALIVE_MS }),
-  connect: (env, session) => puppeteer.connect(env.BROWSER, session),
+  launch: async (env) => connectSession(env, (await puppeteer.acquire(env.BROWSER, { keep_alive: KEEP_ALIVE_MS })).sessionId),
+  connect: (env, session) => connectSession(env, session),
   sessions: (env) => puppeteer.sessions(env.BROWSER),
   limits: (env) => puppeteer.limits(env.BROWSER),
 };
+
+/**
+ * How long any single ask over the DevTools protocol may take. Puppeteer's
+ * own default is three minutes, which is how a session whose Chrome had
+ * stopped answering held a request that long; this bounds every call on a
+ * page — a navigation, a picture, a cookie — not only the connection.
+ */
+export const PROTOCOL_TIMEOUT_MS = 30_000;
+
+/**
+ * A connection to a session, made here rather than by `puppeteer.connect`
+ * for two things it does not do: the protocol timeout above, and closing
+ * the socket when the handshake fails. Cloudflare accepts the socket for
+ * a session whose Chrome has stopped answering, and Puppeteer, when its
+ * first ask over it then fails, leaves the socket open — and a session
+ * with a socket open is alive, held, and spending the day's browser time
+ * until Cloudflare's own cap ends it ten minutes on. Two of today's four
+ * sessions ran exactly that long. The pieces are injectable for the tests.
+ */
+export async function connectSession(env, id, { create = WorkersWebSocketTransport.create, connect = connectToCDPBrowser } = {}) {
+  const transport = await create(env.BROWSER, id);
+  try {
+    return await connect(transport, { sessionId: id, protocolTimeout: PROTOCOL_TIMEOUT_MS });
+  } catch (error) {
+    try {
+      transport.close();
+    } catch {
+      // Closed already, or never open.
+    }
+    throw error;
+  }
+}
 
 /**
  * What Cloudflare will allow just now, asked rather than guessed: how many

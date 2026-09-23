@@ -306,6 +306,31 @@ describe('what the Worker says when Cloudflare refuses a browser', () => {
     assert.equal(rateLimitedMessage(new Error('429')), RATE_LIMITED);
   });
 
+  it('closes the socket to a session whose handshake fails, so the session does not live on held', async () => {
+    const { connectSession, PROTOCOL_TIMEOUT_MS } = await import('../worker/browse.js');
+    const made = [];
+    const create = async (_binding, id) => {
+      const transport = { id, closed: false, close: () => (transport.closed = true) };
+      made.push(transport);
+      return transport;
+    };
+    const env = { BROWSER: {} };
+    // A handshake that fails: the socket is closed and the failure passed on.
+    await assert.rejects(
+      connectSession(env, 'mute', { create, connect: async () => { throw new Error('Browser.getVersion timed out'); } }),
+      /timed out/,
+    );
+    assert.equal(made[0].closed, true);
+    // One that answers: the browser, with the socket left to it — and the protocol timeout set.
+    let options;
+    const browser = await connectSession(env, 'fine', { create, connect: async (transport, given) => { options = given; return { transport }; } });
+    assert.equal(browser.transport, made[1]);
+    assert.equal(made[1].closed, false);
+    assert.equal(options.sessionId, 'fine');
+    assert.equal(options.protocolTimeout, PROTOCOL_TIMEOUT_MS);
+    assert.ok(PROTOCOL_TIMEOUT_MS < 60_000, 'well under Puppeteer\'s three minutes');
+  });
+
   it("reads Cloudflare's limits into a shape, whatever it left out", async () => {
     const { shapeLimits } = await import('../worker/browse.js');
     assert.deepEqual(
