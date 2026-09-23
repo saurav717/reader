@@ -178,6 +178,14 @@ export interface Settings {
    */
   proxyBase: string;
   theme: 'light' | 'dark';
+  /**
+   * The glass material: the window's panes turn into frosted, nearly clear
+   * sheets over a soft wash of colour, in either theme. Off, every surface is
+   * the solid paper it has always been.
+   */
+  glass: boolean;
+  /** How frosted the glass is, 0 (as clear as stays readable) to 1 (milky). */
+  glassFrost: number;
   /** Which view a paper opens in when both are available. */
   readingMode: ReadingMode;
   /**

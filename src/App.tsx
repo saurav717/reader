@@ -4,6 +4,7 @@ import type { View } from './types.view';
 import { HIGHLIGHT_COLORS } from './types';
 import type { Screen } from './lib/assistant';
 import { setQuote } from './lib/assistant';
+import { followLight } from './lib/glassLight';
 import { clearSelection, currentSelection, paperText, trackSelection, visiblePassage } from './lib/screen';
 import Assistant from './components/Assistant';
 import CollectionView from './components/CollectionView';
@@ -86,6 +87,7 @@ export default function App() {
   }, [assistantOpen]);
 
   useEffect(trackSelection, []);
+  useEffect(() => (settings.glass ? followLight() : undefined), [settings.glass]);
 
   // A selection from one paper is not on screen once another is open.
   const readingId = view.kind === 'paper' ? view.id : null;

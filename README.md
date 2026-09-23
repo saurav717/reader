@@ -1482,6 +1482,43 @@ sent, the history, the SDK), `src/lib/screen.ts` (reading the passage in view an
 selection), `src/lib/floatWindow.ts` (the window's geometry) and `src/lib/markdown.ts`
 (drawing the answers).
 
+## Glass
+
+**Settings → Appearance → Glass** swaps the solid paper for glass, in either
+theme. The window becomes rounded panes floating over a soft wash of the app's
+own colours: the accent and the four highlight colours. You see the wash
+through the rail, the library and the dock. The page you read is a sheet that
+stays nearly solid, because the text is the one thing that must never swim.
+
+![the reader in the glass material: the library, the paper and the highlights as frosted panes over a wash of colour](docs/glass.png)
+
+- **Frost.** A slider under the switch runs from *Clear* to *Frosted*. It moves
+  how much of the wash every pane lets through, and moves the paper sheet
+  only a little.
+- **A rim and a sheen.** Each pane has a hairline rim, bright where the light
+  comes from and faint on the far side. That rim is what makes it read as a
+  thickness of glass rather than a tinted rectangle. The light is the pointer:
+  a sheen follows it across every pane at once (`src/lib/glassLight.ts`).
+  With no pointer (a touch screen), or with reduced motion asked for, the
+  sheen rests at the top of the window.
+- **What floats is glass too.** The lookup box, the hover cards, the command
+  palette, the dialogs and the copy picker blur whatever is under them. The
+  selection toolbar is a dark lozenge of glass, and the scrim behind a dialog
+  frosts the window instead of only dimming it.
+- **It gives way when asked.** With `prefers-reduced-transparency`, or in a
+  browser without `backdrop-filter`, frost is pinned at its most opaque. The
+  look stays, and legibility wins.
+
+Everything is in the *glass* section at the end of `src/styles.css`. The
+section redefines the surface tokens (`--paper`, `--surface`, `--panel`,
+`--rail`) as translucent. So every card, field and button inside a pane lets
+the pane show through without a rule of its own. Two things are deliberate.
+First, the blur is drawn on a layer under each pane's content, not on the pane
+itself. A `backdrop-filter` on the pane would make it the containing block of
+the `position: fixed` lookup and cards inside it, and put them in the wrong
+place. Second, the blur on floating glass is held at 20px. Much more, and some
+renderers drop the blur entirely and show the text underneath sharp.
+
 ## Layout
 
 ```
@@ -1500,6 +1537,7 @@ src/lib/sidecar.ts      the annotation format both mirrors write
 src/lib/github.ts       the Git mirror: notes, index, BibTeX, one commit a flush
 src/lib/contact.ts      the address OpenAlex, Crossref and Unpaywall ask for
 src/lib/lookup.ts       dictionary and Wikipedia lookups for a selection
+src/lib/glassLight.ts   the pointer as the light the glass theme catches
 src/lib/status.ts       reading, not started or finished
 src/lib/paperContent.ts fetches and sanitises the full text
 src/lib/pdf.ts          finds a paper's PDF, fetches it (Drive first, then each

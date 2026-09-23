@@ -565,6 +565,34 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               Dark
             </button>
           </div>
+          <div className="segmented" style={{ width: 'fit-content', marginTop: 10 }} role="group" aria-label="Material">
+            <button type="button" aria-pressed={!settings.glass} onClick={() => updateSettings({ glass: false })}>
+              Solid
+            </button>
+            <button type="button" aria-pressed={settings.glass} onClick={() => updateSettings({ glass: true })}>
+              Glass
+            </button>
+          </div>
+          {settings.glass ? (
+            <label className="frost-row">
+              <span>Clear</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={settings.glassFrost}
+                aria-label="How frosted the glass is"
+                onChange={(event) => updateSettings({ glassFrost: Number(event.target.value) })}
+              />
+              <span>Frosted</span>
+            </label>
+          ) : null}
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+            Glass turns the library, the dock and every card that floats over the paper into panes you can see a
+            wash of colour through, and catches the light where the pointer is. The page you read stays nearly
+            solid whatever you set here — the slider moves everything around it.
+          </p>
         </section>
       </div>
     </>

@@ -1564,3 +1564,200 @@ body.win-moving .assistant-win { transition: none; }
 @media (prefers-reduced-transparency: reduce) {
   .assistant-win, .assistant-win.is-floating:not(:focus-within):not(:hover) { background-color: rgb(var(--win-rgb) / 0.98); }
 }
+
+/* ---------------------------------------------------------------- glass -- */
+/* The glass material, over either theme. Glass needs something behind it to
+   be glass, so the window gets a wallpaper: soft fields of the app's own
+   colours — the accent and the four highlight colours. The library, the dock
+   and the rail float on it as panes; the paper is a sheet that stays nearly
+   solid, because the text on it is the one thing that must never swim.
+   `--frost` (0–1, Settings → Appearance) is how milky every pane is. Every
+   surface token is redefined translucent here, so a card, a field or a
+   button inside a pane lets its pane show through without a rule of its own. */
+
+:root[data-glass='on'] {
+  --frost: 0.5;
+  --paper: rgb(252 251 247 / calc(0.8 + 0.14 * var(--frost)));
+  --surface: rgb(255 255 255 / calc(0.3 + 0.42 * var(--frost)));
+  --panel: rgb(255 255 255 / calc(0.08 + 0.5 * var(--frost)));
+  --rail: rgb(255 255 255 / calc(0.08 + 0.42 * var(--frost)));
+  --border: rgb(38 42 58 / 0.13);
+  --border-soft: rgb(38 42 58 / 0.08);
+  --muted: #5d5a53;
+  --float-rgb: 252 252 250;
+  --float-a: calc(0.5 + 0.34 * var(--frost));
+  --rim-hi: rgb(255 255 255 / 0.9);
+  --rim-lo: rgb(255 255 255 / 0.18);
+  --sheen: rgb(255 255 255 / 0.4);
+  --pane-shadow: 0 22px 48px -28px rgba(30, 34, 50, 0.45), 0 2px 6px -2px rgba(30, 34, 50, 0.12);
+  --blur: calc(12px + 12px * var(--frost));
+  --wall:
+    radial-gradient(62vmax 52vmax at 6% 8%, rgb(var(--accent-rgb) / 0.34), transparent 62%),
+    radial-gradient(52vmax 46vmax at 96% 4%, rgba(156, 194, 230, 0.62), transparent 64%),
+    radial-gradient(58vmax 50vmax at 88% 96%, rgba(235, 178, 184, 0.5), transparent 62%),
+    radial-gradient(50vmax 42vmax at 18% 100%, rgba(246, 226, 122, 0.46), transparent 62%),
+    linear-gradient(160deg, #eef1f5, #e6ebe7);
+  --win-rgb: 252 252 250;
+}
+:root[data-glass='on'][data-theme='dark'] {
+  --paper: rgb(19 20 25 / calc(0.74 + 0.2 * var(--frost)));
+  --surface: rgb(255 255 255 / calc(0.05 + 0.06 * var(--frost)));
+  --panel: rgb(26 28 35 / calc(0.3 + 0.42 * var(--frost)));
+  --rail: rgb(255 255 255 / calc(0.04 + 0.05 * var(--frost)));
+  --border: rgb(255 255 255 / 0.12);
+  --border-soft: rgb(255 255 255 / 0.07);
+  --muted: #a3a095;
+  --float-rgb: 30 32 40;
+  --float-a: calc(0.52 + 0.34 * var(--frost));
+  --rim-hi: rgb(255 255 255 / 0.32);
+  --rim-lo: rgb(255 255 255 / 0.04);
+  --sheen: rgb(255 255 255 / 0.09);
+  --pane-shadow: 0 26px 60px -26px rgba(0, 0, 0, 0.8), 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+  --wall:
+    radial-gradient(62vmax 52vmax at 6% 8%, rgb(var(--accent-rgb) / 0.36), transparent 62%),
+    radial-gradient(52vmax 46vmax at 96% 4%, rgba(62, 92, 160, 0.5), transparent 64%),
+    radial-gradient(58vmax 50vmax at 88% 96%, rgba(128, 56, 96, 0.42), transparent 62%),
+    radial-gradient(50vmax 42vmax at 18% 100%, rgba(140, 116, 40, 0.3), transparent 62%),
+    linear-gradient(160deg, #0d0f14, #12151b);
+  --win-rgb: 30 32 40;
+}
+
+:root[data-glass='on'] body { background: var(--wall); background-attachment: fixed; }
+
+/* The panes: the window is laid out as sheets with a gap of wallpaper between.
+   The glass itself — tint, blur, sheen — is painted on a layer under each
+   pane's content, not on the pane: a backdrop-filter on an element makes it
+   the containing block of every position: fixed thing inside it, and the
+   lookup, the selection toolbar and the hover cards live inside these panes
+   and are placed against the viewport. Nor is a pane isolated: that would
+   trap the lookup in the reading pane's stacking order, under the dock. The
+   layer is z-index -1 in the page's own order — under every pane's content,
+   over the wallpaper, which is the canvas. */
+:root[data-glass='on'] .app { padding: 10px; gap: 10px; }
+:root[data-glass='on'] .rail { --pane: var(--rail); }
+:root[data-glass='on'] .app > .panel, :root[data-glass='on'] .dock { --pane: var(--panel); }
+:root[data-glass='on'] .app > .main { --pane: var(--paper); }
+:root[data-glass='on'] :is(.rail, .app > .panel, .dock, .app > .main) {
+  position: relative;
+  background: transparent;
+  border: 0;
+  border-radius: 20px;
+  box-shadow: var(--pane-shadow);
+}
+:root[data-glass='on'] .rail { padding-top: 14px; }
+:root[data-glass='on'] .dock .panel { background: transparent; }
+
+/* The light it catches: a sheen centred on the pointer (glassLight.ts), fixed
+   to the viewport so every pane agrees where the light is. Without a pointer
+   it rests above the top-left of the window. */
+:root[data-glass='on'] :is(.rail, .app > .panel, .dock, .app > .main)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(560px circle at var(--light-x, 18vw) var(--light-y, -120px), var(--sheen), transparent 70%) fixed,
+    var(--pane);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(175%);
+  backdrop-filter: blur(var(--blur)) saturate(175%);
+}
+/* The rim: a hairline that is bright where the light comes from and all but
+   gone on the far side — what makes a pane read as a thickness of glass
+   rather than a tinted rectangle. A gradient border, cut out with a mask. */
+:root[data-glass='on'] :is(.rail, .app > .panel, .dock, .app > .main, .lookup, .palette, .copy-picker)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(150deg, var(--rim-hi), var(--rim-lo) 34%, transparent 58%, var(--rim-lo) 82%, var(--rim-hi));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+
+/* Inside the paper sheet the wallpaper shows through what used to be grey
+   backdrops — the PDF's pane, the book's desk. */
+:root[data-glass='on'] :is(.pdf-pane, .mini-browser, .book-view) { background: transparent; }
+:root[data-glass='on'] .copy-bar { background: transparent; }
+:root[data-glass='on'] .book-spread { background: var(--paper); border-color: var(--border-soft); }
+:root[data-glass='on'] .topbar { border-bottom-color: var(--border-soft); }
+
+/* What floats over the paper — the lookup, the cards, the palette, the
+   dialogs — is glass with a blur that stays put whatever the frost: it sits
+   over text, and 20px is what turns a line of print into a smudge. Much more
+   and some renderers give up on the blur altogether and show the text sharp. */
+:root[data-glass='on'] :is(.lookup, .hover-card, .palette, .sheet, .copy-picker) {
+  background: rgb(var(--float-rgb) / var(--float-a));
+  -webkit-backdrop-filter: blur(20px) saturate(185%);
+  backdrop-filter: blur(20px) saturate(185%);
+  border-color: transparent;
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgb(255 255 255 / 0.25);
+}
+:root[data-glass='on'] :is(.palette, .sheet) { box-shadow: var(--shadow-lg), inset 0 1px 0 rgb(255 255 255 / 0.25); }
+:root[data-glass='on'] :is(.lookup-head, .palette-foot) { background: rgb(var(--float-rgb) / 0.3); }
+/* A scrim that frosts what it covers instead of only dimming it. */
+:root[data-glass='on'] .scrim {
+  background: rgba(24, 26, 36, 0.16);
+  -webkit-backdrop-filter: blur(5px) saturate(120%);
+  backdrop-filter: blur(5px) saturate(120%);
+}
+/* The selection toolbar: a dark lozenge of glass, the way a system menu is. */
+:root[data-glass='on'] .selection-toolbar {
+  background: rgb(22 23 28 / 0.58);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-radius: 16px;
+  box-shadow: var(--shadow-md), inset 0 1px 0 rgb(255 255 255 / 0.16), inset 0 0 0 0.5px rgb(255 255 255 / 0.1);
+}
+/* Chosen controls are a lozenge of lighter glass, raised by a highlight. */
+:root[data-glass='on'] :is(.segmented button[aria-pressed='true'], .dock-tabs button[aria-selected='true']) {
+  background: rgb(255 255 255 / 0.62);
+  border-color: transparent;
+  box-shadow: 0 1px 3px rgba(30, 34, 50, 0.14), inset 0 1px 0 rgb(255 255 255 / 0.9);
+}
+:root[data-glass='on'][data-theme='dark'] :is(.segmented button[aria-pressed='true'], .dock-tabs button[aria-selected='true']) {
+  background: rgb(255 255 255 / 0.14);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgb(255 255 255 / 0.16);
+}
+:root[data-glass='on'] .icon-btn[aria-pressed='true'],
+:root[data-glass='on'] .icon-btn.is-active {
+  background: rgb(255 255 255 / 0.55);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8), 0 1px 3px rgba(30, 34, 50, 0.12);
+}
+:root[data-glass='on'][data-theme='dark'] .icon-btn[aria-pressed='true'],
+:root[data-glass='on'][data-theme='dark'] .icon-btn.is-active {
+  background: rgb(255 255 255 / 0.12);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.14);
+}
+:root[data-glass='on'] .brand { box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.35), 0 4px 12px -4px rgb(var(--accent-rgb) / 0.7); }
+
+.frost-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 11.5px; color: var(--muted); }
+.frost-row input { width: 180px; accent-color: var(--accent); }
+
+/* Where the panes overlay the paper — a narrower window — they keep their
+   place inside the gap rather than against the window's edge. */
+@media (max-width: 1080px) {
+  :root[data-glass='on'] .library-panel { left: 80px; top: 10px; bottom: 10px; }
+  :root[data-glass='on'] .dock { right: 10px; top: 10px; bottom: 10px; }
+}
+@media (max-width: 720px) {
+  :root[data-glass='on'] .app { padding: 6px; gap: 6px; }
+  :root[data-glass='on'] :is(.rail, .app > .panel, .dock, .app > .main) { border-radius: 16px; }
+  :root[data-glass='on'] .library-panel { left: 64px; top: 6px; bottom: 6px; }
+  :root[data-glass='on'] .dock { right: 6px; top: 6px; bottom: 6px; }
+  :root[data-glass='on'] :is(.library-panel, .dock) { width: calc(100vw - 52px - 18px); }
+}
+
+/* No blur to be had, or transparency asked to be reduced: the panes go
+   nearly solid over the wallpaper — the look survives, the legibility wins. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-glass='on'] { --frost: 1 !important; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-glass='on'] { --frost: 1 !important; }
+}
