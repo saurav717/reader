@@ -73,13 +73,16 @@ export class BrowseError extends Error {
   status: number;
   retryAfter: number | null;
   browsers: BrowserLimits | null;
+  /** True when it is the day's browser time that is spent: no wait short of tomorrow cures it. */
+  daily: boolean;
 
-  constructor(message: string, status: number, retryAfter: number | null = null, browsers: BrowserLimits | null = null) {
+  constructor(message: string, status: number, retryAfter: number | null = null, browsers: BrowserLimits | null = null, daily = false) {
     super(message);
     this.name = 'BrowseError';
     this.status = status;
     this.retryAfter = retryAfter;
     this.browsers = browsers;
+    this.daily = daily;
   }
 
   /** Whether this is Cloudflare rationing browsers, which a wait will cure, rather than something wrong. */
@@ -89,11 +92,11 @@ export class BrowseError extends Error {
 }
 
 /** The error a refusal makes, with the wait when the proxy named one. */
-function refused(status: number, payload: { error?: string; retryAfter?: unknown; browsers?: unknown }): BrowseError {
+function refused(status: number, payload: { error?: string; retryAfter?: unknown; browsers?: unknown; daily?: unknown }): BrowseError {
   const seconds = Number(payload.retryAfter);
   const retryAfter = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : null;
   const browsers = payload.browsers && typeof payload.browsers === 'object' ? (payload.browsers as BrowserLimits) : null;
-  return new BrowseError(payload.error || `The proxy answered ${status}.`, status, retryAfter, browsers);
+  return new BrowseError(payload.error || `The proxy answered ${status}.`, status, retryAfter, browsers, payload.daily === true);
 }
 
 export type BrowseInput =

@@ -860,12 +860,18 @@ no window, no pop-up — which is either of two:
   the session it was on is left alone for a few minutes, the connection
   let go, and the next click starts afresh; the app gives up on its side
   after two minutes with a sentence saying where to look.
+  The day's browser time being spent is told apart from a minute's:
+  Cloudflare refuses both with the same code, but its words differ, and
+  when they say the day is spent the refusal says so at once, with no
+  wait to count down, since none short of tomorrow cures it.
   `/browse/status` on the Worker shows what the object holds and what
   Cloudflare last said its limits were, which is the place to look when
   it keeps refusing or hangs: `held` and `page` say whether a browser is
   held and has a page, `opening` how long an open has been in flight,
   `avoiding` which sessions would not answer lately, `lastError` what
-  last went wrong and when, and `browsers` the limits — three
+  last went wrong and when, `log` the last twenty things that happened
+  (kept in the object's storage, so an instance started after an eviction
+  still has them), and `browsers` the limits — three
   alive and none free means something is still connected to each (a pane
   open in another tab, or the last connection not yet let go — each is
   freed a minute and a half after whatever drove it disconnects); no new

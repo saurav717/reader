@@ -55,6 +55,8 @@ interface Retry {
   url: string;
   at: number;
   attempt: number;
+  /** What the proxy said, for the line under the countdown: which limit, and Cloudflare's own words. */
+  why: string;
 }
 
 /** How many times the pane tries again on its own before leaving it to the person. */
@@ -205,7 +207,7 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
       // case the next try is refused too, and then it is theirs.
       const wait = error instanceof BrowseError && error.rateLimited ? error.retryAfter : null;
       if (wait && wait <= LONGEST_COUNTDOWN_S && attempt < AUTOMATIC_RETRIES) {
-        setRetry({ url, at: Date.now() + wait * 1000, attempt: attempt + 1 });
+        setRetry({ url, at: Date.now() + wait * 1000, attempt: attempt + 1, why: error instanceof Error ? error.message : String(error) });
         setNow(Date.now());
         return;
       }
@@ -412,6 +414,7 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
               </span>
             </p>
           ) : null}
+          {retry ? <p className="mini-browser-why">{retry.why}</p> : null}
           {problem ? (
             <p className="banner error">
               {problem}
