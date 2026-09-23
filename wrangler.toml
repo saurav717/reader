@@ -23,10 +23,18 @@ class_name = "BrowserSession"
 tag = "v1"
 new_sqlite_classes = ["BrowserSession"]
 
-# Optional: somewhere to keep the cookies of a sign-in made in that browser,
-# so it holds for the next paper and lets /pdf through a login wall. Make a
-# namespace (`npx wrangler kv namespace create SESSIONS`), paste its id here,
-# and redeploy. Without it a sign-in lasts as long as the browser session.
-# [[kv_namespaces]]
-# binding = "SESSIONS"
-# id = "…"
+# Somewhere to keep the cookies of a sign-in made in that browser, so it
+# holds for the next paper and lets /pdf through a login wall — and so the
+# browser, which Cloudflare rations, is not needed again for a publisher
+# already signed in to. Make the namespace once, on the account the Worker
+# deploys to:
+#
+#     npx wrangler kv namespace create SESSIONS
+#
+# It prints an id; put it in place of the placeholder below and redeploy.
+# `wrangler deploy` refuses the placeholder, so the Worker cannot go out
+# with the binding half made. To do without it, comment the three lines
+# out again: a sign-in then lasts as long as the browser session.
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "PASTE_THE_ID_FROM_wrangler_kv_namespace_create_SESSIONS"
