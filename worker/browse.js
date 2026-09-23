@@ -489,12 +489,44 @@ export async function storedCookies(env) {
   }
 }
 
-/** Put the kept cookies into a fresh session, so a sign-in made last time still holds. */
-export async function restoreCookies(env, page) {
-  const cookies = await storedCookies(env);
-  if (!cookies.length) return;
-  for (const cookie of cookies) {
-    await page.setCookie(cookie).catch(() => undefined);
+/**
+ * Put the kept cookies into a fresh session, so a sign-in made last time
+ * still holds. How many were put back.
+ *
+ * All of them in one protocol call — `Network.setCookies` — rather than one
+ * `page.setCookie` each: a sign-in through an institution leaves a hundred
+ * cookies and more across the publisher, the identity provider and Google,
+ * and Puppeteer's `setCookie` is two round trips to the browser per cookie
+ * (a delete, then a set), which from a Worker far from its browser is
+ * seconds a dozen — the open's deadline gone before the page was asked for.
+ * Chrome refuses the batch when one cookie in it is malformed, and then
+ * they go one at a time, each its own single call, the bad ones skipped.
+ *
+ * `cookies` are the ones to put back when the caller has read them already
+ * (the read from KV overlaps the browser's start that way); `cdp` a session
+ * on the page to use rather than open one.
+ */
+export async function restoreCookies(env, page, { cookies, cdp } = {}) {
+  const kept = cookies ?? (await storedCookies(env));
+  if (!kept.length) return 0;
+  const session = cdp ?? (await page.createCDPSession());
+  try {
+    try {
+      await session.send('Network.setCookies', { cookies: kept });
+      return kept.length;
+    } catch {
+      let restored = 0;
+      for (const cookie of kept) {
+        const ok = await session
+          .send('Network.setCookie', cookie)
+          .then((answer) => answer?.success !== false)
+          .catch(() => false);
+        if (ok) restored += 1;
+      }
+      return restored;
+    }
+  } finally {
+    if (!cdp) await session.detach().catch(() => undefined);
   }
 }
 

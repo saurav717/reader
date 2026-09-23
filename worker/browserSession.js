@@ -42,6 +42,7 @@ import {
   NO_BROWSER,
   restoreCookies,
   saveCookies,
+  storedCookies,
 } from './browse.js';
 import * as browserless from './browserless.js';
 
@@ -212,6 +213,8 @@ export const DEADLINES = {
   adopt: 20_000,
   /** A new page in a held browser. */
   page: 10_000,
+  /** Putting a kept sign-in's cookies into a fresh browser: one call for the lot, so this is mostly the hop to the browser. */
+  restore: 15_000,
   /** The first picture. */
   picture: 10_000,
   /** Closing a browser for good, before it is merely disconnected from. */
@@ -789,19 +792,33 @@ export class BrowserSession {
         // The session held before an eviction is read before it is forgotten, so it can be tried first.
         const kept = await this.state.storage.get('session').catch(() => null);
         await this.forget();
+        // The kept sign-in is read from KV while the browser is being got,
+        // rather than after: it is needed only once there is a page.
+        const cookies = storedCookies(this.env).catch(() => []);
         const { browser, id } = await this.acquire(kept, at);
         await still(browser);
         try {
           await within(this.deadlines.adopt, 'taking the browser', this.adopt(browser, id));
           // No user-agent override: the browser presents itself as what it is,
           // string and client hints agreeing. See `open` in worker/browse.js.
-          await within(this.deadlines.page, 'putting the sign-in back', restoreCookies(this.env, this.page));
         } catch (error) {
           // A browser that will not be taken is let go and avoided, not held.
           this.avoid.set(id, Date.now() + AVOID_MS);
           await this.letGo(browser);
           throw error;
         }
+        // The sign-in made last time, put back in one call. Its failing —
+        // or taking too long — costs that sign-in, not the open: the page
+        // still opens, and the person signs in again where they need to. It
+        // used to fail the open outright and leave the browser avoided, and
+        // a browser that took ten seconds to take a hundred cookies one at
+        // a time was "putting the sign-in back took longer than 10 seconds"
+        // at every open, with no browser ever shown.
+        await within(this.deadlines.restore, 'putting the sign-in back', restoreCookies(this.env, this.page, { cookies: await cookies, cdp: this.cdp }))
+          .then((count) => {
+            if (count) this.note(`put ${count} cookies of the kept sign-in back`);
+          })
+          .catch((error) => this.note(`the kept sign-in was not put back: ${String(error?.message || error)}`));
       } else if (!this.cdp) {
         // Kept since the pane closed, with its screencast stopped: started again.
         try {
@@ -1299,7 +1316,7 @@ export class BrowserSession {
         // `adopt` swaps the browser and moves the screencast to its page.
         await within(this.deadlines.adopt, 'taking the browser at Browserless', this.adopt(browser, id));
         await this.state.storage.put('session', { token: this.token, id }).catch(() => undefined);
-        await within(this.deadlines.page, 'putting the sign-in back', restoreCookies(this.env, this.page)).catch(() => undefined);
+        await within(this.deadlines.restore, 'putting the sign-in back', restoreCookies(this.env, this.page, { cdp: this.cdp })).catch(() => undefined);
         this.check = null;
         this.acted = false;
         this.pdf = null;

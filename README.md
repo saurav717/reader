@@ -560,7 +560,17 @@ quiet:
    line under the title says **PDF from your Drive** — asked for by the id the
    library recorded when it saved the paper, or, with none on record, by name,
    so a copy saved from another browser counts too. Drive is asked before any
-   publisher is.
+   publisher is — and at once, the moment the pane opens, while the indexes
+   are still being asked where else the paper is, so a paper already in Drive
+   is on screen before that list is back. The copies, when Drive has nothing,
+   are asked three at a time, best first, and the first to answer wins:
+   one at a time was the sum of every refusal before the one that answered,
+   and a refusal is not quick — a publisher's page fetched in full, a login
+   wall followed, a check for a person met — so ten copies could be minutes
+   before the reader said anything. While they are being asked, the pane
+   already offers **Browse to a copy and sign in here**, since a paper behind
+   a login is one whose copies all refuse, and waiting for each to say so was
+   the slow part.
 3. **The same bytes go to Drive** — `Papers_collection/<title>/<title>.pdf`,
    beside the `.json` sidecar of your highlights. The copy uploaded is the one
    on screen, so reading a paper and saving it is one download, not two. The
@@ -931,6 +941,16 @@ no window, no pop-up — which is either of two:
   next one opens, and used to retry a login wall on `/pdf` — which is also
   what **Signed in — try the copies again** and **Forget sign-ins** act on
   there. Without it, the button is not shown and a sign-in lasts the session.
+  They go back into a fresh browser in one protocol call for the lot
+  (`Network.setCookies`), and are read from KV while the browser is being
+  got rather than after: a sign-in through an institution leaves a hundred
+  cookies and more, and putting them back one `page.setCookie` at a time —
+  two round trips to the browser each — was ten seconds gone before the
+  page was asked for, and *putting the sign-in back took longer than 10
+  seconds* at every open, with no browser ever shown. A restore that fails
+  or runs long now costs that sign-in and not the open: the page opens,
+  `/browse/status` says the sign-in was not put back, and the person signs
+  in again where they need to.
 
 Settings says which of the forms the proxy it is talking to can do.
 

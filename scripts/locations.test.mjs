@@ -30,7 +30,7 @@ const {
 // tests it has at the first top-level await, so a bundle loaded further down
 // the file would have its tests registered after the teardown hook had already
 // put the real `fetch` back.
-const { fetchPdfFromLocations, pdfAvailability, pdfFromFile, setProxyBase } = await loadTogether([
+const { fetchPdfFromLocations, pdfAvailability, pdfFromFile, setProxyBase, COPIES_AT_ONCE } = await loadTogether([
   'src/lib/pdf.ts',
   'src/lib/api.ts',
 ]);
@@ -355,13 +355,15 @@ describe('the order the copies are tried in', () => {
 describe('downloading from whichever copy will answer', () => {
   it('falls through to the next copy when one refuses', async () => {
     const asked = [];
-    handlers['proxy.example.workers.dev'] = (url) => {
+    handlers['proxy.example.workers.dev'] = async (url) => {
       const target = url.searchParams.get('url');
       asked.push(target);
       // The first is a landing page behind a login, as so many are.
       if (target.includes('locked.example.com')) {
         return json({ error: 'that link gave a web page rather than a PDF' }, 415);
       }
+      // A beat behind the refusal, so the refusal is on record when the answer comes.
+      await new Promise((resolve) => setTimeout(resolve, 10));
       return new Response('%PDF-1.4 ...', { status: 200, headers: { 'Content-Type': 'application/pdf' } });
     };
 
@@ -370,8 +372,39 @@ describe('downloading from whichever copy will answer', () => {
       at('https://open.example.edu/paper.pdf'),
     ]);
     assert.equal(fetched.location.host, 'open.example.edu');
-    assert.equal(fetched.tried.length, 1, 'it says what it tried first');
+    assert.equal(fetched.tried.length, 1, 'it says what refused before the answer came');
     assert.equal(asked.length, 2);
+  });
+
+  it('asks a few copies at once, best first, and the first to answer wins', async () => {
+    const asked = [];
+    let inFlight = 0;
+    let most = 0;
+    handlers['proxy.example.workers.dev'] = async (url) => {
+      const target = url.searchParams.get('url');
+      asked.push(new URL(target).hostname);
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, target.includes('slow') ? 60 : 5));
+      inFlight -= 1;
+      if (target.includes('refuses')) return json({ error: 'that link gave a web page rather than a PDF' }, 415);
+      return new Response('%PDF-1.4 ...', { status: 200, headers: { 'Content-Type': 'application/pdf' } });
+    };
+
+    const fetched = await fetchPdfFromLocations(paper(), [
+      at('https://slow.example.com/a.pdf'),
+      at('https://refuses.example.com/b.pdf'),
+      at('https://quick.example.edu/c.pdf'),
+      at('https://later.example.org/d.pdf'),
+      at('https://last.example.org/e.pdf'),
+    ]);
+    // The quick copy answered while the best-ranked one was still on its
+    // way: it is the file, and nobody waited for the slow one to say so.
+    assert.equal(fetched.location.host, 'quick.example.edu');
+    assert.deepEqual(fetched.tried.map((entry) => entry.location.host), ['refuses.example.com']);
+    assert.deepEqual(asked.slice(0, COPIES_AT_ONCE), ['slow.example.com', 'refuses.example.com', 'quick.example.edu'], 'started in rank order');
+    assert.equal(most, COPIES_AT_ONCE, 'a window of copies in flight, not one and not all');
+    assert.ok(!asked.includes('last.example.org'), 'a win stops the queue');
   });
 
   it('names the copies it tried when none of them answers', async () => {
