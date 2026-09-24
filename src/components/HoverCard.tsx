@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { AuthorRef, PaperRef } from '../types';
+import type { PaperRef } from '../types';
 import {
   authorDetails,
   profilesElsewhere,
@@ -9,6 +9,7 @@ import {
   type AuthorDetails,
   type Elsewhere,
   type OtherWork,
+  type ScholarFind,
 } from '../lib/hoverInfo';
 import { scholarAuthorUrl, scholarPaperUrl } from '../lib/locations';
 import { parseReference } from '../lib/citations';
@@ -154,26 +155,40 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
   );
   // Asked alongside OpenAlex, not after it: it goes by the paper, not by the record.
   const elsewhere = useAnswer<Elsewhere>(() => profilesElsewhere(name, paper), `${paper.id}|${name}`);
-  const [profile, setProfile] = useState<AuthorRef | null | undefined>(undefined);
+  const [scholar, setScholar] = useState<ScholarFind | undefined>(undefined);
   useEffect(() => {
     if (details === undefined) return;
     let live = true;
-    setProfile(undefined);
+    setScholar(undefined);
     const places = [details?.affiliationHere, details?.affiliation].filter((place): place is string => Boolean(place));
     // A lone profile with the name is theirs only when OpenAlex tied this very person to the paper.
     const tied = details.via === 'paper' && !details.mistaken;
-    void scholarProfile(name, places, tied).then((found) => live && setProfile(found));
+    void scholarProfile(name, places, tied, paper, position)
+      .catch((error): ScholarFind => ({ profile: null, error: error instanceof Error ? error.message : String(error) }))
+      .then((found) => live && setScholar(found));
     return () => {
       live = false;
     };
-  }, [details, name]);
-  const scholarAsking = hasProxy() && details !== undefined && profile === undefined;
+    // The paper is named by its id, which is in the details' key already.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [details, name, position]);
+  const profile = scholar?.profile ?? (scholar ? null : undefined);
+  const scholarAsking = hasProxy() && details !== undefined && scholar === undefined;
+  // Scholar's counts are the ones people keep and quote: where the profile
+  // gave them, they are the ones shown, and OpenAlex's only otherwise.
+  const scholarStats = Boolean(profile && (profile.citedBy !== undefined || profile.hIndex !== undefined));
+  const stats = scholarStats
+    ? { citedBy: profile!.citedBy, hIndex: profile!.hIndex, i10Index: profile!.i10Index, worksCount: undefined, from: 'Google Scholar' }
+    : { citedBy: details?.citedBy, hIndex: details?.hIndex, i10Index: details?.i10Index, worksCount: details?.worksCount, from: 'OpenAlex' };
+  const topWorks: OtherWork[] = profile?.works.length
+    ? profile.works.slice(0, 3).map((work) => ({ title: work.title, year: Number(yearOf(work.published)) || undefined, citedBy: work.citedBy }))
+    : (details?.topWorks ?? []).map((work) => ({ title: work.title, year: Number(yearOf(work.published)) || undefined, citedBy: work.citedBy }));
 
   // A record of their own at OpenAlex that is plainly them counts as a profile.
   const ownRecord = details?.openAlexId !== undefined && details.via === 'paper';
   const pages = elsewhere?.profiles ?? [];
   const settled = details !== undefined && elsewhere !== undefined && !scholarAsking;
-  const nowhere = settled && !profile && !ownRecord && !details?.orcid && !pages.length;
+  const nowhere = settled && !profile && !scholar?.error && !ownRecord && !details?.orcid && !pages.length;
   const namesake = useAnswer<OtherWork[]>(
     () => (nowhere ? worksUnderName(name, paper) : Promise.resolve([])),
     `${paper.id}|${name}|${nowhere}`,
@@ -183,7 +198,7 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
   const interests = profile?.interests?.length ? profile.interests : details?.topics ?? [];
   const who = [elsewhere?.fullName, elsewhere?.lived].filter(Boolean).join(', ');
   // Their books from Open Library stand in for OpenAlex's list when OpenAlex has none that are theirs.
-  const otherWorks = details?.topWorks.length ? [] : elsewhere?.works ?? [];
+  const otherWorks = topWorks.length ? [] : elsewhere?.works ?? [];
 
   return (
     <>
@@ -202,33 +217,39 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
         </p>
       ) : (
         <>
-          {details.citedBy !== undefined || details.hIndex !== undefined ? (
-            <dl className="hc-stats">
-              {details.citedBy !== undefined ? (
-                <div>
-                  <dt>Citations</dt>
-                  <dd>{compact(details.citedBy)}</dd>
-                </div>
-              ) : null}
-              {details.hIndex !== undefined ? (
-                <div>
-                  <dt>h-index</dt>
-                  <dd>{details.hIndex}</dd>
-                </div>
-              ) : null}
-              {details.i10Index !== undefined ? (
-                <div>
-                  <dt>i10-index</dt>
-                  <dd>{details.i10Index}</dd>
-                </div>
-              ) : null}
-              {details.worksCount !== undefined ? (
-                <div>
-                  <dt>Papers</dt>
-                  <dd>{compact(details.worksCount)}</dd>
-                </div>
-              ) : null}
-            </dl>
+          {(stats.citedBy !== undefined || stats.hIndex !== undefined) && !(scholarAsking && !scholarStats) ? (
+            <>
+              <dl className="hc-stats" aria-label={`Counts from ${stats.from}`}>
+                {stats.citedBy !== undefined ? (
+                  <div>
+                    <dt>Citations</dt>
+                    <dd>{compact(stats.citedBy)}</dd>
+                  </div>
+                ) : null}
+                {stats.hIndex !== undefined ? (
+                  <div>
+                    <dt>h-index</dt>
+                    <dd>{stats.hIndex}</dd>
+                  </div>
+                ) : null}
+                {stats.i10Index !== undefined ? (
+                  <div>
+                    <dt>i10-index</dt>
+                    <dd>{stats.i10Index}</dd>
+                  </div>
+                ) : null}
+                {stats.worksCount !== undefined ? (
+                  <div>
+                    <dt>Papers</dt>
+                    <dd>{compact(stats.worksCount)}</dd>
+                  </div>
+                ) : null}
+              </dl>
+              <p className="hc-from">
+                Counts from {stats.from}
+                {!scholarStats && profile === null && !scholar?.error && hasProxy() ? ' — it can miss papers filed under another spelling of the name' : ''}
+              </p>
+            </>
           ) : null}
 
           {elsewhere?.about ? <p className="hc-about">{elsewhere.about}</p> : null}
@@ -238,15 +259,17 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
               <a href={profile.scholarProfileUrl} target="_blank" rel="noreferrer noopener">
                 Google Scholar profile <ExternalIcon size={10} />
               </a>
-              {profile.citedBy !== undefined ? <span> · cited by {compact(profile.citedBy)}</span> : null}
+              {profile.citedBy !== undefined && !scholarStats ? <span> · cited by {compact(profile.citedBy)}</span> : null}
               {profile.verifiedEmail ? <span> · verified email at {profile.verifiedEmail}</span> : null}
             </p>
           ) : scholarAsking ? (
             <p className="hc-scholar muted">
               <span className="spinner" /> Asking Google Scholar…
             </p>
+          ) : scholar?.error ? (
+            <p className="hc-scholar muted">Google Scholar could not be asked — {scholar.error.replace(/\.$/, '')}.</p>
           ) : hasProxy() ? (
-            <p className="hc-scholar muted">No Google Scholar profile of theirs.</p>
+            <p className="hc-scholar muted">Google Scholar links no profile to them on this paper, and none of the name is plainly them.</p>
           ) : null}
 
           {pages.length ? (
@@ -277,12 +300,7 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
             </div>
           ) : null}
 
-          {details.topWorks.length ? (
-            <WorkList
-              label="Most cited"
-              works={details.topWorks.map((work) => ({ title: work.title, year: Number(yearOf(work.published)) || undefined, citedBy: work.citedBy }))}
-            />
-          ) : null}
+          {topWorks.length ? <WorkList label="Most cited" works={topWorks} /> : null}
           {otherWorks.length ? <WorkList label="Other works" works={otherWorks} /> : null}
 
           {details.mistaken ? (

@@ -244,6 +244,65 @@ await page.screenshot({ path: `${OUT}/reflow-equation.png` });
 await tables.nth(0).scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/reflow-table.png` });
 
+console.log('\n== an author ==');
+// Scholar's record of the paper links its first author to a profile; the
+// name search would find someone else of the name, and must not be asked.
+let nameSearched = false;
+await page.route('**/scholar/search*', (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      results: [
+        {
+          title: 'Fourier Neural Operator for Parametric Partial Differential Equations',
+          authors: ['Z Li', 'N Kovachki', 'K Azizzadenesheli'],
+          authorIds: [{ name: 'Z Li', userId: 'ZLIxxxxxxxx' }],
+          snippet: '',
+        },
+      ],
+    }),
+  }),
+);
+await page.route('**/scholar/person*', (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      results: [
+        {
+          userId: 'ZLIxxxxxxxx',
+          name: 'Zongyi Li',
+          profileUrl: 'https://scholar.google.com/citations?hl=en&user=ZLIxxxxxxxx',
+          affiliation: 'Caltech',
+          interests: ['Operator learning'],
+          citedBy: 12345,
+          hIndex: 21,
+          i10Index: 25,
+          works: [{ title: 'Neural operator: Graph kernel network', authors: ['Z Li'], year: 2020, citedBy: 900, snippet: '' }],
+        },
+      ],
+    }),
+  }),
+);
+await page.route('**/scholar/authors*', (route) => {
+  nameSearched = true;
+  return route.fulfill({ status: 200, contentType: 'application/json', body: '{"results":[]}' });
+});
+await page.locator('.paper-body').evaluate((element) => element.closest('.reader-scroll, .reader-column')?.scrollTo?.(0, 0));
+await page.locator('.author-name', { hasText: 'Zongyi Li' }).scrollIntoViewIfNeeded();
+await page.locator('.author-name', { hasText: 'Zongyi Li' }).click();
+await page.waitForSelector('.hover-card .hc-from', { timeout: 10000 }).catch(() => {});
+await page.waitForFunction(() => document.querySelector('.hover-card .hc-from')?.textContent?.includes('Google Scholar'), null, { timeout: 10000 }).catch(() => {});
+const card = page.locator('.hover-card');
+check('the author card shows the counts from their Scholar profile', ((await card.locator('.hc-stats').textContent()) || '').includes('12k'), (await card.textContent()) || '');
+check('and says where they come from', ((await card.locator('.hc-from').textContent()) || '').includes('Google Scholar'));
+check('with a link to the profile the paper names', (await card.locator('a[href*="user=ZLIxxxxxxxx"]').count()) === 1);
+check('and their most cited work from it', ((await card.textContent()) || '').includes('Neural operator: Graph kernel network'));
+check('found through the paper, not by the name', !nameSearched);
+await page.screenshot({ path: `${OUT}/author-card.png` });
+await page.keyboard.press('Escape');
+
 console.log('\n== highlight ==');
 await page.locator('.reader-scroll').evaluate((element) => element.scrollTo(0, 0));
 await page.evaluate(() => {

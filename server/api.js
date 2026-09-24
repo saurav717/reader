@@ -13,6 +13,7 @@ import {
   isScholarUrl,
   parseAuthors,
   parseCitationView,
+  parseProfile,
   parseProfileWorks,
   parseResults,
   plainFetch,
@@ -476,6 +477,20 @@ function scholarProfile(url, res) {
   });
 }
 
+// One person, from the top of their profile: name, place, interests, their
+// citations, h-index and i10-index, and their most cited works. The hover
+// card over an author asks for it once it knows which profile is theirs.
+function scholarPerson(url, res) {
+  const user = (url.searchParams.get('user') || '').trim();
+  if (!/^[\w-]{6,32}$/.test(user)) return send(res, 400, { error: 'bad Scholar profile id' });
+  return scholar(res, {
+    kind: 'person',
+    params: { user },
+    url: profileUrl(user, { sort: 'citations' }),
+    parse: (html) => [parseProfile(html, user)].filter(Boolean),
+  });
+}
+
 /** Valid as far as the routes are concerned: a profile id, and an entry's `<user>:<code>`. */
 export const PROFILE_ID = /^[\w-]{6,32}$/;
 export const CITATION_ID = /^[\w-]{6,32}:[\w-]{6,32}$/;
@@ -555,6 +570,8 @@ export default async function apiRouter(req, res, next) {
         return await scholarAuthors(url, res);
       case '/scholar/profile':
         return await scholarProfile(url, res);
+      case '/scholar/person':
+        return await scholarPerson(url, res);
       case '/scholar/versions':
         return await scholarVersions(url, res);
       case '/scholar/work':

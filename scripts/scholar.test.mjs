@@ -23,7 +23,9 @@ import {
   forgetScholar,
   getScholar,
   isScholarUrl,
+  bylineProfiles,
   parseAuthors,
+  parseProfile,
   parseByline,
   parseCitationView,
   parseProfileWorks,
@@ -396,5 +398,65 @@ describe('the manners it owes Scholar', () => {
     const good = getScholar('https://scholar.google.com/scholar?q=good', { fetchPage });
     assert.equal(await bad, 'failed');
     assert.equal(parseResults(await good).length, 3);
+  });
+});
+
+describe('who wrote a result, by their profiles', () => {
+  it('reads the profile each linked name in a byline points at', () => {
+    const byline =
+      '<a href="/citations?user=CHENNURIxx1&amp;hl=en&amp;oi=sra">S Chennuri</a>, S Lai, A Billot, <a href="/citations?user=KIRANxxxxxx&amp;hl=en&amp;oi=sra">S Kiran</a> - 2023 IEEE/CVF …, 2023 - openaccess.thecvf.com';
+    assert.deepEqual(bylineProfiles(byline), [
+      { name: 'S Chennuri', userId: 'CHENNURIxx1' },
+      { name: 'S Kiran', userId: 'KIRANxxxxxx' },
+    ]);
+  });
+
+  it('carries them on each search result', () => {
+    const html = `<div class="gs_r gs_or gs_scl" data-cid="abc"><div class="gs_ri"><h3 class="gs_rt"><a href="https://x.org/p">Fusion approaches</a></h3>
+      <div class="gs_a"><a href="/citations?user=CHENNURIxx1&amp;hl=en">S Chennuri</a>, S Lai - ICCVW, 2023 - x.org</div></div></div>`;
+    const [result] = parseResults(html);
+    assert.deepEqual(result.authors, ['S Chennuri', 'S Lai']);
+    assert.deepEqual(result.authorIds, [{ name: 'S Chennuri', userId: 'CHENNURIxx1' }]);
+  });
+});
+
+describe('reading a profile page', () => {
+  const html = `
+    <div id="gsc_prf_i"><div id="gsc_prf_in">Saurav Chennuri</div>
+      <div class="gsc_prf_il"><a href="/citations?view_op=view_org" class="gsc_prf_ila">Boston University</a></div>
+      <div class="gsc_prf_il" id="gsc_prf_ivh">Verified email at bu.edu - <a href="https://example.org" class="gsc_prf_ila">Homepage</a></div>
+      <div class="gsc_prf_il" id="gsc_prf_int"><a class="gsc_prf_inta gs_ibl" href="/citations?view_op=search_authors&amp;mauthors=label:ml">Machine Learning</a><a class="gsc_prf_inta gs_ibl" href="#">Neuroimaging</a></div>
+    </div>
+    <table id="gsc_rsb_st"><thead><tr><th class="gsc_rsb_sth"></th><th class="gsc_rsb_sth">All</th><th class="gsc_rsb_sth">Since 2020</th></tr></thead>
+      <tbody>
+        <tr><td class="gsc_rsb_sc1"><a class="gsc_rsb_f gs_ibl">Citations</a></td><td class="gsc_rsb_std">1,057</td><td class="gsc_rsb_std">950</td></tr>
+        <tr><td class="gsc_rsb_sc1"><a class="gsc_rsb_f gs_ibl">h-index</a></td><td class="gsc_rsb_std">12</td><td class="gsc_rsb_std">11</td></tr>
+        <tr><td class="gsc_rsb_sc1"><a class="gsc_rsb_f gs_ibl">i10-index</a></td><td class="gsc_rsb_std">14</td><td class="gsc_rsb_std">13</td></tr>
+      </tbody></table>
+    <table id="gsc_a_t"><tbody id="gsc_a_b"><tr class="gsc_a_tr"><td class="gsc_a_t"><a href="/citations?view_op=view_citation&amp;user=CHENNURIxx1&amp;citation_for_view=CHENNURIxx1:abcdefgh" class="gsc_a_at">Fusion approaches</a>
+      <div class="gs_gray">S Chennuri, S Lai</div><div class="gs_gray">ICCVW, 2023</div></td><td class="gsc_a_c"><a class="gsc_a_ac gs_ibl">4</a></td><td class="gsc_a_y"><span class="gsc_a_h">2023</span></td></tr></tbody></table>`;
+  const person = parseProfile(html, 'CHENNURIxx1');
+
+  it('reads who they are', () => {
+    assert.equal(person.name, 'Saurav Chennuri');
+    assert.equal(person.affiliation, 'Boston University');
+    assert.equal(person.verifiedEmail, 'bu.edu');
+    assert.deepEqual(person.interests, ['Machine Learning', 'Neuroimaging']);
+  });
+
+  it('reads the counts in the corner, all time', () => {
+    assert.equal(person.citedBy, 1057);
+    assert.equal(person.citedBySince, 950);
+    assert.equal(person.hIndex, 12);
+    assert.equal(person.i10Index, 14);
+  });
+
+  it('and the works listed under them', () => {
+    assert.equal(person.works[0].title, 'Fusion approaches');
+    assert.equal(person.works[0].citedBy, 4);
+  });
+
+  it('is nobody on a page that is not a profile', () => {
+    assert.equal(parseProfile('<html></html>', 'CHENNURIxx1'), null);
   });
 });

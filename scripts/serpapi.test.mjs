@@ -185,6 +185,30 @@ describe('finding people in the bylines', () => {
     assert.equal(bare[0].affiliation, undefined);
   });
 
+  it('names the byline’s authors that have a profile, on each result', () => {
+    const [first] = fromSerpResults(SEARCH);
+    assert.ok(first.authorIds.some((author) => author.userId === 'oR9sCGYAAAAJ'));
+  });
+
+  it('reads one person, their counts and their most cited works, from their profile', async () => {
+    const asked = [];
+    const fetchJson = async (url) => {
+      asked.push(url);
+      return {
+        status: 200,
+        json: { ...AUTHOR, cited_by: { table: [{ citations: { all: 231507, since_2020: 200000 } }, { h_index: { all: 60, since_2020: 55 } }, { i10_index: { all: 90, since_2020: 80 } }] } },
+      };
+    };
+    const [person] = await askSerp('person', { user: 'oR9sCGYAAAAJ' }, 'k2', { fetchJson });
+    assert.equal(person.name, 'Ashish Vaswani');
+    assert.equal(person.citedBy, 231507);
+    assert.equal(person.citedBySince, 200000);
+    assert.equal(person.hIndex, 60);
+    assert.equal(person.i10Index, 90);
+    assert.equal(person.works[0].title, 'Attention is all you need');
+    assert.ok(!new URL(asked[0]).searchParams.has('sort'), 'most cited first, the engine’s own order');
+  });
+
   it('opens a person from the cache their profile was read into', async () => {
     let profileAsks = 0;
     const fetchJson = async (url) => {

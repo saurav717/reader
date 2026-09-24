@@ -118,6 +118,9 @@ export function fromSerpResults(json) {
         // The summary line names every author (up to Scholar's ellipsis); the
         // `authors` array only those with a profile, so it is the fallback.
         authors: byline.authors.length ? byline.authors : named,
+        authorIds: list(info.authors)
+          .map((author) => ({ name: str(author?.name), userId: str(author?.author_id) }))
+          .filter((author) => author.name && author.userId),
         venue: byline.venue,
         year: byline.year,
         snippet: str(entry?.snippet),
@@ -194,7 +197,9 @@ export function fromSerpAuthorProfile(json, userId) {
   const name = str(author.name);
   if (!name) return null;
   const table = list(json?.cited_by?.table);
-  const citations = table.find((row) => row?.citations)?.citations;
+  const row = (key) => table.find((entry) => entry?.[key])?.[key];
+  const citations = row('citations');
+  const since = (value) => num(Object.entries(value || {}).find(([key]) => key.startsWith('since'))?.[1]);
   return {
     userId,
     name,
@@ -205,6 +210,9 @@ export function fromSerpAuthorProfile(json, userId) {
       .map((interest) => (typeof interest === 'string' ? interest.trim() : str(interest?.title)))
       .filter(Boolean),
     citedBy: num(citations?.all),
+    citedBySince: since(citations),
+    hIndex: num(row('h_index')?.all),
+    i10Index: num(row('i10_index')?.all),
   };
 }
 
@@ -377,6 +385,12 @@ const FILL_IN_PEOPLE = 3;
  * so opening one of those people afterwards costs nothing more.
  */
 export async function askSerp(kind, params, key, { fetchJson = plainFetchJson, signal } = {}) {
+  // One person, from their profile: who they are, their counts, and their most cited works.
+  if (kind === 'person') {
+    const json = await getJson('profile', { user: params.user, start: 0, sort: 'citations' }, key, { fetchJson, signal });
+    const person = fromSerpAuthorProfile(json, params.user);
+    return person ? [{ ...person, works: fromSerpWorks(json) }] : [];
+  }
   if (kind !== 'authors') return fromSerp[kind](await getJson(kind, params, key, { fetchJson, signal }));
 
   const people = fromSerpAuthorsInResults(await getJson('authors', params, key, { fetchJson, signal }), params.name);
