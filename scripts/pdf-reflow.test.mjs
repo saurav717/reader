@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
 
-const { layoutPages, renderHtml, readingOrder, tableFromLines, composeAccents, faceOf, plain } = await load('src/lib/pdfLayout.ts');
+const { layoutPages, renderHtml, readingOrder, tableFromLines, composeAccents, faceOf, plain, entryStarts } = await load('src/lib/pdfLayout.ts');
 
 after(cleanup);
 
@@ -162,6 +162,75 @@ describe('headings and front matter', () => {
     const layout = layoutPages([page(runs)], { title: 'A Very Important Paper' });
     assert.equal(texts(layout)[0], 'Abstract');
     assert.ok(!texts(layout).some((text) => text.includes('Lovelace')));
+  });
+});
+
+describe('the bibliography', () => {
+  const body = column(54, 100, [
+    'Body text comes first and is long enough to be taken for body text.',
+    'It goes on for a second line, and a third, so that the size of the',
+    'body is not in doubt at all, and then it stops here.',
+  ]);
+
+  it('gives each numbered entry a paragraph of its own, however the lines ran', () => {
+    // Entries run on from one to the next inside a line, and are cut at the
+    // wrong places by the lines' indents — as a reflow of an IOP paper was.
+    const refs = [
+      ['[1] Dorrington A A, Carnegie D A and Cree M J 2006 Towards 1-mm depth', 54],
+      ['precision Proc. SPIE 6068 60680K [2] Besl P J 1988 Active range', 64],
+      ['imaging sensors Mach. Vis. Appl. 1 127-52 [3] Blais F 2004 Review', 54],
+      ['of 20 years of range sensor development J. Electron. Imag-', 64],
+      ['ing 13 231-40 [4] Marr D and Poggio T 1976 Cooperative computation', 54],
+      ['of stereo disparity Science 194 282-7', 64],
+    ];
+    const runs = [
+      ...body,
+      line('References', 54, 150, { font: 'NimbusRomNo9L-Medi' }),
+      ...refs.map(([text, x], index) => line(text, x, 164 + index * 9.5, { size: 8, width: 230 - (x - 54) })),
+    ];
+    const layout = layoutPages([page(runs)]);
+    const at = texts(layout).indexOf('References');
+    assert.deepEqual(texts(layout).slice(at + 1), [
+      '[1] Dorrington A A, Carnegie D A and Cree M J 2006 Towards 1-mm depth precision Proc. SPIE 6068 60680K',
+      '[2] Besl P J 1988 Active range imaging sensors Mach. Vis. Appl. 1 127-52',
+      '[3] Blais F 2004 Review of 20 years of range sensor development J. Electron. Imaging 13 231-40',
+      '[4] Marr D and Poggio T 1976 Cooperative computation of stereo disparity Science 194 282-7',
+    ]);
+  });
+
+  it('keeps two lines of small type apart when a line of the column beside them sits between their baselines', () => {
+    const left = Array.from({ length: 40 }, (_, i) =>
+      line('Body text in the left column, set larger than the references are.', 57, 105.7 + i * 12, { size: 10, width: 240 }),
+    );
+    const runs = [
+      ...left,
+      line('References', 309, 490, { font: 'NimbusRomNo9L-Medi', size: 10 }),
+      line('[8]', 309.3, 520.5, { size: 8.5, width: 9.9 }),
+      line('Stann B, Giza M, Robinson D, Ruff W, Sarama S, Simon D', 326.3, 520.5, { size: 8.5, width: 213.7 }),
+      line('and Sztankay Z 1999 A scannerless imaging ladar', 326.3, 531, { size: 8.5, width: 190 }),
+      line('[9] Kawakita M et al 2004 High-definition real-time depth-mapping TV camera', 309.3, 541.5, { size: 8.5, width: 230 }),
+    ];
+    const layout = layoutPages([{ ...page(runs), width: 595, height: 842 }]);
+    assert.ok(texts(layout).includes('[8] Stann B, Giza M, Robinson D, Ruff W, Sarama S, Simon D and Sztankay Z 1999 A scannerless imaging ladar'), texts(layout).join('\n'));
+  });
+
+  it('finds where entries start by counting up from the first', () => {
+    assert.deepEqual(entryStarts('[1] A 2001 [3] cited [2] B 2002'), [0, 21]);
+    assert.deepEqual(entryStarts('1. Smith J. One. Nature 12. 2001. 2. Jones K. Two.'), [0, 34]);
+    assert.deepEqual(entryStarts('Smith J 2001 One [1]'), []);
+  });
+
+  it('leaves a list without numbers as it was', () => {
+    const runs = [
+      ...body,
+      line('References', 54, 150, { font: 'NimbusRomNo9L-Medi' }),
+      line('Smith J 2001 A first paper about things that goes on', 54, 164, { size: 8, width: 230 }),
+      line('for a while Nature 1 1-2', 64, 173.5, { size: 8 }),
+      line('Jones K 2002 A second paper Science 2 3-4', 54, 183, { size: 8 }),
+    ];
+    const layout = layoutPages([page(runs)]);
+    const at = texts(layout).indexOf('References');
+    assert.equal(texts(layout).length - at - 1, 2);
   });
 });
 

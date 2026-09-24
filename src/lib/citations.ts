@@ -77,6 +77,8 @@ export function entryYear(text: string): string | null {
 export interface ReferenceIndex {
   byNumber(n: number): string | null;
   byAuthorYear(surname: string, year: string): string | null;
+  /** The highest number an entry is listed under. */
+  largest: number;
 }
 
 export function referenceIndex(entries: ReferenceEntry[]): ReferenceIndex {
@@ -105,6 +107,7 @@ export function referenceIndex(entries: ReferenceEntry[]): ReferenceIndex {
   });
 
   return {
+    largest: Math.max(0, ...numbered.keys()),
     byNumber: (n) => numbered.get(n) ?? null,
     byAuthorYear(surname, year) {
       const name = fold(surname);
@@ -126,14 +129,16 @@ const YEAR = String.raw`(?:19|20)\d{2}[a-z]?`;
 const NUMERIC = /\[(\d{1,3}(?:\s*[,;–—-]\s*\d{1,3})*)\]/g;
 /** "Vaswani et al. (2017)", "Smith and Jones (2019a)". */
 const NARRATIVE = new RegExp(String.raw`(${NAME})${SECOND}\s+\((${YEAR})(?:,\s*${YEAR})*\)`, 'gu');
-/** A parenthesis with a year in it — "(Vaswani et al., 2017; Lee 2020)" — whose parts are found one by one. */
-const PARENTHETICAL = new RegExp(String.raw`\(([^()]{4,400}?${YEAR})\)`, 'gu');
+/** A parenthesis with a year in it — "(Vaswani et al., 2017; Lee 2020)", or "[Lee 2020]" — whose parts are found one by one. */
+const PARENTHETICAL = new RegExp(String.raw`[([]([^()[\]]{4,400}?${YEAR})[)\]]`, 'gu');
 const PART = new RegExp(String.raw`(${NAME})${SECOND},?\s+(${YEAR})`, 'gu');
+/** The authors a numbered citation is written after: "Dorrington et al [1]", "Marr and Poggio [4]". */
+const NAMED_BEFORE = new RegExp(String.raw`(${NAME})(?:\s+et\s+al\.?|\s+(?:and|&)\s+${NAME})(?:’s|'s)?\s*$`, 'u');
 
 /**
  * Every citation in a run of text that names an entry of the bibliography.
- * A bracketed number with no entry of that number is left alone: it is an
- * equation, or a range, or a paper's own numbering of something else.
+ * A bracketed number no entry could have — nought, or past the end of the
+ * list — is left alone: it is an interval, or an equation's number.
  */
 export function findCitations(text: string, index: ReferenceIndex): CitationMatch[] {
   const found: CitationMatch[] = [];
@@ -145,10 +150,14 @@ export function findCitations(text: string, index: ReferenceIndex): CitationMatc
 
   for (const match of text.matchAll(NUMERIC)) {
     const numbers = citationNumbers(match[1]);
-    if (!numbers) continue;
-    const refs = numbers.map((n) => index.byNumber(n));
-    if (refs.some((ref) => ref === null)) continue;
-    add({ start: match.index!, end: match.index! + match[0].length, refs: Array.from(new Set(refs as string[])) });
+    if (!numbers || numbers.some((n) => n < 1 || n > index.largest)) continue;
+    // An entry the list lost on the way here does not undo the rest.
+    const refs = numbers.map((n) => index.byNumber(n)).filter((ref): ref is string => ref !== null);
+    let start = match.index!;
+    // The authors named in front of it are part of the citation.
+    const before = NAMED_BEFORE.exec(text.slice(Math.max(0, start - 120), start));
+    if (before) start -= before[0].length;
+    add({ start, end: match.index! + match[0].length, refs: Array.from(new Set(refs)) });
   }
 
   for (const match of text.matchAll(NARRATIVE)) {
@@ -159,9 +168,16 @@ export function findCitations(text: string, index: ReferenceIndex): CitationMatc
   for (const match of text.matchAll(PARENTHETICAL)) {
     const inner = match[1];
     const offset = match.index! + 1;
+    const parts: CitationMatch[] = [];
     for (const part of inner.matchAll(PART)) {
       const ref = index.byAuthorYear(part[1], part[2]);
-      if (ref) add({ start: offset + part.index!, end: offset + part.index! + part[0].length, refs: [ref] });
+      if (ref) parts.push({ start: offset + part.index!, end: offset + part.index! + part[0].length, refs: [ref] });
+    }
+    // A parenthesis that is one citation and nothing else is marked whole.
+    if (parts.length === 1 && inner.trim() === text.slice(parts[0].start, parts[0].end).trim()) {
+      add({ start: match.index!, end: match.index! + match[0].length, refs: parts[0].refs });
+    } else {
+      parts.forEach(add);
     }
   }
 
@@ -302,44 +318,92 @@ export function annotateCitations(root: Element): number {
   const index = referenceIndex(listed);
   const inEntries = new Set(entries);
 
+  // The text is read a block at a time — a paragraph, a caption, a list
+  // item — not a text node at a time: "Smith <em>et al</em>, 2019" is one
+  // citation set in two faces.
   const walker = doc.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
-  const texts: Text[] = [];
+  const blocks = new Map<Element, Text[]>();
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     let parent = node.parentElement;
+    let block: Element | null = null;
     let skip = false;
     while (parent && parent !== root) {
       if (inEntries.has(parent) || /^(CODE|PRE|A|H[1-6])$/.test(parent.tagName)) {
         skip = true;
         break;
       }
+      if (!block && !INLINE.test(parent.tagName)) block = parent;
       parent = parent.parentElement;
     }
-    if (!skip && /[[(]/.test(node.nodeValue || '')) texts.push(node as Text);
+    if (skip) continue;
+    block ??= root;
+    const texts = blocks.get(block) ?? [];
+    texts.push(node as Text);
+    blocks.set(block, texts);
   }
 
   let count = 0;
-  for (const node of texts) {
-    const value = node.nodeValue || '';
+  for (const texts of blocks.values()) {
+    const value = texts.map((node) => node.nodeValue || '').join('');
+    if (!/[[(]/.test(value)) continue;
     const matches = findCitations(value, index);
     if (!matches.length) continue;
-    const fragment = doc.createDocumentFragment();
-    let at = 0;
-    for (const match of matches) {
-      if (match.start > at) fragment.append(value.slice(at, match.start));
-      const span = doc.createElement('span');
-      span.className = CITE_CLASS;
-      span.setAttribute('data-refs', match.refs.join(' '));
-      span.setAttribute('tabindex', '0');
-      span.textContent = value.slice(match.start, match.end);
-      fragment.append(span);
-      at = match.end;
-      count += 1;
+    let offset = 0;
+    for (const node of texts) {
+      const text = node.nodeValue || '';
+      const from = offset;
+      const to = offset + text.length;
+      offset = to;
+      const here = matches.filter((match) => match.start < to && match.end > from);
+      if (!here.length) continue;
+      const fragment = doc.createDocumentFragment();
+      let at = 0;
+      for (const match of here) {
+        const start = Math.max(match.start, from) - from;
+        const end = Math.min(match.end, to) - from;
+        if (start > at) fragment.append(text.slice(at, start));
+        const span = doc.createElement('span');
+        span.className = CITE_CLASS;
+        span.setAttribute('data-refs', match.refs.join(' '));
+        // One citation cut by a change of face is one citation — its pieces
+        // share a number — and one stop for the keyboard.
+        span.setAttribute('data-cite', String(count + matches.indexOf(match)));
+        if (match.start >= from) span.setAttribute('tabindex', '0');
+        span.textContent = text.slice(start, end);
+        fragment.append(span);
+        at = end;
+      }
+      if (at < text.length) fragment.append(text.slice(at));
+      node.replaceWith(fragment);
     }
-    if (at < value.length) fragment.append(value.slice(at));
-    node.replaceWith(fragment);
+    count += matches.length;
+  }
+
+  // Citations set as superscript numbers — "as shown before²³" — where the
+  // paper has no numbers in brackets. A lone raised figure may be a
+  // footnote's mark, so only a paper with several of them is read this way.
+  if (count < 3) {
+    const raised = Array.from(root.querySelectorAll('sup')).flatMap((sup) => {
+      if (sup.closest('h1, h2, h3, h4, h5, h6, a, code, pre, .cite') || entries.some((entry) => entry.contains(sup))) return [];
+      const numbers = /^\s*\d{1,3}(?:\s*[,–—-]\s*\d{1,3})*\s*$/.test(sup.textContent || '') ? citationNumbers(sup.textContent!.trim()) : null;
+      if (!numbers || numbers.some((n) => n < 1 || n > index.largest)) return [];
+      const refs = numbers.map((n) => index.byNumber(n)).filter((ref): ref is string => ref !== null);
+      return refs.length ? [{ sup, refs: Array.from(new Set(refs)) }] : [];
+    });
+    if (raised.length >= 3) {
+      for (const { sup, refs } of raised) {
+        sup.classList.add(CITE_CLASS);
+        sup.setAttribute('data-refs', refs.join(' '));
+        sup.setAttribute('tabindex', '0');
+      }
+      count += raised.length;
+    }
   }
   return count;
 }
+
+/** Elements that sit inside a line of text, rather than being a block of their own. */
+const INLINE = /^(EM|I|STRONG|B|SUP|SUB|SPAN|MARK|SMALL|U|S|CITE|Q|ABBR|DFN|VAR|KBD|SAMP|TIME|FONT)$/;
 
 /** The HTML with its citations marked; unchanged where there is no DOM to do it with. */
 export function withCitations(html: string): string {
@@ -350,6 +414,23 @@ export function withCitations(html: string): string {
   } catch {
     return html;
   }
+}
+
+/** A citation's first piece — where it is set in more than one face — which stands for the whole of it. */
+export function citationHead(cite: Element): Element {
+  const group = cite.getAttribute('data-cite');
+  const root = cite.closest('.paper-body') ?? cite.ownerDocument.body;
+  return (group !== null && root.querySelector(`.${CITE_CLASS}[data-cite="${group}"]`)) || cite;
+}
+
+/** A citation's text, all of its pieces together. */
+export function citationText(cite: Element): string {
+  const group = cite.getAttribute('data-cite');
+  const root = cite.closest('.paper-body') ?? cite.ownerDocument.body;
+  if (group === null) return cite.textContent || '';
+  return Array.from(root.querySelectorAll(`.${CITE_CLASS}[data-cite="${group}"]`))
+    .map((piece) => piece.textContent || '')
+    .join('');
 }
 
 /** An entry's text as printed, without the number it is listed under. */

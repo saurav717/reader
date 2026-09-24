@@ -11,6 +11,7 @@ import {
   type OtherWork,
 } from '../lib/hoverInfo';
 import { scholarAuthorUrl, scholarPaperUrl } from '../lib/locations';
+import { parseReference } from '../lib/citations';
 import { hasProxy } from '../lib/api';
 import { ExternalIcon, SearchIcon } from './icons';
 
@@ -47,9 +48,13 @@ interface Props {
 const WIDTH = 380;
 const GAP = 8;
 
-/** Ask the Discover panel to search for something — a paper's title, or `author:` a person. */
-export function discover(query: string): void {
-  window.dispatchEvent(new CustomEvent('reader:discover', { detail: { query } }));
+/**
+ * Ask the Discover panel to search for something — a paper's title, or
+ * `author:` a person. `open` is the title of the paper wanted, whose result
+ * is opened to show its details once the search is in.
+ */
+export function discover(query: string, open?: string): void {
+  window.dispatchEvent(new CustomEvent('reader:discover', { detail: { query, open } }));
 }
 
 const compact = (value: number) =>
@@ -374,6 +379,18 @@ function CiteCard({ entries, onJump }: { entries: CitedEntry[]; onJump: (id: str
   const paper = useAnswer<PaperRef | null>(() => resolveReference(entry.text), entry.text);
 
   const jump = useCallback(() => onJump(entry.id), [entry.id, onJump]);
+  // The card is a way into Discover: pressed, it looks the paper up there
+  // and opens its result, where it can be read about, added and opened.
+  const find = useCallback(() => {
+    const found = paper?.title?.trim();
+    const title = found || parseReference(entry.text).title;
+    discover(found ? `"${found}"` : title ?? entry.text.slice(0, 200), title);
+  }, [entry.text, paper]);
+  const onKey = (event: React.KeyboardEvent) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    find();
+  };
 
   return (
     <>
@@ -400,17 +417,19 @@ function CiteCard({ entries, onJump }: { entries: CitedEntry[]; onJump: (id: str
         </div>
       ) : null}
 
-      <p className="hc-printed">{entry.text}</p>
+      <p className="hc-printed hc-find" role="button" tabIndex={0} onClick={find} onKeyDown={onKey} title="Find it in Discover">
+        {entry.text}
+      </p>
 
       {paper === undefined ? (
         <p className="hc-loading">
           <span className="spinner" /> Finding the paper…
         </p>
       ) : paper ? (
-        <div className="hc-paper">
+        <div className="hc-paper hc-find" role="button" tabIndex={0} onClick={find} onKeyDown={onKey} title="Find it in Discover and show its details">
           <p className="hc-title">
             {paper.landingUrl ? (
-              <a href={paper.landingUrl} target="_blank" rel="noreferrer noopener">
+              <a href={paper.landingUrl} target="_blank" rel="noreferrer noopener" onClick={(event) => event.stopPropagation()}>
                 {paper.title}
               </a>
             ) : (
@@ -455,7 +474,7 @@ function CiteCard({ entries, onJump }: { entries: CitedEntry[]; onJump: (id: str
         <button
           type="button"
           className="hc-action"
-          onClick={() => discover(paper ? `"${paper.title}"` : entry.text.slice(0, 200))}
+          onClick={find}
           title="Search for it in Discover, where it can be added and read"
         >
           <SearchIcon size={11} /> Add or read

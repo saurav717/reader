@@ -75,7 +75,7 @@ ul { margin: 4pt 0 4pt 12pt; padding: 0; }
 <p class="first">${prose(3)}</p>
 <h2>1 Introduction</h2>
 <p class="first">${prose(4)} A self-supervised objective<sup>1</sup> helps.</p>
-<p>${prose(3, 1)} We call this the na&iuml;ve approach.</p>
+<p>${prose(3, 1)} We call this the na&iuml;ve approach, after Li <i>et al</i> [1].</p>
 <figure><svg width="220" height="110" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="10" width="200" height="80" fill="none" stroke="#000"/><polyline points="20,80 60,40 100,60 140,20 200,30" fill="none" stroke="#c00" stroke-width="2"/><text x="90" y="105" font-size="8">resolution</text></svg><figcaption><b>Figure 1:</b> Relative error against resolution for the Fourier neural operator and a convolutional baseline.</figcaption></figure>
 <p class="first">${prose(2, 2)}</p>
 <ul><li>an integral operator with a learned kernel,</li><li>a pointwise nonlinearity between layers, and</li><li>a truncation of the Fourier modes.</li></ul>
@@ -224,6 +224,18 @@ check(
 );
 check('the list is a list', (await page.locator('.paper-body ul li').allTextContents()).join('|') === 'an integral operator with a learned kernel,|a pointwise nonlinearity between layers, and|a truncation of the Fourier modes.');
 check('the references are one entry each', (await page.locator('.paper-body p', { hasText: /^\[2\] L\. Lu/ }).count()) === 1);
+
+console.log('\n== citations ==');
+const cite = page.locator('.paper-body .cite[tabindex]').first();
+check('a citation set across two faces is marked whole', (await page.locator('.paper-body .cite[data-cite="0"]').allTextContents()).join('') === 'Li et al [1]');
+await cite.scrollIntoViewIfNeeded();
+await cite.hover();
+await page.waitForSelector('.hover-card .hc-printed', { timeout: 5000 });
+check('hovering over it shows the entry', ((await page.locator('.hover-card .hc-printed').textContent()) || '').includes('Neural operator'));
+await page.locator('.hover-card .hc-note').waitFor({ timeout: 10000 }).catch(() => {});
+await page.locator('.hover-card .hc-printed').click();
+await page.waitForFunction(() => (document.querySelector('input[aria-label="Search papers"]')?.value || '').length > 0, null, { timeout: 5000 }).catch(() => {});
+check('pressing the card looks the paper up in Discover', (await page.getByLabel('Search papers').inputValue()).startsWith('Neural operator: graph kernel network'), await page.getByLabel('Search papers').inputValue());
 await page.screenshot({ path: `${OUT}/reflow-pdf.png`, fullPage: false });
 await figure.scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/reflow-figure.png` });
