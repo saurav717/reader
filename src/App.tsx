@@ -106,6 +106,14 @@ export default function App() {
   // "All their papers" or "Add or read" on a card in the paper: the search
   // is Discover's, which is where a paper is added and opened from.
   const [discoverAsk, setDiscoverAsk] = useState<{ query: string; at: number } | null>(null);
+  // "Add papers" in a collection: Discover is where papers are added from, so
+  // the press opens it — or, when it is open already, puts the cursor in its
+  // search box, which is the part of it that press is asking for.
+  const [discoverFocus, setDiscoverFocus] = useState(0);
+  const addPapers = useCallback(() => {
+    setDock('discover');
+    setDiscoverFocus(Date.now());
+  }, []);
   useEffect(() => {
     const onDiscover = (event: Event) => {
       const query = (event as CustomEvent<{ query: string }>).detail?.query?.trim();
@@ -350,7 +358,7 @@ export default function App() {
           onOrphans={onOrphans}
         />
       ) : (
-        <CollectionView view={view} onOpenPaper={openPaper} onDiscover={() => setDock('discover')} />
+        <CollectionView view={view} onOpenPaper={openPaper} onDiscover={addPapers} />
       )}
 
       {dockPane && !showWelcome ? (
@@ -377,7 +385,13 @@ export default function App() {
           ) : null}
 
           {dockPane === 'discover' ? (
-            <Discover onClose={() => setDock(null)} onOpen={openPaper} ask={discoverAsk} />
+            <Discover
+              onClose={() => setDock(null)}
+              onOpen={openPaper}
+              ask={discoverAsk}
+              here={view.kind === 'collection' ? view.id : undefined}
+              focus={discoverFocus}
+            />
           ) : (
             <NotesRail
               paperId={view.kind === 'paper' ? view.id : ''}

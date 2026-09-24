@@ -29,6 +29,7 @@ import SignInPrompt from './SignInPrompt';
 import CaptchaPrompt from './CaptchaPrompt';
 import PdfDropIn from './PdfDropIn';
 import { whySaveToDriveUnavailable } from '../lib/driveSync';
+import { linkFromQuery, paperFromLink } from '../lib/books';
 import type { AuthorRef, PaperLocation, PaperOrder, PaperRef, SourceId } from '../types';
 import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
 
@@ -37,6 +38,10 @@ interface Props {
   onOpen: (paperId: string) => void;
   /** A search asked for from elsewhere — a card in the paper — run when it changes. */
   ask?: { query: string; at: number } | null;
+  /** The collection on screen, which is where "Add to" points while it is. */
+  here?: string;
+  /** "Add papers" was pressed: put the cursor in the search box. `at` tells one press from the next. */
+  focus?: number;
 }
 
 const labelFor = (id: SourceId) => sourceList().find((source) => source.id === id)?.label ?? id;
@@ -210,7 +215,7 @@ function Profile({ author }: { author: AuthorRef }) {
   );
 }
 
-export default function Discover({ onClose, onOpen, ask }: Props) {
+export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
   const { papers, collections, addPaper, createCollection, driveConnected, settings, syncPaperNow } = useStore();
   const [query, setQuery] = useState('');
   /** The query as it was searched, which is what the panel is about until the next one. */
@@ -248,6 +253,21 @@ export default function Discover({ onClose, onOpen, ask }: Props) {
   useEffect(() => {
     if (!target && collections.length) setTarget(collections[0].id);
   }, [collections, target]);
+
+  // Browsing a collection and adding from here should add to that one, not to
+  // whichever was first in the list.
+  useEffect(() => {
+    if (here && collections.some((collection) => collection.id === here)) setTarget(here);
+  }, [here, collections]);
+
+  const queryInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    // Only a press just now: the panel mounting again later — a switch of
+    // tabs in the dock — is not a request to take the cursor.
+    if (!focus || Date.now() - focus > 1500) return;
+    queryInput.current?.focus();
+    queryInput.current?.select();
+  }, [focus]);
 
   // Configuring a proxy in Settings puts arXiv within reach without a reload,
   // so the selection follows it rather than staying on the static-host set.
@@ -341,6 +361,20 @@ export default function Discover({ onClose, onOpen, ask }: Props) {
     const forced = name !== null && /^author:/i.test(trimmed);
     const askPeople = name !== null && sources.some((id) => authorSources().some((source) => source.id === id));
     try {
+      // A link is a paper already: arXiv's own is looked up by its id, which
+      // brings the title and authors; any other is taken as it is — a PDF
+      // when it looks like one, a page to open when it does not.
+      const link = linkFromQuery(trimmed);
+      if (link) {
+        const arxiv = link.hostname.replace(/^www\./, '') === 'arxiv.org'
+          ? arxivIdFromQuery(link.pathname.replace(/^\/(abs|pdf|html)\//, '').replace(/\.pdf$/i, ''))
+          : null;
+        const direct = arxiv && hasProxy() ? await lookupArxiv(arxiv, controller.signal) : [];
+        const found = direct.length ? direct : [paperFromLink(link)];
+        setResults(found);
+        setOpenId(found[0].id);
+        return;
+      }
       const directId = arxivIdFromQuery(trimmed);
       if (directId && hasProxy() && sources.includes('arxiv')) {
         const direct = await lookupArxiv(directId, controller.signal);
@@ -593,9 +627,10 @@ export default function Discover({ onClose, onOpen, ask }: Props) {
           <SearchIcon size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
           <input
             id="discover-query"
+            ref={queryInput}
             type="search"
             value={query}
-            placeholder={'Title, topic, "exact phrase", arXiv id or a person'}
+            placeholder={'Title, topic, a person, an arXiv id or a PDF link'}
             onChange={(event) => setQuery(event.target.value)}
           />
           {busy ? <span className="spinner" aria-label="Searching" /> : null}
@@ -691,8 +726,8 @@ export default function Discover({ onClose, onOpen, ask }: Props) {
             {asked
               ? 'Nothing found. Try fewer words, or turn another source on above.'
               : hasProxy()
-                ? "Search arXiv, OpenAlex, Semantic Scholar, Crossref and Google Scholar at once, merged into one ranked list. A person's name opens their profile with everything they wrote beneath it, newest first. Quote a phrase to match it exactly, or paste an arXiv id to jump straight to a paper."
-                : "Search OpenAlex, Semantic Scholar and Crossref, all of which index arXiv. A person's name opens their profile with everything they wrote beneath it, newest first."}
+                ? "Search arXiv, OpenAlex, Semantic Scholar, Crossref and Google Scholar at once, merged into one ranked list. A person's name opens their profile with everything they wrote beneath it, newest first. Quote a phrase to match it exactly, or paste an arXiv id to jump straight to a paper. Turn on Books & PDFs for books and scans from Open Library and the Internet Archive, or paste the link to any PDF to add it as it is."
+                : "Search OpenAlex, Semantic Scholar and Crossref, all of which index arXiv. A person's name opens their profile with everything they wrote beneath it, newest first. Turn on Books & PDFs for books and scans from Open Library and the Internet Archive, or paste the link to any PDF to add it as it is."}
           </p>
         ) : null}
 

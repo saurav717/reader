@@ -100,6 +100,31 @@ ask it through. The other four are chips on the panel: press one and it joins
 the search, press Scholar's and it leaves. Without a proxy Scholar is out of
 reach, and the search falls back to OpenAlex and Crossref.
 
+### Books, and a PDF by its link
+
+The paper indexes know papers. A book, a library's scan, a report someone
+uploaded or a PDF on a course page is in none of them, so the **Books & PDFs**
+chip in Discover asks the two places that keep them and will hand the file over:
+[Open Library](https://openlibrary.org/developers/api), which catalogues books and
+knows which ones the Internet Archive has a free scan of, and the [Internet
+Archive](https://archive.org/advancedsearch.php) itself, searched for texts with a
+PDF among their files. Both answer a browser directly, so the chip works without a
+proxy. A book with a free scan comes with its PDF; one that is only lent out comes
+with its page, and a file can be dropped onto it by hand. An Archive item's copies
+are the PDFs its metadata lists — the text-bearing one first — and the paper
+indexes are not asked about it, since asking them by a book's title only finds some
+other work of the same name.
+
+Paste the link to any PDF into the search box instead of words and it becomes a
+result of its own: its title read from the file name, the link as its PDF, added,
+opened and saved to Drive like any other paper. An arXiv link is looked up by its
+id, which brings the title and authors with it; a link that is not a file is kept
+as a page to open.
+
+**Add papers**, at the top of a collection, puts the cursor in Discover's search
+box — opening the panel if it is shut — and Discover's **Add to** follows the
+collection on screen, so what you add from there lands in it.
+
 ### Every copy of a paper, not just the first link
 
 Open a result and it lists **everywhere the paper can be read** — the publisher's

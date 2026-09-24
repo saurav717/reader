@@ -164,6 +164,9 @@ async function unpaywallPdfFor(paper: PaperRef, signal?: AbortSignal): Promise<s
 export async function resolvePdfUrl(paper: PaperRef, signal?: AbortSignal): Promise<string | undefined> {
   const known = pdfSourceUrl(paper);
   if (known) return known;
+  // A book or a pasted link is in none of these indexes, and asking them by
+  // its title only finds some other work of the same name.
+  if (paper.source === 'books') return undefined;
   for (const lookup of [unpaywallPdfFor, openAlexPdfFor, semanticScholarPdfFor]) {
     try {
       const found = await lookup(paper, signal);

@@ -94,7 +94,16 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
           ) : null}
           <h1 className="collection-title">{heading.title}</h1>
           <span style={{ flexGrow: 1 }} />
-          <button type="button" className="btn primary" onClick={onDiscover}>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={onDiscover}
+            title={
+              collection
+                ? `Search for papers, books or a PDF link in the Discover panel, and add them to ${collection.name}`
+                : 'Search for papers, books or a PDF link in the Discover panel, and add them to your library'
+            }
+          >
             <PlusIcon size={15} /> Add papers
           </button>
         </div>
@@ -156,8 +165,8 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
           <div className="empty">
             <h3>Nothing here yet</h3>
             <p>
-              Search arXiv, OpenAlex or Semantic Scholar from the Discover panel and add a paper to this
-              collection.
+              Search for a paper or a book in the Discover panel — or paste the link to any PDF there — and
+              add it to this collection.
             </p>
             <button type="button" className="btn primary" onClick={onDiscover} style={{ marginTop: 10 }}>
               <PlusIcon size={15} /> Find papers

@@ -1,4 +1,9 @@
-export type SourceId = 'arxiv' | 'openalex' | 'semanticscholar' | 'crossref' | 'scholar';
+/**
+ * Where a record came from. `books` is Open Library and the Internet Archive
+ * together — books and texts no paper index keeps — and a PDF pasted in by
+ * its link, which is a record of its own.
+ */
+export type SourceId = 'arxiv' | 'openalex' | 'semanticscholar' | 'crossref' | 'scholar' | 'books';
 
 /**
  * The order a person's papers are listed in: newest first, which is how a

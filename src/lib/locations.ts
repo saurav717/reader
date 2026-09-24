@@ -22,6 +22,7 @@ import { hasProxy } from './api';
 import { contactEmail, politely } from './contact';
 import { scholarLookup, scholarVersions, scholarWork } from './scholar';
 import type { OpenAlexWork } from './sources';
+import { archiveIdOf, archiveLocations } from './books';
 
 const clean = (value: string | null | undefined) => (value || '').replace(/\s+/g, ' ').trim();
 
@@ -423,13 +424,21 @@ export async function findLocations(paper: PaperRef, signal?: AbortSignal): Prom
   const cached = key ? cache.get(key) : undefined;
   if (cached) return cached;
 
-  const settled = await Promise.allSettled([
-    fromUnpaywall(paper, signal),
-    fromOpenAlex(paper, signal),
-    fromSemanticScholar(paper, signal),
-    fromCrossref(paper, signal),
-    fromScholar(paper, signal),
-  ]);
+  // A book or a pasted link is in none of the paper indexes, and asking them
+  // by its title only turns up some other work of the same name. An Archive
+  // item's copies are the PDFs it holds, which its metadata lists by name.
+  const archiveId = archiveIdOf(paper);
+  const lookups =
+    paper.source === 'books'
+      ? [archiveId ? archiveLocations(archiveId, signal) : Promise.resolve([])]
+      : [
+          fromUnpaywall(paper, signal),
+          fromOpenAlex(paper, signal),
+          fromSemanticScholar(paper, signal),
+          fromCrossref(paper, signal),
+          fromScholar(paper, signal),
+        ];
+  const settled = await Promise.allSettled(lookups);
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
   const groups = [paperLocations(paper)];

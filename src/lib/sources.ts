@@ -2,6 +2,7 @@ import type { AuthorRef, PaperOrder, PaperRef, SourceId } from '../types';
 import { api, hasProxy } from './api';
 import { politely } from './contact';
 import { ScholarError, scholarAuthors, scholarProfileWorks, searchScholar } from './scholar';
+import { searchBooks } from './books';
 
 const ALL_SOURCES: { id: SourceId; label: string; needsProxy: boolean; authors: boolean }[] = [
   { id: 'arxiv', label: 'arXiv', needsProxy: true, authors: true },
@@ -11,6 +12,9 @@ const ALL_SOURCES: { id: SourceId; label: string; needsProxy: boolean; authors: 
   // Scholar has no API; the proxy fetches its pages and parses them, and is
   // refused a good deal of the time. See server/scholar.js.
   { id: 'scholar', label: 'Google Scholar', needsProxy: true, authors: true },
+  // Open Library and the Internet Archive: books, scans and uploaded PDFs that
+  // no paper index has. Both answer a browser directly. See lib/books.ts.
+  { id: 'books', label: 'Books & PDFs', needsProxy: false, authors: false },
 ];
 
 /** Why one source did not answer — and, where anything can be done about it, what. */
@@ -889,6 +893,7 @@ export async function search(
     semanticscholar: searchSemanticScholar,
     crossref: searchCrossref,
     scholar: (query, p, _l, signal) => searchScholar(query, p, signal),
+    books: searchBooks,
   };
 
   return runQuery(sources, runners, trimmed, page, limit, options.signal);
