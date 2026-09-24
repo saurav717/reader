@@ -31,6 +31,7 @@ import {
   type BrowseStatus,
 } from '../lib/browse';
 import { pdfFileName, type SignInOffer } from '../lib/pdf';
+import { googleBooksDownload, googleBooksIdFromLink, googleBooksNoPdf, googleVolume } from '../lib/books';
 import type { PaperLocation, PaperRef } from '../types';
 import { ArrowLeftIcon, CloseIcon } from './icons';
 import PdfDropIn from './PdfDropIn';
@@ -69,6 +70,15 @@ interface Stuck {
  * the file itself — what was asked for is then the paper. A forum page is
  * left to "Fetch the PDF from this page", since it may be another paper's.
  */
+/** The Google Books volume a page in the pane is, if it is one. */
+function googleBooksVolume(pageUrl: string | null | undefined): string | null {
+  try {
+    return googleBooksIdFromLink(new URL(pageUrl || ''));
+  } catch {
+    return null;
+  }
+}
+
 function openReviewFile(pageUrl: string | null | undefined): string | null {
   try {
     const path = new URL(pageUrl || '').pathname.replace(/\/+$/, '').toLowerCase();
@@ -392,6 +402,32 @@ export default function MiniBrowser({ paper, locations, signIn, onPdf, onRetry, 
           return;
         } catch {
           // Say what the page said.
+        }
+      }
+      // A Google Books page is asked about from here, not from the proxy:
+      // what Google lets a person see and download depends on the country
+      // they are in, and the proxy's browser is somewhere else. A book it
+      // lets you download is fetched by its link; one it does not is said so.
+      const volumeId = googleBooksVolume(status?.url);
+      if (volumeId) {
+        try {
+          const volume = await googleVolume(volumeId);
+          const download = googleBooksDownload(volume);
+          if (download) {
+            const blob = await proxyPdf(download, pdfFileName(paper));
+            collected.current = true;
+            polling.current?.abort();
+            await closeBrowser();
+            onPdf(blob, download);
+            return;
+          }
+          const why = googleBooksNoPdf(volume);
+          if (why) {
+            setProblem(why);
+            return;
+          }
+        } catch {
+          // Say what the proxy said.
         }
       }
       setProblem(error instanceof Error ? error.message : String(error));

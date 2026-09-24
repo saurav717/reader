@@ -201,8 +201,11 @@ export interface GoogleVolume {
   };
   accessInfo?: {
     publicDomain?: boolean;
+    /** `ALL_PAGES`, `PARTIAL` or `NO_PAGES` — how much of it Google's viewer shows, where you are. */
+    viewability?: string;
     pdf?: { isAvailable?: boolean; downloadLink?: string };
   };
+  saleInfo?: { saleability?: string };
 }
 
 /**
@@ -231,8 +234,49 @@ export function fromGoogleBooks(volume: GoogleVolume): PaperRef {
     categories: list(info.categories).slice(0, 3),
     pdfUrl: googleBooksDownload(volume),
     landingUrl: page || undefined,
-    venue: info.publisher ? `Google Books · ${clean(info.publisher)}` : 'Google Books',
+    venue: [
+      'Google Books',
+      googleBooksDownload(volume) ? '' : viewabilityLabel(volume),
+      clean(info.publisher),
+    ].filter(Boolean).join(' · '),
   };
+}
+
+/** What Google shows of a book it has no file of, for the line under its title. */
+function viewabilityLabel(volume: GoogleVolume): string {
+  const view = volume.accessInfo?.viewability;
+  if (view === 'ALL_PAGES') return 'read in Google’s viewer only';
+  if (view === 'PARTIAL') return 'preview only';
+  return 'no preview';
+}
+
+/**
+ * Why a Google Books page gave no file, asked from this browser — so in the
+ * country you are reading from, which is what decides what Google shows —
+ * rather than from the proxy's. Null when it does have a PDF to download.
+ */
+export function googleBooksNoPdf(volume: GoogleVolume): string | null {
+  if (googleBooksDownload(volume)) return null;
+  const title = volume.volumeInfo?.title ? `“${clean(volume.volumeInfo.title)}”` : 'this book';
+  const view = volume.accessInfo?.viewability;
+  const link = clean(volume.accessInfo?.pdf?.downloadLink);
+  const drm = /\.acsm(\?|$)|acs4_fulfillment/i.test(link) || volume.saleInfo?.saleability === 'FOR_SALE';
+  const why =
+    view === 'ALL_PAGES'
+      ? `Google Books lets you read ${title} in its own viewer, but keeps no file of it to download: the viewer only ever sends the page you are on${drm ? ', and the edition is sold on Google Play as a protected ebook' : ''}.`
+      : view === 'PARTIAL'
+        ? `Google Books only shows a preview of ${title} — some of its pages — and has no file of it to download.`
+        : drm
+          ? `Google Books sells ${title} as a protected ebook (Adobe’s .acsm), not as a PDF anyone can download.`
+          : `Google Books has no file of ${title} to download.`;
+  return `${why} Try one of the other copies listed below, turn on Books & PDFs in Discover for a free scan from Open Library or the Internet Archive, or drop in a copy of your own.`;
+}
+
+/** A Google Books volume as the API describes it, asked from this browser. */
+export async function googleVolume(id: string, signal?: AbortSignal): Promise<GoogleVolume> {
+  const response = await fetch(`https://www.googleapis.com/books/v1/volumes/${encodeURIComponent(id)}`, { signal });
+  if (!response.ok) throw new Error(`Google Books answered ${response.status}`);
+  return (await response.json()) as GoogleVolume;
 }
 
 /**
@@ -253,12 +297,15 @@ export function googleBooksIdFromLink(url: URL): string | null {
 
 /** One volume, as a paper, asked of the Books API by its id. */
 export async function googleBook(id: string, signal?: AbortSignal): Promise<PaperRef> {
-  const response = await fetch(`https://www.googleapis.com/books/v1/volumes/${encodeURIComponent(id)}`, { signal });
-  if (!response.ok) throw new Error(`Google Books answered ${response.status}`);
-  return fromGoogleBooks((await response.json()) as GoogleVolume);
+  return fromGoogleBooks(await googleVolume(id, signal));
 }
 
-/** Only the free ones: a book Google sells or previews has no PDF to add. */
+/**
+ * Every book Google knows by the query, the ones it lets anyone download
+ * first. The rest come as their page, to open in the browser pane and read
+ * there, the way a borrowable Open Library book does: the line under each
+ * says how much Google shows of it.
+ */
 export async function searchGoogleBooks(
   query: string,
   page: number,
@@ -268,7 +315,6 @@ export async function searchGoogleBooks(
   const size = Math.min(40, limit);
   const params = new URLSearchParams({
     q: query,
-    filter: 'free-ebooks',
     maxResults: String(size),
     startIndex: String(page * size),
     printType: 'books',
