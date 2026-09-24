@@ -1707,6 +1707,36 @@ the `position: fixed` lookup and cards inside it, and put them in the wrong
 place. Second, the blur on floating glass is held at 20px. Much more, and some
 renderers drop the blur entirely and show the text underneath sharp.
 
+## Zen mode
+
+With a paper open, press **Z** (or the corners button in the top bar) and the
+rail, the library and the dock step off the screen: the paper, in Reflow or as
+a PDF, has the whole window. They are not gone, only waiting at the edges. Move
+the pointer to the left edge of the screen and the rail and the library slide
+out over the page; to the right edge, and the dock does — Discover or the
+highlights, whichever was showing, or the highlights if the dock was shut. Move
+back onto the page, press Escape, or tap anywhere off them, and they slide away
+again. A pane with the cursor in its search box stays out until you leave the
+box. **Z** again leaves zen mode. It is remembered, so a reload comes back to it.
+
+![zen mode over a PDF read as a book: the dock out at the right edge, its shadow falling across the page](docs/zen.png)
+
+What falls over the page while a side is out is chosen under
+**Settings → Zen mode**:
+
+- **Shadow** — the panes cast a long, soft shadow across the page, darkest at
+  their edge and gone by the middle of the window.
+- **Mist** — the page nearest the panes blurs and pales, clearing towards the
+  far side, so what you were reading stays sharp.
+- **Glow** — a light in the accent colour spills from the panes onto the page.
+
+A faint line of the accent colour marks each edge, and brightens under the
+pointer. The panes leave the row rather than shrinking it, so the page never
+reflows as they come and go. In the glass theme they take the tint of the cards
+that float over the paper, since what is behind them is the page rather than
+the wallpaper. The styles are the *zen* section at the end of
+`src/styles.css`; the edges and the timing are in `src/App.tsx`.
+
 ## Layout
 
 ```

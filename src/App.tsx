@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useStore } from './lib/store';
 import type { View } from './types.view';
 import { HIGHLIGHT_COLORS } from './types';
@@ -22,6 +23,19 @@ const WELCOME_KEY = 'reader.welcomed';
 const VIEW_KEY = 'reader.view';
 const LAYOUT_KEY = 'reader.layout';
 const ASSISTANT_KEY = 'reader.assistant.open';
+const ZEN_KEY = 'reader.zen';
+
+/** Which edge's panes are out while in zen mode. */
+type Peek = 'left' | 'right' | null;
+
+/** How long the pointer may be off a pane before it slides back. */
+const PEEK_LINGER_MS = 320;
+
+/** A key pressed while typing is text, not a shortcut. */
+function isTyping(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  return Boolean(element && (element.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName)));
+}
 
 /** What the right-hand dock is showing, if anything. */
 type Dock = 'discover' | 'notes' | null;
@@ -82,6 +96,40 @@ export default function App() {
   // reconnect before anything is collected that Drive would then have missed.
   const [skippedConnect, setSkippedConnect] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(() => localStorage.getItem(ASSISTANT_KEY) === 'true');
+  // Zen mode, while a paper is open: the rail, the library and the dock step
+  // off the screen and wait at its edges. Hovering an edge brings that side's
+  // panes out over the page, with a haze cast from them across it.
+  const [zen, setZen] = useState(() => localStorage.getItem(ZEN_KEY) === 'true');
+  const [peek, setPeek] = useState<Peek>(null);
+  // The side the haze is drawn from outlives the peek, so it fades out in place.
+  const [hazeSide, setHazeSide] = useState<Exclude<Peek, null>>('left');
+  const peekTimer = useRef<number>();
+  const appRef = useRef<HTMLDivElement>(null);
+  const toggleZen = useCallback(() => {
+    setZen((current) => !current);
+    setPeek(null);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(ZEN_KEY, String(zen));
+  }, [zen]);
+
+  const peekIn = useCallback((side: Exclude<Peek, null>) => {
+    window.clearTimeout(peekTimer.current);
+    setPeek(side);
+    setHazeSide(side);
+  }, []);
+  // Leaving a pane lets it go after a moment, so a pointer crossing from the
+  // rail to the library, or overshooting the edge, does not snap it shut. A
+  // pane with the cursor in a text field stays out until the field is left.
+  const peekOut = useCallback(() => {
+    window.clearTimeout(peekTimer.current);
+    peekTimer.current = window.setTimeout(() => {
+      if (isTyping(document.activeElement) && document.activeElement?.closest('.rail, .app > .panel, .dock')) return;
+      setPeek(null);
+    }, PEEK_LINGER_MS);
+  }, []);
+  useEffect(() => () => window.clearTimeout(peekTimer.current), []);
 
   useEffect(() => {
     localStorage.setItem(ASSISTANT_KEY, String(assistantOpen));
@@ -144,8 +192,16 @@ export default function App() {
     }
   }, [ready, papers, view]);
 
+  const readingNow = view.kind === 'paper';
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // Z, on its own and not while typing, takes a paper in and out of zen mode.
+      if (readingNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'z' && !isTyping(event.target)) {
+        if (document.querySelector('.scrim, .sheet, .palette')) return;
+        event.preventDefault();
+        toggleZen();
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         setPaletteOpen((current) => !current);
@@ -161,7 +217,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [toggleZen, readingNow]);
 
   const openPaper = useCallback((id: string) => {
     setView({ kind: 'paper', id });
@@ -257,6 +313,47 @@ export default function App() {
 
   const closeAssistant = useCallback(() => setAssistantOpen(false), []);
 
+  const zenOn = zen && ready && view.kind === 'paper';
+
+  // A tap anywhere off the panes puts them back — on a touch screen there is
+  // no pointer to leave them. (A tap in the PDF viewer's own frame never
+  // reaches the page; the pane goes back when the pointer leaves it instead.)
+  useEffect(() => {
+    if (!zenOn || !peek) return;
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.rail, .app > .panel, .dock, .zen-edge')) return;
+      window.clearTimeout(peekTimer.current);
+      setPeek(null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPeek(null);
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [zenOn, peek]);
+
+  // The haze starts where the panes end. Their widths change with the window
+  // and with what is open, so they are read off the panes themselves.
+  useLayoutEffect(() => {
+    const app = appRef.current;
+    if (!app || !zenOn) return;
+    const measure = () => {
+      const left = Array.from(app.querySelectorAll<HTMLElement>(':scope > .rail, :scope > .panel'));
+      const edge = left.reduce((most, element) => Math.max(most, element.offsetLeft + element.offsetWidth), 0);
+      const dock = app.querySelector<HTMLElement>(':scope > .dock');
+      app.style.setProperty('--zen-left', `${edge}px`);
+      app.style.setProperty('--zen-right', `${dock ? window.innerWidth - dock.offsetLeft : 0}px`);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [zenOn, peek, libraryOpen, dock]);
+
   if (!ready) {
     return (
       <div className="app">
@@ -277,9 +374,36 @@ export default function App() {
   // Highlights only mean anything with a paper open, so the dock falls back to
   // Discover rather than showing an empty rail.
   const dockPane: Dock = dock === 'notes' && !reading ? 'discover' : dock;
-
+  const inZen = zenOn && !showWelcome;
+  // In zen mode the right edge always has something to bring out: the dock as
+  // it was left, or the highlights if it was shut.
+  const shownDock: Dock = inZen ? dockPane ?? 'notes' : dockPane;
+  // Which edge an element belongs to: its panes, or the strip that brings them out.
+  const sideOf = (target: EventTarget | null): Peek => {
+    const element = target instanceof Element ? target.closest('.rail, .app > .panel, .dock, .zen-edge') : null;
+    if (!element) return null;
+    if (element.classList.contains('zen-edge')) return (element as HTMLElement).dataset.side as Peek;
+    return element.classList.contains('dock') ? 'right' : 'left';
+  };
+  // One pair of handlers for every pane: a hidden pane takes no pointer, so
+  // the pointer is only ever over one that is out, or the strip at its edge.
+  const zenPointer = inZen
+    ? {
+        onPointerOver: (event: ReactPointerEvent) => {
+          const side = sideOf(event.target);
+          if (side) peekIn(side);
+        },
+        onPointerOut: (event: ReactPointerEvent) => {
+          if (!sideOf(event.relatedTarget)) peekOut();
+        },
+      }
+    : {};
   return (
-    <div className="app">
+    <div
+      ref={appRef}
+      className={`app${inZen ? ` is-zen haze-${settings.zenHaze}` : ''}${inZen && peek ? ` peek-${peek}` : ''}`}
+      {...zenPointer}
+    >
       <nav className="rail" aria-label="Primary">
         <div className="brand" aria-hidden="true">
           R
@@ -379,6 +503,8 @@ export default function App() {
           onToggleNotes={() => setDock(dockPane === 'notes' ? null : 'notes')}
           onNotes={revealNotes}
           onToggleSidebar={() => setLibraryOpen(!libraryOpen)}
+          zen={inZen}
+          onToggleZen={toggleZen}
           onSelectHighlight={setSelectedHighlightId}
           onOrphans={onOrphans}
         />
@@ -388,14 +514,14 @@ export default function App() {
         <CollectionView view={view} onOpenPaper={openPaper} onDiscover={addPapers} />
       )}
 
-      {dockPane && !showWelcome ? (
+      {shownDock && !showWelcome ? (
         <div className="dock">
           {reading ? (
             <div className="dock-tabs" role="tablist" aria-label="Side panel">
               <button
                 type="button"
                 role="tab"
-                aria-selected={dockPane === 'discover'}
+                aria-selected={shownDock === 'discover'}
                 onClick={() => setDock('discover')}
               >
                 Discover
@@ -403,7 +529,7 @@ export default function App() {
               <button
                 type="button"
                 role="tab"
-                aria-selected={dockPane === 'notes'}
+                aria-selected={shownDock === 'notes'}
                 onClick={() => setDock('notes')}
               >
                 Highlights
@@ -411,9 +537,9 @@ export default function App() {
             </div>
           ) : null}
 
-          {dockPane === 'discover' ? (
+          {shownDock === 'discover' ? (
             <Discover
-              onClose={() => setDock(null)}
+              onClose={() => (inZen ? setPeek(null) : setDock(null))}
               onOpen={openPaper}
               ask={discoverAsk}
               here={view.kind === 'collection' ? view.id : undefined}
@@ -425,10 +551,18 @@ export default function App() {
               selectedId={selectedHighlightId}
               orphanIds={orphanIds}
               onSelect={setSelectedHighlightId}
-              onClose={() => setDock(null)}
+              onClose={() => (inZen ? setPeek(null) : setDock(null))}
             />
           )}
         </div>
+      ) : null}
+
+      {inZen ? (
+        <>
+          <div className="zen-haze" data-side={hazeSide} aria-hidden="true" />
+          <div className="zen-edge" data-side="left" aria-hidden="true" onPointerDown={() => peekIn('left')} />
+          <div className="zen-edge" data-side="right" aria-hidden="true" onPointerDown={() => peekIn('right')} />
+        </>
       ) : null}
 
       {paletteOpen ? (

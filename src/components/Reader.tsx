@@ -56,6 +56,7 @@ import {
   OpenBookIcon,
   ScrollPageIcon,
   SparkleIcon,
+  ZenIcon,
 } from './icons';
 
 interface Props {
@@ -67,6 +68,9 @@ interface Props {
   /** Bring the highlights pane forward; `force` opens the dock if it is shut. */
   onNotes: (force: boolean) => void;
   onToggleSidebar: () => void;
+  /** Zen mode: the side panes are hidden and come out from the edges on hover. */
+  zen: boolean;
+  onToggleZen: () => void;
   onSelectHighlight: (id: string | null) => void;
   onOrphans: (ids: string[]) => void;
 }
@@ -100,6 +104,8 @@ export default function Reader({
   onToggleNotes,
   onNotes,
   onToggleSidebar,
+  zen,
+  onToggleZen,
   onSelectHighlight,
   onOrphans,
 }: Props) {
@@ -1364,6 +1370,16 @@ export default function Reader({
             {layout === 'book' ? <ScrollPageIcon size={17} /> : <OpenBookIcon size={18} />}
           </button>
         ) : null}
+        <button
+          type="button"
+          className="icon-btn sm"
+          aria-pressed={zen}
+          aria-label={zen ? 'Leave zen mode' : 'Zen mode — hide the side panes'}
+          title={zen ? 'Leave zen mode (Z)' : 'Zen mode — the panes wait at the edges of the screen (Z)'}
+          onClick={onToggleZen}
+        >
+          <ZenIcon size={17} />
+        </button>
         <button
           type="button"
           className="icon-btn sm"
