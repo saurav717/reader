@@ -1681,6 +1681,24 @@ screen before it answers, so there is nothing to paste.
   The code: `src/lib/locate.ts` (the finding), `src/components/PassageFlash.tsx`
   (the mark), and the `reader:locate` listener in `Reader.tsx`.
   `scripts/locate-smoke.mjs` tries each mode.
+- **How answers read**: the first paragraph (the answer itself) is set a
+  size up, and the rest of the answer is styled for reading:
+  - bold reads as a highlighter stroke;
+  - headings are small accent signposts with a rule;
+  - lists have accent dots and numbered discs;
+  - text quoted from the paper is set as a serif quotation;
+  - code has a pill inline, and a panel naming its language as a block;
+  - tables are rounded, with a tinted head.
+
+  Maths Claude writes as `$…$`, `\(…\)`, `$$…$$` or `\[…\]` is typeset
+  with KaTeX. KaTeX loads as a chunk of its own the first time an answer has
+  any maths; until then, or when it cannot parse something, the TeX shows as
+  written. A `$5` is money, not maths. Each answer is signed **Claude**, and
+  your questions are bubbles at the right.
+
+  | Light | Dark |
+  | --- | --- |
+  | ![](docs/chat-1-light-top.png) | ![](docs/chat-4-dark-bottom.png) |
 - **Screenshot**: the 📷 beside the box attaches a screenshot of the tab to the
   next question. The browser asks every time, because a page can't capture the
   screen by itself. One frame is taken, then the capture stops.

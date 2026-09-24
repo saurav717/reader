@@ -26,6 +26,7 @@ import {
 } from '../lib/assistant';
 import type { Passage, Recommendation, Screen, Turn } from '../lib/assistant';
 import { FLASH_EVENT, showPassage, type LocateResult } from '../lib/locate';
+import { typesetMath } from '../lib/typesetMath';
 import {
   RUN_GAP,
   SNAP_STEPS,
@@ -344,6 +345,7 @@ function TurnView({ turn, index, actions, question }: { turn: Turn; index: numbe
       if (n) mention.dataset.n = String(n);
       mention.dataset.turn = String(index);
     });
+    void typesetMath(container);
     if (turn.streaming) return;
     placeCards(container, papers, actions.layout);
     markAdds(container, (title) => actions.adds[paperKey(title)]);
@@ -373,7 +375,13 @@ function TurnView({ turn, index, actions, question }: { turn: Turn; index: numbe
     window.setTimeout(() => actions.peek(index, key, mention, true), 380);
   };
   return (
-    <div className="chat-turn chat-claude">
+    <div className={`chat-turn chat-claude${turn.streaming ? ' is-streaming' : ''}`}>
+      <div className="chat-who" aria-hidden="true">
+        <span className="chat-avatar">
+          <SparkleIcon size={11} />
+        </span>
+        Claude
+      </div>
       {turn.thinking?.trim() ? (
         <details className="chat-thinking">
           <summary>Reasoning</summary>

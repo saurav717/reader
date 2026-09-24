@@ -15,6 +15,14 @@ export function inline(src: string): string {
     codes.push(`<code>${esc(code)}</code>`);
     return `\u0000${codes.length - 1}\u0000`;
   });
+  // Maths, `$…$` or `\(…\)`: set aside like code, and typeset after it is on
+  // screen (typesetMath). A `$` that opens on a space or closes before a digit
+  // is money, not maths.
+  s = s.replace(/\\\((.+?)\\\)|\$(?!\s)([^$\n]+?)(?<!\s)\$(?!\d)/g, (_, paren: string | undefined, dollar: string | undefined) => {
+    const tex = (paren ?? dollar ?? '').trim();
+    codes.push(`<span class="chat-math" data-tex="${esc(tex)}">${esc(tex)}</span>`);
+    return `\u0000${codes.length - 1}\u0000`;
+  });
   s = esc(s);
   s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, text: string, url: string) =>
     `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`,
@@ -67,6 +75,23 @@ export function markdown(src: string): string {
       i++; // the closing fence, if there is one
       const lang = fence[1] ? ` data-lang="${esc(fence[1])}"` : '';
       out.push(`<pre${lang}><code>${esc(body.join('\n'))}</code></pre>`);
+      continue;
+    }
+
+    // Display maths: `$$ … $$` or `\[ … \]`, on one line or several.
+    const display = /^\s*(\$\$|\\\[)(.*)$/.exec(line);
+    if (display) {
+      const close = display[1] === '$$' ? '$$' : '\\]';
+      let body = display[2];
+      let closed = body.includes(close);
+      i++;
+      while (!closed && i < lines.length) {
+        body += `\n${lines[i]}`;
+        closed = lines[i].includes(close);
+        i++;
+      }
+      const tex = body.slice(0, closed ? body.lastIndexOf(close) : undefined).trim();
+      out.push(`<div class="chat-math-block" data-tex="${esc(tex)}">${esc(tex)}</div>`);
       continue;
     }
 
@@ -134,6 +159,7 @@ export function markdown(src: string): string {
       !/^\s*```/.test(lines[i]) &&
       !/^#{1,6}\s/.test(lines[i]) &&
       !/^\s*>/.test(lines[i]) &&
+      !/^\s*(\$\$|\\\[)/.test(lines[i]) &&
       !bullet.test(lines[i]) &&
       !numbered.test(lines[i])
     ) {
@@ -147,3 +173,4 @@ export function markdown(src: string): string {
   }
   return out.join('');
 }
+

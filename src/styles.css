@@ -3010,7 +3010,7 @@ body.win-moving .assistant-win { transition: none; }
 :root[data-theme='dark'] .look-marker .passage-band {
   mix-blend-mode: normal; background: rgb(var(--mark) / 0.2); box-shadow: inset 0 -2px 0 rgb(var(--mark) / 0.75);
 }
-:root[data-theme='dark'] .chat-passage { background: linear-gradient(transparent 58%, rgb(var(--mark) / 0.28) 58%); }
+:root[data-theme='dark'] .chat-passage { background: linear-gradient(transparent 52%, rgb(var(--mark) / 0.22) 52%); }
 :root[data-theme='dark'] .chat-passage:hover { background: rgb(var(--mark) / 0.22); }
 @keyframes marker-sweep { from { transform: scaleX(0); } }
 @keyframes marker-breathe { 50% { filter: saturate(1.4) brightness(1.03); } }
@@ -3086,3 +3086,118 @@ body.win-moving .assistant-win { transition: none; }
   .passage-band, .passage-tag, .passage-spot, .passage-frame { animation: none; }
 }
 }
+
+/* ===========================================================================
+   Ask Claude: how an answer reads. Set after the window's own rules above, so
+   these win where they differ.
+   =========================================================================== */
+.chat-turn { margin: 0 0 18px; }
+
+/* Your question: a bubble at the right, its tail towards the window's edge. */
+.chat-user { display: flex; flex-direction: column; align-items: flex-end; }
+.chat-user .chat-text {
+  margin-left: 36px; max-width: 88%; padding: 9px 13px;
+  border-radius: 16px 16px 5px 16px;
+  font-size: 13.5px; line-height: 1.5;
+  background: linear-gradient(160deg, rgb(var(--accent-rgb) / 0.2), rgb(var(--accent-rgb) / 0.11));
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+}
+.chat-user blockquote { margin: 0 0 7px; padding: 0 0 0 9px; border-left: 2px solid rgb(var(--mark) / 0.9); font: italic 13px/1.45 var(--serif); color: var(--ink-2); }
+
+/* Claude's answer: who is speaking, then the text in the window's full width. */
+.chat-who { display: flex; align-items: center; gap: 7px; margin: 0 0 7px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); }
+.chat-avatar {
+  display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+  color: var(--accent-on); background: radial-gradient(circle at 30% 30%, rgb(255 255 255 / 0.28), transparent 60%), var(--accent);
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14);
+}
+.chat-claude.is-streaming .chat-avatar { animation: chat-thinking 1.2s ease-in-out infinite; }
+@keyframes chat-thinking { 50% { box-shadow: 0 0 0 6px rgb(var(--accent-rgb) / 0.08); } }
+
+.chat-claude .chat-text { font-size: 14px; line-height: 1.66; color: var(--ink); letter-spacing: 0.002em; }
+/* The first paragraph is the answer; what follows is the reasoning behind it. */
+.chat-claude .chat-text > p:first-child { font-size: 15px; line-height: 1.6; }
+.chat-claude .chat-text p { margin: 0 0 11px; }
+.chat-claude .chat-text strong { font-weight: 650; color: var(--ink); background: linear-gradient(transparent 64%, rgb(var(--mark) / 0.42) 64%); padding: 0 1px; border-radius: 2px; }
+:root[data-theme='dark'] .chat-claude .chat-text strong { background: linear-gradient(transparent 70%, rgb(var(--mark) / 0.28) 70%); }
+.chat-claude .chat-text em { font-family: var(--serif); font-size: 1.06em; }
+.chat-claude .chat-text a { color: var(--accent); text-decoration: underline; text-decoration-color: rgb(var(--accent-rgb) / 0.4); text-underline-offset: 3px; }
+.chat-claude .chat-text a:hover { text-decoration-color: var(--accent); }
+
+/* Headings: small, in the accent, with a rule — signposts, not shouting. */
+.chat-claude .chat-text :is(h4, h5, h6) {
+  display: flex; align-items: center; gap: 8px; margin: 18px 0 8px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent);
+}
+.chat-claude .chat-text :is(h4, h5, h6)::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgb(var(--accent-rgb) / 0.35), transparent); }
+.chat-claude .chat-text > :is(h4, h5, h6):first-child { margin-top: 2px; }
+
+/* Lists: accent dots, and numbers in small discs. */
+.chat-claude .chat-text ul, .chat-claude .chat-text ol { list-style: none; margin: 0 0 12px; padding-left: 0; }
+.chat-claude .chat-text li { position: relative; margin: 6px 0; padding-left: 22px; }
+.chat-claude .chat-text ul > li::before {
+  content: ''; position: absolute; left: 7px; top: 0.72em; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14);
+}
+.chat-claude .chat-text ol { counter-reset: chat-ol; }
+.chat-claude .chat-text ol > li { counter-increment: chat-ol; padding-left: 28px; }
+.chat-claude .chat-text ol > li::before {
+  content: counter(chat-ol); position: absolute; left: 0; top: 0.18em;
+  display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%;
+  font: 700 10.5px/1 var(--sans); color: var(--accent); background: rgb(var(--accent-rgb) / 0.13);
+}
+.chat-claude .chat-text li.chat-li-card::before { display: none; }
+
+/* Quoted words — usually the paper's own — set like a quotation from it. */
+.chat-claude .chat-text blockquote {
+  position: relative; margin: 4px 0 12px; padding: 9px 12px 9px 30px; border: 0; border-radius: 10px;
+  font: italic 14px/1.55 var(--serif); color: var(--ink-2);
+  background: rgb(var(--mark) / 0.12); box-shadow: inset 3px 0 0 rgb(var(--mark) / 0.85);
+}
+.chat-claude .chat-text blockquote::before { content: '“'; position: absolute; left: 11px; top: 2px; font: 700 26px/1 var(--serif); color: rgb(var(--mark)); opacity: 0.9; }
+.chat-claude .chat-text blockquote p { margin: 0 0 6px; }
+.chat-claude .chat-text blockquote p:last-child { margin: 0; }
+
+/* Code: a tinted pill inline; a panel with its language named for a block. */
+.chat-claude .chat-text code { -webkit-box-decoration-break: clone; box-decoration-break: clone; font: 12.3px var(--mono); padding: 1px 6px; border-radius: 6px; color: var(--accent-ink); background: rgb(var(--accent-rgb) / 0.1); border: 1px solid rgb(var(--accent-rgb) / 0.14); }
+.chat-claude .chat-text pre {
+  margin: 4px 0 12px; padding: 30px 14px 12px; border-radius: 12px; border: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--panel) 75%, transparent); font: 12.3px/1.6 var(--mono);
+}
+.chat-claude .chat-text pre::before {
+  content: attr(data-lang); position: absolute; left: 12px; top: 8px;
+  font: 600 10px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+.chat-claude .chat-text pre:not([data-lang])::before { content: 'code'; }
+.chat-claude .chat-text pre code { color: inherit; background: none; border: 0; padding: 0; }
+.chat-claude .chat-copy { top: 4px; right: 5px; }
+
+/* Tables: rounded, with a tinted head and quiet rows. */
+.chat-claude .chat-text table {
+  display: block; width: max-content; max-width: 100%; overflow-x: auto; margin: 4px 0 12px; border-collapse: separate; border-spacing: 0;
+  border: 1px solid var(--border); border-radius: 10px; font-size: 12.5px;
+}
+.chat-claude .chat-text th, .chat-claude .chat-text td { border: 0; border-bottom: 1px solid var(--border-soft); padding: 7px 10px; }
+.chat-claude .chat-text th { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); background: rgb(var(--accent-rgb) / 0.08); }
+.chat-claude .chat-text tr:last-child td { border-bottom: 0; }
+.chat-claude .chat-text tbody tr:nth-child(even) td { background: rgb(var(--win-edge) / 0.025); }
+.chat-claude .chat-text hr { border: 0; height: 1px; margin: 16px 0; background: linear-gradient(90deg, transparent, var(--border), transparent); }
+
+/* Maths, typeset by KaTeX when it has loaded (lib/typesetMath.ts); the TeX as written until then. */
+.chat-math:not([data-set]) { font: 12.5px var(--mono); color: var(--ink-2); }
+.chat-math .katex { font-size: 1.08em; }
+.chat-math-block {
+  margin: 4px 0 12px; padding: 12px 14px; overflow-x: auto; text-align: center;
+  border-radius: 10px; background: rgb(var(--accent-rgb) / 0.05); border: 1px solid rgb(var(--accent-rgb) / 0.12);
+}
+.chat-math-block:not([data-set]) { font: 12.5px var(--mono); white-space: pre-wrap; text-align: left; }
+.chat-math-block .katex-display { margin: 0; }
+
+/* The reasoning, folded: a quiet chip until opened. */
+.chat-thinking summary {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; list-style: none;
+  font: 600 10.5px var(--sans); letter-spacing: 0.06em; color: var(--muted); background: rgb(var(--win-edge) / 0.05);
+}
+.chat-thinking summary::-webkit-details-marker { display: none; }
+.chat-thinking summary::before { content: '›'; font-size: 13px; transition: rotate 0.15s; }
+.chat-thinking[open] summary::before { rotate: 90deg; }
