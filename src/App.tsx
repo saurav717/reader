@@ -88,7 +88,8 @@ export default function App() {
   }, [assistantOpen]);
 
   useEffect(trackSelection, []);
-  useEffect(() => (settings.glass ? followLight() : undefined), [settings.glass]);
+  const lightOn = settings.glass && settings.glassLight > 0;
+  useEffect(() => (lightOn ? followLight() : undefined), [lightOn]);
 
   // A selection from one paper is not on screen once another is open.
   const readingId = view.kind === 'paper' ? view.id : null;

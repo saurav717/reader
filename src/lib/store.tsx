@@ -39,6 +39,7 @@ const defaultSettings: Settings = {
   glass: false,
   glassFrost: 0.5,
   glassWall: 'spotlight',
+  glassLight: 1,
   readingMode: 'pdf',
   contactEmail: '',
   githubRepo: '',
@@ -293,6 +294,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (settings.glass) root.dataset.glass = 'on';
     else delete root.dataset.glass;
     root.style.setProperty('--frost', String(settings.glassFrost));
+    root.style.setProperty('--light', String(settings.glassLight));
     root.dataset.wall = settings.glassWall;
     setContactEmail(settings.contactEmail);
     setProxyBase(settings.proxyBase);

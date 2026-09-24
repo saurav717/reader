@@ -205,6 +205,11 @@ export interface Settings {
   glassFrost: number;
   /** What is behind the glass. */
   glassWall: GlassWall;
+  /**
+   * How strongly the glass catches the light that follows the pointer: 0 turns
+   * it off, 1 is the standard sheen, 2 twice as bright.
+   */
+  glassLight: number;
   /** Which view a paper opens in when both are available. */
   readingMode: ReadingMode;
   /**
