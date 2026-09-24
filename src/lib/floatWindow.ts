@@ -161,6 +161,22 @@ export function nudge(rect: Rect, side: Side, by: number, view: Viewport): Rect 
 }
 
 /**
+ * Out of the way of a panel on the right whose left edge is at `left`: the
+ * window moves left until it clears it, and narrows only when it cannot
+ * clear it at its own width. `null` when it is clear already, or when the
+ * room beside the panel is too narrow for a window at all.
+ */
+export function clearOf(rect: Rect, left: number, view: Viewport): Rect | null {
+  const edge = left - PAD;
+  if (rect.x + rect.w <= edge) return null;
+  const b = bounds(view);
+  const room = edge - b.x;
+  if (room < MIN.w) return null;
+  const w = Math.min(rect.w, room);
+  return { ...rect, w, x: edge - w };
+}
+
+/**
  * The next stride of a held arrow: a tap is a small precise move, a held key
  * accelerates until it crosses the page in about a second.
  */

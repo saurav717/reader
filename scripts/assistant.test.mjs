@@ -242,3 +242,65 @@ describe('the floating window', () => {
     assert.deepEqual(win.zoom(home, view), win.bounds(view));
   });
 });
+
+describe('recommended papers', () => {
+  const answer = [
+    'Read these first.',
+    '',
+    '```papers',
+    '{"title": "Stacked generalization", "authors": "Wolpert", "year": 1992, "why": "the basis of late fusion"}',
+    '{"title": "Stacked regressions", "authors": ["Leo Breiman"]}',
+    'not json',
+    '{"authors": "no title"}',
+    '{"title": "stacked generalization"}',
+    '```',
+  ].join('\n');
+
+  it('takes the block out of the prose and reads a paper from each line', () => {
+    const { text, papers } = assistant.splitPapers(answer);
+    assert.equal(text, 'Read these first.');
+    assert.deepEqual(papers, [
+      { title: 'Stacked generalization', authors: 'Wolpert', year: '1992', why: 'the basis of late fusion' },
+      { title: 'Stacked regressions', authors: 'Leo Breiman', year: undefined, why: undefined },
+    ]);
+  });
+
+  it('hides a block still streaming in, and keeps the lines that are whole', () => {
+    const { text, papers } = assistant.splitPapers('Two to read.\n```papers\n{"title": "Stacked regressions"}\n{"title": "Stack');
+    assert.equal(text, 'Two to read.');
+    assert.deepEqual(papers.map((paper) => paper.title), ['Stacked regressions']);
+  });
+
+  it('leaves an answer with no block, and other code, as it is', () => {
+    const plain = 'Some code:\n```js\nconst a = 1;\n```';
+    assert.deepEqual(assistant.splitPapers(plain), { text: plain, papers: [] });
+  });
+
+  it('is asked for in the system prompt', () => {
+    assert.match(assistant.SYSTEM, /```papers/);
+  });
+});
+
+describe('the window beside Discover', () => {
+  const view = { width: 1440, height: 900 };
+  const rect = win.defaultRect(view);
+
+  it('moves left of a pane it covers, keeping its size', () => {
+    const next = win.clearOf(rect, 1092, view);
+    assert.equal(next.x + next.w, 1092 - win.PAD);
+    assert.equal(next.w, rect.w);
+    assert.equal(next.y, rect.y);
+  });
+
+  it('stays where it is when it is clear already', () => {
+    assert.equal(win.clearOf({ ...rect, x: 100 }, 1092, view), null);
+  });
+
+  it('narrows when the room is short, and gives up when there is none', () => {
+    const wide = { ...rect, x: 100, w: 1200 };
+    const next = win.clearOf(wide, 1092, view);
+    assert.equal(next.x, win.LEFT_GUTTER + win.PAD);
+    assert.equal(next.x + next.w, 1092 - win.PAD);
+    assert.equal(win.clearOf(rect, 300, view), null);
+  });
+});
