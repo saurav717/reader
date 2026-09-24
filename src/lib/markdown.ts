@@ -19,6 +19,14 @@ export function inline(src: string): string {
   s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, text: string, url: string) =>
     `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`,
   );
+  // A paper named in an answer, `[Name et al. 2021](paper:Its full title)`: the
+  // name, drawn as a button that carries the title. The window numbers it and
+  // shows the paper's card from it. Set aside like a code span, so the title in
+  // its attributes is never formatted.
+  s = s.replace(/\[([^\]\n]+)\]\(paper:\s*([^)\n]+)\)/g, (_, text: string, title: string) => {
+    codes.push(`<button type="button" class="chat-mention" data-paper="${title.trim()}" aria-haspopup="dialog">${text}</button>`);
+    return `\u0000${codes.length - 1}\u0000`;
+  });
   s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
   s = s.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>');

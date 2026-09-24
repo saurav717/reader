@@ -243,6 +243,55 @@ describe('the floating window', () => {
   });
 });
 
+describe('papers named in an answer', () => {
+  it('draws the name as a button that carries the title', () => {
+    const html = markdown('Read [Wolpert 1992](paper:Stacked generalization) first.');
+    assert.match(html, /Read <button type="button" class="chat-mention" data-paper="Stacked generalization"[^>]*>Wolpert 1992<\/button> first\./);
+  });
+
+  it('keeps the title out of reach of bold and italics, and escaped', () => {
+    const html = markdown('See [them](paper:A _new_ "look" at **stacking**).');
+    assert.match(html, /data-paper="A _new_ &quot;look&quot; at \*\*stacking\*\*"/);
+    assert.doesNotMatch(html, /<em>|<strong>/);
+  });
+
+  it('leaves ordinary links and half-written ones alone', () => {
+    assert.match(markdown('[site](https://example.org)'), /<a href="https:\/\/example.org"/);
+    assert.doesNotMatch(markdown('[Wolpert](paper:Stacked gen'), /chat-mention/);
+  });
+
+  it('is asked for in the system prompt', () => {
+    assert.match(assistant.SYSTEM, /\]\(paper:/);
+  });
+});
+
+describe('the reading list', () => {
+  const answer = [
+    'First [Breiman](paper:Stacked regressions), then [Wolpert](paper:Stacked Generalization) and [Breiman again](paper:Stacked regressions).',
+    '```papers',
+    '{"title": "Stacked generalization", "authors": "Wolpert", "year": 1992, "why": "the idea"}',
+    '{"title": "Some unnamed paper", "year": 2000}',
+    '```',
+  ].join('\n');
+
+  it('numbers the papers in the order the text names them, once each', () => {
+    const { papers } = assistant.readingList(answer);
+    assert.deepEqual(papers.map((paper) => paper.title), ['Stacked regressions', 'Stacked generalization', 'Some unnamed paper']);
+  });
+
+  it('takes what the block says of a paper, matched by title whatever its case', () => {
+    const [breiman, wolpert, unnamed] = assistant.readingList(answer).papers;
+    assert.deepEqual(breiman, { title: 'Stacked regressions', label: 'Breiman' });
+    assert.equal(wolpert.why, 'the idea');
+    assert.equal(wolpert.label, 'Wolpert');
+    assert.equal(unnamed.year, '2000');
+  });
+
+  it('matches titles by their words, not their punctuation', () => {
+    assert.equal(assistant.paperKey('A pilot study: stacking!'), assistant.paperKey('a Pilot Study — Stacking'));
+  });
+});
+
 describe('recommended papers', () => {
   const answer = [
     'Read these first.',
@@ -276,7 +325,7 @@ describe('recommended papers', () => {
     assert.deepEqual(assistant.splitPapers(plain), { text: plain, papers: [] });
   });
 
-  it('is asked for in the system prompt', () => {
+  it('is asked for in the system prompt, as well as the links', () => {
     assert.match(assistant.SYSTEM, /```papers/);
   });
 });

@@ -7,6 +7,7 @@ import { GLASS_WALLS } from '../types';
 import type { ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
+import { PAPER_LAYOUTS, setLayout, useLayout } from './paperCards';
 
 const ZEN_HAZES: { id: ZenHaze; label: string; note: string }[] = [
   { id: 'shadow', label: 'Shadow', note: 'casting a long soft shadow across the page.' },
@@ -15,6 +16,7 @@ const ZEN_HAZES: { id: ZenHaze; label: string; note: string }[] = [
 ];
 
 export default function Settings({ onClose }: { onClose: () => void }) {
+  const paperLayout = useLayout();
   const {
     settings,
     updateSettings,
@@ -532,6 +534,24 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               <CheckIcon size={14} /> A client ID is configured.
             </p>
           ) : null}
+        </section>
+
+        <section style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Papers Ask Claude names
+          </div>
+          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="Where the papers' cards go">
+            {PAPER_LAYOUTS.map(({ value, label, note }) => (
+              <button key={value} type="button" aria-pressed={paperLayout === value} title={note} onClick={() => setLayout(value)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+            {PAPER_LAYOUTS.find((layout) => layout.value === paperLayout)?.note}. Each card has Find, which opens the
+            paper in Discover, and +, which adds it to the Reading list. The same switch is under every answer that
+            names papers, and in the chat window's ⚙.
+          </p>
         </section>
 
         <section style={{ marginBottom: 22 }}>
