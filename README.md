@@ -621,8 +621,22 @@ them can see saves its metadata sidecar and says so in the sync log.
 The papers in a view read as a list — each with a tile in its journal's
 colour, its kind and year, its authors, journal and collections, and a ring
 for how far through it you are — grouped by the day they were added when
-sorted that way. The button beside the sort shows them as cards instead; the
-choice is remembered on the device.
+sorted that way.
+
+How they are shown is yours to pick, from the **View** button beside the
+list (the three icons next to it switch the layout in one click):
+
+- **Layout** — List; Cards, a shelf of tiles; or a Compact table, one line to a
+  paper with its authors, journal, year, when it was added and its progress in
+  columns.
+- **Group by** — the day added, reading status, collection (a paper in two is
+  under both), journal or conference, year published, kind (journal, arXiv,
+  book…), or not at all.
+- **Sort by** — recently added or opened, title, first author, year or progress.
+- **Show** — which details each paper carries: authors, journal, collections
+  and tags, highlight count, reading progress.
+
+The choice is remembered on the device, and **Reset to default** puts it back.
 
 The tile is also a tick box: tick one, shift-click another to take the run
 between them, or press ⌘A / Ctrl+A for the whole list. A bar comes up at the

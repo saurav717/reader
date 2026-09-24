@@ -126,6 +126,7 @@ export function Menu({
   up,
   className = 'btn sm',
   title,
+  align,
 }: {
   label: ReactNode;
   icon?: ReactNode;
@@ -133,6 +134,8 @@ export function Menu({
   up?: boolean;
   className?: string;
   title?: string;
+  /** Opens leftwards from the button's right edge, for a button at the right of the page. */
+  align?: 'right';
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -161,7 +164,7 @@ export function Menu({
         {label}
       </button>
       {open ? (
-        <div className={`menu${up ? ' up' : ''}`} role="menu">
+        <div className={`menu${up ? ' up' : ''}${align === 'right' ? ' right' : ''}`} role="menu">
           {children(() => setOpen(false))}
         </div>
       ) : null}

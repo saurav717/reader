@@ -112,7 +112,7 @@ async function closeDiscover() {
 
 console.log('\n== the list, dark glass ==');
 await seed({ theme: 'dark', glass: true, glassWall: 'spotlight', libraryLayout: undefined });
-await page.evaluate(() => localStorage.setItem('reader.libraryLayout', 'list'));
+await page.evaluate(() => { localStorage.removeItem('reader.libraryView'); localStorage.setItem('reader.libraryLayout', 'list'); });
 await reload();
 await closeDiscover();
 check('seven papers in the list', (await page.locator('.lib-row').count()) === 7);
@@ -177,9 +177,36 @@ await page.waitForSelector('.lib-row');
 check('the restored paper is still there', (await page.locator('.lib-row').count()) === 6);
 check('Junk stays empty', ((await page.locator('.library-panel .nav-item', { hasText: 'Junk' }).locator('.count').textContent()) || '') === '0');
 
+console.log('\n== the View menu ==');
+await page.getByRole('button', { name: 'View', exact: true }).click();
+await page.waitForSelector('.view-menu');
+await page.locator('.view-menu').getByRole('menuitemradio', { name: 'Compact table' }).click();
+await page.locator('.view-menu').getByRole('menuitemradio', { name: 'Reading status' }).click();
+await page.locator('.view-menu').getByRole('menuitemradio', { name: 'Title' }).click();
+await shot('library-view-menu-dark');
+check('the menu stays open while choosing', await page.locator('.view-menu').isVisible());
+await page.keyboard.press('Escape');
+check('the compact table has a line a paper', (await page.locator('.lib-table .lib-line').count()) === 6, String(await page.locator('.lib-table .lib-line').count()));
+const statusGroups = (await page.locator('.lib-group').allTextContents()).map((text) => text.replace(/\d+$/, ''));
+check('grouped by reading status', statusGroups.join('|') === 'Reading now|Not started|Finished', statusGroups.join('|'));
+const firstGroup = await page.locator('.lib-table').first().locator('.lib-line-text').allTextContents();
+check('sorted by title within a group', JSON.stringify(firstGroup) === JSON.stringify([...firstGroup].sort((a, b) => a.localeCompare(b))), firstGroup.join(' / '));
+await shot('library-compact-dark');
+await page.getByRole('button', { name: 'View', exact: true }).click();
+await page.locator('.view-menu').getByRole('menuitemcheckbox', { name: 'Authors' }).click();
+await page.keyboard.press('Escape');
+check('a detail can be hidden', (await page.locator('.lib-line-head span', { hasText: 'Authors' }).count()) === 0);
+await reload();
+await page.locator('.library-panel .nav-item', { hasText: 'All papers' }).click();
+check('the choice is remembered', (await page.locator('.lib-table .lib-line').count()) === 6 && (await page.locator('.lib-line-head span', { hasText: 'Authors' }).count()) === 0);
+await page.getByRole('button', { name: 'View', exact: true }).click();
+await page.locator('.view-menu').getByRole('menuitem', { name: 'Reset to default' }).click();
+await page.keyboard.press('Escape');
+check('Reset to default brings back the list', (await page.locator('.lib-row').count()) === 6);
+
 console.log('\n== light ==');
 await seed({ theme: 'light', glass: false });
-await page.evaluate(() => localStorage.setItem('reader.libraryLayout', 'list'));
+await page.evaluate(() => { localStorage.removeItem('reader.libraryView'); localStorage.setItem('reader.libraryLayout', 'list'); });
 await reload();
 await closeDiscover();
 await shot('library-list-light');

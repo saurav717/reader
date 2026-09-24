@@ -4,8 +4,24 @@ import type { View } from '../types.view';
 import type { Paper } from '../types';
 import { STATUS_LABEL, statusOf, type ReadingStatus } from '../lib/status';
 import { driveFolderUrl } from '../lib/driveSync';
-import { authorLine, dayGroup, relativeDay } from '../lib/libraryLook';
-import { CloseIcon, CloudCheckIcon, CloudIcon, DriveMark, FlagIcon, FolderMoveIcon, GridIcon, ListIcon, PlusIcon, SearchIcon, TrashIcon } from './icons';
+import { authorLine, relativeDay } from '../lib/libraryLook';
+import {
+  DEFAULT_PREFS,
+  DETAIL_LABEL,
+  GROUP_LABEL,
+  LAYOUT_LABEL,
+  SORT_LABEL,
+  groupPapers,
+  readPrefs,
+  sortPapers,
+  writePrefs,
+  type Detail,
+  type GroupBy,
+  type Layout,
+  type SortBy,
+  type ViewPrefs,
+} from '../lib/libraryView';
+import { CheckIcon, CloseIcon, CloudCheckIcon, CloudIcon, DriveMark, FlagIcon, FolderMoveIcon, GridIcon, ListIcon, PlusIcon, SearchIcon, SlidersIcon, TableIcon, TrashIcon } from './icons';
 import RemovePaperDialog from './RemovePaperDialog';
 import { CoverTile, Menu, PAPERS_MIME, ProgressRing, progressLabel } from './LibraryBits';
 
@@ -14,18 +30,6 @@ interface Props {
   onOpenPaper: (id: string) => void;
   onDiscover: () => void;
 }
-
-type Sort = 'added' | 'opened' | 'title' | 'year' | 'progress';
-type Layout = 'list' | 'grid';
-
-const LAYOUT_KEY = 'reader.libraryLayout';
-const readLayout = (): Layout => {
-  try {
-    return localStorage.getItem(LAYOUT_KEY) === 'grid' ? 'grid' : 'list';
-  } catch {
-    return 'list';
-  }
-};
 
 function headingFor(view: View, name?: string): string {
   switch (view.kind) {
@@ -54,13 +58,14 @@ function driveFolderLink(paper: Paper): string | null {
   return paper.drive?.pdfLink ?? null;
 }
 
-const yearOf = (paper: Paper) => Number(/^\d{4}/.exec(paper.published || '')?.[0]) || 0;
+const yearOf = (paper: Paper) => /^\d{4}/.exec(paper.published || '')?.[0] ?? '';
 
 export default function CollectionView({ view, onOpenPaper, onDiscover }: Props) {
   const { papers, collections, highlights, driveConnected, syncPaper, syncStateFor, setPaperCollections, setReadingStatus, createCollection } = useStore();
   const [filter, setFilter] = useState('');
-  const [sort, setSort] = useState<Sort>('added');
-  const [layout, setLayout] = useState<Layout>(readLayout);
+  const [prefs, setPrefs] = useState<ViewPrefs>(() => readPrefs());
+  const { layout, sort, group: groupBy } = prefs;
+  const shows = (detail: Detail) => prefs.show.includes(detail);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const anchor = useRef<string | null>(null);
   /** The papers the bin was pressed on, while the notice asks whether to go ahead. */
@@ -83,14 +88,15 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const chooseLayout = (next: Layout) => {
-    setLayout(next);
-    try {
-      localStorage.setItem(LAYOUT_KEY, next);
-    } catch {
-      // remembered for this visit only
-    }
-  };
+  const choose = (patch: Partial<ViewPrefs>) =>
+    setPrefs((current) => {
+      const next = { ...current, ...patch };
+      writePrefs(next);
+      return next;
+    });
+  const chooseLayout = (layout: Layout) => choose({ layout });
+  const toggleDetail = (detail: Detail) =>
+    choose({ show: prefs.show.includes(detail) ? prefs.show.filter((item) => item !== detail) : [...prefs.show, detail] });
 
   const scoped = useMemo(() => {
     let list: Paper[] = papers;
@@ -114,30 +120,14 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
           paper.tags.join(' ').toLowerCase().includes(needle),
       );
     }
-    const sorted = list.slice();
-    sorted.sort((a, b) => {
-      if (sort === 'title') return a.title.localeCompare(b.title);
-      if (sort === 'progress') return b.progress - a.progress;
-      if (sort === 'year') return yearOf(b) - yearOf(a);
-      if (sort === 'opened') return (b.lastOpenedAt || '').localeCompare(a.lastOpenedAt || '');
-      return b.addedAt.localeCompare(a.addedAt);
-    });
-    return sorted;
+    return sortPapers(list, sort);
   }, [scoped, filter, sort]);
 
-  // Sorted by when they came in, the list reads as a diary: today, this week, and so on.
-  const groups = useMemo(() => {
-    // Cards read as a shelf; headings between them would leave it full of gaps.
-    if (sort !== 'added' || layout === 'grid') return [{ name: '', items: rows }];
-    const out: { name: string; items: Paper[] }[] = [];
-    for (const paper of rows) {
-      const name = dayGroup(paper.addedAt);
-      const last = out[out.length - 1];
-      if (last?.name === name) last.items.push(paper);
-      else out.push({ name, items: [paper] });
-    }
-    return out;
-  }, [rows, sort, layout]);
+  // Inside a collection, grouping by collection would put everything under its own name.
+  const grouping: GroupBy = groupBy === 'collection' && collection ? 'none' : groupBy;
+  const groups = useMemo(() => groupPapers(rows, grouping, collections), [rows, grouping, collections]);
+  /** The papers in the order they are shown, once each: what a shift-click's range runs along. */
+  const shown = useMemo(() => [...new Set(groups.flatMap((group) => group.items.map((paper) => paper.id)))], [groups]);
 
   const highlightCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -166,7 +156,7 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
         const next = new Set(current);
         if (event?.shiftKey && anchor.current && anchor.current !== id) {
           // A range, from the last one ticked to this one, all set the way the anchor is.
-          const ids = rows.map((paper) => paper.id);
+          const ids = shown;
           const from = ids.indexOf(anchor.current);
           const to = ids.indexOf(id);
           if (from !== -1 && to !== -1) {
@@ -184,7 +174,7 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
         return next;
       });
     },
-    [rows],
+    [shown],
   );
 
   const selectAll = () => setSelected(allChosen ? new Set() : new Set(rows.map((paper) => paper.id)));
@@ -329,15 +319,15 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
       .filter((item): item is NonNullable<typeof item> => Boolean(item));
     return (
       <span className="lib-meta">
-        {paper.venue ? <span className="lib-venue">{paper.venue}</span> : paper.arxivId ? <span className="mono">arXiv:{paper.arxivId}</span> : null}
-        {elsewhere.slice(0, 2).map((item) => (
+        {!shows('venue') ? null : paper.venue ? <span className="lib-venue">{paper.venue}</span> : paper.arxivId ? <span className="mono">arXiv:{paper.arxivId}</span> : null}
+        {!shows('collections') ? null : elsewhere.slice(0, 2).map((item) => (
           <span key={item.id} className="lib-chip">
             <span className="dot" style={{ background: item.color }} />
             {item.name}
           </span>
         ))}
-        {count ? <span className="lib-chip hl">{count} highlight{count === 1 ? '' : 's'}</span> : null}
-        {paper.tags.slice(0, 2).map((tag) => (
+        {count && shows('highlights') ? <span className="lib-chip hl">{count} highlight{count === 1 ? '' : 's'}</span> : null}
+        {!shows('collections') ? null : paper.tags.slice(0, 2).map((tag) => (
           <span key={tag} className="lib-chip">
             #{tag}
           </span>
@@ -364,12 +354,16 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
         />
         <button type="button" className="lib-main" onClick={(event) => open(paper, event)} title={selecting ? 'Click to select or unselect' : undefined}>
           <span className="paper-name">{paper.title}</span>
-          <span className="lib-authors">{authorLine(paper.authors)}</span>
+          {shows('authors') ? <span className="lib-authors">{authorLine(paper.authors)}</span> : null}
           {meta(paper)}
         </button>
         <div className="lib-status" title={`Added ${relativeDay(paper.addedAt)}${paper.lastOpenedAt ? `, last opened ${relativeDay(paper.lastOpenedAt)}` : ''}`}>
-          <ProgressRing progress={paper.progress} />
-          <span>{progressLabel(paper.progress)}</span>
+          {shows('progress') ? (
+            <>
+              <ProgressRing progress={paper.progress} />
+              <span>{progressLabel(paper.progress)}</span>
+            </>
+          ) : null}
         </div>
         {actions(paper)}
       </div>
@@ -394,22 +388,88 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
             onToggle={(event) => toggle(paper.id, event)}
             label={`Select ${paper.title}`}
           />
-          <span className="lib-card-ring">
-            <ProgressRing progress={paper.progress} size={26} />
-          </span>
-          {paper.venue ? <span className="lib-card-venue">{paper.venue}</span> : null}
+          {shows('progress') ? (
+            <span className="lib-card-ring">
+              <ProgressRing progress={paper.progress} size={26} />
+            </span>
+          ) : null}
+          {paper.venue && shows('venue') ? <span className="lib-card-venue">{paper.venue}</span> : null}
         </div>
         <button type="button" className="lib-card-body" onClick={(event) => open(paper, event)} title={selecting ? 'Click to select or unselect' : undefined}>
           <span className="paper-name">{paper.title}</span>
-          <span className="lib-authors">{authorLine(paper.authors, 2)}</span>
+          {shows('authors') ? <span className="lib-authors">{authorLine(paper.authors, 2)}</span> : null}
+          {shows('collections') || shows('highlights') ? meta({ ...paper, venue: undefined, arxivId: undefined }) : null}
         </button>
         <div className="lib-card-foot">
-          <span className="lib-card-state">{progressLabel(paper.progress)}</span>
+          <span className="lib-card-state">{shows('progress') ? progressLabel(paper.progress) : ''}</span>
           {actions(paper)}
         </div>
       </div>
     );
   };
+
+  /** One line to a paper: the columns the View menu leaves on, and nothing that wraps. */
+  const line = (paper: Paper) => {
+    const isSelected = selected.has(paper.id);
+    const count = highlightCounts.get(paper.id) ?? 0;
+    return (
+      <div
+        key={paper.id}
+        className={`lib-line${isSelected ? ' is-selected' : ''}`}
+        draggable
+        onDragStart={(event) => onDragStart(paper, event)}
+        style={{ gridTemplateColumns: columns }}
+      >
+        <CoverTile paper={paper} size="mini" selected={isSelected} selecting={selecting} onToggle={(event) => toggle(paper.id, event)} label={`Select ${paper.title}`} />
+        <button type="button" className="lib-line-title" onClick={(event) => open(paper, event)} title={paper.title}>
+          <span className="lib-line-text">{paper.title}</span>
+          {count && shows('highlights') ? <span className="lib-line-count" title={`${count} highlight${count === 1 ? '' : 's'}`}>{count}</span> : null}
+        </button>
+        {shows('authors') ? <span className="lib-line-cell">{authorLine(paper.authors, 2)}</span> : null}
+        {shows('venue') ? <span className="lib-line-cell lib-venue">{paper.venue || (paper.arxivId ? `arXiv:${paper.arxivId}` : '')}</span> : null}
+        <span className="lib-line-cell mono">{yearOf(paper)}</span>
+        <span className="lib-line-cell">{relativeDay(paper.addedAt)}</span>
+        {shows('progress') ? (
+          <span className="lib-line-cell lib-line-progress">
+            <ProgressRing progress={paper.progress} size={18} />
+            {progressLabel(paper.progress).replace(' read', '')}
+          </span>
+        ) : null}
+        {actions(paper)}
+      </div>
+    );
+  };
+  const columns = [
+    '22px',
+    'minmax(180px, 3fr)',
+    shows('authors') ? 'minmax(100px, 1.4fr)' : '',
+    shows('venue') ? 'minmax(100px, 1.4fr)' : '',
+    '46px',
+    '84px',
+    shows('progress') ? '104px' : '',
+    '100px',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const tableHead = (
+    <div className="lib-line lib-line-head" style={{ gridTemplateColumns: columns }} aria-hidden="true">
+      <span />
+      <span>Title</span>
+      {shows('authors') ? <span>Authors</span> : null}
+      {shows('venue') ? <span>Journal</span> : null}
+      <span>Year</span>
+      <span>Added</span>
+      {shows('progress') ? <span>Progress</span> : null}
+      <span />
+    </div>
+  );
+
+  const option = (checked: boolean, label: string, onPick: () => void, role: 'menuitemradio' | 'menuitemcheckbox' = 'menuitemradio') => (
+    <button key={label} type="button" role={role} aria-checked={checked} className={checked ? 'is-checked' : ''} onClick={onPick}>
+      <span className="menu-tick">{checked ? <CheckIcon size={13} strokeWidth={2.4} /> : null}</span>
+      {label}
+    </button>
+  );
 
   return (
     <div className="main library-main">
@@ -471,16 +531,6 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
               placeholder={collection ? `Filter ${collection.name}` : 'Filter by title, author, journal or tag'}
             />
           </div>
-          <label className="vh" htmlFor="collection-sort">
-            Sort by
-          </label>
-          <select id="collection-sort" className="collection-sort" value={sort} onChange={(event) => setSort(event.target.value as Sort)}>
-            <option value="added">Recently added</option>
-            <option value="opened">Recently opened</option>
-            <option value="title">Title</option>
-            <option value="year">Year published</option>
-            <option value="progress">Progress</option>
-          </select>
           <span style={{ flexGrow: 1 }} />
           <div className="segmented" role="group" aria-label="Layout">
             <button type="button" aria-pressed={layout === 'list'} onClick={() => chooseLayout('list')} title="List" aria-label="Show as a list">
@@ -489,8 +539,40 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
             <button type="button" aria-pressed={layout === 'grid'} onClick={() => chooseLayout('grid')} title="Cards" aria-label="Show as cards">
               <GridIcon size={15} />
             </button>
+            <button type="button" aria-pressed={layout === 'compact'} onClick={() => chooseLayout('compact')} title="Compact table" aria-label="Show as a compact table">
+              <TableIcon size={15} />
+            </button>
           </div>
+          <Menu label="View" icon={<SlidersIcon size={15} />} className="btn view-btn" title="Choose how the papers are shown" align="right">
+            {() => (
+              <div className="view-menu">
+                <div>
+                  <p className="menu-label">Layout</p>
+                  {(Object.keys(LAYOUT_LABEL) as Layout[]).map((each) => option(layout === each, LAYOUT_LABEL[each], () => chooseLayout(each)))}
+                  <p className="menu-label">Group by</p>
+                  {(Object.keys(GROUP_LABEL) as GroupBy[])
+                    .filter((each) => !(each === 'collection' && collection))
+                    .map((each) => option(groupBy === each, GROUP_LABEL[each], () => choose({ group: each })))}
+                </div>
+                <div>
+                  <p className="menu-label">Sort by</p>
+                  {(Object.keys(SORT_LABEL) as SortBy[]).map((each) => option(sort === each, SORT_LABEL[each], () => choose({ sort: each })))}
+                  <p className="menu-label">Show</p>
+                  {(Object.keys(DETAIL_LABEL) as Detail[]).map((each) => option(shows(each), DETAIL_LABEL[each], () => toggleDetail(each), 'menuitemcheckbox'))}
+                  <hr />
+                  <button type="button" role="menuitem" onClick={() => choose(DEFAULT_PREFS)}>
+                    <span className="menu-tick" />
+                    Reset to default
+                  </button>
+                </div>
+              </div>
+            )}
+          </Menu>
         </div>
+        <p className="view-summary">
+          {LAYOUT_LABEL[layout]}
+          {grouping !== 'none' ? ` · grouped by ${GROUP_LABEL[grouping].replace(/ \(.*\)$/, '').toLowerCase()}` : ''} · sorted by {SORT_LABEL[sort].toLowerCase()}
+        </p>
       </div>
 
       <div className={`scroll library-scroll${selecting ? ' has-selection' : ''}`}>
@@ -510,15 +592,23 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
           </div>
         ) : null}
 
+        {layout === 'compact' && rows.length ? tableHead : null}
         {groups.map((group) => (
-          <Fragment key={group.name || 'all'}>
+          <Fragment key={group.key}>
             {group.name ? (
               <h2 className="lib-group">
+                {group.color ? <span className="dot" style={{ background: group.color }} /> : null}
                 {group.name}
                 <span>{group.items.length}</span>
               </h2>
             ) : null}
-            {layout === 'grid' ? <div className="lib-grid">{group.items.map(card)}</div> : <div className="lib-list">{group.items.map(row)}</div>}
+            {layout === 'grid' ? (
+              <div className="lib-grid">{group.items.map(card)}</div>
+            ) : layout === 'compact' ? (
+              <div className="lib-table">{group.items.map(line)}</div>
+            ) : (
+              <div className="lib-list">{group.items.map(row)}</div>
+            )}
           </Fragment>
         ))}
       </div>

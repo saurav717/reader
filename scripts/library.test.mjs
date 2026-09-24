@@ -60,3 +60,51 @@ describe('the day a paper was added', () => {
     assert.equal(relativeDay(at(2026, 2, 12), now), '12 Mar');
   });
 });
+
+const { DEFAULT_PREFS, groupPapers, readPrefs, sortPapers } = await load('src/lib/libraryView.ts');
+
+describe('the View menu’s grouping and order', () => {
+  const now = new Date(2026, 8, 24, 15, 0);
+  const paper = (id, extra) => ({ id, source: 'scholar', title: id, authors: [], abstract: '', published: '', categories: [], addedAt: now.toISOString(), collectionIds: [], tags: [], progress: 0, ...extra });
+  const papers = [
+    paper('a', { title: 'Zeta', authors: ['EL Meier'], venue: 'Brain imaging and behavior', published: '2019-01-01', progress: 0.3, collectionIds: ['c1', 'c2'], addedAt: new Date(2026, 8, 24).toISOString() }),
+    paper('b', { title: 'Alpha', authors: ['S Mu'], arxivId: '2503.07137', published: '2025-03-10', progress: 1, addedAt: new Date(2026, 8, 20).toISOString() }),
+    paper('c', { title: 'Mid', authors: ['CM Bishop'], venue: 'Brain Imaging and Behavior', progress: 0, collectionIds: ['c2'], addedAt: new Date(2026, 7, 2).toISOString() }),
+  ];
+  const collections = [
+    { id: 'c1', name: 'Reading list', color: '#000', createdAt: '' },
+    { id: 'c2', name: 'Aphasia', color: '#111', createdAt: '' },
+  ];
+  const names = (groups) => groups.map((group) => `${group.name}:${group.items.map((item) => item.id).join('')}`);
+
+  it('groups by reading status in the side pane’s order', () => {
+    assert.deepEqual(names(groupPapers(papers, 'status', collections, now)), ['Reading now:a', 'Not started:c', 'Finished:b']);
+  });
+
+  it('puts a paper under each of its collections, and the rest last', () => {
+    assert.deepEqual(names(groupPapers(papers, 'collection', collections, now)), ['Reading list:a', 'Aphasia:ac', 'In no collection:b']);
+  });
+
+  it('groups a journal however its name is cased, and papers with none last', () => {
+    assert.deepEqual(names(groupPapers(papers, 'venue', collections, now)), ['Brain imaging and behavior:ac', 'No journal or conference:b']);
+  });
+
+  it('groups by year newest first, and by day added newest first', () => {
+    assert.deepEqual(names(groupPapers(papers, 'year', collections, now)), ['2025:b', '2019:a', 'No year:c']);
+    assert.deepEqual(names(groupPapers(papers, 'added', collections, now)), ['Today:a', 'This week:b', 'August:c']);
+  });
+
+  it('sorts by title, first author’s surname or progress', () => {
+    assert.deepEqual(sortPapers(papers, 'title').map((item) => item.id), ['b', 'c', 'a']);
+    assert.deepEqual(sortPapers(papers, 'author').map((item) => item.id), ['c', 'a', 'b']);
+    assert.deepEqual(sortPapers(papers, 'progress').map((item) => item.id), ['b', 'a', 'c']);
+  });
+
+  it('remembers the choice, and falls back on anything it does not know', () => {
+    const saved = (value, old) => ({ getItem: (key) => (key === 'reader.libraryView' ? value : key === 'reader.libraryLayout' ? old ?? null : null) });
+    assert.deepEqual(readPrefs(saved(null)), DEFAULT_PREFS);
+    assert.equal(readPrefs(saved(null, 'grid')).layout, 'grid');
+    const read = readPrefs(saved(JSON.stringify({ layout: 'compact', group: 'nonsense', sort: 'year', show: ['authors', 'bogus'] })));
+    assert.deepEqual(read, { layout: 'compact', group: 'added', sort: 'year', show: ['authors'] });
+  });
+});
