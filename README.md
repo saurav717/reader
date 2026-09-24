@@ -107,8 +107,10 @@ uploaded or a PDF on a course page is in none of them, so the **Books & PDFs**
 chip in Discover asks the places that keep them and will hand the file over:
 [Open Library](https://openlibrary.org/developers/api), which catalogues books and
 knows which ones the Internet Archive has a free scan of; [Google
-Books](https://developers.google.com/books/docs/v1/using)' free ebooks, whose PDFs
-Google lets anyone download; and the [Internet
+Books](https://developers.google.com/books/docs/v1/using), whose PDF comes with a
+book Google lets anyone download, and whose other books come as their page — to
+read in the browser pane — marked *read in Google's viewer only* or *preview
+only*; and the [Internet
 Archive](https://archive.org/advancedsearch.php) itself, searched for texts with a
 PDF among their files. All three answer a browser directly, so the chip works
 without a proxy. A book with a free scan comes with its PDF; one that is only lent out comes
@@ -132,8 +134,13 @@ store page — *Fetch the PDF from this page* asks the Books API for the volume'
 download link, then walks the classic book page, where the signed link is, with the
 browser's cookies. Only a book Google lets anyone download (public domain, or free)
 has a PDF to fetch: a preview is pictures of some of the pages, and a bought ebook
-is Adobe's DRM (`.acsm`). For those the pane says which it is, and points at *Books
-& PDFs*, where Open Library or the Internet Archive often has a free scan.
+is Adobe's DRM (`.acsm`), and a book Google lets you read in its viewer still has
+no file behind it — the viewer only ever sends the page you are on. For those the
+pane says which it is, and points at the paper's other copies and *Books & PDFs*,
+where Open Library or the Internet Archive often has a free scan. That answer is
+asked of Google from your own browser, not the proxy's: what Google shows and lets
+you download depends on the country you are in, and the proxy's browser is in
+another.
 
 **Add papers**, at the top of a collection, puts the cursor in Discover's search
 box — opening the panel if it is shut — and Discover's **Add to** follows the

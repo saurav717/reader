@@ -15,6 +15,7 @@ const {
   fromGoogleBooks,
   fromOpenLibrary,
   googleBooksIdFromLink,
+  googleBooksNoPdf,
   linkFromQuery,
   paperFromLink,
   searchBooks,
@@ -128,6 +129,22 @@ describe('a book from Google Books', () => {
     assert.equal(book.pdfUrl, undefined);
   });
 
+  it('says why a book you can read in Google’s viewer has no file', () => {
+    const readable = {
+      id: 'u_dyEAAAQBAJ',
+      volumeInfo: { title: 'How to Win Friends and Influence People' },
+      accessInfo: { viewability: 'ALL_PAGES', pdf: { isAvailable: false } },
+      saleInfo: { saleability: 'FOR_SALE' },
+    };
+    assert.match(googleBooksNoPdf(readable), /read “How to Win Friends and Influence People” in its own viewer, but keeps no file/);
+    assert.match(googleBooksNoPdf(readable), /sold on Google Play/);
+    assert.match(fromGoogleBooks(readable).venue, /read in Google’s viewer only/);
+    const preview = { volumeInfo: { title: 'X' }, accessInfo: { viewability: 'PARTIAL' } };
+    assert.match(googleBooksNoPdf(preview), /only shows a preview/);
+    const free = { volumeInfo: { title: 'X' }, accessInfo: { viewability: 'ALL_PAGES', pdf: { isAvailable: true, downloadLink: 'https://books.google.com/books/download/X.pdf?id=a&sig=S' } } };
+    assert.equal(googleBooksNoPdf(free), null);
+  });
+
   it('reads the volume id out of each shape of link Google gives', () => {
     const id = (link) => googleBooksIdFromLink(new URL(link));
     assert.equal(id('https://books.google.co.in/books?id=2fsVAAAAYAAJ&pg=PA3'), '2fsVAAAAYAAJ');
@@ -161,7 +178,7 @@ describe('searching for books', () => {
     handlers['openlibrary.org'] = () => json({ docs: [{ key: '/works/OL1W', title: 'Flatland', ia: ['flat'], ebook_access: 'public' }] });
     handlers['archive.org'] = () => json({ response: { docs: [] } });
     handlers['www.googleapis.com'] = (url) => {
-      assert.equal(url.searchParams.get('filter'), 'free-ebooks');
+      assert.equal(url.searchParams.get('filter'), null);
       return json({ items: [{ id: 'gb00000001', volumeInfo: { title: 'Flatland (Google)' }, accessInfo: { pdf: { isAvailable: true, downloadLink: 'https://books.google.com/books/download/f.pdf?id=gb00000001&output=pdf&sig=S' } } }] });
     };
     const found = await searchBooks('flatland', 0, 20);
