@@ -423,7 +423,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
       <div className="explain-ask">
         <div className="ask-column">
           <form
-            className={`ask-field${busy ? ' is-busy' : ''}${askFocused ? ' is-focused' : ''}`}
+            className={`ask-field${busy ? ' is-busy' : ''}${askFocused ? ' is-focused' : ''}${!canAsk ? ' is-off' : ''}`}
             onSubmit={(event) => {
               event.preventDefault();
               void submit();
@@ -466,7 +466,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
               }}
               placeholder={
                 !explanation?.content
-                  ? 'Once the explanation is written, ask about it or change it here'
+                  ? 'Ask questions or request changes here, once the explanation is written'
                   : scope.section || scope.quote
                     ? 'Ask about this, or say how to change it…'
                     : 'Ask anything about this explanation, or tell Claude how to change it…  ( / )'
@@ -575,53 +575,83 @@ export default function Explain({ paperId, title, authors, published, screen, on
         <article className="explain-doc" onMouseUp={takeSelection}>
           {!explanation?.content && checked && !streaming ? (
             <div className="explain-empty">
-              <div className="explain-kicker">
-                <ExplainIcon size={16} /> The whole paper, explained
+              <div className="explain-kicker pill">
+                <ExplainIcon size={15} /> The whole paper, explained
               </div>
               <h1>{title}</h1>
-              <p>
-                Claude reads the paper end to end and writes you a walkthrough: the problem, how the method works and why it beats what came before,
-                with diagrams, small Python cells you can run, and an honest account of what has changed since it was published.
+              {byline ? <div className="byline">{byline}</div> : null}
+              <p className="explain-lede">
+                Claude reads the paper <b>end to end</b> and writes you a walkthrough: <mark>the problem</mark>, <mark>how the method works</mark> and{' '}
+                <mark>why it beats what came before</mark>. It adds diagrams, small Python cells you can run, and an honest account of{' '}
+                <b>what has changed since</b> it was published.
               </p>
               <ul className="explain-promises">
-                <li>
-                  <b>Figures</b> drawn for each key idea
+                <li className="p-figures">
+                  <span className="promise-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
+                      <path d="M7 15l3.2-3.6 2.6 2.4L17 9" />
+                    </svg>
+                  </span>
+                  <b>Figures</b>
+                  <span>drawn for each key idea</span>
                 </li>
-                <li>
-                  <b>Code cells</b> — runnable in Google Colab
+                <li className="p-code">
+                  <span className="promise-icon" aria-hidden="true">
+                    <span className="colab-mark">co</span>
+                  </span>
+                  <b>Code cells</b>
+                  <span>runnable in Google Colab</span>
                 </li>
-                <li>
-                  <b>Caveats</b> — what still holds, what was superseded or disproved
+                <li className="p-caveats">
+                  <span className="promise-icon" aria-hidden="true">
+                    <span className="dots">
+                      <i className="v-holds" />
+                      <i className="v-superseded" />
+                      <i className="v-disproved" />
+                    </span>
+                  </span>
+                  <b>Caveats</b>
+                  <span>what still holds, and what was superseded or disproved</span>
                 </li>
               </ul>
               {assistant.hasKey ? (
-                <div className="explain-start">
-                  <select value={model} onChange={(event) => setModel(event.target.value)} aria-label="Model">
-                    {MODELS.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label} — {m.note}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="button" className="btn primary" onClick={() => void start()}>
-                    Explain this paper
-                  </button>
-                  <span className="hint">Written once and kept for this paper. A long paper costs about as much as a few long answers in Ask Claude.</span>
-                </div>
+                <>
+                  <div className="explain-start">
+                    <div className="model-pick" role="radiogroup" aria-label="Model">
+                      {MODELS.map((m) => (
+                        <button key={m.id} type="button" role="radio" aria-checked={model === m.id} onClick={() => setModel(m.id)}>
+                          <b>{m.label}</b>
+                          <span>{m.note}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <button type="button" className="btn primary cta" onClick={() => void start()}>
+                      <SparkleIcon size={17} /> Explain this paper
+                    </button>
+                  </div>
+                  <p className="hint">
+                    <b>Written once</b> and kept for this paper. A long paper costs about as much as a few long answers in Ask Claude.
+                  </p>
+                </>
               ) : (
-                <form
-                  className="explain-start"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    saveKey(keyDraft);
-                  }}
-                >
-                  <input type="password" placeholder="sk-ant-…" value={keyDraft} onChange={(event) => setKeyDraft(event.target.value)} aria-label="Anthropic API key" />
-                  <button type="submit" className="btn primary" disabled={!keyDraft.trim()}>
-                    Use this key
-                  </button>
-                  <span className="hint">The same key as Ask Claude. It stays in this browser and goes only to api.anthropic.com.</span>
-                </form>
+                <>
+                  <form
+                    className="explain-start"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      saveKey(keyDraft);
+                    }}
+                  >
+                    <input type="password" placeholder="sk-ant-…" value={keyDraft} onChange={(event) => setKeyDraft(event.target.value)} aria-label="Anthropic API key" />
+                    <button type="submit" className="btn primary cta" disabled={!keyDraft.trim()}>
+                      Use this key
+                    </button>
+                  </form>
+                  <p className="hint">
+                    <b>The same key as Ask Claude.</b> It stays in this browser and goes only to api.anthropic.com.
+                  </p>
+                </>
               )}
             </div>
           ) : (

@@ -1844,6 +1844,11 @@ It uses the same API key and models as Ask Claude. The paper's full text goes
 in the system prompt behind a cache breakpoint. The explanation is written
 once, streamed onto the page as it arrives, and kept in IndexedDB for that
 paper; **Rewrite** asks again, and can be undone. On a phone it is one column.
+In the glass theme the page frosts the reader behind it rather than covering
+it: the wallpaper's colour still comes through, but no sharp text competes
+with the explanation.
+
+![the start of Explain in dark glass: the promise cards, the model picker and the Explain this paper button over the frosted reader](docs/explain-start-glass.png)
 
 Claude writes plain Markdown, plus four fenced blocks the page draws itself:
 `figure`, `python`, `output` and `caveat verdict="…"`. The prompt and the

@@ -2725,15 +2725,86 @@ body.win-moving .assistant-win { transition: none; }
 .caveat-body p { margin: 0 0 8px; }
 .caveat-body code { font: 0.88em var(--mono); }
 
-/* Before there is anything to read. */
-.explain-empty { max-width: 680px; padding-top: 24px; }
-.explain-empty p { font: 18px/1.6 var(--serif); color: var(--ink-2); }
-.explain-promises { list-style: none; padding: 0; margin: 20px 0 28px; display: grid; gap: 8px; }
-.explain-promises li { padding: 10px 14px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface); }
-.explain-start { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.explain-start select, .explain-start input { height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-.explain-start input { width: 280px; font-family: var(--mono); }
-.explain-start .hint { flex-basis: 100%; font-size: 12px; color: var(--muted); }
+/* Before there is anything to read: what you will get, and one clear way to get it. */
+.explain-empty { max-width: 760px; padding-top: 12px; }
+.explain-kicker.pill { padding: 5px 10px 5px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); }
+.explain-empty .byline { color: var(--muted); font-size: 13px; margin-top: -2px; }
+.explain-lede { font: 18.5px/1.62 var(--serif); color: var(--ink-2); margin: 22px 0 26px; max-width: 700px; }
+.explain-lede b { color: var(--ink); font-weight: 600; }
+.explain-lede mark {
+  color: var(--ink); font-weight: 600; padding: 0 2px; border-radius: 3px;
+  background: linear-gradient(transparent 58%, rgb(var(--accent-rgb) / 0.28) 58%);
+}
+.explain-promises { list-style: none; padding: 0; margin: 0 0 30px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.explain-promises li {
+  --c: var(--accent);
+  display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 12px; row-gap: 2px; align-content: center;
+  padding: 14px 14px 14px 12px; border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--c) 28%, var(--border-soft));
+  background: color-mix(in srgb, var(--c) 7%, var(--surface));
+  font-size: 13px; line-height: 1.4;
+}
+.explain-promises li.p-figures { --c: var(--v-refined); }
+.explain-promises li.p-code { --c: #e8710a; }
+.explain-promises li.p-caveats { --c: var(--v-superseded); }
+.explain-promises .promise-icon {
+  grid-row: span 2; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px;
+  color: var(--c); background: color-mix(in srgb, var(--c) 16%, transparent);
+}
+.explain-promises b { align-self: end; font-size: 14px; font-weight: 600; color: var(--c); }
+.explain-promises li > span:last-child { align-self: start; }
+.explain-promises li > span:last-child { color: var(--ink-2); }
+.promise-icon .dots { display: flex; gap: 3px; }
+.promise-icon .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
+.explain-start { display: flex; flex-wrap: wrap; align-items: stretch; gap: 12px; }
+.model-pick { display: flex; padding: 3px; gap: 3px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); }
+.model-pick button {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px;
+  min-width: 112px; padding: 6px 12px; border: 1px solid transparent; border-radius: 9px;
+  background: transparent; cursor: pointer; text-align: left;
+}
+.model-pick button b { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.model-pick button span { font-size: 11px; color: var(--muted); }
+.model-pick button:hover b { color: var(--ink); }
+.model-pick button[aria-checked='true'] { background: var(--accent-soft); border-color: rgb(var(--accent-rgb) / 0.45); }
+.model-pick button[aria-checked='true'] b { color: var(--accent-ink); }
+.btn.primary.cta {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: auto; min-height: 48px; padding: 0 22px; border-radius: 12px;
+  font-size: 15px; font-weight: 600;
+  box-shadow: 0 10px 28px -10px rgb(var(--accent-rgb) / 0.75), inset 0 1px 0 rgb(255 255 255 / 0.18);
+}
+.btn.primary.cta:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn.primary.cta:disabled { box-shadow: none; transform: none; }
+.explain-start input { height: 48px; width: 300px; padding: 0 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); font-family: var(--mono); }
+.explain-empty .hint { margin: 14px 0 0; font-size: 12.5px; color: var(--muted); }
+.explain-empty .hint b { color: var(--ink-2); font-weight: 600; }
+
+/* Bold in the explanation reads as a highlighter stroke, the way you would mark a paper up. */
+.explain-prose strong { font-weight: 650; background: linear-gradient(transparent 62%, var(--hl-yellow) 62%); padding: 0 1px; }
+.explain-prose th strong { background: none; }
+
+/* The ask bar when there is nothing to ask about yet: plainly off, not a green button that does nothing. */
+.ask-field.is-off { border-style: dashed; box-shadow: none; background: transparent; color: var(--muted); }
+.ask-field.is-off .btn.primary { background: transparent; border-color: var(--border); color: var(--muted); opacity: 1; }
+
+/* In glass, the page frosts what is behind it rather than covering it: the
+   colour of the wallpaper and the shape of the paper still come through, but
+   no sharp text competes with the explanation. */
+:root[data-glass='on'] .explain {
+  background: rgb(var(--float-rgb) / calc(var(--float-a) - 0.22));
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+}
+:root[data-glass='on'] .explain-bar { background: rgb(var(--float-rgb) / 0.35); }
+:root[data-glass='on'] .explain-ask { background: rgb(var(--float-rgb) / 0.22); }
+:root[data-glass='on'] .ask-field:not(.is-off) { background: rgb(var(--float-rgb) / 0.7); }
+:root[data-glass='on'] .explain-promises li { background: color-mix(in srgb, var(--c) 10%, rgb(var(--float-rgb) / 0.5)); }
+:root[data-glass='on'] .model-pick { background: rgb(var(--float-rgb) / 0.5); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-glass='on'] .explain { background: rgb(var(--float-rgb) / 0.96); }
+}
+
 .explain-writing { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
 .explain-error { color: var(--danger); font-size: 13px; }
 
@@ -2751,6 +2822,10 @@ body.win-moving .assistant-win { transition: none; }
   .explain-brand { flex: 1; }
   .explain-bar { padding: 0 6px 0 16px; }
   .explain-title h1, .explain-empty h1 { font-size: 26px; }
+  .explain-promises { grid-template-columns: minmax(0, 1fr); }
+  .model-pick { width: 100%; }
+  .model-pick button { flex: 1; min-width: 0; }
+  .btn.primary.cta { width: 100%; justify-content: center; }
 }
 .explain-bar .btn { white-space: nowrap; flex: none; }
 
