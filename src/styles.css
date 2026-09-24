@@ -413,7 +413,8 @@ kbd {
   border-bottom: 1px solid var(--border-soft);
 }
 .topbar .title { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.topbar .sub { font-size: 10.5px; color: var(--muted); font-family: var(--mono); margin-top: 1px; }
+.topbar-heading { min-width: 0; flex: 1 1 auto; }
+.topbar .sub { font-size: 10.5px; color: var(--muted); font-family: var(--mono); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .progress { height: 2px; background: var(--border-soft); flex-shrink: 0; }
 .progress span { display: block; height: 2px; background: var(--accent); }
