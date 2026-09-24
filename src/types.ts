@@ -186,6 +186,8 @@ export interface Settings {
   glass: boolean;
   /** How frosted the glass is, 0 (as clear as stays readable) to 1 (milky). */
   glassFrost: number;
+  /** What is behind the glass. */
+  glassWall: GlassWall;
   /** Which view a paper opens in when both are available. */
   readingMode: ReadingMode;
   /**
@@ -205,6 +207,25 @@ export interface Settings {
   githubToken: string;
   githubSync: boolean;
 }
+
+export type GlassWall = 'spotlight' | 'sage' | 'paper' | 'mist' | 'graphite' | 'lavender' | 'dusk' | 'ocean' | 'spectrum';
+
+/**
+ * The wallpapers, calmest first: the order is how little each pulls the eye
+ * from the page — measured as the colourfulness of what is round the page
+ * (Hasler & Süsstrunk's metric) over a reading screen in both themes.
+ */
+export const GLASS_WALLS: { id: GlassWall; label: string; note: string }[] = [
+  { id: 'spotlight', label: 'Spotlight', note: 'Warm paper, the edges dimmed and the page lit. The calmest to read in.' },
+  { id: 'sage', label: 'Sage', note: 'The accent green, washed out. Calm, with a little colour.' },
+  { id: 'paper', label: 'Paper', note: 'Cream and tan, like a desk under a book.' },
+  { id: 'mist', label: 'Mist', note: 'Cool blue-grey, barely any colour.' },
+  { id: 'graphite', label: 'Graphite', note: 'Neutral grey, no hue at all. Calmest in light, but flat.' },
+  { id: 'lavender', label: 'Lavender', note: 'Soft violet and rose.' },
+  { id: 'dusk', label: 'Dusk', note: 'Peach and amber, like evening light.' },
+  { id: 'ocean', label: 'Ocean', note: 'Blue and teal, the most saturated.' },
+  { id: 'spectrum', label: 'Spectrum', note: 'The accent and the four highlight colours. The liveliest, and the busiest.' },
+];
 
 /** The PDF as the publisher set it, or the reflowed text you can highlight. */
 export type ReadingMode = 'pdf' | 'reflow';

@@ -1572,8 +1572,8 @@ body.win-moving .assistant-win { transition: none; }
 
 /* ---------------------------------------------------------------- glass -- */
 /* The glass material, over either theme. Glass needs something behind it to
-   be glass, so the window gets a wallpaper: soft fields of the app's own
-   colours — the accent and the four highlight colours. The library, the dock
+   be glass, so the window gets a wallpaper — Spotlight unless another is
+   picked (the wallpapers are further down). The library, the dock
    and the rail float on it as panes; the paper is a sheet that stays nearly
    solid, because the text on it is the one thing that must never swim.
    `--frost` (0–1, Settings → Appearance) is how milky every pane is. Every
@@ -1596,12 +1596,6 @@ body.win-moving .assistant-win { transition: none; }
   --sheen: rgb(255 255 255 / 0.4);
   --pane-shadow: 0 22px 48px -28px rgba(30, 34, 50, 0.45), 0 2px 6px -2px rgba(30, 34, 50, 0.12);
   --blur: calc(12px + 12px * var(--frost));
-  --wall:
-    radial-gradient(62vmax 52vmax at 6% 8%, rgb(var(--accent-rgb) / 0.34), transparent 62%),
-    radial-gradient(52vmax 46vmax at 96% 4%, rgba(156, 194, 230, 0.62), transparent 64%),
-    radial-gradient(58vmax 50vmax at 88% 96%, rgba(235, 178, 184, 0.5), transparent 62%),
-    radial-gradient(50vmax 42vmax at 18% 100%, rgba(246, 226, 122, 0.46), transparent 62%),
-    linear-gradient(160deg, #eef1f5, #e6ebe7);
   --win-rgb: 252 252 250;
 }
 :root[data-glass='on'][data-theme='dark'] {
@@ -1618,14 +1612,104 @@ body.win-moving .assistant-win { transition: none; }
   --rim-lo: rgb(255 255 255 / 0.04);
   --sheen: rgb(255 255 255 / 0.09);
   --pane-shadow: 0 26px 60px -26px rgba(0, 0, 0, 0.8), 0 2px 8px -2px rgba(0, 0, 0, 0.4);
-  --wall:
-    radial-gradient(62vmax 52vmax at 6% 8%, rgb(var(--accent-rgb) / 0.36), transparent 62%),
-    radial-gradient(52vmax 46vmax at 96% 4%, rgba(62, 92, 160, 0.5), transparent 64%),
-    radial-gradient(58vmax 50vmax at 88% 96%, rgba(128, 56, 96, 0.42), transparent 62%),
-    radial-gradient(50vmax 42vmax at 18% 100%, rgba(140, 116, 40, 0.3), transparent 62%),
-    linear-gradient(160deg, #0d0f14, #12151b);
   --win-rgb: 30 32 40;
 }
+
+/* The wallpapers behind the glass (Settings → Appearance → Wallpaper). Each is
+   a token of its own, light and dark, so the swatches in Settings can paint
+   themselves with the very gradient they stand for. Sizes are percentages of
+   the window rather than vmax for the same reason: a swatch is a small window.
+   The calm ones are the first choices; Spotlight is the default because it
+   dims what is round the page and lights what is behind it. */
+:root {
+  --wall-spectrum:
+    radial-gradient(62% 83% at 6% 8%, rgb(var(--accent-rgb) / 0.34), transparent 62%),
+    radial-gradient(52% 74% at 96% 4%, rgba(156, 194, 230, 0.62), transparent 64%),
+    radial-gradient(58% 80% at 88% 96%, rgba(235, 178, 184, 0.5), transparent 62%),
+    radial-gradient(50% 67% at 18% 100%, rgba(246, 226, 122, 0.46), transparent 62%),
+    linear-gradient(160deg, #eef1f5, #e6ebe7);
+  --wall-spotlight:
+    radial-gradient(ellipse 55% 75% at 50% 45%, rgba(255, 250, 240, 0.7), transparent 70%),
+    radial-gradient(ellipse 120% 120% at 50% 45%, transparent 45%, rgba(90, 80, 60, 0.28)),
+    linear-gradient(160deg, #ece6da, #e4ddcf);
+  --wall-sage:
+    radial-gradient(70% 96% at 10% 10%, rgba(143, 178, 160, 0.45), transparent 65%),
+    radial-gradient(60% 80% at 95% 90%, rgba(176, 196, 170, 0.45), transparent 65%),
+    linear-gradient(160deg, #e8eee9, #e3e9e2);
+  --wall-paper:
+    radial-gradient(70% 96% at 0% 0%, rgba(222, 206, 176, 0.5), transparent 65%),
+    radial-gradient(60% 80% at 100% 100%, rgba(210, 196, 170, 0.45), transparent 65%),
+    linear-gradient(160deg, #f2ede3, #ebe5d9);
+  --wall-mist:
+    radial-gradient(70% 96% at 90% 0%, rgba(170, 190, 215, 0.45), transparent 65%),
+    radial-gradient(60% 80% at 0% 100%, rgba(190, 200, 215, 0.4), transparent 65%),
+    linear-gradient(160deg, #eceff3, #e6e9ee);
+  --wall-graphite:
+    radial-gradient(70% 96% at 0% 0%, rgba(200, 200, 200, 0.5), transparent 65%),
+    linear-gradient(160deg, #ececeb, #e4e4e3);
+  --wall-lavender:
+    radial-gradient(70% 96% at 100% 0%, rgba(196, 180, 230, 0.55), transparent 65%),
+    radial-gradient(60% 80% at 0% 100%, rgba(232, 190, 214, 0.5), transparent 65%),
+    linear-gradient(160deg, #f0edf5, #efe9f1);
+  --wall-dusk:
+    radial-gradient(70% 96% at 5% 5%, rgba(244, 196, 160, 0.55), transparent 65%),
+    radial-gradient(60% 80% at 100% 100%, rgba(238, 170, 160, 0.45), transparent 65%),
+    radial-gradient(50% 64% at 90% 10%, rgba(246, 220, 160, 0.45), transparent 65%),
+    linear-gradient(160deg, #f6ede4, #f1e6de);
+  --wall-ocean:
+    radial-gradient(70% 96% at 0% 0%, rgba(120, 190, 210, 0.6), transparent 65%),
+    radial-gradient(60% 80% at 100% 100%, rgba(110, 150, 220, 0.55), transparent 65%),
+    linear-gradient(160deg, #e3eef3, #dfe8f2);
+}
+:root[data-theme='dark'] {
+  --wall-spectrum:
+    radial-gradient(62% 83% at 6% 8%, rgb(var(--accent-rgb) / 0.36), transparent 62%),
+    radial-gradient(52% 74% at 96% 4%, rgba(62, 92, 160, 0.5), transparent 64%),
+    radial-gradient(58% 80% at 88% 96%, rgba(128, 56, 96, 0.42), transparent 62%),
+    radial-gradient(50% 67% at 18% 100%, rgba(140, 116, 40, 0.3), transparent 62%),
+    linear-gradient(160deg, #0d0f14, #12151b);
+  --wall-spotlight:
+    radial-gradient(ellipse 55% 75% at 50% 45%, rgba(70, 62, 48, 0.35), transparent 70%),
+    radial-gradient(ellipse 120% 120% at 50% 45%, transparent 45%, rgba(0, 0, 0, 0.6)),
+    linear-gradient(160deg, #141210, #100f0d);
+  --wall-sage:
+    radial-gradient(70% 96% at 10% 10%, rgba(52, 92, 78, 0.45), transparent 65%),
+    radial-gradient(60% 80% at 95% 90%, rgba(60, 82, 60, 0.4), transparent 65%),
+    linear-gradient(160deg, #0e1311, #101512);
+  --wall-paper:
+    radial-gradient(70% 96% at 0% 0%, rgba(80, 68, 48, 0.45), transparent 65%),
+    radial-gradient(60% 80% at 100% 100%, rgba(66, 58, 44, 0.4), transparent 65%),
+    linear-gradient(160deg, #12110e, #151310);
+  --wall-mist:
+    radial-gradient(70% 96% at 90% 0%, rgba(50, 64, 90, 0.5), transparent 65%),
+    radial-gradient(60% 80% at 0% 100%, rgba(40, 50, 70, 0.45), transparent 65%),
+    linear-gradient(160deg, #0d0f13, #111419);
+  --wall-graphite:
+    radial-gradient(70% 96% at 0% 0%, rgba(60, 60, 64, 0.5), transparent 65%),
+    linear-gradient(160deg, #0f0f10, #131314);
+  --wall-lavender:
+    radial-gradient(70% 96% at 100% 0%, rgba(80, 60, 130, 0.5), transparent 65%),
+    radial-gradient(60% 80% at 0% 100%, rgba(110, 50, 90, 0.45), transparent 65%),
+    linear-gradient(160deg, #100e15, #141018);
+  --wall-dusk:
+    radial-gradient(70% 96% at 5% 5%, rgba(120, 70, 40, 0.45), transparent 65%),
+    radial-gradient(60% 80% at 100% 100%, rgba(110, 50, 50, 0.4), transparent 65%),
+    linear-gradient(160deg, #130f0d, #16110f);
+  --wall-ocean:
+    radial-gradient(70% 96% at 0% 0%, rgba(20, 90, 110, 0.55), transparent 65%),
+    radial-gradient(60% 80% at 100% 100%, rgba(30, 60, 130, 0.55), transparent 65%),
+    linear-gradient(160deg, #0a1015, #0c1119);
+}
+:root[data-glass='on'] { --wall: var(--wall-spotlight); }
+:root[data-glass='on'][data-wall='spectrum'] { --wall: var(--wall-spectrum); }
+:root[data-glass='on'][data-wall='spotlight'] { --wall: var(--wall-spotlight); }
+:root[data-glass='on'][data-wall='sage'] { --wall: var(--wall-sage); }
+:root[data-glass='on'][data-wall='paper'] { --wall: var(--wall-paper); }
+:root[data-glass='on'][data-wall='mist'] { --wall: var(--wall-mist); }
+:root[data-glass='on'][data-wall='graphite'] { --wall: var(--wall-graphite); }
+:root[data-glass='on'][data-wall='lavender'] { --wall: var(--wall-lavender); }
+:root[data-glass='on'][data-wall='dusk'] { --wall: var(--wall-dusk); }
+:root[data-glass='on'][data-wall='ocean'] { --wall: var(--wall-ocean); }
 
 :root[data-glass='on'] body { background: var(--wall); background-attachment: fixed; }
 
@@ -1766,3 +1850,20 @@ body.win-moving .assistant-win { transition: none; }
 @media (prefers-reduced-transparency: reduce) {
   :root[data-glass='on'] { --frost: 1 !important; }
 }
+
+/* The wallpaper picker in Settings: each swatch is its wallpaper, small. */
+.wall-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; margin-top: 10px; }
+.wall-option {
+  display: flex; flex-direction: column; gap: 5px; padding: 4px; border: 1px solid var(--border);
+  border-radius: 11px; background: transparent; color: var(--ink-2); font-size: 11.5px; text-align: left; cursor: pointer;
+}
+.wall-option:hover { border-color: var(--muted); }
+.wall-option[aria-checked='true'] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); color: var(--ink); font-weight: 500; }
+.wall-swatch { position: relative; display: block; height: 46px; border-radius: 7px; overflow: hidden; }
+/* A pane and a page on the swatch, so it reads as the window it will be. */
+.wall-swatch::before, .wall-swatch::after { content: ''; position: absolute; top: 7px; bottom: 7px; border-radius: 3px; }
+.wall-swatch::before { left: 7px; width: 18%; background: rgb(255 255 255 / 0.4); }
+.wall-swatch::after { left: 30%; right: 12%; background: rgb(252 251 247 / 0.9); }
+:root[data-theme='dark'] .wall-swatch::before { background: rgb(255 255 255 / 0.06); }
+:root[data-theme='dark'] .wall-swatch::after { background: rgb(22 23 28 / 0.9); }
+.wall-option > span:last-child { padding: 0 3px 2px; }

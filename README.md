@@ -1510,13 +1510,35 @@ selection), `src/lib/floatWindow.ts` (the window's geometry) and `src/lib/markdo
 ## Glass
 
 **Settings → Appearance → Glass** swaps the solid paper for glass, in either
-theme. The window becomes rounded panes floating over a soft wash of the app's
-own colours: the accent and the four highlight colours. You see the wash
-through the rail, the library and the dock. The page you read is a sheet that
+theme. The window becomes rounded panes floating over a wallpaper, which you
+see through the rail, the library and the dock. The page you read is a sheet that
 stays nearly solid, because the text is the one thing that must never swim.
 
 ![the reader in the glass material: the library, the paper and the highlights as frosted panes over a wash of colour](docs/glass.png)
 
+- **Wallpaper.** Nine to pick from, as swatches below the frost slider, each drawn
+  for both themes. They are listed calmest first, ranked by how colourful
+  everything round the page is on a reading screen, using Hasler &
+  Süsstrunk's colourfulness metric. Colour in the corner of the eye is what
+  pulls attention from the text.
+
+  | Wallpaper | What it is | Light | Dark |
+  | --- | --- | --- | --- |
+  | **Spotlight** (default) | warm paper; the edges dimmed, the page lit | 12.0 | 8.5 |
+  | Sage | the accent green, washed out | 9.1 | 10.8 |
+  | Paper | cream and tan | 12.1 | 8.9 |
+  | Mist | cool blue-grey | 10.0 | 11.8 |
+  | Graphite | neutral grey | 6.4 | 9.2 |
+  | Lavender | violet and rose | 11.8 | 14.3 |
+  | Dusk | peach and amber | 19.2 | 13.5 |
+  | Ocean | blue and teal | 18.7 | 18.1 |
+  | Spectrum | the accent and the four highlight colours | 18.9 | 17.6 |
+
+  Lower is calmer. Spotlight is the default: it is the calmest in dark, and
+  close in light, where its vignette also leaves the page as the brightest
+  thing on screen. Graphite scores lowest in light but reads flat. Each
+  wallpaper is a pair of CSS tokens (`--wall-<name>`), so a swatch paints
+  itself with the gradient it stands for.
 - **Frost.** A slider under the switch runs from *Clear* to *Frosted*. It moves
   how much of the wash every pane lets through, and moves the paper sheet
   only a little.
@@ -1584,6 +1606,7 @@ scripts/smoke.mjs       browser smoke test (see below)
 scripts/pdf-proxy.test.mjs  what the PDF proxy serves and what it refuses
 scripts/search.test.mjs     query shapes, de-duplication and ranking
 scripts/lookup.test.mjs     the dictionaries behind the lookup card, and where it goes
+scripts/glass.test.mjs      every glass wallpaper has its gradients and its rule
 scripts/locations.test.mjs  which copies of a paper are collected, how duplicates
                             fold together, the order they are tried in, and the
                             fall-through when one will not answer
