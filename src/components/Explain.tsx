@@ -7,6 +7,7 @@ import {
   applyEdits,
   caveatsOf,
   dismissPending,
+  driveStateFor,
   explanationFor,
   generateExplanation,
   loadExplanation,
@@ -18,8 +19,9 @@ import {
   undoRevision,
   VERDICTS,
 } from '../lib/explain';
-import type { RevisionScope } from '../lib/explain';
+import type { DriveState, RevisionScope } from '../lib/explain';
 import { markdown } from '../lib/markdown';
+import { useStore } from '../lib/store';
 import { CloseIcon, ExplainIcon, SparkleIcon } from './icons';
 
 export type ExplainLayout = 'margin' | 'notebook' | 'beside';
@@ -229,6 +231,35 @@ function SectionView({
   );
 }
 
+/** Where the page is kept: a line under the outline, and a link to the file in Drive. */
+function DriveLine({ state }: { state?: DriveState }) {
+  if (!state || state.state === 'none') return null;
+  return (
+    <div className={`drive-line is-${state.state}`}>
+      <span className="drive-dot" aria-hidden="true" />
+      {state.state === 'checking' ? (
+        'Checking your Drive…'
+      ) : state.state === 'saving' ? (
+        'Saving to your Drive…'
+      ) : state.state === 'error' ? (
+        <span title={state.message}>Not saved to Drive — {state.message}</span>
+      ) : (
+        <>
+          {state.fetched ? 'Fetched from your Drive' : 'Saved in your Drive'}
+          {state.link ? (
+            <>
+              {' · '}
+              <a href={state.link} target="_blank" rel="noreferrer noopener">
+                Open ↗
+              </a>
+            </>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // The view
 // ---------------------------------------------------------------------------
@@ -245,6 +276,7 @@ interface Props {
 export default function Explain({ paperId, title, authors, published, screen, onClose }: Props) {
   const assistant = useSyncExternalStore(subscribe, getState);
   const explanation = useSyncExternalStore(subscribeExplain, () => explanationFor(paperId));
+  const driveState = useSyncExternalStore(subscribeExplain, () => driveStateFor(paperId));
   const [layout, setLayout] = useState<ExplainLayout>(readLayout);
   const [model, setModel] = useState<string>(assistant.prefs.model);
   const [keyDraft, setKeyDraft] = useState('');
@@ -258,10 +290,12 @@ export default function Explain({ paperId, title, authors, published, screen, on
   // Once a request is sent, the line under the bar reports on it rather than offering more.
   const [justAsked, setJustAsked] = useState(false);
 
+  // Drive connected after Explain opened is looked in too.
+  const { driveConnected } = useStore();
   useEffect(() => {
     setChecked(false);
     void loadExplanation(paperId).finally(() => setChecked(true));
-  }, [paperId]);
+  }, [paperId, driveConnected]);
 
   useEffect(() => {
     try {
@@ -568,12 +602,18 @@ export default function Explain({ paperId, title, authors, published, screen, on
           {explanation?.content ? (
             <div className="outline-meta">
               {streaming ? 'Claude is writing…' : `Written by ${writtenWith} · ${new Date(explanation.created).toLocaleDateString()}`}
+              <DriveLine state={driveState} />
             </div>
           ) : null}
         </nav>
 
         <article className="explain-doc" onMouseUp={takeSelection}>
-          {!explanation?.content && checked && !streaming ? (
+          {!explanation?.content && !checked ? (
+            <p className="explain-looking">
+              <span className="spinner" />
+              {driveState?.state === 'checking' ? 'Looking in your Drive for an explanation of this paper…' : 'Opening the explanation…'}
+            </p>
+          ) : !explanation?.content && checked && !streaming ? (
             <div className="explain-empty">
               <div className="explain-kicker pill">
                 <ExplainIcon size={15} /> The whole paper, explained
@@ -631,7 +671,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
                     </button>
                   </div>
                   <p className="hint">
-                    <b>Written once</b> and kept for this paper. A long paper costs about as much as a few long answers in Ask Claude.
+                    <b>Written once</b> and kept for this paper
+                    {driveState ? ', in this browser and in the paper’s folder in your Drive' : ''}. A long paper costs about as much as a few long answers in Ask Claude.
                   </p>
                 </>
               ) : (

@@ -2905,3 +2905,15 @@ body.win-moving .assistant-win { transition: none; }
   .ask-column { grid-column: 1; }
   .ask-chip { max-width: 45%; }
 }
+
+/* Where the explanation is kept: this browser, and the paper's folder in Drive. */
+.drive-line { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.drive-line a { color: var(--accent); text-decoration: none; }
+.drive-line a:hover { text-decoration: underline; }
+.drive-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--muted); }
+.drive-line.is-saved .drive-dot { background: var(--accent); }
+.drive-line.is-saving .drive-dot, .drive-line.is-checking .drive-dot { background: var(--v-superseded); animation: revising 0.9s ease-in-out infinite alternate; }
+.drive-line.is-error { color: var(--danger); }
+.drive-line.is-error .drive-dot { background: var(--danger); }
+.drive-line.is-error span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explain-looking { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; padding-top: 24px; }

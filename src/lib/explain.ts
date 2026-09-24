@@ -377,6 +377,135 @@ export interface Explanation {
   revisions?: Revision[];
   /** A request being answered: the reply so far, shown applied to the page as it streams. */
   pending?: { request: string; scope: RevisionScope; reply: string; error?: string };
+  /** When the page last changed (ms); what decides between this browser's copy and Drive's. */
+  updated?: number;
+  /** Every request made of it since it was written, oldest first — kept in Drive with the page. */
+  requests?: string[];
+  /** Its file in Drive, as last written or read. */
+  drive?: DriveMark;
+}
+
+// ---------------------------------------------------------------------------
+// Drive: the page kept in the paper's folder (explainDrive.ts)
+// ---------------------------------------------------------------------------
+
+export interface DriveMark {
+  fileId: string;
+  link?: string;
+  modifiedTime?: string;
+}
+
+export interface ExplainDriveAdapter {
+  /** The copy in Drive: null when there is none, no `explanation` when it is the one `known` already describes. */
+  load(paperId: string, known?: DriveMark): Promise<{ file: DriveMark; explanation?: Explanation } | null>;
+  save(explanation: Explanation): Promise<DriveMark>;
+}
+
+export type DriveState =
+  | { state: 'checking' }
+  | { state: 'saving' }
+  | { state: 'saved'; link?: string; fetched?: boolean }
+  | { state: 'error'; message: string }
+  | { state: 'none' };
+
+let drive: ExplainDriveAdapter | null = null;
+const driveStates = new Map<string, DriveState>();
+const driveTimers = new Map<string, number>();
+const checks = new Map<string, Promise<void>>();
+/** How long a save waits for more changes: a revision and its Undo are one write. */
+const DRIVE_DEBOUNCE_MS = 1200;
+/** A check of Drive when Explain opens gives up after this, and the page is offered as usual. */
+const DRIVE_CHECK_MS = 10_000;
+
+/** Set by the app when Drive is connected, and cleared when it is not. */
+export function setExplainDrive(adapter: ExplainDriveAdapter | null) {
+  drive = adapter;
+}
+
+export const driveStateFor = (paperId: string): DriveState | undefined => driveStates.get(paperId);
+
+function setDriveState(paperId: string, next: DriveState) {
+  driveStates.set(paperId, next);
+  notify();
+}
+
+function scheduleDriveSave(paperId: string) {
+  if (!drive) return;
+  window.clearTimeout(driveTimers.get(paperId));
+  setDriveState(paperId, { state: 'saving' });
+  driveTimers.set(
+    paperId,
+    window.setTimeout(() => {
+      driveTimers.delete(paperId);
+      void saveToDrive(paperId);
+    }, DRIVE_DEBOUNCE_MS),
+  );
+}
+
+async function saveToDrive(paperId: string) {
+  const adapter = drive;
+  const entry = cache.get(paperId);
+  if (!adapter || !entry?.content || entry.streaming) return;
+  try {
+    const written = await adapter.save(entry);
+    const now = cache.get(paperId);
+    // A change made while it was being written goes in the next save; this one only records where the file is.
+    if (now) {
+      const next = { ...now, drive: written };
+      cache.set(paperId, next);
+      persistLocal(next);
+    }
+    setDriveState(paperId, { state: 'saved', link: written.link });
+  } catch (error) {
+    setDriveState(paperId, { state: 'error', message: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+/** Looks in Drive for this paper's page, and takes it when it is newer than the one here. */
+function checkDrive(paperId: string): Promise<void> {
+  const adapter = drive;
+  if (!adapter) return Promise.resolve();
+  const inFlight = checks.get(paperId);
+  if (inFlight) return inFlight;
+  setDriveState(paperId, { state: 'checking' });
+  const check = (async () => {
+    const local = cache.get(paperId);
+    try {
+      const found = await Promise.race([
+        adapter.load(paperId, local?.drive),
+        new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Drive took too long to answer.')), DRIVE_CHECK_MS)),
+      ]);
+      const now = cache.get(paperId);
+      if (!found) {
+        // Nothing in Drive yet: a page written before Drive was connected goes up now.
+        if (now?.content && !now.streaming) scheduleDriveSave(paperId);
+        else setDriveState(paperId, { state: 'none' });
+        return;
+      }
+      const remote = found.explanation;
+      const busy = running?.paperId === paperId || now?.streaming || now?.pending;
+      if (remote && !busy && (!now?.content || (remote.updated ?? 0) > (now.updated ?? 0))) {
+        const adopted: Explanation = { ...remote, drive: found.file, revisions: [] };
+        cache.set(paperId, adopted);
+        persistLocal(adopted);
+        setDriveState(paperId, { state: 'saved', link: found.file.link, fetched: true });
+        return;
+      }
+      if (now && !now.drive) {
+        cache.set(paperId, { ...now, drive: found.file });
+        persistLocal(cache.get(paperId)!);
+      }
+      // This browser has changes Drive has not seen.
+      if (remote && now?.content && (now.updated ?? 0) > (remote.updated ?? 0)) scheduleDriveSave(paperId);
+      else setDriveState(paperId, { state: 'saved', link: found.file.link });
+    } catch (error) {
+      setDriveState(paperId, { state: 'error', message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      checks.delete(paperId);
+    }
+  })();
+  checks.set(paperId, check);
+  return check;
 }
 
 /** How many past versions are kept for Undo. */
@@ -398,23 +527,37 @@ export function subscribeExplain(listener: () => void) {
 
 export const explanationFor = (paperId: string) => cache.get(paperId);
 
-const keep = (entry: Explanation) => {
+function persistLocal(entry: Explanation) {
   const { pending: _pending, streaming: _streaming, ...kept } = entry;
   void db.setKv(KEY(entry.paperId), kept).catch(() => undefined);
-};
+}
 
-/** Reads a kept explanation from IndexedDB into the cache, once. */
+/** The page changed: stamp it, keep it here, and send it to Drive. */
+function keep(entry: Explanation) {
+  const stamped = { ...entry, updated: Date.now() };
+  cache.set(entry.paperId, { ...(cache.get(entry.paperId) ?? stamped), updated: stamped.updated });
+  persistLocal(stamped);
+  scheduleDriveSave(entry.paperId);
+}
+
+/**
+ * The paper's page, from this browser if it has one, then from Drive when that
+ * is connected — which wins when it is newer, so a page written or revised in
+ * another browser comes here rather than being written again.
+ */
 export async function loadExplanation(paperId: string): Promise<Explanation | undefined> {
-  if (cache.has(paperId)) return cache.get(paperId);
-  try {
-    const kept = await db.getKv<Explanation>(KEY(paperId));
-    if (kept && !cache.has(paperId)) {
-      cache.set(paperId, { ...kept, streaming: false, pending: undefined });
-      notify();
+  if (!cache.has(paperId)) {
+    try {
+      const kept = await db.getKv<Explanation>(KEY(paperId));
+      if (kept && !cache.has(paperId)) {
+        cache.set(paperId, { ...kept, streaming: false, pending: undefined });
+        notify();
+      }
+    } catch {
+      // no IndexedDB: Drive, or writing it again
     }
-  } catch {
-    // no IndexedDB: it is generated again next time
   }
+  await checkDrive(paperId);
   return cache.get(paperId);
 }
 
@@ -497,7 +640,8 @@ export async function generateExplanation(screen: Screen, model: string) {
   const paper = screen.paper;
   if (!paper || running) return;
   const previous = cache.get(paper.id);
-  const entry: Explanation = { paperId: paper.id, content: '', model, created: Date.now(), streaming: true };
+  // A rewrite goes over the same file in Drive.
+  const entry: Explanation = { paperId: paper.id, content: '', model, created: Date.now(), streaming: true, drive: previous?.drive };
   cache.set(paper.id, entry);
   notify();
 
@@ -573,6 +717,7 @@ export async function reviseExplanation(screen: Screen, request: string, scope: 
       pending: undefined,
       truncated: stop === 'max_tokens' ? true : undefined,
       revisions: [...(current.revisions ?? []), revision].slice(-REVISIONS_KEPT),
+      requests: [...(current.requests ?? []), revision.request],
     });
     keep(next);
   } catch (error) {
@@ -589,7 +734,15 @@ export function undoRevision(paperId: string) {
   const entry = cache.get(paperId);
   const last = entry?.revisions?.[entry.revisions.length - 1];
   if (!entry || !last || running) return;
-  const next = { ...entry, content: last.before, revisions: entry.revisions!.slice(0, -1), pending: undefined, error: undefined, truncated: undefined };
+  const next = {
+    ...entry,
+    content: last.before,
+    revisions: entry.revisions!.slice(0, -1),
+    requests: entry.requests?.at(-1) === last.request ? entry.requests.slice(0, -1) : entry.requests,
+    pending: undefined,
+    error: undefined,
+    truncated: undefined,
+  };
   cache.set(paperId, next);
   notify();
   keep(next);

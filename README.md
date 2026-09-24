@@ -1838,6 +1838,39 @@ is only half written.
 
 ![the section being rewritten, marked Revising, while the rest of the page stays](docs/explain-revising.png)
 
+### Kept in Drive
+
+With Drive connected, the explanation is also saved in the paper's own folder,
+beside its PDF and sidecar:
+
+```
+Papers_collection/<paper>/<paper> — explained by Claude.md
+```
+
+It is a Markdown file you can open and read in Drive. A few lines of front
+matter give the paper, the model, when it was written and last changed, and
+each request made from the bar since. After that comes the page exactly as
+Claude wrote it. It is written after the first page and again after every
+change (a request, an Undo, a Rewrite), a moment after the last one, and always
+over the same file, so its link stays the same.
+
+When Explain opens, it looks in Drive before offering to write anything. When
+Drive's copy is newer than this browser's — written or revised in another
+browser, or this one's storage was cleared — it is fetched, and Claude is not
+asked. A file that has not changed since this browser last saw it is not
+downloaded again. A page written before Drive was connected goes up the next
+time it is opened. The line under the outline says which of these happened,
+with a link to the file.
+
+![the outline's last line: Fetched from your Drive, with a link to the file](docs/explain-drive-fetched.png)
+
+The check only uses a Drive grant the reader already has, so it never opens a
+Google window outside a click. It gives up after ten seconds and offers the
+page as usual. The code is in `src/lib/explainDrive.ts`.
+`scripts/explain-drive-smoke.mjs` shares an in-memory Drive between two
+browsers: one writes and revises, and the other fetches it without asking
+Claude.
+
 ### The key and the cost
 
 It uses the same API key and models as Ask Claude. The paper's full text goes

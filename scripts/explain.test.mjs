@@ -87,3 +87,35 @@ describe('a revision halfway through a figure', () => {
     assert.equal(sections[0].blocks.find((b) => b.kind === 'figure').open, true);
   });
 });
+
+describe('the copy in Drive', async () => {
+  const file = await load('src/lib/explainDrive.ts', { external: ['@anthropic-ai/sdk'] });
+  const paper = { id: 'arxiv:1706.03762', title: 'Attention Is All You Need', arxivId: '1706.03762' };
+  const page = {
+    paperId: paper.id,
+    content: PAGE,
+    model: 'claude-opus-5',
+    created: Date.parse('2026-09-24T10:00:00Z'),
+    updated: Date.parse('2026-09-24T11:30:00Z'),
+    requests: ['Explain "this" more simply', 'Use PyTorch'],
+  };
+  it('is named after the paper, beside its PDF and sidecar', () => {
+    assert.equal(file.explanationFileName(paper), 'Attention Is All You Need (arXiv 1706.03762) — explained by Claude.md');
+  });
+  it('reads back as it was written', () => {
+    const back = file.fromMarkdownFile(file.toMarkdownFile(paper, page), paper.id);
+    assert.equal(back.content, PAGE.trim());
+    assert.equal(back.model, 'claude-opus-5');
+    assert.equal(back.created, page.created);
+    assert.equal(back.updated, page.updated);
+    assert.deepEqual(back.requests, page.requests);
+  });
+  it('takes a file edited by hand, with no front matter', () => {
+    const back = file.fromMarkdownFile('## At a glance\nhello', paper.id);
+    assert.equal(back.content, '## At a glance\nhello');
+    assert.equal(back.model, 'unknown');
+  });
+  it('turns an empty file into nothing', () => {
+    assert.equal(file.fromMarkdownFile('---\nmodel: "x"\n---\n\n', paper.id), null);
+  });
+});
