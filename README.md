@@ -20,9 +20,10 @@ three tabs: what the word
 papers to use the phrase, the most cited ones since, and links out — and a
 **comment** that highlights the passage as you type it, the way Acrobat does.
 
-Rest the pointer on an author's name or a citation and a card says who they
-are — their Google Scholar profile, institution, counts and best-known papers —
-or what was cited — see [Who wrote it, and what it cites](#who-wrote-it-and-what-it-cites).
+Rest the pointer on an author's name, the journal or conference, or a citation
+and a card says who they are — their Google Scholar profile, institution,
+counts and best-known papers — where the paper was published, and when and
+where the conference met, or what was cited — see [Who wrote it, and what it cites](#who-wrote-it-and-what-it-cites).
 
 Press **⌘\\** and a Claude window floats over the paper — see
 [Ask Claude](#ask-claude).
@@ -822,6 +823,13 @@ It is the same text laid out in CSS columns, so highlighting and looking
 things up work the same in both. `scripts/book-smoke.mjs` checks both
 layouts at desktop and iPad sizes.
 
+The PDF reads as a book too. With the same button in PDF mode, the file's own
+pages are drawn by pdf.js two side by side — one on a narrow screen, by the
+same rule — and turned the same ways, instead of scrolling in the browser's
+viewer. Each page's text is laid over its picture, so it can be selected and
+copied; highlighting stays a Reflow thing. `scripts/pdf-book-smoke.mjs` checks
+the spread, the turn and the narrow window.
+
 arXiv's HTML rendering comes without its stylesheet, so `src/styles.css`
 gives LaTeXML's classes a look of its own — the title block, the abstract,
 numbered sections, equations with their numbers, figures, ruled tables,
@@ -1464,6 +1472,27 @@ citation of several papers has a tab for each. The bibliography's own
 entries open the same card when the pointer rests on one a little longer.
 A tap does what the hover does, where there is no pointer to rest.
 
+The journal or conference over the title opens a card of its own: its name
+as the index writes it, the publisher and country, where in it the paper is
+(volume, issue, pages, the day it came out), its h-index, two-year mean
+citedness, papers and citations at OpenAlex, and whether it is open access.
+For a conference it adds the meeting the paper was presented at — where and
+when — read off dblp's record of that year's proceedings (`…, NeurIPS 2019,
+December 8-14, 2019, Vancouver, BC, Canada`), and failing that from
+Wikidata's item for the meeting. Under it are the pages worth opening: the
+homepage, that year's site and proceedings, dblp, Wikipedia, the ISSN
+record, SCImago's rank of a journal, OpenAlex and Scholar's list of venues.
+See `src/lib/venueInfo.ts`, pinned by `scripts/venues.test.mjs`.
+
+Google Scholar's newer layout prints the byline without the dash after the
+authors — `S Kiran` in an element of its own, the venue straight after it,
+and a bullet before the host — which the proxy used to read as one more
+author, `S KiranBrain imaging and behavior`, and `2019•Springer` as another.
+The proxy reads both layouts now, and a record saved before is put right
+when the library loads (`src/lib/byline.ts`); the proxy's Worker has to be
+deployed again (`npm run deploy:worker`) for new searches to come back right
+from it, though the reader corrects what an older one sends.
+
 arXiv's HTML rendering links every citation to its entry already. A PDF
 has only the text, so `src/lib/citations.ts` finds the citations in it and
 marks them, and a bracketed number or a name and year is taken for a
@@ -1710,6 +1739,7 @@ node scripts/smoke.mjs         # in another
 node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 node scripts/hover-smoke.mjs    # the cards over an author's name and a citation
+node scripts/pdf-book-smoke.mjs # a Scholar byline read right, the venue's card, the PDF as a book
 
 npm run build                  # then, needing no server of its own:
 node scripts/versions-drive.mjs

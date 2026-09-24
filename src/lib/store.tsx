@@ -11,6 +11,7 @@ import {
 import type { Collection, GoogleUser, Highlight, HighlightColor, Paper, PaperRef, Settings } from '../types';
 import { COLLECTION_COLORS } from '../types';
 import { db } from './db';
+import { tidyByline } from './byline';
 import { ROOT_FOLDER, driveFolderUrl, isInDrive, junkPaperInDrive, syncPaperToDrive } from './driveSync';
 import { pathFor, syncPapersToGitHub, targetFrom } from './github';
 import { setContactEmail } from './contact';
@@ -228,7 +229,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         db.allHighlights(),
       ]);
       if (cancelled) return;
-      setPapers(loadedPapers);
+      // Records saved with a Scholar byline the older parser misread are put right, once.
+      const tidied = loadedPapers.map((paper) => tidyByline(paper));
+      tidied.forEach((paper, index) => {
+        if (paper !== loadedPapers[index]) void db.putPaper(paper).catch(() => undefined);
+      });
+      setPapers(tidied);
       setHighlights(loadedHighlights);
       if (loadedCollections.length) {
         setCollections(loadedCollections);

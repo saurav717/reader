@@ -1215,6 +1215,10 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
   margin-bottom: 8px !important; color: var(--ink-2); font-size: 12px;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
+.hc-event { margin: 0 0 8px; padding: 6px 8px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--panel); }
+.hc-event .hc-sub a { color: var(--ink-2); text-decoration: underline dotted; text-underline-offset: 2px; }
+.hc-event .hc-sub a:hover { color: var(--accent-ink); }
+.hc-placement { margin-bottom: 8px !important; }
 .hc-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
 .hc-chip { padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 10.5px; color: var(--ink-2); }
 
@@ -1322,6 +1326,44 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
   .book-spread:not(.two) .book-pages { inset: 22px 20px 18px; }
   .book-turn { display: none; }
 }
+
+/* The PDF as a book: its own pages, drawn by pdf.js, side by side. */
+.pdf-book-spread { position: relative; flex: 1 1 0; min-height: 0; width: 100%; max-width: 1600px; margin: 0 auto; }
+.pdf-book-pages { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.pdf-book-loading { display: flex; align-items: center; justify-content: center; gap: 8px; height: 100%; margin: 0; color: var(--muted); font-size: 13px; }
+.pdf-book-page {
+  position: relative; flex: none; overflow: hidden; background: #fff;
+  box-shadow: var(--shadow-md), 0 0 0 1px var(--border);
+  --user-unit: 1; --total-scale-factor: calc(var(--scale-factor, 1) * var(--user-unit)); --scale-round-x: 1px; --scale-round-y: 1px;
+}
+.pdf-book-page canvas { display: block; }
+.pdf-book-page.drawing canvas { visibility: hidden; }
+.pdf-book-page.left { border-radius: 4px 0 0 4px; }
+.pdf-book-page.right { border-radius: 0 4px 4px 0; }
+.pdf-book-page.single { border-radius: 4px; }
+/* The fold where the two pages meet. */
+.pdf-book-page.left::after, .pdf-book-page.right::after {
+  content: ''; position: absolute; top: 0; bottom: 0; width: 28px; pointer-events: none; z-index: 2;
+}
+.pdf-book-page.left::after { right: 0; background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.09)); }
+.pdf-book-page.right::after { left: 0; background: linear-gradient(270deg, transparent, rgba(0, 0, 0, 0.09)); }
+/* pdf.js's text layer, as its own viewer styles it: the words, invisible, over where they are drawn. */
+.pdf-text {
+  position: absolute; inset: 0; overflow: clip; text-align: initial; line-height: 1; opacity: 1;
+  letter-spacing: normal; word-spacing: normal; text-size-adjust: none; -webkit-text-size-adjust: none; forced-color-adjust: none;
+  transform-origin: 0 0; caret-color: CanvasText; z-index: 1;
+  --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.pdf-text :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; user-select: text; }
+.pdf-text > :not(.markedContent), .pdf-text .markedContent span:not(.markedContent) {
+  z-index: 1; --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1; --rotate: 0deg; transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.pdf-text .markedContent { display: contents; }
+.pdf-text ::selection { background: rgba(0, 90, 255, 0.28); }
+.pdf-text br::selection { background: transparent; }
+.pdf-text .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; user-select: none; }
+.pdf-text.selecting .endOfContent { top: 0; }
 
 /* ------------------------------------------------------------ ask claude -- */
 /* A window over the reader rather than a column beside it: dragged by its

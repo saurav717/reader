@@ -5,7 +5,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from './icons';
  * Narrower than this — or taller than it is wide, a tablet held upright — a
  * spread of two pages leaves each too thin to read, so it is one page at a time.
  */
-const TWO_PAGE_MIN_WIDTH = 820;
+export const TWO_PAGE_MIN_WIDTH = 820;
 /** How far a finger has to travel sideways before it turns the page. */
 const SWIPE_PX = 48;
 /** How much wheel it takes to turn a page, and how long to ignore the rest of the same flick. */
@@ -128,24 +128,7 @@ export default function BookView({ children, contentKey, initialProgress, onProg
     return () => window.removeEventListener('reader:reveal', onReveal);
   }, [go, stride]);
 
-  // Arrow keys, Page Up/Down and the space bar turn the page.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const target = event.target as HTMLElement | null;
-      if (target && (target.closest('input, textarea, select, [contenteditable="true"]') || target.isContentEditable)) return;
-      let delta = 0;
-      if (event.key === 'ArrowRight' || event.key === 'PageDown' || (event.key === ' ' && !event.shiftKey)) delta = 1;
-      else if (event.key === 'ArrowLeft' || event.key === 'PageUp' || (event.key === ' ' && event.shiftKey)) delta = -1;
-      else if (event.key === 'Home') return event.preventDefault(), go(0);
-      else if (event.key === 'End') return event.preventDefault(), go(spreads - 1);
-      if (!delta) return;
-      event.preventDefault();
-      go(spreadNow.current + delta);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [go, spreads]);
+  const turns = usePageTurns(go, spreadNow, spreads);
 
   // Selecting text by dragging can nudge the columns along; put the page back.
   const settle = useRef<number | undefined>(undefined);
@@ -160,36 +143,6 @@ export default function BookView({ children, contentKey, initialProgress, onProg
   };
   useEffect(() => () => window.clearTimeout(settle.current), []);
 
-  const wheel = useRef({ total: 0, restUntil: 0 });
-  const onWheel = (event: React.WheelEvent) => {
-    const now = Date.now();
-    const state = wheel.current;
-    if (now < state.restUntil) return;
-    state.total += Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-    if (Math.abs(state.total) < WHEEL_PX) return;
-    go(spreadNow.current + Math.sign(state.total));
-    state.total = 0;
-    state.restUntil = now + WHEEL_REST_MS;
-  };
-
-  const touch = useRef<{ x: number; y: number } | null>(null);
-  const onTouchStart = (event: React.TouchEvent) => {
-    const point = event.touches[0];
-    touch.current = event.touches.length === 1 && point ? { x: point.clientX, y: point.clientY } : null;
-  };
-  const onTouchEnd = (event: React.TouchEvent) => {
-    const start = touch.current;
-    touch.current = null;
-    const point = event.changedTouches[0];
-    if (!start || !point) return;
-    // A drag that selected text is a selection, not a page turn.
-    if (window.getSelection()?.isCollapsed === false) return;
-    const dx = point.clientX - start.x;
-    const dy = point.clientY - start.y;
-    if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    go(spreadNow.current + (dx < 0 ? 1 : -1));
-  };
-
   const first = spread * columns + 1;
   const last = Math.min(pageCount, first + columns - 1);
 
@@ -198,9 +151,9 @@ export default function BookView({ children, contentKey, initialProgress, onProg
       <div
         ref={spreadRef}
         className={`book-spread${columns === 2 ? ' two' : ''}`}
-        onWheel={onWheel}
-        onTouchStart={onTouchStart}
-        onTouchEnd={onTouchEnd}
+        onWheel={turns.onWheel}
+        onTouchStart={turns.onTouchStart}
+        onTouchEnd={turns.onTouchEnd}
       >
         <div
           ref={pagesRef}
@@ -243,4 +196,62 @@ export default function BookView({ children, contentKey, initialProgress, onProg
       </div>
     </div>
   );
+}
+
+/**
+ * Turning the pages of a book: the arrow keys, Page Up and Down, the space
+ * bar, Home and End; a flick of the wheel; a swipe. Shared by the reflowed
+ * text's book and the PDF's. `current` is the spread shown now.
+ */
+export function usePageTurns(go: (spread: number) => void, current: React.MutableRefObject<number>, spreads: number) {
+  // Arrow keys, Page Up/Down and the space bar turn the page.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.closest('input, textarea, select, [contenteditable="true"]') || target.isContentEditable)) return;
+      let delta = 0;
+      if (event.key === 'ArrowRight' || event.key === 'PageDown' || (event.key === ' ' && !event.shiftKey)) delta = 1;
+      else if (event.key === 'ArrowLeft' || event.key === 'PageUp' || (event.key === ' ' && event.shiftKey)) delta = -1;
+      else if (event.key === 'Home') return event.preventDefault(), go(0);
+      else if (event.key === 'End') return event.preventDefault(), go(spreads - 1);
+      if (!delta) return;
+      event.preventDefault();
+      go(current.current + delta);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [go, spreads]);
+
+  const wheel = useRef({ total: 0, restUntil: 0 });
+  const onWheel = (event: React.WheelEvent) => {
+    const now = Date.now();
+    const state = wheel.current;
+    if (now < state.restUntil) return;
+    state.total += Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (Math.abs(state.total) < WHEEL_PX) return;
+    go(current.current + Math.sign(state.total));
+    state.total = 0;
+    state.restUntil = now + WHEEL_REST_MS;
+  };
+
+  const touch = useRef<{ x: number; y: number } | null>(null);
+  const onTouchStart = (event: React.TouchEvent) => {
+    const point = event.touches[0];
+    touch.current = event.touches.length === 1 && point ? { x: point.clientX, y: point.clientY } : null;
+  };
+  const onTouchEnd = (event: React.TouchEvent) => {
+    const start = touch.current;
+    touch.current = null;
+    const point = event.changedTouches[0];
+    if (!start || !point) return;
+    // A drag that selected text is a selection, not a page turn.
+    if (window.getSelection()?.isCollapsed === false) return;
+    const dx = point.clientX - start.x;
+    const dy = point.clientY - start.y;
+    if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    go(current.current + (dx < 0 ? 1 : -1));
+  };
+
+  return { onWheel, onTouchStart, onTouchEnd };
 }

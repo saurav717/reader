@@ -173,6 +173,41 @@ describe('reading a byline', () => {
     assert.equal(parsed.host, 'arxiv.org');
   });
 
+  it('reads the newer layout, where the venue runs on from the last name and a bullet sets off the host', () => {
+    const parsed = parseByline('EL Meier, JP Johnson, Y Pan, S KiranBrain imaging and behavior, 2019•Springer');
+    assert.deepEqual(parsed.authors, ['EL Meier', 'JP Johnson', 'Y Pan', 'S Kiran']);
+    assert.equal(parsed.venue, 'Brain imaging and behavior');
+    assert.equal(parsed.year, 2019);
+    assert.equal(parsed.host, 'Springer');
+  });
+
+  it('reads dashes set off by non-breaking spaces', () => {
+    const parsed = parseByline('EL Meier, S Kiran\u00a0- Brain imaging and behavior, 2019\u00a0- Springer');
+    assert.deepEqual(parsed.authors, ['EL Meier', 'S Kiran']);
+    assert.equal(parsed.venue, 'Brain imaging and behavior');
+  });
+
+  it('keeps a surname with a particle in it whole', () => {
+    const parsed = parseByline('J van der Merwe, M de la Fuente - Journal of X, 2001 - Elsevier');
+    assert.deepEqual(parsed.authors, ['J van der Merwe', 'M de la Fuente']);
+  });
+
+  it('parts a one-word venue from the name before a bare year', () => {
+    const parsed = parseByline('S KiranNature, 2019•nature.com');
+    assert.deepEqual(parsed.authors, ['S Kiran']);
+    assert.equal(parsed.venue, 'Nature');
+  });
+
+  it('puts the dash back between the authors element and the venue of the newer markup', () => {
+    const [result] = parseResults(`<div class="gs_r gs_or gs_scl" data-cid="abc"><div class="gs_ri">
+      <h3 class="gs_rt"><a href="https://link.springer.com/article/1">The utility of lesion classification</a></h3>
+      <div class="gs_a gs_fma_p"><div class="gs_fmaa"><a href="/citations?user=abcdefgh1234">EL Meier</a>, JP Johnson, Y Pan, S Kiran</div>Brain imaging and behavior, 2019•Springer</div>
+    </div></div>`);
+    assert.deepEqual(result.authors, ['EL Meier', 'JP Johnson', 'Y Pan', 'S Kiran']);
+    assert.equal(result.venue, 'Brain imaging and behavior');
+    assert.equal(result.year, 2019);
+  });
+
   it('survives a line with no year and no host', () => {
     const parsed = parseByline('J Doe');
     assert.deepEqual(parsed.authors, ['J Doe']);
