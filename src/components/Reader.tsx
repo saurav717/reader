@@ -1256,6 +1256,46 @@ export default function Reader({
     </>
   );
 
+  // Opaque ids (e.g. "scholar:<the whole title>") only repeat the title, so the
+  // subtitle names a paper only by an identifier a reader can actually use.
+  const paperIdentifier = paper.arxivId
+    ? `arXiv:${paper.arxivId}`
+    : paper.doi
+      ? `doi:${paper.doi}`
+      : null;
+  const sourceNote =
+    mode === 'pdf'
+      ? pdfFrom === 'drive'
+        ? 'PDF from your Drive'
+        : pdfFrom === 'file'
+          ? 'PDF from your file'
+          : pdfFrom === 'browser'
+            ? 'PDF from the browser here'
+            : pdfLocation
+              ? `PDF from ${pdfLocation.label}`
+              : 'PDF'
+      : content
+        ? `${content.sourceLabel}${
+            content.mode === 'pdf'
+              ? pdfFrom === 'drive'
+                ? ' in your Drive'
+                : pdfFrom === 'file'
+                  ? ' from your file'
+                  : pdfLocation
+                    ? ` from ${pdfLocation.label}`
+                    : ''
+              : ''
+          }`
+        : null;
+  const topbarSub = [
+    paperIdentifier,
+    sourceNote,
+    `${Math.round(paper.progress * 100)}%`,
+    driveConnected && driveBusy ? 'saving to Drive…' : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <div className="main">
       <div className="topbar">
@@ -1265,36 +1305,9 @@ export default function Reader({
         <button type="button" className="icon-btn sm" onClick={onBack} aria-label="Back to the collection">
           <ArrowLeftIcon size={18} />
         </button>
-        <div style={{ minWidth: 0, flexGrow: 1 }}>
-          <div className="title">{paper.title}</div>
-          <div className="sub">
-            {paper.arxivId ? `arXiv:${paper.arxivId}` : paper.doi ? `doi:${paper.doi}` : paper.id}
-            {mode === 'pdf'
-              ? pdfFrom === 'drive'
-                ? ' · PDF from your Drive'
-                : pdfFrom === 'file'
-                  ? ' · PDF from your file'
-                  : pdfFrom === 'browser'
-                    ? ' · PDF from the browser here'
-                    : pdfLocation
-                  ? ` · PDF from ${pdfLocation.label}`
-                  : ' · PDF'
-              : content
-                ? ` · ${content.sourceLabel}${
-                    content.mode === 'pdf'
-                      ? pdfFrom === 'drive'
-                        ? ' in your Drive'
-                        : pdfFrom === 'file'
-                          ? ' from your file'
-                          : pdfLocation
-                            ? ` from ${pdfLocation.label}`
-                            : ''
-                      : ''
-                  }`
-                : ''}
-            {` · ${Math.round(paper.progress * 100)}%`}
-            {driveConnected && driveBusy ? ' · saving to Drive…' : ''}
-          </div>
+        <div className="topbar-heading">
+          <div className="title" title={paper.title}>{paper.title}</div>
+          <div className="sub" title={topbarSub}>{topbarSub}</div>
         </div>
 
         {driveConnected && driveFileLink && !driveBusy ? (

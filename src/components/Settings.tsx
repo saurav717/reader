@@ -590,6 +590,22 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             </label>
           ) : null}
           {settings.glass ? (
+            <label className="frost-row">
+              <span>No light</span>
+              <input
+                type="range"
+                min={0}
+                max={2}
+                step={0.1}
+                value={settings.glassLight}
+                aria-label="How bright the light that follows the pointer is"
+                aria-valuetext={settings.glassLight === 0 ? 'Off' : `${Math.round(settings.glassLight * 100)}%`}
+                onChange={(event) => updateSettings({ glassLight: Number(event.target.value) })}
+              />
+              <span>Bright</span>
+            </label>
+          ) : null}
+          {settings.glass ? (
             <>
               <div className="wall-grid" role="radiogroup" aria-label="Wallpaper behind the glass">
                 {GLASS_WALLS.map((wall) => (
@@ -615,7 +631,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           ) : null}
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
             Glass turns the library, the dock and every card that floats over the paper into panes you can see a
-            wash of colour through, and catches the light where the pointer is. The page you read stays nearly
+            wash of colour through, and catches the light where the pointer is (the second slider dims it, or turns
+            it off at the far left). The page you read stays nearly
             solid whatever you set here — the slider moves everything around it.
           </p>
         </section>

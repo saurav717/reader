@@ -413,7 +413,8 @@ kbd {
   border-bottom: 1px solid var(--border-soft);
 }
 .topbar .title { font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.topbar .sub { font-size: 10.5px; color: var(--muted); font-family: var(--mono); margin-top: 1px; }
+.topbar-heading { min-width: 0; flex: 1 1 auto; }
+.topbar .sub { font-size: 10.5px; color: var(--muted); font-family: var(--mono); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .progress { height: 2px; background: var(--border-soft); flex-shrink: 0; }
 .progress span { display: block; height: 2px; background: var(--accent); }
@@ -1946,12 +1947,14 @@ body.win-moving .assistant-win { transition: none; }
    picked (the wallpapers are further down). The library, the dock
    and the rail float on it as panes; the paper is a sheet that stays nearly
    solid, because the text on it is the one thing that must never swim.
-   `--frost` (0–1, Settings → Appearance) is how milky every pane is. Every
+   `--frost` (0–1, Settings → Appearance) is how milky every pane is, and
+   `--light` (0–2) how bright the pointer's sheen is, 0 for none. Every
    surface token is redefined translucent here, so a card, a field or a
    button inside a pane lets its pane show through without a rule of its own. */
 
 :root[data-glass='on'] {
   --frost: 0.5;
+  --light: 1;
   --paper: rgb(252 251 247 / calc(0.8 + 0.14 * var(--frost)));
   --surface: rgb(255 255 255 / calc(0.3 + 0.42 * var(--frost)));
   --panel: rgb(255 255 255 / calc(0.08 + 0.5 * var(--frost)));
@@ -1963,7 +1966,7 @@ body.win-moving .assistant-win { transition: none; }
   --float-a: calc(0.72 + 0.2 * var(--frost));
   --rim-hi: rgb(255 255 255 / 0.9);
   --rim-lo: rgb(255 255 255 / 0.18);
-  --sheen: rgb(255 255 255 / 0.4);
+  --sheen: rgb(255 255 255 / calc(0.4 * var(--light)));
   --pane-shadow: 0 22px 48px -28px rgba(30, 34, 50, 0.45), 0 2px 6px -2px rgba(30, 34, 50, 0.12);
   --blur: calc(12px + 12px * var(--frost));
   --win-rgb: 252 252 250;
@@ -1980,7 +1983,7 @@ body.win-moving .assistant-win { transition: none; }
   --float-a: calc(0.74 + 0.2 * var(--frost));
   --rim-hi: rgb(255 255 255 / 0.32);
   --rim-lo: rgb(255 255 255 / 0.04);
-  --sheen: rgb(255 255 255 / 0.09);
+  --sheen: rgb(255 255 255 / calc(0.09 * var(--light)));
   --pane-shadow: 0 26px 60px -26px rgba(0, 0, 0, 0.8), 0 2px 8px -2px rgba(0, 0, 0, 0.4);
   --win-rgb: 30 32 40;
 }
