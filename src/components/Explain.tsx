@@ -75,6 +75,13 @@ const PY_TOKENS = new RegExp(
   ].join('|'),
   'g',
 );
+/** The latest line of Claude's thinking summary, short enough for a status line. */
+function lastThought(thinking?: string) {
+  const line = thinking?.split('\n').map((l) => l.replace(/[*#_`]/g, '').trim()).filter(Boolean).at(-1);
+  if (!line) return '';
+  return line.length > 140 ? `${line.slice(0, 139)}…` : line;
+}
+
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 export function highlightPython(code: string): string {
@@ -425,6 +432,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
   }, [sections]);
   const hasCode = cells.size > 0;
   const streaming = Boolean(explanation?.streaming);
+  const thought = lastThought(explanation?.thinking);
   const busy = Boolean(streaming || (pending && !pending.error));
   const canAsk = Boolean(explanation?.content && assistant.hasKey && !streaming);
 
@@ -675,7 +683,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
             <div className="ask-status">
               <span className="spinner" />
               <span className="ask-note">
-                {revising ? `Rewriting “${revising}”` : 'Reading your request'} — <em>{pending.request}</em>
+                {revising ? `Rewriting “${revising}”` : thought ? `Thinking — ${thought}` : 'Reading your request'} — <em>{pending.request}</em>
               </span>
             </div>
           ) : pending?.error ? (
@@ -872,7 +880,16 @@ export default function Explain({ paperId, title, authors, published, screen, on
               ))}
               {streaming ? (
                 <p className="explain-writing">
-                  <span className="spinner" /> Claude is writing{sections.length ? ` — ${sections[sections.length - 1].title || 'the opening'}` : ''}…
+                  <span className="spinner" />
+                  {thought ? (
+                    <span>
+                      Claude is thinking — <em>{thought}</em>
+                    </span>
+                  ) : explanation?.content ? (
+                    <span>Claude is writing{sections.length ? ` — ${sections[sections.length - 1].title || 'the opening'}` : ''}…</span>
+                  ) : (
+                    <span>Claude is reading the paper… a long one can take a minute or two before the first words.</span>
+                  )}
                 </p>
               ) : null}
               {explanation?.error ? <p className="explain-error">{explanation.error}</p> : null}
