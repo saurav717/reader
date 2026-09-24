@@ -6,7 +6,7 @@ read from and open it from whichever one will part with a file, read it as its P
 reflowed as text to highlight it, and keep what you collect: the PDFs in your own
 Google Drive, the notes and the bibliography in a Git repository.
 
-![the library on the left, the paper in the middle, the highlights pane on the right, and the three-pane lookup box over a selection](docs/reader.png)
+![the library on the left, the paper in the middle, the highlights pane on the right, and the lookup box over a selection](docs/reader.png)
 
 The window is in three parts. On the left, the library: your collections, and the
 papers in them split into what you are **reading now**, what you have **not started**
@@ -14,7 +14,8 @@ and what you have **finished**. In the middle, the paper. On the right, a dock
 holding **Discover** and **Highlights** — tabs, so the reading column never has a
 panel crowding it on both sides.
 
-Right-click a selection in a paper and a box opens with three panes: what the word
+Right-click a selection in a paper and a card opens beside it, never over it, with
+three tabs: what the word
 **means**, where the idea **comes from** — a background paragraph, the earliest
 papers to use the phrase, the most cited ones since, and links out — and a
 **comment** that highlights the passage as you type it, the way Acrobat does.
@@ -1410,23 +1411,47 @@ citations in Chromium.
 
 ## The lookup box
 
-Right-click a selection — or use **Look up** on the selection toolbar, which a
-trackpad can reach. Three panes, each fetched straight from the browser from a
-keyless service that sends CORS headers, so the box works on a static host with no
-proxy at all:
+Right-click a selection, or use **Look up** on the selection toolbar, which a
+trackpad can reach. A card opens with three tabs. Every tab is fetched straight
+from the browser from keyless services that send CORS headers, so the card works
+on a static host with no proxy at all:
 
-| Pane | Where it comes from | When it has nothing |
+| Tab | Where it comes from | When it has nothing |
 | --- | --- | --- |
-| Meaning | [dictionaryapi.dev](https://dictionaryapi.dev); chips pick which word of a phrase to define | says so, and links to Wiktionary |
-| Where it comes from | Wikipedia's lede, plus OpenAlex sorted oldest-first and most-cited-first | falls back to the search links below it |
+| Meaning | [Wiktionary](https://en.wiktionary.org), with [dictionaryapi.dev](https://dictionaryapi.dev) as the fallback | says so, and links to Wiktionary |
+| Origins | Wikipedia's lede, plus OpenAlex sorted oldest-first and most-cited-first | falls back to the search links below it |
 | Comment | your own library | — |
 
-The comment pane writes a real highlight as soon as there is something to attach it
+The card never covers the words it is about. When the window leaves a margin
+beside the text column that is at least 300px wide, the card sits there, level
+with the line, like a note in the margin. Otherwise it opens just below the
+selected line, or just above it when the line is near the bottom of the window
+(`src/lib/lookupPlace.ts`). A word or a short phrase opens on **Meaning**. A
+longer passage opens on **Comment**, since that is what a right-click on a
+sentence is usually for. The arrow keys move between tabs.
+
+**Meaning** asks Wiktionary and the Free Dictionary at the same time:
+
+- **Wiktionary's senses win when it has any.** It carries far more terms of art
+  than the Free Dictionary. The Free Dictionary still lends its pronunciation
+  when it has one.
+- **Word forms are followed.** Wiktionary files *models* as "plural of model",
+  and the card shows *model*'s entry, saying so. For the Free Dictionary, which
+  files a word under one form only, the likely dictionary forms are tried
+  (*encoding* → *encode*, *trained* → *train*).
+- **A two- or three-word phrase is asked about whole first.** Wiktionary has
+  *neural network* and *gradient descent*. The card then falls through to the
+  phrase's first word, and chips pick any other word.
+- **"No entry" and "no network" read differently.** The card only says no
+  dictionary could be reached when both failed.
+- **Answers are kept for the session.**
+
+The comment tab writes a real highlight as soon as there is something to attach it
 to — a colour you pick, or the first character you type — so the passage is marked
 up while you are still writing, and the comment lands in the Highlights pane and in
 the Drive sidecar like any other note. **Discard** removes it again.
 
-None of it is a term-of-art oracle: the dictionary has nothing to say about
+None of it is a term-of-art oracle: the dictionaries have nothing to say about
 "attention head", and OpenAlex's oldest match for a phrase is the oldest thing it
 has indexed, which is not always the thing that coined it.
 
@@ -1537,6 +1562,7 @@ src/lib/sidecar.ts      the annotation format both mirrors write
 src/lib/github.ts       the Git mirror: notes, index, BibTeX, one commit a flush
 src/lib/contact.ts      the address OpenAlex, Crossref and Unpaywall ask for
 src/lib/lookup.ts       dictionary and Wikipedia lookups for a selection
+src/lib/lookupPlace.ts  where the lookup card goes: the margin, below or above the line
 src/lib/glassLight.ts   the pointer as the light the glass theme catches
 src/lib/status.ts       reading, not started or finished
 src/lib/paperContent.ts fetches and sanitises the full text
@@ -1557,6 +1583,7 @@ src/components/         the UI
 scripts/smoke.mjs       browser smoke test (see below)
 scripts/pdf-proxy.test.mjs  what the PDF proxy serves and what it refuses
 scripts/search.test.mjs     query shapes, de-duplication and ranking
+scripts/lookup.test.mjs     the dictionaries behind the lookup card, and where it goes
 scripts/locations.test.mjs  which copies of a paper are collected, how duplicates
                             fold together, the order they are tried in, and the
                             fall-through when one will not answer

@@ -999,9 +999,15 @@ export default function Reader({
     const offsets = offsetsFromRange(index, range);
     if (!offsets || !index.text.slice(offsets.start, offsets.end).trim()) return null;
     const rect = range.getBoundingClientRect();
+    const column = root.getBoundingClientRect();
+    // The reading pane, not the window: the rail and the side panels are not margin.
+    const pane = (root.closest('.main') ?? root).getBoundingClientRect();
     return {
       top: rect.bottom + 8,
       left: rect.left,
+      anchor: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+      column: { left: column.left, right: column.right },
+      pane: { left: pane.left, right: pane.right },
       selector: selectorFromOffsets(index, offsets.start, offsets.end),
       section: sectionFor(range, root),
     };
@@ -1173,7 +1179,11 @@ export default function Reader({
       <div
         ref={bodyRef}
         className="paper-body"
-        onMouseUp={captureSelection}
+        onMouseUp={(event) => {
+          // A right-click opens the lookup card; its mouseup can land after
+          // the context menu has, and must not bring the toolbar back over it.
+          if (event.button !== 2) captureSelection();
+        }}
         onKeyUp={captureSelection}
         onContextMenu={(event) => {
           // Only take the menu over when there is something to look up.
@@ -1573,7 +1583,7 @@ export default function Reader({
         </p>
       ) : null}
 
-      {pending ? (
+      {pending && !lookup ? (
         <div className="selection-toolbar" style={{ top: pending.top, left: pending.left }} role="toolbar" aria-label="Highlight the selection">
           {HIGHLIGHT_COLORS.map((colour, position) => (
             <button

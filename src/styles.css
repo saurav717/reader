@@ -627,102 +627,118 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 .paper-row-progress .mono { font-size: 10px; color: var(--muted); }
 
 /* --------------------------------------------------------------- lookup -- */
+/* A card, not a bar: one pane at a time behind tabs, placed in the margin
+   beside the line when there is one and otherwise just below (or above) the
+   selected line — never over the words it is about. */
 
 .lookup {
   position: fixed;
   z-index: 45;
   display: flex;
   flex-direction: column;
-  max-height: 340px;
+  max-height: 440px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
   box-shadow: var(--shadow-md);
   overflow: hidden;
+  animation: lookup-in 0.14s ease-out;
 }
+@keyframes lookup-in { from { opacity: 0; transform: translateY(4px); } }
+.lookup.is-above { animation-name: lookup-in-above; }
+@keyframes lookup-in-above { from { opacity: 0; transform: translateY(-4px); } }
+.lookup.is-margin { animation-name: lookup-in-margin; }
+@keyframes lookup-in-margin { from { opacity: 0; transform: translateX(-6px); } }
+@media (prefers-reduced-motion: reduce) { .lookup { animation: none; } }
 
 .lookup-head {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 9px 9px 14px;
-  border-bottom: 1px solid var(--border-soft);
-  background: var(--panel);
+  gap: 8px;
+  padding: 8px 6px 4px 14px;
 }
 .lookup-quote {
   margin: 0;
   flex-grow: 1;
   min-width: 0;
   font-family: var(--serif);
-  font-size: 13px;
+  font-size: 14px;
+  font-style: italic;
   color: var(--ink-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The three panes sit side by side when there is room; the tabs take over
-   when there is not. */
-.lookup-tabs { display: none; gap: 4px; }
+.lookup-tabs {
+  flex-shrink: 0;
+  display: flex;
+  gap: 2px;
+  margin: 2px 12px 0;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--rail);
+  border: 1px solid var(--border-soft);
+}
 .lookup-tabs button {
+  flex: 1 1 0;
   height: 26px;
-  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
   white-space: nowrap;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: 7px;
   background: transparent;
   color: var(--ink-2);
   font-size: 11.5px;
   cursor: pointer;
 }
+.lookup-tabs button:hover { color: var(--ink); }
 .lookup-tabs button[aria-selected='true'] {
   background: var(--surface);
-  border-color: var(--border);
   color: var(--ink);
   font-weight: 500;
+  box-shadow: var(--shadow-sm);
 }
 
-.lookup-panes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 0; flex-grow: 1; }
+.lookup-panes { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
 .lookup-pane {
-  min-width: 0;
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 12px 14px 14px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  border-right: 1px solid var(--border-soft);
-  font-size: 12px;
+  font-size: 12.5px;
   line-height: 1.55;
 }
-.lookup-pane:last-child { border-right: 0; }
-.lookup-pane h3 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 9px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.lookup-note { margin: 0 0 8px; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11.5px; }
-.lookup-words { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 9px; }
+.lookup-pane[hidden] { display: none; }
+.lookup-note { margin: 0 0 8px; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.lookup-words { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
 .lookup-words .chip { font-size: 10.5px; padding: 3px 8px; }
-.lookup-word { margin: 0 0 8px; font-family: var(--serif); font-size: 16px; font-weight: 600; }
-.lookup-word .mono { font-size: 11px; font-weight: 400; color: var(--muted); }
-.lookup-sense { margin-bottom: 10px; }
-.lookup-sense ol { margin: 4px 0 0; padding-left: 16px; }
-.lookup-sense li { margin-bottom: 4px; }
+.lookup-word { margin: 0 0 2px; font-family: var(--serif); font-size: 19px; font-weight: 600; line-height: 1.25; }
+.lookup-word .mono { font-size: 11.5px; font-weight: 400; color: var(--muted); }
+.lookup-form { margin: 0 0 6px; font-size: 11.5px; color: var(--muted); font-style: italic; }
+.lookup-sense { margin: 8px 0 10px; }
+.lookup-sense ol { margin: 4px 0 0; padding-left: 18px; }
+.lookup-sense li { margin-bottom: 5px; }
 .lookup-sense em { color: var(--muted); }
 .lookup-synonyms { margin: 4px 0 0; font-size: 11px; color: var(--muted); }
+.lookup-credit { font-size: 10.5px; color: var(--muted); margin-right: auto; }
 
 .lookup-background { margin-bottom: 12px; }
 .lookup-background p { margin: 5px 0 0; color: var(--ink-2); }
 .lookup-kicker { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
 .lookup-papers { list-style: none; margin: 5px 0 12px; padding: 0; }
 .lookup-papers li { margin-bottom: 8px; }
-.lookup-papers a { display: block; font-size: 12px; line-height: 1.35; text-decoration: none; }
+.lookup-papers a { display: block; font-size: 12.5px; line-height: 1.35; text-decoration: none; }
 .lookup-papers a:hover { text-decoration: underline; }
 .lookup-paper-meta { display: block; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
-.lookup-links { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
+.lookup-links {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-soft);
+}
 .lookup-link {
   display: inline-flex;
   align-items: center;
@@ -753,24 +769,13 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
   border-radius: 9px;
   background: var(--panel);
   padding: 8px 9px;
-  font-size: 12px;
+  font-size: 12.5px;
   line-height: 1.5;
   resize: vertical;
   outline: 0;
 }
+.lookup-pane textarea:focus { border-color: var(--accent); }
 .lookup-actions { display: flex; gap: 6px; margin-top: 4px; }
-
-@media (max-width: 860px) {
-  /* Too narrow for three columns: the panes become tabs on their own row. */
-  .lookup-head { flex-wrap: wrap; padding-left: 12px; }
-  .lookup-quote { order: 1; }
-  .lookup-head > .icon-btn { order: 2; }
-  .lookup-tabs { display: flex; order: 3; flex-basis: 100%; }
-  .lookup-tabs button { flex-grow: 1; }
-  .lookup-panes { grid-template-columns: minmax(0, 1fr); }
-  .lookup-pane { display: none; border-right: 0; }
-  .lookup-pane.is-open { display: block; }
-}
 
 /* --------------------------------------------------------------- dialog -- */
 
@@ -1585,7 +1590,7 @@ body.win-moving .assistant-win { transition: none; }
   --border-soft: rgb(38 42 58 / 0.08);
   --muted: #5d5a53;
   --float-rgb: 252 252 250;
-  --float-a: calc(0.5 + 0.34 * var(--frost));
+  --float-a: calc(0.72 + 0.2 * var(--frost));
   --rim-hi: rgb(255 255 255 / 0.9);
   --rim-lo: rgb(255 255 255 / 0.18);
   --sheen: rgb(255 255 255 / 0.4);
@@ -1608,7 +1613,7 @@ body.win-moving .assistant-win { transition: none; }
   --border-soft: rgb(255 255 255 / 0.07);
   --muted: #a3a095;
   --float-rgb: 30 32 40;
-  --float-a: calc(0.52 + 0.34 * var(--frost));
+  --float-a: calc(0.74 + 0.2 * var(--frost));
   --rim-hi: rgb(255 255 255 / 0.32);
   --rim-lo: rgb(255 255 255 / 0.04);
   --sheen: rgb(255 255 255 / 0.09);
@@ -1699,7 +1704,7 @@ body.win-moving .assistant-win { transition: none; }
   box-shadow: var(--shadow-md), inset 0 1px 0 rgb(255 255 255 / 0.25);
 }
 :root[data-glass='on'] :is(.palette, .sheet) { box-shadow: var(--shadow-lg), inset 0 1px 0 rgb(255 255 255 / 0.25); }
-:root[data-glass='on'] :is(.lookup-head, .palette-foot) { background: rgb(var(--float-rgb) / 0.3); }
+:root[data-glass='on'] .palette-foot { background: rgb(var(--float-rgb) / 0.3); }
 /* A scrim that frosts what it covers instead of only dimming it. */
 :root[data-glass='on'] .scrim {
   background: rgba(24, 26, 36, 0.16);
@@ -1715,12 +1720,12 @@ body.win-moving .assistant-win { transition: none; }
   box-shadow: var(--shadow-md), inset 0 1px 0 rgb(255 255 255 / 0.16), inset 0 0 0 0.5px rgb(255 255 255 / 0.1);
 }
 /* Chosen controls are a lozenge of lighter glass, raised by a highlight. */
-:root[data-glass='on'] :is(.segmented button[aria-pressed='true'], .dock-tabs button[aria-selected='true']) {
+:root[data-glass='on'] :is(.segmented button[aria-pressed='true'], .dock-tabs button[aria-selected='true'], .lookup-tabs button[aria-selected='true']) {
   background: rgb(255 255 255 / 0.62);
   border-color: transparent;
   box-shadow: 0 1px 3px rgba(30, 34, 50, 0.14), inset 0 1px 0 rgb(255 255 255 / 0.9);
 }
-:root[data-glass='on'][data-theme='dark'] :is(.segmented button[aria-pressed='true'], .dock-tabs button[aria-selected='true']) {
+:root[data-glass='on'][data-theme='dark'] :is(.segmented button[aria-pressed='true'], .dock-tabs button[aria-selected='true'], .lookup-tabs button[aria-selected='true']) {
   background: rgb(255 255 255 / 0.14);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgb(255 255 255 / 0.16);
 }

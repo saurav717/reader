@@ -1,17 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import { candidateWords, lookupBackground, lookupWord, referenceLinks, type Background, type WordEntry } from '../lib/lookup';
 import { lookupLineage, type Lineage } from '../lib/sources';
-import type { Selector } from '../lib/anchor';
+import { placeLookup, type LookupTarget } from '../lib/lookupPlace';
 import { HIGHLIGHT_COLORS, type HighlightColor } from '../types';
 import { BookIcon, CloseIcon, ExternalIcon, NoteIcon, TrashIcon, TreeIcon } from './icons';
 
-export interface LookupTarget {
-  top: number;
-  left: number;
-  selector: Selector;
-  section?: string;
-}
+export type { LookupTarget };
 
 interface Props {
   paperId: string;
@@ -22,25 +17,11 @@ interface Props {
 
 type Pane = 'dictionary' | 'origins' | 'comment';
 
-// The tab strip only appears when the panes will not fit side by side, so its
-// labels are the short form of each pane's own heading.
 const PANES: { id: Pane; label: string }[] = [
   { id: 'dictionary', label: 'Meaning' },
   { id: 'origins', label: 'Origins' },
   { id: 'comment', label: 'Comment' },
 ];
-
-const WIDTH = 760;
-const HEIGHT = 340;
-
-/** Keep the box on screen, below the selection where there is room. */
-function place(target: LookupTarget): { top: number; left: number } {
-  const width = Math.min(WIDTH, window.innerWidth - 24);
-  const left = Math.max(12, Math.min(window.innerWidth - width - 12, target.left));
-  const below = target.top;
-  const top = below + HEIGHT > window.innerHeight - 12 ? Math.max(12, window.innerHeight - HEIGHT - 12) : below;
-  return { top, left };
-}
 
 function yearOf(published: string): string {
   const year = published ? new Date(published).getFullYear() : NaN;
@@ -49,15 +30,26 @@ function yearOf(published: string): string {
 
 export default function LookupPopover({ paperId, target, onClose, onSelectHighlight }: Props) {
   const { highlights, addHighlight, updateHighlight, deleteHighlight } = useStore();
-  const [pane, setPane] = useState<Pane>('dictionary');
   const box = useRef<HTMLDivElement>(null);
 
   const phrase = target.selector.exact.trim();
-  const words = useMemo(() => candidateWords(phrase), [phrase]);
+  const wordCount = phrase.split(/\s+/).length;
+  // A word or a short phrase is most likely being looked up; a passage is
+  // most likely being commented on.
+  const [pane, setPane] = useState<Pane>(() => (wordCount <= 3 ? 'dictionary' : 'comment'));
+  // A two- or three-word phrase is asked about whole first — Wiktionary has
+  // "neural network" and "gradient descent" — then word by word.
+  const words = useMemo(() => {
+    const single = candidateWords(phrase);
+    const whole = phrase.toLowerCase().replace(/[^\p{L}\p{N}\s'-]+/gu, ' ').replace(/\s+/g, ' ').trim();
+    return wordCount >= 2 && wordCount <= 3 && whole.length <= 40 && whole.includes(' ') ? [whole, ...single] : single;
+  }, [phrase, wordCount]);
   const [word, setWord] = useState(() => words[0] || phrase);
+  const [height, setHeight] = useState(260);
 
   const [entry, setEntry] = useState<WordEntry | null>(null);
   const [wordState, setWordState] = useState<'loading' | 'done' | 'missing' | 'error'>('loading');
+  const [wordError, setWordError] = useState('');
   const [background, setBackground] = useState<Background | null>(null);
   const [lineage, setLineage] = useState<Lineage | null>(null);
   const [originsState, setOriginsState] = useState<'loading' | 'done' | 'error'>('loading');
@@ -69,7 +61,17 @@ export default function LookupPopover({ paperId, target, onClose, onSelectHighli
   const [colour, setColour] = useState<HighlightColor>('yellow');
   const comment = highlights.find((highlight) => highlight.id === commentId);
 
-  const { top, left } = useMemo(() => place(target), [target]);
+  const placement = placeLookup(target, height);
+
+  // The card's height follows what it holds; the placement follows the height.
+  useLayoutEffect(() => {
+    const element = box.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => setHeight(element.offsetHeight));
+    observer.observe(element);
+    setHeight(element.offsetHeight);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     setWord(words[0] || phrase);
@@ -87,10 +89,16 @@ export default function LookupPopover({ paperId, target, onClose, onSelectHighli
       })
       .catch((error) => {
         if (error instanceof DOMException && error.name === 'AbortError') return;
+        setWordError(error instanceof Error ? error.message : String(error));
         setWordState('error');
       });
     return () => controller.abort();
   }, [word]);
+
+  // A phrase the dictionaries do not carry falls through to its first word.
+  useEffect(() => {
+    if (wordState === 'missing' && word === words[0] && word.includes(' ') && words[1]) setWord(words[1]);
+  }, [wordState, word, words]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -165,8 +173,8 @@ export default function LookupPopover({ paperId, target, onClose, onSelectHighli
   return (
     <div
       ref={box}
-      className="lookup"
-      style={{ top, left, width: Math.min(WIDTH, window.innerWidth - 24) }}
+      className={`lookup is-${placement.side}`}
+      style={{ top: placement.top, left: placement.left, width: placement.width, maxHeight: placement.maxHeight }}
       role="dialog"
       aria-label={`Look up “${phrase.slice(0, 60)}”`}
       onContextMenu={(event) => event.stopPropagation()}
@@ -175,29 +183,43 @@ export default function LookupPopover({ paperId, target, onClose, onSelectHighli
         <p className="lookup-quote" title={phrase}>
           “{phrase}”
         </p>
-        <div className="lookup-tabs" role="tablist" aria-label="Lookup panes">
-          {PANES.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={pane === item.id}
-              onClick={() => setPane(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
         <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the lookup box">
-          <CloseIcon size={16} />
+          <CloseIcon size={15} />
         </button>
+      </div>
+      <div className="lookup-tabs" role="tablist" aria-label="Lookup panes">
+        {PANES.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            id={`lookup-tab-${item.id}`}
+            aria-selected={pane === item.id}
+            aria-controls={`lookup-pane-${item.id}`}
+            onClick={() => setPane(item.id)}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+              const index = PANES.findIndex((entry) => entry.id === pane);
+              const next = PANES[(index + (event.key === 'ArrowRight' ? 1 : PANES.length - 1)) % PANES.length];
+              setPane(next.id);
+              document.getElementById(`lookup-tab-${next.id}`)?.focus();
+            }}
+            tabIndex={pane === item.id ? 0 : -1}
+          >
+            {item.id === 'dictionary' ? <BookIcon size={13} /> : item.id === 'origins' ? <TreeIcon size={13} /> : <NoteIcon size={13} />}
+            {item.label}
+          </button>
+        ))}
       </div>
 
       <div className="lookup-panes">
-        <section className={`lookup-pane ${pane === 'dictionary' ? 'is-open' : ''}`} aria-label="Dictionary">
-          <h3>
-            <BookIcon size={14} /> Meaning
-          </h3>
+        <section
+          className="lookup-pane"
+          role="tabpanel"
+          id="lookup-pane-dictionary"
+          aria-labelledby="lookup-tab-dictionary"
+          hidden={pane !== 'dictionary'}
+        >
 
           {words.length > 1 ? (
             <div className="lookup-words">
@@ -223,14 +245,11 @@ export default function LookupPopover({ paperId, target, onClose, onSelectHighli
 
           {wordState === 'missing' ? (
             <p className="lookup-note">
-              No dictionary entry for “{word}”. It may be a term of art — the next pane traces where it came
-              from.
+              No dictionary entry for “{word}”. It may be a term of art — Origins traces where it came from.
             </p>
           ) : null}
 
-          {wordState === 'error' ? (
-            <p className="lookup-note">The dictionary could not be reached.</p>
-          ) : null}
+          {wordState === 'error' ? <p className="lookup-note">{wordError || 'The dictionary could not be reached.'}</p> : null}
 
           {entry ? (
             <>
@@ -238,6 +257,7 @@ export default function LookupPopover({ paperId, target, onClose, onSelectHighli
                 {entry.word}
                 {entry.phonetic ? <span className="mono"> {entry.phonetic}</span> : null}
               </p>
+              {entry.formOf ? <p className="lookup-form">{entry.formOf}</p> : null}
               {entry.senses.map((sense, index) => (
                 <div key={`${sense.partOfSpeech}-${index}`} className="lookup-sense">
                   <span className="eyebrow">{sense.partOfSpeech}</span>
@@ -257,20 +277,26 @@ export default function LookupPopover({ paperId, target, onClose, onSelectHighli
             </>
           ) : null}
 
-          <a
-            className="lookup-link"
-            href={`https://en.wiktionary.org/wiki/${encodeURIComponent(word)}`}
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            Wiktionary <ExternalIcon size={11} />
-          </a>
+          <div className="lookup-links">
+            {entry ? <span className="lookup-credit">From {entry.source}</span> : null}
+            <a
+              className="lookup-link"
+              href={`https://en.wiktionary.org/wiki/${encodeURIComponent(word.replace(/ /g, '_'))}`}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              Wiktionary <ExternalIcon size={11} />
+            </a>
+          </div>
         </section>
 
-        <section className={`lookup-pane ${pane === 'origins' ? 'is-open' : ''}`} aria-label="Where it comes from">
-          <h3>
-            <TreeIcon size={14} /> Where it comes from
-          </h3>
+        <section
+          className="lookup-pane"
+          role="tabpanel"
+          id="lookup-pane-origins"
+          aria-labelledby="lookup-tab-origins"
+          hidden={pane !== 'origins'}
+        >
 
           {originsState === 'loading' ? (
             <p className="lookup-note">
@@ -341,10 +367,13 @@ export default function LookupPopover({ paperId, target, onClose, onSelectHighli
           </div>
         </section>
 
-        <section className={`lookup-pane ${pane === 'comment' ? 'is-open' : ''}`} aria-label="Comment">
-          <h3>
-            <NoteIcon size={14} /> Comment
-          </h3>
+        <section
+          className="lookup-pane"
+          role="tabpanel"
+          id="lookup-pane-comment"
+          aria-labelledby="lookup-tab-comment"
+          hidden={pane !== 'comment'}
+        >
 
           <div className="lookup-colours" role="group" aria-label="Highlight colour">
             {HIGHLIGHT_COLORS.map((item) => (
