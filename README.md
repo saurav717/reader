@@ -1431,6 +1431,29 @@ name, the one at the institution OpenAlex names is taken ("MIT" and
 count, verified email and interests go on the card. Without a proxy the
 link is Scholar's own search for the name.
 
+OpenAlex's own record of a paper can still name the wrong person: its
+disambiguation now and then files a paper under a namesake, or folds two
+people into one record — *How to Win Friends and Influence People* (1936)
+under an engineer in Wellington publishing since 1999. So a record is
+checked before anything from it is shown. One whose papers come in runs
+thirty years or more apart, with nothing between, is more than one person;
+one with next to none of its work in the fields this paper is in is someone
+else. Either way the card shows none of it — not its counts, institution,
+topics or papers — says which record it set aside and why, and takes a lone
+Scholar profile with the name for a namesake's rather than theirs (among
+several, the one at the paper's institution is still taken).
+
+Beside Scholar, the card looks for the person through the paper at **Open
+Library**: a book with the paper's title and an author of the name leads to
+that author's record there, and from it to their **Wikipedia** page and
+**Wikidata** item. Their full name, when they lived, who they were and their
+other books go on the card, with a link to each page. Going by the paper
+rather than the name is what keeps a namesake out. With no Scholar profile
+the card says so, and lists the other pages it found. Found nowhere at all —
+not on Scholar, OpenAlex, ORCID, Wikipedia or Open Library — it says that,
+and lists the other works published under the name, with a warning that
+some may be a namesake's. `scripts/authors.test.mjs` pins these rules.
+
 Rest it on a citation — `[12]`, `[3, 5–7]`, `(Vaswani et al., 2017)`,
 `Vaswani et al. (2017)` — and the card shows the entry as the bibliography
 prints it at once, then the paper it is: title, authors, venue, year, how

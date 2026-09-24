@@ -95,7 +95,20 @@ interface Authorship {
   institutions?: { display_name: string | null }[];
 }
 
-type WorkWithAuthors = OpenAlexWork & { authorships: Authorship[]; title?: string | null };
+/** A topic as OpenAlex files a work or a person under it, with the field it belongs to. */
+export interface OpenAlexTopic {
+  display_name: string;
+  /** On a person: how many of their works are on it. */
+  count?: number;
+  field?: { display_name: string | null } | null;
+}
+
+type WorkWithAuthors = OpenAlexWork & {
+  authorships: Authorship[];
+  title?: string | null;
+  topics?: OpenAlexTopic[];
+  publication_year?: number | null;
+};
 
 interface OpenAlexAuthorRecord {
   id: string;
@@ -105,7 +118,7 @@ interface OpenAlexAuthorRecord {
   cited_by_count?: number;
   summary_stats?: { h_index?: number; i10_index?: number; '2yr_mean_citedness'?: number };
   last_known_institutions?: { display_name: string | null }[];
-  topics?: { display_name: string }[];
+  topics?: OpenAlexTopic[];
 }
 
 /** A person, as far as the hover card needs to know them. */
@@ -129,6 +142,19 @@ export interface AuthorDetails {
   i10Index?: number;
   topics: string[];
   topWorks: PaperRef[];
+  /**
+   * The record OpenAlex gave for the name, when it does not look like the
+   * person who wrote this paper — another of the name, or several people
+   * folded into one record. None of it is shown as theirs: not its counts,
+   * its institution, its topics or its papers.
+   */
+  mistaken?: {
+    openAlexId: string;
+    /** Why it was set aside, as the card says it. */
+    reason: string;
+    affiliation?: string;
+    topics: string[];
+  };
 }
 
 interface PaperKey {
@@ -138,24 +164,86 @@ interface PaperKey {
   arxivId?: string;
 }
 
-const paperAuthors = new Map<string, Promise<Authorship[]>>();
+/** The open paper as OpenAlex records it: its authors, with ids and institutions, and what it is about. */
+interface PaperRecord {
+  authorships: Authorship[];
+  topics: OpenAlexTopic[];
+}
 
-/** The open paper's authors as OpenAlex records them, with their ids and institutions. */
-function authorshipsOf(paper: PaperKey): Promise<Authorship[]> {
-  return remembered(paperAuthors, paper.id, async () => {
-    const fields = new URLSearchParams({ select: 'id,title,authorships' });
+const paperRecords = new Map<string, Promise<PaperRecord>>();
+
+function recordOf(paper: PaperKey): Promise<PaperRecord> {
+  return remembered(paperRecords, paper.id, async () => {
+    const of = (work?: WorkWithAuthors | null): PaperRecord => ({ authorships: work?.authorships ?? [], topics: work?.topics ?? [] });
+    const fields = new URLSearchParams({ select: 'id,title,authorships,topics,publication_year' });
     const doi = paper.doi ?? (paper.arxivId ? `10.48550/arxiv.${paper.arxivId.replace(/v\d+$/, '')}` : undefined);
     if (doi) {
       const work = await openAlexJson<WorkWithAuthors>(`works/doi:${encodeURIComponent(doi)}`, fields).catch(() => null);
-      if (work?.authorships?.length) return work.authorships;
+      if (work?.authorships?.length) return of(work);
     }
-    if (!paper.title) return [];
-    const params = new URLSearchParams({ per_page: '5', select: 'id,title,display_name,authorships' });
+    if (!paper.title) return of();
+    const params = new URLSearchParams({ per_page: '5', select: 'id,title,display_name,authorships,topics,publication_year' });
     params.set('filter', `title.search:${filterValue(paper.title)}`);
     const found = await openAlexJson<{ results?: WorkWithAuthors[] }>('works', params);
-    const match = found?.results?.find((work) => titleFits(work.title || work.display_name || '', paper.title));
-    return match?.authorships ?? [];
+    return of(found?.results?.find((work) => titleFits(work.title || work.display_name || '', paper.title)));
   });
+}
+
+/** Years apart two runs of a record's papers have to be before it is taken for two people. */
+const ERA_GAP = 30;
+/** The least share of a record's work that has to be in the paper's fields for it to be the paper's author. */
+const FIELD_SHARE = 0.05;
+
+/**
+ * Why an author record is not the person who wrote the paper, or undefined
+ * when nothing says so. OpenAlex's disambiguation files people under a
+ * name, and now and then files a paper under the wrong person or folds two
+ * people into one: a self-help book of 1936 under an engineer publishing
+ * since 1999. Two things give that away. The record's papers come in runs
+ * decades apart, with nothing between — no one's career looks like that. Or
+ * next to nothing it has is in the fields this paper is in.
+ *
+ * `years` is how many of the record's papers came out in each year;
+ * `paperTopics` and `personTopics` are OpenAlex's topics for the paper and
+ * for the person, with their fields.
+ */
+export function recordDoubt(
+  paperTopics: OpenAlexTopic[],
+  personTopics: OpenAlexTopic[],
+  years: Record<string, number>,
+): string | undefined {
+  const active = Object.entries(years)
+    .filter(([year, count]) => /^\d{4}$/.test(year) && count > 0)
+    .map(([year]) => Number(year))
+    .sort((a, b) => a - b);
+  for (let i = 1; i < active.length; i++) {
+    if (active[i] - active[i - 1] >= ERA_GAP) {
+      const span = (from: number, to: number) => (from === to ? String(from) : `${from}–${to}`);
+      return `its papers come from ${span(active[0], active[i - 1])} and from ${span(active[i], active[active.length - 1])}, with nothing in between — more than one person under one name`;
+    }
+  }
+
+  const fieldOf = (topic: OpenAlexTopic) => topic.field?.display_name || '';
+  const fields = new Set(paperTopics.map(fieldOf).filter(Boolean));
+  const counted = personTopics.filter((topic) => fieldOf(topic));
+  if (fields.size && counted.length) {
+    const weight = (topic: OpenAlexTopic) => (typeof topic.count === 'number' && topic.count > 0 ? topic.count : 1);
+    const total = counted.reduce((sum, topic) => sum + weight(topic), 0);
+    const inFields = counted.filter((topic) => fields.has(fieldOf(topic))).reduce((sum, topic) => sum + weight(topic), 0);
+    if (inFields / total < FIELD_SHARE) {
+      const theirs = [...new Set(counted.map(fieldOf))].slice(0, 2).join(' and ');
+      return `its work is in ${theirs}, and this paper is in ${[...fields].slice(0, 2).join(' and ')}`;
+    }
+  }
+  return undefined;
+}
+
+/** How many of an author's papers came out in each year. */
+async function yearsOf(id: string): Promise<Record<string, number>> {
+  const params = new URLSearchParams({ group_by: 'publication_year' });
+  params.set('filter', `author.id:${id}`);
+  const found = await openAlexJson<{ group_by?: { key: string; count: number }[] }>('works', params);
+  return Object.fromEntries((found?.group_by || []).map((group) => [group.key, group.count]));
 }
 
 const people = new Map<string, Promise<AuthorDetails>>();
@@ -170,7 +258,8 @@ export function authorDetails(name: string, position: number, paper: PaperKey): 
 }
 
 async function findAuthor(name: string, position: number, paper: PaperKey): Promise<AuthorDetails> {
-  const ships = await authorshipsOf(paper).catch(() => [] as Authorship[]);
+  const found = await recordOf(paper).catch((): PaperRecord => ({ authorships: [], topics: [] }));
+  const ships = found.authorships;
   const named = (ship: Authorship) => nameMatches(ship.author.display_name || ship.raw_author_name || '', name);
   const ship = ships[position] && named(ships[position]) ? ships[position] : ships.find(named);
 
@@ -178,8 +267,8 @@ async function findAuthor(name: string, position: number, paper: PaperKey): Prom
   let id = ship?.author.id?.split('/').pop();
   if (!id) {
     const params = new URLSearchParams({ search: name, per_page: '5' });
-    const found = await openAlexJson<{ results?: OpenAlexAuthorRecord[] }>('authors', params).catch(() => null);
-    const best = found?.results?.find((record) => nameMatches(record.display_name || '', name));
+    const results = await openAlexJson<{ results?: OpenAlexAuthorRecord[] }>('authors', params).catch(() => null);
+    const best = results?.results?.find((record) => nameMatches(record.display_name || '', name));
     if (best) {
       id = best.id.split('/').pop();
       via = 'name';
@@ -197,22 +286,221 @@ async function findAuthor(name: string, position: number, paper: PaperKey): Prom
 
   const worksParams = new URLSearchParams({ per_page: '3', sort: 'cited_by_count:desc' });
   worksParams.set('filter', `author.id:${id}`);
-  const [record, works] = await Promise.all([
+  const [record, works, years] = await Promise.all([
     openAlexJson<OpenAlexAuthorRecord>(`authors/${id}`).catch(() => null),
     openAlexWorks(worksParams).catch(() => [] as PaperRef[]),
+    yearsOf(id).catch(() => ({}) as Record<string, number>),
   ]);
+  const topics = (record?.topics || []).slice(0, 4).map((topic) => topic.display_name);
+  const affiliation = record?.last_known_institutions?.[0]?.display_name || undefined;
+
+  const doubt = recordDoubt(found.topics, record?.topics || [], years);
+  if (doubt) {
+    details.mistaken = { openAlexId: id, reason: doubt, affiliation, topics };
+    return details;
+  }
+
   details.openAlexId = id;
   details.topWorks = works;
   if (record) {
     details.orcid = record.orcid?.replace('https://orcid.org/', '') || undefined;
-    details.affiliation = record.last_known_institutions?.[0]?.display_name || undefined;
+    details.affiliation = affiliation;
     details.worksCount = record.works_count;
     details.citedBy = record.cited_by_count;
     details.hIndex = record.summary_stats?.h_index;
     details.i10Index = record.summary_stats?.i10_index;
-    details.topics = (record.topics || []).slice(0, 4).map((topic) => topic.display_name);
+    details.topics = topics;
   }
   return details;
+}
+
+// ----------------------------------------------------------- elsewhere ---
+
+const OPEN_LIBRARY = 'https://openlibrary.org';
+
+/** A book or paper of theirs found somewhere other than their OpenAlex record. */
+export interface OtherWork {
+  title: string;
+  year?: number;
+  /** How many editions Open Library knows of — a book's reach, where a paper's is its citations. */
+  editions?: number;
+  citedBy?: number;
+  url?: string;
+}
+
+/** Where else a person has a page of their own: Wikipedia, Open Library, Wikidata and the like. */
+export interface Elsewhere {
+  /** Their name as those pages write it, when it is fuller than the byline's. */
+  fullName?: string;
+  /** When they lived — "1888–1955" — for someone who has died. */
+  lived?: string;
+  /** Who they are, in a line: "American writer and lecturer". */
+  description?: string;
+  /** A paragraph about them. */
+  about?: string;
+  profiles: { site: string; url: string }[];
+  /** Their best-known works there, the open paper left out. */
+  works: OtherWork[];
+}
+
+interface OpenLibraryDoc {
+  key: string;
+  title: string;
+  author_name?: string[];
+  author_key?: string[];
+  first_publish_year?: number;
+  edition_count?: number;
+}
+
+interface OpenLibraryAuthor {
+  name?: string;
+  personal_name?: string;
+  birth_date?: string;
+  death_date?: string;
+  bio?: string | { value?: string };
+  wikipedia?: string;
+  remote_ids?: { wikidata?: string; viaf?: string; isni?: string };
+}
+
+async function json<T>(url: string): Promise<T | null> {
+  const response = await fetch(url);
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`${new URL(url).host} answered ${response.status}`);
+  return (await response.json()) as T;
+}
+
+async function openLibrarySearch(params: URLSearchParams): Promise<OpenLibraryDoc[]> {
+  params.set('fields', 'key,title,author_name,author_key,first_publish_year,edition_count');
+  const found = await json<{ docs?: OpenLibraryDoc[] }>(`${OPEN_LIBRARY}/search.json?${params}`);
+  return found?.docs ?? [];
+}
+
+const yearIn = (value?: string) => /\d{3,4}/.exec(value || '')?.[0];
+
+/** The English Wikipedia page a Wikidata item links to, with its one-line description and first paragraph. */
+async function wikipedia(wikidata: string): Promise<{ url: string; description?: string; extract?: string } | null> {
+  const params = new URLSearchParams({ action: 'wbgetentities', ids: wikidata, props: 'sitelinks', sitefilter: 'enwiki', format: 'json', origin: '*' });
+  const entity = await json<{ entities?: Record<string, { sitelinks?: { enwiki?: { title: string } } }> }>(
+    `https://www.wikidata.org/w/api.php?${params}`,
+  );
+  const title = entity?.entities?.[wikidata]?.sitelinks?.enwiki?.title;
+  if (!title) return null;
+  const page = encodeURIComponent(title.replace(/ /g, '_'));
+  const summary = await json<{ description?: string; extract?: string; content_urls?: { desktop?: { page?: string } } }>(
+    `https://en.wikipedia.org/api/rest_v1/page/summary/${page}`,
+  ).catch(() => null);
+  return {
+    url: summary?.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${page}`,
+    description: summary?.description,
+    extract: summary?.extract,
+  };
+}
+
+const elsewhereCache = new Map<string, Promise<Elsewhere>>();
+
+/**
+ * Where else the author has a page, found through the open paper: Open
+ * Library is asked for a book with its title and an author of the name, and
+ * the author it files the book under is followed to their record, their
+ * Wikipedia page and Wikidata item, and their other books. Going by the
+ * paper and not by the name is what keeps a namesake out — a search for
+ * "D Carnegie" finds several people; the author of *How to Win Friends and
+ * Influence People* is one. A paper Open Library does not know finds nothing.
+ */
+export function profilesElsewhere(name: string, paper: PaperKey): Promise<Elsewhere> {
+  return remembered(elsewhereCache, `${paper.id}|${name}`, () => findElsewhere(name, paper));
+}
+
+async function findElsewhere(name: string, paper: PaperKey): Promise<Elsewhere> {
+  const none: Elsewhere = { profiles: [], works: [] };
+  const surname = name.trim().split(/\s+/).pop() || name;
+  if (!paper.title || paper.title.length < 8) return none;
+  const docs = await openLibrarySearch(new URLSearchParams({ title: paper.title.slice(0, 200), author: surname, limit: '10' }));
+
+  let key: string | undefined;
+  for (const doc of docs) {
+    if (!titleFits(doc.title, paper.title)) continue;
+    const at = (doc.author_name || []).findIndex((author) => nameMatches(author, name));
+    if (at >= 0 && doc.author_key?.[at]) {
+      key = doc.author_key[at];
+      break;
+    }
+  }
+  if (!key) return none;
+
+  const [author, books] = await Promise.all([
+    json<OpenLibraryAuthor>(`${OPEN_LIBRARY}/authors/${key}.json`).catch(() => null),
+    openLibrarySearch(new URLSearchParams({ q: `author_key:${key}`, sort: 'editions', limit: '12' })).catch(() => []),
+  ]);
+
+  const out: Elsewhere = { profiles: [], works: [] };
+  const fullName = author?.name || author?.personal_name;
+  if (fullName && fullName.toLowerCase() !== name.toLowerCase()) out.fullName = fullName;
+  const born = yearIn(author?.birth_date);
+  const died = yearIn(author?.death_date);
+  if (born || died) out.lived = died ? `${born ?? '?'}–${died}` : `born ${born}`;
+  const bio = typeof author?.bio === 'string' ? author.bio : author?.bio?.value;
+
+  const wikidata = author?.remote_ids?.wikidata;
+  const wiki = wikidata ? await wikipedia(wikidata).catch(() => null) : null;
+  if (wiki) {
+    out.profiles.push({ site: 'Wikipedia', url: wiki.url });
+    out.description = wiki.description;
+    out.about = wiki.extract;
+  } else if (author?.wikipedia) {
+    out.profiles.push({ site: 'Wikipedia', url: author.wikipedia });
+  }
+  if (!out.about && bio) out.about = bio.replace(/\s+/g, ' ').trim();
+  out.profiles.push({ site: 'Open Library', url: `${OPEN_LIBRARY}/authors/${key}` });
+  if (wikidata) out.profiles.push({ site: 'Wikidata', url: `https://www.wikidata.org/wiki/${wikidata}` });
+  if (author?.remote_ids?.viaf) out.profiles.push({ site: 'VIAF', url: `https://viaf.org/viaf/${author.remote_ids.viaf}` });
+
+  // One entry per book: Open Library keeps translations and retitlings apart.
+  const seen = new Set<string>();
+  for (const book of books) {
+    const fold = book.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    if (!fold || seen.has(fold) || titleFits(book.title, paper.title) || titleFits(paper.title, book.title)) continue;
+    seen.add(fold);
+    out.works.push({ title: book.title, year: book.first_publish_year, editions: book.edition_count, url: `${OPEN_LIBRARY}${book.key}` });
+    if (out.works.length >= 4) break;
+  }
+  return out;
+}
+
+const underName = new Map<string, Promise<OtherWork[]>>();
+
+/**
+ * What else has been published under the name, for someone with a page
+ * nowhere: the most cited papers OpenAlex has with the name as printed on
+ * them, and the books Open Library files under it, the open paper left out.
+ * Nothing here says it is the same person, and the card says as much.
+ */
+export function worksUnderName(name: string, paper: PaperKey): Promise<OtherWork[]> {
+  return remembered(underName, `${paper.id}|${name}`, async () => {
+    const params = new URLSearchParams({ per_page: '5', sort: 'cited_by_count:desc' });
+    params.set('filter', `raw_author_name.search:${filterValue(name)}`);
+    const [papers, books] = await Promise.all([
+      openAlexWorks(params).catch(() => [] as PaperRef[]),
+      openLibrarySearch(new URLSearchParams({ author: name, sort: 'editions', limit: '5' })).catch(() => [] as OpenLibraryDoc[]),
+    ]);
+    const all: OtherWork[] = [
+      ...books
+        .filter((book) => (book.author_name || []).some((author) => nameMatches(author, name)))
+        .map((book) => ({ title: book.title, year: book.first_publish_year, editions: book.edition_count, url: `${OPEN_LIBRARY}${book.key}` })),
+      ...papers
+        .filter((work) => work.authors.some((author) => nameMatches(author, name)))
+        .map((work) => ({ title: work.title, year: Number(work.published.slice(0, 4)) || undefined, citedBy: work.citedBy, url: work.landingUrl })),
+    ];
+    const seen = new Set<string>();
+    return all
+      .filter((work) => {
+        const fold = work.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        if (!fold || seen.has(fold) || titleFits(work.title, paper.title) || titleFits(paper.title, work.title)) return false;
+        seen.add(fold);
+        return true;
+      })
+      .slice(0, 5);
+  });
 }
 
 // -------------------------------------------------------------- Scholar ---
@@ -238,11 +526,15 @@ const placeWords = (value: string): string[] => {
  * Their Google Scholar profile, through the proxy — null when there is no
  * proxy, Scholar would not answer, or no profile is plainly them. Among
  * several with the name, the one at the institution OpenAlex names wins; a
- * lone profile with the name is taken as it is.
+ * lone profile with the name is taken as it is only when `loneOk` — when
+ * OpenAlex tied this very person to the paper. Found by the name alone, or
+ * through a record that turned out to be someone else's, the one profile
+ * with the name is as likely a namesake's: Scholar's only "D Carnegie" is
+ * an engineer in Wellington, not the author of a book from 1936.
  */
-export function scholarProfile(name: string, places: string[]): Promise<AuthorRef | null> {
+export function scholarProfile(name: string, places: string[], loneOk = true): Promise<AuthorRef | null> {
   if (!hasProxy()) return Promise.resolve(null);
-  return remembered(profiles, `${name}|${places.join('|')}`, async () => {
+  return remembered(profiles, `${name}|${places.join('|')}|${loneOk}`, async () => {
     const found = (await scholarAuthors(name).catch(() => [] as AuthorRef[])).filter(
       (author) => author.scholarProfileUrl && nameMatches(author.name, name),
     );
@@ -252,6 +544,6 @@ export function scholarProfile(name: string, places: string[]): Promise<AuthorRe
       const here = [author.affiliation || '', author.verifiedEmail || ''].join(' ');
       return placeWords(here).some((word) => wanted.has(word));
     });
-    return atPlace ?? (found.length === 1 ? found[0] : null);
+    return atPlace ?? (loneOk && found.length === 1 ? found[0] : null);
   });
 }
