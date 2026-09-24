@@ -300,25 +300,95 @@ const attribute = (tag, name) => {
   return match ? entity(match[1]) : undefined;
 };
 
+const YEAR = /\b(1[89]\d\d|20\d\d)\b/;
+/** A piece of a byline that is only the year, where the venue before it was glued to a name. */
+const YEAR_ONLY = /^(1[89]\d\d|20\d\d)$/;
+/** The small words a surname can carry — `van`, `de la` — that are not the start of a venue's name. */
+const PARTICLES = new Set(['van', 'von', 'de', 'der', 'den', 'del', 'della', 'di', 'da', 'dos', 'das', 'du', 'la', 'le', 'bin', 'ibn', 'al', 'el', 'y', 'e', 'ten', 'ter', 'op']);
+
+/**
+ * Where a name runs into the venue after it — `S KiranBrain imaging and
+ * behavior` — split into the two, or null where the piece is plainly a name.
+ * The seam is the last lower-case letter followed by a capital that starts
+ * a phrase; a single word is taken only where nothing longer is there.
+ */
+export function unglue(piece, { force = false } = {}) {
+  const words = piece.split(' ');
+  const lowerWord = words.slice(1).some((word) => /^[a-z]/.test(word) && !PARTICLES.has(word));
+  if (!force && !lowerWord && words.length <= 4) return null;
+  const phrase = /^(.*[a-z\u00df-\u00ff.)])([A-Z][^\s]*\s.*)$/.exec(piece);
+  const word = /^(.*[a-z\u00df-\u00ff.)])([A-Z][^\s]*)$/.exec(piece);
+  const seam = phrase || (force ? word : null);
+  if (!seam) return null;
+  const [, name, venue] = seam;
+  // A name is two to five words: initials and a surname, give or take.
+  if (!/\s/.test(name.trim()) || name.trim().split(/\s+/).length > 5) return null;
+  return { name: name.trim(), venue: venue.trim() };
+}
+
+/**
+ * Splits the part of a byline before the first dash into its authors and,
+ * where Scholar's newer layout left no dash after them, the venue glued on
+ * to the last name — `EL Meier, Y Pan, S KiranBrain imaging and behavior, 2019`.
+ */
+function authorsAndVenue(first) {
+  const pieces = text(first)
+    .split(/,\s*/)
+    .map((piece) => piece.trim())
+    .filter(Boolean);
+  for (let index = 0; index < pieces.length; index += 1) {
+    const next = pieces[index + 1];
+    const beforeYear = next !== undefined && YEAR_ONLY.test(next);
+    const split = unglue(pieces[index].replace(/…|\.\.\./g, '').trim(), { force: beforeYear });
+    if (split) return { names: [...pieces.slice(0, index), split.name], venue: [split.venue, ...pieces.slice(index + 1)].join(', ') };
+    // No venue at all, just the year: `J Doe, 2019`.
+    if (YEAR_ONLY.test(pieces[index]) && index > 0) return { names: pieces.slice(0, index), venue: pieces.slice(index).join(', ') };
+  }
+  return { names: pieces, venue: '' };
+}
+
 /**
  * `A Vaswani, N Shazeer… - Advances in neural information …, 2017 - nips.cc`
  * — Scholar's one line of metadata, which is all it gives. The year is the
  * last four-digit number before the final dash, and the host after it.
+ *
+ * Scholar's newer layout prints the same line as
+ * `EL Meier, S Kiran Brain imaging and behavior, 2019•Springer`: no dash
+ * after the authors, a bullet before the host, and a non-breaking space or
+ * none at all where the dashes were. Both read the same.
  */
 export function parseByline(line) {
-  const parts = String(line || '').split(' - ');
-  const authors = text(parts[0] || '')
-    .split(/,\s*/)
-    .map((name) => name.replace(/…|\.\.\./g, '').trim())
-    .filter(Boolean);
+  const normal = String(line || '')
+    .replace(/[\u00a0\u2009\u202f]/g, ' ')
+    .replace(/\s*\u2022\s*/g, ' - ')
+    .replace(/\s+[\u2013\u2014]\s+/g, ' - ');
+  let parts = normal.split(/\s+-\s+/);
+  const lead = authorsAndVenue(parts[0] || '');
+  // The venue glued to the last name is the middle part the dash would have set off.
+  if (lead.venue) parts = [parts[0], lead.venue, ...parts.slice(1)];
+  const authors = lead.names.map((name) => name.replace(/…|\.\.\./g, '').trim()).filter(Boolean);
   const middle = parts.length > 2 ? parts.slice(1, -1).join(' - ') : parts.length === 2 ? parts[1] : '';
-  const year = (middle.match(/\b(1[89]\d\d|20\d\d)\b/) || [])[1];
+  const year = (middle.match(YEAR) || [])[1];
   const venue = middle
     .replace(/,?\s*\b(1[89]\d\d|20\d\d)\b\s*$/, '')
     .replace(/…/g, '')
     .trim();
   const host = parts.length > 1 ? text(parts[parts.length - 1]) : '';
   return { authors, venue: venue || undefined, year: year ? Number(year) : undefined, host: host || undefined };
+}
+
+/**
+ * The byline as one line of text. The newer layout holds the authors in a
+ * `gs_fmaa` element of their own with the venue straight after it, so the
+ * seam is put back as the dash the older layout printed there.
+ */
+export function bylineText(html) {
+  const names = block(html, 'gs_fmaa');
+  if (!names) return text(html);
+  const at = html.indexOf(names);
+  const rest = html.slice(at + names.length).replace(/^\s*<\/div>/i, '');
+  const venue = text(rest).replace(/^[\s\u2013\u2014-]+/, '');
+  return venue ? `${text(names)} - ${venue}` : text(names);
 }
 
 /**
@@ -330,8 +400,7 @@ export function parseResults(html) {
     const titleBlock = block(entry, 'gs_rt');
     const titleLink = links(titleBlock)[0];
     const bylineHtml = block(entry, 'gs_a');
-    const byline = text(bylineHtml);
-    const parsed = parseByline(byline);
+    const parsed = parseByline(bylineText(bylineHtml));
 
     // The right-hand column: a direct link to a file, where Scholar found one.
     const file = links(block(entry, 'gs_or_ggsm'))[0];

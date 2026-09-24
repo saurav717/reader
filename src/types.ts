@@ -130,6 +130,18 @@ export interface Paper extends PaperRef {
   github?: GitHubRecord;
 }
 
+/**
+ * A paper taken out of the library, kept so that it can be put back: the
+ * record as it was, its highlights, and what became of its copy in Drive.
+ */
+export interface JunkEntry {
+  paper: Paper;
+  highlights: Highlight[];
+  removedAt: string;
+  /** `junked`: its Drive folder went to the Junk folder there, and comes back out with it. */
+  drive: 'junked' | 'not-in-drive' | 'not-connected' | 'kept';
+}
+
 export interface Collection {
   id: string;
   name: string;

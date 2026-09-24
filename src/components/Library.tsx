@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
 import { STATUS_LABEL, STATUS_ORDER, statusOf, type ReadingStatus } from '../lib/status';
+import { coverFor } from '../lib/libraryLook';
 import type { View } from '../types.view';
 import type { Paper } from '../types';
-import { CheckIcon, ChevronDownIcon, ClockIcon, CloseIcon, InboxIcon, PlusIcon, StackIcon } from './icons';
+import { CheckIcon, ChevronDownIcon, ClockIcon, CloseIcon, InboxIcon, PlusIcon, StackIcon, TrashIcon } from './icons';
+import RemovePaperDialog from './RemovePaperDialog';
+import { PAPERS_MIME, ProgressRing, carriesPapers, draggedPapers } from './LibraryBits';
 
 interface Props {
   view: View;
@@ -20,17 +23,20 @@ function scopeOf(papers: Paper[], view: View, collectionId: string | null): Pape
   return papers;
 }
 
+const yearOf = (paper: Paper) => /^\d{4}/.exec(paper.published || '')?.[0];
+
 export default function Library({ view, activePaperId, onSelect, onOpenPaper, onClose }: Props) {
-  const { papers, collections, createCollection } = useStore();
+  const { papers, collections, createCollection, junk, setPaperCollections, setReadingStatus } = useStore();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [collapsed, setCollapsed] = useState<ReadingStatus[]>([]);
+  /** The nav item papers are being dragged over, to light it up. */
+  const [over, setOver] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<Paper[] | null>(null);
 
   // Opening a paper leaves the view on the paper, so the panel remembers the
   // collection you came from rather than falling back to everything.
-  const [lastCollectionId, setLastCollectionId] = useState<string | null>(
-    view.kind === 'collection' ? view.id : null,
-  );
+  const [lastCollectionId, setLastCollectionId] = useState<string | null>(view.kind === 'collection' ? view.id : null);
   const collectionId = view.kind === 'collection' ? view.id : view.kind === 'paper' ? lastCollectionId : null;
   const collection = collections.find((item) => item.id === collectionId);
 
@@ -44,13 +50,8 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
 
   const groups = useMemo(() => {
     const scope = scopeOf(papers, view, collectionId);
-    const sorted = scope
-      .slice()
-      .sort((a, b) => (b.lastOpenedAt || b.addedAt).localeCompare(a.lastOpenedAt || a.addedAt));
-    return STATUS_ORDER.map((status) => ({
-      status,
-      items: sorted.filter((paper) => statusOf(paper) === status),
-    }));
+    const sorted = scope.slice().sort((a, b) => (b.lastOpenedAt || b.addedAt).localeCompare(a.lastOpenedAt || a.addedAt));
+    return STATUS_ORDER.map((status) => ({ status, items: sorted.filter((paper) => statusOf(paper) === status) }));
   }, [papers, view, collectionId]);
 
   const scopeName = collection ? collection.name : view.kind === 'unsorted' ? 'Unsorted' : 'Everything';
@@ -72,6 +73,51 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
     setAdding(false);
   };
 
+  /** What dropping papers on a nav item does: file them, mark them, or send them to Junk. */
+  const drop = async (target: string, ids: string[]) => {
+    const dropped = ids.map((id) => papers.find((paper) => paper.id === id)).filter((paper): paper is Paper => Boolean(paper));
+    if (!dropped.length) return;
+    if (target === 'junk') return setRemoving(dropped);
+    if (target === 'reading' || target === 'unread' || target === 'finished') return setReadingStatus(ids, target);
+    for (const paper of dropped) {
+      if (target === 'unsorted') {
+        if (paper.collectionIds.length) await setPaperCollections(paper.id, []);
+      } else if (target.startsWith('collection:')) {
+        const id = target.slice('collection:'.length);
+        if (!paper.collectionIds.includes(id)) await setPaperCollections(paper.id, [...paper.collectionIds, id]);
+      }
+    }
+  };
+
+  const dropProps = (target: string) => ({
+    onDragOver: (event: React.DragEvent) => {
+      if (!carriesPapers(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = target === 'junk' ? 'move' : 'copy';
+      if (over !== target) setOver(target);
+    },
+    onDragLeave: () => setOver((current) => (current === target ? null : current)),
+    onDrop: (event: React.DragEvent) => {
+      const ids = draggedPapers(event);
+      setOver(null);
+      if (!ids) return;
+      event.preventDefault();
+      void drop(target, ids);
+    },
+  });
+
+  const navItem = (key: string, next: View, icon: ReactNode, label: string, count: number, hint?: string) => (
+    <button
+      type="button"
+      className={`nav-item${(next.kind === 'collection' ? collectionId === next.id : view.kind === next.kind) ? ' is-active' : ''}${over === key ? ' is-drop' : ''}`}
+      onClick={() => select(next)}
+      title={hint}
+      {...(key === 'all' ? {} : dropProps(key))}
+    >
+      {icon} <span className="nav-label">{label}</span> <span className="count">{count}</span>
+    </button>
+  );
+
   return (
     <aside className="panel narrow library-panel" aria-label="Library">
       <div className="panel-head">
@@ -81,107 +127,56 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
         </button>
       </div>
 
-      <div style={{ padding: '0 10px', display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <button
-          type="button"
-          className={`nav-item ${view.kind === 'all' ? 'is-active' : ''}`}
-          onClick={() => select({ kind: 'all' })}
-        >
-          <StackIcon size={16} /> All papers <span className="count">{papers.length}</span>
-        </button>
-        <button
-          type="button"
-          className={`nav-item ${view.kind === 'reading' ? 'is-active' : ''}`}
-          onClick={() => select({ kind: 'reading' })}
-        >
-          <ClockIcon size={16} /> Reading now <span className="count">{counts.reading}</span>
-        </button>
-        <button
-          type="button"
-          className={`nav-item ${view.kind === 'unread' ? 'is-active' : ''}`}
-          onClick={() => select({ kind: 'unread' })}
-        >
-          <InboxIcon size={16} /> Not started <span className="count">{counts.unread}</span>
-        </button>
-        <button
-          type="button"
-          className={`nav-item ${view.kind === 'finished' ? 'is-active' : ''}`}
-          onClick={() => select({ kind: 'finished' })}
-        >
-          <CheckIcon size={16} /> Finished <span className="count">{counts.finished}</span>
-        </button>
-        <button
-          type="button"
-          className={`nav-item ${view.kind === 'unsorted' ? 'is-active' : ''}`}
-          onClick={() => select({ kind: 'unsorted' })}
-        >
-          <StackIcon size={16} /> Unsorted <span className="count">{unsorted}</span>
-        </button>
-      </div>
+      <nav className="library-nav" aria-label="Views">
+        {navItem('all', { kind: 'all' }, <StackIcon size={16} />, 'All papers', papers.length)}
+        {navItem('reading', { kind: 'reading' }, <ClockIcon size={16} />, 'Reading now', counts.reading, 'Drop papers here to mark them as being read')}
+        {navItem('unread', { kind: 'unread' }, <InboxIcon size={16} />, 'Not started', counts.unread, 'Drop papers here to mark them as not started')}
+        {navItem('finished', { kind: 'finished' }, <CheckIcon size={16} />, 'Finished', counts.finished, 'Drop papers here to mark them as finished')}
+        {navItem('unsorted', { kind: 'unsorted' }, <StackIcon size={16} />, 'Unsorted', unsorted, 'Drop papers here to take them out of every collection')}
+      </nav>
 
-      <div style={{ padding: '16px 16px 6px', display: 'flex', alignItems: 'center' }}>
-        <span className="eyebrow" style={{ flexGrow: 1 }}>
-          Collections
-        </span>
-        <button
-          type="button"
-          className="icon-btn sm"
-          onClick={() => setAdding(true)}
-          aria-label="New collection"
-          style={{ width: 24, height: 24 }}
-        >
+      <div className="library-section-head">
+        <span className="eyebrow">Collections</span>
+        <button type="button" className="icon-btn sm" onClick={() => setAdding(true)} aria-label="New collection" title="New collection">
           <PlusIcon size={15} />
         </button>
       </div>
 
-      <div style={{ padding: '0 10px' }}>
+      <div className="library-nav">
         {adding ? (
           <form
             onSubmit={(event) => {
               event.preventDefault();
               void submit();
             }}
-            style={{ padding: '4px 0 8px' }}
+            style={{ padding: '2px 0 6px' }}
           >
             <label className="vh" htmlFor="new-collection">
               Collection name
             </label>
             <input
               id="new-collection"
+              className="collection-name-input"
               autoFocus
               value={name}
               onChange={(event) => setName(event.target.value)}
               onBlur={() => void submit()}
               placeholder="Collection name"
-              style={{
-                width: '100%',
-                height: 32,
-                padding: '0 10px',
-                border: '1px solid var(--border)',
-                borderRadius: 9,
-                background: 'var(--surface)',
-                outline: 0,
-                fontSize: 13,
-              }}
             />
           </form>
         ) : null}
 
-        {collections.map((item) => {
-          const count = papers.filter((paper) => paper.collectionIds.includes(item.id)).length;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              className={`nav-item ${collectionId === item.id ? 'is-active' : ''}`}
-              onClick={() => select({ kind: 'collection', id: item.id })}
-            >
-              <span className="swatch-square" style={{ background: item.color }} />
-              {item.name}
-              <span className="count">{count}</span>
-            </button>
-          );
-        })}
+        {collections.map((item) =>
+          navItem(
+            `collection:${item.id}`,
+            { kind: 'collection', id: item.id },
+            <span className="swatch-dot" style={{ background: item.color }} />,
+            item.name,
+            papers.filter((paper) => paper.collectionIds.includes(item.id)).length,
+            `Drop papers here to add them to ${item.name}`,
+          ),
+        )}
+        {navItem('junk', { kind: 'junk' }, <TrashIcon size={16} />, 'Junk', junk.length, 'Removed papers, to restore or delete for good. Drop papers here to remove them.')}
       </div>
 
       <div className="library-scope">
@@ -191,12 +186,8 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
         </span>
       </div>
 
-      <div className="scroll" style={{ padding: '0 10px 18px' }}>
-        {!scopeTotal ? (
-          <p style={{ padding: '8px 6px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-            Nothing here yet. Open Discover on the right to add a paper.
-          </p>
-        ) : null}
+      <div className="scroll library-list">
+        {!scopeTotal ? <p className="library-empty">Nothing here yet. Open Discover on the right to add a paper.</p> : null}
 
         {groups.map((group) => {
           if (!group.items.length) return null;
@@ -208,17 +199,10 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
                 className="status-head"
                 aria-expanded={!isCollapsed}
                 onClick={() =>
-                  setCollapsed((current) =>
-                    current.includes(group.status)
-                      ? current.filter((item) => item !== group.status)
-                      : [...current, group.status],
-                  )
+                  setCollapsed((current) => (current.includes(group.status) ? current.filter((item) => item !== group.status) : [...current, group.status]))
                 }
               >
-                <ChevronDownIcon
-                  size={14}
-                  style={{ transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 120ms' }}
-                />
+                <ChevronDownIcon size={14} style={{ transform: isCollapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 120ms' }} />
                 <span className={`status-dot is-${group.status}`} />
                 {STATUS_LABEL[group.status]}
                 <span className="count">{group.items.length}</span>
@@ -233,19 +217,26 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
                       className={`paper-row ${activePaperId === paper.id ? 'is-active' : ''}`}
                       onClick={() => onOpenPaper(paper.id)}
                       title={paper.title}
+                      draggable
+                      onDragStart={(event) => {
+                        event.dataTransfer.setData(PAPERS_MIME, JSON.stringify([paper.id]));
+                        event.dataTransfer.setData('text/plain', paper.title);
+                      }}
+                      style={{ ['--h' as string]: String(coverFor(paper).hue) }}
                     >
-                      <span className="paper-row-title">{paper.title}</span>
-                      <span className="paper-row-meta">
-                        {paper.authors[0] || 'Unknown author'}
-                        {paper.authors.length > 1 ? ' et al.' : ''}
-                        {paper.published ? ` · ${new Date(paper.published).getFullYear() || ''}` : ''}
+                      <span className="paper-row-spine" aria-hidden="true" />
+                      <span className="paper-row-text">
+                        <span className="paper-row-title">{paper.title}</span>
+                        <span className="paper-row-meta">
+                          {paper.authors[0] || 'Unknown author'}
+                          {paper.authors.length > 1 ? ' et al.' : ''}
+                          {yearOf(paper) ? ` · ${yearOf(paper)}` : ''}
+                        </span>
                       </span>
                       {group.status === 'reading' ? (
-                        <span className="paper-row-progress">
-                          <span className="bar" style={{ width: '100%' }}>
-                            <span style={{ width: `${Math.round(paper.progress * 100)}%` }} />
-                          </span>
-                          <span className="mono">{Math.round(paper.progress * 100)}%</span>
+                        <span className="paper-row-ring" title={`${Math.round(paper.progress * 100)}% read`}>
+                          <ProgressRing progress={paper.progress} size={22} />
+                          <span className="mono">{Math.max(1, Math.round(paper.progress * 100))}%</span>
                         </span>
                       ) : null}
                     </button>
@@ -254,6 +245,8 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
           );
         })}
       </div>
+
+      {removing ? <RemovePaperDialog papers={removing} onClose={() => setRemoving(null)} /> : null}
     </aside>
   );
 }

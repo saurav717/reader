@@ -22,6 +22,7 @@
 import type { AuthorRef, PaperOrder, PaperRef } from '../types';
 import { api, hasProxy } from './api';
 import { titleFits } from './citations';
+import { tidyByline } from './byline';
 
 export interface ScholarResult {
   id?: string;
@@ -139,7 +140,8 @@ async function ask<T>(path: string, page: string, signal?: AbortSignal): Promise
 export function fromScholar(result: ScholarResult): PaperRef {
   const arxiv = (result.pdfUrl || result.url || '').match(/arxiv\.org\/(?:pdf|abs)\/([^?#]+?)(?:\.pdf)?$/i)?.[1];
   const doi = (result.url || '').match(/doi\.org\/(10\.[^?#\s]+)/i)?.[1];
-  return {
+  // A proxy still on the older parser reads Scholar's newer byline wrongly; read it again here.
+  return tidyByline({
     id: arxiv ? `arxiv:${arxiv}` : doi ? `doi:${doi.toLowerCase()}` : `scholar:${result.clusterId || result.id || result.title}`,
     source: 'scholar',
     title: result.title,
@@ -158,7 +160,7 @@ export function fromScholar(result: ScholarResult): PaperRef {
     scholarCluster: result.clusterId,
     scholarVersions: result.versionCount,
     scholarCitation: result.citationId,
-  };
+  });
 }
 
 export async function searchScholar(query: string, page = 0, signal?: AbortSignal): Promise<PaperRef[]> {

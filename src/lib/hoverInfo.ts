@@ -391,7 +391,7 @@ async function openLibrarySearch(params: URLSearchParams): Promise<OpenLibraryDo
 const yearIn = (value?: string) => /\d{3,4}/.exec(value || '')?.[0];
 
 /** The English Wikipedia page a Wikidata item links to, with its one-line description and first paragraph. */
-async function wikipedia(wikidata: string): Promise<{ url: string; description?: string; extract?: string } | null> {
+export async function wikipedia(wikidata: string): Promise<{ url: string; description?: string; extract?: string } | null> {
   const params = new URLSearchParams({ action: 'wbgetentities', ids: wikidata, props: 'sitelinks', sitefilter: 'enwiki', format: 'json', origin: '*' });
   const entity = await json<{ entities?: Record<string, { sitelinks?: { enwiki?: { title: string } } }> }>(
     `https://www.wikidata.org/w/api.php?${params}`,

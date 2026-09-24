@@ -21,6 +21,7 @@ import CopyPicker, { type CopyNote } from './CopyPicker';
 import PdfDropIn from './PdfDropIn';
 import MiniBrowser from './MiniBrowser';
 import BookView from './BookView';
+import PdfBookView from './PdfBookView';
 import { findLocations, mergeLocations, paperLocations, scholarPaperUrl } from '../lib/locations';
 import type { PaperLocation } from '../types';
 import {
@@ -1089,6 +1090,8 @@ export default function Reader({
   }
 
   const year = paper.published ? new Date(paper.published).getFullYear() : null;
+  const showVenue = (element: HTMLElement, delay?: number) =>
+    paper.venue ? openHover(element, () => ({ kind: 'venue', venue: paper.venue!, anchor: element.getBoundingClientRect() }), delay) : undefined;
 
   // The paper itself, the same whether it scrolls or is turned like a book.
   const article = (
@@ -1100,7 +1103,27 @@ export default function Reader({
           </span>
         ))}
         {year ? <span>{year}</span> : null}
-        {paper.venue ? <span>{paper.venue}</span> : null}
+        {paper.venue ? (
+          <span
+            className="author-name venue-name"
+            role="button"
+            tabIndex={0}
+            aria-haspopup="dialog"
+            onMouseEnter={(event) => showVenue(event.currentTarget)}
+            onMouseLeave={() => leaveHover()}
+            onFocus={(event) => showVenue(event.currentTarget, 0)}
+            onBlur={() => leaveHover()}
+            onClick={(event) => showVenue(event.currentTarget, 0)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                showVenue(event.currentTarget, 0);
+              }
+            }}
+          >
+            {paper.venue}
+          </span>
+        ) : null}
       </div>
       <h1 className="paper-title">{paper.title}</h1>
       <p className="paper-authors">
@@ -1300,7 +1323,7 @@ export default function Reader({
           </a>
         ) : null}
 
-        {mode === 'reflow' ? (
+        {mode === 'reflow' || (mode === 'pdf' && pdfBlob) ? (
           <button
             type="button"
             className="icon-btn sm"
@@ -1528,6 +1551,13 @@ export default function Reader({
               </a>
               .
             </p>
+          ) : pdfBlob && layout === 'book' ? (
+            <PdfBookView
+              blob={pdfBlob}
+              title={paper.title}
+              initialProgress={paper.progress}
+              onProgress={(fraction) => setProgress(paper.id, fraction)}
+            />
           ) : pdfObjectUrl ? (
             <iframe
               title={`${paper.title} (PDF)`}
@@ -1581,7 +1611,9 @@ export default function Reader({
 
       {mode === 'pdf' && !pdfError && pdfLookup !== 'none' ? (
         <p style={{ margin: 0, padding: '8px 16px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)' }}>
-          Highlighting works in Reflow mode — the PDF is rendered by your browser's own viewer.
+          {layout === 'book' && pdfBlob
+            ? 'Highlighting works in Reflow mode — here the text can be selected and copied, and the pages turned with the arrow keys.'
+            : "Highlighting works in Reflow mode — the PDF is rendered by your browser's own viewer."}
         </p>
       ) : null}
 

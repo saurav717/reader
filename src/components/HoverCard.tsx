@@ -11,6 +11,7 @@ import {
   type OtherWork,
   type ScholarFind,
 } from '../lib/hoverInfo';
+import { venueDetails, type VenueDetails } from '../lib/venueInfo';
 import { scholarAuthorUrl, scholarPaperUrl } from '../lib/locations';
 import { parseReference } from '../lib/citations';
 import { hasProxy } from '../lib/api';
@@ -26,7 +27,8 @@ export interface CitedEntry {
 /** Where the card points, and at what. `anchor` is in the window's coordinates. */
 export type HoverTarget =
   | { kind: 'author'; name: string; position: number; anchor: DOMRect }
-  | { kind: 'cite'; entries: CitedEntry[]; anchor: DOMRect };
+  | { kind: 'cite'; entries: CitedEntry[]; anchor: DOMRect }
+  | { kind: 'venue'; venue: string; anchor: DOMRect };
 
 export interface PaperKey {
   id: string;
@@ -114,13 +116,15 @@ export default function HoverCard({ target, paper, onEnter, onLeave, onClose, on
       ref={box}
       className={`hover-card${place.above ? ' above' : ''}`}
       role="dialog"
-      aria-label={target.kind === 'author' ? `About ${target.name}` : 'The cited paper'}
+      aria-label={target.kind === 'author' ? `About ${target.name}` : target.kind === 'venue' ? `About ${target.venue}` : 'The cited paper'}
       style={{ top: place.top, left: place.left, width: Math.min(WIDTH, window.innerWidth - 24) }}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
     >
       {target.kind === 'author' ? (
         <AuthorCard name={target.name} position={target.position} paper={paper} />
+      ) : target.kind === 'venue' ? (
+        <VenueCard venue={target.venue} paper={paper} />
       ) : (
         <CiteCard entries={target.entries} onJump={onJump} />
       )}
@@ -390,6 +394,130 @@ function WorkList({ label, works }: { label: string; works: OtherWork[] }) {
         ))}
       </ul>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- venue ---
+
+const KIND_LABEL: Record<VenueDetails['kind'], string> = {
+  journal: 'Journal',
+  conference: 'Conference',
+  repository: 'Repository',
+  'book series': 'Book series',
+  venue: 'Published in',
+};
+
+/**
+ * The card over the journal or conference the paper appeared in: who
+ * publishes it and how it is cited, where in it the paper is, and for a
+ * conference, where and when that year's meeting was held.
+ */
+function VenueCard({ venue, paper }: { venue: string; paper: PaperKey }) {
+  const answer = useAnswer<VenueDetails>(() => venueDetails({ ...paper, venue }), `${paper.id}|${venue}`);
+  // A lookup that failed outright reads as one that found nothing.
+  const details: VenueDetails | undefined = answer === null ? { name: venue, kind: 'venue' } : answer;
+  const name = details?.name || venue;
+  const event = details?.event;
+
+  const links: { site: string; url: string; title: string }[] = [];
+  if (details?.homepage) links.push({ site: 'Homepage', url: details.homepage, title: `The ${details.kind === 'conference' ? "conference's" : "journal's"} own site` });
+  if (event?.website) links.push({ site: `${event.name ?? 'Meeting'} site`, url: event.website, title: "That year's meeting" });
+  if (event?.proceedingsUrl) links.push({ site: 'Proceedings', url: event.proceedingsUrl, title: 'The proceedings volume at the publisher' });
+  if (event?.dblpUrl) links.push({ site: `dblp · ${event.name ?? 'volume'}`, url: event.dblpUrl, title: 'The proceedings volume at dblp, with every paper in it' });
+  if (details?.dblpUrl) links.push({ site: 'dblp', url: details.dblpUrl, title: 'Every year of it at dblp' });
+  if (details?.wikipedia) links.push({ site: 'Wikipedia', url: details.wikipedia.url, title: 'Its Wikipedia page' });
+  if (event?.wikidata) links.push({ site: 'Wikidata', url: `https://www.wikidata.org/wiki/${event.wikidata}`, title: "That year's meeting at Wikidata" });
+  if (details?.issn) links.push({ site: `ISSN ${details.issn}`, url: `https://portal.issn.org/resource/ISSN/${details.issn}`, title: 'Its record at the ISSN Portal' });
+  if (details?.issn && details.kind === 'journal')
+    links.push({ site: 'SJR', url: `https://www.scimagojr.com/journalsearch.php?q=${encodeURIComponent(details.issn)}`, title: 'Its rank and quartile at SCImago' });
+  if (details?.openAlexId) links.push({ site: 'OpenAlex', url: `https://openalex.org/sources/${details.openAlexId}`, title: 'Its record at OpenAlex' });
+  links.push({
+    site: 'Google Scholar',
+    url: `https://scholar.google.com/citations?view_op=search_venues&hl=en&vq=${encodeURIComponent(name)}`,
+    title: "Its rank among Scholar's venues",
+  });
+
+  const stats = [
+    details?.hIndex !== undefined ? { label: 'h-index', value: String(details.hIndex) } : null,
+    details?.meanCitedness !== undefined ? { label: '2-yr citedness', value: details.meanCitedness.toFixed(details.meanCitedness >= 10 ? 0 : 1), title: "OpenAlex's two-year mean citedness — the impact factor, near enough" } : null,
+    details?.worksCount !== undefined ? { label: 'Papers', value: compact(details.worksCount) } : null,
+    details?.citedBy !== undefined ? { label: 'Citations', value: compact(details.citedBy) } : null,
+  ].filter((stat): stat is { label: string; value: string; title?: string } => Boolean(stat));
+
+  const sub = [details?.abbreviation && details.abbreviation !== name ? details.abbreviation : '', details?.publisher, details?.country].filter(Boolean).join(' · ');
+
+  return (
+    <>
+      <div className="hc-head">
+        <p className="hc-kicker">{details ? KIND_LABEL[details.kind] : 'Published in'}</p>
+        <p className="hc-name">{name}</p>
+        {sub ? <p className="hc-sub">{sub}</p> : null}
+        {details?.wikipedia?.description ? <p className="hc-sub">{details.wikipedia.description}</p> : null}
+      </div>
+
+      {details === undefined ? (
+        <p className="hc-loading">
+          <span className="spinner" /> Looking it up…
+        </p>
+      ) : (
+        <>
+          {event && (event.location || event.dates) ? (
+            <div className="hc-event" aria-label="The meeting the paper was presented at">
+              <p className="hc-label">{event.name ?? 'The meeting'}</p>
+              {event.location ? (
+                <p className="hc-sub">
+                  <a href={`https://www.openstreetmap.org/search?query=${encodeURIComponent(event.location)}`} target="_blank" rel="noreferrer noopener" title="On the map">
+                    {event.location}
+                  </a>
+                </p>
+              ) : null}
+              {event.dates ? <p className="hc-sub">{event.dates}</p> : null}
+            </div>
+          ) : null}
+
+          {details.placement || details.publishedOn ? (
+            <p className="hc-meta hc-placement">
+              This paper: {[details.placement, details.publishedOn ? `published ${details.publishedOn}` : ''].filter(Boolean).join(' · ')}
+            </p>
+          ) : null}
+
+          {stats.length ? (
+            <>
+              <dl className="hc-stats" aria-label="Counts from OpenAlex">
+                {stats.map((stat) => (
+                  <div key={stat.label} title={stat.title}>
+                    <dt>{stat.label}</dt>
+                    <dd>{stat.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="hc-from">Counts from OpenAlex</p>
+            </>
+          ) : null}
+
+          {details.openAccess || details.inDoaj ? (
+            <div className="hc-chips">
+              {details.openAccess ? <span className="hc-chip">Open access</span> : null}
+              {details.inDoaj ? <span className="hc-chip">In DOAJ</span> : null}
+            </div>
+          ) : null}
+
+          {details.wikipedia?.extract ? <p className="hc-about">{details.wikipedia.extract}</p> : null}
+
+          {!details.openAlexId && !event && !details.wikipedia ? (
+            <p className="hc-note">None of the indexes has a record that is plainly this venue.</p>
+          ) : null}
+        </>
+      )}
+
+      <div className="hc-profiles" aria-label="Pages about it">
+        {links.map((link) => (
+          <a key={link.site} className="hc-profile" href={link.url} target="_blank" rel="noreferrer noopener" title={link.title}>
+            {link.site} <ExternalIcon size={9} />
+          </a>
+        ))}
+      </div>
+    </>
   );
 }
 

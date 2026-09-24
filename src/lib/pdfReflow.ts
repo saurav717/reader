@@ -315,3 +315,21 @@ export async function measurePdf(blob: Blob): Promise<{ pages: number; width: nu
     void task.destroy();
   }
 }
+
+/**
+ * The PDF opened to be shown page by page, as the book view of PDF mode does.
+ * `close` lets go of it — the worker's copy of the file with it.
+ */
+export async function openPdf(blob: Blob): Promise<{ doc: PDFDocumentProxy; close: () => void }> {
+  const data = new Uint8Array(await blob.arrayBuffer());
+  const task = await openDocument(data);
+  try {
+    return { doc: await task.promise, close: () => void task.destroy() };
+  } catch (error) {
+    void task.destroy();
+    throw error;
+  }
+}
+
+/** The page's text, laid over its picture so that it can be selected and copied. */
+export { TextLayer } from 'pdfjs-dist/legacy/build/pdf.mjs';

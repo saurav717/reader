@@ -4,5 +4,6 @@ export type View =
   | { kind: 'unread' }
   | { kind: 'finished' }
   | { kind: 'unsorted' }
+  | { kind: 'junk' }
   | { kind: 'collection'; id: string }
   | { kind: 'paper'; id: string };
