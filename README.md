@@ -1683,7 +1683,8 @@ screen before it answers, so there is nothing to paste.
   `scripts/locate-smoke.mjs` tries each mode.
 - **How answers read**: the first paragraph (the answer itself) is set a
   size up, and the rest of the answer is styled for reading:
-  - bold reads as a highlighter stroke;
+  - bold reads as a highlighter stroke, and in the dark theme the words glow
+    a warm yellow instead, since a fill behind them goes muddy there;
   - headings are small accent signposts with a rule;
   - lists have accent dots and numbered discs;
   - text quoted from the paper is set as a serif quotation;

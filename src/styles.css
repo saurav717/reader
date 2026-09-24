@@ -3012,8 +3012,13 @@ body.win-moving .assistant-win { transition: none; }
 :root[data-theme='dark'] .look-marker .passage-band {
   mix-blend-mode: normal; background: rgb(var(--mark) / 0.2); box-shadow: inset 0 -2px 0 rgb(var(--mark) / 0.75);
 }
-:root[data-theme='dark'] .chat-passage { background: rgb(var(--mark) / 0.2); }
-:root[data-theme='dark'] .chat-passage:hover { background: rgb(var(--mark) / 0.32); }
+/* In dark, a fill behind the letters goes muddy; the words glow instead. */
+:root[data-theme='dark'] .chat-claude .chat-text a.chat-passage {
+  padding: 0; margin: 0; border-radius: 0; background: none;
+  color: rgb(var(--mark)); text-shadow: 0 0 14px rgb(var(--mark) / 0.3);
+  border-bottom: 1.5px dashed rgb(var(--mark) / 0.55);
+}
+:root[data-theme='dark'] .chat-claude .chat-text a.chat-passage:hover { color: #fff3c4; border-bottom-style: solid; border-bottom-color: rgb(var(--mark)); }
 @keyframes marker-sweep { from { transform: scaleX(0); } }
 @keyframes marker-breathe { 50% { filter: saturate(1.4) brightness(1.03); } }
 
@@ -3125,7 +3130,10 @@ body.win-moving .assistant-win { transition: none; }
   background: rgb(var(--mark) / 0.3);
   -webkit-box-decoration-break: clone; box-decoration-break: clone;
 }
-:root[data-theme='dark'] .chat-claude .chat-text strong { background: rgb(var(--mark) / 0.16); }
+:root[data-theme='dark'] .chat-claude .chat-text strong {
+  padding: 0; margin: 0; background: none;
+  color: rgb(var(--mark)); text-shadow: 0 0 14px rgb(var(--mark) / 0.35);
+}
 /* A bold phrase inside a heading, a table head or a card is only bold. */
 .chat-claude .chat-text :is(h4, h5, h6, th) strong { background: none; padding: 0; margin: 0; }
 .chat-claude .chat-text em { font-family: var(--serif); font-size: 1.06em; }
