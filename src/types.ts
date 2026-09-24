@@ -210,6 +210,12 @@ export interface Settings {
    * it off, 1 is the standard sheen, 2 twice as bright.
    */
   glassLight: number;
+  /**
+   * How solid Explain's page is over the paper behind it, 0.2 (mostly see-through)
+   * to 1 (opaque). `null` leaves it to the material: opaque paper when solid,
+   * frosted when glass.
+   */
+  explainOpacity: number | null;
   /** Which view a paper opens in when both are available. */
   readingMode: ReadingMode;
   /**

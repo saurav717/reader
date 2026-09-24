@@ -40,6 +40,7 @@ const defaultSettings: Settings = {
   glassFrost: 0.5,
   glassWall: 'spotlight',
   glassLight: 1,
+  explainOpacity: null,
   readingMode: 'pdf',
   zenHaze: 'shadow',
   passageLook: 'marker',

@@ -322,6 +322,13 @@ export const ZenIcon = (props: IconProps) => (
 );
 
 /** An open book with a spark over it: the paper, explained. */
+export const OpacityIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="12" cy="12" r="8" />
+    <path d="M12 4a8 8 0 0 1 0 16Z" fill="currentColor" stroke="none" />
+  </Icon>
+);
+
 export const ExplainIcon = (props: IconProps) => (
   <Icon {...props}>
     <path d="M3.5 6.5c2.8-.9 5.6-.6 8.5 1.2v11.5c-2.9-1.8-5.7-2.1-8.5-1.2V6.5Z" />

@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify';
+import type { CSSProperties } from 'react';
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Screen } from '../lib/assistant';
 import { getState, MODELS, saveKey, subscribe } from '../lib/assistant';
@@ -22,7 +23,7 @@ import {
 import type { DriveState, RevisionScope } from '../lib/explain';
 import { markdown } from '../lib/markdown';
 import { useStore } from '../lib/store';
-import { CloseIcon, ExplainIcon, SparkleIcon } from './icons';
+import { CloseIcon, ExplainIcon, OpacityIcon, SparkleIcon } from './icons';
 
 export type ExplainLayout = 'margin' | 'notebook' | 'beside';
 const LAYOUT_KEY = 'reader.explain.layout';
@@ -273,6 +274,78 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * How solid the page is over the paper behind it. `value` is what was chosen,
+ * null for the material's own default, which is `fallback`; Reset goes back
+ * to it. Moving the slider shows the change live, so there is nothing to apply.
+ */
+function OpacityControl({ value, fallback, onChange }: { value: number | null; fallback: number; onChange: (value: number | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false);
+    };
+    // Esc closes this, not Explain behind it.
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        setOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', away);
+    window.addEventListener('keydown', key, true);
+    return () => {
+      window.removeEventListener('mousedown', away);
+      window.removeEventListener('keydown', key, true);
+    };
+  }, [open]);
+  const shown = value ?? fallback;
+  const percent = Math.round(shown * 100);
+  return (
+    <div className="menu-wrap" ref={box}>
+      <button
+        type="button"
+        className="icon-btn sm"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-pressed={value !== null}
+        onClick={() => setOpen((now) => !now)}
+        aria-label="Background opacity"
+        title="How see-through the page is"
+      >
+        <OpacityIcon size={16} />
+      </button>
+      {open ? (
+        <div className="menu right opacity-pop" role="dialog" aria-label="Background opacity">
+          <div className="menu-label">Background</div>
+          <label className="frost-row">
+            <span>Clear</span>
+            <input
+              type="range"
+              min={0.2}
+              max={1}
+              step={0.05}
+              value={shown}
+              aria-label="How opaque the explanation's background is"
+              aria-valuetext={`${percent}% opaque`}
+              onChange={(event) => onChange(Number(event.target.value))}
+            />
+            <span>Solid</span>
+          </label>
+          <div className="opacity-foot">
+            <span>{percent}%{value === null ? ' · default' : ''}</span>
+            <button type="button" className="btn sm ghost" disabled={value === null} onClick={() => onChange(null)}>
+              Reset
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Explain({ paperId, title, authors, published, screen, onClose }: Props) {
   const assistant = useSyncExternalStore(subscribe, getState);
   const explanation = useSyncExternalStore(subscribeExplain, () => explanationFor(paperId));
@@ -291,7 +364,10 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const [justAsked, setJustAsked] = useState(false);
 
   // Drive connected after Explain opened is looked in too.
-  const { driveConnected } = useStore();
+  const { driveConnected, settings, updateSettings } = useStore();
+  const opacity = settings.explainOpacity;
+  // What the material shows when nothing is chosen: frosted glass, or solid paper.
+  const defaultOpacity = settings.glass ? Math.round((0.5 + 0.2 * settings.glassFrost) * 100) / 100 : 1;
   useEffect(() => {
     setChecked(false);
     void loadExplanation(paperId).finally(() => setChecked(true));
@@ -419,7 +495,12 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const writtenWith = MODELS.find((m) => m.id === explanation?.model)?.label ?? explanation?.model;
 
   return (
-    <div className={`explain layout-${layout}`} role="dialog" aria-label={`Explanation of ${title}`}>
+    <div
+      className={`explain layout-${layout}${opacity !== null && opacity < 1 ? ' is-see-through' : ''}`}
+      style={opacity !== null ? ({ '--explain-a': opacity } as CSSProperties) : undefined}
+      role="dialog"
+      aria-label={`Explanation of ${title}`}
+    >
       <header className="explain-bar">
         <span className="explain-brand">
           <ExplainIcon size={17} /> Explained by Claude
@@ -449,6 +530,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
             Stop
           </button>
         ) : null}
+        <OpacityControl value={opacity} fallback={defaultOpacity} onChange={(value) => updateSettings({ explainOpacity: value })} />
         <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the explanation (Esc)" title="Back to the paper (Esc or E)">
           <CloseIcon size={17} />
         </button>

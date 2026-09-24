@@ -320,6 +320,29 @@ const left = await page.locator('.explain').evaluate((el) => el.getBoundingClien
 check('the paper stays readable on the left', left > W * 0.35, `${left}px`);
 await page.screenshot({ path: `${OUT}/explain-7-beside.png` });
 
+console.log('\n== background opacity ==');
+const background = () => page.locator('.explain').evaluate((el) => getComputedStyle(el).backgroundColor);
+check('solid paper by default', !/\/|rgba|color\(/.test(await background()), await background());
+await page.getByRole('button', { name: 'Background opacity' }).click();
+await page.getByRole('slider', { name: /How opaque/ }).fill('0.4');
+await page.waitForTimeout(300);
+check('turned down, the page lets the paper through', /0\.4\b|40%/.test(await background()), await background());
+check('and frosts it', /blur/.test(await page.locator('.explain').evaluate((el) => getComputedStyle(el).backdropFilter)));
+await page.screenshot({ path: `${OUT}/explain-7b-beside-see-through.png` });
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+check('Esc closes the slider, not the explanation', (await page.locator('.opacity-pop').count()) === 0 && (await page.locator('.explain').count()) === 1);
+const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('reader.settings') || '{}').explainOpacity);
+check('the choice is kept in settings', kept === 0.4, String(kept));
+await withSettings({ glass: true });
+check('glass takes the chosen opacity too', /0\.4\b/.test(await background()), await background());
+await page.screenshot({ path: `${OUT}/explain-7c-beside-see-through-glass.png` });
+await page.getByRole('button', { name: 'Background opacity' }).click();
+await page.getByRole('button', { name: 'Reset' }).click();
+check('Reset goes back to the material', (await page.evaluate(() => JSON.parse(localStorage.getItem('reader.settings') || '{}').explainOpacity)) === null);
+await page.keyboard.press('Escape');
+await withSettings({ glass: false });
+
 console.log('\n== the notebook downloads ==');
 await page.getByRole('button', { name: 'Margin' }).click();
 const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /Notebook ↓/ }).click()]);
