@@ -46,7 +46,7 @@ import { markdown } from '../lib/markdown';
 import { CameraIcon, CheckIcon, CloseIcon, PlusIcon, SearchIcon, SparkleIcon } from './icons';
 import { useStore } from '../lib/store';
 import { resolvePaper } from '../lib/recommend';
-import { loadLayout, markAdds, placeCards, saveLayout } from './paperCards';
+import { PAPER_LAYOUTS, markAdds, placeCards, setLayout, useLayout } from './paperCards';
 import type { PaperLayout } from './paperCards';
 import { discover } from './HoverCard';
 import { canCapture, captureTab } from '../lib/screen';
@@ -146,6 +146,22 @@ function ReadingList({ papers, actions, onShow }: { papers: Recommendation[]; ac
         <span className="chat-reading-count">
           {papers.length} {papers.length === 1 ? 'paper' : 'papers'} mentioned
         </span>
+        <span className="segmented sm chat-layout" role="group" aria-label="Where the papers' cards go">
+          {PAPER_LAYOUTS.map(({ value, short, note }) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={actions.layout === value}
+              title={note}
+              onClick={(event) => {
+                event.preventDefault();
+                setLayout(value);
+              }}
+            >
+              {short}
+            </button>
+          ))}
+        </span>
         {waiting.length ? (
           <button
             type="button"
@@ -194,11 +210,6 @@ function ReadingList({ papers, actions, onShow }: { papers: Recommendation[]; ac
   );
 }
 
-const PAPER_LAYOUTS: [PaperLayout, string, string][] = [
-  ['inline', 'In place', 'A line about one paper becomes its card, in the answer’s words'],
-  ['sections', 'After each section', 'The text as written, then the cards of the papers it named'],
-  ['end', 'Only on the name', 'Point at a name for its card; every paper is listed under the answer'],
-];
 
 const PEEK_WIDTH = 320;
 
@@ -494,7 +505,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
     peekTimer.current = window.setTimeout(() => setPeek((current) => (current?.pinned ? current : null)), 220);
   };
 
-  const [paperLayout, setPaperLayout] = useState<PaperLayout>(loadLayout);
+  const paperLayout = useLayout();
   const actions: PaperActions = { layout: paperLayout, find: findPaper, peek: showPeek, adds: addState, add: (wanted) => void addPapers(wanted) };
 
   useEffect(() => {
@@ -743,7 +754,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           className="btn ghost sm"
           aria-pressed={drawer === 'settings'}
           onClick={() => setDrawer(drawer === 'settings' ? null : 'settings')}
-          title="What Claude sees, and your key"
+          title="What Claude sees, where paper cards go, and your key"
           aria-label="Settings"
         >
           ⚙
@@ -766,17 +777,9 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           ))}
           <div className="chat-set-title">Papers Claude names</div>
           <p className="chat-set-note">Where a paper's card goes when an answer brings it up.</p>
-          {PAPER_LAYOUTS.map(([value, label, note]) => (
+          {PAPER_LAYOUTS.map(({ value, label, note }) => (
             <label key={value} className="chat-set-row" title={note}>
-              <input
-                type="radio"
-                name="paper-layout"
-                checked={paperLayout === value}
-                onChange={() => {
-                  setPaperLayout(value);
-                  saveLayout(value);
-                }}
-              />
+              <input type="radio" name="paper-layout" checked={paperLayout === value} onChange={() => setLayout(value)} />
               <span>{label}</span>
               <span className="chat-set-note">{note}</span>
             </label>

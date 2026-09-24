@@ -2462,7 +2462,11 @@ body.win-moving .assistant-win { transition: none; }
 .chat-reading > summary::-webkit-details-marker { display: none; }
 .chat-reading > summary::before { content: '▸'; font-size: 10px; color: var(--muted); transition: transform 0.15s; }
 .chat-reading[open] > summary::before { transform: rotate(90deg); }
-.chat-reading-count { flex: 1; font-weight: 600; }
+.chat-reading > summary { flex-wrap: wrap; row-gap: 6px; }
+.chat-reading-count { flex: 1; font-weight: 600; white-space: nowrap; }
+/* Where the cards go, switched from under any answer that names papers. */
+.chat-layout { flex: none; }
+.chat-layout button { white-space: nowrap; }
 .chat-reading ol { list-style: none; margin: 0; padding: 0 8px 6px; border-top: 1px solid var(--border); }
 .chat-reading li { display: flex; gap: 9px; align-items: flex-start; padding: 9px 4px; }
 .chat-reading li + li { border-top: 1px solid var(--border); }

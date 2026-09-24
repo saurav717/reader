@@ -4,7 +4,9 @@
 // paper's card, in the answer's words, and several papers in one item get their
 // cards after it. A card's Find searches Discover and opens the result; Add, and
 // "Add all" under the answer, find each paper by its title and put it in the
-// Reading list. With the cards turned off, pointing at a name shows its card.
+// Reading list. Where the cards go is switched under the answer, in the
+// window's ⚙ and in Settings, which all agree; with the cards only on the
+// name, pointing at a name shows its card.
 // Needs a server on BASE (`npm run build && npm start`). Writes screenshots to .smoke/.
 import { chromium } from 'playwright';
 
@@ -136,10 +138,20 @@ check('Find searches Discover for the title', (await page.getByLabel('Search pap
 check('and opens the matching result, with its Read button', (await page.locator('.discover-panel article.result.is-open').getByRole('button', { name: /^Read$/ }).count()) === 1);
 check('the window steps out of the way of Discover', !(await covers()));
 
-console.log('\n== only on the name ==');
-await page.locator('.assistant-win').getByRole('button', { name: /settings|⚙/i }).first().click().catch(() => {});
+console.log('\n== the switch under the answer ==');
+const layoutSwitch = page.locator('.chat-reading .chat-layout');
+check('it offers the three places, "In place" chosen', (await layoutSwitch.locator('button').allTextContents()).join('|') === 'In place|Sections|On name' && (await layoutSwitch.getByRole('button', { name: 'In place' }).getAttribute('aria-pressed')) === 'true');
+const wasOpen = await page.locator('.chat-reading').evaluate((el) => el.open);
+await layoutSwitch.getByRole('button', { name: 'Sections' }).click();
+check('"Sections" leaves the text as written, cards after each part', (await text.locator('li.chat-li-card').count()) === 0 && (await text.locator(':scope > .chat-cards').count()) === 3 && (await text.locator('.chat-card').count()) === 6);
+check('pressing it does not fold or unfold the list', (await page.locator('.chat-reading').evaluate((el) => el.open)) === wasOpen);
+await page.screenshot({ path: `${OUT}/recommend-sections.png` });
+
+console.log('\n== only on the name, from the window\'s ⚙ ==');
+await page.locator('.assistant-win').getByRole('button', { name: 'Settings' }).click();
 await page.getByLabel('Only on the name').check();
-await page.locator('.assistant-win').getByRole('button', { name: /settings|⚙/i }).first().click().catch(() => {});
+await page.locator('.assistant-win').getByRole('button', { name: 'Settings' }).click();
+check('the switch under the answer follows', (await layoutSwitch.getByRole('button', { name: 'On name' }).getAttribute('aria-pressed')) === 'true');
 check('the cards leave the answer', (await text.locator('.chat-card').count()) === 0 && (await text.locator('.chat-mention').count()) === 6);
 check('the choice is kept', (await page.evaluate(() => localStorage.getItem('reader.assistant.paper-layout'))) === 'end');
 await text.locator('.chat-mention').first().hover();
@@ -156,6 +168,20 @@ check('a press keeps it', (await page.locator('.chat-peek').count()) === 1);
 await page.keyboard.press('Escape');
 check('until Escape', (await page.locator('.chat-peek').count()) === 0);
 await page.screenshot({ path: `${OUT}/recommend-end.png` });
+
+console.log('\n== in Settings ==');
+await page.keyboard.press('Control+Backslash');
+await page.getByRole('button', { name: 'Settings', exact: true }).first().click();
+const sheet = page.getByRole('dialog', { name: 'Settings' });
+const choice = sheet.getByRole('group', { name: "Where the papers' cards go" });
+check('Settings shows the same choice', (await choice.getByRole('button', { name: 'Only on the name' }).getAttribute('aria-pressed')) === 'true');
+await choice.getByRole('button', { name: 'In place' }).click();
+check('and sets it', (await page.evaluate(() => localStorage.getItem('reader.assistant.paper-layout'))) === 'inline');
+await page.screenshot({ path: `${OUT}/recommend-settings.png` });
+await page.keyboard.press('Escape');
+await page.keyboard.press('Control+Backslash');
+await page.waitForSelector('.chat-claude .chat-card');
+check('the answer has its cards in place again', (await text.locator('li.chat-li-card').count()) === 2);
 
 check('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();

@@ -1616,7 +1616,9 @@ screen before it answers, so there is nothing to paste.
 - **Papers to read next**: when an answer names another paper worth reading —
   prior work, background, an entry in the reference list — the name is
   underlined and numbered, and the paper gets a compact card: who and when, the
-  title, what it is for, **Find** and **+**. Where the card goes is set under ⚙:
+  title, what it is for, **Find** and **+**. Where the card goes is switched
+  right under the answer (**In place · Sections · On name**), in the window's ⚙,
+  or in **Settings → Papers Ask Claude names** — all three are the same choice:
   - **In place** (the default): a list item about one paper *becomes* its card,
     keeping Claude's words about it; several papers in one line keep the line,
     with their cards under it.

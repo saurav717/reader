@@ -5,14 +5,23 @@
 // cards after the section of the answer that named the papers. Their buttons
 // carry the paper's title; the window listens for presses on them.
 
+import { useSyncExternalStore } from 'react';
 import { paperKey } from '../lib/assistant';
 import type { Recommendation } from '../lib/assistant';
 
 export type PaperLayout = 'inline' | 'sections' | 'end';
 
-const LAYOUT_KEY = 'reader.assistant.paper-layout';
+/** The three places a card can go: the value, a short name for a switch, and what it does. */
+export const PAPER_LAYOUTS: { value: PaperLayout; label: string; short: string; note: string }[] = [
+  { value: 'inline', label: 'In place', short: 'In place', note: 'A line about one paper becomes its card, in the answer’s words' },
+  { value: 'sections', label: 'After each section', short: 'Sections', note: 'The text as written, then the cards of the papers it named' },
+  { value: 'end', label: 'Only on the name', short: 'On name', note: 'Point at a name for its card; every paper is listed under the answer' },
+];
 
-export function loadLayout(): PaperLayout {
+const LAYOUT_KEY = 'reader.assistant.paper-layout';
+const CHANGED = 'reader:paper-layout';
+
+function loadLayout(): PaperLayout {
   try {
     const saved = localStorage.getItem(LAYOUT_KEY);
     if (saved === 'inline' || saved === 'sections' || saved === 'end') return saved;
@@ -22,12 +31,41 @@ export function loadLayout(): PaperLayout {
   return 'inline';
 }
 
-export function saveLayout(layout: PaperLayout) {
+let current: PaperLayout | null = null;
+
+/**
+ * Where the cards go, chosen in any of three places — the switch under an
+ * answer, the window's ⚙ and Settings — and the same in all of them, in
+ * this tab and in any other open on the app.
+ */
+export function setLayout(layout: PaperLayout) {
+  current = layout;
   try {
     localStorage.setItem(LAYOUT_KEY, layout);
   } catch {
     // Not kept, then; it still applies until the page is closed.
   }
+  window.dispatchEvent(new Event(CHANGED));
+}
+
+function subscribeLayout(notify: () => void) {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== LAYOUT_KEY) return;
+    current = null;
+    notify();
+  };
+  window.addEventListener(CHANGED, notify);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(CHANGED, notify);
+    window.removeEventListener('storage', onStorage);
+  };
+}
+
+const layoutNow = () => (current ??= loadLayout());
+
+export function useLayout(): PaperLayout {
+  return useSyncExternalStore(subscribeLayout, layoutNow);
 }
 
 const SEARCH_SVG =
