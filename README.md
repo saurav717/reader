@@ -1872,6 +1872,17 @@ What it writes, in this order:
 
 ![a caveat beside the section on positional encoding: sinusoidal encodings, superseded by RoPE and ALiBi](docs/explain-caveat.png)
 
+- **The maths, typeset and taught.** Claude writes formulas as LaTeX —
+  `$…$` inline, `$$…$$` on lines of its own — and KaTeX sets them, the same
+  way it does in Ask Claude. It is told to teach the maths as far as the paper
+  needs it: what each equation that carries the argument says in words, what
+  every symbol is, the intuition behind each term, and a derivation one step at
+  a time. A page written before this had its maths in code spans; **Rewrite**,
+  or *Typeset the maths, and walk through it step by step* from the bar's
+  suggestions, fixes it.
+
+![a displayed equation and inline symbols, typeset, with the "where" list under it](docs/explain-maths.png)
+
 Three layouts, switched in the bar and remembered:
 
 - **Margin** (the default): the prose in a reading column, and its figures,
@@ -1913,6 +1924,26 @@ and `<<<delete: Title>>>` operations and a closing `<<<note>>>`, and
 is only half written.
 
 ![the section being rewritten, marked Revising, while the rest of the page stays](docs/explain-revising.png)
+
+### Ask Claude over it
+
+The Claude window (**⌘\\**) works on the explanation while it is open. It
+reads both: the paper, as ever, and the explanation, each behind its own cache
+breakpoint, with the part of the explanation in view in place of the paper
+hidden under it. Selecting a passage of the explanation shows **Ask Claude**
+under it, which attaches the passage to the next question, as a selection in
+the paper does. And the passages Claude points at can be on the explanation:
+it marks those with `"in": "explanation"`, and the page scrolls to them and
+marks them the way the paper does. A passage of the paper is shown on the
+paper when it is **Beside the paper**; when the explanation covers it, the row
+says to switch layouts or close Explain rather than mark words no one can see.
+
+![Ask Claude over the explanation: the answer's passage marked on the explanation, captioned with its section](docs/explain-ask-claude.png)
+
+`scripts/explain-ask-smoke.mjs` writes a page with maths
+(`scripts/fixtures/explain-maths.md`), checks it is typeset, then asks Claude
+over it and checks what was sent, where the mark landed, and the selection
+toolbar.
 
 ### Kept in Drive
 

@@ -360,7 +360,8 @@ function PassageList({ passages, shown, onShow, onPage }: { passages: Passage[];
     <div className="chat-passages">
       <div className="chat-passages-head">
         <span className="chat-passages-title">
-          <SparkleIcon size={12} /> Found in the paper
+          <SparkleIcon size={12} />{' '}
+          {passages.every((p) => p.source === 'explanation') ? 'Found in the explanation' : passages.some((p) => p.source === 'explanation') ? 'Found in the paper and its explanation' : 'Found in the paper'}
         </span>
         <span className="chat-passages-count">{passages.length}</span>
         <span className="chat-passages-hint">Click one to see it on the page</span>
@@ -372,7 +373,7 @@ function PassageList({ passages, shown, onShow, onPage }: { passages: Passage[];
           const missing = state && state !== 'looking' && !state.found;
           return (
             <li key={index} className={`${live ? 'is-live' : ''}${missing ? ' is-missing' : ''}`}>
-              <button type="button" className="chat-passage-row" onClick={() => onShow(index)} title="Scroll the paper to this passage and mark it">
+              <button type="button" className="chat-passage-row" onClick={() => onShow(index)} title={passage.source === 'explanation' ? 'Scroll the explanation to this passage and mark it' : 'Scroll the paper to this passage and mark it'}>
                 <span className="chat-passage-n">{index + 1}</span>
                 <span className="chat-passage-body">
                   <b>{passage.label}</b>

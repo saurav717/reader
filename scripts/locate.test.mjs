@@ -63,6 +63,13 @@ describe('the passages block', () => {
     assert.equal(passages.length, 1);
     assert.deepEqual(passages[0], { quote: 'We refer to this as oracle selection because', label: 'Where oracle selection is defined', section: '3.2', page: 4, show: true });
   });
+  it('keeps which page a passage is on — the paper, or its explanation', () => {
+    const { passages } = assistant.splitPassages(
+      'See it.\n\n```passages\n{"quote": "the pressure term keeps the flow divergence free at every instant", "label": "Why pressure appears", "in": "explanation"}\n{"quote": "We prove global regularity", "label": "The claim"}\n```',
+    );
+    assert.equal(passages[0].source, 'explanation');
+    assert.equal(passages[1].source, undefined);
+  });
   it('is hidden while it streams in', () => {
     const { text, passages } = assistant.splitPassages('Here it is.\n\n```passages\n{"quote": "half wri');
     assert.equal(text, 'Here it is.');
