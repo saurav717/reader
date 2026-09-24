@@ -321,3 +321,29 @@ export async function junkPaperInDrive(paper: Paper, settings: Settings): Promis
   for (const fileId of files) any = (await move(fileId)) || any;
   return { ...result, moved: any ? 'files' : 'nothing' };
 }
+
+/**
+ * The way back from `junkPaperInDrive`: the paper's folder — or, for a
+ * library synced before papers had folders, its files — moved out of
+ * `<root>/Junk` and into the root again. Something deleted from Drive by
+ * hand in the meantime is not an error: there is nothing to move.
+ */
+export async function restorePaperInDrive(paper: Paper, settings: Settings): Promise<'folder' | 'files' | 'nothing'> {
+  if (!settings.googleClientId) throw new Error('No Google client ID is configured');
+  const accessToken = await ensureDriveToken(settings.googleClientId);
+  const rootId = await ensureFolder(accessToken, settings.driveFolderName || ROOT_FOLDER);
+  const move = async (fileId: string): Promise<boolean> => {
+    try {
+      await moveFile(accessToken, fileId, rootId);
+      return true;
+    } catch (error) {
+      if (error instanceof DriveRequestError && error.status === 404) return false;
+      throw error;
+    }
+  };
+  if (paper.drive?.folderId) return (await move(paper.drive.folderId)) ? 'folder' : 'nothing';
+  const files = [paper.drive?.pdfFileId, paper.drive?.metaFileId].filter((id): id is string => Boolean(id));
+  let any = false;
+  for (const fileId of files) any = (await move(fileId)) || any;
+  return any ? 'files' : 'nothing';
+}

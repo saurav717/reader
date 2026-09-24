@@ -8,11 +8,12 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { Collection, GoogleUser, Highlight, HighlightColor, Paper, PaperRef, Settings } from '../types';
+import type { Collection, GoogleUser, Highlight, HighlightColor, JunkEntry, Paper, PaperRef, Settings } from '../types';
 import { COLLECTION_COLORS } from '../types';
 import { db } from './db';
 import { tidyByline } from './byline';
-import { ROOT_FOLDER, driveFolderUrl, isInDrive, junkPaperInDrive, syncPaperToDrive } from './driveSync';
+import { ROOT_FOLDER, driveFolderUrl, isInDrive, junkPaperInDrive, restorePaperInDrive, syncPaperToDrive } from './driveSync';
+import { FINISHED_AT, type ReadingStatus } from './status';
 import { pathFor, syncPapersToGitHub, targetFrom } from './github';
 import { setContactEmail } from './contact';
 import { setProxyBase } from './api';
@@ -124,6 +125,22 @@ interface StoreValue {
    */
   removePaper: (id: string, options?: { junkInDrive?: boolean }) => Promise<RemoveOutcome>;
   setPaperCollections: (id: string, collectionIds: string[]) => Promise<void>;
+  /**
+   * Puts papers where a reading status says they are: back to the start, in
+   * progress (where they were, or just begun), or finished.
+   */
+  setReadingStatus: (ids: string[], status: ReadingStatus) => Promise<void>;
+
+  /** What has been removed, most recently first, with what it takes to put it back. */
+  junk: JunkEntry[];
+  /**
+   * Puts a removed paper back in the library, highlights and collections and
+   * all, and — where its Drive folder went to Junk and Drive is connected —
+   * moves the folder back out. Drive refusing is thrown, and it stays in Junk.
+   */
+  restorePaper: (id: string) => Promise<void>;
+  /** Forgets removed papers for good. Their copies in Drive's Junk folder are left alone. */
+  purgeJunk: (ids: string[]) => Promise<void>;
   togglePaperTag: (id: string, tag: string) => Promise<void>;
   setProgress: (id: string, progress: number) => void;
   markOpened: (id: string) => void;
@@ -178,6 +195,9 @@ interface StoreValue {
 
 const StoreContext = createContext<StoreValue | null>(null);
 
+/** Where the removed papers are kept, in the key-value store. */
+const JUNK_KEY = 'junk';
+
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
@@ -185,6 +205,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [papers, setPapers] = useState<Paper[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
+  const [junk, setJunk] = useState<JunkEntry[]>([]);
+  const junkNow = useRef<JunkEntry[]>([]);
+  const keepJunk = useCallback((next: JunkEntry[]) => {
+    junkNow.current = next;
+    setJunk(next);
+    void db.setKv(JUNK_KEY, next).catch(() => undefined);
+  }, []);
   const [settings, setSettings] = useState<Settings>(readSettings);
   // A sign-in outlives the page load: the token is kept in this browser for
   // the hour Google gives it, so a reload comes back signed in and connected.
@@ -223,12 +250,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [loadedPapers, loadedCollections, loadedHighlights] = await Promise.all([
+      const [loadedPapers, loadedCollections, loadedHighlights, loadedJunk] = await Promise.all([
         db.allPapers(),
         db.allCollections(),
         db.allHighlights(),
+        db.getKv<JunkEntry[]>(JUNK_KEY).catch(() => undefined),
       ]);
       if (cancelled) return;
+      junkNow.current = Array.isArray(loadedJunk) ? loadedJunk : [];
+      setJunk(junkNow.current);
       // Records saved with a Scholar byline the older parser misread are put right, once.
       const tidied = loadedPapers.map((paper) => tidyByline(paper));
       tidied.forEach((paper, index) => {
@@ -531,11 +561,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       };
       await savePaper(paper);
       latest.current.papers = [paper, ...latest.current.papers.filter((item) => item.id !== paper.id)];
+      // Added again from a search: it is back, and no longer waiting in Junk.
+      if (junkNow.current.some((item) => item.paper.id === paper.id)) keepJunk(junkNow.current.filter((item) => item.paper.id !== paper.id));
       if (options.sync !== false && settings.autoSync && driveConnected) syncPaper(paper.id);
       queueGitHub(paper.id);
       return paper;
     },
-    [driveConnected, queueGitHub, savePaper, settings.autoSync, syncPaper],
+    [driveConnected, keepJunk, queueGitHub, savePaper, settings.autoSync, syncPaper],
   );
 
   const removePaper = useCallback(
@@ -566,6 +598,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         outcome = { drive: moved.moved === 'nothing' ? 'not-in-drive' : 'junked', junkFolderLink: moved.junkFolderLink };
       }
 
+      if (current) {
+        const kept = latest.current.highlights.filter((highlight) => highlight.paperId === id);
+        const entry: JunkEntry = { paper: current, highlights: kept, removedAt: new Date().toISOString(), drive: outcome.drive };
+        keepJunk([entry, ...junkNow.current.filter((item) => item.paper.id !== id)]);
+      }
+
       await db.deletePaper(id);
       latest.current.papers = latest.current.papers.filter((item) => item.id !== id);
       setPapers((items) => items.filter((item) => item.id !== id));
@@ -575,7 +613,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setHighlights((items) => items.filter((highlight) => highlight.paperId !== id));
       return outcome;
     },
-    [driveConnected],
+    [driveConnected, keepJunk],
+  );
+
+  const restorePaper = useCallback(
+    async (id: string) => {
+      const entry = junkNow.current.find((item) => item.paper.id === id);
+      if (!entry) return;
+      if (entry.drive === 'junked' && driveConnected) await restorePaperInDrive(entry.paper, latest.current.settings);
+      // Collections deleted in the meantime are not come back to.
+      const known = new Set(latest.current.collections.map((collection) => collection.id));
+      const paper: Paper = { ...entry.paper, collectionIds: entry.paper.collectionIds.filter((item) => known.has(item)) };
+      await savePaper(paper);
+      latest.current.papers = [paper, ...latest.current.papers.filter((item) => item.id !== id)];
+      await Promise.all(entry.highlights.map((highlight) => db.putHighlight(highlight)));
+      latest.current.highlights = [...latest.current.highlights.filter((highlight) => highlight.paperId !== id), ...entry.highlights];
+      setHighlights((items) => [...items.filter((highlight) => highlight.paperId !== id), ...entry.highlights]);
+      keepJunk(junkNow.current.filter((item) => item.paper.id !== id));
+      // A folder left in Junk because Drive was not connected is written again where it belongs.
+      if (settings.autoSync && driveConnected && entry.drive !== 'junked') syncPaper(id);
+      queueGitHub(id);
+    },
+    [driveConnected, keepJunk, queueGitHub, savePaper, settings.autoSync, syncPaper],
+  );
+
+  const purgeJunk = useCallback(
+    async (ids: string[]) => {
+      const gone = new Set(ids);
+      keepJunk(junkNow.current.filter((item) => !gone.has(item.paper.id)));
+    },
+    [keepJunk],
+  );
+
+  const setReadingStatus = useCallback(
+    async (ids: string[], status: ReadingStatus) => {
+      for (const id of ids) {
+        const paper = latest.current.papers.find((item) => item.id === id);
+        if (!paper) continue;
+        const progress =
+          status === 'unread' ? 0 : status === 'finished' ? 1 : paper.progress > 0 && paper.progress < FINISHED_AT ? paper.progress : 0.01;
+        if (progress === paper.progress) continue;
+        const updated = { ...paper, progress };
+        await savePaper(updated);
+        latest.current.papers = latest.current.papers.map((item) => (item.id === id ? updated : item));
+        queueGitHub(id);
+      }
+    },
+    [queueGitHub, savePaper],
   );
 
   const setPaperCollections = useCallback(
@@ -820,6 +904,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       addPaper,
       removePaper,
       setPaperCollections,
+      setReadingStatus,
+      junk,
+      restorePaper,
+      purgeJunk,
       togglePaperTag,
       setProgress,
       markOpened,
@@ -847,7 +935,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }),
     [
       ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog,
-      addPaper, removePaper, setPaperCollections, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile,
+      addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile,
       createCollection, renameCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
       githubConnected, githubLog, githubPending, pushToGitHub,

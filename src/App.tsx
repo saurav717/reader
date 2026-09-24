@@ -8,6 +8,7 @@ import { followLight } from './lib/glassLight';
 import { clearSelection, currentSelection, paperText, trackSelection, visiblePassage } from './lib/screen';
 import Assistant from './components/Assistant';
 import CollectionView from './components/CollectionView';
+import JunkView from './components/JunkView';
 import CommandPalette from './components/CommandPalette';
 import Discover from './components/Discover';
 import Library from './components/Library';
@@ -226,7 +227,7 @@ export default function App() {
     const where =
       view.kind === 'collection'
         ? `Browsing the collection “${name ?? 'Collection'}”`
-        : { all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', paper: 'Browsing the library' }[view.kind];
+        : { all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library' }[view.kind];
     const library = Array.from(document.querySelectorAll('.paper-name'), (el) => el.textContent?.trim() ?? '').filter(Boolean);
     return { where, library };
   }, [view, papers, collections, highlights]);
@@ -358,6 +359,8 @@ export default function App() {
           onSelectHighlight={setSelectedHighlightId}
           onOrphans={onOrphans}
         />
+      ) : view.kind === 'junk' ? (
+        <JunkView />
       ) : (
         <CollectionView view={view} onOpenPaper={openPaper} onDiscover={addPapers} />
       )}

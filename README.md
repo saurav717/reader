@@ -616,7 +616,31 @@ PDFs are fetched through the proxy — arXiv, or whichever repository Unpaywall,
 OpenAlex or Semantic Scholar points at. A paper with no free copy anywhere any of
 them can see saves its metadata sidecar and says so in the sync log.
 
+### The library: list, cards, and doing things to many papers at once
+
+The papers in a view read as a list — each with a tile in its journal's
+colour, its kind and year, its authors, journal and collections, and a ring
+for how far through it you are — grouped by the day they were added when
+sorted that way. The button beside the sort shows them as cards instead; the
+choice is remembered on the device.
+
+The tile is also a tick box: tick one, shift-click another to take the run
+between them, or press ⌘A / Ctrl+A for the whole list. A bar comes up at the
+bottom to **add them to a collection** (or, inside one, **move them** to
+another), **take them out** of it, **mark them** not started, being read or
+finished, save them to Drive, or **move them to Junk**. Papers can also be
+dragged — one, or the whole selection — onto a collection in the side pane to
+file them, onto a status to mark them, onto Unsorted to take them out of every
+collection, or onto Junk. Escape lets go of the selection.
+`scripts/library-smoke.mjs` goes through all of it and screenshots each state.
+
 ### Removing a paper
+
+A removed paper waits in **Junk**, at the bottom of the side pane, with its
+highlights and collections, until it is restored or deleted for good there.
+Restoring it puts it back as it was and, where its Drive folder was moved to
+Drive's own Junk folder, moves the folder back out. Deleting it for good only
+forgets the entry; its folder in Drive's Junk stays where it is.
 
 The bin on a row does not act at once: a notice names the paper, says that it
 leaves every collection with its highlights, and says what happens in Drive
@@ -1740,6 +1764,7 @@ node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 node scripts/hover-smoke.mjs    # the cards over an author's name and a citation
 node scripts/pdf-book-smoke.mjs # a Scholar byline read right, the venue's card, the PDF as a book
+node scripts/library-smoke.mjs  # the list and cards, selecting, moving, marking, Junk and back
 
 npm run build                  # then, needing no server of its own:
 node scripts/versions-drive.mjs

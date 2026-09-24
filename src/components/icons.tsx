@@ -252,3 +252,41 @@ export const SparkleIcon = (props: IconProps) => (
     <path d="M18.5 15.5c.2 1.6 1 2.4 2.5 2.5-1.5.2-2.3 1-2.5 2.5-.2-1.5-1-2.3-2.5-2.5 1.5-.1 2.3-.9 2.5-2.5Z" />
   </Icon>
 );
+
+export const ListIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M9 6.5h11M9 12h11M9 17.5h11" />
+    <circle cx="4.8" cy="6.5" r="1" fill="currentColor" stroke="none" />
+    <circle cx="4.8" cy="12" r="1" fill="currentColor" stroke="none" />
+    <circle cx="4.8" cy="17.5" r="1" fill="currentColor" stroke="none" />
+  </Icon>
+);
+
+export const GridIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="4" y="4" width="6.5" height="6.5" rx="1.6" />
+    <rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6" />
+    <rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6" />
+    <rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6" />
+  </Icon>
+);
+
+export const RestoreIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9" />
+    <path d="M4.5 4.5V9H9" />
+  </Icon>
+);
+
+export const FolderMoveIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4 7.5a2 2 0 0 1 2-2h3.2l2 2.3H18a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+    <path d="M10 13.5h5.5M13.5 11.3l2.2 2.2-2.2 2.2" />
+  </Icon>
+);
+
+export const FlagIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M5.5 20.5V4.5M5.5 5h11l-2.2 3.6 2.2 3.6h-11" />
+  </Icon>
+);
