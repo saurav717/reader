@@ -243,6 +243,16 @@ describe('whether a record could be the person asked for', () => {
     assert.equal(nameMatches('Yann LeCun', 'Y. LeCun'), true);
   });
 
+  it('reads initials run together as one each, and lets a middle initial go missing', () => {
+    assert.equal(nameMatches('Erin Braun', 'EJ Braun'), true);
+    assert.equal(nameMatches('Erin J. Braun', 'EJ Braun'), true);
+    assert.equal(nameMatches('Saurav Chennuri', 'SVP Chennuri'), true);
+    assert.equal(nameMatches('EJ Braun', 'Erin Braun'), true);
+    // The first given name and the surname still have to fit.
+    assert.equal(nameMatches('Jane Braun', 'EJ Braun'), false);
+    assert.equal(nameMatches('Erin Brown', 'EJ Braun'), false);
+  });
+
   it('fits the words in any order, with or without accents', () => {
     assert.equal(nameMatches('Zongyi Li', 'Li Zongyi'), true);
     assert.equal(nameMatches('Gabriel García Márquez', 'garcia marquez'), true);

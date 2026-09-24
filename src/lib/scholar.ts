@@ -53,6 +53,7 @@ export interface ScholarPerson {
   affiliation?: string;
   verifiedEmail?: string;
   interests: string[];
+  homepage?: string;
   citedBy?: number;
   citedBySince?: number;
   hIndex?: number;

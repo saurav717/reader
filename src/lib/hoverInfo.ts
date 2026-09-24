@@ -12,7 +12,7 @@ import type { AuthorRef, PaperRef } from '../types';
 import { parseReference, titleFits } from './citations';
 import { politely } from './contact';
 import { hasProxy } from './api';
-import { fromScholar, scholarAuthors, scholarPaperAuthors, scholarPerson } from './scholar';
+import { fromScholar, scholarAuthors, scholarPaperAuthors, scholarPerson, scholarProfileWorks } from './scholar';
 import { crossrefWorks, fromOpenAlex, nameMatches, openAlexWorks, type OpenAlexWork } from './sources';
 
 const OPENALEX = 'https://api.openalex.org';
@@ -130,6 +130,8 @@ export interface AuthorDetails {
    * may be somebody else with it.
    */
   via: 'paper' | 'name' | 'none';
+  /** Their name as the index writes it out, when the byline has only initials. */
+  fullName?: string;
   openAlexId?: string;
   orcid?: string;
   /** Where they were when they wrote this paper. */
@@ -162,6 +164,7 @@ interface PaperKey {
   title: string;
   doi?: string;
   arxivId?: string;
+  year?: number;
 }
 
 /** The open paper as OpenAlex records it: its authors, with ids and institutions, and what it is about. */
@@ -284,13 +287,20 @@ async function findAuthor(name: string, position: number, paper: PaperKey): Prom
   };
   if (!id) return details;
 
-  const worksParams = new URLSearchParams({ per_page: '3', sort: 'cited_by_count:desc' });
+  const worksParams = new URLSearchParams({ per_page: '15', sort: 'cited_by_count:desc' });
   worksParams.set('filter', `author.id:${id}`);
-  const [record, works, years] = await Promise.all([
+  const [record, found15, years] = await Promise.all([
     openAlexJson<OpenAlexAuthorRecord>(`authors/${id}`).catch(() => null),
-    openAlexWorks(worksParams).catch(() => [] as PaperRef[]),
+    openAlexJson<{ results?: (OpenAlexWork & { primary_topic?: OpenAlexTopic | null })[] }>('works', worksParams).catch(() => null),
     yearsOf(id).catch(() => ({}) as Record<string, number>),
   ]);
+  // OpenAlex now and then folds several people of a name into one record, so
+  // its most cited works are kept to the fields this paper is in: an
+  // aphasia paper's author is not the author of one on construction robots.
+  const fields = new Set(found.topics.map((topic) => topic.field?.display_name).filter(Boolean));
+  const inField = (work: { primary_topic?: OpenAlexTopic | null }) =>
+    !fields.size || !work.primary_topic?.field?.display_name || fields.has(work.primary_topic.field.display_name);
+  const works = (found15?.results || []).filter(inField).slice(0, 3).map(fromOpenAlex);
   const topics = (record?.topics || []).slice(0, 4).map((topic) => topic.display_name);
   const affiliation = record?.last_known_institutions?.[0]?.display_name || undefined;
 
@@ -302,6 +312,9 @@ async function findAuthor(name: string, position: number, paper: PaperKey): Prom
 
   details.openAlexId = id;
   details.topWorks = works;
+  // The name the paper's own record gives them, else the person record's.
+  const written = [ship?.author.display_name, record?.display_name].find((full) => full && full.length > name.length && nameMatches(full, name));
+  if (written) details.fullName = written;
   if (record) {
     details.orcid = record.orcid?.replace('https://orcid.org/', '') || undefined;
     details.affiliation = affiliation;
@@ -510,20 +523,25 @@ const paperAuthors = new Map<string, Promise<Awaited<ReturnType<typeof scholarPa
 
 /** A Scholar profile, with what the profile's own page says: its counts and its most cited works. */
 export interface ScholarProfile extends AuthorRef {
+  homepage?: string;
   citedBySince?: number;
   i10Index?: number;
   works: PaperRef[];
 }
 
 /**
- * What asking Scholar for someone's profile came to: the profile, and how it
- * was found — through the paper's own record, which links its authors to
- * their profiles, or by the name — or null, with `error` when Scholar could
+ * What asking Scholar for someone's profile came to. `confirmed` is whether
+ * the profile is plainly theirs: Scholar's record of the paper links the
+ * byline's name to it, or the profile lists the paper among its own works.
+ * Only a confirmed profile's counts are shown as the author's; one found by
+ * the name, and at the right institution or the only one of the name, is a
+ * likely profile and is offered as that. `error` is set when Scholar could
  * not be asked, which is not the same as their having no profile.
  */
 export interface ScholarFind {
   profile: ScholarProfile | null;
-  how?: 'paper' | 'name';
+  confirmed: boolean;
+  how?: 'paper' | 'listed' | 'place' | 'name';
   error?: string;
 }
 
@@ -540,6 +558,7 @@ async function opened(ref: AuthorRef): Promise<ScholarProfile> {
     verifiedEmail: person.verifiedEmail || ref.verifiedEmail,
     interests: person.interests.length ? person.interests : ref.interests,
     scholarProfileUrl: person.profileUrl || ref.scholarProfileUrl,
+    homepage: person.homepage,
     citedBy: person.citedBy ?? ref.citedBy,
     citedBySince: person.citedBySince,
     hIndex: person.hIndex,
@@ -556,31 +575,65 @@ const fromLink = (link: { name: string; userId: string }): AuthorRef => ({
   scholarProfileUrl: `https://scholar.google.com/citations?hl=en&user=${encodeURIComponent(link.userId)}`,
 });
 
+const isPaper = (title: string, paper: string) => titleFits(title.replace(/…$/, ''), paper);
+
+/** Pages of a profile's newest works looked through for the paper, past its most cited. */
+const NEWEST_PAGES = 3;
+
+/**
+ * Whether a profile lists the paper among its works. Its most cited works
+ * are looked at first — they came with the profile — then its newest, page
+ * by page, until the pages are older than the paper, or run out.
+ */
+async function listsPaper(profile: ScholarProfile, paper: { title: string; year?: number }): Promise<boolean> {
+  if (profile.works.some((work) => isPaper(work.title, paper.title))) return true;
+  if (!profile.scholarUserId) return false;
+  for (let page = 0; page < NEWEST_PAGES; page += 1) {
+    const works = await scholarProfileWorks(profile.scholarUserId, { page, order: 'newest' }).catch(() => [] as PaperRef[]);
+    if (works.some((work) => isPaper(work.title, paper.title))) return true;
+    if (works.length < 20) return false;
+    const years = works.map((work) => Number(work.published.slice(0, 4))).filter(Boolean);
+    if (paper.year && years.length && Math.max(...years) < paper.year) return false;
+  }
+  return false;
+}
+
+/** How many people of the name are opened to see whether they list the paper. */
+const CANDIDATES = 4;
+
+export interface ScholarAsk {
+  /** Where OpenAlex has them, when they wrote the paper and now. */
+  places?: string[];
+  /** Their name written out in full, where an index knows it: "Erin J. Braun" for "EJ Braun". */
+  fullNames?: string[];
+  /** Whether the one profile of the name may be offered as likely theirs. */
+  loneOk?: boolean;
+  /** The paper they are an author of, and where they stand in its byline. */
+  paper?: { id: string; title: string; year?: number };
+  position?: number;
+}
+
 /**
  * Their Google Scholar profile, through the proxy.
  *
- * First through the paper: Scholar's record of it links each author who
- * has put it on their profile to that profile, which settles who they are
- * whatever their name — "S Chennuri" is the one the paper links, not any of
- * the others of the name. Of two authors of the paper with names that fit,
- * the one standing at `position` in the byline is taken.
+ * First through the paper: Scholar's record of it links each author who has
+ * put it on their profile to that profile, which settles who they are
+ * whatever their name. Of two authors of the paper whose names fit, the one
+ * standing at `position` in the byline is taken.
  *
- * Else by the name: among several with it, the one at the institution
- * OpenAlex names wins, then the one whose profile lists this paper; a lone
- * profile with the name is taken as it is only when `loneOk` — when OpenAlex
- * tied this very person to the paper. Found by the name alone, the one
- * profile with it is as likely a namesake's: Scholar's only "D Carnegie" is
- * an engineer in Wellington, not the author of a book from 1936.
+ * Else by the name — as the byline prints it and written out in full — and
+ * then only a profile that lists the paper is taken as theirs. Scholar's
+ * search for a name finds everyone of it: three S Chennuris, or its only
+ * "D Carnegie", an engineer in Wellington rather than the author of a book
+ * from 1936. None of them listing the paper, the one at the institution
+ * OpenAlex names, or the one profile of the name when `loneOk`, is offered
+ * as likely theirs and no more.
  */
-export function scholarProfile(
-  name: string,
-  places: string[],
-  loneOk = true,
-  paper?: { id: string; title: string },
-  position = -1,
-): Promise<ScholarFind> {
-  if (!hasProxy()) return Promise.resolve({ profile: null });
-  return remembered(profiles, `${paper?.id ?? ''}|${position}|${name}|${places.join('|')}|${loneOk}`, async () => {
+export function scholarProfile(name: string, ask: ScholarAsk = {}): Promise<ScholarFind> {
+  if (!hasProxy()) return Promise.resolve({ profile: null, confirmed: false });
+  const { places = [], fullNames = [], loneOk = true, paper, position = -1 } = ask;
+  const key = [paper?.id ?? '', position, name, fullNames.join('/'), places.join('/'), loneOk].join('|');
+  return remembered(profiles, key, async (): Promise<ScholarFind> => {
     const problems: string[] = [];
 
     if (paper?.title) {
@@ -596,34 +649,46 @@ export function scholarProfile(
           return at < 0 || position < 0 ? 0 : Math.abs(at - position);
         };
         const link = fits.slice().sort((a, b) => distance(a) - distance(b))[0];
-        return { profile: await opened(fromLink(link)), how: 'paper' as const };
+        return { profile: await opened(fromLink(link)), confirmed: true, how: 'paper' };
       }
     }
 
-    let found: AuthorRef[];
-    try {
-      found = (await scholarAuthors(name)).filter((author) => author.scholarProfileUrl && nameMatches(author.name, name));
-    } catch (error) {
-      problems.push(why(error));
-      return { profile: null, error: problems[0] };
+    // Everyone of the name, by each way of writing it.
+    const queries = Array.from(new Set([name, ...fullNames].map((query) => query.trim()).filter(Boolean)));
+    const found: AuthorRef[] = [];
+    for (const query of queries) {
+      try {
+        for (const author of await scholarAuthors(query)) {
+          if (!author.scholarProfileUrl || !nameMatches(author.name, name)) continue;
+          if (found.some((other) => (other.scholarUserId || other.id) === (author.scholarUserId || author.id))) continue;
+          found.push(author);
+        }
+      } catch (error) {
+        problems.push(why(error));
+      }
     }
-    if (!found.length) return { profile: null };
+    if (!found.length) return { profile: null, confirmed: false, error: problems[0] };
+
     const wanted = new Set(places.flatMap(placeWords));
-    const atPlace = found.find((author) => {
-      const here = [author.affiliation || '', author.verifiedEmail || ''].join(' ');
-      return placeWords(here).some((word) => wanted.has(word));
-    });
-    if (atPlace) return { profile: await opened(atPlace), how: 'name' as const };
+    const atPlace = (author: AuthorRef) => placeWords([author.affiliation || '', author.verifiedEmail || ''].join(' ')).some((word) => wanted.has(word));
+    // Those at the paper's institution are looked at first.
+    const ranked = found.slice().sort((a, b) => Number(atPlace(b)) - Number(atPlace(a)));
 
-    // The one whose own list has this paper on it.
-    if (paper?.title) {
-      for (const candidate of found.slice(0, 3)) {
-        const profile = await opened(candidate);
-        if (profile.works.some((work) => titleFits(work.title.replace(/…$/, ''), paper.title))) return { profile, how: 'paper' as const };
+    let likely: ScholarProfile | null = null;
+    let how: ScholarFind['how'];
+    for (const [index, candidate] of ranked.slice(0, paper?.title ? CANDIDATES : 1).entries()) {
+      const profile = await opened(candidate);
+      if (paper?.title && (await listsPaper(profile, paper))) return { profile, confirmed: true, how: 'listed' };
+      if (index === 0 && atPlace(candidate)) {
+        likely = profile;
+        how = 'place';
       }
     }
-    if (loneOk && found.length === 1) return { profile: await opened(found[0]), how: 'name' as const };
-    return { profile: null };
+    if (!likely && loneOk && found.length === 1) {
+      likely = await opened(found[0]);
+      how = 'name';
+    }
+    return likely ? { profile: likely, confirmed: false, how } : { profile: null, confirmed: false, error: problems[0] };
   });
 }
 

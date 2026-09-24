@@ -1200,6 +1200,14 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 .hc-stats > div { flex: 1; padding: 5px 7px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--panel); }
 .hc-stats dt { font-size: 10px; color: var(--muted); }
 .hc-stats dd { margin: 0; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hc-profiles { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.hover-card .hc-profile {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border: 1px solid var(--border);
+  border-radius: 999px; background: var(--panel); color: var(--ink); font-size: 11px; line-height: 1.5; text-decoration: none;
+}
+.hover-card .hc-profile:hover, .hover-card .hc-profile:focus-visible { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); outline: none; }
+.hover-card .hc-profile.guess { border-style: dashed; color: var(--ink-2); }
+.hover-card .hc-profile.pending { padding: 2px 8px; }
 .hc-from { margin: -4px 0 8px !important; font-size: 10.5px; color: var(--muted); }
 .hc-scholar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; margin-bottom: 6px !important; font-size: 12px; color: var(--ink-2); }
 .hc-scholar.muted { color: var(--muted); gap: 8px; }

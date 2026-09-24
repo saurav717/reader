@@ -553,7 +553,11 @@ export function nameInQuery(query: string): string | null {
 
 /** A name as its parts: lower-case letters, accents stripped, one entry per word. */
 function nameParts(name: string): string[] {
-  return name
+  // Initials run together before the surname — "EJ Braun", "SVP Chennuri" —
+  // are one initial each.
+  const tokens = name.trim().split(/\s+/);
+  const spaced = tokens.map((token, at) => (at < tokens.length - 1 && /^\p{Lu}{2,3}\.?$/u.test(token) ? token.replace(/\.$/, '').split('').join(' ') : token)).join(' ');
+  return spaced
     .normalize('NFKD')
     .replace(/\p{M}+/gu, '')
     .toLowerCase()
@@ -577,6 +581,13 @@ export function nameMatches(name: string, query: string): boolean {
   if (!parts.length || !words.length) return false;
   const fits = (word: string) => parts.some((part) => part.startsWith(word) || word.startsWith(part));
   if (words.every(fits)) return true;
+  // A middle initial one side has and the other leaves out: "EJ Braun" is
+  // Erin Braun. The surname and the first given name still have to fit.
+  const given = words.slice(0, -1);
+  if (given.length && fits(words[words.length - 1]) && fits(given[0]) && given.slice(1).every((word) => word.length === 1 || fits(word))) {
+    const surname = words[words.length - 1];
+    if (parts[parts.length - 1].startsWith(surname) || surname.startsWith(parts[parts.length - 1])) return true;
+  }
   return words.length > 1 && parts.join('').includes(words.join(''));
 }
 

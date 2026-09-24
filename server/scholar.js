@@ -412,6 +412,8 @@ export function parseProfile(html, userId) {
     affiliation: text(block(idBlock(html, 'gsc_prf_i') || html, 'gsc_prf_il')) || undefined,
     verifiedEmail: (text(idBlock(html, 'gsc_prf_ivh')).match(/Verified email at (\S+?)(?:\s|$|-)/i) || [])[1],
     interests: links(idBlock(html, 'gsc_prf_int')).map((link) => link.text).filter(Boolean),
+    /** The page of their own the profile links to, beside the verified email. */
+    homepage: links(idBlock(html, 'gsc_prf_ivh')).find((link) => /^https?:/i.test(link.href))?.href,
     citedBy: at(0),
     citedBySince: at(1),
     hIndex: at(2),

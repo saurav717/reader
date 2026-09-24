@@ -33,6 +33,7 @@ export interface PaperKey {
   title: string;
   doi?: string;
   arxivId?: string;
+  year?: number;
 }
 
 interface Props {
@@ -163,8 +164,9 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
     const places = [details?.affiliationHere, details?.affiliation].filter((place): place is string => Boolean(place));
     // A lone profile with the name is theirs only when OpenAlex tied this very person to the paper.
     const tied = details.via === 'paper' && !details.mistaken;
-    void scholarProfile(name, places, tied, paper, position)
-      .catch((error): ScholarFind => ({ profile: null, error: error instanceof Error ? error.message : String(error) }))
+    const fullNames = details.fullName && !details.mistaken ? [details.fullName] : [];
+    void scholarProfile(name, { places, fullNames, loneOk: tied, paper, position })
+      .catch((error): ScholarFind => ({ profile: null, confirmed: false, error: error instanceof Error ? error.message : String(error) }))
       .then((found) => live && setScholar(found));
     return () => {
       live = false;
@@ -172,7 +174,9 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
     // The paper is named by its id, which is in the details' key already.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [details, name, position]);
-  const profile = scholar?.profile ?? (scholar ? null : undefined);
+  // Only a profile that is plainly theirs is shown as theirs; a likely one is offered as that.
+  const profile = scholar?.confirmed ? scholar.profile : scholar ? null : undefined;
+  const likely = scholar && !scholar.confirmed ? scholar.profile : null;
   const scholarAsking = hasProxy() && details !== undefined && scholar === undefined;
   // Scholar's counts are the ones people keep and quote: where the profile
   // gave them, they are the ones shown, and OpenAlex's only otherwise.
@@ -188,7 +192,7 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
   const ownRecord = details?.openAlexId !== undefined && details.via === 'paper';
   const pages = elsewhere?.profiles ?? [];
   const settled = details !== undefined && elsewhere !== undefined && !scholarAsking;
-  const nowhere = settled && !profile && !scholar?.error && !ownRecord && !details?.orcid && !pages.length;
+  const nowhere = settled && !profile && !likely && !scholar?.error && !ownRecord && !details?.orcid && !pages.length;
   const namesake = useAnswer<OtherWork[]>(
     () => (nowhere ? worksUnderName(name, paper) : Promise.resolve([])),
     `${paper.id}|${name}|${nowhere}`,
@@ -200,6 +204,26 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
   // Their books from Open Library stand in for OpenAlex's list when OpenAlex has none that are theirs.
   const otherWorks = topWorks.length ? [] : elsewhere?.works ?? [];
 
+  // Every page of theirs, as a row of buttons under the name: the profile
+  // that is plainly theirs first, a likely one marked as that, and a search
+  // of Scholar for the name where no profile is known.
+  const profileLinks: { site: string; url: string; title: string; guess?: boolean }[] = [];
+  if (profile?.scholarProfileUrl) profileLinks.push({ site: 'Google Scholar', url: profile.scholarProfileUrl, title: 'Their Google Scholar profile' });
+  else if (likely?.scholarProfileUrl)
+    profileLinks.push({ site: 'Google Scholar?', url: likely.scholarProfileUrl, title: `Possibly theirs — ${likely.name}${likely.affiliation ? `, ${likely.affiliation}` : ''} — but it does not list this paper`, guess: true });
+  if (profile?.homepage) profileLinks.push({ site: 'Homepage', url: profile.homepage, title: 'The homepage their Scholar profile links to' });
+  if (details?.orcid) profileLinks.push({ site: 'ORCID', url: `https://orcid.org/${details.orcid}`, title: 'Their ORCID record' });
+  if (details?.openAlexId)
+    profileLinks.push({
+      site: details.via === 'paper' ? 'OpenAlex' : 'OpenAlex?',
+      url: `https://openalex.org/authors/${details.openAlexId}`,
+      title: details.via === 'paper' ? 'The record OpenAlex files this paper under' : 'Found by the name alone — it may be someone else of the name',
+      guess: details.via !== 'paper',
+    });
+  for (const page of pages) profileLinks.push({ site: page.site, url: page.url, title: `Their page on ${page.site}` });
+  if (!profile && !likely && !scholarAsking)
+    profileLinks.push({ site: 'Search Scholar', url: scholarAuthorUrl(details?.fullName ?? name), title: 'Search Google Scholar for the name', guess: true });
+
   return (
     <>
       <div className="hc-head">
@@ -209,6 +233,20 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
         {details?.affiliationHere ? <p className="hc-sub">{details.affiliationHere}</p> : null}
         {now ? <p className="hc-sub">Now at {now}</p> : null}
         {!details?.affiliationHere && !now && profile?.affiliation ? <p className="hc-sub">{profile.affiliation}</p> : null}
+        {profileLinks.length || scholarAsking || elsewhere === undefined ? (
+          <div className="hc-profiles" aria-label="Their profiles">
+            {profileLinks.map((link) => (
+              <a key={link.site} className={`hc-profile${link.guess ? ' guess' : ''}`} href={link.url} target="_blank" rel="noreferrer noopener" title={link.title}>
+                {link.site} <ExternalIcon size={9} />
+              </a>
+            ))}
+            {scholarAsking || elsewhere === undefined ? (
+              <span className="hc-profile pending" title="Looking for their profiles">
+                <span className="spinner" />
+              </span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {details === undefined ? (
@@ -255,39 +293,20 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
           {elsewhere?.about ? <p className="hc-about">{elsewhere.about}</p> : null}
 
           {profile ? (
-            <p className="hc-scholar">
-              <a href={profile.scholarProfileUrl} target="_blank" rel="noreferrer noopener">
-                Google Scholar profile <ExternalIcon size={10} />
-              </a>
-              {profile.citedBy !== undefined && !scholarStats ? <span> · cited by {compact(profile.citedBy)}</span> : null}
-              {profile.verifiedEmail ? <span> · verified email at {profile.verifiedEmail}</span> : null}
-            </p>
+            profile.verifiedEmail ? <p className="hc-scholar muted">Google Scholar: verified email at {profile.verifiedEmail}</p> : null
           ) : scholarAsking ? (
             <p className="hc-scholar muted">
               <span className="spinner" /> Asking Google Scholar…
             </p>
+          ) : likely ? (
+            <p className="hc-scholar muted">
+              The Google Scholar profile of the name ({likely.name}
+              {likely.affiliation ? `, ${likely.affiliation}` : ''}) does not list this paper, so it may not be theirs and its counts are not shown.
+            </p>
           ) : scholar?.error ? (
             <p className="hc-scholar muted">Google Scholar could not be asked — {scholar.error.replace(/\.$/, '')}.</p>
           ) : hasProxy() ? (
-            <p className="hc-scholar muted">Google Scholar links no profile to them on this paper, and none of the name is plainly them.</p>
-          ) : null}
-
-          {pages.length ? (
-            <p className="hc-scholar">
-              <span>{profile ? 'Also on' : 'Profiles elsewhere:'}</span>
-              {pages.map((page, index) => (
-                <span key={page.site}>
-                  <a href={page.url} target="_blank" rel="noreferrer noopener">
-                    {page.site} <ExternalIcon size={10} />
-                  </a>
-                  {index < pages.length - 1 ? ' ·' : ''}
-                </span>
-              ))}
-            </p>
-          ) : elsewhere === undefined && !profile ? (
-            <p className="hc-scholar muted">
-              <span className="spinner" /> Looking for them elsewhere…
-            </p>
+            <p className="hc-scholar muted">No Google Scholar profile lists this paper as theirs.</p>
           ) : null}
 
           {interests.length ? (
@@ -339,21 +358,6 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
       )}
 
       <div className="hc-links">
-        {!profile && !hasProxy() ? (
-          <a href={scholarAuthorUrl(name)} target="_blank" rel="noreferrer noopener">
-            Google Scholar <ExternalIcon size={10} />
-          </a>
-        ) : null}
-        {details?.orcid ? (
-          <a href={`https://orcid.org/${details.orcid}`} target="_blank" rel="noreferrer noopener">
-            ORCID <ExternalIcon size={10} />
-          </a>
-        ) : null}
-        {details?.openAlexId ? (
-          <a href={`https://openalex.org/authors/${details.openAlexId}`} target="_blank" rel="noreferrer noopener">
-            OpenAlex <ExternalIcon size={10} />
-          </a>
-        ) : null}
         <button type="button" className="hc-action" onClick={() => discover(`author:${elsewhere?.fullName ?? name}`)}>
           <SearchIcon size={11} /> All their papers
         </button>

@@ -230,8 +230,9 @@ describe('their Google Scholar profile', () => {
         { userId: 'OTHER2xxxxx', name: 'Sai Chennuri', profileUrl: 'https://scholar.google.com/citations?user=OTHER2xxxxx', interests: [] },
       ],
     });
-    const found = await scholarProfile('S Chennuri', ['Boston University'], true, paper, 0);
+    const found = await scholarProfile('S Chennuri', { places: ['Boston University'], paper, position: 0 });
     assert.equal(found.how, 'paper');
+    assert.equal(found.confirmed, true);
     assert.equal(found.profile.scholarUserId, 'CHENNURIxx1');
     assert.equal(found.profile.citedBy, 57);
     assert.equal(found.profile.hIndex, 4);
@@ -252,13 +253,74 @@ describe('their Google Scholar profile', () => {
     route(/\/scholar\/person\?user=CHENNURIxx1/, {
       results: [{ ...person, works: [{ title: 'Fusion approaches to predict post-stroke aphasia severity from multimodal…', authors: [], snippet: '' }] }],
     });
-    const found = await scholarProfile('S Chennuri', ['Boston University'], true, { ...paper, id: 'scholar:fusion-2' }, 0);
+    const found = await scholarProfile('S Chennuri', { places: ['Boston University'], paper: { ...paper, id: 'scholar:fusion-2' }, position: 0 });
     assert.equal(found.profile?.scholarUserId, 'CHENNURIxx1');
+    assert.equal(found.confirmed, true);
+    assert.equal(found.how, 'listed');
+  });
+
+  const nobodyLinked = () => route(/\/scholar\/search\?q=/, { results: [] });
+  const profileAt = (userId, name, affiliation, works = []) => ({ ...person, userId, name, affiliation, profileUrl: `https://scholar.google.com/citations?user=${userId}`, works });
+  const listed = { title: 'Fusion approaches to predict post-stroke aphasia severity from multimodal neuroimaging data', authors: [], snippet: '' };
+
+  it('finds the paper further down a prolific author’s list, among their newest works', async () => {
+    nobodyLinked();
+    route(/\/scholar\/authors/, { results: [{ userId: 'KIRANxxxxxx', name: 'Swathi Kiran', profileUrl: 'https://scholar.google.com/citations?user=KIRANxxxxxx', interests: [] }] });
+    const cited = Array.from({ length: 20 }, (_, i) => ({ title: `A much cited paper number ${i}`, authors: [], snippet: '', year: 2010 }));
+    route(/\/scholar\/person\?user=KIRANxxxxxx/, { results: [profileAt('KIRANxxxxxx', 'Swathi Kiran', 'Boston University', cited)] });
+    const newest = (page) => Array.from({ length: 20 }, (_, i) => ({ title: `A recent paper ${page}-${i}`, authors: [], snippet: '', year: 2025 - page }));
+    route(/\/scholar\/profile\?user=KIRANxxxxxx&start=0&/, { results: newest(0) });
+    route(/\/scholar\/profile\?user=KIRANxxxxxx&start=20&/, { results: [...newest(1).slice(0, 19), { ...listed, year: 2023 }] });
+    const found = await scholarProfile('S Kiran', { paper: { ...paper, id: 'scholar:fusion-4', year: 2023 }, position: 5 });
+    assert.equal(found.confirmed, true);
+    assert.equal(found.profile.scholarUserId, 'KIRANxxxxxx');
+  });
+
+  it('searches by the name written out in full when the byline has only initials', async () => {
+    nobodyLinked();
+    route(/\/scholar\/authors\?name=EJ Braun/, { results: [] });
+    route(/\/scholar\/authors\?name=Erin J\. Braun/, { results: [{ userId: 'BRAUNxxxxxx', name: 'Erin Braun', profileUrl: 'https://scholar.google.com/citations?user=BRAUNxxxxxx', interests: [] }] });
+    route(/\/scholar\/person\?user=BRAUNxxxxxx/, { results: [profileAt('BRAUNxxxxxx', 'Erin Braun', 'Boston University', [listed])] });
+    const found = await scholarProfile('EJ Braun', { fullNames: ['Erin J. Braun'], paper: { ...paper, id: 'scholar:fusion-5' }, position: 4 });
+    assert.equal(found.confirmed, true);
+    assert.equal(found.profile.scholarUserId, 'BRAUNxxxxxx');
+  });
+
+  it('only offers a profile of the name at the right place that does not list the paper as likely, not as theirs', async () => {
+    nobodyLinked();
+    route(/\/scholar\/authors/, {
+      results: [
+        { userId: 'LAIxxxxxxx1', name: 'S Lai', affiliation: 'Boston University', profileUrl: 'https://scholar.google.com/citations?user=LAIxxxxxxx1', interests: [] },
+        { userId: 'LAIxxxxxxx2', name: 'Sam Lai', affiliation: 'Elsewhere', profileUrl: 'https://scholar.google.com/citations?user=LAIxxxxxxx2', interests: [] },
+      ],
+    });
+    route(/\/scholar\/person\?user=LAIxxxxxxx/, (url) => ({ results: [profileAt(/LAIxxxxxxx1/.test(url) ? 'LAIxxxxxxx1' : 'LAIxxxxxxx2', 'S Lai', 'Boston University', [])] }));
+    route(/\/scholar\/profile\?/, { results: [] });
+    const found = await scholarProfile('S Lai', { places: ['Boston University'], paper: { ...paper, id: 'scholar:fusion-6' }, position: 1 });
+    assert.equal(found.confirmed, false);
+    assert.equal(found.how, 'place');
+    assert.equal(found.profile.scholarUserId, 'LAIxxxxxxx1');
+  });
+
+  it('takes the one of several of the name that lists the paper, wherever it is', async () => {
+    nobodyLinked();
+    route(/\/scholar\/authors/, {
+      results: [
+        { userId: 'BILLOTxxxx1', name: 'A Billot', affiliation: 'Boston University', profileUrl: 'https://scholar.google.com/citations?user=BILLOTxxxx1', interests: [] },
+        { userId: 'BILLOTxxxx2', name: 'Anne Billot', affiliation: 'MIT', profileUrl: 'https://scholar.google.com/citations?user=BILLOTxxxx2', interests: [] },
+      ],
+    });
+    route(/\/scholar\/person\?user=BILLOTxxxx1/, { results: [profileAt('BILLOTxxxx1', 'A Billot', 'Boston University', [])] });
+    route(/\/scholar\/person\?user=BILLOTxxxx2/, { results: [profileAt('BILLOTxxxx2', 'Anne Billot', 'MIT', [listed])] });
+    route(/\/scholar\/profile\?/, { results: [] });
+    const found = await scholarProfile('A Billot', { places: ['Boston University'], paper: { ...paper, id: 'scholar:fusion-7' }, position: 2 });
+    assert.equal(found.confirmed, true);
+    assert.equal(found.profile.scholarUserId, 'BILLOTxxxx2');
   });
 
   it('says Scholar could not be asked, rather than that there is no profile', async () => {
     route(/\/scholar\//, { status: 503, error: 'Google Scholar asked for a captcha', blocked: true, reason: 'captcha' });
-    const found = await scholarProfile('S Chennuri', [], true, { ...paper, id: 'scholar:fusion-3' }, 0);
+    const found = await scholarProfile('S Chennuri', { paper: { ...paper, id: 'scholar:fusion-3' }, position: 0 });
     assert.equal(found.profile, null);
     assert.match(found.error, /captcha/);
   });
