@@ -34,6 +34,9 @@ const defaultSettings: Settings = {
   syncOnOpen: true,
   proxyBase: '',
   theme: 'light',
+  glass: false,
+  glassFrost: 0.5,
+  glassWall: 'spotlight',
   readingMode: 'pdf',
   contactEmail: '',
   githubRepo: '',
@@ -248,7 +251,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    document.documentElement.dataset.theme = settings.theme;
+    const root = document.documentElement;
+    root.dataset.theme = settings.theme;
+    if (settings.glass) root.dataset.glass = 'on';
+    else delete root.dataset.glass;
+    root.style.setProperty('--frost', String(settings.glassFrost));
+    root.dataset.wall = settings.glassWall;
     setContactEmail(settings.contactEmail);
     setProxyBase(settings.proxyBase);
   }, [settings]);

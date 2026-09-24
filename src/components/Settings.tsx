@@ -3,6 +3,7 @@ import { useStore } from '../lib/store';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
 import { parseRepo } from '../lib/github';
+import { GLASS_WALLS } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
 
@@ -565,6 +566,58 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               Dark
             </button>
           </div>
+          <div className="segmented" style={{ width: 'fit-content', marginTop: 10 }} role="group" aria-label="Material">
+            <button type="button" aria-pressed={!settings.glass} onClick={() => updateSettings({ glass: false })}>
+              Solid
+            </button>
+            <button type="button" aria-pressed={settings.glass} onClick={() => updateSettings({ glass: true })}>
+              Glass
+            </button>
+          </div>
+          {settings.glass ? (
+            <label className="frost-row">
+              <span>Clear</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={settings.glassFrost}
+                aria-label="How frosted the glass is"
+                onChange={(event) => updateSettings({ glassFrost: Number(event.target.value) })}
+              />
+              <span>Frosted</span>
+            </label>
+          ) : null}
+          {settings.glass ? (
+            <>
+              <div className="wall-grid" role="radiogroup" aria-label="Wallpaper behind the glass">
+                {GLASS_WALLS.map((wall) => (
+                  <button
+                    key={wall.id}
+                    type="button"
+                    role="radio"
+                    className="wall-option"
+                    aria-checked={settings.glassWall === wall.id}
+                    title={wall.note}
+                    onClick={() => updateSettings({ glassWall: wall.id })}
+                  >
+                    <span className="wall-swatch" style={{ background: `var(--wall-${wall.id})` }} aria-hidden="true" />
+                    <span>{wall.label}</span>
+                  </button>
+                ))}
+              </div>
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+                {GLASS_WALLS.find((wall) => wall.id === settings.glassWall)?.note} The wallpapers are listed calmest
+                first — the least colour round the page, the least pull away from it.
+              </p>
+            </>
+          ) : null}
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+            Glass turns the library, the dock and every card that floats over the paper into panes you can see a
+            wash of colour through, and catches the light where the pointer is. The page you read stays nearly
+            solid whatever you set here — the slider moves everything around it.
+          </p>
         </section>
       </div>
     </>
