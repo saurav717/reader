@@ -88,16 +88,17 @@ Naming papers to read:
   follow-up, an entry in the reference list), write the name as a link of this form:
   [Kristinsson et al. 2021](paper:Machine learning-based multimodal prediction of language outcomes in chronic aphasia)
   The text in brackets is what the reader sees; after \`paper:\` goes the paper's full, exact
-  title, which the app searches for when the reader presses the button it draws beside the
-  name. Use the title, never a citation number, and leave out any parentheses in it. Only
-  link a paper whose title you know; name the rest in plain text.
+  title, which the app looks up when the reader points at the name. Use the title, never a
+  citation number, and leave out any parentheses in it. Only link a paper whose title you
+  know; name the rest in plain text.
 - When the answer recommends papers to read, also end it with a fenced block tagged
   \`papers\` listing each linked paper as a line of JSON, in the order you recommend them:
   \`\`\`papers
   {"title": "Full title of the paper", "authors": "Surname et al.", "year": 2021, "why": "what it contributes, in one short line"}
   \`\`\`
-  The app draws each line as a card under the answer. Use the same titles as in the links
-  and leave out a field you are not sure of. The block comes last and nothing follows it.`;
+  The app shows a line's details when the reader points at the paper's name, and lists
+  them all under the answer. Use the same titles as in the links and leave out a field
+  you are not sure of. The block comes last and nothing follows it.`;
 
 // ---------------------------------------------------------------------------
 // Papers an answer recommends
@@ -106,6 +107,8 @@ Naming papers to read:
 /** One paper Claude suggests reading, as it listed it in the answer's `papers` block. */
 export interface Recommendation {
   title: string;
+  /** How the answer named it in the text — "Kristinsson et al. 2021". */
+  label?: string;
   authors?: string;
   year?: string;
   why?: string;
@@ -144,6 +147,40 @@ export function splitPapers(content: string): { text: string; papers: Recommenda
     if (!title || seen.has(title.toLowerCase())) continue;
     seen.add(title.toLowerCase());
     papers.push({ title, authors: field(parsed.authors), year: field(parsed.year), why: field(parsed.why) });
+  }
+  return { text, papers };
+}
+
+const MENTION = /\[([^\]\n]+)\]\(paper:\s*([^)\n]+)\)/g;
+
+/** The key a paper is matched by, between a name in the text and a line of the block. */
+export const paperKey = (title: string) => title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+
+/**
+ * The papers an answer brings up, numbered in the order the reader meets
+ * them: each `[name](paper:title)` in the text, first mention first, with
+ * what the closing `papers` block says of it; then any the block lists that
+ * the text never named. A paper named but missing from the block is still
+ * listed, with the title and the name it was given.
+ */
+export function readingList(content: string): { text: string; papers: Recommendation[] } {
+  const { text, papers: listed } = splitPapers(content);
+  const byKey = new Map(listed.map((paper) => [paperKey(paper.title), paper]));
+  const seen = new Set<string>();
+  const papers: Recommendation[] = [];
+  for (const match of text.matchAll(MENTION)) {
+    const title = match[2].trim();
+    const key = paperKey(title);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const said = byKey.get(key);
+    papers.push({ ...(said ?? { title }), label: match[1].trim() });
+  }
+  for (const paper of listed) {
+    const key = paperKey(paper.title);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    papers.push(paper);
   }
   return { text, papers };
 }

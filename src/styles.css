@@ -2405,23 +2405,107 @@ body.win-moving .assistant-win { transition: none; }
   .zen-haze { transition: none; }
 }
 
-/* The button beside a paper named in an answer: it searches for the paper in
-   Discover, where it can be added and read. */
-.chat-find {
-  display: inline-flex; align-items: center; gap: 3px;
-  margin: 0 2px 0 5px; padding: 1px 7px; vertical-align: 1px;
-  font: 500 10.5px/1.5 var(--sans, inherit); color: var(--accent);
-  background: var(--accent-soft); border: 1px solid transparent; border-radius: 999px;
-  cursor: pointer; white-space: nowrap;
+/* A paper named in an answer: the name itself, underlined and numbered as its
+   row in the list under the answer. Pointing at it shows the paper's card. */
+.chat-mention {
+  font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0;
+  cursor: pointer; text-align: inherit;
+  text-decoration: underline dotted; text-decoration-color: var(--accent);
+  text-underline-offset: 3px; text-decoration-thickness: 1.5px;
+  border-radius: 3px;
 }
-.chat-find:hover { border-color: var(--accent); }
-.chat-find:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chat-mention:hover, .chat-mention:focus-visible, .chat-mention[aria-expanded='true'] { color: var(--accent); background: var(--accent-soft); }
+.chat-mention:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chat-mention[data-n]::after {
+  content: attr(data-n);
+  display: inline-block; min-width: 13px; margin-left: 2px; padding: 0 3px;
+  font: 600 9px/13px var(--mono); text-align: center; vertical-align: 5px;
+  color: var(--accent); background: var(--accent-soft); border-radius: 7px;
+}
+.chat-mention.is-flash { animation: chat-flash 1.2s ease-out; }
+@keyframes chat-flash { 0%, 40% { background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); } }
 
-/* Papers an answer recommends, drawn as Discover's results are; a press
-   searches for the paper there. */
-.chat-papers { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-.chat-paper { font: inherit; color: inherit; background: rgb(var(--win-edge) / 0.04); border-color: var(--border); }
-.chat-paper:hover, .chat-paper:focus-visible { background: var(--surface); box-shadow: var(--shadow-sm); }
-.chat-paper .authors { margin-bottom: 6px; }
-.chat-paper-find { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); }
-.chat-paper-why { margin: 7px 0 0; font-size: 12px; line-height: 1.5; color: var(--ink-2); }
+.chat-num {
+  display: inline-grid; place-items: center; flex: none;
+  min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
+  font: 600 10px var(--mono); color: var(--accent); background: var(--accent-soft);
+}
+
+/* The card a name opens: on the page, over the window. */
+.chat-peek {
+  position: fixed; z-index: 60;
+  padding: 12px 14px 12px;
+  color: var(--ink);
+  /* The window's own colour, nearly solid: the card sits over the answer's text. */
+  background: rgb(var(--win-rgb) / 0.97);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg);
+  font-size: 12.5px;
+  animation: chat-peek-in 0.12s ease-out;
+}
+@keyframes chat-peek-in { from { opacity: 0; transform: translateY(-3px); } }
+.chat-peek h3 { margin: 0 0 6px; font: 500 15px/1.3 var(--serif); padding-right: 16px; }
+.chat-peek-head { display: flex; align-items: center; gap: 7px; margin: 0 0 7px; font-size: 11.5px; color: var(--ink-2); }
+.chat-peek-why { margin: 0 0 10px; line-height: 1.5; color: var(--ink-2); }
+.chat-peek-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.chat-peek-close { position: absolute; top: 8px; right: 8px; }
+
+.chat-add.is-added { color: var(--accent); }
+
+/* Every paper the answer brought up, folded to a line under it. */
+.chat-reading { margin-top: 12px; border: 1px solid var(--border); border-radius: 12px; background: rgb(var(--win-edge) / 0.03); }
+.chat-reading > summary {
+  display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 12px;
+  cursor: pointer; list-style: none; font-size: 12px; color: var(--ink-2);
+}
+.chat-reading > summary::-webkit-details-marker { display: none; }
+.chat-reading > summary::before { content: '▸'; font-size: 10px; color: var(--muted); transition: transform 0.15s; }
+.chat-reading[open] > summary::before { transform: rotate(90deg); }
+.chat-reading-count { flex: 1; font-weight: 600; }
+.chat-reading ol { list-style: none; margin: 0; padding: 0 8px 6px; border-top: 1px solid var(--border); }
+.chat-reading li { display: flex; gap: 9px; align-items: flex-start; padding: 9px 4px; }
+.chat-reading li + li { border-top: 1px solid var(--border); }
+.chat-reading li > .chat-num { margin-top: 2px; }
+.chat-reading-paper { flex: 1; min-width: 0; }
+.chat-reading-title {
+  display: block; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; text-align: left;
+  font: 500 13.5px/1.3 var(--serif);
+}
+.chat-reading-title:hover { color: var(--accent); }
+.chat-reading-meta { margin: 3px 0 0; font-size: 11px; color: var(--muted); }
+.chat-reading-why { margin: 3px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--ink-2); }
+.chat-reading-actions { display: flex; gap: 4px; flex: none; }
+.chat-reading-missing { margin: 4px 0 0; font-size: 11px; color: var(--warn, #b7791f); }
+.chat-reading-status { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--muted); padding-right: 4px; }
+.chat-reading-status.is-done { color: var(--accent); }
+.chat-add.is-missing { color: var(--warn, #b7791f); border-color: currentColor; }
+
+/* A paper's card set into the answer: compact, and narrower than the text,
+   so it reads as an aside about the line rather than a new section. */
+.chat-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px; margin: 4px 0 12px; }
+.chat-text li > .chat-cards { margin: 6px 0 4px; }
+.chat-card {
+  max-width: 420px;
+  padding: 7px 9px 8px 10px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: rgb(var(--win-edge) / 0.04);
+  font-size: 12px; line-height: 1.45;
+}
+.chat-cards .chat-card { max-width: none; }
+.chat-card-head { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.chat-card-head .chat-num { min-width: 15px; height: 15px; font-size: 9px; }
+.chat-card-meta { flex: 1; min-width: 0; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-card-head .btn { display: inline-flex; align-items: center; font-size: 10.5px; padding: 1px 7px; gap: 3px; min-height: 0; line-height: 1.6; }
+.chat-card-head .btn svg { display: block; }
+.chat-card-title {
+  display: block; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; text-align: left;
+  font: 500 13px/1.3 var(--serif);
+}
+.chat-card-title:hover { color: var(--accent); }
+.chat-card-why { margin-top: 3px; font-size: 11.5px; color: var(--ink-2); }
+.chat-card-find:not(.chat-card-title) { color: var(--accent); }
+.chat-card-add.is-added { color: var(--accent); }
+.chat-card-add.is-missing { color: var(--warn, #b7791f); }
+/* An item that became a card keeps its place in the list, without the bullet. */
+.chat-text li.chat-li-card { list-style: none; margin: 5px 0 5px -20px; }

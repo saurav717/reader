@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify';
+import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react';
 import {
@@ -16,7 +17,8 @@ import {
   setModel,
   setQuote,
   setShot,
-  splitPapers,
+  paperKey,
+  readingList,
   stop,
   subscribe,
 } from '../lib/assistant';
@@ -41,7 +43,11 @@ import {
 } from '../lib/floatWindow';
 import type { Rect, Side } from '../lib/floatWindow';
 import { markdown } from '../lib/markdown';
-import { CameraIcon, CloseIcon, SearchIcon, SparkleIcon } from './icons';
+import { CameraIcon, CheckIcon, CloseIcon, PlusIcon, SearchIcon, SparkleIcon } from './icons';
+import { useStore } from '../lib/store';
+import { resolvePaper } from '../lib/recommend';
+import { loadLayout, markAdds, placeCards, saveLayout } from './paperCards';
+import type { PaperLayout } from './paperCards';
 import { discover } from './HoverCard';
 import { canCapture, captureTab } from '../lib/screen';
 
@@ -71,41 +77,163 @@ function ago(ts: number): string {
   return `${whole} ${label}${whole === 1 ? '' : 's'} ago`;
 }
 
-/**
- * The papers an answer recommends, drawn as Discover draws its results. A
- * press hands the title to Discover, which searches every source for it and
- * opens the matching result — where it can be added, downloaded and read.
- */
-function Recommendations({ papers, onFind }: { papers: Recommendation[]; onFind: (title: string) => void }) {
+/** Where adding a recommended paper to the Reading list has got to. */
+type AddState = 'adding' | 'added' | 'missing';
+
+/** What the papers an answer brings up can do: be looked at, found in Discover, added. */
+interface PaperActions {
+  layout: PaperLayout;
+  find: (title: string) => void;
+  peek: (turn: number, key: string, anchor: HTMLElement, pinned: boolean) => void;
+  adds: Record<string, AddState>;
+  add: (papers: Recommendation[]) => void;
+}
+
+const ADD_LABEL: Record<AddState, string> = { adding: 'Adding…', added: 'In Reading list', missing: 'Not found — try again' };
+
+function AddButton({ paper, actions, compact }: { paper: Recommendation; actions: PaperActions; compact?: boolean }) {
+  const state = actions.adds[paperKey(paper.title)];
+  const label = state ? ADD_LABEL[state] : 'Add to Reading list';
   return (
-    <div className="chat-papers" role="list" aria-label="Recommended papers">
-      {papers.map((paper) => (
-        <button
-          key={paper.title}
-          type="button"
-          role="listitem"
-          className="result chat-paper"
-          title="Find this paper in Discover"
-          onClick={() => onFind(paper.title)}
-        >
-          <h3>{paper.title}</h3>
-          {paper.authors ? <p className="authors">{paper.authors}</p> : null}
-          <div className="meta">
-            {paper.year ? <span>{paper.year}</span> : null}
-            <span className="chat-paper-find">
-              <SearchIcon size={11} />
-              Find in Discover
-            </span>
-          </div>
-          {paper.why ? <p className="chat-paper-why">{paper.why}</p> : null}
-        </button>
-      ))}
-    </div>
+    <button
+      type="button"
+      className={`btn sm chat-add ${state ? `is-${state}` : ''}`}
+      disabled={state === 'adding' || state === 'added'}
+      title={label}
+      aria-label={compact ? `${label}: ${paper.title}` : undefined}
+      onClick={() => actions.add([paper])}
+    >
+      {state === 'added' ? <CheckIcon size={12} /> : <PlusIcon size={12} />}
+      {compact ? null : label}
+    </button>
   );
 }
 
-function TurnView({ turn, onFind }: { turn: Turn; onFind: (title: string) => void }) {
-  if (turn.role === 'user') {
+/** A paper's card: what the answer said of it, and the two things to do with it. */
+function PaperCard({ paper, n, actions }: { paper: Recommendation; n: number; actions: PaperActions }) {
+  return (
+    <>
+      <p className="chat-peek-head">
+        <span className="chat-num">{n}</span>
+        {[paper.authors ?? paper.label, paper.year].filter(Boolean).join(' · ')}
+      </p>
+      <h3>{paper.title}</h3>
+      {paper.why ? <p className="chat-peek-why">{paper.why}</p> : null}
+      <div className="chat-peek-actions">
+        <button type="button" className="btn primary sm" onClick={() => actions.find(paper.title)}>
+          <SearchIcon size={12} />
+          Find in Discover
+        </button>
+        <AddButton paper={paper} actions={actions} />
+      </div>
+    </>
+  );
+}
+
+/**
+ * Every paper the answer brought up, folded to one line under it until
+ * opened: numbered as the names in the text are, each a row with what it
+ * contributes. A row's title goes back to where the answer named the paper.
+ */
+function ReadingList({ papers, actions, onShow }: { papers: Recommendation[]; actions: PaperActions; onShow: (key: string) => void }) {
+  const stateOf = (paper: Recommendation) => actions.adds[paperKey(paper.title)];
+  const waiting = papers.filter((paper) => !stateOf(paper));
+  const added = papers.filter((paper) => stateOf(paper) === 'added').length;
+  const busy = papers.some((paper) => stateOf(paper) === 'adding');
+  return (
+    <details className="chat-reading">
+      <summary>
+        <span className="chat-reading-count">
+          {papers.length} {papers.length === 1 ? 'paper' : 'papers'} mentioned
+        </span>
+        {waiting.length ? (
+          <button
+            type="button"
+            className="btn sm"
+            onClick={(event) => {
+              event.preventDefault();
+              actions.add(waiting);
+            }}
+          >
+            <PlusIcon size={12} />
+            {waiting.length === papers.length ? 'Add all to Reading list' : `Add the other ${waiting.length}`}
+          </button>
+        ) : (
+          <span className={`chat-reading-status ${added === papers.length ? 'is-done' : ''}`} aria-live="polite">
+            {busy ? 'Adding…' : added === papers.length ? <><CheckIcon size={12} /> All in Reading list</> : `${added} of ${papers.length} in Reading list`}
+          </span>
+        )}
+      </summary>
+      <ol>
+        {papers.map((paper, index) => {
+          const key = paperKey(paper.title);
+          return (
+            <li key={key}>
+              <span className="chat-num">{index + 1}</span>
+              <div className="chat-reading-paper">
+                <button type="button" className="chat-reading-title" onClick={() => onShow(key)} title="Show where the answer names it">
+                  {paper.title}
+                </button>
+                <p className="chat-reading-meta">{[paper.authors ?? paper.label, paper.year].filter(Boolean).join(' · ')}</p>
+                {paper.why ? <p className="chat-reading-why">{paper.why}</p> : null}
+                {stateOf(paper) === 'missing' ? (
+                  <p className="chat-reading-missing">Not found in the indexes by its title — Find searches Google Scholar too.</p>
+                ) : null}
+              </div>
+              <div className="chat-reading-actions">
+                <button type="button" className="btn sm" onClick={() => actions.find(paper.title)} aria-label={`Find in Discover: ${paper.title}`} title="Find in Discover">
+                  <SearchIcon size={12} />
+                </button>
+                <AddButton paper={paper} actions={actions} compact />
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </details>
+  );
+}
+
+const PAPER_LAYOUTS: [PaperLayout, string, string][] = [
+  ['inline', 'In place', 'A line about one paper becomes its card, in the answer’s words'],
+  ['sections', 'After each section', 'The text as written, then the cards of the papers it named'],
+  ['end', 'Only on the name', 'Point at a name for its card; every paper is listed under the answer'],
+];
+
+const PEEK_WIDTH = 320;
+
+/** Under the name when there is room, over it when there is not; always on the page. */
+function peekPlace(box: DOMRect): React.CSSProperties {
+  const left = clamp(box.left, 8, window.innerWidth - PEEK_WIDTH - 8);
+  const below = window.innerHeight - box.bottom > 230;
+  return below
+    ? { left, top: box.bottom + 6, width: PEEK_WIDTH }
+    : { left, bottom: window.innerHeight - box.top + 6, width: PEEK_WIDTH };
+}
+
+function TurnView({ turn, index, actions }: { turn: Turn; index: number; actions: PaperActions }) {
+  const textRef = useRef<HTMLDivElement>(null);
+  const isClaude = turn.role !== 'user';
+  const { text, papers } = isClaude ? readingList(turn.content) : { text: turn.content, papers: [] };
+  const order = papers.map((paper) => paperKey(paper.title)).join('\n');
+
+  // Each name in the text carries its paper's number, as its row in the list
+  // does; once the answer is in, the papers' cards are set into it.
+  useLayoutEffect(() => {
+    const container = textRef.current;
+    if (!container) return;
+    const keys = order.split('\n');
+    container.querySelectorAll<HTMLElement>('.chat-mention').forEach((mention) => {
+      const n = keys.indexOf(paperKey(mention.dataset.paper ?? '')) + 1;
+      if (n) mention.dataset.n = String(n);
+      mention.dataset.turn = String(index);
+    });
+    if (turn.streaming) return;
+    placeCards(container, papers, actions.layout);
+    markAdds(container, (title) => actions.adds[paperKey(title)]);
+  });
+
+  if (!isClaude) {
     return (
       <div className="chat-turn chat-user">
         {turn.shot ? <span className="chat-shot-tag">Screenshot attached</span> : null}
@@ -117,7 +245,17 @@ function TurnView({ turn, onFind }: { turn: Turn; onFind: (title: string) => voi
       </div>
     );
   }
-  const { text, papers } = splitPapers(turn.content);
+  const show = (key: string) => {
+    const mention = Array.from(textRef.current?.querySelectorAll<HTMLElement>('.chat-mention') ?? []).find(
+      (el) => paperKey(el.dataset.paper ?? '') === key,
+    );
+    if (!mention) return;
+    mention.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    mention.classList.remove('is-flash');
+    void mention.offsetWidth;
+    mention.classList.add('is-flash');
+    window.setTimeout(() => actions.peek(index, key, mention, true), 380);
+  };
   return (
     <div className="chat-turn chat-claude">
       {turn.thinking?.trim() ? (
@@ -127,9 +265,9 @@ function TurnView({ turn, onFind }: { turn: Turn; onFind: (title: string) => voi
         </details>
       ) : null}
       {text ? (
-        <div className="chat-text" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(markdown(text), { ADD_ATTR: ['target'] }) }} />
+        <div key={actions.layout} ref={textRef} className="chat-text" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(markdown(text), { ADD_ATTR: ['target'] }) }} />
       ) : null}
-      {papers.length ? <Recommendations papers={papers} onFind={onFind} /> : null}
+      {papers.length && !turn.streaming ? <ReadingList papers={papers} actions={actions} onShow={show} /> : null}
       {text || papers.length ? null : turn.streaming ? (
         <p className="chat-wait">
           <span className="chat-dot" />
@@ -306,6 +444,88 @@ export default function Assistant({ onClose, screen, reading }: Props) {
     };
     requestAnimationFrame(step);
   };
+
+  // ---- the papers an answer names ------------------------------------------
+  // Pointing at a name shows its paper's card beside it; a press keeps the card
+  // until it is closed. The card lives on the page, not in the window, so the
+  // window's edge never clips it.
+  const { collections, createCollection, addPaper, papers: library } = useStore();
+  const [peek, setPeek] = useState<{ turn: number; key: string; anchor: HTMLElement; pinned: boolean } | null>(null);
+  const peekTimer = useRef(0);
+  const [adds, setAdds] = useState<Record<string, AddState>>({});
+
+  // A paper already in the library is added already.
+  const inLibrary = new Set(library.map((paper) => paperKey(paper.title)));
+  const addState: Record<string, AddState> = { ...Object.fromEntries([...inLibrary].map((key) => [key, 'added' as const])), ...adds };
+
+  const addPapers = async (wanted: Recommendation[]) => {
+    const todo = wanted.filter((paper) => addState[paperKey(paper.title)] !== 'added');
+    if (!todo.length) return;
+    setAdds((current) => ({ ...current, ...Object.fromEntries(todo.map((paper) => [paperKey(paper.title), 'adding' as const])) }));
+    const list = collections.find((collection) => collection.name === 'Reading list') ?? (await createCollection('Reading list'));
+    // Two at a time: every one is a search of every source.
+    const queue = [...todo];
+    const next = async (): Promise<void> => {
+      const paper = queue.shift();
+      if (!paper) return;
+      const key = paperKey(paper.title);
+      let state: AddState = 'missing';
+      try {
+        const found = await resolvePaper(paper.title);
+        if (found) {
+          await addPaper(found, list.id);
+          state = 'added';
+        }
+      } catch {
+        state = 'missing';
+      }
+      setAdds((current) => ({ ...current, [key]: state }));
+      return next();
+    };
+    await Promise.all([next(), next()]);
+  };
+
+  const showPeek = (turn: number, key: string, anchor: HTMLElement, pinned: boolean) => {
+    clearTimeout(peekTimer.current);
+    setPeek({ turn, key, anchor, pinned });
+  };
+  const hidePeekSoon = () => {
+    clearTimeout(peekTimer.current);
+    peekTimer.current = window.setTimeout(() => setPeek((current) => (current?.pinned ? current : null)), 220);
+  };
+
+  const [paperLayout, setPaperLayout] = useState<PaperLayout>(loadLayout);
+  const actions: PaperActions = { layout: paperLayout, find: findPaper, peek: showPeek, adds: addState, add: (wanted) => void addPapers(wanted) };
+
+  useEffect(() => {
+    if (!peek?.pinned) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        setPeek(null);
+      }
+    };
+    const onDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.chat-peek, .chat-mention')) setPeek(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('pointerdown', onDown);
+    return () => {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('pointerdown', onDown);
+    };
+  }, [peek?.pinned]);
+
+  // The name whose card is open reads as pressed.
+  useEffect(() => {
+    const anchor = peek?.anchor;
+    anchor?.setAttribute('aria-expanded', 'true');
+    return () => anchor?.setAttribute('aria-expanded', 'false');
+  }, [peek?.anchor]);
+
+  const peeked = peek ? readingList(s.turns[peek.turn]?.content ?? '').papers : [];
+  const peekIndex = peek ? peeked.findIndex((paper) => paperKey(paper.title) === peek.key) : -1;
 
   const cycleStyle = () => {
     const i = STYLES.findIndex((x) => x.id === win.style);
@@ -544,6 +764,23 @@ export default function Assistant({ onClose, screen, reading }: Props) {
               <span className="chat-set-note">{note}</span>
             </label>
           ))}
+          <div className="chat-set-title">Papers Claude names</div>
+          <p className="chat-set-note">Where a paper's card goes when an answer brings it up.</p>
+          {PAPER_LAYOUTS.map(([value, label, note]) => (
+            <label key={value} className="chat-set-row" title={note}>
+              <input
+                type="radio"
+                name="paper-layout"
+                checked={paperLayout === value}
+                onChange={() => {
+                  setPaperLayout(value);
+                  saveLayout(value);
+                }}
+              />
+              <span>{label}</span>
+              <span className="chat-set-note">{note}</span>
+            </label>
+          ))}
           {s.hasKey ? (
             <>
               <div className="chat-set-title">Account</div>
@@ -612,10 +849,34 @@ export default function Assistant({ onClose, screen, reading }: Props) {
         onScroll={(event) => {
           const el = event.currentTarget;
           following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+          // A kept card follows its name; one that was only pointed at goes.
+          if (peek) setPeek(peek.pinned ? { ...peek } : null);
+        }}
+        onPointerOver={(event) => {
+          if (event.pointerType !== 'mouse') return;
+          const mention = (event.target as HTMLElement).closest<HTMLElement>('.chat-mention');
+          if (!mention || peek?.pinned) return;
+          clearTimeout(peekTimer.current);
+          peekTimer.current = window.setTimeout(
+            () => showPeek(Number(mention.dataset.turn), paperKey(mention.dataset.paper ?? ''), mention, false),
+            180,
+          );
+        }}
+        onPointerOut={(event) => {
+          if (event.pointerType === 'mouse' && (event.target as HTMLElement).closest('.chat-mention')) hidePeekSoon();
         }}
         onClick={(event) => {
-          const find = (event.target as HTMLElement).closest<HTMLElement>('.chat-find');
-          if (find?.dataset.paper) return findPaper(find.dataset.paper);
+          const mention = (event.target as HTMLElement).closest<HTMLElement>('.chat-mention');
+          const cardButton = (event.target as HTMLElement).closest<HTMLElement>('.chat-card-find, .chat-card-add');
+          if (cardButton?.dataset.paper) {
+            const title = cardButton.dataset.paper;
+            return cardButton.classList.contains('chat-card-add') ? void addPapers([{ title }]) : findPaper(title);
+          }
+          if (mention) {
+            const key = paperKey(mention.dataset.paper ?? '');
+            if (peek?.pinned && peek.key === key) return setPeek(null);
+            return showPeek(Number(mention.dataset.turn), key, mention, true);
+          }
           const copy = (event.target as HTMLElement).closest('.chat-copy');
           if (!copy) return;
           const code = copy.parentElement?.querySelector('code')?.textContent ?? '';
@@ -643,7 +904,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           </div>
         ) : null}
         {s.turns.map((turn, index) => (
-          <TurnView key={index} turn={turn} onFind={findPaper} />
+          <TurnView key={index} index={index} turn={turn} actions={actions} />
         ))}
       </div>
 
@@ -727,6 +988,29 @@ export default function Assistant({ onClose, screen, reading }: Props) {
       <span className="vh" aria-live="polite">
         {said}
       </span>
+
+      {peek && peekIndex >= 0 && peek.anchor.isConnected
+        ? createPortal(
+            <div
+              className="chat-peek"
+              role="dialog"
+              aria-label={peeked[peekIndex].title}
+              style={peekPlace(peek.anchor.getBoundingClientRect())}
+              onPointerEnter={() => clearTimeout(peekTimer.current)}
+              onPointerLeave={(event) => {
+                if (event.pointerType === 'mouse') hidePeekSoon();
+              }}
+            >
+              {peek.pinned ? (
+                <button type="button" className="icon-btn chat-peek-close" aria-label="Close" onClick={() => setPeek(null)}>
+                  <CloseIcon size={13} />
+                </button>
+              ) : null}
+              <PaperCard paper={peeked[peekIndex]} n={peekIndex + 1} actions={actions} />
+            </div>,
+            document.body,
+          )
+        : null}
     </section>
   );
 }

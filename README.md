@@ -1614,15 +1614,25 @@ screen before it answers, so there is nothing to paste.
   (The browser's own viewer keeps its page number to itself, so there Claude gets
   the whole text but doesn't know which page you're on.)
 - **Papers to read next**: when an answer names another paper worth reading —
-  prior work, background, an entry in the reference list — a small **Search**
-  button follows the name, right there in the text. Pressing it searches Discover
-  for that paper and opens its result, where it can be added, read or downloaded,
-  and the window steps left so the pane is not under it. The answer then ends
-  with a card for each paper, drawn the way Discover draws a result — title,
-  authors, year and what the paper contributes — which searches the same way.
-  Claude is asked to write each name as `[Name et al. 2021](paper:The full title)`
-  and to close with a `papers` block, one JSON line per paper; the window draws
-  the buttons and the cards, never the syntax.
+  prior work, background, an entry in the reference list — the name is
+  underlined and numbered, and the paper gets a compact card: who and when, the
+  title, what it is for, **Find** and **+**. Where the card goes is set under ⚙:
+  - **In place** (the default): a list item about one paper *becomes* its card,
+    keeping Claude's words about it; several papers in one line keep the line,
+    with their cards under it.
+  - **After each section**: the answer reads as written, and each section is
+    followed by the cards of the papers it named, two to a row when there is room.
+  - **Only on the name**: no cards in the text; pointing at a name shows its
+    card beside it, and a press keeps it there until Escape.
+
+  **Find** searches Discover for the paper and opens its result, where it can be
+  added, read or downloaded; the window steps left so the pane is not under it.
+  **+** finds the paper by its title in OpenAlex, Semantic Scholar, Crossref and
+  arXiv and puts it in the Reading list. Under the answer, a folded list of every
+  paper it named has **Add all to Reading list**, and says which ones no index
+  had by that title. Claude is asked to write each name as
+  `[Name et al. 2021](paper:The full title)` and to close with a `papers` block,
+  one JSON line per paper; the window draws the cards, never the syntax.
 - **Screenshot**: the 📷 beside the box attaches a screenshot of the tab to the
   next question. The browser asks every time, because a page can't capture the
   screen by itself. One frame is taken, then the capture stops.
@@ -1823,7 +1833,7 @@ npm run test:unit              # query building, merging, citations, the Git mir
 npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
 node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
-node scripts/recommend-smoke.mjs  # papers named in an answer: Search buttons and cards
+node scripts/recommend-smoke.mjs  # papers named in an answer: cards, Find, Add, the list
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 node scripts/hover-smoke.mjs    # the cards over an author's name and a citation
 node scripts/pdf-book-smoke.mjs # a Scholar byline read right, the venue's card, the PDF as a book
