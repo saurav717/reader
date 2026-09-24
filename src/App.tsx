@@ -8,6 +8,7 @@ import { setQuote } from './lib/assistant';
 import { followLight } from './lib/glassLight';
 import { clearSelection, currentSelection, paperText, pdfPageImages, pdfPagesInView, pdfPageTexts, trackSelection, visiblePassage } from './lib/screen';
 import Assistant from './components/Assistant';
+import Explain from './components/Explain';
 import CollectionView from './components/CollectionView';
 import JunkView from './components/JunkView';
 import CommandPalette from './components/CommandPalette';
@@ -24,6 +25,7 @@ const VIEW_KEY = 'reader.view';
 const LAYOUT_KEY = 'reader.layout';
 const ASSISTANT_KEY = 'reader.assistant.open';
 const ZEN_KEY = 'reader.zen';
+const EXPLAIN_KEY = 'reader.explain.open';
 
 /** Which edge's panes are out while in zen mode: the top one is the reader's top bar. */
 type Peek = 'left' | 'right' | 'top' | null;
@@ -104,6 +106,12 @@ export default function App() {
   // panes out over the page, with a haze cast from them across it.
   const [zen, setZen] = useState(() => localStorage.getItem(ZEN_KEY) === 'true');
   const [peek, setPeek] = useState<Peek>(null);
+  // Explain: the whole paper taught by Claude, over the reader the way zen mode is.
+  const [explainOpen, setExplainOpen] = useState(() => localStorage.getItem(EXPLAIN_KEY) === 'true');
+  const toggleExplain = useCallback(() => setExplainOpen((current) => !current), []);
+  useEffect(() => {
+    localStorage.setItem(EXPLAIN_KEY, String(explainOpen));
+  }, [explainOpen]);
   // The side the haze is drawn from outlives the peek, so it fades out in place.
   const [hazeSide, setHazeSide] = useState<Exclude<Peek, null>>('left');
   const peekTimer = useRef<number>();
@@ -205,6 +213,13 @@ export default function App() {
         toggleZen();
         return;
       }
+      // E, the same way, opens and closes the explanation of the paper.
+      if (readingNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'e' && !isTyping(event.target)) {
+        if (document.querySelector('.scrim, .sheet, .palette')) return;
+        event.preventDefault();
+        toggleExplain();
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         setPaletteOpen((current) => !current);
@@ -220,7 +235,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toggleZen, readingNow]);
+  }, [toggleZen, toggleExplain, readingNow]);
 
   const openPaper = useCallback((id: string) => {
     setView({ kind: 'paper', id });
@@ -391,6 +406,7 @@ export default function App() {
   // Discover rather than showing an empty rail.
   const dockPane: Dock = dock === 'notes' && !reading ? 'discover' : dock;
   const inZen = zenOn && !showWelcome;
+  const explained = reading ? papers.find((paper) => paper.id === reading) : undefined;
   // In zen mode the right edge always has something to bring out: the dock as
   // it was left, or the highlights if it was shut.
   const shownDock: Dock = inZen ? dockPane ?? 'notes' : dockPane;
@@ -522,6 +538,8 @@ export default function App() {
           onToggleSidebar={() => setLibraryOpen(!libraryOpen)}
           zen={inZen}
           onToggleZen={toggleZen}
+          explaining={explainOpen}
+          onToggleExplain={toggleExplain}
           onSelectHighlight={setSelectedHighlightId}
           onOrphans={onOrphans}
         />
@@ -588,6 +606,17 @@ export default function App() {
           onClose={() => setPaletteOpen(false)}
           onOpenPaper={openPaper}
           onOpenSettings={() => setSettingsOpen(true)}
+        />
+      ) : null}
+
+      {explainOpen && explained && !showWelcome ? (
+        <Explain
+          paperId={explained.id}
+          title={explained.title}
+          authors={explained.authors}
+          published={explained.published}
+          screen={readScreen}
+          onClose={() => setExplainOpen(false)}
         />
       ) : null}
 

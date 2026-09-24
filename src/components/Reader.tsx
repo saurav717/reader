@@ -57,6 +57,7 @@ import {
   ScrollPageIcon,
   SparkleIcon,
   ZenIcon,
+  ExplainIcon,
 } from './icons';
 
 interface Props {
@@ -71,6 +72,8 @@ interface Props {
   /** Zen mode: the side panes and the top bar are hidden and come out from the edges on hover. */
   zen: boolean;
   onToggleZen: () => void;
+  explaining?: boolean;
+  onToggleExplain?: () => void;
   onSelectHighlight: (id: string | null) => void;
   onOrphans: (ids: string[]) => void;
 }
@@ -106,6 +109,8 @@ export default function Reader({
   onToggleSidebar,
   zen,
   onToggleZen,
+  explaining,
+  onToggleExplain,
   onSelectHighlight,
   onOrphans,
 }: Props) {
@@ -1371,6 +1376,17 @@ export default function Reader({
               onClick={() => chooseLayout(layout === 'book' ? 'scroll' : 'book')}
             >
               {layout === 'book' ? <ScrollPageIcon size={17} /> : <OpenBookIcon size={18} />}
+            </button>
+          ) : null}
+          {onToggleExplain ? (
+            <button
+              type="button"
+              className="btn sm explain-toggle"
+              aria-pressed={Boolean(explaining)}
+              title="The whole paper explained by Claude — figures, runnable code and what has changed since (E)"
+              onClick={onToggleExplain}
+            >
+              <ExplainIcon size={15} /> Explain
             </button>
           ) : null}
           <button

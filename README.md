@@ -26,7 +26,8 @@ counts and best-known papers — where the paper was published, and when and
 where the conference met, or what was cited — see [Who wrote it, and what it cites](#who-wrote-it-and-what-it-cites).
 
 Press **⌘\\** and a Claude window floats over the paper — see
-[Ask Claude](#ask-claude).
+[Ask Claude](#ask-claude). Press **E** and Claude explains the whole paper, with
+figures, runnable code and what has changed since — see [Explain](#explain).
 
 ## Running it
 
@@ -1761,6 +1762,98 @@ reflows as they come and go. In the glass theme they take the tint of the cards
 that float over the paper, since what is behind them is the page rather than
 the wallpaper. The styles are the *zen* section at the end of
 `src/styles.css`; the edges and the timing are in `src/App.tsx`.
+
+## Explain
+
+With a paper open, press **E** (or **Explain** in the top bar) and Claude
+writes the whole paper out as a lesson. It covers the reader the way zen mode
+does, but the text is not centred. The sections are listed down the left, the
+explanation follows them, and each figure, code cell and caveat sits beside
+the paragraph it belongs to.
+
+![the explanation of Attention Is All You Need: the outline on the left, the prose, and beside it a diagram and a code cell with its expected output](docs/explain.png)
+
+What it writes, in this order:
+
+- **At a glance**: the claim, the mechanism, the result and why it matters,
+  in a few bullets.
+- **How it works, and why it works better**: a section per key idea, with the
+  intuition before the formalism.
+- **Figures**: small SVG diagrams, drawn by Claude. They colour themselves only
+  with a few classes the page themes (`f-accent`, `f-blue`, `s-muted`, …), so
+  they follow light and dark like everything else. DOMPurify cleans them first.
+- **Code cells**: short, seeded numpy you can run, numbered `In [1]`,
+  `In [2]`, … Each one shows the output Claude expects, labelled as not yet
+  run. **Run in Colab** is in place but switched off until the Colab
+  connection is built. **Notebook ↓** in the bar downloads every cell and its
+  explanation as an `.ipynb`, which Colab opens under *File → Upload notebook*.
+- **Caveats**: a paper does not update itself, so each claim that has aged is
+  flagged where it is made: *Still holds*, *Refined since*, *Superseded*,
+  *Disputed* or *Disproved*. The outline counts them under **How it has
+  aged**, and a closing **Since then** section puts them all in one table,
+  with what to use today. Claude is told to say when it is unsure whether a
+  later result exists, and never to invent a citation.
+
+![a caveat beside the section on positional encoding: sinusoidal encodings, superseded by RoPE and ALiBi](docs/explain-caveat.png)
+
+Three layouts, switched in the bar and remembered:
+
+- **Margin** (the default): the prose in a reading column, and its figures,
+  cells and caveats beside it in a wide margin, the way Tufte sets sidenotes.
+- **Notebook**: one column, text and cells in turn, the way a Colab notebook
+  reads.
+- **Beside the paper**: the explanation over the right of the window, with the
+  paper still readable on the left.
+
+![Beside the paper: the library and the paper on the left, the explanation on the right](docs/explain-beside.png)
+
+### Asking about it, or changing it
+
+The bar across the top of the page takes a question or an instruction:
+*why divide by √d?*, *explain this more simply*, *use PyTorch instead of
+numpy*, *what has changed in the last two years?* Claude does not rewrite
+the page to answer it. It changes only the sections it has to, rewriting one
+in place or adding a new section after the one the question is about, and
+leaves the rest alone. The section being rewritten is marked **Revising**
+and fills in on screen as the reply streams. When the reply is done, a line
+under the bar says what changed, with **Undo**. The last twelve versions are
+kept.
+
+![a question about a selected passage: the section and the passage as chips in the bar](docs/explain-ask.png)
+
+- **What it is about.** **Ask or adjust** on a section's heading puts that
+  section in the bar as a chip. Selecting a passage on the page adds the
+  passage too. Otherwise the request is about the whole page.
+- **Suggestions.** An empty bar offers a few starting points, for the whole
+  page or, with a chip, for that section.
+- **/** jumps to the bar; **Esc** in it clears the chips, then leaves it.
+- A changed section keeps a **Revised at your request** mark.
+
+Under the hood, the page as written goes back to Claude as its own earlier
+turn, behind the same cached system prompt, so the paper is not paid for
+again. Claude answers with `<<<replace: Title>>>`, `<<<insert after: Title>>>`
+and `<<<delete: Title>>>` operations and a closing `<<<note>>>`, and
+`applyEdits` in `src/lib/explain.ts` applies them, including to a reply that
+is only half written.
+
+![the section being rewritten, marked Revising, while the rest of the page stays](docs/explain-revising.png)
+
+### The key and the cost
+
+It uses the same API key and models as Ask Claude. The paper's full text goes
+in the system prompt behind a cache breakpoint. The explanation is written
+once, streamed onto the page as it arrives, and kept in IndexedDB for that
+paper; **Rewrite** asks again, and can be undone. On a phone it is one column.
+
+Claude writes plain Markdown, plus four fenced blocks the page draws itself:
+`figure`, `python`, `output` and `caveat verdict="…"`. The prompt and the
+parser are in `src/lib/explain.ts`, the page is `src/components/Explain.tsx`,
+and the styles are the *Explain* section of `src/styles.css`.
+`scripts/explain-smoke.mjs` stands in for `api.anthropic.com`. It streams
+`scripts/fixtures/explain-attention.md` back through the real SDK, then two
+requests from the bar (`explain-revise-*.md`), one held halfway so the
+rewrite can be photographed, and it photographs each layout.
+`scripts/explain.test.mjs` tests the parser and `applyEdits`.
 
 ## Layout
 

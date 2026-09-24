@@ -320,3 +320,13 @@ export const ZenIcon = (props: IconProps) => (
     <path d="M9 12h6" />
   </Icon>
 );
+
+/** An open book with a spark over it: the paper, explained. */
+export const ExplainIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M3.5 6.5c2.8-.9 5.6-.6 8.5 1.2v11.5c-2.9-1.8-5.7-2.1-8.5-1.2V6.5Z" />
+    <path d="M12 7.7c1-.6 1.9-1 2.9-1.2" />
+    <path d="M12 19.2c2.9-1.8 5.7-2.1 8.5-1.2v-5" />
+    <path d="M18.5 2.8c.3 1.8 1.2 2.7 3 3-1.8.3-2.7 1.2-3 3-.3-1.8-1.2-2.7-3-3 1.8-.3 2.7-1.2 3-3Z" />
+  </Icon>
+);

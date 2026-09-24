@@ -530,17 +530,17 @@ export function clearHistory() {
 // The SDK, loaded on demand
 // ---------------------------------------------------------------------------
 
-type SDK = typeof AnthropicClient;
+export type SDK = typeof AnthropicClient;
 let sdkModule: SDK | null = null;
 let client: AnthropicClient | null = null;
 let stream: ReturnType<AnthropicClient['messages']['stream']> | null = null;
 
-async function sdk(): Promise<SDK> {
+export async function sdk(): Promise<SDK> {
   if (!sdkModule) sdkModule = (await import('@anthropic-ai/sdk')).default;
   return sdkModule;
 }
 
-async function anthropic(): Promise<AnthropicClient> {
+export async function anthropic(): Promise<AnthropicClient> {
   if (client) return client;
   const SDK = await sdk();
   client = new SDK({
@@ -678,7 +678,7 @@ export function withQuote(quote: string, text: string): string {
 // ---------------------------------------------------------------------------
 
 /** What a failure should say to someone who is not holding the SDK docs. */
-function explain(err: unknown, SDK: SDK | null): string {
+export function explainError(err: unknown, SDK: SDK | null): string {
   if (SDK && err instanceof SDK.AuthenticationError) {
     return 'Anthropic rejected that API key. Check it in the console, then enter it again under ⚙.';
   }
@@ -747,7 +747,7 @@ export async function send(text: string, screenOrPending: Screen | Promise<Scree
     if (final.stop_reason === 'max_tokens') reply.truncated = true;
     if (final.stop_reason === 'refusal') reply.error = 'Claude declined to answer that one.';
   } catch (e) {
-    reply.error = explain(e, SDK);
+    reply.error = explainError(e, SDK);
     // An abort with nothing streamed yet is a cancelled turn, not an answer.
     if (!reply.content && reply.error === 'Stopped.') {
       set({ turns: state.turns.filter((t) => t !== reply) });
