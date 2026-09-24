@@ -265,6 +265,44 @@ describe('papers named in an answer', () => {
   });
 });
 
+describe('recommended papers', () => {
+  const answer = [
+    'Read these first.',
+    '',
+    '```papers',
+    '{"title": "Stacked generalization", "authors": "Wolpert", "year": 1992, "why": "the basis of late fusion"}',
+    '{"title": "Stacked regressions", "authors": ["Leo Breiman"]}',
+    'not json',
+    '{"authors": "no title"}',
+    '{"title": "stacked generalization"}',
+    '```',
+  ].join('\n');
+
+  it('takes the block out of the prose and reads a paper from each line', () => {
+    const { text, papers } = assistant.splitPapers(answer);
+    assert.equal(text, 'Read these first.');
+    assert.deepEqual(papers, [
+      { title: 'Stacked generalization', authors: 'Wolpert', year: '1992', why: 'the basis of late fusion' },
+      { title: 'Stacked regressions', authors: 'Leo Breiman', year: undefined, why: undefined },
+    ]);
+  });
+
+  it('hides a block still streaming in, and keeps the lines that are whole', () => {
+    const { text, papers } = assistant.splitPapers('Two to read.\n```papers\n{"title": "Stacked regressions"}\n{"title": "Stack');
+    assert.equal(text, 'Two to read.');
+    assert.deepEqual(papers.map((paper) => paper.title), ['Stacked regressions']);
+  });
+
+  it('leaves an answer with no block, and other code, as it is', () => {
+    const plain = 'Some code:\n```js\nconst a = 1;\n```';
+    assert.deepEqual(assistant.splitPapers(plain), { text: plain, papers: [] });
+  });
+
+  it('is asked for in the system prompt, as well as the links', () => {
+    assert.match(assistant.SYSTEM, /```papers/);
+  });
+});
+
 describe('the window beside Discover', () => {
   const view = { width: 1440, height: 900 };
   const rect = win.defaultRect(view);

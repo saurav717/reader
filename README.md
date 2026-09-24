@@ -1617,9 +1617,12 @@ screen before it answers, so there is nothing to paste.
   prior work, background, an entry in the reference list — a small **Search**
   button follows the name, right there in the text. Pressing it searches Discover
   for that paper and opens its result, where it can be added, read or downloaded,
-  and the window steps left so the pane is not under it. Claude is asked to write
-  each such name as `[Name et al. 2021](paper:The full title)`; the window draws
-  the name and the button, never the syntax.
+  and the window steps left so the pane is not under it. The answer then ends
+  with a card for each paper, drawn the way Discover draws a result — title,
+  authors, year and what the paper contributes — which searches the same way.
+  Claude is asked to write each name as `[Name et al. 2021](paper:The full title)`
+  and to close with a `papers` block, one JSON line per paper; the window draws
+  the buttons and the cards, never the syntax.
 - **Screenshot**: the 📷 beside the box attaches a screenshot of the tab to the
   next question. The browser asks every time, because a page can't capture the
   screen by itself. One frame is taken, then the capture stops.
@@ -1820,7 +1823,7 @@ npm run test:unit              # query building, merging, citations, the Git mir
 npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
 node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
-node scripts/recommend-smoke.mjs  # papers named in an answer, with buttons that search Discover
+node scripts/recommend-smoke.mjs  # papers named in an answer: Search buttons and cards
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 node scripts/hover-smoke.mjs    # the cards over an author's name and a citation
 node scripts/pdf-book-smoke.mjs # a Scholar byline read right, the venue's card, the PDF as a book

@@ -1,7 +1,7 @@
 // Papers Claude names in an answer, in a real browser with Anthropic's API
 // stubbed: each `[name](paper:title)` is drawn as the name with a Search button
-// right after it, and a press searches for the title in Discover and opens its
-// result there.
+// right after it, the closing `papers` block as result cards under the answer,
+// and a press on either searches for the title in Discover and opens its result.
 // Needs a server on BASE (`npm run build && npm start`). Writes screenshots to .smoke/.
 import { chromium } from 'playwright';
 
@@ -23,7 +23,8 @@ const ATOM = `<?xml version="1.0" encoding="UTF-8"?>
 
 const ANSWER = [
   'Based on what this paper builds on:\n\n- [Wolpert 1992](paper:Stacked generalization) — the basis of late fusion.\n',
-  '- [Breiman 1996](paper:Stacked regressions) — stacking for regression.\n',
+  '- [Breiman 1996](paper:Stacked regressions) — stacking for regression.\n\n```papers\n{"title": "Stacked generalization", "authors": "Wolpert", "year": 1992, "why": "The basis of Late Fusion."}\n',
+  '{"title": "Stacked regressions", "authors": "Breiman", "year": 1996, "why": "Stacking for regression."}\n```',
 ]
 const sse = (type, data) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
 const STREAM =
@@ -90,8 +91,20 @@ check('each named paper gets a Search button', (await buttons.count()) === 2);
 check('right after its name, in the text', await page.locator('.chat-claude li').first().evaluate((li) => /^Wolpert 1992\s*Search — the basis/.test(li.textContent.trim())));
 check('carrying the title to search for', (await buttons.nth(0).getAttribute('data-paper')) === 'Stacked generalization');
 check('the link syntax is not shown', !/paper:|\]\(/.test(await page.locator('.chat-claude .chat-text').textContent()));
+const cards = page.locator('.chat-paper');
+check('and a card for each paper follows the answer', (await cards.count()) === 2);
+check('with its title, authors, year and contribution', await cards.nth(0).evaluate((card) => ['Stacked generalization', 'Wolpert', '1992', 'The basis of Late Fusion.'].every((part) => card.textContent.includes(part))));
+check('the block itself is not shown as code', !(await page.locator('.chat-claude pre').count()) && !/```|"title"/.test(await page.locator('.chat-claude .chat-text').textContent()));
 await page.screenshot({ path: `${OUT}/recommend-buttons.png` });
 
+await cards.nth(1).click();
+await page.getByLabel('Search papers').waitFor();
+let asked = '';
+for (let tries = 0; tries < 50 && asked !== 'Stacked regressions'; tries += 1) {
+  asked = await page.getByLabel('Search papers').inputValue();
+  if (asked !== 'Stacked regressions') await page.waitForTimeout(100);
+}
+check('a card searches Discover too', asked === 'Stacked regressions', asked);
 await buttons.nth(0).click();
 await page.waitForSelector('.discover-panel article.result.is-open', { timeout: 15000 }).catch(async () => { await page.screenshot({ path: `${OUT}/recommend-fail.png` }); });
 check('the window steps out of the way of Discover', !(await covers()));
