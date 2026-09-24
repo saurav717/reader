@@ -8,6 +8,9 @@
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+const FIND_ICON =
+  '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M16.5 16.5 21 21"></path></svg>';
+
 /** Inline spans. Code spans are lifted out first so nothing inside them is formatted. */
 export function inline(src: string): string {
   const codes: string[] = [];
@@ -19,6 +22,14 @@ export function inline(src: string): string {
   s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, text: string, url: string) =>
     `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`,
   );
+  // A paper named in an answer, `[Name et al. 2021](paper:Its full title)`: the
+  // name as written, then a button that searches for the title in Discover.
+  s = s.replace(/\[([^\]\n]+)\]\(paper:\s*([^)\n]+)\)/g, (_, text: string, title: string) => {
+    const wanted = title.trim();
+    codes.push(`<button type="button" class="chat-find" data-paper="${wanted}" title="Search Discover for “${wanted}”" aria-label="Search Discover for ${wanted}">${FIND_ICON}Search</button>`);
+    // Set aside like a code span, so the title in its attributes is never formatted.
+    return `${text}\u0000${codes.length - 1}\u0000`;
+  });
   s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
   s = s.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>');

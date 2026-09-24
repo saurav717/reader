@@ -243,41 +243,25 @@ describe('the floating window', () => {
   });
 });
 
-describe('recommended papers', () => {
-  const answer = [
-    'Read these first.',
-    '',
-    '```papers',
-    '{"title": "Stacked generalization", "authors": "Wolpert", "year": 1992, "why": "the basis of late fusion"}',
-    '{"title": "Stacked regressions", "authors": ["Leo Breiman"]}',
-    'not json',
-    '{"authors": "no title"}',
-    '{"title": "stacked generalization"}',
-    '```',
-  ].join('\n');
-
-  it('takes the block out of the prose and reads a paper from each line', () => {
-    const { text, papers } = assistant.splitPapers(answer);
-    assert.equal(text, 'Read these first.');
-    assert.deepEqual(papers, [
-      { title: 'Stacked generalization', authors: 'Wolpert', year: '1992', why: 'the basis of late fusion' },
-      { title: 'Stacked regressions', authors: 'Leo Breiman', year: undefined, why: undefined },
-    ]);
+describe('papers named in an answer', () => {
+  it('draws the name, then a button that carries the title', () => {
+    const html = markdown('Read [Wolpert 1992](paper:Stacked generalization) first.');
+    assert.match(html, /Read Wolpert 1992<button type="button" class="chat-find" data-paper="Stacked generalization"[^>]*>.*Search<\/button> first\./);
   });
 
-  it('hides a block still streaming in, and keeps the lines that are whole', () => {
-    const { text, papers } = assistant.splitPapers('Two to read.\n```papers\n{"title": "Stacked regressions"}\n{"title": "Stack');
-    assert.equal(text, 'Two to read.');
-    assert.deepEqual(papers.map((paper) => paper.title), ['Stacked regressions']);
+  it('keeps the title out of reach of bold and italics, and escaped', () => {
+    const html = markdown('See [them](paper:A _new_ "look" at **stacking**).');
+    assert.match(html, /data-paper="A _new_ &quot;look&quot; at \*\*stacking\*\*"/);
+    assert.doesNotMatch(html, /<em>|<strong>/);
   });
 
-  it('leaves an answer with no block, and other code, as it is', () => {
-    const plain = 'Some code:\n```js\nconst a = 1;\n```';
-    assert.deepEqual(assistant.splitPapers(plain), { text: plain, papers: [] });
+  it('leaves ordinary links and half-written ones alone', () => {
+    assert.match(markdown('[site](https://example.org)'), /<a href="https:\/\/example.org"/);
+    assert.doesNotMatch(markdown('[Wolpert](paper:Stacked gen'), /chat-find/);
   });
 
   it('is asked for in the system prompt', () => {
-    assert.match(assistant.SYSTEM, /```papers/);
+    assert.match(assistant.SYSTEM, /\]\(paper:/);
   });
 });
 

@@ -2405,11 +2405,14 @@ body.win-moving .assistant-win { transition: none; }
   .zen-haze { transition: none; }
 }
 
-/* Papers an answer recommends, drawn as Discover's results are; a press
-   searches for the paper there. */
-.chat-papers { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-.chat-paper { font: inherit; color: inherit; background: rgb(var(--win-edge) / 0.04); border-color: var(--border); }
-.chat-paper:hover, .chat-paper:focus-visible { background: var(--surface); box-shadow: var(--shadow-sm); }
-.chat-paper .authors { margin-bottom: 6px; }
-.chat-paper-find { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); }
-.chat-paper-why { margin: 7px 0 0; font-size: 12px; line-height: 1.5; color: var(--ink-2); }
+/* The button beside a paper named in an answer: it searches for the paper in
+   Discover, where it can be added and read. */
+.chat-find {
+  display: inline-flex; align-items: center; gap: 3px;
+  margin: 0 2px 0 5px; padding: 1px 7px; vertical-align: 1px;
+  font: 500 10.5px/1.5 var(--sans, inherit); color: var(--accent);
+  background: var(--accent-soft); border: 1px solid transparent; border-radius: 999px;
+  cursor: pointer; white-space: nowrap;
+}
+.chat-find:hover { border-color: var(--accent); }
+.chat-find:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

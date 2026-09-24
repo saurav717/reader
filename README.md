@@ -1613,13 +1613,13 @@ screen before it answers, so there is nothing to paste.
   view also go along as images, so Claude sees the figures and equations you see.
   (The browser's own viewer keeps its page number to itself, so there Claude gets
   the whole text but doesn't know which page you're on.)
-- **Papers to read next**: when an answer recommends other papers — prior work,
-  background, the references worth reading first — each one comes as a card under
-  the answer, drawn the way Discover draws a result. Pressing a card searches
-  Discover for that paper and opens its result, where it can be added, read or
-  downloaded, and the window steps left so the pane is not under it. Claude is
-  asked to end such an answer with a `papers` block, one JSON line per paper;
-  the window reads it off the answer and never shows it as text.
+- **Papers to read next**: when an answer names another paper worth reading —
+  prior work, background, an entry in the reference list — a small **Search**
+  button follows the name, right there in the text. Pressing it searches Discover
+  for that paper and opens its result, where it can be added, read or downloaded,
+  and the window steps left so the pane is not under it. Claude is asked to write
+  each such name as `[Name et al. 2021](paper:The full title)`; the window draws
+  the name and the button, never the syntax.
 - **Screenshot**: the 📷 beside the box attaches a screenshot of the tab to the
   next question. The browser asks every time, because a page can't capture the
   screen by itself. One frame is taken, then the capture stops.
@@ -1820,7 +1820,7 @@ npm run test:unit              # query building, merging, citations, the Git mir
 npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
 node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
-node scripts/recommend-smoke.mjs  # papers Claude recommends, as cards that search Discover
+node scripts/recommend-smoke.mjs  # papers named in an answer, with buttons that search Discover
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 node scripts/hover-smoke.mjs    # the cards over an author's name and a citation
 node scripts/pdf-book-smoke.mjs # a Scholar byline read right, the venue's card, the PDF as a book

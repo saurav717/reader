@@ -83,65 +83,14 @@ What you can see:
 - A switch under ⚙ can withhold any part of that block. If something you need is genuinely
   not there, say which part is missing.
 
-Recommending papers:
-- Whenever your answer suggests other papers to read (prior work, background, follow-ups,
-  papers from the reference list), end it with a fenced block tagged \`papers\` listing each
-  one as a line of JSON, in the order you recommend them:
-  \`\`\`papers
-  {"title": "Full title of the paper", "authors": "Surname et al.", "year": 2021, "why": "one short reason"}
-  \`\`\`
-  The app turns each line into a card that searches for the paper, so give the full, exact
-  title (not a citation number) and leave out a field you are not sure of. Keep the prose
-  answer as it is; the block comes last and nothing follows it.`;
-
-// ---------------------------------------------------------------------------
-// Papers an answer recommends
-// ---------------------------------------------------------------------------
-
-/** One paper Claude suggests reading, as it listed it in the answer's `papers` block. */
-export interface Recommendation {
-  title: string;
-  authors?: string;
-  year?: string;
-  why?: string;
-}
-
-const PAPERS_FENCE = /(?:^|\n)[ \t]*```papers[ \t]*\n([\s\S]*?)(?:\n[ \t]*```[ \t]*(?=\n|$)|$)/;
-
-const field = (value: unknown): string | undefined => {
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-  if (Array.isArray(value)) value = value.filter((item) => typeof item === 'string').join(', ');
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
-};
-
-/**
- * The answer's prose, and the papers its closing `papers` block lists — one
- * JSON object a line. The block is taken out of the prose even while it is
- * still streaming in, so its raw lines never flash up as code; a line that
- * does not parse (half-written, or not JSON) is skipped.
- */
-export function splitPapers(content: string): { text: string; papers: Recommendation[] } {
-  const match = PAPERS_FENCE.exec(content);
-  if (!match) return { text: content, papers: [] };
-  const text = (content.slice(0, match.index) + content.slice(match.index + match[0].length)).trim();
-  const papers: Recommendation[] = [];
-  const seen = new Set<string>();
-  for (const line of match[1].split('\n')) {
-    const raw = line.trim().replace(/,$/, '');
-    if (!raw.startsWith('{')) continue;
-    let parsed: Record<string, unknown>;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      continue;
-    }
-    const title = field(parsed?.title);
-    if (!title || seen.has(title.toLowerCase())) continue;
-    seen.add(title.toLowerCase());
-    papers.push({ title, authors: field(parsed.authors), year: field(parsed.year), why: field(parsed.why) });
-  }
-  return { text, papers };
-}
+Naming papers to read:
+- Whenever you name another paper the reader might read (prior work, background, a
+  follow-up, an entry in the reference list), write the name as a link of this form:
+  [Kristinsson et al. 2021](paper:Machine learning-based multimodal prediction of language outcomes in chronic aphasia)
+  The text in brackets is what the reader sees; after \`paper:\` goes the paper's full, exact
+  title, which the app searches for when the reader presses the button it draws beside the
+  name. Use the title, never a citation number, and leave out any parentheses in it. Only
+  link a paper whose title you know; name the rest in plain text.`;
 
 // ---------------------------------------------------------------------------
 // What the screen holds

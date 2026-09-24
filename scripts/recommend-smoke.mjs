@@ -1,6 +1,7 @@
-// Papers Claude recommends, in a real browser with Anthropic's API stubbed: the
-// answer's `papers` block is drawn as result cards under the prose, and a press
-// on one searches for that paper in Discover and opens its result there.
+// Papers Claude names in an answer, in a real browser with Anthropic's API
+// stubbed: each `[name](paper:title)` is drawn as the name with a Search button
+// right after it, and a press searches for the title in Discover and opens its
+// result there.
 // Needs a server on BASE (`npm run build && npm start`). Writes screenshots to .smoke/.
 import { chromium } from 'playwright';
 
@@ -21,10 +22,9 @@ const ATOM = `<?xml version="1.0" encoding="UTF-8"?>
 </feed>`;
 
 const ANSWER = [
-  'Based on the reference list, a short path:\n\n- **Wolpert 1992** — the basis of late fusion.\n',
-  '- **Breiman 1996** — stacked regressions.\n\n```papers\n{"title": "Stacked generalization", "authors": "Wolpert", "year": 1992, "why": "The basis of Late Fusion."}\n',
-  '{"title": "Stacked regressions", "authors": "Breiman", "year": 1996, "why": "Stacking for regression."}\n```',
-];
+  'Based on what this paper builds on:\n\n- [Wolpert 1992](paper:Stacked generalization) — the basis of late fusion.\n',
+  '- [Breiman 1996](paper:Stacked regressions) — stacking for regression.\n',
+]
 const sse = (type, data) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
 const STREAM =
   sse('message_start', {
@@ -82,17 +82,17 @@ await page.getByLabel('Anthropic API key').fill('sk-ant-test-key');
 await page.getByRole('button', { name: 'Save', exact: true }).click();
 await page.getByRole('textbox', { name: 'Ask Claude' }).fill('What other papers should I read to understand this one?');
 await page.keyboard.press('Enter');
-await page.waitForSelector('.chat-paper');
+await page.waitForSelector('.chat-find');
 await page.waitForFunction(() => !document.querySelector('.chat-wait'));
 
-const cards = page.locator('.chat-paper');
-check('each recommended paper is a card', (await cards.count()) === 2);
-check('with its title, authors and year', /Stacked generalization/.test(await cards.nth(0).textContent()) && /Wolpert/.test(await cards.nth(0).textContent()) && /1992/.test(await cards.nth(0).textContent()));
-check('the block itself is not shown as code', !(await page.locator('.chat-claude pre').count()) && !/```|"title"/.test(await page.locator('.chat-claude .chat-text').textContent()));
-check('the prose stays', /a short path/.test(await page.locator('.chat-claude .chat-text').textContent()));
-await page.screenshot({ path: `${OUT}/recommend-cards.png` });
+const buttons = page.locator('.chat-claude .chat-find');
+check('each named paper gets a Search button', (await buttons.count()) === 2);
+check('right after its name, in the text', await page.locator('.chat-claude li').first().evaluate((li) => /^Wolpert 1992\s*Search — the basis/.test(li.textContent.trim())));
+check('carrying the title to search for', (await buttons.nth(0).getAttribute('data-paper')) === 'Stacked generalization');
+check('the link syntax is not shown', !/paper:|\]\(/.test(await page.locator('.chat-claude .chat-text').textContent()));
+await page.screenshot({ path: `${OUT}/recommend-buttons.png` });
 
-await cards.nth(0).click();
+await buttons.nth(0).click();
 await page.waitForSelector('.discover-panel article.result.is-open', { timeout: 15000 }).catch(async () => { await page.screenshot({ path: `${OUT}/recommend-fail.png` }); });
 check('the window steps out of the way of Discover', !(await covers()));
 check('a press searches Discover for the title', (await page.getByLabel('Search papers').inputValue()) === 'Stacked generalization');

@@ -16,11 +16,10 @@ import {
   setModel,
   setQuote,
   setShot,
-  splitPapers,
   stop,
   subscribe,
 } from '../lib/assistant';
-import type { Recommendation, Screen, Turn } from '../lib/assistant';
+import type { Screen, Turn } from '../lib/assistant';
 import {
   RUN_GAP,
   SNAP_STEPS,
@@ -41,7 +40,7 @@ import {
 } from '../lib/floatWindow';
 import type { Rect, Side } from '../lib/floatWindow';
 import { markdown } from '../lib/markdown';
-import { CameraIcon, CloseIcon, SearchIcon, SparkleIcon } from './icons';
+import { CameraIcon, CloseIcon, SparkleIcon } from './icons';
 import { discover } from './HoverCard';
 import { canCapture, captureTab } from '../lib/screen';
 
@@ -71,40 +70,7 @@ function ago(ts: number): string {
   return `${whole} ${label}${whole === 1 ? '' : 's'} ago`;
 }
 
-/**
- * The papers an answer recommends, drawn as Discover draws its results. A
- * press hands the title to Discover, which searches every source for it and
- * opens the matching result — where it can be added, downloaded and read.
- */
-function Recommendations({ papers, onFind }: { papers: Recommendation[]; onFind: (title: string) => void }) {
-  return (
-    <div className="chat-papers" role="list" aria-label="Recommended papers">
-      {papers.map((paper) => (
-        <button
-          key={paper.title}
-          type="button"
-          role="listitem"
-          className="result chat-paper"
-          title="Find this paper in Discover"
-          onClick={() => onFind(paper.title)}
-        >
-          <h3>{paper.title}</h3>
-          {paper.authors ? <p className="authors">{paper.authors}</p> : null}
-          <div className="meta">
-            {paper.year ? <span>{paper.year}</span> : null}
-            <span className="chat-paper-find">
-              <SearchIcon size={11} />
-              Find in Discover
-            </span>
-          </div>
-          {paper.why ? <p className="chat-paper-why">{paper.why}</p> : null}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function TurnView({ turn, onFind }: { turn: Turn; onFind: (title: string) => void }) {
+function TurnView({ turn }: { turn: Turn }) {
   if (turn.role === 'user') {
     return (
       <div className="chat-turn chat-user">
@@ -117,7 +83,6 @@ function TurnView({ turn, onFind }: { turn: Turn; onFind: (title: string) => voi
       </div>
     );
   }
-  const { text, papers } = splitPapers(turn.content);
   return (
     <div className="chat-turn chat-claude">
       {turn.thinking?.trim() ? (
@@ -126,11 +91,9 @@ function TurnView({ turn, onFind }: { turn: Turn; onFind: (title: string) => voi
           <div>{turn.thinking}</div>
         </details>
       ) : null}
-      {text ? (
-        <div className="chat-text" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(markdown(text), { ADD_ATTR: ['target'] }) }} />
-      ) : null}
-      {papers.length ? <Recommendations papers={papers} onFind={onFind} /> : null}
-      {text || papers.length ? null : turn.streaming ? (
+      {turn.content ? (
+        <div className="chat-text" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(markdown(turn.content), { ADD_ATTR: ['target'] }) }} />
+      ) : turn.streaming ? (
         <p className="chat-wait">
           <span className="chat-dot" />
           <span className="chat-dot" />
@@ -285,7 +248,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
     persist(rectRef.current);
   };
 
-  // A recommended paper is searched for in Discover. The pane opens on the
+  // A paper named in an answer is searched for in Discover. The pane opens on the
   // right, which is where the window stands by default, so the window steps
   // left of it once it is there — the result it opened is the point.
   const findPaper = (title: string) => {
@@ -614,6 +577,8 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
         }}
         onClick={(event) => {
+          const find = (event.target as HTMLElement).closest<HTMLElement>('.chat-find');
+          if (find?.dataset.paper) return findPaper(find.dataset.paper);
           const copy = (event.target as HTMLElement).closest('.chat-copy');
           if (!copy) return;
           const code = copy.parentElement?.querySelector('code')?.textContent ?? '';
@@ -641,7 +606,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           </div>
         ) : null}
         {s.turns.map((turn, index) => (
-          <TurnView key={index} turn={turn} onFind={findPaper} />
+          <TurnView key={index} turn={turn} />
         ))}
       </div>
 
