@@ -1152,9 +1152,14 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
   text-underline-offset: 3px;
 }
 .author-name:hover, .author-name:focus-visible { color: var(--accent-ink); text-decoration-color: var(--accent); outline: none; }
-.paper-body .cite { color: var(--accent); cursor: pointer; border-radius: 3px; text-decoration: none; }
+.paper-body .cite {
+  color: var(--accent); cursor: pointer; border-radius: 3px;
+  text-decoration: underline dotted; text-decoration-thickness: 1px; text-underline-offset: 3px;
+}
 .paper-body .cite:hover, .paper-body .cite:focus-visible { background: var(--accent-soft); outline: none; }
 .paper-body .ref-entry { border-radius: 4px; transition: background-color 0.6s; }
+/* A reflowed bibliography: one entry to a paragraph, its number hanging in the margin. */
+.paper-body p.ref-entry { padding-left: 1.75em; text-indent: -1.75em; margin: 0 0 0.55em; }
 .paper-body .ref-flash { background: var(--accent-soft); transition: none; }
 
 .hover-card {
@@ -1195,6 +1200,7 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 .hc-stats > div { flex: 1; padding: 5px 7px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--panel); }
 .hc-stats dt { font-size: 10px; color: var(--muted); }
 .hc-stats dd { margin: 0; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hc-from { margin: -4px 0 8px !important; font-size: 10.5px; color: var(--muted); }
 .hc-scholar { display: flex; flex-wrap: wrap; align-items: center; gap: 0 4px; margin-bottom: 6px !important; font-size: 12px; color: var(--ink-2); }
 .hc-scholar.muted { color: var(--muted); gap: 8px; }
 .hc-about {
@@ -1225,6 +1231,10 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
 .hc-paper { margin-top: 9px; }
+.hc-find { cursor: pointer; border-radius: 6px; transition: background 0.12s; }
+.hc-paper.hc-find { margin-left: -6px; margin-right: -6px; padding: 4px 6px; }
+.hc-find:hover, .hc-find:focus-visible { background: var(--accent-soft); outline: none; }
+.hc-printed.hc-find:hover, .hc-printed.hc-find:focus-visible { border-left-color: var(--accent); }
 .hc-title { font-family: var(--serif); font-size: 15px; font-weight: 600; line-height: 1.3; margin-bottom: 2px !important; }
 .hover-card .hc-title a { color: var(--ink); }
 .hover-card .hc-title a:hover { color: var(--accent-ink); }

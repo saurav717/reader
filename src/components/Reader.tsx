@@ -36,7 +36,7 @@ import {
 import { HIGHLIGHT_COLORS, type HighlightColor, type ReadingMode } from '../types';
 import LookupPopover, { type LookupTarget } from './LookupPopover';
 import HoverCard, { type CitedEntry, type HoverTarget } from './HoverCard';
-import { CITE_CLASS, REF_CLASS, entryText, parseReference } from '../lib/citations';
+import { CITE_CLASS, REF_CLASS, citationHead, citationText, entryText, parseReference } from '../lib/citations';
 import {
   ArrowLeftIcon,
   BookIcon,
@@ -282,11 +282,12 @@ export default function Reader({
   const onBodyOver = useCallback(
     (event: React.MouseEvent | React.FocusEvent, delay?: number) => {
       const target = event.target as Element;
-      const cite = target.closest(`.${CITE_CLASS}`);
-      if (cite) {
+      const piece = target.closest(`.${CITE_CLASS}`);
+      if (piece) {
+        const cite = citationHead(piece);
         openHover(cite, () => {
           const ids = (cite.getAttribute('data-refs') || '').split(/\s+/).filter(Boolean);
-          const entries = entriesFor(ids, cite.textContent || '');
+          const entries = entriesFor(ids, citationText(cite));
           return entries.length ? { kind: 'cite', entries, anchor: cite.getBoundingClientRect() } : null;
         }, delay);
         return;
@@ -1196,7 +1197,8 @@ export default function Reader({
         onClick={(event) => {
           // A citation goes to its entry once its card is up; before that —
           // a tap, where there is no hovering — it puts the card up.
-          const cite = (event.target as HTMLElement).closest(`.${CITE_CLASS}`);
+          const piece = (event.target as HTMLElement).closest(`.${CITE_CLASS}`);
+          const cite = piece ? citationHead(piece) : null;
           if (cite && window.getSelection()?.isCollapsed !== false) {
             event.preventDefault();
             const first = (cite.getAttribute('data-refs') || '').split(/\s+/)[0];

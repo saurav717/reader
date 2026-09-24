@@ -19,6 +19,7 @@ import {
   getScholar,
   parseAuthors,
   parseCitationView,
+  parseProfile,
   parseProfileWorks,
   parseResults,
   profileUrl,
@@ -286,6 +287,8 @@ export default {
                 ? name && { name }
                 : kind === 'profile'
                   ? /^[\w-]{6,32}$/.test(user) && { user, start, sort }
+                  : kind === 'person'
+                  ? /^[\w-]{6,32}$/.test(user) && { user }
                   : kind === 'versions'
                     ? /^\d{1,25}$/.test(cluster) && { cluster }
                     : kind === 'work'
@@ -317,6 +320,8 @@ export default {
                     start: Math.max(0, Number(url.searchParams.get('start')) || 0),
                     sort: profileSort(url.searchParams.get('sort')),
                   })
+                : path === '/scholar/person'
+                ? /^[\w-]{6,32}$/.test(url.searchParams.get('user') || '') && profileUrl(url.searchParams.get('user'), { sort: 'citations' })
                 : path === '/scholar/versions'
                   ? /^\d{1,25}$/.test(url.searchParams.get('cluster') || '') && versionsUrl(url.searchParams.get('cluster'))
                   : path === '/scholar/work'
@@ -331,6 +336,8 @@ export default {
             ? parseAuthors
             : path === '/scholar/profile'
               ? parseProfileWorks
+              : path === '/scholar/person'
+              ? (html) => [parseProfile(html, url.searchParams.get('user'))].filter(Boolean)
               : path === '/scholar/work'
                 ? parseCitationView
                 : parseResults;

@@ -45,6 +45,19 @@ describe('numbers in brackets', () => {
     assert.deepEqual(cited('the interval [0, 1] and [99]', numbered), []);
   });
 
+  it('keeps the entries it has when one of a range was lost', () => {
+    const gappy = referenceIndex([1, 2, 4].map((n) => ({ id: `ref-${n}`, text: `[${n}] A. Author. A paper. 2020.` })));
+    assert.deepEqual(cited('see [1–4]', gappy), [['[1–4]', ['ref-1', 'ref-2', 'ref-4']]]);
+  });
+
+  it('takes in the authors a number is written after', () => {
+    assert.deepEqual(cited('as Dorrington et al [1] and Marr and Poggio [4] found, and [2]', numbered), [
+      ['Dorrington et al [1]', ['ref-1']],
+      ['Marr and Poggio [4]', ['ref-4']],
+      ['[2]', ['ref-2']],
+    ]);
+  });
+
   it('numbers an unlabelled list in order', () => {
     const index = referenceIndex([
       { id: 'a', text: 'Smith. One paper. 2001.' },
@@ -67,7 +80,22 @@ describe('author and year', () => {
   });
 
   it('matches a year printed without its letter', () => {
-    assert.deepEqual(cited('(Devlin et al., 2019)', authorYear), [['Devlin et al., 2019', ['ref-2']]]);
+    assert.deepEqual(cited('(Devlin et al., 2019)', authorYear), [['(Devlin et al., 2019)', ['ref-2']]]);
+  });
+
+  it('marks a parenthesis that is one citation whole, brackets and all', () => {
+    assert.deepEqual(cited('shown [Brown et al., 2020] before', authorYear), [['[Brown et al., 2020]', ['ref-1']]]);
+  });
+
+  it('reads a citation set without commas or full stops, as IOP journals set them', () => {
+    const iop = referenceIndex([
+      { id: 'ref-1', text: 'Dorrington A A, Carnegie D A and Cree M J 2006 Towards 1-mm depth precision Proc. SPIE 6068' },
+      { id: 'ref-2', text: 'Marr D and Poggio T 1976 Cooperative computation of stereo disparity Science 194 282-7' },
+    ]);
+    assert.deepEqual(cited('as before (Dorrington et al 2006, Marr and Poggio 1976).', iop), [
+      ['Dorrington et al 2006', ['ref-1']],
+      ['Marr and Poggio 1976', ['ref-2']],
+    ]);
   });
 
   it('ignores a name and year that are not in the bibliography', () => {

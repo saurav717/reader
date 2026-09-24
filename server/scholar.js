@@ -329,7 +329,8 @@ export function parseResults(html) {
   return resultBlocks(html).map(({ tag, html: entry }) => {
     const titleBlock = block(entry, 'gs_rt');
     const titleLink = links(titleBlock)[0];
-    const byline = text(block(entry, 'gs_a'));
+    const bylineHtml = block(entry, 'gs_a');
+    const byline = text(bylineHtml);
     const parsed = parseByline(byline);
 
     // The right-hand column: a direct link to a file, where Scholar found one.
@@ -366,6 +367,8 @@ export function parseResults(html) {
       /** The host it sits on, as Scholar labels it: `mit.edu`, `arxiv.org`. */
       pdfHost: file ? file.text.replace(/^\[\w+\]\s*/, '').trim() || undefined : undefined,
       authors: parsed.authors,
+      /** The authors Scholar links to a profile, by the name the byline prints. */
+      authorIds: bylineProfiles(bylineHtml),
       venue: parsed.venue,
       year: parsed.year,
       snippet: text(block(entry, 'gs_rs')),
@@ -375,6 +378,46 @@ export function parseResults(html) {
       versionCount: versions ? Number((versions.text.match(/(\d+)/) || [])[1]) || undefined : undefined,
     };
   }).filter((result) => result.title);
+}
+
+/**
+ * The authors a byline links to their profiles: `<a href="/citations?user=…">S Chennuri</a>`.
+ * Scholar links a name only where the person has claimed the paper on their
+ * profile, so the link is the paper's own word on who the author is.
+ */
+export function bylineProfiles(html) {
+  const seen = new Set();
+  return links(html)
+    .map((link) => ({ name: link.text.replace(/…|\.\.\./g, '').trim(), userId: (link.href.match(/[?&]user=([\w-]{6,32})/) || [])[1] }))
+    .filter((author) => author.name && author.userId && !seen.has(author.userId) && seen.add(author.userId));
+}
+
+/**
+ * Who a profile is about, from the top of their profile page: the name,
+ * where they are, their interests, and the counts in the box on the right —
+ * citations, h-index and i10-index, over all time and over the last five
+ * years — with the works the page lists under it, most cited first when
+ * the page was asked for in that order.
+ */
+export function parseProfile(html, userId) {
+  const name = text(idBlock(html, 'gsc_prf_in'));
+  if (!name) return null;
+  // Six cells, row by row: citations, h-index, i10-index; all time, then since.
+  const cells = blocks(idBlock(html, 'gsc_rsb_st'), 'gsc_rsb_std').map((cell) => text(cell).replace(/[^\d]/g, ''));
+  const at = (index) => (cells[index] ? Number(cells[index]) : undefined);
+  return {
+    userId,
+    name,
+    profileUrl: `${SCHOLAR_HOST}/citations?hl=en&user=${encodeURIComponent(userId)}`,
+    affiliation: text(block(idBlock(html, 'gsc_prf_i') || html, 'gsc_prf_il')) || undefined,
+    verifiedEmail: (text(idBlock(html, 'gsc_prf_ivh')).match(/Verified email at (\S+?)(?:\s|$|-)/i) || [])[1],
+    interests: links(idBlock(html, 'gsc_prf_int')).map((link) => link.text).filter(Boolean),
+    citedBy: at(0),
+    citedBySince: at(1),
+    hIndex: at(2),
+    i10Index: at(4),
+    works: parseProfileWorks(html),
+  };
 }
 
 /** Scholar's profile search: the people, not their papers. */

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
 
-const { authorDetails, profilesElsewhere, recordDoubt, worksUnderName } = await load('src/lib/hoverInfo.ts');
+const { authorDetails, profilesElsewhere, recordDoubt, scholarProfile, worksUnderName } = await load('src/lib/hoverInfo.ts');
 
 after(cleanup);
 
@@ -56,7 +56,7 @@ globalThis.fetch = async (input) => {
   const hit = routes.find(([pattern]) => pattern.test(decodeURIComponent(url)));
   if (!hit) return new Response('{}', { status: 404 });
   const body = typeof hit[1] === 'function' ? hit[1](url) : hit[1];
-  return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+  return new Response(JSON.stringify(body), { status: body?.status ?? 200, headers: { 'content-type': 'application/json' } });
 };
 
 beforeEach(() => {
@@ -190,5 +190,76 @@ describe('someone with a page nowhere', () => {
         ['Mulberry cultivation in the Gangetic plain', 1921],
       ],
     );
+  });
+});
+
+describe('their Google Scholar profile', () => {
+  const paper = { id: 'scholar:fusion', title: 'Fusion approaches to predict post-stroke aphasia severity from multimodal neuroimaging data' };
+  const person = {
+    userId: 'CHENNURIxx1',
+    name: 'Saurav Chennuri',
+    profileUrl: 'https://scholar.google.com/citations?hl=en&user=CHENNURIxx1',
+    affiliation: 'Somewhere Else Now',
+    interests: ['Machine Learning'],
+    citedBy: 57,
+    citedBySince: 50,
+    hIndex: 4,
+    i10Index: 2,
+    works: [{ title: 'A much cited paper', authors: ['S Chennuri'], year: 2021, citedBy: 30, snippet: '' }],
+  };
+
+  it('is the one the paper’s own Scholar record links the byline’s name to, with the counts from the profile', async () => {
+    route(/\/scholar\/search\?q=/, {
+      results: [
+        {
+          title: 'Fusion approaches to predict post-stroke aphasia severity from multimodal neuroimaging data',
+          authors: ['S Chennuri', 'S Lai', 'A Billot', 'M Varkanitsa', 'EJ Braun', 'S Kiran'],
+          authorIds: [
+            { name: 'S Chennuri', userId: 'CHENNURIxx1' },
+            { name: 'S Kiran', userId: 'KIRANxxxxxx' },
+          ],
+          snippet: '',
+        },
+      ],
+    });
+    route(/\/scholar\/person\?user=CHENNURIxx1/, { results: [person] });
+    // Others of the name, none at the paper's institution: the name alone would have found nobody.
+    route(/\/scholar\/authors/, {
+      results: [
+        { userId: 'OTHER1xxxxx', name: 'S Chennuri', profileUrl: 'https://scholar.google.com/citations?user=OTHER1xxxxx', interests: [] },
+        { userId: 'OTHER2xxxxx', name: 'Sai Chennuri', profileUrl: 'https://scholar.google.com/citations?user=OTHER2xxxxx', interests: [] },
+      ],
+    });
+    const found = await scholarProfile('S Chennuri', ['Boston University'], true, paper, 0);
+    assert.equal(found.how, 'paper');
+    assert.equal(found.profile.scholarUserId, 'CHENNURIxx1');
+    assert.equal(found.profile.citedBy, 57);
+    assert.equal(found.profile.hIndex, 4);
+    assert.equal(found.profile.i10Index, 2);
+    assert.equal(found.profile.works[0].title, 'A much cited paper');
+    assert.ok(!asked.some((url) => url.includes('/scholar/authors')), 'the name is not searched for once the paper says who it is');
+  });
+
+  it('is the one of the name whose profile lists the paper, when the paper’s record links nobody', async () => {
+    route(/\/scholar\/search\?q=/, { results: [] });
+    route(/\/scholar\/authors/, {
+      results: [
+        { userId: 'OTHER1xxxxx', name: 'S Chennuri', profileUrl: 'https://scholar.google.com/citations?user=OTHER1xxxxx', interests: [] },
+        { userId: 'CHENNURIxx1', name: 'Saurav Chennuri', profileUrl: 'https://scholar.google.com/citations?user=CHENNURIxx1', interests: [] },
+      ],
+    });
+    route(/\/scholar\/person\?user=OTHER1xxxxx/, { results: [{ ...person, userId: 'OTHER1xxxxx', name: 'S Chennuri', works: [] }] });
+    route(/\/scholar\/person\?user=CHENNURIxx1/, {
+      results: [{ ...person, works: [{ title: 'Fusion approaches to predict post-stroke aphasia severity from multimodal…', authors: [], snippet: '' }] }],
+    });
+    const found = await scholarProfile('S Chennuri', ['Boston University'], true, { ...paper, id: 'scholar:fusion-2' }, 0);
+    assert.equal(found.profile?.scholarUserId, 'CHENNURIxx1');
+  });
+
+  it('says Scholar could not be asked, rather than that there is no profile', async () => {
+    route(/\/scholar\//, { status: 503, error: 'Google Scholar asked for a captcha', blocked: true, reason: 'captcha' });
+    const found = await scholarProfile('S Chennuri', [], true, { ...paper, id: 'scholar:fusion-3' }, 0);
+    assert.equal(found.profile, null);
+    assert.match(found.error, /captcha/);
   });
 });

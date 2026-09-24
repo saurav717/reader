@@ -199,6 +199,13 @@ function buildLines(page: PageInput): Line[] {
       const candidate = baselines[at];
       if (run.y - candidate.baseline > 2 * Math.max(candidate.size, run.size)) break;
       if (Math.abs(run.y - candidate.baseline) > 0.55 * Math.max(candidate.size, run.size)) continue;
+      // Not a run set over or under one already there: that is the next
+      // line of its column, drawn into this baseline by a line of larger
+      // type in the column beside it, which sits between the two.
+      const stacked = candidate.runs.some(
+        (other) => Math.abs(other.y - run.y) > 0.3 * Math.min(other.size, run.size) && Math.min(other.x + other.width, run.x + run.width) - Math.max(other.x, run.x) > 1,
+      );
+      if (stacked) continue;
       home = candidate;
       break;
     }
@@ -735,7 +742,10 @@ function paragraphs(ordered: Line[], measures: Measures, columns: Map<Line, numb
   const out: Paragraph[] = [];
   let current: Paragraph | null = null;
   for (const line of ordered) {
-    if (REFERENCES.test(line.text) && (line.allBold || line.size > measures.bodySize)) references = true;
+    // A line that is the one word, capitalised, is the heading however it is
+    // set: not every style sets it bold or large, and the lines under it are
+    // entries with hanging indents rather than paragraphs.
+    if (REFERENCES.test(line.text) && (line.allBold || line.size > measures.bodySize || /^[\d.\s]*[A-Z]/.test(line.text))) references = true;
     const columnLeft = columns.get(line) ?? line.x0;
     const previous = current?.lines[current.lines.length - 1];
     let fresh = !current || !previous;
@@ -796,7 +806,7 @@ function spansOf(lines: Line[], heading = false): Span[] {
         // "linear" where the paper writes "quasi-linear" elsewhere.
         const left = /([a-z]+)-$/i.exec(tail)?.[1];
         const right = /^([a-z]+)/i.exec(line.text)?.[1];
-        const kept = left && right && compounds.has(`${left}-${right}`.toLowerCase());
+        const kept = left && right && keepsHyphen(left, right);
         if (/^[a-z]/.test(line.text) && /[a-z]{2}-$/.test(tail) && !kept) before.text = tail.slice(0, -1);
       } else if (tail && !tail.endsWith(' ')) {
         push({ text: ' ' });
@@ -842,15 +852,35 @@ export const plain = (spans: Span[]): string => norm(spans.map((span) => span.te
  * document being laid out.
  */
 let compounds = new Set<string>();
+/** Every word the document sets whole, for telling "high-" / "accuracy" from "develop-" / "ment". */
+let words = new Set<string>();
 
 function findCompounds(pages: Line[][]): Set<string> {
   const found = new Set<string>();
+  words = new Set<string>();
   for (const lines of pages) {
     for (const line of lines) {
       for (const match of line.text.matchAll(/([a-z]+)-([a-z]+)/gi)) found.add(`${match[1]}-${match[2]}`.toLowerCase());
+      // The last word of a line may be half of one broken at its end.
+      const whole = line.text.replace(/\S*-$/, '').match(/\p{L}+/gu) || [];
+      for (const word of whole) words.add(word.toLowerCase());
     }
   }
   return found;
+}
+
+/**
+ * Whether a word broken at a line's end keeps its hyphen: it does where the
+ * paper writes it hyphenated elsewhere, and where both halves are words of
+ * their own — "high-" / "accuracy" — that the paper never writes run
+ * together. "develop-" / "ment" is one word broken in two.
+ */
+function keepsHyphen(left: string, right: string): boolean {
+  const l = left.toLowerCase();
+  const r = right.toLowerCase();
+  if (compounds.has(`${l}-${r}`)) return true;
+  if (words.has(l + r)) return false;
+  return l.length >= 3 && r.length >= 3 && words.has(l) && words.has(r);
 }
 
 // ---------------------------------------------------------------- tables --
@@ -1003,8 +1033,13 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
     const flow = lines.filter((line) => !line.taken);
     const feet = new Set<Line>();
     const bodyLines = flow.filter((line) => bodyLike(line, measures));
+    // A bibliography is small type at the foot of the page too, and none of
+    // it is a footnote: the lines read after its heading are left in the text.
+    const read = readingOrder(flow.map((line) => ({ x0: line.x0, y0: line.top, x1: line.x1, y1: line.bottom, line }))).map((box) => box.line);
+    const heading = read.findIndex((line) => REFERENCES_HEADING.test(line.text));
+    const listed = new Set(inReferences ? read : heading >= 0 ? read.slice(heading) : []);
     for (const line of flow) {
-      if (line.caption || line.allBold) continue;
+      if (line.caption || line.allBold || listed.has(line)) continue;
       if (line.size > measures.bodySize - 1 || line.baseline < page.height * 0.6) continue;
       // Below the last body text of its own column: the other column may
       // run lower.
@@ -1111,7 +1146,11 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
         const openEnded = !/[.!?:;"”’)\]]$/.test(last) || /[a-z],$/.test(last);
         const continues = /^[a-z(]/.test(text) || last.endsWith('-');
         const indented = paragraph.lines[0].x0 - paragraph.columnLeft > paragraph.lines[0].size * 0.7;
-        if (openEnded && (continues || !indented) && Math.abs(paragraph.lines[0].size - carryLast.size) <= 0.6) {
+        // In a bibliography, whose entries often end without a full stop —
+        // "Science 194 282–7" — only an entry's indented turnover runs on:
+        // an entry starting at the margin is the next one.
+        const runsOn = inReferences ? indented : continues || !indented;
+        if (openEnded && runsOn && Math.abs(paragraph.lines[0].size - carryLast.size) <= 0.6) {
           carry.spans = mergeSpans(carry.spans, spans, last.endsWith('-') && /^[a-z]/.test(text));
           carryLast = paragraph.lines[paragraph.lines.length - 1];
           continue;
@@ -1143,7 +1182,109 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
     entry.block.level = (byNumber || bySize) as 2 | 3 | 4;
   }
 
-  return { blocks, crops, characters, readable: readable(blocks), bodySize: measures.bodySize };
+  return { blocks: splitReferences(blocks), crops, characters, readable: readable(blocks), bodySize: measures.bodySize };
+}
+
+// ------------------------------------------------------------ references --
+
+const REFERENCES_HEADING = /^(\d+(\.\d+)*\.?\s+)?(references|bibliography|literature cited|works cited)\s*$/i;
+
+/**
+ * Where a numbered bibliography's entries start in its text: "[1]", "[2]",
+ * … or "1.", "2.", … counted up one at a time from the first, so that a
+ * "[3]" cited inside an entry, or a volume "12." in a journal's details,
+ * is not taken for the start of one. Empty when the text is not a numbered
+ * list, or is one entry already.
+ */
+export function entryStarts(text: string): number[] {
+  const styles = [
+    { pattern: /\[(\d{1,3})\]/g, group: 1 },
+    { pattern: /(^|\s)(\d{1,3})\.\s+(?=[\p{Lu}\p{Lt}])/gu, group: 2 },
+  ];
+  for (const { pattern, group } of styles) {
+    const found = Array.from(text.matchAll(pattern)).map((match) => ({
+      at: match.index! + (group === 2 ? match[1].length : 0),
+      n: Number(match[group]),
+    }));
+    // The list begins at the head of the text.
+    if (!found.length || found[0].at > 3) continue;
+    const starts = [found[0].at];
+    let expected = found[0].n + 1;
+    for (const marker of found.slice(1)) {
+      if (marker.n !== expected) continue;
+      // A marker glued to the word before it is not the head of an entry.
+      if (marker.at > 0 && !/[\s.,;)\]]/.test(text[marker.at - 1])) continue;
+      starts.push(marker.at);
+      expected += 1;
+    }
+    if (starts.length >= 2) return starts;
+  }
+  return [];
+}
+
+/** Spans cut at offsets into their text, each piece trimmed; the offsets ascending. */
+function cutSpans(spans: Span[], offsets: number[]): Span[][] {
+  const pieces: Span[][] = [[]];
+  const cuts = offsets.filter((offset) => offset > 0);
+  let at = 0;
+  for (const span of spans) {
+    let text = span.text;
+    let start = at;
+    while (cuts.length && cuts[0] < start + text.length) {
+      const cut = cuts.shift()! - start;
+      if (cut > 0) pieces[pieces.length - 1].push({ ...span, text: text.slice(0, cut) });
+      pieces.push([]);
+      text = text.slice(cut);
+      start += cut;
+    }
+    if (text) pieces[pieces.length - 1].push({ ...span, text });
+    at += span.text.length;
+  }
+  return pieces
+    .map((piece) => {
+      const out = piece.map((span) => ({ ...span }));
+      if (out.length) {
+        out[0].text = out[0].text.replace(/^\s+/, '');
+        out[out.length - 1].text = out[out.length - 1].text.replace(/\s+$/, '');
+      }
+      return out.filter((span) => span.text.length);
+    })
+    .filter((piece) => piece.length);
+}
+
+/**
+ * A numbered bibliography, one paragraph per entry. The lines of a list set
+ * in small type, with hanging indents, across columns and pages, are cut
+ * into paragraphs by guesswork that a list's own numbers make unnecessary:
+ * every paragraph under the heading is run together and cut again where
+ * each number starts an entry. A list without numbers is left as it was.
+ */
+function splitReferences(blocks: Block[]): Block[] {
+  const heading = blocks.findIndex((block) => block.kind === 'heading' && REFERENCES_HEADING.test(plain(block.spans)));
+  if (heading < 0) return blocks;
+  let end = heading + 1;
+  while (end < blocks.length && blocks[end].kind !== 'heading') end += 1;
+  const section = blocks.slice(heading + 1, end);
+  const entries = section.filter((block): block is Extract<Block, { kind: 'paragraph' }> => block.kind === 'paragraph');
+  if (entries.length === 0) return blocks;
+
+  let joined: Span[] = [];
+  for (const entry of entries) {
+    const left = /([a-z]{2,})-$/i.exec(plain(joined))?.[1];
+    const right = /^([a-z]+)/.exec(plain(entry.spans))?.[1];
+    const mend = Boolean(left && right && !keepsHyphen(left, right));
+    joined = joined.length ? mergeSpans(joined, entry.spans, mend) : entry.spans.map((span) => ({ ...span }));
+  }
+  const text = joined.map((span) => span.text).join('');
+  const lead = text.length - text.trimStart().length;
+  const starts = entryStarts(text.trimStart()).map((offset) => offset + lead);
+  if (starts.length < 2) return blocks;
+
+  const page = entries[0].page;
+  const split: Block[] = cutSpans(joined, starts).map((spans) => ({ kind: 'paragraph', spans, page }));
+  // Anything else under the heading — a footnote, a figure — follows the list.
+  const others = section.filter((block) => block.kind !== 'paragraph');
+  return [...blocks.slice(0, heading + 1), ...split, ...others, ...blocks.slice(end)];
 }
 
 function readable(blocks: Block[]): boolean {

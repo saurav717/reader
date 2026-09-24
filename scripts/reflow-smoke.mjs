@@ -75,7 +75,7 @@ ul { margin: 4pt 0 4pt 12pt; padding: 0; }
 <p class="first">${prose(3)}</p>
 <h2>1 Introduction</h2>
 <p class="first">${prose(4)} A self-supervised objective<sup>1</sup> helps.</p>
-<p>${prose(3, 1)} We call this the na&iuml;ve approach.</p>
+<p>${prose(3, 1)} We call this the na&iuml;ve approach, after Li <i>et al</i> [1].</p>
 <figure><svg width="220" height="110" xmlns="http://www.w3.org/2000/svg"><rect x="10" y="10" width="200" height="80" fill="none" stroke="#000"/><polyline points="20,80 60,40 100,60 140,20 200,30" fill="none" stroke="#c00" stroke-width="2"/><text x="90" y="105" font-size="8">resolution</text></svg><figcaption><b>Figure 1:</b> Relative error against resolution for the Fourier neural operator and a convolutional baseline.</figcaption></figure>
 <p class="first">${prose(2, 2)}</p>
 <ul><li>an integral operator with a learned kernel,</li><li>a pointwise nonlinearity between layers, and</li><li>a truncation of the Fourier modes.</li></ul>
@@ -224,6 +224,18 @@ check(
 );
 check('the list is a list', (await page.locator('.paper-body ul li').allTextContents()).join('|') === 'an integral operator with a learned kernel,|a pointwise nonlinearity between layers, and|a truncation of the Fourier modes.');
 check('the references are one entry each', (await page.locator('.paper-body p', { hasText: /^\[2\] L\. Lu/ }).count()) === 1);
+
+console.log('\n== citations ==');
+const cite = page.locator('.paper-body .cite[tabindex]').first();
+check('a citation set across two faces is marked whole', (await page.locator('.paper-body .cite[data-cite="0"]').allTextContents()).join('') === 'Li et al [1]');
+await cite.scrollIntoViewIfNeeded();
+await cite.hover();
+await page.waitForSelector('.hover-card .hc-printed', { timeout: 5000 });
+check('hovering over it shows the entry', ((await page.locator('.hover-card .hc-printed').textContent()) || '').includes('Neural operator'));
+await page.locator('.hover-card .hc-note').waitFor({ timeout: 10000 }).catch(() => {});
+await page.locator('.hover-card .hc-printed').click();
+await page.waitForFunction(() => (document.querySelector('input[aria-label="Search papers"]')?.value || '').length > 0, null, { timeout: 5000 }).catch(() => {});
+check('pressing the card looks the paper up in Discover', (await page.getByLabel('Search papers').inputValue()).startsWith('Neural operator: graph kernel network'), await page.getByLabel('Search papers').inputValue());
 await page.screenshot({ path: `${OUT}/reflow-pdf.png`, fullPage: false });
 await figure.scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/reflow-figure.png` });
@@ -231,6 +243,65 @@ await page.locator('.paper-body .pdf-equation').scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/reflow-equation.png` });
 await tables.nth(0).scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/reflow-table.png` });
+
+console.log('\n== an author ==');
+// Scholar's record of the paper links its first author to a profile; the
+// name search would find someone else of the name, and must not be asked.
+let nameSearched = false;
+await page.route('**/scholar/search*', (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      results: [
+        {
+          title: 'Fourier Neural Operator for Parametric Partial Differential Equations',
+          authors: ['Z Li', 'N Kovachki', 'K Azizzadenesheli'],
+          authorIds: [{ name: 'Z Li', userId: 'ZLIxxxxxxxx' }],
+          snippet: '',
+        },
+      ],
+    }),
+  }),
+);
+await page.route('**/scholar/person*', (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      results: [
+        {
+          userId: 'ZLIxxxxxxxx',
+          name: 'Zongyi Li',
+          profileUrl: 'https://scholar.google.com/citations?hl=en&user=ZLIxxxxxxxx',
+          affiliation: 'Caltech',
+          interests: ['Operator learning'],
+          citedBy: 12345,
+          hIndex: 21,
+          i10Index: 25,
+          works: [{ title: 'Neural operator: Graph kernel network', authors: ['Z Li'], year: 2020, citedBy: 900, snippet: '' }],
+        },
+      ],
+    }),
+  }),
+);
+await page.route('**/scholar/authors*', (route) => {
+  nameSearched = true;
+  return route.fulfill({ status: 200, contentType: 'application/json', body: '{"results":[]}' });
+});
+await page.locator('.paper-body').evaluate((element) => element.closest('.reader-scroll, .reader-column')?.scrollTo?.(0, 0));
+await page.locator('.author-name', { hasText: 'Zongyi Li' }).scrollIntoViewIfNeeded();
+await page.locator('.author-name', { hasText: 'Zongyi Li' }).click();
+await page.waitForSelector('.hover-card .hc-from', { timeout: 10000 }).catch(() => {});
+await page.waitForFunction(() => document.querySelector('.hover-card .hc-from')?.textContent?.includes('Google Scholar'), null, { timeout: 10000 }).catch(() => {});
+const card = page.locator('.hover-card');
+check('the author card shows the counts from their Scholar profile', ((await card.locator('.hc-stats').textContent()) || '').includes('12k'), (await card.textContent()) || '');
+check('and says where they come from', ((await card.locator('.hc-from').textContent()) || '').includes('Google Scholar'));
+check('with a link to the profile the paper names', (await card.locator('a[href*="user=ZLIxxxxxxxx"]').count()) === 1);
+check('and their most cited work from it', ((await card.textContent()) || '').includes('Neural operator: Graph kernel network'));
+check('found through the paper, not by the name', !nameSearched);
+await page.screenshot({ path: `${OUT}/author-card.png` });
+await page.keyboard.press('Escape');
 
 console.log('\n== highlight ==');
 await page.locator('.reader-scroll').evaluate((element) => element.scrollTo(0, 0));

@@ -12,7 +12,7 @@ import type { AuthorRef, PaperRef } from '../types';
 import { parseReference, titleFits } from './citations';
 import { politely } from './contact';
 import { hasProxy } from './api';
-import { scholarAuthors } from './scholar';
+import { fromScholar, scholarAuthors, scholarPaperAuthors, scholarPerson } from './scholar';
 import { crossrefWorks, fromOpenAlex, nameMatches, openAlexWorks, type OpenAlexWork } from './sources';
 
 const OPENALEX = 'https://api.openalex.org';
@@ -505,7 +505,127 @@ export function worksUnderName(name: string, paper: PaperKey): Promise<OtherWork
 
 // -------------------------------------------------------------- Scholar ---
 
-const profiles = new Map<string, Promise<AuthorRef | null>>();
+const profiles = new Map<string, Promise<ScholarFind>>();
+const paperAuthors = new Map<string, Promise<Awaited<ReturnType<typeof scholarPaperAuthors>>>>();
+
+/** A Scholar profile, with what the profile's own page says: its counts and its most cited works. */
+export interface ScholarProfile extends AuthorRef {
+  citedBySince?: number;
+  i10Index?: number;
+  works: PaperRef[];
+}
+
+/**
+ * What asking Scholar for someone's profile came to: the profile, and how it
+ * was found — through the paper's own record, which links its authors to
+ * their profiles, or by the name — or null, with `error` when Scholar could
+ * not be asked, which is not the same as their having no profile.
+ */
+export interface ScholarFind {
+  profile: ScholarProfile | null;
+  how?: 'paper' | 'name';
+  error?: string;
+}
+
+const why = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** A profile opened: the page's counts and works over what the link or the search gave. */
+async function opened(ref: AuthorRef): Promise<ScholarProfile> {
+  const person = ref.scholarUserId ? await scholarPerson(ref.scholarUserId).catch(() => undefined) : undefined;
+  if (!person) return { ...ref, works: [] };
+  return {
+    ...ref,
+    name: person.name || ref.name,
+    affiliation: person.affiliation || ref.affiliation,
+    verifiedEmail: person.verifiedEmail || ref.verifiedEmail,
+    interests: person.interests.length ? person.interests : ref.interests,
+    scholarProfileUrl: person.profileUrl || ref.scholarProfileUrl,
+    citedBy: person.citedBy ?? ref.citedBy,
+    citedBySince: person.citedBySince,
+    hIndex: person.hIndex,
+    i10Index: person.i10Index,
+    works: person.works.map(fromScholar),
+  };
+}
+
+const fromLink = (link: { name: string; userId: string }): AuthorRef => ({
+  id: `scholar:${link.userId}`,
+  source: 'scholar',
+  name: link.name,
+  scholarUserId: link.userId,
+  scholarProfileUrl: `https://scholar.google.com/citations?hl=en&user=${encodeURIComponent(link.userId)}`,
+});
+
+/**
+ * Their Google Scholar profile, through the proxy.
+ *
+ * First through the paper: Scholar's record of it links each author who
+ * has put it on their profile to that profile, which settles who they are
+ * whatever their name — "S Chennuri" is the one the paper links, not any of
+ * the others of the name. Of two authors of the paper with names that fit,
+ * the one standing at `position` in the byline is taken.
+ *
+ * Else by the name: among several with it, the one at the institution
+ * OpenAlex names wins, then the one whose profile lists this paper; a lone
+ * profile with the name is taken as it is only when `loneOk` — when OpenAlex
+ * tied this very person to the paper. Found by the name alone, the one
+ * profile with it is as likely a namesake's: Scholar's only "D Carnegie" is
+ * an engineer in Wellington, not the author of a book from 1936.
+ */
+export function scholarProfile(
+  name: string,
+  places: string[],
+  loneOk = true,
+  paper?: { id: string; title: string },
+  position = -1,
+): Promise<ScholarFind> {
+  if (!hasProxy()) return Promise.resolve({ profile: null });
+  return remembered(profiles, `${paper?.id ?? ''}|${position}|${name}|${places.join('|')}|${loneOk}`, async () => {
+    const problems: string[] = [];
+
+    if (paper?.title) {
+      const record = await remembered(paperAuthors, paper.id, () => scholarPaperAuthors(paper.title)).catch((error) => {
+        problems.push(why(error));
+        return undefined;
+      });
+      const fits = (record?.linked ?? []).filter((link) => nameMatches(link.name, name));
+      if (fits.length) {
+        const byline = record!.authors;
+        const distance = (link: { name: string }) => {
+          const at = byline.findIndex((author) => author === link.name || nameMatches(author, link.name));
+          return at < 0 || position < 0 ? 0 : Math.abs(at - position);
+        };
+        const link = fits.slice().sort((a, b) => distance(a) - distance(b))[0];
+        return { profile: await opened(fromLink(link)), how: 'paper' as const };
+      }
+    }
+
+    let found: AuthorRef[];
+    try {
+      found = (await scholarAuthors(name)).filter((author) => author.scholarProfileUrl && nameMatches(author.name, name));
+    } catch (error) {
+      problems.push(why(error));
+      return { profile: null, error: problems[0] };
+    }
+    if (!found.length) return { profile: null };
+    const wanted = new Set(places.flatMap(placeWords));
+    const atPlace = found.find((author) => {
+      const here = [author.affiliation || '', author.verifiedEmail || ''].join(' ');
+      return placeWords(here).some((word) => wanted.has(word));
+    });
+    if (atPlace) return { profile: await opened(atPlace), how: 'name' as const };
+
+    // The one whose own list has this paper on it.
+    if (paper?.title) {
+      for (const candidate of found.slice(0, 3)) {
+        const profile = await opened(candidate);
+        if (profile.works.some((work) => titleFits(work.title.replace(/…$/, ''), paper.title))) return { profile, how: 'paper' as const };
+      }
+    }
+    if (loneOk && found.length === 1) return { profile: await opened(found[0]), how: 'name' as const };
+    return { profile: null };
+  });
+}
 
 const COMMON = new Set(['the', 'and', 'for', 'edu', 'com', 'org', 'www', 'university', 'institute', 'college', 'school', 'department', 'technology', 'research', 'science', 'sciences']);
 
@@ -521,29 +641,3 @@ const placeWords = (value: string): string[] => {
   if (initials.length >= 2 && words.length > 1) out.push(initials);
   return out;
 };
-
-/**
- * Their Google Scholar profile, through the proxy — null when there is no
- * proxy, Scholar would not answer, or no profile is plainly them. Among
- * several with the name, the one at the institution OpenAlex names wins; a
- * lone profile with the name is taken as it is only when `loneOk` — when
- * OpenAlex tied this very person to the paper. Found by the name alone, or
- * through a record that turned out to be someone else's, the one profile
- * with the name is as likely a namesake's: Scholar's only "D Carnegie" is
- * an engineer in Wellington, not the author of a book from 1936.
- */
-export function scholarProfile(name: string, places: string[], loneOk = true): Promise<AuthorRef | null> {
-  if (!hasProxy()) return Promise.resolve(null);
-  return remembered(profiles, `${name}|${places.join('|')}|${loneOk}`, async () => {
-    const found = (await scholarAuthors(name).catch(() => [] as AuthorRef[])).filter(
-      (author) => author.scholarProfileUrl && nameMatches(author.name, name),
-    );
-    if (!found.length) return null;
-    const wanted = new Set(places.flatMap(placeWords));
-    const atPlace = found.find((author) => {
-      const here = [author.affiliation || '', author.verifiedEmail || ''].join(' ');
-      return placeWords(here).some((word) => wanted.has(word));
-    });
-    return atPlace ?? (loneOk && found.length === 1 ? found[0] : null);
-  });
-}

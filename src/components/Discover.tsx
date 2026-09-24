@@ -29,6 +29,7 @@ import SignInPrompt from './SignInPrompt';
 import CaptchaPrompt from './CaptchaPrompt';
 import PdfDropIn from './PdfDropIn';
 import { whySaveToDriveUnavailable } from '../lib/driveSync';
+import { titleFits } from '../lib/citations';
 import { googleBook, googleBooksIdFromLink, linkFromQuery, paperFromLink } from '../lib/books';
 import type { AuthorRef, PaperLocation, PaperOrder, PaperRef, SourceId } from '../types';
 import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
@@ -37,7 +38,7 @@ interface Props {
   onClose: () => void;
   onOpen: (paperId: string) => void;
   /** A search asked for from elsewhere — a card in the paper — run when it changes. */
-  ask?: { query: string; at: number } | null;
+  ask?: { query: string; at: number; open?: string } | null;
   /** The collection on screen, which is where "Add to" points while it is. */
   here?: string;
   /** "Add papers" was pressed: put the cursor in the search box. `at` tells one press from the next. */
@@ -351,7 +352,7 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
    * on their own; `author:` in front asks for the person only, and lists
    * every paper with the name on it when no index has a record of them.
    */
-  const run = async (text: string, options: { people?: boolean } = {}) => {
+  const run = async (text: string, options: { people?: boolean; open?: string } = {}) => {
     lastRun.current = () => void run(text, options);
     const controller = begin();
     const trimmed = text.trim();
@@ -404,6 +405,13 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
       nextPage.current = (next, signal) => findPapers(next, signal).then((outcome) => outcome.results);
       setResults(found.results);
       setMore(!found.exhausted);
+      // Asked for one paper by its title — from a citation's card — its
+      // result is opened, so its details are there without another press.
+      if (options.open) {
+        const wanted = found.results.find((result) => titleFits(result.title, options.open!) && titleFits(options.open!, result.title));
+        const chosen = wanted ?? (found.results.length === 1 ? found.results[0] : undefined);
+        if (chosen) setOpenId(chosen.id);
+      }
       if (!whoAsked) return;
       const who = await whoAsked;
       if (controller.signal.aborted) return;
@@ -470,7 +478,7 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
     if (!ask || handledAsk.current === ask.at) return;
     handledAsk.current = ask.at;
     setQuery(ask.query);
-    void run(ask.query);
+    void run(ask.query, ask.open ? { people: false, open: ask.open } : {});
     // `run` is this render's; the ask is what matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ask]);

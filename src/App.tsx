@@ -105,7 +105,7 @@ export default function App() {
 
   // "All their papers" or "Add or read" on a card in the paper: the search
   // is Discover's, which is where a paper is added and opened from.
-  const [discoverAsk, setDiscoverAsk] = useState<{ query: string; at: number } | null>(null);
+  const [discoverAsk, setDiscoverAsk] = useState<{ query: string; at: number; open?: string } | null>(null);
   // "Add papers" in a collection: Discover is where papers are added from, so
   // the press opens it — or, when it is open already, puts the cursor in its
   // search box, which is the part of it that press is asking for.
@@ -116,9 +116,10 @@ export default function App() {
   }, []);
   useEffect(() => {
     const onDiscover = (event: Event) => {
-      const query = (event as CustomEvent<{ query: string }>).detail?.query?.trim();
+      const detail = (event as CustomEvent<{ query: string; open?: string }>).detail;
+      const query = detail?.query?.trim();
       if (!query) return;
-      setDiscoverAsk({ query, at: Date.now() });
+      setDiscoverAsk({ query, at: Date.now(), open: detail.open });
       setDock('discover');
     };
     window.addEventListener('reader:discover', onDiscover);

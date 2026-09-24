@@ -21,6 +21,7 @@
  */
 import type { AuthorRef, PaperOrder, PaperRef } from '../types';
 import { api, hasProxy } from './api';
+import { titleFits } from './citations';
 
 export interface ScholarResult {
   id?: string;
@@ -40,6 +41,23 @@ export interface ScholarResult {
   citationId?: string;
   /** As much of a date as Scholar has, ISO; the citation view gives one, a byline only a year. */
   published?: string;
+  /** The byline's authors that Scholar links to a profile. */
+  authorIds?: { name: string; userId: string }[];
+}
+
+/** One person's Scholar profile: who they are, their counts, and their most cited works. */
+export interface ScholarPerson {
+  userId: string;
+  name: string;
+  profileUrl: string;
+  affiliation?: string;
+  verifiedEmail?: string;
+  interests: string[];
+  citedBy?: number;
+  citedBySince?: number;
+  hIndex?: number;
+  i10Index?: number;
+  works: ScholarResult[];
 }
 
 export interface ScholarAuthor {
@@ -225,6 +243,18 @@ export async function scholarWork(citationId: string, signal?: AbortSignal): Pro
   return results[0];
 }
 
+/** A profile, read from its page — the counts in its corner and its most cited works. */
+export async function scholarPerson(userId: string, signal?: AbortSignal): Promise<ScholarPerson | undefined> {
+  if (!/^[\w-]{6,32}$/.test(userId)) return undefined;
+  const results = await ask<ScholarPerson>(
+    `/scholar/person?user=${encodeURIComponent(userId)}`,
+    scholarPage('citations', { hl: 'en', user: userId }),
+    signal,
+  );
+  const person = results[0];
+  return person ? { ...person, interests: person.interests ?? [], works: person.works ?? [] } : undefined;
+}
+
 /** Enough to say two titles are the same paper: case, punctuation and accents aside. */
 export const sameTitle = (a: string, b: string) => {
   const fold = (value: string) =>
@@ -254,6 +284,32 @@ export async function scholarLookup(title: string, signal?: AbortSignal): Promis
     signal,
   );
   return results.find((result) => sameTitle(result.title, trimmed));
+}
+
+/**
+ * A paper's authors as Scholar's record of it links them to their profiles.
+ * Scholar links a name in a byline only where that person has put the paper
+ * on their own profile, so this is who wrote it, by their own word — no
+ * guessing between people of a name. Undefined when the paper is not found;
+ * an empty list when it is found and none of its authors has a profile.
+ */
+export async function scholarPaperAuthors(
+  title: string,
+  signal?: AbortSignal,
+): Promise<{ authors: string[]; linked: { name: string; userId: string }[] } | undefined> {
+  const trimmed = title.trim();
+  if (!trimmed) return undefined;
+  const query = `"${trimmed}"`;
+  const results = await ask<ScholarResult>(
+    `/scholar/search?q=${encodeURIComponent(query)}`,
+    scholarPage('scholar', { hl: 'en', as_sdt: '0,5', q: query }),
+    signal,
+  );
+  // Scholar shortens a long title with an ellipsis, and writes its case its own way.
+  const found =
+    results.find((result) => sameTitle(result.title, trimmed)) ??
+    results.find((result) => titleFits(result.title.replace(/…$/, ''), trimmed) && titleFits(trimmed, result.title.replace(/…$/, '')));
+  return found ? { authors: found.authors ?? [], linked: found.authorIds ?? [] } : undefined;
 }
 
 /**
