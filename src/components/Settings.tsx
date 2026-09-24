@@ -661,8 +661,9 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             ))}
           </div>
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            Zen mode (<kbd>Z</kbd>, or the corners button in the reader’s top bar) hides the library and the dock while
-            you read. Move the pointer to the left or right edge of the screen and that side slides back out,{' '}
+            Zen mode (<kbd>Z</kbd>, or the corners button in the reader’s top bar) hides the library, the dock and the
+            top bar itself while you read. Move the pointer to the left, right or top edge of the screen and that side
+            slides back out,{' '}
             {ZEN_HAZES.find((haze) => haze.id === settings.zenHaze)?.note}
           </p>
         </section>

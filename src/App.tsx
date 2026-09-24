@@ -25,8 +25,11 @@ const LAYOUT_KEY = 'reader.layout';
 const ASSISTANT_KEY = 'reader.assistant.open';
 const ZEN_KEY = 'reader.zen';
 
-/** Which edge's panes are out while in zen mode. */
-type Peek = 'left' | 'right' | null;
+/** Which edge's panes are out while in zen mode: the top one is the reader's top bar. */
+type Peek = 'left' | 'right' | 'top' | null;
+
+/** Everything zen mode puts away, and the strips along the edges that bring it back. */
+const ZEN_PANES = '.rail, .app > .panel, .dock, .reader-head';
 
 /** How long the pointer may be off a pane before it slides back. */
 const PEEK_LINGER_MS = 320;
@@ -96,8 +99,8 @@ export default function App() {
   // reconnect before anything is collected that Drive would then have missed.
   const [skippedConnect, setSkippedConnect] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(() => localStorage.getItem(ASSISTANT_KEY) === 'true');
-  // Zen mode, while a paper is open: the rail, the library and the dock step
-  // off the screen and wait at its edges. Hovering an edge brings that side's
+  // Zen mode, while a paper is open: the rail, the library, the dock and the
+  // reader's top bar step off the screen and wait at its edges. Hovering an edge brings that side's
   // panes out over the page, with a haze cast from them across it.
   const [zen, setZen] = useState(() => localStorage.getItem(ZEN_KEY) === 'true');
   const [peek, setPeek] = useState<Peek>(null);
@@ -125,7 +128,7 @@ export default function App() {
   const peekOut = useCallback(() => {
     window.clearTimeout(peekTimer.current);
     peekTimer.current = window.setTimeout(() => {
-      if (isTyping(document.activeElement) && document.activeElement?.closest('.rail, .app > .panel, .dock')) return;
+      if (isTyping(document.activeElement) && document.activeElement?.closest(ZEN_PANES)) return;
       setPeek(null);
     }, PEEK_LINGER_MS);
   }, []);
@@ -322,7 +325,7 @@ export default function App() {
     if (!zenOn || !peek) return;
     const onDown = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest('.rail, .app > .panel, .dock, .zen-edge')) return;
+      if (target?.closest(`${ZEN_PANES}, .zen-edge`)) return;
       window.clearTimeout(peekTimer.current);
       setPeek(null);
     };
@@ -348,10 +351,23 @@ export default function App() {
       const dock = app.querySelector<HTMLElement>(':scope > .dock');
       app.style.setProperty('--zen-left', `${edge}px`);
       app.style.setProperty('--zen-right', `${dock ? window.innerWidth - dock.offsetLeft : 0}px`);
+      // The top bar is placed in the page, not the window; its offsets ignore
+      // the slide that hides it.
+      const head = app.querySelector<HTMLElement>('.reader-head');
+      const main = head?.parentElement;
+      const bottom = head && main ? main.getBoundingClientRect().top + head.offsetTop + head.offsetHeight : 0;
+      app.style.setProperty('--zen-top', `${bottom}px`);
     };
     measure();
+    // A banner under the top bar makes it taller without the window changing.
+    const head = app.querySelector('.reader-head');
+    const observer = head ? new ResizeObserver(measure) : null;
+    if (head) observer?.observe(head);
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
   }, [zenOn, peek, libraryOpen, dock]);
 
   if (!ready) {
@@ -380,9 +396,10 @@ export default function App() {
   const shownDock: Dock = inZen ? dockPane ?? 'notes' : dockPane;
   // Which edge an element belongs to: its panes, or the strip that brings them out.
   const sideOf = (target: EventTarget | null): Peek => {
-    const element = target instanceof Element ? target.closest('.rail, .app > .panel, .dock, .zen-edge') : null;
+    const element = target instanceof Element ? target.closest(`${ZEN_PANES}, .zen-edge`) : null;
     if (!element) return null;
     if (element.classList.contains('zen-edge')) return (element as HTMLElement).dataset.side as Peek;
+    if (element.classList.contains('reader-head')) return 'top';
     return element.classList.contains('dock') ? 'right' : 'left';
   };
   // One pair of handlers for every pane: a hidden pane takes no pointer, so
@@ -562,6 +579,7 @@ export default function App() {
           <div className="zen-haze" data-side={hazeSide} aria-hidden="true" />
           <div className="zen-edge" data-side="left" aria-hidden="true" onPointerDown={() => peekIn('left')} />
           <div className="zen-edge" data-side="right" aria-hidden="true" onPointerDown={() => peekIn('right')} />
+          <div className="zen-edge" data-side="top" aria-hidden="true" onPointerDown={() => peekIn('top')} />
         </>
       ) : null}
 

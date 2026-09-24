@@ -1710,11 +1710,13 @@ renderers drop the blur entirely and show the text underneath sharp.
 ## Zen mode
 
 With a paper open, press **Z** (or the corners button in the top bar) and the
-rail, the library and the dock step off the screen: the paper, in Reflow or as
-a PDF, has the whole window. They are not gone, only waiting at the edges. Move
-the pointer to the left edge of the screen and the rail and the library slide
-out over the page; to the right edge, and the dock does — Discover or the
-highlights, whichever was showing, or the highlights if the dock was shut. Move
+rail, the library, the dock and the top bar step off the screen: the paper, in
+Reflow or as a PDF, has the whole window. They are not gone, only waiting at
+the edges. Move the pointer to the left edge of the screen and the rail and the
+library slide out over the page; to the right edge, and the dock does —
+Discover or the highlights, whichever was showing, or the highlights if the
+dock was shut; to the top edge, and the top bar comes down, with the progress
+line and the copy you are reading under it. Move
 back onto the page, press Escape, or tap anywhere off them, and they slide away
 again. A pane with the cursor in its search box stays out until you leave the
 box. **Z** again leaves zen mode. It is remembered, so a reload comes back to it.
@@ -1731,7 +1733,8 @@ What falls over the page while a side is out is chosen under
 - **Glow** — a light in the accent colour spills from the panes onto the page.
 
 A faint line of the accent colour marks each edge, and brightens under the
-pointer. The panes leave the row rather than shrinking it, so the page never
+pointer; the one along the top stops short of the corners, which belong to
+the sides. The panes leave the row rather than shrinking it, so the page never
 reflows as they come and go. In the glass theme they take the tint of the cards
 that float over the paper, since what is behind them is the page rather than
 the wallpaper. The styles are the *zen* section at the end of

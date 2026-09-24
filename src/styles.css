@@ -2244,11 +2244,11 @@ body.win-moving .assistant-win { transition: none; }
 /* ------------------------------------------------------------------ zen -- */
 
 /* Zen mode: the rail and the library wait off the left edge, the dock off the
-   right, and the page has the window. Hovering an edge (the .zen-edge strips)
-   brings that side out over the page, and a haze falls from it across the
-   page — a shadow, a mist or a glow (Settings → Appearance). The panes are
-   taken out of the row, so the page widens under them rather than being
-   pushed about. `:root` in front is for the glass rules above, which place
+   right, the reader's top bar off the top, and the page has the window.
+   Hovering an edge (the .zen-edge strips) brings that side out over the page,
+   and a haze falls from it across the page — a shadow, a mist or a glow
+   (Settings → Zen mode). The panes are taken out of the row, so the page
+   widens under them rather than being pushed about. `:root` in front is for the glass rules above, which place
    the panes with the same weight. */
 .app.is-zen { --zen-inset: 0px; --zen-rail: 60px; --zen-ease: cubic-bezier(0.2, 0.8, 0.2, 1); --zen-time: 0.34s; }
 :root[data-glass='on'] .app.is-zen { --zen-inset: 10px; }
@@ -2280,31 +2280,79 @@ body.win-moving .assistant-win { transition: none; }
 :root .app.is-zen.peek-left > :is(.rail, .panel) { box-shadow: 22px 0 48px -22px rgb(0 0 0 / 0.38); }
 :root .app.is-zen.peek-right > .dock { box-shadow: -22px 0 48px -22px rgb(0 0 0 / 0.38); }
 
+/* The top bar, with the progress line and the copy it is reading, lifts off
+   the top of the page the same way. It is placed in the page, so the page's
+   text starts at the top of the window while it is away. */
+.app.is-zen > .main { position: relative; }
+.app.is-zen .reader-head {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 32;
+  background: var(--paper);
+  border-radius: inherit;
+  visibility: hidden;
+  opacity: 0;
+  translate: 0 calc(-100% - var(--zen-inset));
+  transition: translate var(--zen-time) var(--zen-ease), opacity var(--zen-time) ease, visibility 0s linear var(--zen-time), box-shadow var(--zen-time) ease;
+}
+.app.is-zen.peek-top .reader-head {
+  translate: none;
+  visibility: visible;
+  opacity: 1;
+  box-shadow: 0 22px 48px -22px rgb(0 0 0 / 0.38);
+  transition: translate var(--zen-time) var(--zen-ease), opacity calc(var(--zen-time) * 0.6) ease, visibility 0s, box-shadow var(--zen-time) ease;
+}
+/* In glass, the blur is a layer under the bar rather than on it, for the
+   reason the glass section gives: on the bar it would become the containing
+   block of anything fixed inside it. */
+:root[data-glass='on'] .app.is-zen .reader-head { background: transparent; isolation: isolate; }
+:root[data-glass='on'] .app.is-zen .reader-head::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: rgb(var(--float-rgb) / var(--float-a));
+  -webkit-backdrop-filter: blur(20px) saturate(175%);
+  backdrop-filter: blur(20px) saturate(175%);
+}
+.app.is-zen.haze-glow.peek-top .reader-head { box-shadow: 0 0 60px -10px rgb(var(--accent-rgb) / 0.45); }
+
 /* The strips along the edges that bring the panes out. A hairline of the
-   accent shows where they are, and brightens under the pointer. */
-.zen-edge { position: fixed; top: 0; bottom: 0; width: 14px; z-index: 34; }
+   accent shows where they are, and brightens under the pointer. The top one
+   stops short of the side strips, so a corner belongs to the side. */
+.zen-edge { position: fixed; z-index: 34; }
+.zen-edge:is([data-side='left'], [data-side='right']) { top: 0; bottom: 0; width: 14px; }
 .zen-edge[data-side='left'] { left: 0; }
 .zen-edge[data-side='right'] { right: 0; }
+.zen-edge[data-side='top'] { top: 0; left: 14px; right: 14px; height: 10px; }
 .zen-edge::after {
   content: '';
   position: absolute;
-  top: 18%;
-  bottom: 18%;
-  width: 3px;
   border-radius: 3px;
-  background: linear-gradient(transparent, rgb(var(--accent-rgb) / 0.55), transparent);
+  background: linear-gradient(var(--hint-dir, 180deg), transparent, rgb(var(--accent-rgb) / 0.55), transparent);
   opacity: 0.3;
   transition: opacity 0.25s ease;
 }
+.zen-edge:is([data-side='left'], [data-side='right'])::after { top: 18%; bottom: 18%; width: 3px; }
 .zen-edge[data-side='left']::after { left: 3px; }
 .zen-edge[data-side='right']::after { right: 3px; }
+.zen-edge[data-side='top']::after { --hint-dir: 90deg; left: 25%; right: 25%; top: 3px; height: 3px; }
 .zen-edge:hover::after { opacity: 1; }
 .app.peek-left .zen-edge[data-side='left'],
-.app.peek-right .zen-edge[data-side='right'] { pointer-events: none; opacity: 0; }
+.app.peek-right .zen-edge[data-side='right'],
+.app.peek-top .zen-edge[data-side='top'] { pointer-events: none; opacity: 0; }
+/* Nor does a strip along the top reach into a side pane that is out. */
+.app:is(.peek-left, .peek-right) .zen-edge[data-side='top'] { pointer-events: none; }
 
 /* The haze: one layer over the page and under the panes, drawn from the edge
-   of whichever side is out — or was last, so that it fades as the panes go. --zen-left and --zen-right are where the panes
-   end, measured in App. */
+   of whichever side is out — or was last, so that it fades as the panes go.
+   --zen-left, --zen-right and --zen-top are where the panes end, measured in
+   App. Each side says which way the haze runs (--dir), where it starts
+   (--from) and how far it reaches (--reach, a length along --dir); the three
+   styles below are written once for all of them. */
 .zen-haze {
   --haze-rgb: 22 22 18;
   --haze-a: 0.3;
@@ -2315,53 +2363,36 @@ body.win-moving .assistant-win { transition: none; }
   opacity: 0;
   transition: opacity 0.42s ease;
 }
+.zen-haze[data-side='left'] { --dir: 90deg; --from: var(--zen-left); --reach: 44vw; --glow-at: var(--zen-left) 50%; --glow-size: 46vw 80vh; }
+.zen-haze[data-side='right'] { --dir: 270deg; --from: var(--zen-right); --reach: 44vw; --glow-at: calc(100% - var(--zen-right)) 50%; --glow-size: 46vw 80vh; }
+.zen-haze[data-side='top'] { --dir: 180deg; --from: var(--zen-top); --reach: 40vh; --glow-at: 50% var(--zen-top); --glow-size: 70vw 36vh; }
 :root[data-theme='dark'] .zen-haze { --haze-rgb: 0 0 0; --haze-a: 0.5; }
-.app.peek-left .zen-haze,
-.app.peek-right .zen-haze { opacity: 1; }
+.app:is(.peek-left, .peek-right, .peek-top) .zen-haze { opacity: 1; }
 
 /* Shadow: the panes cast a long soft shadow across the page. */
-.app.haze-shadow .zen-haze[data-side='left'] {
-  background: linear-gradient(90deg,
-    rgb(var(--haze-rgb) / var(--haze-a)) var(--zen-left),
-    rgb(var(--haze-rgb) / calc(var(--haze-a) * 0.55)) calc(var(--zen-left) + 8vw),
-    rgb(var(--haze-rgb) / calc(var(--haze-a) * 0.2)) calc(var(--zen-left) + 22vw),
-    rgb(var(--haze-rgb) / 0) calc(var(--zen-left) + 44vw));
-}
-.app.haze-shadow .zen-haze[data-side='right'] {
-  background: linear-gradient(270deg,
-    rgb(var(--haze-rgb) / var(--haze-a)) var(--zen-right),
-    rgb(var(--haze-rgb) / calc(var(--haze-a) * 0.55)) calc(var(--zen-right) + 8vw),
-    rgb(var(--haze-rgb) / calc(var(--haze-a) * 0.2)) calc(var(--zen-right) + 22vw),
-    rgb(var(--haze-rgb) / 0) calc(var(--zen-right) + 44vw));
+.app.haze-shadow .zen-haze {
+  background: linear-gradient(var(--dir),
+    rgb(var(--haze-rgb) / var(--haze-a)) var(--from),
+    rgb(var(--haze-rgb) / calc(var(--haze-a) * 0.55)) calc(var(--from) + var(--reach) * 0.18),
+    rgb(var(--haze-rgb) / calc(var(--haze-a) * 0.2)) calc(var(--from) + var(--reach) * 0.5),
+    rgb(var(--haze-rgb) / 0) calc(var(--from) + var(--reach)));
 }
 
 /* Mist: the page nearest the panes goes out of focus and pales, clearing
    towards the far side — what you are reading stays sharp. */
-.app.haze-mist .zen-haze[data-side='left'],
-.app.haze-mist .zen-haze[data-side='right'] {
+.app.haze-mist .zen-haze {
   -webkit-backdrop-filter: blur(6px) saturate(80%);
   backdrop-filter: blur(6px) saturate(80%);
   background: color-mix(in srgb, var(--paper) 42%, transparent);
-}
-.app.haze-mist .zen-haze[data-side='left'] {
-  -webkit-mask-image: linear-gradient(90deg, #000 var(--zen-left), rgb(0 0 0 / 0.75) calc(var(--zen-left) + 10vw), transparent calc(var(--zen-left) + 40vw));
-  mask-image: linear-gradient(90deg, #000 var(--zen-left), rgb(0 0 0 / 0.75) calc(var(--zen-left) + 10vw), transparent calc(var(--zen-left) + 40vw));
-}
-.app.haze-mist .zen-haze[data-side='right'] {
-  -webkit-mask-image: linear-gradient(270deg, #000 var(--zen-right), rgb(0 0 0 / 0.75) calc(var(--zen-right) + 10vw), transparent calc(var(--zen-right) + 40vw));
-  mask-image: linear-gradient(270deg, #000 var(--zen-right), rgb(0 0 0 / 0.75) calc(var(--zen-right) + 10vw), transparent calc(var(--zen-right) + 40vw));
+  -webkit-mask-image: linear-gradient(var(--dir), #000 var(--from), rgb(0 0 0 / 0.75) calc(var(--from) + var(--reach) * 0.23), transparent calc(var(--from) + var(--reach) * 0.9));
+  mask-image: linear-gradient(var(--dir), #000 var(--from), rgb(0 0 0 / 0.75) calc(var(--from) + var(--reach) * 0.23), transparent calc(var(--from) + var(--reach) * 0.9));
 }
 
 /* Glow: light in the accent colour spills from the panes onto the page. */
-.app.haze-glow .zen-haze[data-side='left'] {
+.app.haze-glow .zen-haze {
   background:
-    radial-gradient(ellipse 46vw 80vh at var(--zen-left) 50%, rgb(var(--accent-rgb) / 0.3), rgb(var(--accent-rgb) / 0.1) 45%, transparent 72%),
-    linear-gradient(90deg, rgb(var(--haze-rgb) / calc(var(--haze-a) * 0.35)) var(--zen-left), transparent calc(var(--zen-left) + 18vw));
-}
-.app.haze-glow .zen-haze[data-side='right'] {
-  background:
-    radial-gradient(ellipse 46vw 80vh at calc(100% - var(--zen-right)) 50%, rgb(var(--accent-rgb) / 0.3), rgb(var(--accent-rgb) / 0.1) 45%, transparent 72%),
-    linear-gradient(270deg, rgb(var(--haze-rgb) / calc(var(--haze-a) * 0.35)) var(--zen-right), transparent calc(var(--zen-right) + 18vw));
+    radial-gradient(ellipse var(--glow-size) at var(--glow-at), rgb(var(--accent-rgb) / 0.3), rgb(var(--accent-rgb) / 0.1) 45%, transparent 72%),
+    linear-gradient(var(--dir), rgb(var(--haze-rgb) / calc(var(--haze-a) * 0.35)) var(--from), transparent calc(var(--from) + var(--reach) * 0.4));
 }
 :root .app.is-zen.haze-glow.peek-left > :is(.rail, .panel) { box-shadow: 0 0 60px -10px rgb(var(--accent-rgb) / 0.45); }
 :root .app.is-zen.haze-glow.peek-right > .dock { box-shadow: 0 0 60px -10px rgb(var(--accent-rgb) / 0.45); }

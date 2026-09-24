@@ -1,7 +1,8 @@
 /**
- * Zen mode. A paper is opened, then Z hides the rail, the library and the
- * dock; the page takes the window. The pointer at the left edge brings the
- * rail and the library out, at the right edge the dock, each with its haze
+ * Zen mode. A paper is opened, then Z hides the rail, the library, the dock
+ * and the top bar; the page takes the window. The pointer at the left edge
+ * brings the rail and the library out, at the right edge the dock, at the top
+ * the top bar, each with its haze
  * over the page, and moving back onto the page puts them away. Each haze
  * (shadow, mist, glow) is photographed, in Reflow and in the PDF as a book,
  * and once more in the dark glass theme.
@@ -106,6 +107,9 @@ check('the app is in zen mode', (await page.locator('.app.is-zen').count()) === 
 check('the rail is hidden', !(await visible('.rail')));
 check('the library is hidden', !(await visible('.library-panel')));
 check('the dock is hidden', !(await visible('.dock')));
+check('the top bar is hidden', !(await visible('.reader-head')));
+const textTop = await page.locator('.reader-scroll').evaluate((el) => el.getBoundingClientRect().top);
+check('the page starts at the top of the window', textTop <= 1, `${textTop}px`);
 const mainWidth = await page.locator('.main').evaluate((el) => el.getBoundingClientRect().width);
 check('the page has the whole window', mainWidth >= W - 2, `${mainWidth}px`);
 await page.screenshot({ path: `${OUT}/zen-1-reflow.png` });
@@ -113,7 +117,8 @@ await page.screenshot({ path: `${OUT}/zen-1-reflow.png` });
 async function peek(side, name) {
   await page.mouse.move(W / 2, H / 2);
   await settle();
-  await page.mouse.move(side === 'left' ? 4 : W - 4, H / 2, { steps: 4 });
+  if (side === 'top') await page.mouse.move(W / 2, 3, { steps: 4 });
+  else await page.mouse.move(side === 'left' ? 4 : W - 4, H / 2, { steps: 4 });
   await settle();
   await page.screenshot({ path: `${OUT}/${name}.png` });
 }
@@ -133,6 +138,20 @@ await peek('right', 'zen-3-right-shadow');
 check('the dock comes out', await visible('.dock'));
 check('the rail stays away', !(await visible('.rail')));
 
+console.log('\n== the top edge ==');
+await peek('top', 'zen-3b-top-shadow');
+check('the top bar comes down', await visible('.reader-head'));
+check('the side panes stay away', !(await visible('.rail')) && !(await visible('.dock')));
+const headTop = await page.locator('.reader-head').evaluate((el) => el.getBoundingClientRect().top);
+check('it sits at the top of the window', Math.abs(headTop) <= 1, `${headTop}px`);
+await page.getByRole('button', { name: 'Change the text size' }).click();
+check('its buttons work while it is out', await visible('.reader-head'));
+await page.getByRole('button', { name: 'Change the text size' }).click();
+await page.getByRole('button', { name: 'Change the text size' }).click();
+await page.mouse.move(W / 2, H / 2, { steps: 4 });
+await settle();
+check('back on the page, it goes away', !(await visible('.reader-head')));
+
 async function setSettings(patch) {
   await page.evaluate((next) => {
     const saved = JSON.parse(localStorage.getItem('reader.settings') || '{}');
@@ -151,13 +170,18 @@ await page.waitForSelector('.paper-body h2', { timeout: 30000 });
 check('zen mode survives a reload', (await page.locator('.app.is-zen').count()) === 1);
 await peek('left', 'zen-4-left-mist');
 await peek('right', 'zen-5-right-mist');
+await peek('top', 'zen-5b-top-mist');
 await setSettings({ zenHaze: 'glow' });
 await page.waitForSelector('.paper-body h2', { timeout: 30000 });
 await peek('left', 'zen-6-left-glow');
 await peek('right', 'zen-7-right-glow');
+await peek('top', 'zen-7b-top-glow');
 
 console.log('\n== the PDF as a book ==');
 await setSettings({ zenHaze: 'shadow' });
+// The switch is in the top bar, which has to be brought down to reach it.
+await page.mouse.move(W / 2, 3, { steps: 4 });
+await settle();
 await page.locator('.segmented button', { hasText: 'PDF' }).click({ timeout: 20000 });
 await page.waitForSelector('.pdf-pane iframe', { timeout: 30000 });
 await page.getByRole('button', { name: /Read as a book/i }).click();
@@ -170,10 +194,14 @@ await peek('left', 'zen-9-pdf-left-shadow');
 check('the left edge works over the PDF', await visible('.library-panel'));
 await peek('right', 'zen-10-pdf-right-shadow');
 check('the right edge works over the PDF', await visible('.dock'));
+await peek('top', 'zen-10b-pdf-top-shadow');
+check('the top edge works over the PDF', await visible('.reader-head'));
 
 // The book layout is not kept across a reload, so it is chosen again after each.
 async function openBook() {
   await page.waitForSelector('.pdf-pane iframe, .pdf-book-page', { timeout: 30000 });
+  await page.mouse.move(W / 2, 3, { steps: 4 });
+  await settle();
   const book = page.getByRole('button', { name: /Read as a book/i });
   if (await book.isVisible().catch(() => false)) await book.click();
   await page.waitForSelector('.pdf-book-page:not(.drawing)', { timeout: 30000 });
@@ -187,6 +215,7 @@ await peek('left', 'zen-11-dark-glass-left-glow');
 await setSettings({ zenHaze: 'shadow' });
 await openBook();
 await peek('right', 'zen-12-dark-glass-right-shadow');
+await peek('top', 'zen-13-dark-glass-top-shadow');
 
 console.log('\n== Z leaves it ==');
 await page.mouse.move(W / 2, H / 2);
