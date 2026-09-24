@@ -54,7 +54,19 @@ FORMAT — plain Markdown, with these rules the page depends on:
   then 1–4 sentences of Markdown: what changed, and roughly when and by whom (only if you are confident).
   Put a caveat right where the claim is explained, AND end with a section "## Since then" that lists every
   caveat again as a short verdict table followed by what a reader should use today instead.
-- Name papers only when you are sure they exist. Math in plain text or \`code\`, not LaTeX.`;
+- Name papers only when you are sure they exist.
+
+MATHS — the page typesets LaTeX, so write every formula, symbol and variable name as LaTeX:
+- Inline between single dollars, $\\nabla \\cdot u = 0$; a displayed equation on lines of its own between double dollars:
+  $$
+  \\partial_t u + (u \\cdot \\nabla) u = \\nu \\Delta u - \\nabla p
+  $$
+  Never put maths in \`code\` spans or in a plain \`\`\` block, and never write it as Unicode approximations.
+- Teach the maths, as much as the paper needs and no more. For each equation that carries the argument: say in words
+  what it states, name every symbol the first time it appears (a short "where …" list under a displayed equation works
+  well), and give the intuition — what each term does, why it has that form, what happens in a simple or limiting case.
+  Walk through the key steps of a derivation or proof one move at a time, saying why each move is allowed, rather than
+  jumping to the result. A paper with little maths needs little of this; a mathematical paper needs a lot of it.`;
 
 // ---------------------------------------------------------------------------
 // Parsing — forgiving, since it runs on every streamed token

@@ -6,10 +6,10 @@ import { HIGHLIGHT_COLORS } from './types';
 import type { Screen } from './lib/assistant';
 import { setQuote } from './lib/assistant';
 import { followLight } from './lib/glassLight';
-import { clearSelection, currentSelection, paperText, pdfPageImages, pdfPagesInView, pdfPageTexts, trackSelection, visiblePassage } from './lib/screen';
+import { clearSelection, currentSelection, currentSelectionIn, explanationOnScreen, paperText, pdfPageImages, pdfPagesInView, pdfPageTexts, trackSelection, visiblePassage } from './lib/screen';
 import Assistant from './components/Assistant';
 import Explain from './components/Explain';
-import { setExplainDrive } from './lib/explain';
+import { explanationFor, setExplainDrive } from './lib/explain';
 import { explainDrive } from './lib/explainDrive';
 import CollectionView from './components/CollectionView';
 import JunkView from './components/JunkView';
@@ -308,8 +308,12 @@ export default function App() {
           mode = 'PDF (still loading)';
         }
         const kind = (color: string) => HIGHLIGHT_COLORS.find((c) => c.id === color)?.label ?? color;
+        // The Explain page, when it is open over this paper: what it says, and what of it is in view.
+        const explainPage = explainOpen ? explanationOnScreen() : null;
+        const explained = explainPage ? explanationFor(paper.id)?.content : '';
+        const explanation = explainPage && explained ? { text: explained, visible: explainPage.visible, layout: explainPage.layout, covers: explainPage.covers } : undefined;
         return {
-          where: 'Reading a paper',
+          where: explanation ? 'Reading a paper, with its Explain page open' : 'Reading a paper',
           paper: {
             id: paper.id,
             title: paper.title,
@@ -327,6 +331,8 @@ export default function App() {
           visible,
           images,
           selection: currentSelection(),
+          selectionIn: currentSelectionIn(),
+          explanation,
           highlights: highlights
             .filter((h) => h.paperId === paper.id && !h.orphaned)
             .map((h) => ({ exact: h.exact, kind: kind(h.color), note: h.note, section: h.section })),
@@ -340,7 +346,7 @@ export default function App() {
         : { all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library' }[view.kind];
     const library = Array.from(document.querySelectorAll('.paper-name'), (el) => el.textContent?.trim() ?? '').filter(Boolean);
     return { where, library };
-  }, [view, papers, collections, highlights]);
+  }, [view, papers, collections, highlights, explainOpen]);
 
   const closeAssistant = useCallback(() => setAssistantOpen(false), []);
 

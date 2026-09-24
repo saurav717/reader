@@ -117,7 +117,20 @@ Pointing at passages in the open paper:
   Give at most five. Only quote text that is really in the paper.
 - In the prose, you can point at one of those passages as [the words you want to link](passage:1),
   with its number in the block.
-- The fenced blocks come last, \`passages\` before \`papers\`, and nothing follows them.`;
+- The fenced blocks come last, \`passages\` before \`papers\`, and nothing follows them.
+
+When the Explain page is open:
+- The reader may have the paper's Explain page open — a long walkthrough of the paper that Claude
+  wrote earlier. <explanation_text> is its Markdown, and <explanation_in_view> in the <screen> block
+  is the part of it on screen. While it is open, "this", "here" and "that equation" usually mean
+  the selection, or else what is in view on the explanation, not the paper underneath it.
+- Answer from both: the explanation is what they are reading, the paper is the source. Where the
+  two differ, trust the paper and say so.
+- A passage can point at the explanation too: add "in": "explanation" to its line, and copy the
+  quote from the prose of <explanation_text> — a sentence or clause without maths, code or
+  Markdown marks in it, 8 to 40 words. The app highlights it on the explanation. Lines without
+  "in" are passages of the paper. Point at the explanation when the reader is asking about what
+  it says; point at the paper when they want the source.`;
 
 // ---------------------------------------------------------------------------
 // Passages an answer points at in the open paper
@@ -133,6 +146,8 @@ export interface Passage {
   page?: number;
   /** Scroll to this one as soon as the answer is in. */
   show?: boolean;
+  /** Where the words are: the paper itself, or its Explain page. */
+  source?: 'paper' | 'explanation';
 }
 
 const PASSAGES_FENCE = /(?:^|\n)[ \t]*```passages[ \t]*\n([\s\S]*?)(?:\n[ \t]*```[ \t]*(?=\n|$)|$)/;
@@ -161,6 +176,7 @@ export function splitPassages(content: string): { text: string; passages: Passag
       section: field(parsed.section),
       page: Number.isInteger(page) && page > 0 ? page : undefined,
       show: parsed.show === true,
+      ...(/^explanation$/i.test(field(parsed.in) ?? '') ? { source: 'explanation' as const } : {}),
     });
   }
   return { text, passages: passages.slice(0, 8) };
@@ -295,9 +311,23 @@ export interface Screen {
   images?: { label: string; data: string }[];
   /** Titles in the list on screen, when no paper is open. */
   library?: string[];
+  /** The paper's Explain page, when it is open. */
+  explanation?: ScreenExplanation;
+  /** Where the selection was made. */
+  selectionIn?: 'paper' | 'explanation';
 }
 
-export type ContextKey = 'paper' | 'fullText' | 'visible' | 'selection' | 'highlights' | 'library';
+export interface ScreenExplanation {
+  /** The page as Claude wrote it, in Markdown. */
+  text: string;
+  /** The sections of it on screen, as text. */
+  visible?: string;
+  /** How it is laid out, and whether it hides the paper. */
+  layout?: string;
+  covers?: boolean;
+}
+
+export type ContextKey = 'paper' | 'fullText' | 'visible' | 'selection' | 'highlights' | 'library' | 'explanation';
 
 export const CONTEXT_ROWS: [ContextKey, string, string][] = [
   ['paper', 'Paper details', 'title, authors, venue, identifiers and abstract'],
@@ -305,6 +335,7 @@ export const CONTEXT_ROWS: [ContextKey, string, string][] = [
   ['visible', 'Passage in view', 'the paragraphs on screen right now — in PDF mode, a picture of the pages in view'],
   ['selection', 'Your selection', 'the text you last selected in the paper'],
   ['highlights', 'Highlights and notes', 'what you have marked in this paper, and what you wrote'],
+  ['explanation', 'The explanation', 'the paper’s Explain page, when it is open — all of it, and the part in view'],
   ['library', 'The list on screen', 'the titles in the collection you are looking at'],
 ];
 
@@ -321,7 +352,7 @@ function loadPrefs(): Prefs {
   const base: Prefs = {
     model: DEFAULT_MODEL,
     // All on: the point of the window is not having to paste the screen into it.
-    context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true },
+    context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true },
   };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_STORE) || '{}') as Partial<Prefs>;
@@ -392,7 +423,7 @@ let state: AssistantState = {
   threadId: null,
   history: [],
   live: false,
-  prefs: { model: DEFAULT_MODEL, context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true } },
+  prefs: { model: DEFAULT_MODEL, context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true } },
   hasKey: false,
   quote: '',
   shot: '',
@@ -666,8 +697,22 @@ export function screenBlock(screen: Screen, on: Record<ContextKey, boolean>): st
     parts.push(tag('paper', lines.join('\n')));
     if (p.abstract) parts.push(tag('abstract', p.abstract));
   }
-  if (on.visible) parts.push(tag('passage_in_view', clip(screen.visible, VISIBLE_MAX_CHARS)));
-  if (on.selection) parts.push(tag('selected_text', clip(screen.selection, SELECTION_MAX_CHARS)));
+  const explanation = on.explanation ? screen.explanation : undefined;
+  if (explanation) {
+    parts.push(
+      tag(
+        'explain_page',
+        `Open${explanation.layout ? `, as “${explanation.layout}”` : ''}. ${explanation.covers ? 'It covers the paper, so the reader is looking at the explanation, not the paper.' : 'The paper is still visible beside it.'}`,
+      ),
+    );
+    parts.push(tag('explanation_in_view', clip(explanation.visible, VISIBLE_MAX_CHARS)));
+  }
+  // The paper behind an explanation that covers it is not what is in view.
+  if (on.visible && !explanation?.covers) parts.push(tag('passage_in_view', clip(screen.visible, VISIBLE_MAX_CHARS)));
+  if (on.selection) {
+    const fromExplanation = screen.selectionIn === 'explanation';
+    parts.push(tag('selected_text', clip(screen.selection, SELECTION_MAX_CHARS), { in: fromExplanation ? 'the explanation' : '' }));
+  }
   if (on.highlights && screen.highlights?.length) {
     parts.push(
       tag(
@@ -701,6 +746,15 @@ export function systemBlocks(screen: Screen, on: Record<ContextKey, boolean>) {
         title: screen.paper.title,
         truncated: cut ? `yes, first ${FULL_TEXT_MAX_CHARS.toLocaleString('en')} characters only` : '',
       }),
+      cache_control: { type: 'ephemeral' },
+    });
+  }
+  // The explanation after the paper, so a question about it still reads the paper from the cache.
+  const explanation = on.explanation ? screen.explanation?.text.trim() : '';
+  if (explanation) {
+    blocks.push({
+      type: 'text',
+      text: tag('explanation_text', explanation.slice(0, FULL_TEXT_MAX_CHARS), { title: screen.paper?.title }),
       cache_control: { type: 'ephemeral' },
     });
   }

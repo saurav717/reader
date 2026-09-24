@@ -16,7 +16,7 @@ const win = await load('src/lib/floatWindow.ts');
 
 after(cleanup);
 
-const ALL = { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true };
+const ALL = { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true };
 const paperScreen = {
   where: 'Reading a paper',
   paper: {
@@ -89,6 +89,42 @@ describe('the system prompt', () => {
     const [, text] = assistant.systemBlocks({ ...paperScreen, fullText: long }, ALL);
     assert.match(text.text, /truncated="yes, first 200,000 characters only"/);
     assert.ok(text.text.length < assistant.FULL_TEXT_MAX_CHARS + 200);
+  });
+});
+
+describe('with the Explain page open', () => {
+  const explaining = {
+    ...paperScreen,
+    where: 'Reading a paper, with its Explain page open',
+    selection: '$\\sqrt{d_k}$ keeps the logits small',
+    selectionIn: 'explanation',
+    explanation: { text: '## At a glance\n- Attention, scaled by $\\sqrt{d_k}$.', visible: '## At a glance\nAttention, scaled.', layout: 'Margin', covers: true },
+  };
+  it('says what of the explanation is in view, and where the selection was made', () => {
+    const block = assistant.screenBlock(explaining, ALL);
+    assert.match(block, /<explain_page>\nOpen, as “Margin”\. It covers the paper/);
+    assert.match(block, /<explanation_in_view>\n## At a glance\nAttention, scaled\./);
+    assert.match(block, /<selected_text in="the explanation">\n\$\\sqrt/);
+  });
+  it('leaves out the paper under an explanation that covers it, but not one beside it', () => {
+    assert.doesNotMatch(assistant.screenBlock(explaining, ALL), /passage_in_view/);
+    const beside = { ...explaining, explanation: { ...explaining.explanation, layout: 'Beside the paper', covers: false } };
+    assert.match(assistant.screenBlock(beside, ALL), /<passage_in_view>\nScaled dot-product/);
+  });
+  it('sends the explanation after the paper, each behind a cache breakpoint', () => {
+    const blocks = assistant.systemBlocks(explaining, ALL);
+    assert.equal(blocks.length, 3);
+    assert.match(blocks[1].text, /^<paper_text/);
+    assert.match(blocks[2].text, /^<explanation_text title="Attention Is All You Need">\n## At a glance/);
+    assert.deepEqual(blocks[2].cache_control, { type: 'ephemeral' });
+  });
+  it('sends none of it when switched off', () => {
+    const off = { ...ALL, explanation: false };
+    assert.equal(assistant.systemBlocks(explaining, off).length, 2);
+    assert.doesNotMatch(assistant.screenBlock(explaining, off), /explain/);
+  });
+  it('tells Claude how to point at the explanation', () => {
+    assert.match(assistant.SYSTEM, /"in": "explanation"/);
   });
 });
 

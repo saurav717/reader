@@ -21,9 +21,14 @@ import {
   VERDICTS,
 } from '../lib/explain';
 import type { DriveState, RevisionScope } from '../lib/explain';
+import { findPassage, FLASH_EVENT, setExplainLocator } from '../lib/locate';
 import { markdown } from '../lib/markdown';
+import { selectedText } from '../lib/screen';
 import { useStore } from '../lib/store';
+import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ExplainIcon, OpacityIcon, SparkleIcon } from './icons';
+import type { Flash } from './PassageFlash';
+import PassageFlash from './PassageFlash';
 
 export type ExplainLayout = 'margin' | 'notebook' | 'beside';
 const LAYOUT_KEY = 'reader.explain.layout';
@@ -423,6 +428,68 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const busy = Boolean(streaming || (pending && !pending.error));
   const canAsk = Boolean(explanation?.content && assistant.hasKey && !streaming);
 
+  // Ask Claude, while this is open, points at passages here: the explanation's
+  // own words are marked on it; the paper's are left to the paper when it is
+  // beside this, and found here if they are here when this covers it.
+  const docRef = useRef<HTMLElement>(null);
+  const layoutNow = useRef(layout);
+  layoutNow.current = layout;
+  const [flash, setFlash] = useState<Flash | null>(null);
+  const flashKey = useRef(0);
+  useEffect(() => {
+    const release = setExplainLocator(async (request) => {
+      const doc = docRef.current;
+      const scroller = scrollRef.current;
+      if (!doc || !scroller) return null;
+      const ofPaper = request.source !== 'explanation';
+      const paperShows = layoutNow.current === 'beside';
+      if (ofPaper && paperShows) return null;
+      const range = findPassage(doc, request.quote);
+      if (!range) {
+        if (ofPaper) return paperShows ? null : { found: false, reason: 'It is in the paper, under the explanation — choose “Beside the paper”, or close Explain, to see it.' };
+        return { found: false, reason: 'Those words are not on the explanation.' };
+      }
+      const top = range.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+      scroller.scrollTo({ top: Math.max(0, top - scroller.clientHeight / 3), behavior: 'smooth' });
+      const section = range.startContainer.parentElement?.closest<HTMLElement>('.explain-section')?.dataset.title;
+      setFlash({ range, label: request.label, where: ['The explanation', section].filter(Boolean).join(' · '), clip: scroller, anchor: scroller, key: ++flashKey.current, n: request.n });
+      window.dispatchEvent(new CustomEvent(FLASH_EVENT, { detail: { quote: request.quote } }));
+      return { found: true };
+    });
+    return () => {
+      release();
+      window.dispatchEvent(new CustomEvent(FLASH_EVENT, { detail: { quote: null } }));
+    };
+  }, []);
+  // A rewritten page is a different page: the mark goes.
+  useEffect(() => {
+    setFlash(null);
+    window.dispatchEvent(new CustomEvent(FLASH_EVENT, { detail: { quote: null } }));
+  }, [paperId, layout]);
+
+  // A passage selected here can be taken to Ask Claude, as one selected in the paper can.
+  const [picked, setPicked] = useState<{ text: string; top: number; left: number } | null>(null);
+  useEffect(() => {
+    if (!picked) return;
+    const drop = () => {
+      if (window.getSelection()?.isCollapsed) setPicked(null);
+    };
+    const away = () => setPicked(null);
+    const scroller = scrollRef.current;
+    document.addEventListener('selectionchange', drop);
+    scroller?.addEventListener('scroll', away, { passive: true });
+    return () => {
+      document.removeEventListener('selectionchange', drop);
+      scroller?.removeEventListener('scroll', away);
+    };
+  }, [picked]);
+
+  // The maths the Markdown set aside is typeset once it is on screen. Only what
+  // is new is touched, so this is cheap on every render of a stream.
+  useEffect(() => {
+    void typesetMath(scrollRef.current);
+  });
+
   // The outline follows the reading: the section whose head last crossed the top third.
   useEffect(() => {
     const scroller = scrollRef.current;
@@ -468,12 +535,17 @@ export default function Explain({ paperId, title, authors, published, screen, on
   // A passage selected on the page becomes what the next request is about.
   const takeSelection = () => {
     const selection = window.getSelection();
-    const text = selection?.toString().trim() ?? '';
+    const text = selection ? selectedText(selection) : '';
     const node = selection?.anchorNode;
     const element = node instanceof Element ? node : node?.parentElement;
     const section = element?.closest<HTMLElement>('.explain-section');
-    if (text.length < 3 || !section) return;
+    if (text.length < 3 || !section || !selection?.rangeCount) {
+      setPicked(null);
+      return;
+    }
     setScope({ section: section.dataset.title || undefined, quote: text.slice(0, 1500) });
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    setPicked({ text, top: rect.bottom + 8, left: Math.max(12, Math.min(window.innerWidth - 180, rect.left)) });
   };
 
   const start = async () => {
@@ -617,7 +689,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
             <div className="ask-suggestions">
               {(scope.section || scope.quote
                 ? ['Explain this more simply', 'Go deeper into the maths', 'Add a figure for this', 'Add a PyTorch version of the code', 'Is this still true today?']
-                : ['Make the whole page simpler, for a beginner', 'Add a section on how to implement it today', 'Use PyTorch instead of numpy', 'What has changed in the last two years?', 'Fewer figures, more intuition']
+                : ['Make the whole page simpler, for a beginner', 'Add a section on how to implement it today', 'Use PyTorch instead of numpy', 'What has changed in the last two years?', 'Typeset the maths, and walk through it step by step', 'Fewer figures, more intuition']
               ).map((suggestion) => (
                 <button key={suggestion} type="button" className="ask-suggestion" onMouseDown={(event) => event.preventDefault()} onClick={() => void submit(suggestion)}>
                   {suggestion}
@@ -689,7 +761,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           ) : null}
         </nav>
 
-        <article className="explain-doc" onMouseUp={takeSelection}>
+        <article className="explain-doc" ref={docRef} onMouseUp={takeSelection}>
           {!explanation?.content && !checked ? (
             <p className="explain-looking">
               <span className="spinner" />
@@ -809,6 +881,34 @@ export default function Explain({ paperId, title, authors, published, screen, on
           )}
         </article>
       </div>
+
+      {picked ? (
+        <div className="selection-toolbar" style={{ top: picked.top, left: picked.left }} role="toolbar" aria-label="The selection">
+          <button
+            type="button"
+            className="wide"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('reader:ask-claude', { detail: { text: picked.text } }));
+              setPicked(null);
+            }}
+            title="Ask Claude about this passage of the explanation — it reads the paper too"
+          >
+            <SparkleIcon size={15} /> Ask Claude
+          </button>
+        </div>
+      ) : null}
+
+      {flash ? (
+        <PassageFlash
+          flash={flash}
+          look={settings.passageLook}
+          onDone={() => {
+            setFlash(null);
+            window.dispatchEvent(new CustomEvent(FLASH_EVENT, { detail: { quote: null } }));
+          }}
+        />
+      ) : null}
     </div>
   );
 }

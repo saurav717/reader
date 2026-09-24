@@ -16,6 +16,15 @@ const PAGE = await readFile(new URL('./fixtures/explain-attention.md', import.me
 
 after(cleanup);
 
+describe('the instructions', () => {
+  it('asks for maths as LaTeX, explained, never as code', () => {
+    assert.match(explain.EXPLAIN_SYSTEM, /write every formula, symbol and variable name as LaTeX/);
+    assert.match(explain.EXPLAIN_SYSTEM, /Never put maths in `code` spans/);
+    assert.match(explain.EXPLAIN_SYSTEM, /Teach the maths/);
+    assert.doesNotMatch(explain.EXPLAIN_SYSTEM, /not LaTeX/);
+  });
+});
+
 describe('reading the page', () => {
   const sections = explain.parseExplanation(PAGE);
   it('finds every section', () => {

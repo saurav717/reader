@@ -3356,3 +3356,9 @@ body.win-moving .assistant-win { transition: none; }
 .set-key > span:nth-child(2) { flex: 1; }
 .set-key-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.18); }
 .chat-drawer.chat-settings { border-bottom: 1px solid rgb(var(--win-edge) / 0.12); box-shadow: 0 14px 22px -16px rgb(0 0 0 / 0.55); position: relative; z-index: 1; }
+
+/* Maths in Explain: set in the page's own size, displayed equations given room to breathe. */
+.explain-prose .chat-math .katex { font-size: 1.04em; }
+.explain-prose .chat-math-block { margin: 6px 0 18px; padding: 16px 18px; }
+.explain-prose .chat-math-block .katex { font-size: 1.14em; }
+.explain-caveat .chat-math-block { margin: 6px 0 10px; padding: 10px 12px; }

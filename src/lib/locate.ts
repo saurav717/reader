@@ -91,6 +91,8 @@ export interface LocateRequest {
   page?: number;
   /** Its number in the answer's list. */
   n?: number;
+  /** Where the words are: the paper (the default), or its Explain page. */
+  source?: 'paper' | 'explanation';
 }
 
 /** Sent by the reader when a passage is marked (its quote) and when the mark goes (null). */
@@ -108,8 +110,27 @@ export interface LocateResult {
 
 export const LOCATE_EVENT = 'reader:locate';
 
-/** Asks the open paper to scroll to the passage and mark it. Answers once it has, or could not. */
-export function showPassage(request: LocateRequest): Promise<LocateResult> {
+/**
+ * The Explain page, while it is open: it is asked first, and answers with
+ * where it marked the passage, or null to leave the passage to the paper.
+ */
+type ExplainLocator = (request: LocateRequest) => Promise<LocateResult | null>;
+let explainLocator: ExplainLocator | null = null;
+
+/** Set by the Explain page while it is open; returns the function that takes it away again. */
+export function setExplainLocator(locate: ExplainLocator): () => void {
+  explainLocator = locate;
+  return () => {
+    if (explainLocator === locate) explainLocator = null;
+  };
+}
+
+/** Asks the open paper — or its Explain page, when that is open — to scroll to the passage and mark it. Answers once it has, or could not. */
+export async function showPassage(request: LocateRequest): Promise<LocateResult> {
+  if (explainLocator) {
+    const shown = await explainLocator(request);
+    if (shown) return shown;
+  }
   return new Promise((resolve) => {
     const event = new CustomEvent(LOCATE_EVENT, { detail: { ...request, reply: resolve }, cancelable: true });
     // Nobody took it: no paper is open.

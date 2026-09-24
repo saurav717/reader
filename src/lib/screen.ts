@@ -54,8 +54,13 @@ export function visiblePassage(max = 6000): string {
 // selection has to be remembered as it is made, not read when the question is
 // sent. A selection made in the paper replaces it; clicking in the paper
 // without selecting clears it; anything outside the paper leaves it alone.
+// The Explain page counts as the paper here: what is selected on it is what
+// the reader is asking about, and it remembers which of the two it came from.
 let lastSelection = '';
+let lastSelectionIn: 'paper' | 'explanation' = 'paper';
 let tracking = false;
+
+const EXPLAIN_DOC = '.explain-doc';
 
 export function trackSelection() {
   if (tracking || typeof document === 'undefined') return;
@@ -65,16 +70,87 @@ export function trackSelection() {
     const node = selection?.anchorNode;
     const element = node ? (node.nodeType === 1 ? (node as Element) : node.parentElement) : null;
     // The PDF book's text layer is selectable too.
-    if (!element?.closest(`${BODY}, .pdf-book`)) return;
-    lastSelection = selection && !selection.isCollapsed ? selection.toString().trim() : '';
+    const place = element?.closest(`${BODY}, .pdf-book, ${EXPLAIN_DOC}`);
+    if (!place) return;
+    lastSelection = selection && !selection.isCollapsed ? selectedText(selection) : '';
+    lastSelectionIn = place.matches(EXPLAIN_DOC) ? 'explanation' : 'paper';
   });
 }
 
+/**
+ * The selection as text. Typeset maths is written back as the TeX it was set
+ * from — its rendered glyphs, and the MathML KaTeX keeps beside them, would
+ * otherwise come out as a jumble of symbols, each twice.
+ */
+export function selectedText(selection: Selection): string {
+  if (selection.isCollapsed || !selection.rangeCount) return '';
+  const range = selection.getRangeAt(0);
+  const root = range.commonAncestorContainer;
+  const scope = root.nodeType === 1 ? (root as Element) : root.parentElement;
+  const inMaths = scope?.closest<HTMLElement>('.chat-math[data-tex], .chat-math-block[data-tex]');
+  if (inMaths) return tex(inMaths);
+  if (!scope?.querySelector('.chat-math[data-set], .chat-math-block[data-set]')) return selection.toString().trim();
+  const copy = document.createElement('div');
+  copy.appendChild(range.cloneContents());
+  for (const maths of Array.from(copy.querySelectorAll<HTMLElement>('.chat-math[data-tex], .chat-math-block[data-tex]'))) {
+    maths.replaceWith(document.createTextNode(tex(maths)));
+  }
+  // The copy is not laid out, so its text is read without innerText's line breaks; blocks get one each.
+  for (const block of Array.from(copy.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, pre, tr, div'))) block.append('\n');
+  return (copy.textContent ?? '').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+const tex = (maths: HTMLElement) => {
+  const source = maths.dataset.tex ?? maths.textContent ?? '';
+  return maths.classList.contains('chat-math-block') ? `$$${source}$$` : `$${source}$`;
+};
+
 export const currentSelection = () => lastSelection;
+export const currentSelectionIn = () => lastSelectionIn;
 
 /** Forget the selection — when the paper changes, it is no longer on screen. */
 export function clearSelection() {
   lastSelection = '';
+  lastSelectionIn = 'paper';
+}
+
+/**
+ * The Explain page, when it is open: its layout, whether it hides the paper,
+ * and the sections on screen as text — each under its title, with maths as TeX.
+ */
+export function explanationOnScreen(max = 6000): { layout: string; covers: boolean; visible: string } | null {
+  const page = document.querySelector<HTMLElement>('.explain');
+  const scroller = page?.querySelector<HTMLElement>('.explain-scroll');
+  if (!page || !scroller) return null;
+  const layout = Array.from(page.classList).find((name) => name.startsWith('layout-'))?.slice('layout-'.length) ?? '';
+  const frame = scroller.getBoundingClientRect();
+  const out: string[] = [];
+  let length = 0;
+  for (const section of Array.from(scroller.querySelectorAll<HTMLElement>('.explain-section'))) {
+    const blocks: string[] = [];
+    for (const el of Array.from(section.querySelectorAll<HTMLElement>('.explain-prose > *, .caveat-head, .caveat-body > *, .explain-figure figcaption, .cell-title'))) {
+      const r = el.getBoundingClientRect();
+      if (!r.height || r.bottom <= frame.top || r.top >= frame.bottom) continue;
+      const text = readable(el);
+      if (text) blocks.push(text);
+    }
+    if (!blocks.length) continue;
+    const part = `${section.dataset.title ? `## ${section.dataset.title}\n` : ''}${blocks.join('\n\n')}`;
+    out.push(part);
+    length += part.length;
+    if (length >= max) break;
+  }
+  return { layout: { margin: 'Margin', notebook: 'Notebook', beside: 'Beside the paper' }[layout] ?? layout, covers: layout !== 'beside', visible: out.join('\n\n') };
+}
+
+/** An element's text, with its typeset maths as the TeX it was set from. */
+function readable(el: HTMLElement): string {
+  if (!el.querySelector('.chat-math[data-tex], .chat-math-block[data-tex]') && !el.matches('.chat-math-block')) return text(el);
+  const copy = el.cloneNode(true) as HTMLElement;
+  const swap = (maths: HTMLElement) => maths.replaceWith(document.createTextNode(tex(maths)));
+  if (copy.matches('.chat-math-block[data-tex]')) return tex(copy);
+  copy.querySelectorAll<HTMLElement>('.chat-math[data-tex], .chat-math-block[data-tex]').forEach(swap);
+  return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
 }
 
 // ---------------------------------------------------------------------------
