@@ -29,7 +29,7 @@ import SignInPrompt from './SignInPrompt';
 import CaptchaPrompt from './CaptchaPrompt';
 import PdfDropIn from './PdfDropIn';
 import { whySaveToDriveUnavailable } from '../lib/driveSync';
-import { linkFromQuery, paperFromLink } from '../lib/books';
+import { googleBook, googleBooksIdFromLink, linkFromQuery, paperFromLink } from '../lib/books';
 import type { AuthorRef, PaperLocation, PaperOrder, PaperRef, SourceId } from '../types';
 import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
 
@@ -361,15 +361,21 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
     const forced = name !== null && /^author:/i.test(trimmed);
     const askPeople = name !== null && sources.some((id) => authorSources().some((source) => source.id === id));
     try {
-      // A link is a paper already: arXiv's own is looked up by its id, which
-      // brings the title and authors; any other is taken as it is — a PDF
+      // A link is a paper already: arXiv's and Google Books' own are looked up
+      // by their id, which brings the title and authors — and, for a book
+      // Google lets anyone download, its PDF; any other is taken as it is — a PDF
       // when it looks like one, a page to open when it does not.
       const link = linkFromQuery(trimmed);
       if (link) {
         const arxiv = link.hostname.replace(/^www\./, '') === 'arxiv.org'
           ? arxivIdFromQuery(link.pathname.replace(/^\/(abs|pdf|html)\//, '').replace(/\.pdf$/i, ''))
           : null;
-        const direct = arxiv && hasProxy() ? await lookupArxiv(arxiv, controller.signal) : [];
+        const volume = googleBooksIdFromLink(link);
+        const direct = arxiv && hasProxy()
+          ? await lookupArxiv(arxiv, controller.signal)
+          : volume
+            ? await googleBook(volume, controller.signal).then((book) => (book.title ? [book] : []), () => [])
+            : [];
         const found = direct.length ? direct : [paperFromLink(link)];
         setResults(found);
         setOpenId(found[0].id);

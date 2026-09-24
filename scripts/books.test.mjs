@@ -9,7 +9,17 @@ import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
 
-const { archiveLocations, fromOpenLibrary, fromArchive, linkFromQuery, paperFromLink, searchBooks, titleFromLink } =
+const {
+  archiveLocations,
+  fromArchive,
+  fromGoogleBooks,
+  fromOpenLibrary,
+  googleBooksIdFromLink,
+  linkFromQuery,
+  paperFromLink,
+  searchBooks,
+  titleFromLink,
+} =
   await load('src/lib/books.ts');
 const { findLocations } = await load('src/lib/locations.ts');
 const { search, sourceList } = await load('src/lib/sources.ts');
@@ -96,6 +106,37 @@ describe('a text from the Internet Archive', () => {
   });
 });
 
+describe('a book from Google Books', () => {
+  it('takes the PDF of a free book, made https', () => {
+    const book = fromGoogleBooks({
+      id: '2fsVAAAAYAAJ',
+      volumeInfo: { title: 'Flatland', authors: ['Edwin A. Abbott'], publishedDate: '1884', canonicalVolumeLink: 'http://books.google.com/books/about/Flatland.html?id=2fsVAAAAYAAJ' },
+      accessInfo: { publicDomain: true, pdf: { isAvailable: true, downloadLink: 'http://books.google.com/books/download/Flatland.pdf?id=2fsVAAAAYAAJ&output=pdf&sig=S' } },
+    });
+    assert.equal(book.id, 'googlebooks:2fsVAAAAYAAJ');
+    assert.equal(book.pdfUrl, 'https://books.google.com/books/download/Flatland.pdf?id=2fsVAAAAYAAJ&output=pdf&sig=S');
+    assert.equal(book.landingUrl, 'https://books.google.com/books/about/Flatland.html?id=2fsVAAAAYAAJ');
+    assert.equal(book.published, '1884-01-01');
+  });
+
+  it('does not take a bought ebook’s DRM file for a PDF', () => {
+    const book = fromGoogleBooks({
+      id: 'abcdefgh1234',
+      volumeInfo: { title: 'Recent' },
+      accessInfo: { pdf: { isAvailable: true, downloadLink: 'http://books.google.com/books/download/Recent-sample-pdf.acsm?id=abcdefgh1234&format=pdf' } },
+    });
+    assert.equal(book.pdfUrl, undefined);
+  });
+
+  it('reads the volume id out of each shape of link Google gives', () => {
+    const id = (link) => googleBooksIdFromLink(new URL(link));
+    assert.equal(id('https://books.google.co.in/books?id=2fsVAAAAYAAJ&pg=PA3'), '2fsVAAAAYAAJ');
+    assert.equal(id('https://www.google.com/books/edition/Flatland/2fsVAAAAYAAJ?gbpv=1'), '2fsVAAAAYAAJ');
+    assert.equal(id('https://play.google.com/store/books/details?id=2fsVAAAAYAAJ'), '2fsVAAAAYAAJ');
+    assert.equal(id('https://www.google.com/search?q=flatland'), null);
+  });
+});
+
 describe('searching for books', () => {
   it('asks both, folds a book into its own scan, and puts the readable ones first', async () => {
     handlers['openlibrary.org'] = () =>
@@ -116,7 +157,18 @@ describe('searching for books', () => {
     );
   });
 
-  it('still answers when one of the two is down', async () => {
+  it('asks Google Books for free ebooks only, and interleaves what it finds', async () => {
+    handlers['openlibrary.org'] = () => json({ docs: [{ key: '/works/OL1W', title: 'Flatland', ia: ['flat'], ebook_access: 'public' }] });
+    handlers['archive.org'] = () => json({ response: { docs: [] } });
+    handlers['www.googleapis.com'] = (url) => {
+      assert.equal(url.searchParams.get('filter'), 'free-ebooks');
+      return json({ items: [{ id: 'gb00000001', volumeInfo: { title: 'Flatland (Google)' }, accessInfo: { pdf: { isAvailable: true, downloadLink: 'https://books.google.com/books/download/f.pdf?id=gb00000001&output=pdf&sig=S' } } }] });
+    };
+    const found = await searchBooks('flatland', 0, 20);
+    assert.deepEqual(found.map((book) => book.id), ['openlibrary:OL1W:flat', 'googlebooks:gb00000001']);
+  });
+
+  it('still answers when the others are down', async () => {
     handlers['openlibrary.org'] = () => new Response('', { status: 503 });
     handlers['archive.org'] = () => json({ response: { docs: [{ identifier: 'notes', title: 'Notes' }] } });
     const found = await searchBooks('notes', 0, 20);

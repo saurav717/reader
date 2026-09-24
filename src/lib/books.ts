@@ -3,11 +3,12 @@
  *
  * The paper indexes know papers. A book, a thesis scanned by a library, a
  * report someone uploaded, or a PDF sitting on a course page is in none of
- * them — so this looks in the two places that do keep them and will hand the
+ * them — so this looks in the places that do keep them and will hand the
  * file over: Open Library, which catalogues books and knows which of them the
- * Internet Archive holds a free scan of, and the Internet Archive itself,
- * which holds millions of texts as PDFs. Both answer a browser directly, so
- * neither needs the proxy.
+ * Internet Archive holds a free scan of; Google Books' free ebooks, whose
+ * PDFs it lets anyone download; and the Internet Archive itself, which holds
+ * millions of texts as PDFs. All three answer a browser directly, so none of
+ * them needs the proxy.
  *
  * And a PDF that is simply at a link — pasted into the search box — becomes a
  * paper of its own, added and read like any other.
@@ -182,6 +183,103 @@ export async function searchArchive(
   return (payload.response?.docs || []).filter((doc) => doc.identifier).map(fromArchive);
 }
 
+// ---------------------------------------------------------- Google Books ----
+
+export interface GoogleVolume {
+  id?: string;
+  volumeInfo?: {
+    title?: string;
+    subtitle?: string;
+    authors?: string[];
+    publishedDate?: string;
+    publisher?: string;
+    description?: string;
+    categories?: string[];
+    canonicalVolumeLink?: string;
+    infoLink?: string;
+    industryIdentifiers?: { type?: string; identifier?: string }[];
+  };
+  accessInfo?: {
+    publicDomain?: boolean;
+    pdf?: { isAvailable?: boolean; downloadLink?: string };
+  };
+}
+
+/**
+ * The PDF Google Books will hand anyone, where there is one: a public-domain
+ * or free book's. A link to an `.acsm` is Adobe's DRM for a bought ebook,
+ * not a file, and is no PDF here.
+ */
+export function googleBooksDownload(volume: GoogleVolume): string | undefined {
+  const pdf = volume.accessInfo?.pdf;
+  const link = clean(pdf?.downloadLink);
+  if (!pdf?.isAvailable || !link || /\.acsm(\?|$)|acs4_fulfillment/i.test(link)) return undefined;
+  return link.replace(/^http:\/\//i, 'https://');
+}
+
+export function fromGoogleBooks(volume: GoogleVolume): PaperRef {
+  const info = volume.volumeInfo || {};
+  const date = clean(info.publishedDate);
+  const page = clean(info.canonicalVolumeLink || info.infoLink).replace(/^http:\/\//i, 'https://');
+  return {
+    id: `googlebooks:${clean(volume.id)}`,
+    source: 'books',
+    title: [clean(info.title), clean(info.subtitle)].filter(Boolean).join(': '),
+    authors: list(info.authors),
+    abstract: clean(info.description).replace(/<[^>]+>/g, ' ').slice(0, 1200),
+    published: /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : /^\d{4}/.test(date) ? `${date.slice(0, 4)}-01-01` : '',
+    categories: list(info.categories).slice(0, 3),
+    pdfUrl: googleBooksDownload(volume),
+    landingUrl: page || undefined,
+    venue: info.publisher ? `Google Books · ${clean(info.publisher)}` : 'Google Books',
+  };
+}
+
+/**
+ * The volume a Google Books link is about, in any of the shapes Google gives
+ * one — the same reading as `googleBooksId` in server/pdfLinks.js, which the
+ * proxy uses for "Fetch the PDF from this page".
+ */
+export function googleBooksIdFromLink(url: URL): string | null {
+  const host = url.hostname.toLowerCase();
+  const valid = (id: string | null | undefined) => (id && /^[A-Za-z0-9_-]{8,20}$/.test(id) ? id : null);
+  if (/^books\.google\.[a-z.]+$/.test(host)) return valid(url.searchParams.get('id'));
+  if (host === 'play.google.com') {
+    return url.pathname.startsWith('/store/books/details') ? valid(url.searchParams.get('id')) : null;
+  }
+  if (/^(www\.)?google\.[a-z.]+$/.test(host)) return valid(url.pathname.match(/^\/books\/edition\/[^/]*\/([A-Za-z0-9_-]+)/)?.[1]);
+  return null;
+}
+
+/** One volume, as a paper, asked of the Books API by its id. */
+export async function googleBook(id: string, signal?: AbortSignal): Promise<PaperRef> {
+  const response = await fetch(`https://www.googleapis.com/books/v1/volumes/${encodeURIComponent(id)}`, { signal });
+  if (!response.ok) throw new Error(`Google Books answered ${response.status}`);
+  return fromGoogleBooks((await response.json()) as GoogleVolume);
+}
+
+/** Only the free ones: a book Google sells or previews has no PDF to add. */
+export async function searchGoogleBooks(
+  query: string,
+  page: number,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<PaperRef[]> {
+  const size = Math.min(40, limit);
+  const params = new URLSearchParams({
+    q: query,
+    filter: 'free-ebooks',
+    maxResults: String(size),
+    startIndex: String(page * size),
+    printType: 'books',
+  });
+  const response = await fetch(`https://www.googleapis.com/books/v1/volumes?${params}`, { signal });
+  if (!response.ok) throw new Error(`Google Books answered ${response.status}`);
+  const payload = (await response.json()) as { items?: GoogleVolume[] };
+  const books = (payload.items || []).filter((volume) => volume.id).map(fromGoogleBooks).filter((book) => book.title);
+  return [...books.filter((book) => book.pdfUrl), ...books.filter((book) => !book.pdfUrl)];
+}
+
 /**
  * Both, as one source: a book in Open Library and its scan on the Archive are
  * the same thing, and a text only the Archive has is still worth finding.
@@ -193,22 +291,22 @@ export async function searchBooks(
   limit: number,
   signal?: AbortSignal,
 ): Promise<PaperRef[]> {
-  // Each half is asked for a full page, so the merge sees a full page — and
-  // offers "Load more" — for as long as either of them has more to give.
-  const [books, texts] = await Promise.allSettled([
+  // Each is asked for a full page, so the merge sees a full page — and
+  // offers "Load more" — for as long as any of them has more to give.
+  const settled = await Promise.allSettled([
     searchOpenLibrary(query, page, limit, signal),
+    searchGoogleBooks(query, page, limit, signal),
     searchArchive(query, page, limit, signal),
   ]);
-  if (books.status === 'rejected' && texts.status === 'rejected') throw books.reason;
-  const fromBooks = books.status === 'fulfilled' ? books.value : [];
-  const fromTexts = texts.status === 'fulfilled' ? texts.value : [];
+  const failed = settled.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
+  if (failed && settled.every((outcome) => outcome.status === 'rejected')) throw failed.reason;
+  const [fromBooks, fromGoogle, fromTexts] = settled.map((outcome) => (outcome.status === 'fulfilled' ? outcome.value : []));
   const scans = new Set(fromBooks.map(archiveIdOf).filter(Boolean));
   const others = fromTexts.filter((text) => !scans.has(archiveIdOf(text)));
-  // Interleaved, so neither half is buried under the other.
+  // Interleaved, so none of them is buried under the others.
   const merged: PaperRef[] = [];
-  for (let index = 0; index < Math.max(fromBooks.length, others.length); index += 1) {
-    if (fromBooks[index]) merged.push(fromBooks[index]);
-    if (others[index]) merged.push(others[index]);
+  for (let index = 0; index < Math.max(fromBooks.length, fromGoogle.length, others.length); index += 1) {
+    for (const group of [fromBooks, fromGoogle, others]) if (group[index]) merged.push(group[index]);
   }
   return merged;
 }

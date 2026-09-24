@@ -104,12 +104,14 @@ reach, and the search falls back to OpenAlex and Crossref.
 
 The paper indexes know papers. A book, a library's scan, a report someone
 uploaded or a PDF on a course page is in none of them, so the **Books & PDFs**
-chip in Discover asks the two places that keep them and will hand the file over:
+chip in Discover asks the places that keep them and will hand the file over:
 [Open Library](https://openlibrary.org/developers/api), which catalogues books and
-knows which ones the Internet Archive has a free scan of, and the [Internet
+knows which ones the Internet Archive has a free scan of; [Google
+Books](https://developers.google.com/books/docs/v1/using)' free ebooks, whose PDFs
+Google lets anyone download; and the [Internet
 Archive](https://archive.org/advancedsearch.php) itself, searched for texts with a
-PDF among their files. Both answer a browser directly, so the chip works without a
-proxy. A book with a free scan comes with its PDF; one that is only lent out comes
+PDF among their files. All three answer a browser directly, so the chip works
+without a proxy. A book with a free scan comes with its PDF; one that is only lent out comes
 with its page, and a file can be dropped onto it by hand. An Archive item's copies
 are the PDFs its metadata lists — the text-bearing one first — and the paper
 indexes are not asked about it, since asking them by a book's title only finds some
@@ -117,9 +119,21 @@ other work of the same name.
 
 Paste the link to any PDF into the search box instead of words and it becomes a
 result of its own: its title read from the file name, the link as its PDF, added,
-opened and saved to Drive like any other paper. An arXiv link is looked up by its
-id, which brings the title and authors with it; a link that is not a file is kept
-as a page to open.
+opened and saved to Drive like any other paper. An arXiv or Google Books link is
+looked up by its id, which brings the title and authors with it — and, for a book
+Google lets anyone download, its PDF; a link that is not a file is kept as a page
+to open.
+
+**Google Books in the browser pane.** Google Books' page never holds the file: its
+viewer draws the pages as pictures, and its *Download PDF* link carries a signature
+only Google's own answer knows, written `http://`. So on a Google Books page — any
+of `books.google.*/books?id=…`, `google.com/books/edition/…/<id>`, or Play Books'
+store page — *Fetch the PDF from this page* asks the Books API for the volume's
+download link, then walks the classic book page, where the signed link is, with the
+browser's cookies. Only a book Google lets anyone download (public domain, or free)
+has a PDF to fetch: a preview is pictures of some of the pages, and a bought ebook
+is Adobe's DRM (`.acsm`). For those the pane says which it is, and points at *Books
+& PDFs*, where Open Library or the Internet Archive often has a free scan.
 
 **Add papers**, at the top of a collection, puts the cursor in Discover's search
 box — opening the panel if it is shut — and Discover's **Add to** follows the
