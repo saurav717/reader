@@ -19,6 +19,12 @@ export function inline(src: string): string {
   s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, text: string, url: string) =>
     `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`,
   );
+  // A passage of the open paper an answer points at, `[the words](passage:2)`:
+  // a button that scrolls the paper to the answer's second passage and marks it.
+  s = s.replace(/\[([^\]\n]+)\]\(passage:\s*(\d+)\)/g, (_, text: string, n: string) => {
+    codes.push(`<button type="button" class="chat-passage" data-passage="${n}">${text}</button>`);
+    return `\u0000${codes.length - 1}\u0000`;
+  });
   // A paper named in an answer, `[Name et al. 2021](paper:Its full title)`: the
   // name, drawn as a button that carries the title. The window numbers it and
   // shows the paper's card from it. Set aside like a code span, so the title in

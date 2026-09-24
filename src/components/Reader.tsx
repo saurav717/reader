@@ -37,7 +37,9 @@ import {
 import { HIGHLIGHT_COLORS, type HighlightColor, type ReadingMode } from '../types';
 import LookupPopover, { type LookupTarget } from './LookupPopover';
 import HoverCard, { type CitedEntry, type HoverTarget } from './HoverCard';
-import { showPdf } from '../lib/screen';
+import { pdfPageTexts, showPdf } from '../lib/screen';
+import { findPassage, LOCATE_EVENT, pageOf, type LocateRequest, type LocateResult } from '../lib/locate';
+import PassageFlash, { type Flash } from './PassageFlash';
 import { fullerAuthors } from '../lib/byline';
 import { CITE_CLASS, REF_CLASS, citationHead, citationText, entryText, parseReference } from '../lib/citations';
 import {
@@ -1095,6 +1097,78 @@ export default function Reader({
     return () => window.removeEventListener('keydown', onKey);
   }, [applyHighlight, pending]);
 
+  // A passage Ask Claude points at: scrolled to, and marked with its caption
+  // for a few seconds (PassageFlash). In the browser's own PDF viewer only the
+  // page can be shown, by the #page= the viewer understands.
+  const [flash, setFlash] = useState<Flash | null>(null);
+  const [pdfPage, setPdfPage] = useState<number | null>(null);
+  const flashKey = useRef(0);
+  const locateState = useRef({ mode, layout, pdfBlob, pdfObjectUrl });
+  locateState.current = { mode, layout, pdfBlob, pdfObjectUrl };
+  useEffect(() => {
+    const where = (request: LocateRequest, page?: number) =>
+      [request.section, page ? `page ${page}` : undefined].filter(Boolean).join(' · ') || undefined;
+    const mark = (range: Range | undefined, request: LocateRequest, page?: number, clip?: HTMLElement | null) =>
+      setFlash({ range, label: request.label, where: where(request, page), clip, anchor: document.querySelector<HTMLElement>('.main'), key: ++flashKey.current });
+    /** Brings a range into view: scrolled to a third of the way down, or its page of the book turned to. */
+    const bringIntoView = (range: Range) => {
+      const element = range.startContainer.parentElement;
+      if (!element) return;
+      const scroller = scrollRef.current;
+      if (scroller?.contains(element)) {
+        const top = range.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+        scroller.scrollTo({ top: Math.max(0, top - scroller.clientHeight / 3), behavior: 'smooth' });
+      } else if (window.dispatchEvent(new CustomEvent('reader:reveal', { detail: { element }, cancelable: true }))) {
+        element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    };
+    const waitFor = async (find: () => HTMLElement | null, ms = 5000) => {
+      for (let waited = 0; waited < ms; waited += 100) {
+        const found = find();
+        if (found) return found;
+        await new Promise((resolve) => window.setTimeout(resolve, 100));
+      }
+      return null;
+    };
+    const locate = async (request: LocateRequest): Promise<LocateResult> => {
+      const now = locateState.current;
+      if (now.mode === 'reflow') {
+        const root = bodyRef.current;
+        const range = root ? findPassage(root, request.quote) : null;
+        if (!range) return { found: false, reason: 'Those words are not in the text on screen.' };
+        bringIntoView(range);
+        mark(range, request, undefined, scrollRef.current ?? root?.closest<HTMLElement>('.book-view'));
+        return { found: true };
+      }
+      const texts = pdfPageTexts();
+      const page = texts ? pageOf(await texts, request.quote, request.page) : null;
+      if (!page) return { found: false, reason: 'Those words are not in the PDF’s text.' };
+      if (now.layout === 'book' && now.pdfBlob) {
+        window.dispatchEvent(new CustomEvent('reader:pdf-page', { detail: { page } }));
+        const layer = await waitFor(() => document.querySelector<HTMLElement>(`.pdf-book-page[data-page="${page}"][data-text="ready"] .pdf-text`));
+        const range = layer ? findPassage(layer, request.quote) : null;
+        mark(range ?? undefined, request, page, document.querySelector<HTMLElement>('.pdf-book-spread'));
+        return { found: true, page, pageOnly: !range };
+      }
+      setPdfPage(page);
+      mark(undefined, request, page);
+      return { found: true, page, pageOnly: true };
+    };
+    const onLocate = (event: Event) => {
+      const detail = (event as CustomEvent<LocateRequest & { reply: (result: LocateResult) => void }>).detail;
+      if (!detail?.quote) return;
+      event.preventDefault();
+      void locate(detail).then(detail.reply, (error: unknown) => detail.reply({ found: false, reason: String(error) }));
+    };
+    window.addEventListener(LOCATE_EVENT, onLocate);
+    return () => window.removeEventListener(LOCATE_EVENT, onLocate);
+  }, []);
+  // A different paper, or a different way of reading it, is a different page: the mark goes.
+  useEffect(() => {
+    setFlash(null);
+    setPdfPage(null);
+  }, [paperId, mode, layout]);
+
   const onScroll = () => {
     const element = scrollRef.current;
     if (!element || !paper) return;
@@ -1626,7 +1700,7 @@ export default function Reader({
           ) : pdfObjectUrl ? (
             <iframe
               title={`${paper.title} (PDF)`}
-              src={pdfObjectUrl}
+              src={pdfPage ? `${pdfObjectUrl}#page=${pdfPage}` : pdfObjectUrl}
               style={{ flexGrow: 1, border: 0, width: '100%', background: 'var(--rail)' }}
             />
           ) : (
@@ -1673,6 +1747,8 @@ export default function Reader({
           </div>
         </div>
       )}
+
+      {flash ? <PassageFlash flash={flash} onDone={() => setFlash(null)} /> : null}
 
       {mode === 'pdf' && !pdfError && pdfLookup !== 'none' ? (
         <p style={{ margin: 0, padding: '8px 16px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)' }}>

@@ -1636,6 +1636,34 @@ screen before it answers, so there is nothing to paste.
   had by that title. Claude is asked to write each name as
   `[Name et al. 2021](paper:The full title)` and to close with a `papers` block,
   one JSON line per paper; the window draws the cards, never the syntax.
+- **Show me where**: ask *"show me where the authors talk about oracle
+  selection"* and the paper scrolls to the passage by itself. The passage is
+  marked with a band of the accent colour, and a caption above it says what it
+  is: *Where the authors define "oracle selection" · 3.3 Feature selection*.
+  The mark fades after nine seconds (it stays while the pointer is on the
+  caption), and **Esc** or the caption's **×** clears it sooner.
+  - **Every answer that rests on particular passages** lists them under
+    **Found in the paper**. Each has its caption, the paper's own words and
+    **Show**. A link in the answer's text does the same.
+  - **How Claude points**: it closes such an answer with a `passages` block,
+    one line of JSON per passage: the words copied exactly from the paper, a
+    caption, the section and page, and `show` on the one to jump to. The app
+    never prints the block.
+  - **How the passage is found**: the quote is looked for in the page on
+    screen as letters and digits only, so spacing, hyphenation, ligatures and
+    curly quotes do not matter. If it is not there whole, its longest run of
+    words that is gets marked.
+  - **Where it works**:
+    - **Reflow**: the text is scrolled to, or its page of the book turned to.
+    - **PDF as a book**: the page is turned to and the text layer marked.
+    - **The browser's own PDF viewer**: nothing can be drawn over it, so the
+      viewer is sent to the page with `#page=N` and the caption names the page.
+
+  ![Ask Claude pointing at a passage: the paper scrolled to it, the passage marked, its caption above it, and the list of passages under the answer](docs/locate.png)
+
+  The code: `src/lib/locate.ts` (the finding), `src/components/PassageFlash.tsx`
+  (the mark), and the `reader:locate` listener in `Reader.tsx`.
+  `scripts/locate-smoke.mjs` tries each mode.
 - **Screenshot**: the 📷 beside the box attaches a screenshot of the tab to the
   next question. The browser asks every time, because a page can't capture the
   screen by itself. One frame is taken, then the capture stops.

@@ -19,10 +19,13 @@ import {
   setShot,
   paperKey,
   readingList,
+  splitPassages,
+  asksWhere,
   stop,
   subscribe,
 } from '../lib/assistant';
-import type { Recommendation, Screen, Turn } from '../lib/assistant';
+import type { Passage, Recommendation, Screen, Turn } from '../lib/assistant';
+import { showPassage, type LocateResult } from '../lib/locate';
 import {
   RUN_GAP,
   SNAP_STEPS,
@@ -211,6 +214,52 @@ function ReadingList({ papers, actions, onShow }: { papers: Recommendation[]; ac
 }
 
 
+/** What pressing Show on a passage came to. */
+type Shown = LocateResult | 'looking';
+
+/**
+ * The places in the open paper an answer points at, under it: each with its
+ * caption, the paper's own words, and Show — which scrolls the paper there
+ * and marks the passage for a few seconds.
+ */
+function PassageList({ passages, shown, onShow }: { passages: Passage[]; shown: Record<number, Shown>; onShow: (index: number) => void }) {
+  return (
+    <div className="chat-passages">
+      <div className="chat-passages-head">
+        <span aria-hidden="true">✦</span> Found in the paper
+      </div>
+      <ol>
+        {passages.map((passage, index) => {
+          const state = shown[index];
+          const where = [passage.section, passage.page ? `p. ${passage.page}` : ''].filter(Boolean).join(' · ');
+          return (
+            <li key={index} className={state && state !== 'looking' && !state.found ? 'is-missing' : ''}>
+              <button type="button" className="chat-passage-row" onClick={() => onShow(index)} title="Scroll the paper to this passage and mark it">
+                <span className="chat-passage-n">{index + 1}</span>
+                <span className="chat-passage-body">
+                  <b>{passage.label}</b>
+                  <q>{passage.quote}</q>
+                  <span className="chat-passage-meta">
+                    {where ? <span>{where}</span> : null}
+                    {state === 'looking' ? (
+                      <span>Finding it…</span>
+                    ) : state?.found ? (
+                      <span className="ok">{state.pageOnly ? `Shown: page ${state.page}` : 'Shown in the paper'}</span>
+                    ) : state ? (
+                      <span className="bad">{state.reason ?? 'Not found on the page'}</span>
+                    ) : null}
+                  </span>
+                </span>
+                <span className="chat-passage-go">Show</span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 const PEEK_WIDTH = 320;
 
 /** Under the name when there is room, over it when there is not; always on the page. */
@@ -222,10 +271,35 @@ function peekPlace(box: DOMRect): React.CSSProperties {
     : { left, bottom: window.innerHeight - box.top + 6, width: PEEK_WIDTH };
 }
 
-function TurnView({ turn, index, actions }: { turn: Turn; index: number; actions: PaperActions }) {
+function TurnView({ turn, index, actions, question }: { turn: Turn; index: number; actions: PaperActions; question?: string }) {
   const textRef = useRef<HTMLDivElement>(null);
   const isClaude = turn.role !== 'user';
-  const { text, papers } = isClaude ? readingList(turn.content) : { text: turn.content, papers: [] };
+  const pointed = isClaude ? splitPassages(turn.content) : { text: turn.content, passages: [] as Passage[] };
+  const passages = pointed.passages;
+  const { text, papers } = isClaude ? readingList(pointed.text) : { text: turn.content, papers: [] };
+  const [shown, setShown] = useState<Record<number, Shown>>({});
+  const showAt = useCallback(
+    (at: number) => {
+      const passage = passages[at];
+      if (!passage) return;
+      setShown((current) => ({ ...current, [at]: 'looking' }));
+      void showPassage(passage).then((result) => setShown((current) => ({ ...current, [at]: result })));
+    },
+    // The passages are re-read from the content on every render; their text is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(passages)],
+  );
+  // The moment an answer finishes, the passage it was asked for is shown —
+  // not when an old conversation is reopened, which never streams.
+  const wasStreaming = useRef(turn.streaming);
+  useEffect(() => {
+    if (wasStreaming.current && !turn.streaming && passages.length) {
+      const pick = passages.findIndex((passage) => passage.show);
+      const at = pick >= 0 ? pick : question && asksWhere(question) ? 0 : -1;
+      if (at >= 0) showAt(at);
+    }
+    wasStreaming.current = turn.streaming;
+  }, [turn.streaming, passages, question, showAt]);
   const order = papers.map((paper) => paperKey(paper.title)).join('\n');
 
   // Each name in the text carries its paper's number, as its row in the list
@@ -276,10 +350,19 @@ function TurnView({ turn, index, actions }: { turn: Turn; index: number; actions
         </details>
       ) : null}
       {text ? (
-        <div key={actions.layout} ref={textRef} className="chat-text" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(markdown(text), { ADD_ATTR: ['target'] }) }} />
+        <div
+          key={actions.layout}
+          ref={textRef}
+          className="chat-text"
+          onClick={(event) => {
+            const link = (event.target as HTMLElement).closest<HTMLElement>('.chat-passage');
+            if (link) showAt(Number(link.dataset.passage) - 1);
+          }}
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(markdown(text), { ADD_ATTR: ['target'] }) }} />
       ) : null}
+      {passages.length && !turn.streaming ? <PassageList passages={passages} shown={shown} onShow={showAt} /> : null}
       {papers.length && !turn.streaming ? <ReadingList papers={papers} actions={actions} onShow={show} /> : null}
-      {text || papers.length ? null : turn.streaming ? (
+      {text || papers.length || passages.length ? null : turn.streaming ? (
         <p className="chat-wait">
           <span className="chat-dot" />
           <span className="chat-dot" />
@@ -907,7 +990,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           </div>
         ) : null}
         {s.turns.map((turn, index) => (
-          <TurnView key={index} index={index} turn={turn} actions={actions} />
+          <TurnView key={index} index={index} turn={turn} actions={actions} question={s.turns[index - 1]?.role === 'user' ? s.turns[index - 1].content : undefined} />
         ))}
       </div>
 

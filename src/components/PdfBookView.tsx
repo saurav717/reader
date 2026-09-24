@@ -93,6 +93,16 @@ export default function PdfBookView({ blob, title, initialProgress, onProgress }
   );
   const turns = usePageTurns(go, spreadNow, spreads);
 
+  // Ask Claude showing a passage: turn to the spread that holds its page.
+  useEffect(() => {
+    const onPage = (event: Event) => {
+      const page = (event as CustomEvent<{ page: number }>).detail?.page;
+      if (page) go(Math.floor((page - 1) / columns));
+    };
+    window.addEventListener('reader:pdf-page', onPage);
+    return () => window.removeEventListener('reader:pdf-page', onPage);
+  }, [go, columns]);
+
   // Every page drawn at the one scale that fits the spread in the frame.
   const scale = pageSize
     ? Math.max(0.1, Math.min((frame.width - MARGIN * 2) / (pageSize.width * columns), (frame.height - MARGIN * 2) / pageSize.height))
@@ -167,11 +177,13 @@ function PdfPage({ doc, engine, number, scale, side }: { doc: PDFDocumentProxy; 
   const textRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [drawn, setDrawn] = useState(false);
+  const [textReady, setTextReady] = useState(false);
 
   useEffect(() => {
     let live = true;
     let cancel: (() => void) | undefined;
     setDrawn(false);
+    setTextReady(false);
     (async () => {
       const page = await doc.getPage(number);
       if (!live) return;
@@ -201,6 +213,7 @@ function PdfPage({ doc, engine, number, scale, side }: { doc: PDFDocumentProxy; 
       await task.promise;
       if (live) setDrawn(true);
       await layer.render();
+      if (live) setTextReady(true);
     })().catch((reason) => {
       // A drawing given up for a newer one is not a failure.
       if (live && !(reason instanceof Error && reason.name === 'RenderingCancelledException')) console.warn(`Could not draw page ${number}`, reason);
@@ -216,6 +229,8 @@ function PdfPage({ doc, engine, number, scale, side }: { doc: PDFDocumentProxy; 
       className={`pdf-book-page ${side}${drawn ? '' : ' drawing'}`}
       style={size ? { width: size.width, height: size.height } : undefined}
       aria-label={`Page ${number}`}
+      data-page={number}
+      data-text={textReady ? 'ready' : undefined}
     >
       <canvas ref={canvasRef} style={size ? { width: size.width, height: size.height } : undefined} />
       <div ref={textRef} className="pdf-text" />
