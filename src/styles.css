@@ -2797,7 +2797,8 @@ body.win-moving .assistant-win { transition: none; }
    colour of the wallpaper and the shape of the paper still come through, but
    no sharp text competes with the explanation. */
 :root[data-glass='on'] .explain {
-  background: rgb(var(--float-rgb) / calc(var(--float-a) - 0.22));
+  --explain-a: calc(var(--float-a) - 0.22);
+  background: rgb(var(--float-rgb) / var(--explain-a));
   -webkit-backdrop-filter: blur(16px) saturate(150%);
   backdrop-filter: blur(16px) saturate(150%);
 }
@@ -2809,6 +2810,24 @@ body.win-moving .assistant-win { transition: none; }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   :root[data-glass='on'] .explain { background: rgb(var(--float-rgb) / 0.96); }
 }
+
+/* Background opacity (the slider in Explain's bar): --explain-a is set on the
+   page itself. On solid paper, turned down, the page frosts what is behind it
+   the way glass does, so the paper's text blurs rather than showing through
+   sharp under the explanation's. */
+:root:not([data-glass='on']) .explain.is-see-through {
+  background: color-mix(in srgb, var(--paper) calc(var(--explain-a) * 100%), transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+}
+:root:not([data-glass='on']) .explain.is-see-through .explain-ask {
+  background: color-mix(in srgb, var(--panel) calc(var(--explain-a) * 45%), transparent);
+}
+.opacity-pop { min-width: 250px; padding: 6px 10px 8px; cursor: default; }
+.opacity-pop .frost-row { margin-top: 2px; }
+.opacity-pop .frost-row input { width: 130px; }
+.opacity-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; font: 500 11.5px var(--mono); color: var(--muted); }
+.opacity-pop .opacity-foot .btn { width: auto; height: 24px; padding: 0 10px; justify-content: center; }
 
 .explain-writing { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
 .explain-error { color: var(--danger); font-size: 13px; }
