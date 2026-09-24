@@ -52,6 +52,7 @@ import { useStore } from '../lib/store';
 import { resolvePaper } from '../lib/recommend';
 import { PAPER_LAYOUTS, markAdds, placeCards, setLayout, useLayout } from './paperCards';
 import type { PaperLayout } from './paperCards';
+import type { ChatMarks, PassageLook } from '../types';
 import { discover } from './HoverCard';
 import { canCapture, captureTab } from '../lib/screen';
 
@@ -214,6 +215,137 @@ function ReadingList({ papers, actions, onShow }: { papers: Recommendation[]; ac
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// The window's settings: what Claude sees, how answers mark words, how the
+// page marks a passage, where paper cards go, and the key
+// ---------------------------------------------------------------------------
+
+const CHAT_MARKS: { id: ChatMarks; label: string; note: string }[] = [
+  { id: 'auto', label: 'Auto', note: 'Marker fill on paper, a glow in the dark' },
+  { id: 'fill', label: 'Fill', note: 'A marker behind the words' },
+  { id: 'glow', label: 'Glow', note: 'The words themselves in amber' },
+  { id: 'underline', label: 'Underline', note: 'A thick marker stroke beneath' },
+  { id: 'tint', label: 'Tint', note: 'The app’s own green' },
+  { id: 'outline', label: 'Outline', note: 'A framed chip' },
+];
+
+const PAGE_LOOKS: { id: PassageLook; label: string; note: string }[] = [
+  { id: 'marker', label: 'Marker', note: 'Swept over the words' },
+  { id: 'spotlight', label: 'Spotlight', note: 'The rest of the page dims' },
+  { id: 'outline', label: 'Outline', note: 'Framed, with a bar' },
+];
+
+function SetSection({ icon, title, note, children }: { icon: string; title: string; note?: string; children: React.ReactNode }) {
+  return (
+    <section className="set-card">
+      <header>
+        <span className="set-icon" aria-hidden="true">
+          {icon}
+        </span>
+        <span>
+          <b>{title}</b>
+          {note ? <small>{note}</small> : null}
+        </span>
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function ChatSettings({
+  context,
+  hasKey,
+  paperLayout,
+  marks,
+  look,
+  onMarks,
+  onLook,
+}: {
+  context: Record<string, boolean>;
+  hasKey: boolean;
+  paperLayout: PaperLayout;
+  marks: ChatMarks;
+  look: PassageLook;
+  onMarks: (marks: ChatMarks) => void;
+  onLook: (look: PassageLook) => void;
+}) {
+  const on = CONTEXT_ROWS.filter(([key]) => context[key]).length;
+  return (
+    <div className="chat-drawer chat-settings">
+      <SetSection icon="✦" title="Highlights in answers" note="How bold words and links to passages are marked">
+        <div className="mark-tiles" role="radiogroup" aria-label="Highlights in answers">
+          {CHAT_MARKS.map((option) => (
+            <button key={option.id} type="button" role="radio" aria-checked={marks === option.id} className="mark-tile" data-marks={option.id} onClick={() => onMarks(option.id)} title={option.note}>
+              <span className="mark-sample chat-claude">
+                <span className="chat-text">
+                  the <strong>key idea</strong>, and <span className="chat-passage" data-passage="1">where</span>
+                </span>
+              </span>
+              <span className="mark-name">{option.label}</span>
+              <span className="mark-note">{option.note}</span>
+            </button>
+          ))}
+        </div>
+      </SetSection>
+
+      <SetSection icon="◎" title="Passages on the page" note="When Claude shows you where something is">
+        <div className="look-tiles" role="radiogroup" aria-label="Passages on the page">
+          {PAGE_LOOKS.map((option) => (
+            <button key={option.id} type="button" role="radio" aria-checked={look === option.id} className={`look-tile look-${option.id}`} onClick={() => onLook(option.id)}>
+              <span className="look-sample" aria-hidden="true">
+                <i />
+                <i className="hit" />
+                <i className="hit short" />
+                <i />
+              </span>
+              <span className="mark-name">{option.label}</span>
+              <span className="mark-note">{option.note}</span>
+            </button>
+          ))}
+        </div>
+      </SetSection>
+
+      <SetSection icon="◉" title="What Claude sees" note={`${on} of ${CONTEXT_ROWS.length} on · read fresh each time you send`}>
+        <div className="set-switches">
+          {CONTEXT_ROWS.map(([key, label, note]) => (
+            <label key={key} className="set-switch" title={note}>
+              <span className="set-switch-text">
+                <b>{label}</b>
+                <small>{note}</small>
+              </span>
+              <input type="checkbox" role="switch" checked={context[key]} onChange={(event) => setContext(key, event.target.checked)} />
+              <span className="set-toggle" aria-hidden="true" />
+            </label>
+          ))}
+        </div>
+      </SetSection>
+
+      <SetSection icon="▤" title="Papers Claude names" note="Where a paper's card goes in the answer">
+        <div className="set-choices" role="radiogroup" aria-label="Where paper cards go">
+          {PAPER_LAYOUTS.map(({ value, label, note }) => (
+            <button key={value} type="button" role="radio" aria-checked={paperLayout === value} onClick={() => setLayout(value)}>
+              <b>{label}</b>
+              <small>{note}</small>
+            </button>
+          ))}
+        </div>
+      </SetSection>
+
+      {hasKey ? (
+        <SetSection icon="⚿" title="Your Anthropic key" note="Kept in this browser only, sent straight to Anthropic">
+          <div className="set-key">
+            <span className="set-key-dot" aria-hidden="true" />
+            <span>Connected · usage bills your own account</span>
+            <button type="button" className="btn sm danger" onClick={forgetKey}>
+              Forget my key
+            </button>
+          </div>
+        </SetSection>
+      ) : null}
+    </div>
+  );
+}
 
 /** What pressing Show on a passage came to. */
 type Shown = LocateResult | 'looking';
@@ -584,7 +716,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
   // Pointing at a name shows its paper's card beside it; a press keeps the card
   // until it is closed. The card lives on the page, not in the window, so the
   // window's edge never clips it.
-  const { collections, createCollection, addPaper, papers: library } = useStore();
+  const { collections, createCollection, addPaper, papers: library, settings, updateSettings } = useStore();
   const [peek, setPeek] = useState<{ turn: number; key: string; anchor: HTMLElement; pinned: boolean } | null>(null);
   const peekTimer = useRef(0);
   const [adds, setAdds] = useState<Record<string, AddState>>({});
@@ -886,38 +1018,15 @@ export default function Assistant({ onClose, screen, reading }: Props) {
       </div>
 
       {drawer === 'settings' ? (
-        <div className="chat-drawer">
-          <div className="chat-set-title">What Claude sees on your screen</div>
-          <p className="chat-set-note">
-            Read fresh every time you send, so you never have to paste a passage in. Turn off anything you would rather keep to
-            yourself.
-          </p>
-          {CONTEXT_ROWS.map(([key, label, note]) => (
-            <label key={key} className="chat-set-row" title={note}>
-              <input type="checkbox" checked={s.prefs.context[key]} onChange={(event) => setContext(key, event.target.checked)} />
-              <span>{label}</span>
-              <span className="chat-set-note">{note}</span>
-            </label>
-          ))}
-          <div className="chat-set-title">Papers Claude names</div>
-          <p className="chat-set-note">Where a paper's card goes when an answer brings it up.</p>
-          {PAPER_LAYOUTS.map(({ value, label, note }) => (
-            <label key={value} className="chat-set-row" title={note}>
-              <input type="radio" name="paper-layout" checked={paperLayout === value} onChange={() => setLayout(value)} />
-              <span>{label}</span>
-              <span className="chat-set-note">{note}</span>
-            </label>
-          ))}
-          {s.hasKey ? (
-            <>
-              <div className="chat-set-title">Account</div>
-              <p className="chat-set-note">Your API key is in this browser only, and goes straight to Anthropic.</p>
-              <button type="button" className="btn sm" onClick={forgetKey}>
-                Forget my key
-              </button>
-            </>
-          ) : null}
-        </div>
+        <ChatSettings
+          context={s.prefs.context}
+          hasKey={s.hasKey}
+          paperLayout={paperLayout}
+          marks={settings.chatMarks ?? 'auto'}
+          look={settings.passageLook ?? 'marker'}
+          onMarks={(chatMarks) => updateSettings({ chatMarks })}
+          onLook={(passageLook) => updateSettings({ passageLook })}
+        />
       ) : drawer === 'history' ? (
         <div className="chat-drawer">
           <div className="chat-set-title">Previous chats</div>
@@ -972,6 +1081,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
 
       <div
         className="chat-body"
+        data-marks={settings.chatMarks ?? 'auto'}
         ref={body}
         onScroll={(event) => {
           const el = event.currentTarget;

@@ -1683,8 +1683,11 @@ screen before it answers, so there is nothing to paste.
   `scripts/locate-smoke.mjs` tries each mode.
 - **How answers read**: the first paragraph (the answer itself) is set a
   size up, and the rest of the answer is styled for reading:
-  - bold reads as a highlighter stroke, and in the dark theme the words glow
-    a warm yellow instead, since a fill behind them goes muddy there;
+  - bold words and links to passages are marked in the style picked under
+    the window's ⚙ → **Highlights in answers**: **Auto** (a marker fill on
+    paper, a warm glow in the dark), **Fill**, **Glow**, **Underline**,
+    **Tint** or **Outline**. Each has a tile there that previews it in the
+    current theme;
   - headings are small accent signposts with a rule;
   - lists have accent dots and numbered discs;
   - text quoted from the paper is set as a serif quotation;
@@ -1710,6 +1713,15 @@ screen before it answers, so there is nothing to paste.
   it is, and the button beside it cycles four frames — Frosted, Clear, Terminal and
   Aurora. It keeps its place across reloads. On a phone it is a sheet across the
   bottom.
+- **Settings** (⚙) are cards:
+  - **Highlights in answers**: preview tiles.
+  - **Passages on the page**: the same choice as in Settings, drawn as
+    miniature pages.
+  - **What Claude sees**: switches, with a count of how many are on.
+  - **Papers Claude names**: where their cards go.
+  - **Your Anthropic key**: with **Forget my key**.
+
+  ![the window's settings: highlight tiles, the look of a passage on the page, and what Claude sees](docs/chat-settings.png)
 - **History**: every conversation is filed in this browser as soon as it is
   answered, named after its first question. There is no account; clearing the
   site's data clears them. What went with each question from the screen is not

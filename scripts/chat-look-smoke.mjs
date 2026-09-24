@@ -192,6 +192,16 @@ await page.waitForTimeout(300);
 await win.screenshot({ path: `${OUT}/chat-2-light-bottom.png` });
 await page.screenshot({ path: `${OUT}/chat-0-page.png` });
 
+console.log('\n== the settings ==');
+const gear = page.locator('.assistant-win').getByRole('button', { name: 'Settings' });
+await gear.click();
+await page.waitForSelector('.chat-settings');
+check('the settings are cards', (await page.locator('.chat-settings .set-card').count()) >= 4);
+check('each highlight has a tile that previews it', (await page.locator('.mark-tile').count()) === 6);
+check('Auto is chosen to begin with', (await page.locator('.mark-tile[aria-checked="true"]').getAttribute('data-marks')) === 'auto');
+await win.screenshot({ path: `${OUT}/chat-5-settings-light.png` });
+await gear.click();
+
 console.log('\n== in dark ==');
 await page.getByRole('button', { name: 'Switch to the dark theme' }).evaluate((button) => button.click());
 await page.waitForTimeout(400);
@@ -201,6 +211,36 @@ await win.screenshot({ path: `${OUT}/chat-3-dark-top.png` });
 await page.locator('.chat-body').evaluate((el) => (el.scrollTop = el.scrollHeight));
 await page.waitForTimeout(300);
 await win.screenshot({ path: `${OUT}/chat-4-dark-bottom.png` });
+await gear.click();
+await page.waitForSelector('.chat-settings');
+await win.screenshot({ path: `${OUT}/chat-6-settings-dark.png` });
+await page.locator('.chat-settings').evaluate((el) => (el.scrollTop = el.scrollHeight));
+await page.waitForTimeout(200);
+await win.screenshot({ path: `${OUT}/chat-7-settings-dark-more.png` });
+await page.locator('.chat-settings').evaluate((el) => (el.scrollTop = 0));
+
+console.log('\n== each highlight, chosen ==');
+const colours = {};
+for (const mark of ['fill', 'glow', 'underline', 'tint', 'outline', 'auto']) {
+  await page.locator(`.mark-tile[data-marks="${mark}"]`).click();
+  await gear.click();
+  await page.waitForTimeout(200);
+  await page.locator('.chat-body').evaluate((el) => (el.scrollTop = 0));
+  await page.waitForTimeout(200);
+  const strong = page.locator('.chat-claude .chat-text strong').first();
+  colours[mark] = await strong.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return [style.color, style.backgroundColor, style.textDecorationLine, style.boxShadow, style.textShadow].join(' | ');
+  });
+  if (mark !== 'auto') await win.screenshot({ path: `${OUT}/chat-mark-${mark}-dark.png` });
+  await gear.click();
+  await page.waitForSelector('.chat-settings');
+}
+const { auto, ...chosen } = colours;
+check('the answers wear the chosen highlight', new Set(Object.values(chosen)).size === 5, JSON.stringify(colours));
+check('Auto is the glow in the dark', auto === colours.glow);
+check('it is kept', (await page.evaluate(() => JSON.parse(localStorage.getItem('reader.settings') || '{}').chatMarks)) === 'auto');
+await gear.click();
 
 check('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();

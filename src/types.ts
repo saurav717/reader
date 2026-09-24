@@ -219,6 +219,8 @@ export interface Settings {
   zenHaze: ZenHaze;
   /** How a passage Ask Claude points at is marked on the page. */
   passageLook: PassageLook;
+  /** How bold words and links to passages are marked in Ask Claude's answers; `auto` suits each theme. */
+  chatMarks: ChatMarks;
   /**
    * Used for the OpenAlex and Crossref "polite pools" — which are faster and
    * more reliable than the anonymous ones — and required by Unpaywall. Left
@@ -262,6 +264,8 @@ export type ReadingMode = 'pdf' | 'reflow';
 export type ZenHaze = 'shadow' | 'mist' | 'glow';
 
 export type PassageLook = 'marker' | 'spotlight' | 'outline';
+
+export type ChatMarks = 'auto' | 'fill' | 'glow' | 'underline' | 'tint' | 'outline';
 
 export interface GoogleUser {
   name: string;

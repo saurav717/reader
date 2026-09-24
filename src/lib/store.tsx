@@ -43,6 +43,7 @@ const defaultSettings: Settings = {
   readingMode: 'pdf',
   zenHaze: 'shadow',
   passageLook: 'marker',
+  chatMarks: 'auto',
   contactEmail: '',
   githubRepo: '',
   githubBranch: 'main',

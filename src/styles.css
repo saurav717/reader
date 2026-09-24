@@ -2930,21 +2930,7 @@ body.win-moving .assistant-win { transition: none; }
 /* In the answer: a link to one of them, and the list of them under it. */
 :root { --mark: 255 203 71; }
 :root[data-theme='dark'] { --mark: 246 214 102; }
-.chat-passage {
-  padding: 1px 3px; margin: 0 -1px; border-radius: 4px; cursor: pointer;
-  color: var(--ink); text-decoration: none;
-  background: rgb(var(--mark) / 0.45);
-  -webkit-box-decoration-break: clone; box-decoration-break: clone;
-  transition: background 0.2s;
-}
-.chat-passage::after {
-  content: attr(data-passage);
-  display: inline-grid; place-items: center; min-width: 15px; height: 15px; margin-left: 5px; padding: 0 3px;
-  border-radius: 8px; vertical-align: 1px;
-  font: 700 9.5px/1 var(--sans); color: var(--accent-on); background: var(--accent);
-}
-.chat-passage:hover { background: rgb(var(--mark) / 0.65); color: var(--ink); }
-.chat-passage:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* How a link to one reads is with the other marked words, at the end of this file. */
 
 .chat-passages {
   margin: 12px 0 6px; border-radius: 14px; overflow: hidden;
@@ -3012,13 +2998,7 @@ body.win-moving .assistant-win { transition: none; }
 :root[data-theme='dark'] .look-marker .passage-band {
   mix-blend-mode: normal; background: rgb(var(--mark) / 0.2); box-shadow: inset 0 -2px 0 rgb(var(--mark) / 0.75);
 }
-/* In dark, a fill behind the letters goes muddy; the words glow instead. */
-:root[data-theme='dark'] .chat-claude .chat-text a.chat-passage {
-  padding: 0; margin: 0; border-radius: 0; background: none;
-  color: rgb(var(--mark)); text-shadow: 0 0 14px rgb(var(--mark) / 0.3);
-  border-bottom: 1.5px dashed rgb(var(--mark) / 0.55);
-}
-:root[data-theme='dark'] .chat-claude .chat-text a.chat-passage:hover { color: #fff3c4; border-bottom-style: solid; border-bottom-color: rgb(var(--mark)); }
+
 @keyframes marker-sweep { from { transform: scaleX(0); } }
 @keyframes marker-breathe { 50% { filter: saturate(1.4) brightness(1.03); } }
 
@@ -3125,15 +3105,7 @@ body.win-moving .assistant-win { transition: none; }
 /* The first paragraph is the answer; what follows is the reasoning behind it. */
 .chat-claude .chat-text > p:first-child { font-size: 15px; line-height: 1.6; }
 .chat-claude .chat-text p { margin: 0 0 11px; }
-.chat-claude .chat-text strong {
-  font-weight: 650; color: var(--ink); padding: 1px 3px; margin: 0 -1px; border-radius: 4px;
-  background: rgb(var(--mark) / 0.3);
-  -webkit-box-decoration-break: clone; box-decoration-break: clone;
-}
-:root[data-theme='dark'] .chat-claude .chat-text strong {
-  padding: 0; margin: 0; background: none;
-  color: rgb(var(--mark)); text-shadow: 0 0 14px rgb(var(--mark) / 0.35);
-}
+
 /* A bold phrase inside a heading, a table head or a card is only bold. */
 .chat-claude .chat-text :is(h4, h5, h6, th) strong { background: none; padding: 0; margin: 0; }
 .chat-claude .chat-text em { font-family: var(--serif); font-size: 1.06em; }
@@ -3217,5 +3189,151 @@ body.win-moving .assistant-win { transition: none; }
 .chat-thinking summary::-webkit-details-marker { display: none; }
 .chat-thinking summary::before { content: '›'; font-size: 13px; transition: rotate 0.15s; }
 .chat-thinking[open] summary::before { rotate: 90deg; }
-/* A passage link is marked, not underlined: the general link style is for links out of the app. */
-.chat-claude .chat-text a.chat-passage { color: var(--ink); text-decoration: none; }
+
+
+/* ===========================================================================
+   How marked words read in Ask Claude's answers — bold text, and links to
+   passages. Chosen in the window's ⚙ (settings.chatMarks) and set as
+   data-marks on the answers and on each preview tile; every look is a set of
+   custom properties, so the nearest one wins and a tile can show a look the
+   answers do not wear.
+   =========================================================================== */
+.chat-claude .chat-text strong, .chat-claude .chat-text .chat-passage {
+  padding: var(--mk-pad, 1px 3px); margin: var(--mk-margin, 0 -1px); border-radius: 4px;
+  color: var(--mk-color, var(--ink)); background: var(--mk-bg, none);
+  text-shadow: var(--mk-glow, none); box-shadow: var(--mk-ring, none);
+  text-decoration: var(--mk-deco, none); text-decoration-color: var(--mk-deco-color, transparent);
+  text-decoration-thickness: 3px; text-underline-offset: 4px; text-decoration-skip-ink: none;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+.chat-claude .chat-text strong { font-weight: 650; }
+.chat-claude .chat-text .chat-passage {
+  cursor: pointer; transition: filter 0.15s;
+  color: var(--ml-color, var(--mk-color, var(--ink))); background: var(--ml-bg, var(--mk-bg, none));
+  text-decoration-color: var(--ml-deco-color, var(--mk-deco-color, transparent));
+  border-bottom: var(--ml-line, 0);
+}
+.chat-claude .chat-text .chat-passage:hover { filter: brightness(1.12) saturate(1.1); }
+.chat-claude .chat-text .chat-passage:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chat-passage::after {
+  content: attr(data-passage);
+  display: inline-grid; place-items: center; min-width: 15px; height: 15px; margin-left: 5px; padding: 0 3px;
+  border-radius: 8px; vertical-align: 1px; text-shadow: none;
+  font: 700 9.5px/1 var(--sans); color: var(--accent-on); background: var(--accent);
+}
+/* A bold phrase inside a heading or a table head is only bold. */
+.chat-claude .chat-text :is(h4, h5, h6, th) strong { --mk-bg: none; --mk-pad: 0; --mk-margin: 0; --mk-glow: none; --mk-ring: none; --mk-deco: none; --mk-color: inherit; }
+
+/* Fill: a marker behind the words. */
+[data-marks='fill'], [data-marks='auto'] { --mk-bg: rgb(var(--mark) / 0.3); --ml-bg: rgb(var(--mark) / 0.45); }
+:root[data-theme='dark'] [data-marks='fill'] { --mk-bg: rgb(var(--mark) / 0.16); --ml-bg: rgb(var(--mark) / 0.22); }
+/* Glow: the words themselves in the marker's colour — amber on paper, lit in the dark. */
+[data-marks='glow'] {
+  --mk-pad: 0; --mk-margin: 0; --mk-color: #8a5c00; --ml-line: 1.5px dashed rgb(203 145 20 / 0.6);
+}
+:root[data-theme='dark'] [data-marks='glow'], :root[data-theme='dark'] [data-marks='auto'] {
+  --mk-pad: 0; --mk-margin: 0; --mk-bg: none; --ml-bg: none;
+  --mk-color: rgb(var(--mark)); --mk-glow: 0 0 14px rgb(var(--mark) / 0.35);
+  --ml-line: 1.5px dashed rgb(var(--mark) / 0.55);
+}
+/* Underline: a thick marker stroke under the words; green under a passage link. */
+[data-marks='underline'] {
+  --mk-pad: 0; --mk-margin: 0; --mk-deco: underline; --mk-deco-color: rgb(var(--mark) / 0.9); --ml-deco-color: var(--accent);
+}
+:root[data-theme='dark'] [data-marks='underline'] { --mk-color: #fff; }
+/* Tint: the app's own green. */
+[data-marks='tint'] { --mk-bg: rgb(var(--accent-rgb) / 0.13); --mk-color: var(--accent-ink); --ml-bg: rgb(var(--accent-rgb) / 0.2); --mk-ring: inset 0 -2px 0 rgb(var(--accent-rgb) / 0.55); }
+:root[data-theme='dark'] [data-marks='tint'] { --mk-bg: rgb(var(--accent-rgb) / 0.2); --mk-color: #bfe8da; --ml-bg: rgb(var(--accent-rgb) / 0.26); --ml-color: #d6f3e9; }
+/* Outline: a framed chip. */
+[data-marks='outline'] { --mk-bg: rgb(var(--mark) / 0.1); --mk-ring: inset 0 0 0 1px rgb(214 160 30 / 0.7); --ml-bg: rgb(var(--mark) / 0.16); }
+:root[data-theme='dark'] [data-marks='outline'] { --mk-bg: rgb(var(--mark) / 0.07); --mk-color: #f7e6ad; --mk-ring: inset 0 0 0 1px rgb(var(--mark) / 0.45); --ml-bg: rgb(var(--mark) / 0.1); }
+
+/* ===========================================================================
+   The window's settings (⚙): cards, switches, and tiles that preview each look.
+   =========================================================================== */
+.chat-drawer.chat-settings { max-height: 72%; padding: 12px; display: grid; gap: 10px; background: rgb(var(--win-rgb) / 0.55); }
+.set-card {
+  padding: 12px 12px 12px; border-radius: 14px;
+  border: 1px solid rgb(var(--win-edge) / 0.08);
+  background: rgb(var(--win-rgb) / 0.72);
+  box-shadow: 0 6px 18px -14px rgb(0 0 0 / 0.5);
+}
+.set-card > header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.set-card > header > span:last-child { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.set-card > header b { font-size: 13px; font-weight: 650; }
+.set-card > header small { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.set-icon {
+  display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 8px;
+  font-size: 13px; color: var(--accent); background: rgb(var(--accent-rgb) / 0.12);
+}
+
+/* Tiles: each draws its own sample in the look it stands for. */
+.mark-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.look-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.mark-tile, .look-tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0;
+  padding: 10px 10px 9px; border-radius: 11px; cursor: pointer; text-align: left; color: inherit;
+  border: 1px solid rgb(var(--win-edge) / 0.1); background: rgb(var(--win-rgb) / 0.6);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.mark-tile:hover, .look-tile:hover { border-color: rgb(var(--accent-rgb) / 0.45); transform: translateY(-1px); }
+.mark-tile[aria-checked='true'], .look-tile[aria-checked='true'] {
+  border-color: var(--accent); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.16); background: rgb(var(--win-rgb) / 0.95);
+}
+.mark-sample { display: block; width: 100%; margin: 0 0 6px; padding: 7px 8px; border-radius: 8px; background: rgb(var(--win-edge) / 0.04); }
+.mark-sample .chat-text { font-size: 12.5px; line-height: 1.7; }
+.mark-sample .chat-passage::after { min-width: 13px; height: 13px; font-size: 8.5px; margin-left: 3px; }
+.mark-name { font-size: 12px; font-weight: 650; }
+.mark-tile[aria-checked='true'] .mark-name, .look-tile[aria-checked='true'] .mark-name { color: var(--accent); }
+.mark-note { font-size: 10.5px; line-height: 1.3; color: var(--muted); }
+
+/* A page in miniature: four lines, two of them the passage, drawn in each look. */
+.look-sample { position: relative; display: grid; gap: 5px; width: 100%; margin: 0 0 6px; padding: 9px 8px; border-radius: 8px; background: rgb(var(--win-edge) / 0.04); overflow: hidden; }
+.look-sample i { display: block; height: 5px; border-radius: 3px; background: rgb(var(--win-edge) / 0.18); }
+.look-sample i.short { width: 62%; }
+.look-marker .look-sample i.hit { background: rgb(var(--mark) / 0.85); }
+.look-spotlight .look-sample { background: rgb(12 14 12 / 0.28); }
+.look-spotlight .look-sample i:not(.hit) { opacity: 0.35; }
+.look-spotlight .look-sample i.hit { background: rgb(var(--win-edge) / 0.35); box-shadow: 0 0 0 3px rgb(var(--win-rgb) / 0.95), 0 0 10px 3px rgb(var(--accent-rgb) / 0.4); }
+.look-outline .look-sample i.hit { background: rgb(var(--accent-rgb) / 0.35); box-shadow: -5px 0 0 -1px var(--accent); }
+
+/* Switches for what Claude sees. */
+.set-switches { display: grid; gap: 2px; }
+.set-switch { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 7px 6px; border-radius: 9px; cursor: pointer; }
+.set-switch:hover { background: rgb(var(--win-edge) / 0.04); }
+.set-switch-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.set-switch-text b { font-size: 12.5px; font-weight: 600; }
+.set-switch-text small { font-size: 11px; color: var(--muted); line-height: 1.35; }
+.set-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.set-toggle {
+  position: relative; width: 34px; height: 20px; border-radius: 10px; flex: none;
+  background: rgb(var(--win-edge) / 0.18); transition: background 0.18s;
+}
+.set-toggle::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 0.3); transition: translate 0.18s;
+}
+.set-switch input:checked + .set-toggle { background: var(--accent); }
+.set-switch input:checked + .set-toggle::after { translate: 14px 0; }
+.set-switch input:focus-visible + .set-toggle { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Choices for where paper cards go. */
+.set-choices { display: grid; gap: 6px; }
+.set-choices button {
+  display: flex; flex-direction: column; gap: 1px; padding: 8px 10px 8px 30px; position: relative;
+  border-radius: 10px; border: 1px solid rgb(var(--win-edge) / 0.1); background: transparent; text-align: left; color: inherit; cursor: pointer;
+}
+.set-choices button::before {
+  content: ''; position: absolute; left: 10px; top: 11px; width: 12px; height: 12px; border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px rgb(var(--win-edge) / 0.35);
+}
+.set-choices button[aria-checked='true'] { border-color: rgb(var(--accent-rgb) / 0.6); background: rgb(var(--accent-rgb) / 0.08); }
+.set-choices button[aria-checked='true']::before { box-shadow: inset 0 0 0 4px var(--accent); }
+.set-choices b { font-size: 12.5px; font-weight: 600; }
+.set-choices small { font-size: 11px; color: var(--muted); }
+
+/* The key. */
+.set-key { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+.set-key > span:nth-child(2) { flex: 1; }
+.set-key-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.18); }
+.chat-drawer.chat-settings { border-bottom: 1px solid rgb(var(--win-edge) / 0.12); box-shadow: 0 14px 22px -16px rgb(0 0 0 / 0.55); position: relative; z-index: 1; }
