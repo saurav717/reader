@@ -4,18 +4,23 @@ import type { Screen } from '../lib/assistant';
 import { getState, MODELS, saveKey, subscribe } from '../lib/assistant';
 import type { Block, Section } from '../lib/explain';
 import {
+  applyEdits,
   caveatsOf,
+  dismissPending,
   explanationFor,
   generateExplanation,
   loadExplanation,
   notebook,
   parseExplanation,
+  reviseExplanation,
   stopExplaining,
   subscribeExplain,
+  undoRevision,
   VERDICTS,
 } from '../lib/explain';
+import type { RevisionScope } from '../lib/explain';
 import { markdown } from '../lib/markdown';
-import { CloseIcon, ExplainIcon } from './icons';
+import { CloseIcon, ExplainIcon, SparkleIcon } from './icons';
 
 export type ExplainLayout = 'margin' | 'notebook' | 'beside';
 const LAYOUT_KEY = 'reader.explain.layout';
@@ -161,7 +166,20 @@ function Caveat({ block }: { block: Extract<Block, { kind: 'caveat' }> }) {
  * caveats follow it. In the margin layout the two halves of a row sit side
  * by side, so a figure stands next to the paragraph it illustrates.
  */
-function SectionView({ section, number, cells, onAsk }: { section: Section; number: number; cells: Map<Block, number>; onAsk?: (text: string) => void }) {
+function SectionView({
+  section,
+  number,
+  cells,
+  onAdjust,
+  state,
+}: {
+  section: Section;
+  number: number;
+  cells: Map<Block, number>;
+  onAdjust?: (title: string) => void;
+  /** Being rewritten now, just rewritten, or changed by an earlier request. */
+  state?: 'revising' | 'fresh' | 'revised';
+}) {
   const rows: { prose: Block[]; side: Block[] }[] = [];
   for (const block of section.blocks) {
     const row = rows[rows.length - 1];
@@ -182,14 +200,21 @@ function SectionView({ section, number, cells, onAsk }: { section: Section; numb
       <Caveat key={key} block={block} />
     );
   return (
-    <section className="explain-section" id={`explain-${section.id}`} data-section={section.id}>
+    <section className={`explain-section${state ? ` is-${state}` : ''}`} id={`explain-${section.id}`} data-section={section.id} data-title={section.title}>
       {section.title ? (
         <header className="explain-section-head">
           <span className="section-number">{String(number).padStart(2, '0')}</span>
           <h2>{section.title}</h2>
-          {onAsk ? (
-            <button type="button" className="btn sm ghost ask" onClick={() => onAsk(section.title)} title="Ask Claude a follow-up about this section">
-              Ask about this
+          {state === 'revising' ? (
+            <span className="revised-pill live">
+              <span className="spinner" /> Revising
+            </span>
+          ) : state ? (
+            <span className="revised-pill">Revised at your request</span>
+          ) : null}
+          {onAdjust ? (
+            <button type="button" className="btn sm ghost ask" onClick={() => onAdjust(section.title)} title="Ask a question about this section, or ask for it to be changed, in the bar at the top">
+              Ask or adjust
             </button>
           ) : null}
         </header>
@@ -215,10 +240,9 @@ interface Props {
   published?: string;
   screen: () => Promise<Screen>;
   onClose: () => void;
-  onAsk?: (sectionTitle: string) => void;
 }
 
-export default function Explain({ paperId, title, authors, published, screen, onClose, onAsk }: Props) {
+export default function Explain({ paperId, title, authors, published, screen, onClose }: Props) {
   const assistant = useSyncExternalStore(subscribe, getState);
   const explanation = useSyncExternalStore(subscribeExplain, () => explanationFor(paperId));
   const [layout, setLayout] = useState<ExplainLayout>(readLayout);
@@ -227,6 +251,12 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const [active, setActive] = useState('');
   const [checked, setChecked] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const askRef = useRef<HTMLInputElement>(null);
+  const [ask, setAsk] = useState('');
+  const [scope, setScope] = useState<RevisionScope>({});
+  const [askFocused, setAskFocused] = useState(false);
+  // Once a request is sent, the line under the bar reports on it rather than offering more.
+  const [justAsked, setJustAsked] = useState(false);
 
   useEffect(() => {
     setChecked(false);
@@ -243,13 +273,34 @@ export default function Explain({ paperId, title, authors, published, screen, on
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !document.activeElement?.closest('.assistant-win') && !document.querySelector('.scrim')) onClose();
+      if (event.key === 'Escape' && !document.activeElement?.closest('.assistant-win, .explain-ask') && !document.querySelector('.scrim')) onClose();
+      // "/" goes to the bar at the top, as it does to a search box.
+      if (event.key === '/' && !(event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable="true"]')) {
+        event.preventDefault();
+        askRef.current?.focus();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const sections = useMemo(() => parseExplanation(explanation?.content ?? ''), [explanation?.content]);
+  // While a request is answered, the page on screen is the page with the reply so far applied to it.
+  const pending = explanation?.pending;
+  const live = pending && !pending.error ? applyEdits(explanation?.content ?? '', pending.reply, pending.scope.section) : null;
+  const shown = live ? live.content : explanation?.content ?? '';
+  const sections = useMemo(() => parseExplanation(shown), [shown]);
+  const revisions = explanation?.revisions ?? [];
+  const lastRevision = revisions[revisions.length - 1];
+  const revising = live?.touched[live.touched.length - 1];
+  const revised = useMemo(() => new Set(revisions.flatMap((r) => r.touched)), [revisions]);
+  const stateOf = (section: Section): 'revising' | 'fresh' | 'revised' | undefined =>
+    revising && section.title === revising
+      ? 'revising'
+      : !pending && lastRevision?.touched.includes(section.title) && Date.now() - lastRevision.at < 60_000
+        ? 'fresh'
+        : revised.has(section.title)
+          ? 'revised'
+          : undefined;
   const caveats = useMemo(() => caveatsOf(sections), [sections]);
   const cells = useMemo(() => {
     const numbers = new Map<Block, number>();
@@ -259,6 +310,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
   }, [sections]);
   const hasCode = cells.size > 0;
   const streaming = Boolean(explanation?.streaming);
+  const busy = Boolean(streaming || (pending && !pending.error));
+  const canAsk = Boolean(explanation?.content && assistant.hasKey && !streaming);
 
   // The outline follows the reading: the section whose head last crossed the top third.
   useEffect(() => {
@@ -276,6 +329,42 @@ export default function Explain({ paperId, title, authors, published, screen, on
     scroller.addEventListener('scroll', onScroll, { passive: true });
     return () => scroller.removeEventListener('scroll', onScroll);
   }, [sections.length]);
+
+  // The section being revised is brought into view once, when the reply first names it.
+  const followed = useRef('');
+  useEffect(() => {
+    if (!revising || followed.current === revising) return;
+    followed.current = revising;
+    const element = Array.from(scrollRef.current?.querySelectorAll<HTMLElement>('.explain-section') ?? []).find((el) => el.dataset.title === revising);
+    element?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [revising]);
+  useEffect(() => {
+    if (!pending) followed.current = '';
+  }, [pending]);
+
+  const submit = async (request = ask) => {
+    if (!request.trim() || busy) return;
+    const read = await screen();
+    setAsk('');
+    setJustAsked(true);
+    const asked = scope;
+    setScope({});
+    await reviseExplanation(read, request, asked);
+  };
+  const adjust = (sectionTitle: string) => {
+    setScope({ section: sectionTitle });
+    askRef.current?.focus();
+  };
+  // A passage selected on the page becomes what the next request is about.
+  const takeSelection = () => {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() ?? '';
+    const node = selection?.anchorNode;
+    const element = node instanceof Element ? node : node?.parentElement;
+    const section = element?.closest<HTMLElement>('.explain-section');
+    if (text.length < 3 || !section) return;
+    setScope({ section: section.dataset.title || undefined, quote: text.slice(0, 1500) });
+  };
 
   const start = async () => {
     const read = await screen();
@@ -317,7 +406,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           </button>
         ) : null}
         {explanation?.content && !streaming ? (
-          <button type="button" className="btn sm ghost" onClick={() => void start()} disabled={!assistant.hasKey} title="Write it again from scratch">
+          <button type="button" className="btn sm ghost rewrite" onClick={() => void start()} disabled={!assistant.hasKey} title="Write it again from scratch">
             Rewrite
           </button>
         ) : null}
@@ -330,6 +419,106 @@ export default function Explain({ paperId, title, authors, published, screen, on
           <CloseIcon size={17} />
         </button>
       </header>
+
+      <div className="explain-ask">
+        <div className="ask-column">
+          <form
+            className={`ask-field${busy ? ' is-busy' : ''}${askFocused ? ' is-focused' : ''}`}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submit();
+            }}
+          >
+            <SparkleIcon size={16} />
+            {scope.section ? (
+              <span className="ask-chip" title={`About the section “${scope.section}”`}>
+                § {scope.section}
+                <button type="button" aria-label="Not about this section" onClick={() => setScope({ ...scope, section: undefined })}>
+                  ×
+                </button>
+              </span>
+            ) : null}
+            {scope.quote ? (
+              <span className="ask-chip quote" title={scope.quote}>
+                “{scope.quote.length > 42 ? `${scope.quote.slice(0, 42)}…` : scope.quote}”
+                <button type="button" aria-label="Not about this passage" onClick={() => setScope({ ...scope, quote: undefined })}>
+                  ×
+                </button>
+              </span>
+            ) : null}
+            <input
+              ref={askRef}
+              value={ask}
+              disabled={!canAsk || busy}
+              onChange={(event) => {
+                setAsk(event.target.value);
+                setJustAsked(false);
+              }}
+              onFocus={() => {
+                setAskFocused(true);
+                setJustAsked(false);
+              }}
+              onBlur={() => window.setTimeout(() => setAskFocused(false), 150)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') return;
+                if (scope.section || scope.quote) setScope({});
+                else event.currentTarget.blur();
+              }}
+              placeholder={
+                !explanation?.content
+                  ? 'Once the explanation is written, ask about it or change it here'
+                  : scope.section || scope.quote
+                    ? 'Ask about this, or say how to change it…'
+                    : 'Ask anything about this explanation, or tell Claude how to change it…  ( / )'
+              }
+              aria-label="Ask about the explanation, or ask for a change"
+            />
+            {busy && pending ? (
+              <button type="button" className="btn sm" onClick={stopExplaining}>
+                Stop
+              </button>
+            ) : (
+              <button type="submit" className="btn sm primary" disabled={!canAsk || !ask.trim()}>
+                Ask
+              </button>
+            )}
+          </form>
+          {pending && !pending.error ? (
+            <div className="ask-status">
+              <span className="spinner" />
+              <span className="ask-note">
+                {revising ? `Rewriting “${revising}”` : 'Reading your request'} — <em>{pending.request}</em>
+              </span>
+            </div>
+          ) : pending?.error ? (
+            <div className="ask-status is-error">
+              <span className="ask-note">{pending.error}</span>
+              <button type="button" className="btn sm ghost" onClick={() => dismissPending(paperId)}>
+                Dismiss
+              </button>
+            </div>
+          ) : askFocused && !ask && canAsk && !justAsked ? (
+            <div className="ask-suggestions">
+              {(scope.section || scope.quote
+                ? ['Explain this more simply', 'Go deeper into the maths', 'Add a figure for this', 'Add a PyTorch version of the code', 'Is this still true today?']
+                : ['Make the whole page simpler, for a beginner', 'Add a section on how to implement it today', 'Use PyTorch instead of numpy', 'What has changed in the last two years?', 'Fewer figures, more intuition']
+              ).map((suggestion) => (
+                <button key={suggestion} type="button" className="ask-suggestion" onMouseDown={(event) => event.preventDefault()} onClick={() => void submit(suggestion)}>
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          ) : lastRevision ? (
+            <div className="ask-status is-done">
+              <span className="check">✓</span>
+              <span className="ask-note">{lastRevision.note || `Done: ${lastRevision.request}`}</span>
+              <button type="button" className="btn sm ghost" onClick={() => undoRevision(paperId)} title={`Put the page back as it was before “${lastRevision.request}”`}>
+                Undo
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
 
       <div className="explain-scroll" ref={scrollRef}>
         <nav className="explain-outline" aria-label="Sections">
@@ -383,7 +572,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           ) : null}
         </nav>
 
-        <article className="explain-doc">
+        <article className="explain-doc" onMouseUp={takeSelection}>
           {!explanation?.content && checked && !streaming ? (
             <div className="explain-empty">
               <div className="explain-kicker">
@@ -446,7 +635,14 @@ export default function Explain({ paperId, title, authors, published, screen, on
               </header>
               {sections.map((section, index) => (
                 <Fragment key={section.id}>
-                  <SectionView section={section} number={index + (sections[0]?.title ? 1 : 0)} cells={cells} onAsk={streaming ? undefined : onAsk} />
+                  <SectionView
+                    key={stateOf(section) === 'fresh' ? `${section.id}-${lastRevision?.at}` : section.id}
+                    section={section}
+                    number={index + (sections[0]?.title ? 1 : 0)}
+                    cells={cells}
+                    onAdjust={canAsk && !busy && section.title ? adjust : undefined}
+                    state={stateOf(section)}
+                  />
                 </Fragment>
               ))}
               {streaming ? (

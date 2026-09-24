@@ -2625,7 +2625,8 @@ body.win-moving .assistant-win { transition: none; }
 .explain-section { padding: 8px 0 28px; }
 .explain-section + .explain-section { border-top: 1px solid var(--border-soft); padding-top: 34px; }
 .explain-section-head { display: flex; align-items: baseline; gap: 14px; max-width: 720px; margin-bottom: 14px; }
-.explain-section-head h2 { flex: 1; margin: 0; font: 600 21px/1.3 var(--sans); letter-spacing: -0.005em; }
+.explain-section-head { flex-wrap: wrap; }
+.explain-section-head h2 { flex: 1; min-width: 0; overflow-wrap: anywhere; margin: 0; font: 600 21px/1.3 var(--sans); letter-spacing: -0.005em; }
 .section-number { font: 500 12px var(--mono); color: var(--accent); }
 .explain-section-head .ask { opacity: 0; transition: opacity 0.15s; }
 .explain-section:hover .explain-section-head .ask, .explain-section-head .ask:focus-visible { opacity: 1; }
@@ -2745,9 +2746,87 @@ body.win-moving .assistant-win { transition: none; }
   .explain-outline { display: none; }
   .explain-bar-title { display: none; }
   /* Every layout is one column here, so the switch has nothing to switch. */
-  .explain-bar .segmented { display: none; }
+  .explain-bar .segmented, .explain-bar .rewrite { display: none; }
+  .explain-section-head .ask { display: none; }
   .explain-brand { flex: 1; }
   .explain-bar { padding: 0 6px 0 16px; }
   .explain-title h1, .explain-empty h1 { font-size: 26px; }
 }
 .explain-bar .btn { white-space: nowrap; flex: none; }
+
+/* The bar at the top of Explain: ask about the page, or ask for it to change.
+   It lines up with the document column, under the outline's gutter. */
+.explain-ask {
+  flex: none;
+  display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 56px;
+  padding: 12px 48px 10px 28px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--panel) 45%, var(--paper));
+}
+.ask-column { grid-column: 2; max-width: 880px; min-width: 0; }
+.layout-beside .explain-ask { grid-template-columns: minmax(0, 1fr); padding: 12px 44px 10px 40px; }
+.layout-beside .ask-column { grid-column: 1; }
+.ask-field {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 44px; padding: 5px 6px 5px 14px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface); color: var(--accent);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ask-field.is-focused { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14); }
+.ask-field > svg { flex: none; }
+.ask-field input {
+  flex: 1; min-width: 0; height: 32px; border: 0; outline: 0; background: transparent;
+  font-size: 14.5px; color: var(--ink);
+}
+.ask-field input::placeholder { color: var(--muted); }
+.ask-field .btn { flex: none; height: 32px; padding: 0 14px; }
+.ask-chip {
+  display: inline-flex; align-items: center; gap: 4px; flex: none; max-width: 38%;
+  height: 26px; padding: 0 4px 0 9px; border-radius: 7px;
+  font-size: 12px; font-weight: 500; color: var(--accent-ink); background: var(--accent-soft);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ask-chip.quote { font: italic 12.5px var(--serif); color: var(--ink-2); background: var(--hl-yellow); }
+.ask-chip button { border: 0; background: none; cursor: pointer; padding: 0 4px; font-size: 14px; line-height: 1; color: inherit; opacity: 0.7; }
+.ask-chip button:hover { opacity: 1; }
+.ask-status, .ask-suggestions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.ask-status { flex-wrap: nowrap; align-items: flex-start; line-height: 1.45; }
+.ask-status .spinner, .ask-status .check { flex: none; margin-top: 1px; }
+.ask-note { flex: 1; min-width: 0; }
+.ask-status .btn { flex: none; margin-top: -3px; }
+.ask-status em { color: var(--ink-2); }
+.ask-status.is-error { color: var(--danger); }
+.ask-status.is-done { color: var(--ink-2); }
+.ask-status .check { color: var(--accent); font-weight: 700; }
+.ask-status .btn { height: 24px; }
+.ask-suggestion {
+  height: 26px; padding: 0 10px; border-radius: 13px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); font-size: 12px;
+}
+.ask-suggestion:hover { border-color: var(--accent); color: var(--accent); }
+
+/* A section a request is rewriting, just rewrote, or once changed. */
+.revised-pill {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  font: 600 10.5px/1 var(--sans); letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 4px 8px; border-radius: 5px; color: var(--accent); background: var(--accent-soft);
+}
+.revised-pill .spinner { width: 10px; height: 10px; border-width: 1.5px; }
+.explain-section.is-revising, .explain-section.is-fresh { position: relative; }
+.explain-section.is-revising::before, .explain-section.is-fresh::before {
+  content: ''; position: absolute; left: -20px; top: 34px; bottom: 20px; width: 3px; border-radius: 2px; background: var(--accent);
+}
+.explain-section.is-revising::before { animation: revising 1.2s ease-in-out infinite alternate; }
+.explain-section.is-fresh::before { animation: fresh 6s ease-out forwards; }
+.explain-section.is-fresh .row-main, .explain-section.is-fresh .row-side { animation: fresh-in 0.6s ease-out; }
+@keyframes revising { from { opacity: 0.25; } to { opacity: 1; } }
+@keyframes fresh { 70% { opacity: 1; } to { opacity: 0; } }
+@keyframes fresh-in { from { opacity: 0.3; } }
+
+@media (max-width: 900px) {
+  .explain-ask { grid-template-columns: minmax(0, 1fr); padding: 10px 12px; gap: 0; }
+  .ask-column { grid-column: 1; }
+  .ask-chip { max-width: 45%; }
+}

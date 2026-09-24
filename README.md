@@ -1807,19 +1807,53 @@ Three layouts, switched in the bar and remembered:
 
 ![Beside the paper: the library and the paper on the left, the explanation on the right](docs/explain-beside.png)
 
+### Asking about it, or changing it
+
+The bar across the top of the page takes a question or an instruction:
+*why divide by √d?*, *explain this more simply*, *use PyTorch instead of
+numpy*, *what has changed in the last two years?* Claude does not rewrite
+the page to answer it. It changes only the sections it has to, rewriting one
+in place or adding a new section after the one the question is about, and
+leaves the rest alone. The section being rewritten is marked **Revising**
+and fills in on screen as the reply streams. When the reply is done, a line
+under the bar says what changed, with **Undo**. The last twelve versions are
+kept.
+
+![a question about a selected passage: the section and the passage as chips in the bar](docs/explain-ask.png)
+
+- **What it is about.** **Ask or adjust** on a section's heading puts that
+  section in the bar as a chip. Selecting a passage on the page adds the
+  passage too. Otherwise the request is about the whole page.
+- **Suggestions.** An empty bar offers a few starting points, for the whole
+  page or, with a chip, for that section.
+- **/** jumps to the bar; **Esc** in it clears the chips, then leaves it.
+- A changed section keeps a **Revised at your request** mark.
+
+Under the hood, the page as written goes back to Claude as its own earlier
+turn, behind the same cached system prompt, so the paper is not paid for
+again. Claude answers with `<<<replace: Title>>>`, `<<<insert after: Title>>>`
+and `<<<delete: Title>>>` operations and a closing `<<<note>>>`, and
+`applyEdits` in `src/lib/explain.ts` applies them, including to a reply that
+is only half written.
+
+![the section being rewritten, marked Revising, while the rest of the page stays](docs/explain-revising.png)
+
+### The key and the cost
+
 It uses the same API key and models as Ask Claude. The paper's full text goes
 in the system prompt behind a cache breakpoint. The explanation is written
 once, streamed onto the page as it arrives, and kept in IndexedDB for that
-paper; **Rewrite** asks again. **Ask about this**, on a section's heading,
-opens Ask Claude with that section quoted. On a phone it is one column.
+paper; **Rewrite** asks again, and can be undone. On a phone it is one column.
 
 Claude writes plain Markdown, plus four fenced blocks the page draws itself:
 `figure`, `python`, `output` and `caveat verdict="…"`. The prompt and the
 parser are in `src/lib/explain.ts`, the page is `src/components/Explain.tsx`,
 and the styles are the *Explain* section of `src/styles.css`.
-`scripts/explain-smoke.mjs` stands in for `api.anthropic.com`, streams
-`scripts/fixtures/explain-attention.md` back through the real SDK, and
-photographs each layout.
+`scripts/explain-smoke.mjs` stands in for `api.anthropic.com`. It streams
+`scripts/fixtures/explain-attention.md` back through the real SDK, then two
+requests from the bar (`explain-revise-*.md`), one held halfway so the
+rewrite can be photographed, and it photographs each layout.
+`scripts/explain.test.mjs` tests the parser and `applyEdits`.
 
 ## Layout
 

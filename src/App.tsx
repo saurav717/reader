@@ -617,10 +617,6 @@ export default function App() {
           published={explained.published}
           screen={readScreen}
           onClose={() => setExplainOpen(false)}
-          onAsk={(section) => {
-            setQuote(`From the explanation of this paper, the section “${section}”.`);
-            setAssistantOpen(true);
-          }}
         />
       ) : null}
 

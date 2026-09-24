@@ -16,7 +16,9 @@ import { chromium } from 'playwright';
 const BASE = process.env.SMOKE_BASE || 'http://localhost:8080';
 const OUT = process.env.SMOKE_OUT || new URL('../.smoke/', import.meta.url).pathname;
 await mkdir(OUT, { recursive: true });
-const FIXTURE = await readFile(new URL('./fixtures/explain-attention.md', import.meta.url), 'utf8');
+const fixture = (name) => readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
+const FIXTURE = await fixture('explain-attention.md');
+const REPLIES = [await fixture('explain-revise-heads.md'), await fixture('explain-revise-question.md')];
 
 const TITLE = 'Attention Is All You Need';
 const W = 1440;
@@ -28,20 +30,21 @@ function check(label, condition, detail = '') {
   console.log(`  ${condition ? 'PASS' : 'FAIL'}  ${label}${detail ? ` — ${detail}` : ''}`);
 }
 
-/** The Messages API's stream, as the SDK expects to read it. */
-function sse(text) {
+/** The Messages API's stream, as the SDK expects to read it: one event a string. */
+function sse(text, size = 240) {
   const event = (name, data) => `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
-  let body = event('message_start', {
+  const body = [];
+  body.push(event('message_start', {
     type: 'message_start',
     message: { id: 'msg_smoke', type: 'message', role: 'assistant', model: 'claude-opus-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 9000, output_tokens: 1 } },
-  });
-  body += event('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
-  for (let i = 0; i < text.length; i += 240) {
-    body += event('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: text.slice(i, i + 240) } });
+  }));
+  body.push(event('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }));
+  for (let i = 0; i < text.length; i += size) {
+    body.push(event('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: text.slice(i, i + size) } }));
   }
-  body += event('content_block_stop', { type: 'content_block_stop', index: 0 });
-  body += event('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 6000 } });
-  body += event('message_stop', { type: 'message_stop' });
+  body.push(event('content_block_stop', { type: 'content_block_stop', index: 0 }));
+  body.push(event('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 6000 } }));
+  body.push(event('message_stop', { type: 'message_stop' }));
   return body;
 }
 
@@ -89,11 +92,38 @@ await context.route('**/scholar/search*', (route) =>
   }),
 );
 await context.route('**/scholar/{authors,person,paper-authors,cluster}*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"results":[]}' }));
-let asked = null;
-await context.route('https://api.anthropic.com/**', async (route) => {
-  asked = JSON.parse(route.request().postData() || '{}');
-  await route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream', 'access-control-allow-origin': '*' }, body: sse(FIXTURE) });
-});
+// A stand-in for api.anthropic.com inside the page, so a reply can be held
+// halfway (window.__hold) and photographed mid-stream. The first page comes
+// from the fixture; each request from the bar gets the next of REPLIES.
+await context.addInitScript(
+  ({ first, replies }) => {
+    const real = window.fetch.bind(window);
+    window.__asked = [];
+    window.__hold = null;
+    let next = 0;
+    window.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input.url;
+      if (!url.startsWith('https://api.anthropic.com')) return real(input, init);
+      const body = JSON.parse(init?.body ?? '{}');
+      window.__asked.push(body);
+      const events = body.messages.length > 1 ? replies[next++ % replies.length] : first;
+      const hold = window.__hold;
+      const stream = new ReadableStream({
+        async start(controller) {
+          for (let i = 0; i < events.length; i++) {
+            if (hold && i === hold.at) await hold.until;
+            controller.enqueue(new TextEncoder().encode(events[i]));
+          }
+          controller.close();
+        },
+      });
+      return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream', 'request-id': 'req_smoke' } });
+    };
+  },
+  { first: sse(FIXTURE), replies: REPLIES.map((reply) => sse(reply, 120)) },
+);
+const lastAsked = () => page.evaluate(() => window.__asked.at(-1) ?? null);
+const askedCount = () => page.evaluate(() => window.__asked.length);
 
 const page = await context.newPage();
 const errors = [];
@@ -137,6 +167,7 @@ console.log('\n== Claude writes it ==');
 await page.getByRole('button', { name: 'Explain this paper' }).click();
 await page.waitForSelector('.explain-section h2', { timeout: 20000 });
 await page.waitForFunction(() => !document.querySelector('.explain-writing'), null, { timeout: 20000 });
+const asked = await lastAsked();
 check('the paper went along with the request', Boolean(asked?.system?.some?.((block) => /paper_text/.test(block.text))));
 check('the paper sits behind a cache breakpoint', Boolean(asked?.system?.[1]?.cache_control));
 const sections = await page.locator('.explain-section h2').allTextContents();
@@ -172,6 +203,81 @@ await page.waitForTimeout(300);
 check('the outline follows the reading', (await page.locator('.explain-outline li.active').textContent())?.includes('Since then'));
 await page.screenshot({ path: `${OUT}/explain-5-since-then.png` });
 
+console.log('\n== the bar at the top: adjust a section ==');
+const bar = page.getByLabel('Ask about the explanation, or ask for a change');
+await page.locator('.explain-scroll').evaluate((el) => {
+  el.scrollTop = 0;
+});
+await bar.click();
+await page.waitForTimeout(200);
+check('an empty bar offers suggestions', (await page.locator('.ask-suggestion').count()) >= 3);
+await page.screenshot({ path: `${OUT}/explain-10-bar.png` });
+const heads = page.locator('.explain-section[data-title="Multi-head attention"]');
+await heads.scrollIntoViewIfNeeded();
+await heads.hover();
+await heads.getByRole('button', { name: 'Ask or adjust' }).click();
+check('Ask or adjust puts the section in the bar', (await page.locator('.ask-chip').first().textContent())?.includes('Multi-head attention'));
+await bar.fill('Explain this more simply, with an analogy and a figure');
+await page.evaluate(() => {
+  let release;
+  window.__hold = { at: 24, until: new Promise((resolve) => (release = resolve)) };
+  window.__release = release;
+});
+await bar.press('Enter');
+await page.waitForSelector('.explain-section.is-revising', { timeout: 10000 });
+await page.waitForTimeout(700);
+check('the section rewrites itself in place', (await page.locator('.explain-section.is-revising h2').textContent()) === 'Multi-head attention');
+check('the rest of the page stays', (await page.locator('.explain-section').count()) === 8);
+const revising = await lastAsked();
+check('the request is scoped to the section', /<about_section>\s*Multi-head attention/.test(revising.messages.at(-1).content));
+check('the page as written goes along as Claude’s own turn', revising.messages[1]?.role === 'assistant' && revising.messages[1].content.includes('## Since then'));
+check('the paper is read from the same cached system prompt', JSON.stringify(revising.system) === JSON.stringify(asked.system));
+await page.screenshot({ path: `${OUT}/explain-11-revising.png` });
+await page.evaluate(() => window.__release());
+await page.waitForSelector('.ask-status.is-done', { timeout: 10000 });
+await page.waitForTimeout(400);
+check('Claude’s note says what changed', /analogy/.test(await page.locator('.ask-status.is-done').textContent()));
+check('the new figure is drawn', (await page.locator('.explain-figure svg').count()) === 4);
+check('the section is marked as revised', (await heads.locator('.revised-pill').count()) === 1);
+await page.locator('.explain-scroll').evaluate((el) => {
+  const target = el.querySelector('.explain-section[data-title="Multi-head attention"]');
+  el.scrollTop += target.getBoundingClientRect().top - el.getBoundingClientRect().top - 12;
+});
+await page.waitForTimeout(300);
+await page.screenshot({ path: `${OUT}/explain-12-revised.png` });
+
+console.log('\n== the bar at the top: a question about a selected passage ==');
+const training = page.locator('.explain-section[data-title="Training and results"]');
+await training.scrollIntoViewIfNeeded();
+const passage = training.locator('.explain-prose p').first();
+const box = await passage.boundingBox();
+await page.mouse.move(box.x + 2, box.y + 4);
+await page.mouse.down();
+await page.mouse.move(box.x + box.width - 4, box.y + box.height - 6, { steps: 6 });
+await page.mouse.up();
+check('a selection becomes what the question is about', (await page.locator('.ask-chip.quote').count()) === 1);
+await bar.fill('Why does label smoothing help BLEU if it hurts perplexity?');
+await page.screenshot({ path: `${OUT}/explain-13-question.png` });
+await bar.press('Enter');
+await page
+  .waitForFunction(() => document.querySelector('.ask-status.is-done')?.textContent?.includes('label smoothing'), null, { timeout: 10000 })
+  .catch(async () => console.log('  the bar says:', await page.locator('.ask-column').textContent()));
+const titles = await page.locator('.explain-section h2').allTextContents();
+check('the answer is a new section after the one asked about', titles[titles.indexOf('Training and results') + 1] === 'Why label smoothing helps BLEU but hurts perplexity', titles.join(' | '));
+check('"Since then" stays last', titles.at(-1) === 'Since then');
+await page.locator('.explain-scroll').evaluate((el) => {
+  const target = el.querySelector('.explain-section[data-title="Why label smoothing helps BLEU but hurts perplexity"]');
+  el.scrollTop += target.getBoundingClientRect().top - el.getBoundingClientRect().top - 12;
+});
+await page.waitForTimeout(300);
+await page.screenshot({ path: `${OUT}/explain-14-answered.png` });
+
+console.log('\n== Undo ==');
+await page.getByRole('button', { name: 'Undo' }).click();
+await page.waitForTimeout(300);
+check('Undo takes the answer back out', (await page.locator('.explain-section').count()) === 8);
+check('and leaves the earlier change', (await heads.locator('.explain-figure').count()) === 1);
+
 console.log('\n== notebook ==');
 await page.getByRole('button', { name: 'Notebook', exact: true }).click();
 await page.locator('.explain-scroll').evaluate((el) => {
@@ -202,12 +308,11 @@ await page.evaluate(() => {
   const saved = JSON.parse(localStorage.getItem('reader.settings') || '{}');
   localStorage.setItem('reader.settings', JSON.stringify({ ...saved, theme: 'dark' }));
 });
-asked = null;
 await page.reload({ waitUntil: 'networkidle' });
 const notNow = page.getByRole('button', { name: /Not now — keep everything in this browser/i });
 if (await notNow.isVisible().catch(() => false)) await notNow.click();
 await page.waitForSelector('.explain-section h2', { timeout: 20000 });
-check('it comes back without asking Claude again', asked === null);
+check('it comes back without asking Claude again', (await askedCount()) === 0);
 await page.locator('.explain-scroll').evaluate((el) => {
   const target = el.querySelector('#explain-the-block-residuals-layernorm-and-the-feed-forward-layer');
   el.scrollTop += target.getBoundingClientRect().top - el.getBoundingClientRect().top - 12;

@@ -98,6 +98,10 @@ const slug = (text: string, taken: Set<string>) => {
 const asVerdict = (value: string | undefined): Verdict =>
   value && value.toLowerCase() in VERDICTS ? (value.toLowerCase() as Verdict) : 'refined';
 
+/** Marks a fence closed only so the sections after it survive; the block itself is still being written. */
+const STILL_OPEN = '<!--open-->';
+const CLOSE = /^\s*```\s*(<!--open-->)?\s*$/;
+
 export function parseExplanation(src: string): Section[] {
   const lines = src.replace(/\r\n?/g, '\n').split('\n');
   const sections: Section[] = [];
@@ -126,8 +130,9 @@ export function parseExplanation(src: string): Section[] {
       const info = attrs(fence[2] ?? '');
       const body: string[] = [];
       let j = i + 1;
-      while (j < lines.length && !/^\s*```\s*$/.test(lines[j])) body.push(lines[j++]);
-      const open = j >= lines.length; // still streaming
+      while (j < lines.length && !CLOSE.test(lines[j])) body.push(lines[j++]);
+      // Still streaming: the fence never closed, or a revision closed it for us (see applyEdits).
+      const open = j >= lines.length || lines[j].includes(STILL_OPEN);
       const text = body.join('\n');
       i = j;
       if (lang === 'figure' || lang === 'svg') {
@@ -202,8 +207,163 @@ export function notebook(title: string, sections: Section[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// Revising: the reader asks from the bar at the top, Claude edits sections
+// ---------------------------------------------------------------------------
+//
+// A question or an adjustment ("simpler", "a PyTorch version", "why √d?")
+// does not rewrite the page: Claude answers with operations on its sections,
+// which are applied as they stream in, so the one section being revised
+// rewrites itself in place while the rest stays put.
+
+const OP = /^<<<\s*(replace|insert after|insert before|delete|note)\s*(?::\s*(.*?))?\s*>>>\s*$/i;
+
+export interface EditOp {
+  op: 'replace' | 'insert after' | 'insert before' | 'delete' | 'note';
+  target: string;
+  body: string;
+}
+
+export function parseEdits(text: string): EditOp[] {
+  const ops: EditOp[] = [];
+  for (const line of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const match = OP.exec(line.trim());
+    if (match) ops.push({ op: match[1].toLowerCase() as EditOp['op'], target: (match[2] ?? '').trim(), body: '' });
+    else if (ops.length) ops[ops.length - 1].body += (ops[ops.length - 1].body ? '\n' : '') + line;
+  }
+  return ops;
+}
+
+const titleKey = (title: string) =>
+  title
+    .toLowerCase()
+    .replace(/^\s*(§|section)?\s*\d+[.)]?\s+/, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+
+/** The page as its `## ` sections: what comes before the first, then each heading with its body. */
+function splitSections(content: string): { lead: string; parts: { title: string; text: string }[] } {
+  const lines = content.split('\n');
+  const parts: { title: string; text: string }[] = [];
+  const lead: string[] = [];
+  let inFence = false;
+  for (const line of lines) {
+    if (/^\s*```/.test(line)) inFence = !inFence;
+    const heading = !inFence && /^##\s+(.+?)\s*#*\s*$/.exec(line);
+    if (heading) parts.push({ title: heading[1], text: line });
+    else if (parts.length) parts[parts.length - 1].text += `\n${line}`;
+    else lead.push(line);
+  }
+  return { lead: lead.join('\n'), parts };
+}
+
+export const sectionTitles = (content: string) => splitSections(content).parts.map((part) => part.title);
+
+export interface Applied {
+  content: string;
+  note: string;
+  /** The titles of the sections written or rewritten, in order. */
+  touched: string[];
+}
+
+/** The page with the edits applied. Safe on a half-streamed reply: the last edit is simply shorter. */
+export function applyEdits(base: string, reply: string, fallbackAfter?: string): Applied {
+  const { lead, parts } = splitSections(base);
+  const touched: string[] = [];
+  let note = '';
+  const find = (target: string) => {
+    const key = titleKey(target);
+    const exact = parts.findIndex((part) => titleKey(part.title) === key);
+    return exact >= 0 ? exact : parts.findIndex((part) => key && (titleKey(part.title).includes(key) || key.includes(titleKey(part.title))));
+  };
+  // A new section with no place named goes before "Since then", which stays last.
+  const beforeEnd = () => {
+    const since = parts.findIndex((part) => /since then/i.test(part.title));
+    return since >= 0 ? since : parts.length;
+  };
+  const section = (body: string, title: string) => {
+    let text = body.replace(/^\s*\n/, '').trimEnd();
+    // Halfway through a figure or a cell, its fence is still open; close it
+    // here, or it would swallow every section after this one.
+    if ((text.match(/^\s*```/gm) ?? []).length % 2) text += `\n\`\`\`${STILL_OPEN}`;
+    const heading = /^##\s+(.+?)\s*#*\s*$/m.exec(text.split('\n')[0] ?? '');
+    return heading ? { title: heading[1], text } : { title, text: `## ${title}\n${text}` };
+  };
+  const ops = parseEdits(reply);
+  if (!ops.length && reply.trim()) {
+    // Claude answered without the markers: keep the answer, as a section of its own.
+    const answer = section(reply, 'Your question');
+    const at = fallbackAfter ? find(fallbackAfter) : -1;
+    parts.splice(at >= 0 ? at + 1 : beforeEnd(), 0, answer);
+    touched.push(answer.title);
+  }
+  for (const op of ops) {
+    if (op.op === 'note') {
+      note = op.body.trim();
+      continue;
+    }
+    const at = find(op.target);
+    if (op.op === 'delete') {
+      if (at >= 0) parts.splice(at, 1);
+      continue;
+    }
+    const fresh = section(op.body, op.target || 'Your question');
+    if (!fresh.text.trim()) continue;
+    if (op.op === 'replace' && at >= 0) parts[at] = fresh;
+    else if (op.op === 'insert before' && at >= 0) parts.splice(at, 0, fresh);
+    else parts.splice(at >= 0 ? at + 1 : beforeEnd(), 0, fresh);
+    touched.push(fresh.title);
+  }
+  const content = [lead.trimEnd(), ...parts.map((part) => part.text.trimEnd())].filter(Boolean).join('\n\n');
+  return { content, note, touched };
+}
+
+function revisionRequest(content: string, request: string, scope: RevisionScope): string {
+  return [
+    'The reader has a request about the explanation page you wrote above.',
+    tag('request', request),
+    tag('about_section', scope.section),
+    tag('selected_passage', scope.quote),
+    `Change the page to satisfy it. If it is a question, answer it inside the page: expand the section it belongs to, or add a
+new section right after that one. If it asks to adjust the content (simpler, deeper, other code, more figures, less maths…),
+rewrite only the sections that must change, and keep every other section exactly as it is. Follow the same format rules
+(figure, python, output and caveat blocks). If you add or change a caveat, keep "Since then" consistent with it.
+
+Reply ONLY with edit operations, each marker on a line of its own:
+<<<replace: Exact title of an existing section>>>
+## Title (the same one, or a better one)
+the whole new content of that section
+<<<insert after: Exact title of an existing section>>>
+## A new section's title
+its content
+<<<delete: Exact title of an existing section>>>
+and last of all:
+<<<note>>>
+One short sentence to the reader on what you changed.`,
+    tag('existing_sections', sectionTitles(content).map((title) => `- ${title}`).join('\n')),
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+// ---------------------------------------------------------------------------
 // The store: one explanation per paper, streamed once and kept
 // ---------------------------------------------------------------------------
+
+export interface RevisionScope {
+  /** The section the request is about, if one was picked. */
+  section?: string;
+  /** A passage selected on the page. */
+  quote?: string;
+}
+
+export interface Revision {
+  request: string;
+  /** The page as it was before this request. */
+  before: string;
+  note: string;
+  touched: string[];
+  at: number;
+}
 
 export interface Explanation {
   paperId: string;
@@ -213,7 +373,14 @@ export interface Explanation {
   streaming?: boolean;
   error?: string;
   truncated?: boolean;
+  /** Requests made from the bar, oldest first; each keeps the page as it was, for Undo. */
+  revisions?: Revision[];
+  /** A request being answered: the reply so far, shown applied to the page as it streams. */
+  pending?: { request: string; scope: RevisionScope; reply: string; error?: string };
 }
+
+/** How many past versions are kept for Undo. */
+const REVISIONS_KEPT = 12;
 
 const KEY = (paperId: string) => `explain:${paperId}`;
 const cache = new Map<string, Explanation>();
@@ -231,13 +398,18 @@ export function subscribeExplain(listener: () => void) {
 
 export const explanationFor = (paperId: string) => cache.get(paperId);
 
+const keep = (entry: Explanation) => {
+  const { pending: _pending, streaming: _streaming, ...kept } = entry;
+  void db.setKv(KEY(entry.paperId), kept).catch(() => undefined);
+};
+
 /** Reads a kept explanation from IndexedDB into the cache, once. */
 export async function loadExplanation(paperId: string): Promise<Explanation | undefined> {
   if (cache.has(paperId)) return cache.get(paperId);
   try {
     const kept = await db.getKv<Explanation>(KEY(paperId));
     if (kept && !cache.has(paperId)) {
-      cache.set(paperId, { ...kept, streaming: false });
+      cache.set(paperId, { ...kept, streaming: false, pending: undefined });
       notify();
     }
   } catch {
@@ -250,83 +422,185 @@ export async function loadExplanation(paperId: string): Promise<Explanation | un
 export function putExplanation(explanation: Explanation) {
   cache.set(explanation.paperId, explanation);
   notify();
-  void db.setKv(KEY(explanation.paperId), explanation).catch(() => undefined);
+  keep(explanation);
 }
 
 export function stopExplaining() {
   running?.stream.abort();
 }
 
+/** The system prompt, identical for the first page and every revision, so the paper is read from the cache. */
+function systemFor(screen: Screen) {
+  const paper = screen.paper!;
+  const text = screen.fullText?.trim() ?? '';
+  const details = [
+    `Title: ${paper.title}`,
+    paper.authors.length ? `Authors: ${paper.authors.join(', ')}` : '',
+    paper.published ? `Published: ${paper.published}` : '',
+    paper.venue ? `Venue: ${paper.venue}` : '',
+    paper.arxivId ? `arXiv: ${paper.arxivId}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  return [
+    { type: 'text' as const, text: EXPLAIN_SYSTEM },
+    {
+      type: 'text' as const,
+      text: [tag('paper', details), tag('abstract', paper.abstract), tag('paper_text', text.slice(0, FULL_TEXT_MAX_CHARS))].filter(Boolean).join('\n\n'),
+      cache_control: { type: 'ephemeral' as const },
+    },
+  ];
+}
+
+const firstAsk = (screen: Screen) =>
+  screen.fullText?.trim()
+    ? 'Write the explanation page for this paper.'
+    : 'Only the details and abstract of this paper could be read, not its full text. Write the explanation page from them and what you reliably know of the paper, and say at the top that the full text was not available.';
+
+/** Streams one request, calling `onText` a frame at a time with everything so far. */
+async function streamOnce(
+  paperId: string,
+  model: string,
+  effort: 'medium' | 'high',
+  params: { system: ReturnType<typeof systemFor>; messages: { role: 'user' | 'assistant'; content: string }[] },
+  onText: (text: string) => void,
+): Promise<{ stop: string | null }> {
+  const api = await anthropic();
+  const spec = MODELS.find((m) => m.id === model) ?? MODELS[0];
+  const stream = api.messages.stream({
+    model: spec.id,
+    max_tokens: MAX_TOKENS,
+    ...params,
+    ...(spec.adaptive ? { thinking: { type: 'adaptive' as const }, output_config: { effort } } : {}),
+  });
+  running = { paperId, stream };
+  let text = '';
+  let frame = 0;
+  stream.on('text', (delta: string) => {
+    text += delta;
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      onText(text);
+    });
+  });
+  try {
+    const final = await stream.finalMessage();
+    return { stop: final.stop_reason };
+  } finally {
+    if (frame) cancelAnimationFrame(frame);
+    onText(text);
+  }
+}
+
 export async function generateExplanation(screen: Screen, model: string) {
   const paper = screen.paper;
   if (!paper || running) return;
+  const previous = cache.get(paper.id);
   const entry: Explanation = { paperId: paper.id, content: '', model, created: Date.now(), streaming: true };
   cache.set(paper.id, entry);
   notify();
 
   let SDK: SDK | null = null;
-  let frame = 0;
-  const paint = () => {
-    if (frame) return;
-    frame = requestAnimationFrame(() => {
-      frame = 0;
+  try {
+    SDK = await sdk();
+    const { stop } = await streamOnce(paper.id, model, 'high', { system: systemFor(screen), messages: [{ role: 'user', content: firstAsk(screen) }] }, (text) => {
+      entry.content = text;
       cache.set(paper.id, { ...entry });
       notify();
     });
-  };
-  try {
-    SDK = await sdk();
-    const api = await anthropic();
-    const spec = MODELS.find((m) => m.id === model) ?? MODELS[0];
-    const text = screen.fullText?.trim() ?? '';
-    const details = [
-      `Title: ${paper.title}`,
-      paper.authors.length ? `Authors: ${paper.authors.join(', ')}` : '',
-      paper.published ? `Published: ${paper.published}` : '',
-      paper.venue ? `Venue: ${paper.venue}` : '',
-      paper.arxivId ? `arXiv: ${paper.arxivId}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
-    const stream = api.messages.stream({
-      model: spec.id,
-      max_tokens: MAX_TOKENS,
-      system: [
-        { type: 'text', text: EXPLAIN_SYSTEM },
-        {
-          type: 'text',
-          text: [tag('paper', details), tag('abstract', paper.abstract), tag('paper_text', text.slice(0, FULL_TEXT_MAX_CHARS))].filter(Boolean).join('\n\n'),
-          cache_control: { type: 'ephemeral' },
-        },
-      ],
-      messages: [
-        {
-          role: 'user',
-          content: text
-            ? 'Write the explanation page for this paper.'
-            : 'Only the details and abstract of this paper could be read, not its full text. Write the explanation page from them and what you reliably know of the paper, and say at the top that the full text was not available.',
-        },
-      ],
-      ...(spec.adaptive ? { thinking: { type: 'adaptive' as const }, output_config: { effort: 'high' as const } } : {}),
-    });
-    running = { paperId: paper.id, stream };
-    stream.on('text', (delta: string) => {
-      entry.content += delta;
-      paint();
-    });
-    const final = await stream.finalMessage();
-    if (final.stop_reason === 'max_tokens') entry.truncated = true;
-    if (final.stop_reason === 'refusal') entry.error = 'Claude declined to write this one.';
+    if (stop === 'max_tokens') entry.truncated = true;
+    if (stop === 'refusal') entry.error = 'Claude declined to write this one.';
   } catch (error) {
     entry.error = explainError(error, SDK);
   } finally {
     running = null;
-    if (frame) cancelAnimationFrame(frame);
     entry.streaming = false;
+    // A rewrite can be undone like any other request.
+    if (previous?.content && entry.content) {
+      entry.revisions = [
+        ...(previous.revisions ?? []),
+        { request: 'Rewrite the whole page', before: previous.content, note: 'Written again from scratch.', touched: [], at: Date.now() },
+      ].slice(-REVISIONS_KEPT);
+    }
     cache.set(paper.id, { ...entry });
     notify();
-    if (entry.content && !entry.error) void db.setKv(KEY(paper.id), { ...entry }).catch(() => undefined);
+    if (entry.content && !entry.error) keep(entry);
   }
+}
+
+/** Answers a request from the bar by editing the page's sections. */
+export async function reviseExplanation(screen: Screen, request: string, scope: RevisionScope = {}) {
+  const paper = screen.paper;
+  const current = paper && cache.get(paper.id);
+  if (!paper || !current?.content || running || current.streaming || !request.trim()) return;
+  const before = current.content;
+  const pending = { request: request.trim(), scope, reply: '' };
+  const update = (patch: Partial<Explanation>) => {
+    const next = { ...cache.get(paper.id)!, ...patch };
+    cache.set(paper.id, next);
+    notify();
+    return next;
+  };
+  update({ pending: { ...pending }, error: undefined });
+
+  let SDK: SDK | null = null;
+  try {
+    SDK = await sdk();
+    const { stop } = await streamOnce(
+      paper.id,
+      current.model,
+      'medium',
+      {
+        system: systemFor(screen),
+        messages: [
+          { role: 'user', content: firstAsk(screen) },
+          { role: 'assistant', content: before },
+          { role: 'user', content: revisionRequest(before, pending.request, scope) },
+        ],
+      },
+      (reply) => {
+        pending.reply = reply;
+        update({ pending: { ...pending } });
+      },
+    );
+    if (stop === 'refusal') throw new Error('Claude declined that request.');
+    const applied = applyEdits(before, pending.reply, scope.section);
+    if (!applied.touched.length && applied.content === before) throw new Error(applied.note || 'Claude left the page as it was.');
+    const revision: Revision = { request: pending.request, before, note: applied.note, touched: applied.touched, at: Date.now() };
+    const next = update({
+      content: applied.content,
+      pending: undefined,
+      truncated: stop === 'max_tokens' ? true : undefined,
+      revisions: [...(current.revisions ?? []), revision].slice(-REVISIONS_KEPT),
+    });
+    keep(next);
+  } catch (error) {
+    const message = explainError(error, SDK);
+    // Stopping puts the page back as it was, with nothing to report.
+    update({ pending: message === 'Stopped.' ? undefined : { ...pending, error: message } });
+  } finally {
+    running = null;
+  }
+}
+
+/** Puts the page back as it was before the last request. */
+export function undoRevision(paperId: string) {
+  const entry = cache.get(paperId);
+  const last = entry?.revisions?.[entry.revisions.length - 1];
+  if (!entry || !last || running) return;
+  const next = { ...entry, content: last.before, revisions: entry.revisions!.slice(0, -1), pending: undefined, error: undefined, truncated: undefined };
+  cache.set(paperId, next);
+  notify();
+  keep(next);
+}
+
+/** Clears a failed request's message. */
+export function dismissPending(paperId: string) {
+  const entry = cache.get(paperId);
+  if (!entry?.pending || running) return;
+  cache.set(paperId, { ...entry, pending: undefined });
+  notify();
 }
 
 export const isExplaining = (paperId: string) => running?.paperId === paperId;
