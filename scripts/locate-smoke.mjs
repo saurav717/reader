@@ -19,7 +19,7 @@ const OUT = process.env.SMOKE_OUT || new URL('../.smoke/', import.meta.url).path
 await mkdir(OUT, { recursive: true });
 
 const TITLE = 'Fusion approaches to predict post-stroke aphasia severity from multimodal neuroimaging data';
-const QUESTION = 'Show me where in this paper the authors talk about "Oracle Selection"';
+const QUESTION = process.env.QUESTION || 'Show me where in this paper the authors talk about "Oracle Selection"';
 const SENTENCE =
   'We refer to choosing the best feature set by its score on the test patients as oracle selection, which gives an upper bound on what any selection rule could achieve.';
 const ANSWER = [
@@ -143,6 +143,7 @@ check('with the caption Claude gave it', /Where the authors define “oracle sel
 check('and where it is', /3\.3 Feature selection/.test(await page.locator('.passage-tag').textContent()));
 check('the row says it is on the page', /On the page now/.test(await page.locator('.chat-passage-row').first().textContent()));
 await page.screenshot({ path: `${OUT}/locate-1-reflow.png` });
+await page.locator('.assistant-win').screenshot({ path: `${OUT}/locate-1b-chat.png` });
 
 console.log('\n== it goes by itself, and comes back on a click ==');
 await page.waitForSelector('.passage-flash', { state: 'detached', timeout: 15000 });
