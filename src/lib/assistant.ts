@@ -98,7 +98,77 @@ Naming papers to read:
   \`\`\`
   The app shows a line's details when the reader points at the paper's name, and lists
   them all under the answer. Use the same titles as in the links and leave out a field
-  you are not sure of. The block comes last and nothing follows it.`;
+  you are not sure of.
+
+Pointing at passages in the open paper:
+- The app can scroll the paper to a passage and highlight it for the reader. Whenever the
+  reader asks where the paper says something ("show me where…", "where do they define…",
+  "find the part about…"), and whenever your answer rests on particular passages, end the
+  answer with a fenced block tagged \`passages\`, one line of JSON per passage, most relevant
+  first:
+  \`\`\`passages
+  {"quote": "exact words copied from the paper", "label": "Where the authors define oracle selection", "section": "3.2 Model selection", "page": 4, "show": true}
+  \`\`\`
+  "quote" must be copied character for character from <paper_text> — one sentence or a
+  clause of it, 8 to 40 words, never paraphrased, never joined across paragraphs, with no
+  [Page N] markers in it. "label" is a short caption the reader sees on the highlight, in
+  your words. "section" and "page" only when you know them. Set "show": true on the one
+  passage to scroll to straight away, when the reader asked to be shown where something is.
+  Give at most five. Only quote text that is really in the paper.
+- In the prose, you can point at one of those passages as [the words you want to link](passage:1),
+  with its number in the block.
+- The fenced blocks come last, \`passages\` before \`papers\`, and nothing follows them.`;
+
+// ---------------------------------------------------------------------------
+// Passages an answer points at in the open paper
+// ---------------------------------------------------------------------------
+
+/** A place in the open paper an answer points at, as its `passages` block gives it. */
+export interface Passage {
+  /** The paper's own words, as Claude copied them — what the reader searches the page for. */
+  quote: string;
+  /** The caption shown on the highlight. */
+  label: string;
+  section?: string;
+  page?: number;
+  /** Scroll to this one as soon as the answer is in. */
+  show?: boolean;
+}
+
+const PASSAGES_FENCE = /(?:^|\n)[ \t]*```passages[ \t]*\n([\s\S]*?)(?:\n[ \t]*```[ \t]*(?=\n|$)|$)/;
+
+/** The answer without its `passages` block, and the passages it lists; tolerant of a block still streaming. */
+export function splitPassages(content: string): { text: string; passages: Passage[] } {
+  const match = PASSAGES_FENCE.exec(content);
+  if (!match) return { text: content, passages: [] };
+  const text = (content.slice(0, match.index) + content.slice(match.index + match[0].length)).trim();
+  const passages: Passage[] = [];
+  for (const line of match[1].split('\n')) {
+    const raw = line.trim().replace(/,$/, '');
+    if (!raw.startsWith('{')) continue;
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    const quote = field(parsed?.quote)?.replace(/\[Page \d+\]/g, ' ').replace(/\s+/g, ' ');
+    if (!quote) continue;
+    const page = Number(parsed.page);
+    passages.push({
+      quote,
+      label: field(parsed.label) ?? 'This part of the paper',
+      section: field(parsed.section),
+      page: Number.isInteger(page) && page > 0 ? page : undefined,
+      show: parsed.show === true,
+    });
+  }
+  return { text, passages: passages.slice(0, 8) };
+}
+
+/** A question that asks to be shown a place in the paper, for an answer that forgot to say which passage to show. */
+export const asksWhere = (question: string) =>
+  /\b(where|show me|point (me )?to|find|locate|which (part|section|page|paragraph)|take me)\b/i.test(question);
 
 // ---------------------------------------------------------------------------
 // Papers an answer recommends

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useStore } from './lib/store';
 import type { View } from './types.view';
@@ -9,6 +9,8 @@ import { followLight } from './lib/glassLight';
 import { clearSelection, currentSelection, paperText, pdfPageImages, pdfPagesInView, pdfPageTexts, trackSelection, visiblePassage } from './lib/screen';
 import Assistant from './components/Assistant';
 import Explain from './components/Explain';
+import { setExplainDrive } from './lib/explain';
+import { explainDrive } from './lib/explainDrive';
 import CollectionView from './components/CollectionView';
 import JunkView from './components/JunkView';
 import CommandPalette from './components/CommandPalette';
@@ -112,6 +114,17 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(EXPLAIN_KEY, String(explainOpen));
   }, [explainOpen]);
+  // With Drive connected, an explanation is kept in the paper's folder too,
+  // and fetched from there before Claude is asked to write it again.
+  const papersNow = useRef(papers);
+  papersNow.current = papers;
+  // Set while rendering, not in an effect: Explain's own effect, which runs
+  // first, looks in Drive as soon as it opens.
+  useMemo(() => {
+    setExplainDrive(
+      driveConnected && settings.googleClientId.trim() ? explainDrive((id) => papersNow.current.find((paper) => paper.id === id), settings) : null,
+    );
+  }, [driveConnected, settings]);
   // The side the haze is drawn from outlives the peek, so it fades out in place.
   const [hazeSide, setHazeSide] = useState<Exclude<Peek, null>>('left');
   const peekTimer = useRef<number>();

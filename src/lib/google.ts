@@ -365,12 +365,14 @@ export interface DriveFile {
   id: string;
   name: string;
   webViewLink?: string;
+  /** When Drive last saw the file change (RFC 3339), where it was asked for. */
+  modifiedTime?: string;
 }
 
 export async function findFile(accessToken: string, name: string, parentId: string): Promise<DriveFile | null> {
   const params = new URLSearchParams({
     q: `name = '${escapeQuery(name)}' and '${escapeQuery(parentId)}' in parents and trashed = false`,
-    fields: 'files(id,name,webViewLink)',
+    fields: 'files(id,name,webViewLink,modifiedTime)',
     spaces: 'drive',
     pageSize: '1',
   });
@@ -443,6 +445,12 @@ export async function moveFile(accessToken: string, fileId: string, parentId: st
  * unlike the sites the papers come from this one the browser can read directly
  * — which is the whole point: a paper already in Drive needs no proxy.
  */
+/** A text file the app put in Drive, as text. */
+export async function downloadText(accessToken: string, fileId: string, signal?: AbortSignal): Promise<string> {
+  const response = await driveFetch(accessToken, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, { signal });
+  return response.text();
+}
+
 export async function downloadFile(accessToken: string, fileId: string, signal?: AbortSignal): Promise<Blob> {
   const response = await driveFetch(
     accessToken,
@@ -469,8 +477,8 @@ export async function uploadFile(
   form.append('file', typeof options.body === 'string' ? new Blob([options.body], { type: options.mimeType }) : options.body);
 
   const url = options.fileId
-    ? `https://www.googleapis.com/upload/drive/v3/files/${options.fileId}?uploadType=multipart&fields=id,name,webViewLink`
-    : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink';
+    ? `https://www.googleapis.com/upload/drive/v3/files/${options.fileId}?uploadType=multipart&fields=id,name,webViewLink,modifiedTime`
+    : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,modifiedTime';
 
   const response = await driveFetch(accessToken, url, { method: options.fileId ? 'PATCH' : 'POST', body: form });
   return (await response.json()) as DriveFile;

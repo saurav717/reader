@@ -189,7 +189,8 @@ describe('markdown', () => {
     assert.equal(inline('`**not bold**` and *it* and [link](https://arxiv.org)'),
       '<code>**not bold**</code> and <em>it</em> and <a href="https://arxiv.org" target="_blank" rel="noopener noreferrer">link</a>');
     assert.equal(inline('[bad](javascript:alert(1))'), '[bad](javascript:alert(1))');
-    assert.equal(inline('snake_case_name and $x_i$'), 'snake_case_name and $x_i$');
+    assert.equal(inline('snake_case_name and $x_i$'), 'snake_case_name and <span class="chat-math" data-tex="x_i">x_i</span>');
+    assert.equal(inline('it costs $5 and $10'), 'it costs $5 and $10');
   });
 });
 
@@ -351,5 +352,21 @@ describe('the window beside Discover', () => {
     assert.equal(next.x, win.LEFT_GUTTER + win.PAD);
     assert.equal(next.x + next.w, 1092 - win.PAD);
     assert.equal(win.clearOf(rect, 300, view), null);
+  });
+});
+
+describe('maths in answers', () => {
+  it('sets display maths apart, on one line or several', () => {
+    assert.equal(markdown('$$\\sqrt{d_k}$$'), '<div class="chat-math-block" data-tex="\\sqrt{d_k}">\\sqrt{d_k}</div>');
+    assert.equal(markdown('\\[\na + b\n\\]'), '<div class="chat-math-block" data-tex="a + b">a + b</div>');
+  });
+  it('keeps \\( \\) inline, and escapes what is inside', () => {
+    assert.equal(inline('see \\(a<b\\)'), 'see <span class="chat-math" data-tex="a&lt;b">a&lt;b</span>');
+  });
+});
+
+describe('a link to a passage', () => {
+  it('is an inline link, so a long phrase wraps with the line', () => {
+    assert.equal(inline('see [they call it oracle selection](passage:1).'), 'see <a class="chat-passage" href="#passage-1" data-passage="1">they call it oracle selection</a>.');
   });
 });

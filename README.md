@@ -1636,6 +1636,73 @@ screen before it answers, so there is nothing to paste.
   had by that title. Claude is asked to write each name as
   `[Name et al. 2021](paper:The full title)` and to close with a `papers` block,
   one JSON line per paper; the window draws the cards, never the syntax.
+- **Show me where**: ask *"show me where the authors talk about oracle
+  selection"* and the paper scrolls to the passage by itself. The passage is
+  marked with a band of the accent colour, and a caption above it says what it
+  is: *Where the authors define "oracle selection" · 3.3 Feature selection*.
+  The mark fades after nine seconds (it stays while the pointer is on the
+  caption), and **Esc** or the caption's **×** clears it sooner.
+  - **Every answer that rests on particular passages** lists them under
+    **Found in the paper**. Each has its caption, the paper's own words and
+    **Show**. A link in the answer's text does the same.
+  - **How Claude points**: it closes such an answer with a `passages` block,
+    one line of JSON per passage: the words copied exactly from the paper, a
+    caption, the section and page, and `show` on the one to jump to. The app
+    never prints the block.
+  - **How the passage is found**: the quote is looked for in the page on
+    screen as letters and digits only, so spacing, hyphenation, ligatures and
+    curly quotes do not matter. If it is not there whole, its longest run of
+    words that is gets marked.
+  - **Where it works**:
+    - **Reflow**: the text is scrolled to, or its page of the book turned to.
+    - **PDF as a book**: the page is turned to and the text layer marked.
+    - **The browser's own PDF viewer**: nothing can be drawn over it, so the
+      viewer is sent to the page with `#page=N` and the caption names the page.
+
+  ![Ask Claude pointing at a passage: the paper scrolled to it, the passage marked, its caption above it, and the list of passages under the answer](docs/locate.png)
+
+  How the passage is marked is chosen under **Settings → Passages Ask Claude
+  points at**:
+  - **Marker** (the default): a highlighter swept over the words, line by line.
+  - **Spotlight**: the passage lit, with the rest of the page dimmed for a
+    moment.
+  - **Outline**: framed, with a bar in the accent colour down its side.
+
+  Each look has a caption card. It carries the passage's number, as in the
+  chat, the label, and the section and page as chips, with a notch pointing
+  at the passage. A line along its bottom drains as the mark's time runs out,
+  and waits while the pointer is on the card. In the chat, the row of the
+  passage on the page says **On the page now** until the mark goes.
+
+  | Marker | Spotlight | Outline |
+  | --- | --- | --- |
+  | ![](docs/locate-marker.png) | ![](docs/locate-spotlight.png) | ![](docs/locate-outline.png) |
+
+  The code: `src/lib/locate.ts` (the finding), `src/components/PassageFlash.tsx`
+  (the mark), and the `reader:locate` listener in `Reader.tsx`.
+  `scripts/locate-smoke.mjs` tries each mode.
+- **How answers read**: the first paragraph (the answer itself) is set a
+  size up, and the rest of the answer is styled for reading:
+  - bold words and links to passages are marked in the style picked under
+    the window's ⚙ → **Highlights in answers**: **Auto** (a marker fill on
+    paper, a warm glow in the dark), **Fill**, **Glow**, **Underline**,
+    **Tint** or **Outline**. Each has a tile there that previews it in the
+    current theme;
+  - headings are small accent signposts with a rule;
+  - lists have accent dots and numbered discs;
+  - text quoted from the paper is set as a serif quotation;
+  - code has a pill inline, and a panel naming its language as a block;
+  - tables are rounded, with a tinted head.
+
+  Maths Claude writes as `$…$`, `\(…\)`, `$$…$$` or `\[…\]` is typeset
+  with KaTeX. KaTeX loads as a chunk of its own the first time an answer has
+  any maths; until then, or when it cannot parse something, the TeX shows as
+  written. A `$5` is money, not maths. Each answer is signed **Claude**, and
+  your questions are bubbles at the right.
+
+  | Light | Dark |
+  | --- | --- |
+  | ![](docs/chat-1-light-top.png) | ![](docs/chat-4-dark-bottom.png) |
 - **Screenshot**: the 📷 beside the box attaches a screenshot of the tab to the
   next question. The browser asks every time, because a page can't capture the
   screen by itself. One frame is taken, then the capture stops.
@@ -1646,6 +1713,15 @@ screen before it answers, so there is nothing to paste.
   it is, and the button beside it cycles four frames — Frosted, Clear, Terminal and
   Aurora. It keeps its place across reloads. On a phone it is a sheet across the
   bottom.
+- **Settings** (⚙) are cards:
+  - **Highlights in answers**: preview tiles.
+  - **Passages on the page**: the same choice as in Settings, drawn as
+    miniature pages.
+  - **What Claude sees**: switches, with a count of how many are on.
+  - **Papers Claude names**: where their cards go.
+  - **Your Anthropic key**: with **Forget my key**.
+
+  ![the window's settings: highlight tiles, the look of a passage on the page, and what Claude sees](docs/chat-settings.png)
 - **History**: every conversation is filed in this browser as soon as it is
   answered, named after its first question. There is no account; clearing the
   site's data clears them. What went with each question from the screen is not
@@ -1838,12 +1914,50 @@ is only half written.
 
 ![the section being rewritten, marked Revising, while the rest of the page stays](docs/explain-revising.png)
 
+### Kept in Drive
+
+With Drive connected, the explanation is also saved in the paper's own folder,
+beside its PDF and sidecar:
+
+```
+Papers_collection/<paper>/<paper> — explained by Claude.md
+```
+
+It is a Markdown file you can open and read in Drive. A few lines of front
+matter give the paper, the model, when it was written and last changed, and
+each request made from the bar since. After that comes the page exactly as
+Claude wrote it. It is written after the first page and again after every
+change (a request, an Undo, a Rewrite), a moment after the last one, and always
+over the same file, so its link stays the same.
+
+When Explain opens, it looks in Drive before offering to write anything. When
+Drive's copy is newer than this browser's — written or revised in another
+browser, or this one's storage was cleared — it is fetched, and Claude is not
+asked. A file that has not changed since this browser last saw it is not
+downloaded again. A page written before Drive was connected goes up the next
+time it is opened. The line under the outline says which of these happened,
+with a link to the file.
+
+![the outline's last line: Fetched from your Drive, with a link to the file](docs/explain-drive-fetched.png)
+
+The check only uses a Drive grant the reader already has, so it never opens a
+Google window outside a click. It gives up after ten seconds and offers the
+page as usual. The code is in `src/lib/explainDrive.ts`.
+`scripts/explain-drive-smoke.mjs` shares an in-memory Drive between two
+browsers: one writes and revises, and the other fetches it without asking
+Claude.
+
 ### The key and the cost
 
 It uses the same API key and models as Ask Claude. The paper's full text goes
 in the system prompt behind a cache breakpoint. The explanation is written
 once, streamed onto the page as it arrives, and kept in IndexedDB for that
 paper; **Rewrite** asks again, and can be undone. On a phone it is one column.
+In the glass theme the page frosts the reader behind it rather than covering
+it: the wallpaper's colour still comes through, but no sharp text competes
+with the explanation.
+
+![the start of Explain in dark glass: the promise cards, the model picker and the Explain this paper button over the frosted reader](docs/explain-start-glass.png)
 
 Claude writes plain Markdown, plus four fenced blocks the page draws itself:
 `figure`, `python`, `output` and `caveat verdict="…"`. The prompt and the

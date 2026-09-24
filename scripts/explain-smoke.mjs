@@ -163,6 +163,29 @@ await page.waitForTimeout(400);
 check('before it is written, it offers to write it', await page.getByRole('button', { name: 'Explain this paper' }).isVisible());
 await page.screenshot({ path: `${OUT}/explain-1-start.png` });
 
+/** Settings as the app keeps them, then a reload, past the Drive question, back to the paper. */
+async function withSettings(patch) {
+  await page.evaluate((next) => {
+    const saved = JSON.parse(localStorage.getItem('reader.settings') || '{}');
+    localStorage.setItem('reader.settings', JSON.stringify({ ...saved, ...next }));
+  }, patch);
+  await page.reload({ waitUntil: 'networkidle' });
+  const notNow = page.getByRole('button', { name: /Not now — keep everything in this browser/i });
+  if (await notNow.isVisible().catch(() => false)) await notNow.click();
+  await page.waitForSelector('.explain', { timeout: 15000 });
+  await page.waitForSelector('.paper-body h2', { state: 'attached', timeout: 30000 });
+  await page.waitForTimeout(600);
+}
+
+console.log('\n== in dark glass, before it is written ==');
+await withSettings({ theme: 'dark', glass: true });
+check('glass frosts what is behind the page', /blur/.test(await page.locator('.explain').evaluate((el) => getComputedStyle(el).backdropFilter)));
+check('the ask bar is plainly off until there is a page', (await page.locator('.ask-field.is-off').count()) === 1);
+await page.screenshot({ path: `${OUT}/explain-1b-start-glass-dark.png` });
+await withSettings({ theme: 'light', glass: true });
+await page.screenshot({ path: `${OUT}/explain-1c-start-glass-light.png` });
+await withSettings({ theme: 'light', glass: false });
+
 console.log('\n== Claude writes it ==');
 await page.getByRole('button', { name: 'Explain this paper' }).click();
 await page.waitForSelector('.explain-section h2', { timeout: 20000 });
@@ -319,6 +342,13 @@ await page.locator('.explain-scroll').evaluate((el) => {
 });
 await page.waitForTimeout(300);
 await page.screenshot({ path: `${OUT}/explain-8-dark.png` });
+await withSettings({ glass: true });
+await page.locator('.explain-scroll').evaluate((el) => {
+  const target = el.querySelector('#explain-scaled-dot-product-attention');
+  el.scrollTop += target.getBoundingClientRect().top - el.getBoundingClientRect().top - 12;
+});
+await page.waitForTimeout(300);
+await page.screenshot({ path: `${OUT}/explain-8b-dark-glass.png` });
 
 console.log('\n== on a phone ==');
 await page.setViewportSize({ width: 390, height: 844 });

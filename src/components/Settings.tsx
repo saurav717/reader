@@ -4,7 +4,7 @@ import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
 import { parseRepo } from '../lib/github';
 import { GLASS_WALLS } from '../types';
-import type { ZenHaze } from '../types';
+import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
 import { PAPER_LAYOUTS, setLayout, useLayout } from './paperCards';
@@ -13,6 +13,12 @@ const ZEN_HAZES: { id: ZenHaze; label: string; note: string }[] = [
   { id: 'shadow', label: 'Shadow', note: 'casting a long soft shadow across the page.' },
   { id: 'mist', label: 'Mist', note: 'and the page beside it blurs and pales, clearing towards what you were reading.' },
   { id: 'glow', label: 'Glow', note: 'spilling a glow in the accent colour onto the page.' },
+];
+
+const PASSAGE_LOOKS: { id: PassageLook; label: string; note: string }[] = [
+  { id: 'marker', label: 'Marker', note: 'swept over the words line by line, like a highlighter.' },
+  { id: 'spotlight', label: 'Spotlight', note: 'lit, with the rest of the page dimmed for a moment.' },
+  { id: 'outline', label: 'Outline', note: 'framed, with a bar in the accent colour down its side.' },
 ];
 
 export default function Settings({ onClose }: { onClose: () => void }) {
@@ -685,6 +691,23 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             top bar itself while you read. Move the pointer to the left, right or top edge of the screen and that side
             slides back out,{' '}
             {ZEN_HAZES.find((haze) => haze.id === settings.zenHaze)?.note}
+          </p>
+        </section>
+
+        <section>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Passages Ask Claude points at
+          </div>
+          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="How a passage Ask Claude points at is marked">
+            {PASSAGE_LOOKS.map((look) => (
+              <button key={look.id} type="button" aria-pressed={settings.passageLook === look.id} onClick={() => updateSettings({ passageLook: look.id })}>
+                {look.label}
+              </button>
+            ))}
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+            Ask Claude <i>“show me where…”</i> and the paper scrolls to the passage, which is{' '}
+            {PASSAGE_LOOKS.find((look) => look.id === settings.passageLook)?.note}
           </p>
         </section>
       </div>

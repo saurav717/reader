@@ -1654,6 +1654,11 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
   letter-spacing: normal; word-spacing: normal; text-size-adjust: none; -webkit-text-size-adjust: none; forced-color-adjust: none;
   transform-origin: 0 0; caret-color: CanvasText; z-index: 1;
   --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv: calc(1 / var(--min-font-size));
+  /* Worked out here, where PdfPage sets --scale-factor, not on the page: a
+     custom property computed on the parent is inherited already resolved, and
+     there --scale-factor is unset, which left the text layer at 1× — the
+     words (and any selection or mark of them) off the lines they sit over. */
+  --total-scale-factor: calc(var(--scale-factor, 1) * var(--user-unit, 1));
 }
 .pdf-text :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; user-select: text; }
 .pdf-text > :not(.markedContent), .pdf-text .markedContent span:not(.markedContent) {
@@ -2725,15 +2730,86 @@ body.win-moving .assistant-win { transition: none; }
 .caveat-body p { margin: 0 0 8px; }
 .caveat-body code { font: 0.88em var(--mono); }
 
-/* Before there is anything to read. */
-.explain-empty { max-width: 680px; padding-top: 24px; }
-.explain-empty p { font: 18px/1.6 var(--serif); color: var(--ink-2); }
-.explain-promises { list-style: none; padding: 0; margin: 20px 0 28px; display: grid; gap: 8px; }
-.explain-promises li { padding: 10px 14px; border: 1px solid var(--border-soft); border-radius: 10px; background: var(--surface); }
-.explain-start { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.explain-start select, .explain-start input { height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-.explain-start input { width: 280px; font-family: var(--mono); }
-.explain-start .hint { flex-basis: 100%; font-size: 12px; color: var(--muted); }
+/* Before there is anything to read: what you will get, and one clear way to get it. */
+.explain-empty { max-width: 760px; padding-top: 12px; }
+.explain-kicker.pill { padding: 5px 10px 5px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); }
+.explain-empty .byline { color: var(--muted); font-size: 13px; margin-top: -2px; }
+.explain-lede { font: 18.5px/1.62 var(--serif); color: var(--ink-2); margin: 22px 0 26px; max-width: 700px; }
+.explain-lede b { color: var(--ink); font-weight: 600; }
+.explain-lede mark {
+  color: var(--ink); font-weight: 600; padding: 0 2px; border-radius: 3px;
+  background: linear-gradient(transparent 58%, rgb(var(--accent-rgb) / 0.28) 58%);
+}
+.explain-promises { list-style: none; padding: 0; margin: 0 0 30px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.explain-promises li {
+  --c: var(--accent);
+  display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 12px; row-gap: 2px; align-content: center;
+  padding: 14px 14px 14px 12px; border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--c) 28%, var(--border-soft));
+  background: color-mix(in srgb, var(--c) 7%, var(--surface));
+  font-size: 13px; line-height: 1.4;
+}
+.explain-promises li.p-figures { --c: var(--v-refined); }
+.explain-promises li.p-code { --c: #e8710a; }
+.explain-promises li.p-caveats { --c: var(--v-superseded); }
+.explain-promises .promise-icon {
+  grid-row: span 2; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px;
+  color: var(--c); background: color-mix(in srgb, var(--c) 16%, transparent);
+}
+.explain-promises b { align-self: end; font-size: 14px; font-weight: 600; color: var(--c); }
+.explain-promises li > span:last-child { align-self: start; }
+.explain-promises li > span:last-child { color: var(--ink-2); }
+.promise-icon .dots { display: flex; gap: 3px; }
+.promise-icon .dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
+.explain-start { display: flex; flex-wrap: wrap; align-items: stretch; gap: 12px; }
+.model-pick { display: flex; padding: 3px; gap: 3px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); }
+.model-pick button {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px;
+  min-width: 112px; padding: 6px 12px; border: 1px solid transparent; border-radius: 9px;
+  background: transparent; cursor: pointer; text-align: left;
+}
+.model-pick button b { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.model-pick button span { font-size: 11px; color: var(--muted); }
+.model-pick button:hover b { color: var(--ink); }
+.model-pick button[aria-checked='true'] { background: var(--accent-soft); border-color: rgb(var(--accent-rgb) / 0.45); }
+.model-pick button[aria-checked='true'] b { color: var(--accent-ink); }
+.btn.primary.cta {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: auto; min-height: 48px; padding: 0 22px; border-radius: 12px;
+  font-size: 15px; font-weight: 600;
+  box-shadow: 0 10px 28px -10px rgb(var(--accent-rgb) / 0.75), inset 0 1px 0 rgb(255 255 255 / 0.18);
+}
+.btn.primary.cta:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn.primary.cta:disabled { box-shadow: none; transform: none; }
+.explain-start input { height: 48px; width: 300px; padding: 0 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); font-family: var(--mono); }
+.explain-empty .hint { margin: 14px 0 0; font-size: 12.5px; color: var(--muted); }
+.explain-empty .hint b { color: var(--ink-2); font-weight: 600; }
+
+/* Bold in the explanation reads as a highlighter stroke, the way you would mark a paper up. */
+.explain-prose strong { font-weight: 650; background: linear-gradient(transparent 62%, var(--hl-yellow) 62%); padding: 0 1px; }
+.explain-prose th strong { background: none; }
+
+/* The ask bar when there is nothing to ask about yet: plainly off, not a green button that does nothing. */
+.ask-field.is-off { border-style: dashed; box-shadow: none; background: transparent; color: var(--muted); }
+.ask-field.is-off .btn.primary { background: transparent; border-color: var(--border); color: var(--muted); opacity: 1; }
+
+/* In glass, the page frosts what is behind it rather than covering it: the
+   colour of the wallpaper and the shape of the paper still come through, but
+   no sharp text competes with the explanation. */
+:root[data-glass='on'] .explain {
+  background: rgb(var(--float-rgb) / calc(var(--float-a) - 0.22));
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+}
+:root[data-glass='on'] .explain-bar { background: rgb(var(--float-rgb) / 0.35); }
+:root[data-glass='on'] .explain-ask { background: rgb(var(--float-rgb) / 0.22); }
+:root[data-glass='on'] .ask-field:not(.is-off) { background: rgb(var(--float-rgb) / 0.7); }
+:root[data-glass='on'] .explain-promises li { background: color-mix(in srgb, var(--c) 10%, rgb(var(--float-rgb) / 0.5)); }
+:root[data-glass='on'] .model-pick { background: rgb(var(--float-rgb) / 0.5); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root[data-glass='on'] .explain { background: rgb(var(--float-rgb) / 0.96); }
+}
+
 .explain-writing { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
 .explain-error { color: var(--danger); font-size: 13px; }
 
@@ -2751,6 +2827,10 @@ body.win-moving .assistant-win { transition: none; }
   .explain-brand { flex: 1; }
   .explain-bar { padding: 0 6px 0 16px; }
   .explain-title h1, .explain-empty h1 { font-size: 26px; }
+  .explain-promises { grid-template-columns: minmax(0, 1fr); }
+  .model-pick { width: 100%; }
+  .model-pick button { flex: 1; min-width: 0; }
+  .btn.primary.cta { width: 100%; justify-content: center; }
 }
 .explain-bar .btn { white-space: nowrap; flex: none; }
 
@@ -2830,3 +2910,430 @@ body.win-moving .assistant-win { transition: none; }
   .ask-column { grid-column: 1; }
   .ask-chip { max-width: 45%; }
 }
+
+/* Where the explanation is kept: this browser, and the paper's folder in Drive. */
+.drive-line { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.drive-line a { color: var(--accent); text-decoration: none; }
+.drive-line a:hover { text-decoration: underline; }
+.drive-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--muted); }
+.drive-line.is-saved .drive-dot { background: var(--accent); }
+.drive-line.is-saving .drive-dot, .drive-line.is-checking .drive-dot { background: var(--v-superseded); animation: revising 0.9s ease-in-out infinite alternate; }
+.drive-line.is-error { color: var(--danger); }
+.drive-line.is-error .drive-dot { background: var(--danger); }
+.drive-line.is-error span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explain-looking { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; padding-top: 24px; }
+
+/* ===========================================================================
+   Passages Ask Claude points at (lib/locate.ts, components/PassageFlash.tsx).
+   =========================================================================== */
+
+/* In the answer: a link to one of them, and the list of them under it. */
+:root { --mark: 255 203 71; }
+:root[data-theme='dark'] { --mark: 246 214 102; }
+/* How a link to one reads is with the other marked words, at the end of this file. */
+
+.chat-passages {
+  margin: 12px 0 6px; border-radius: 14px; overflow: hidden;
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+  background:
+    linear-gradient(180deg, rgb(var(--accent-rgb) / 0.09), rgb(var(--accent-rgb) / 0.03) 60%),
+    rgb(var(--win-edge) / 0.02);
+}
+.chat-passages-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px; }
+.chat-passages-title { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.chat-passages-count { min-width: 18px; height: 18px; padding: 0 5px; display: grid; place-items: center; border-radius: 9px; font: 700 10.5px var(--sans); color: var(--accent); background: rgb(var(--accent-rgb) / 0.14); }
+.chat-passages-hint { margin-left: auto; font-size: 11px; color: var(--muted); }
+.chat-passages ol { list-style: none; margin: 0; padding: 2px 6px 6px; display: grid; gap: 4px; }
+.chat-passage-row {
+  position: relative; display: grid; grid-template-columns: auto 1fr auto; gap: 11px; align-items: start; width: 100%;
+  padding: 10px 10px 10px 9px; border: 1px solid transparent; border-radius: 11px;
+  background: rgb(var(--win-rgb) / 0.55); cursor: pointer; text-align: left; color: inherit;
+  transition: border-color 0.18s, background 0.18s, transform 0.18s, box-shadow 0.18s;
+}
+.chat-passage-row:hover { border-color: rgb(var(--accent-rgb) / 0.35); background: rgb(var(--win-rgb) / 0.9); transform: translateY(-1px); box-shadow: 0 8px 20px -14px rgb(var(--accent-rgb) / 0.8); }
+.chat-passage-n {
+  display: grid; place-items: center; width: 22px; height: 22px; margin-top: 1px; border-radius: 50%;
+  font: 700 11px var(--sans); color: var(--accent-on); background: var(--accent);
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.15);
+}
+.chat-passage-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.chat-passage-body b { font-size: 13px; font-weight: 600; line-height: 1.35; }
+.chat-passage-body q {
+  quotes: none; padding: 1px 0 1px 10px; border-left: 2px solid rgb(var(--mark) / 0.9);
+  font: italic 13px/1.5 var(--serif); color: var(--ink-2);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.chat-passage-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.chat-passage-meta i { font-style: normal; padding: 1px 7px; border-radius: 6px; background: rgb(var(--win-edge) / 0.06); }
+.chat-passage-meta .ok { color: var(--accent); font-weight: 600; }
+.chat-passage-meta .bad { color: var(--danger); }
+.chat-passage-meta .live { display: inline-flex; align-items: center; gap: 5px; }
+.chat-passage-meta .live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: live-dot 1.2s ease-in-out infinite; }
+@keyframes live-dot { 50% { box-shadow: 0 0 0 4px rgb(var(--accent-rgb) / 0.2); } }
+.chat-passage-go {
+  align-self: center; display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+  color: var(--accent); background: rgb(var(--accent-rgb) / 0.1);
+  transition: background 0.18s, color 0.18s;
+}
+.chat-passage-row:hover .chat-passage-go { color: var(--accent-on); background: var(--accent); }
+.chat-passages li.is-live .chat-passage-row { border-color: rgb(var(--accent-rgb) / 0.55); background: rgb(var(--win-rgb) / 0.95); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12); }
+.chat-passages li.is-live .chat-passage-go { color: var(--accent-on); background: var(--accent); }
+.chat-passages li.is-missing .chat-passage-n { background: var(--muted); box-shadow: none; }
+
+/* On the page. Not a positioned layer of its own, so the marks can sit under
+   the Claude window while the caption rises over it: it is never hidden. */
+.passage-flash { pointer-events: none; transition: opacity 0.6s ease; }
+.passage-flash.is-leaving { opacity: 0; }
+.passage-band, .passage-spot, .passage-frame { position: fixed; z-index: 44; pointer-events: none; }
+
+/* Marker: a highlighter swept over each line in turn. */
+.look-marker .passage-band {
+  border-radius: 3px 6px 4px 7px;
+  background: linear-gradient(100deg, rgb(var(--mark) / 0.62), rgb(var(--mark) / 0.48) 70%, rgb(var(--mark) / 0.58));
+  mix-blend-mode: multiply;
+  transform-origin: left center;
+  animation: marker-sweep 0.42s cubic-bezier(0.3, 0.7, 0.3, 1) both, marker-breathe 2.4s ease-in-out 0.5s 2;
+}
+:root[data-theme='dark'] .look-marker .passage-band {
+  mix-blend-mode: normal; background: rgb(var(--mark) / 0.2); box-shadow: inset 0 -2px 0 rgb(var(--mark) / 0.75);
+}
+
+@keyframes marker-sweep { from { transform: scaleX(0); } }
+@keyframes marker-breathe { 50% { filter: saturate(1.4) brightness(1.03); } }
+
+/* Spotlight: the passage lit, everything round it dimmed for a moment. */
+.passage-spot {
+  border-radius: 12px;
+  box-shadow: 0 0 0 200vmax rgb(12 14 12 / 0.34), 0 0 0 2px rgb(var(--accent-rgb) / 0.55), 0 0 40px 8px rgb(var(--accent-rgb) / 0.25);
+  animation: spot-in 0.5s ease-out both;
+}
+@keyframes spot-in { from { box-shadow: 0 0 0 200vmax rgb(12 14 12 / 0), 0 0 0 2px rgb(var(--accent-rgb) / 0), 0 0 40px 8px rgb(var(--accent-rgb) / 0); } }
+.look-spotlight .passage-band { background: rgb(var(--accent-rgb) / 0.1); border-radius: 3px; animation: fade-in 0.4s ease-out both; }
+
+/* Outline: framed, with a bar down its side. */
+.passage-frame {
+  border-radius: 10px;
+  border: 1.5px solid rgb(var(--accent-rgb) / 0.6);
+  background: rgb(var(--accent-rgb) / 0.06);
+  box-shadow: inset 4px 0 0 var(--accent), 0 10px 30px -12px rgb(var(--accent-rgb) / 0.55);
+  animation: frame-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes frame-in { from { opacity: 0; transform: scale(1.03); } }
+.look-outline .passage-band { background: rgb(var(--accent-rgb) / 0.14); border-radius: 3px; animation: fade-in 0.5s ease-out 0.15s both; }
+@keyframes fade-in { from { opacity: 0; } }
+
+/* The caption: a small card saying what the passage is, pointing at it. */
+.passage-tag {
+  --pointer: 24px;
+  position: fixed; z-index: 46; display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 10px;
+  width: 360px; max-width: calc(100vw - 16px);
+  padding: 11px 8px 13px 11px; border-radius: 14px; pointer-events: auto; overflow: visible;
+  color: var(--ink); background: rgb(var(--win-rgb) / 0.97);
+  border: 1px solid rgb(var(--accent-rgb) / 0.35);
+  box-shadow: 0 18px 44px -16px rgb(0 0 0 / 0.45), 0 2px 8px rgb(0 0 0 / 0.08), inset 0 1px 0 rgb(255 255 255 / 0.4);
+  animation: tag-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  font-size: 12.5px; line-height: 1.35;
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .passage-tag { background: rgb(var(--win-rgb) / 0.88); -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%); }
+}
+@keyframes tag-in { from { opacity: 0; translate: 0 6px; } }
+.passage-tag.is-below { animation-name: tag-in-below; }
+@keyframes tag-in-below { from { opacity: 0; translate: 0 -6px; } }
+/* The pointer: a notch in the card's edge, towards the passage. */
+.passage-tag:not(.is-floating)::before {
+  content: ''; position: absolute; left: var(--pointer); width: 12px; height: 12px;
+  background: inherit; border: inherit; border-width: 0 1px 1px 0; rotate: 45deg;
+}
+.passage-tag.is-above::before { bottom: -7px; }
+.passage-tag.is-below::before { top: -7px; border-width: 1px 0 0 1px; }
+.passage-badge {
+  display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+  font: 700 13px var(--sans); color: var(--accent-on);
+  background: radial-gradient(circle at 30% 30%, rgb(255 255 255 / 0.25), transparent 60%), var(--accent);
+  box-shadow: 0 0 0 4px rgb(var(--accent-rgb) / 0.16);
+}
+.passage-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.passage-eyebrow { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--accent); }
+.passage-text b { font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+.passage-where { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
+.passage-where i { font-style: normal; font-size: 11px; padding: 1px 7px; border-radius: 6px; color: var(--ink-2); background: rgb(var(--accent-rgb) / 0.1); }
+.passage-tag button { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+.passage-tag button:hover { color: var(--ink); background: rgb(var(--win-edge) / 0.08); }
+/* How long it has left: a line along the bottom that drains, and waits while the pointer is on the card. */
+.passage-time {
+  position: absolute; left: 12px; right: 12px; bottom: 5px; height: 2px; border-radius: 1px;
+  background: rgb(var(--accent-rgb) / 0.55); transform-origin: left center;
+  animation: passage-drain var(--linger, 9s) linear both;
+}
+.passage-tag.is-held .passage-time { animation-play-state: paused; }
+@keyframes passage-drain { to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .passage-band, .passage-tag, .passage-spot, .passage-frame { animation: none; }
+}
+}
+
+/* ===========================================================================
+   Ask Claude: how an answer reads. Set after the window's own rules above, so
+   these win where they differ.
+   =========================================================================== */
+.chat-turn { margin: 0 0 18px; }
+
+/* Your question: a bubble at the right, its tail towards the window's edge. */
+.chat-user { display: flex; flex-direction: column; align-items: flex-end; }
+.chat-user .chat-text {
+  margin-left: 36px; max-width: 88%; padding: 9px 13px;
+  border-radius: 16px 16px 5px 16px;
+  font-size: 13.5px; line-height: 1.5;
+  background: linear-gradient(160deg, rgb(var(--accent-rgb) / 0.2), rgb(var(--accent-rgb) / 0.11));
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+}
+.chat-user blockquote { margin: 0 0 7px; padding: 0 0 0 9px; border-left: 2px solid rgb(var(--mark) / 0.9); font: italic 13px/1.45 var(--serif); color: var(--ink-2); }
+
+/* Claude's answer: who is speaking, then the text in the window's full width. */
+.chat-who { display: flex; align-items: center; gap: 7px; margin: 0 0 7px; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); }
+.chat-avatar {
+  display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%;
+  color: var(--accent-on); background: radial-gradient(circle at 30% 30%, rgb(255 255 255 / 0.28), transparent 60%), var(--accent);
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14);
+}
+.chat-claude.is-streaming .chat-avatar { animation: chat-thinking 1.2s ease-in-out infinite; }
+@keyframes chat-thinking { 50% { box-shadow: 0 0 0 6px rgb(var(--accent-rgb) / 0.08); } }
+
+.chat-claude .chat-text { font-size: 14px; line-height: 1.66; color: var(--ink); letter-spacing: 0.002em; }
+/* The first paragraph is the answer; what follows is the reasoning behind it. */
+.chat-claude .chat-text > p:first-child { font-size: 15px; line-height: 1.6; }
+.chat-claude .chat-text p { margin: 0 0 11px; }
+
+/* A bold phrase inside a heading, a table head or a card is only bold. */
+.chat-claude .chat-text :is(h4, h5, h6, th) strong { background: none; padding: 0; margin: 0; }
+.chat-claude .chat-text em { font-family: var(--serif); font-size: 1.06em; }
+.chat-claude .chat-text a { color: var(--accent); text-decoration: underline; text-decoration-color: rgb(var(--accent-rgb) / 0.4); text-underline-offset: 3px; }
+.chat-claude .chat-text a:hover { text-decoration-color: var(--accent); }
+
+/* Headings: small, in the accent, with a rule — signposts, not shouting. */
+.chat-claude .chat-text :is(h4, h5, h6) {
+  display: flex; align-items: center; gap: 8px; margin: 18px 0 8px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent);
+}
+.chat-claude .chat-text :is(h4, h5, h6)::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgb(var(--accent-rgb) / 0.35), transparent); }
+.chat-claude .chat-text > :is(h4, h5, h6):first-child { margin-top: 2px; }
+
+/* Lists: accent dots, and numbers in small discs. */
+.chat-claude .chat-text ul, .chat-claude .chat-text ol { list-style: none; margin: 0 0 12px; padding-left: 0; }
+.chat-claude .chat-text li { position: relative; margin: 6px 0; padding-left: 22px; }
+.chat-claude .chat-text ul > li::before {
+  content: ''; position: absolute; left: 7px; top: 0.72em; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14);
+}
+.chat-claude .chat-text ol { counter-reset: chat-ol; }
+.chat-claude .chat-text ol > li { counter-increment: chat-ol; padding-left: 28px; }
+.chat-claude .chat-text ol > li::before {
+  content: counter(chat-ol); position: absolute; left: 0; top: 0.18em;
+  display: grid; place-items: center; width: 19px; height: 19px; border-radius: 50%;
+  font: 700 10.5px/1 var(--sans); color: var(--accent); background: rgb(var(--accent-rgb) / 0.13);
+}
+.chat-claude .chat-text li.chat-li-card::before { display: none; }
+
+/* Quoted words — usually the paper's own — set like a quotation from it. */
+.chat-claude .chat-text blockquote {
+  position: relative; margin: 4px 0 12px; padding: 9px 12px 9px 30px; border: 0; border-radius: 10px;
+  font: italic 14px/1.55 var(--serif); color: var(--ink-2);
+  background: rgb(var(--mark) / 0.12); box-shadow: inset 3px 0 0 rgb(var(--mark) / 0.85);
+}
+.chat-claude .chat-text blockquote::before { content: '“'; position: absolute; left: 11px; top: 2px; font: 700 26px/1 var(--serif); color: rgb(var(--mark)); opacity: 0.9; }
+.chat-claude .chat-text blockquote p { margin: 0 0 6px; }
+.chat-claude .chat-text blockquote p:last-child { margin: 0; }
+
+/* Code: a tinted pill inline; a panel with its language named for a block. */
+.chat-claude .chat-text code { -webkit-box-decoration-break: clone; box-decoration-break: clone; font: 12.3px var(--mono); padding: 1px 6px; border-radius: 6px; color: var(--accent-ink); background: rgb(var(--accent-rgb) / 0.1); border: 1px solid rgb(var(--accent-rgb) / 0.14); }
+.chat-claude .chat-text pre {
+  margin: 4px 0 12px; padding: 30px 14px 12px; border-radius: 12px; border: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--panel) 75%, transparent); font: 12.3px/1.6 var(--mono);
+}
+.chat-claude .chat-text pre::before {
+  content: attr(data-lang); position: absolute; left: 12px; top: 8px;
+  font: 600 10px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+.chat-claude .chat-text pre:not([data-lang])::before { content: 'code'; }
+.chat-claude .chat-text pre code { color: inherit; background: none; border: 0; padding: 0; }
+.chat-claude .chat-copy { top: 4px; right: 5px; }
+
+/* Tables: rounded, with a tinted head and quiet rows. */
+.chat-claude .chat-text table {
+  display: block; width: max-content; max-width: 100%; overflow-x: auto; margin: 4px 0 12px; border-collapse: separate; border-spacing: 0;
+  border: 1px solid var(--border); border-radius: 10px; font-size: 12.5px;
+}
+.chat-claude .chat-text th, .chat-claude .chat-text td { border: 0; border-bottom: 1px solid var(--border-soft); padding: 7px 10px; }
+.chat-claude .chat-text th { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); background: rgb(var(--accent-rgb) / 0.08); }
+.chat-claude .chat-text tr:last-child td { border-bottom: 0; }
+.chat-claude .chat-text tbody tr:nth-child(even) td { background: rgb(var(--win-edge) / 0.025); }
+.chat-claude .chat-text hr { border: 0; height: 1px; margin: 16px 0; background: linear-gradient(90deg, transparent, var(--border), transparent); }
+
+/* Maths, typeset by KaTeX when it has loaded (lib/typesetMath.ts); the TeX as written until then. */
+.chat-math:not([data-set]) { font: 12.5px var(--mono); color: var(--ink-2); }
+.chat-math .katex { font-size: 1.08em; }
+.chat-math-block {
+  margin: 4px 0 12px; padding: 12px 14px; overflow-x: auto; text-align: center;
+  border-radius: 10px; background: rgb(var(--accent-rgb) / 0.05); border: 1px solid rgb(var(--accent-rgb) / 0.12);
+}
+.chat-math-block:not([data-set]) { font: 12.5px var(--mono); white-space: pre-wrap; text-align: left; }
+.chat-math-block .katex-display { margin: 0; }
+
+/* The reasoning, folded: a quiet chip until opened. */
+.chat-thinking summary {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; list-style: none;
+  font: 600 10.5px var(--sans); letter-spacing: 0.06em; color: var(--muted); background: rgb(var(--win-edge) / 0.05);
+}
+.chat-thinking summary::-webkit-details-marker { display: none; }
+.chat-thinking summary::before { content: '›'; font-size: 13px; transition: rotate 0.15s; }
+.chat-thinking[open] summary::before { rotate: 90deg; }
+
+
+/* ===========================================================================
+   How marked words read in Ask Claude's answers — bold text, and links to
+   passages. Chosen in the window's ⚙ (settings.chatMarks) and set as
+   data-marks on the answers and on each preview tile; every look is a set of
+   custom properties, so the nearest one wins and a tile can show a look the
+   answers do not wear.
+   =========================================================================== */
+.chat-claude .chat-text strong, .chat-claude .chat-text .chat-passage {
+  padding: var(--mk-pad, 1px 3px); margin: var(--mk-margin, 0 -1px); border-radius: 4px;
+  color: var(--mk-color, var(--ink)); background: var(--mk-bg, none);
+  text-shadow: var(--mk-glow, none); box-shadow: var(--mk-ring, none);
+  text-decoration: var(--mk-deco, none); text-decoration-color: var(--mk-deco-color, transparent);
+  text-decoration-thickness: 3px; text-underline-offset: 4px; text-decoration-skip-ink: none;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+.chat-claude .chat-text strong { font-weight: 650; }
+.chat-claude .chat-text .chat-passage {
+  cursor: pointer; transition: filter 0.15s;
+  color: var(--ml-color, var(--mk-color, var(--ink))); background: var(--ml-bg, var(--mk-bg, none));
+  text-decoration-color: var(--ml-deco-color, var(--mk-deco-color, transparent));
+  border-bottom: var(--ml-line, 0);
+}
+.chat-claude .chat-text .chat-passage:hover { filter: brightness(1.12) saturate(1.1); }
+.chat-claude .chat-text .chat-passage:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chat-passage::after {
+  content: attr(data-passage);
+  display: inline-grid; place-items: center; min-width: 15px; height: 15px; margin-left: 5px; padding: 0 3px;
+  border-radius: 8px; vertical-align: 1px; text-shadow: none;
+  font: 700 9.5px/1 var(--sans); color: var(--accent-on); background: var(--accent);
+}
+/* A bold phrase inside a heading or a table head is only bold. */
+.chat-claude .chat-text :is(h4, h5, h6, th) strong { --mk-bg: none; --mk-pad: 0; --mk-margin: 0; --mk-glow: none; --mk-ring: none; --mk-deco: none; --mk-color: inherit; }
+
+/* Fill: a marker behind the words. */
+[data-marks='fill'], [data-marks='auto'] { --mk-bg: rgb(var(--mark) / 0.3); --ml-bg: rgb(var(--mark) / 0.45); }
+:root[data-theme='dark'] [data-marks='fill'] { --mk-bg: rgb(var(--mark) / 0.16); --ml-bg: rgb(var(--mark) / 0.22); }
+/* Glow: the words themselves in the marker's colour — amber on paper, lit in the dark. */
+[data-marks='glow'] {
+  --mk-pad: 0; --mk-margin: 0; --mk-color: #8a5c00; --ml-line: 1.5px dashed rgb(203 145 20 / 0.6);
+}
+:root[data-theme='dark'] [data-marks='glow'], :root[data-theme='dark'] [data-marks='auto'] {
+  --mk-pad: 0; --mk-margin: 0; --mk-bg: none; --ml-bg: none;
+  --mk-color: rgb(var(--mark)); --mk-glow: 0 0 14px rgb(var(--mark) / 0.35);
+  --ml-line: 1.5px dashed rgb(var(--mark) / 0.55);
+}
+/* Underline: a thick marker stroke under the words; green under a passage link. */
+[data-marks='underline'] {
+  --mk-pad: 0; --mk-margin: 0; --mk-deco: underline; --mk-deco-color: rgb(var(--mark) / 0.9); --ml-deco-color: var(--accent);
+}
+:root[data-theme='dark'] [data-marks='underline'] { --mk-color: #fff; }
+/* Tint: the app's own green. */
+[data-marks='tint'] { --mk-bg: rgb(var(--accent-rgb) / 0.13); --mk-color: var(--accent-ink); --ml-bg: rgb(var(--accent-rgb) / 0.2); --mk-ring: inset 0 -2px 0 rgb(var(--accent-rgb) / 0.55); }
+:root[data-theme='dark'] [data-marks='tint'] { --mk-bg: rgb(var(--accent-rgb) / 0.2); --mk-color: #bfe8da; --ml-bg: rgb(var(--accent-rgb) / 0.26); --ml-color: #d6f3e9; }
+/* Outline: a framed chip. */
+[data-marks='outline'] { --mk-bg: rgb(var(--mark) / 0.1); --mk-ring: inset 0 0 0 1px rgb(214 160 30 / 0.7); --ml-bg: rgb(var(--mark) / 0.16); }
+:root[data-theme='dark'] [data-marks='outline'] { --mk-bg: rgb(var(--mark) / 0.07); --mk-color: #f7e6ad; --mk-ring: inset 0 0 0 1px rgb(var(--mark) / 0.45); --ml-bg: rgb(var(--mark) / 0.1); }
+
+/* ===========================================================================
+   The window's settings (⚙): cards, switches, and tiles that preview each look.
+   =========================================================================== */
+.chat-drawer.chat-settings { max-height: 72%; padding: 12px; display: grid; gap: 10px; background: rgb(var(--win-rgb) / 0.55); }
+.set-card {
+  padding: 12px 12px 12px; border-radius: 14px;
+  border: 1px solid rgb(var(--win-edge) / 0.08);
+  background: rgb(var(--win-rgb) / 0.72);
+  box-shadow: 0 6px 18px -14px rgb(0 0 0 / 0.5);
+}
+.set-card > header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.set-card > header > span:last-child { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.set-card > header b { font-size: 13px; font-weight: 650; }
+.set-card > header small { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.set-icon {
+  display: grid; place-items: center; flex: none; width: 26px; height: 26px; border-radius: 8px;
+  font-size: 13px; color: var(--accent); background: rgb(var(--accent-rgb) / 0.12);
+}
+
+/* Tiles: each draws its own sample in the look it stands for. */
+.mark-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.look-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.mark-tile, .look-tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0;
+  padding: 10px 10px 9px; border-radius: 11px; cursor: pointer; text-align: left; color: inherit;
+  border: 1px solid rgb(var(--win-edge) / 0.1); background: rgb(var(--win-rgb) / 0.6);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.mark-tile:hover, .look-tile:hover { border-color: rgb(var(--accent-rgb) / 0.45); transform: translateY(-1px); }
+.mark-tile[aria-checked='true'], .look-tile[aria-checked='true'] {
+  border-color: var(--accent); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.16); background: rgb(var(--win-rgb) / 0.95);
+}
+.mark-sample { display: block; width: 100%; margin: 0 0 6px; padding: 7px 8px; border-radius: 8px; background: rgb(var(--win-edge) / 0.04); }
+.mark-sample .chat-text { font-size: 12.5px; line-height: 1.7; }
+.mark-sample .chat-passage::after { min-width: 13px; height: 13px; font-size: 8.5px; margin-left: 3px; }
+.mark-name { font-size: 12px; font-weight: 650; }
+.mark-tile[aria-checked='true'] .mark-name, .look-tile[aria-checked='true'] .mark-name { color: var(--accent); }
+.mark-note { font-size: 10.5px; line-height: 1.3; color: var(--muted); }
+
+/* A page in miniature: four lines, two of them the passage, drawn in each look. */
+.look-sample { position: relative; display: grid; gap: 5px; width: 100%; margin: 0 0 6px; padding: 9px 8px; border-radius: 8px; background: rgb(var(--win-edge) / 0.04); overflow: hidden; }
+.look-sample i { display: block; height: 5px; border-radius: 3px; background: rgb(var(--win-edge) / 0.18); }
+.look-sample i.short { width: 62%; }
+.look-marker .look-sample i.hit { background: rgb(var(--mark) / 0.85); }
+.look-spotlight .look-sample { background: rgb(12 14 12 / 0.28); }
+.look-spotlight .look-sample i:not(.hit) { opacity: 0.35; }
+.look-spotlight .look-sample i.hit { background: rgb(var(--win-edge) / 0.35); box-shadow: 0 0 0 3px rgb(var(--win-rgb) / 0.95), 0 0 10px 3px rgb(var(--accent-rgb) / 0.4); }
+.look-outline .look-sample i.hit { background: rgb(var(--accent-rgb) / 0.35); box-shadow: -5px 0 0 -1px var(--accent); }
+
+/* Switches for what Claude sees. */
+.set-switches { display: grid; gap: 2px; }
+.set-switch { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 7px 6px; border-radius: 9px; cursor: pointer; }
+.set-switch:hover { background: rgb(var(--win-edge) / 0.04); }
+.set-switch-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.set-switch-text b { font-size: 12.5px; font-weight: 600; }
+.set-switch-text small { font-size: 11px; color: var(--muted); line-height: 1.35; }
+.set-switch input { position: absolute; opacity: 0; pointer-events: none; }
+.set-toggle {
+  position: relative; width: 34px; height: 20px; border-radius: 10px; flex: none;
+  background: rgb(var(--win-edge) / 0.18); transition: background 0.18s;
+}
+.set-toggle::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 0.3); transition: translate 0.18s;
+}
+.set-switch input:checked + .set-toggle { background: var(--accent); }
+.set-switch input:checked + .set-toggle::after { translate: 14px 0; }
+.set-switch input:focus-visible + .set-toggle { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Choices for where paper cards go. */
+.set-choices { display: grid; gap: 6px; }
+.set-choices button {
+  display: flex; flex-direction: column; gap: 1px; padding: 8px 10px 8px 30px; position: relative;
+  border-radius: 10px; border: 1px solid rgb(var(--win-edge) / 0.1); background: transparent; text-align: left; color: inherit; cursor: pointer;
+}
+.set-choices button::before {
+  content: ''; position: absolute; left: 10px; top: 11px; width: 12px; height: 12px; border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px rgb(var(--win-edge) / 0.35);
+}
+.set-choices button[aria-checked='true'] { border-color: rgb(var(--accent-rgb) / 0.6); background: rgb(var(--accent-rgb) / 0.08); }
+.set-choices button[aria-checked='true']::before { box-shadow: inset 0 0 0 4px var(--accent); }
+.set-choices b { font-size: 12.5px; font-weight: 600; }
+.set-choices small { font-size: 11px; color: var(--muted); }
+
+/* The key. */
+.set-key { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+.set-key > span:nth-child(2) { flex: 1; }
+.set-key-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.18); }
+.chat-drawer.chat-settings { border-bottom: 1px solid rgb(var(--win-edge) / 0.12); box-shadow: 0 14px 22px -16px rgb(0 0 0 / 0.55); position: relative; z-index: 1; }

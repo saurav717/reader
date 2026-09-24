@@ -42,6 +42,8 @@ const defaultSettings: Settings = {
   glassLight: 1,
   readingMode: 'pdf',
   zenHaze: 'shadow',
+  passageLook: 'marker',
+  chatMarks: 'auto',
   contactEmail: '',
   githubRepo: '',
   githubBranch: 'main',
