@@ -41,6 +41,7 @@ const defaultSettings: Settings = {
   glassWall: 'spotlight',
   glassLight: 1,
   readingMode: 'pdf',
+  zenHaze: 'shadow',
   contactEmail: '',
   githubRepo: '',
   githubBranch: 'main',

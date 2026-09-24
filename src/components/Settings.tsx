@@ -4,8 +4,15 @@ import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
 import { parseRepo } from '../lib/github';
 import { GLASS_WALLS } from '../types';
+import type { ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
+
+const ZEN_HAZES: { id: ZenHaze; label: string; note: string }[] = [
+  { id: 'shadow', label: 'Shadow', note: 'casting a long soft shadow across the page.' },
+  { id: 'mist', label: 'Mist', note: 'and the page beside it blurs and pales, clearing towards what you were reading.' },
+  { id: 'glow', label: 'Glow', note: 'spilling a glow in the accent colour onto the page.' },
+];
 
 export default function Settings({ onClose }: { onClose: () => void }) {
   const {
@@ -634,6 +641,30 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             wash of colour through, and catches the light where the pointer is (the second slider dims it, or turns
             it off at the far left). The page you read stays nearly
             solid whatever you set here — the slider moves everything around it.
+          </p>
+        </section>
+
+        <section>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Zen mode
+          </div>
+          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="What the panes cast over the page in zen mode">
+            {ZEN_HAZES.map((haze) => (
+              <button
+                key={haze.id}
+                type="button"
+                aria-pressed={settings.zenHaze === haze.id}
+                onClick={() => updateSettings({ zenHaze: haze.id })}
+              >
+                {haze.label}
+              </button>
+            ))}
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+            Zen mode (<kbd>Z</kbd>, or the corners button in the reader’s top bar) hides the library, the dock and the
+            top bar itself while you read. Move the pointer to the left, right or top edge of the screen and that side
+            slides back out,{' '}
+            {ZEN_HAZES.find((haze) => haze.id === settings.zenHaze)?.note}
           </p>
         </section>
       </div>

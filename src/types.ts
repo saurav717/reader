@@ -213,6 +213,11 @@ export interface Settings {
   /** Which view a paper opens in when both are available. */
   readingMode: ReadingMode;
   /**
+   * What falls over the page when a side pane is brought out in zen mode: a
+   * shadow cast from the pane, a frosted mist, or a glow in the accent colour.
+   */
+  zenHaze: ZenHaze;
+  /**
    * Used for the OpenAlex and Crossref "polite pools" — which are faster and
    * more reliable than the anonymous ones — and required by Unpaywall. Left
    * empty, those calls are made anonymously and Unpaywall is skipped.
@@ -251,6 +256,8 @@ export const GLASS_WALLS: { id: GlassWall; label: string; note: string }[] = [
 
 /** The PDF as the publisher set it, or the reflowed text you can highlight. */
 export type ReadingMode = 'pdf' | 'reflow';
+
+export type ZenHaze = 'shadow' | 'mist' | 'glow';
 
 export interface GoogleUser {
   name: string;

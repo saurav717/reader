@@ -56,6 +56,7 @@ import {
   OpenBookIcon,
   ScrollPageIcon,
   SparkleIcon,
+  ZenIcon,
 } from './icons';
 
 interface Props {
@@ -67,6 +68,9 @@ interface Props {
   /** Bring the highlights pane forward; `force` opens the dock if it is shut. */
   onNotes: (force: boolean) => void;
   onToggleSidebar: () => void;
+  /** Zen mode: the side panes and the top bar are hidden and come out from the edges on hover. */
+  zen: boolean;
+  onToggleZen: () => void;
   onSelectHighlight: (id: string | null) => void;
   onOrphans: (ids: string[]) => void;
 }
@@ -100,6 +104,8 @@ export default function Reader({
   onToggleNotes,
   onNotes,
   onToggleSidebar,
+  zen,
+  onToggleZen,
   onSelectHighlight,
   onOrphans,
 }: Props) {
@@ -1298,211 +1304,225 @@ export default function Reader({
 
   return (
     <div className="main">
-      <div className="topbar">
-        <button type="button" className="icon-btn sm" onClick={onToggleSidebar} aria-label="Toggle the side panel">
-          <PanelLeftIcon size={18} />
-        </button>
-        <button type="button" className="icon-btn sm" onClick={onBack} aria-label="Back to the collection">
-          <ArrowLeftIcon size={18} />
-        </button>
-        <div className="topbar-heading">
-          <div className="title" title={paper.title}>{paper.title}</div>
-          <div className="sub" title={topbarSub}>{topbarSub}</div>
-        </div>
+      {/* The top bar and what hangs from it. In zen mode it waits above the
+          top edge of the screen with the side panes (App.tsx). */}
+      <div className="reader-head">
+        <div className="topbar">
+          <button type="button" className="icon-btn sm" onClick={onToggleSidebar} aria-label="Toggle the side panel">
+            <PanelLeftIcon size={18} />
+          </button>
+          <button type="button" className="icon-btn sm" onClick={onBack} aria-label="Back to the collection">
+            <ArrowLeftIcon size={18} />
+          </button>
+          <div className="topbar-heading">
+            <div className="title" title={paper.title}>{paper.title}</div>
+            <div className="sub" title={topbarSub}>{topbarSub}</div>
+          </div>
 
-        {driveConnected && driveFileLink && !driveBusy ? (
-          <a
-            className="icon-btn sm"
-            href={driveFileLink}
-            target="_blank"
-            rel="noreferrer noopener"
-            aria-label="Open this paper in your Google Drive"
-            title="This paper is in your Google Drive"
-            style={{ color: 'var(--accent)' }}
-          >
-            <CloudCheckIcon size={17} />
-          </a>
-        ) : null}
+          {driveConnected && driveFileLink && !driveBusy ? (
+            <a
+              className="icon-btn sm"
+              href={driveFileLink}
+              target="_blank"
+              rel="noreferrer noopener"
+              aria-label="Open this paper in your Google Drive"
+              title="This paper is in your Google Drive"
+              style={{ color: 'var(--accent)' }}
+            >
+              <CloudCheckIcon size={17} />
+            </a>
+          ) : null}
 
-        {pdfLookup === 'ready' && canFetchPdf ? (
-          <>
-            <div className="segmented" role="group" aria-label="Reading mode">
-              <button type="button" aria-pressed={mode === 'reflow'} onClick={() => chooseMode('reflow')}>
-                Reflow
+          {pdfLookup === 'ready' && canFetchPdf ? (
+            <>
+              <div className="segmented" role="group" aria-label="Reading mode">
+                <button type="button" aria-pressed={mode === 'reflow'} onClick={() => chooseMode('reflow')}>
+                  Reflow
+                </button>
+                <button type="button" aria-pressed={mode === 'pdf'} onClick={() => chooseMode('pdf')}>
+                  PDF
+                </button>
+              </div>
+              <button
+                type="button"
+                className="icon-btn sm"
+                onClick={() => void downloadPdf()}
+                disabled={saving}
+                aria-label="Download the PDF"
+                title="Download the PDF"
+              >
+                {saving ? <span className="spinner" /> : <DownloadIcon size={17} />}
               </button>
-              <button type="button" aria-pressed={mode === 'pdf'} onClick={() => chooseMode('pdf')}>
-                PDF
-              </button>
-            </div>
+            </>
+          ) : pdfLookup === 'ready' && pdfLink ? (
+            // No proxy to fetch it through, but we know where it is.
+            <a className="btn sm" href={pdfLink} target="_blank" rel="noreferrer noopener">
+              PDF <ExternalIcon size={12} />
+            </a>
+          ) : null}
+
+          {mode === 'reflow' || (mode === 'pdf' && pdfBlob) ? (
             <button
               type="button"
               className="icon-btn sm"
-              onClick={() => void downloadPdf()}
-              disabled={saving}
-              aria-label="Download the PDF"
-              title="Download the PDF"
+              aria-pressed={layout === 'book'}
+              aria-label={layout === 'book' ? 'Read as one scrolling page' : 'Read as a book, two pages side by side'}
+              title={layout === 'book' ? 'Scroll view' : 'Book view — two pages side by side'}
+              onClick={() => chooseLayout(layout === 'book' ? 'scroll' : 'book')}
             >
-              {saving ? <span className="spinner" /> : <DownloadIcon size={17} />}
+              {layout === 'book' ? <ScrollPageIcon size={17} /> : <OpenBookIcon size={18} />}
             </button>
-          </>
-        ) : pdfLookup === 'ready' && pdfLink ? (
-          // No proxy to fetch it through, but we know where it is.
-          <a className="btn sm" href={pdfLink} target="_blank" rel="noreferrer noopener">
-            PDF <ExternalIcon size={12} />
-          </a>
-        ) : null}
-
-        {mode === 'reflow' || (mode === 'pdf' && pdfBlob) ? (
+          ) : null}
           <button
             type="button"
             className="icon-btn sm"
-            aria-pressed={layout === 'book'}
-            aria-label={layout === 'book' ? 'Read as one scrolling page' : 'Read as a book, two pages side by side'}
-            title={layout === 'book' ? 'Scroll view' : 'Book view — two pages side by side'}
-            onClick={() => chooseLayout(layout === 'book' ? 'scroll' : 'book')}
+            aria-pressed={zen}
+            aria-label={zen ? 'Leave zen mode' : 'Zen mode — hide the side panes and this bar'}
+            title={zen ? 'Leave zen mode (Z)' : 'Zen mode — the panes and this bar wait at the edges of the screen (Z)'}
+            onClick={onToggleZen}
           >
-            {layout === 'book' ? <ScrollPageIcon size={17} /> : <OpenBookIcon size={18} />}
+            <ZenIcon size={17} />
           </button>
-        ) : null}
-        <button
-          type="button"
-          className="icon-btn sm"
-          aria-label="Change the text size"
-          onClick={() => setSizeIndex((current) => (current + 1) % SIZES.length)}
-          style={{ fontFamily: 'var(--serif)', alignItems: 'baseline', gap: 1 }}
-        >
-          <span style={{ fontSize: 16 }}>A</span>
-          <span style={{ fontSize: 11 }}>a</span>
-        </button>
-        <button
-          type="button"
-          className="icon-btn sm"
-          aria-label={settings.theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme'}
-          onClick={() => updateSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' })}
-        >
-          {settings.theme === 'dark' ? <SunIcon size={17} /> : <MoonIcon size={17} />}
-        </button>
-        {paper.landingUrl ? (
-          <a
+          <button
+            type="button"
             className="icon-btn sm"
-            href={paper.landingUrl}
-            target="_blank"
-            rel="noreferrer noopener"
-            aria-label="Open the paper at its source"
+            aria-label="Change the text size"
+            onClick={() => setSizeIndex((current) => (current + 1) % SIZES.length)}
+            style={{ fontFamily: 'var(--serif)', alignItems: 'baseline', gap: 1 }}
           >
-            <ExternalIcon size={16} />
-          </a>
-        ) : null}
-        <button
-          type="button"
-          className="icon-btn sm"
-          aria-pressed={notesOpen}
-          onClick={onToggleNotes}
-          aria-label="Toggle highlights and notes"
-        >
-          <PanelRightIcon size={18} />
-        </button>
-      </div>
-
-      <div className="progress">
-        <span style={{ width: `${Math.round(paper.progress * 100)}%` }} />
-      </div>
-
-      {showCopies && knownLocations ? (
-        <div className="copy-bar">
-          <div className="copy-line">
-            <span className="copy-lead">Reading the copy</span>
-            <button
-              type="button"
-              className="copy-current"
-              aria-expanded={pickerOpen}
-              aria-haspopup="dialog"
-              onClick={() => setPickerOpen((open) => !open)}
-              title="Read a different copy of this paper"
+            <span style={{ fontSize: 16 }}>A</span>
+            <span style={{ fontSize: 11 }}>a</span>
+          </button>
+          <button
+            type="button"
+            className="icon-btn sm"
+            aria-label={settings.theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme'}
+            onClick={() => updateSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' })}
+          >
+            {settings.theme === 'dark' ? <SunIcon size={17} /> : <MoonIcon size={17} />}
+          </button>
+          {paper.landingUrl ? (
+            <a
+              className="icon-btn sm"
+              href={paper.landingUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              aria-label="Open the paper at its source"
             >
-              {pdfFrom === 'drive'
-                ? 'in your Drive'
-                : pdfFrom === 'file'
-                  ? 'from your file'
-                  : pdfFrom === 'browser'
-                    ? 'from the browser here'
-                    : pdfLocation
-                      ? `at ${pdfLocation.label}`
-                      : 'found first'}
-              <ChevronDownIcon size={13} />
-            </button>
-            {switching ? (
-              <span className="copy-status">
-                <span className="spinner" /> Fetching the copy at {switching.label}…
-              </span>
-            ) : pdfDoubt ? (
-              <span className="copy-status doubtful">
-                It {pdfDoubt}.{' '}
-                <button type="button" className="link-btn" onClick={() => setPickerOpen(true)}>
-                  Pick another copy
-                </button>
-              </span>
-            ) : (
-              <span className="copy-status">
-                {(() => {
-                  const others = knownLocations.length - (pdfFrom === 'proxy' && pdfLocation ? 1 : 0);
-                  return others <= 0 ? '· the only copy known' : `· ${others === 1 ? 'one other' : `${others} others`} to pick from`;
-                })()}
-              </span>
-            )}
-          </div>
-          {pickerOpen ? (
-            <CopyPicker
-              locations={knownLocations}
-              current={pdfFrom === 'proxy' ? pdfLocation?.url ?? null : null}
-              choice={pdfChoice}
-              notes={copyNotes}
-              switching={switching?.url ?? null}
-              onPick={pickCopy}
-              onBrowse={
-                browseAvailable
-                  ? () => {
-                      setPickerOpen(false);
-                      browseHere();
-                    }
-                  : undefined
-              }
-              onFile={takeFile}
-              onForget={pdfChoice ? forgetChoice : undefined}
-              onClose={closePicker}
-            />
+              <ExternalIcon size={16} />
+            </a>
           ) : null}
-          {switchError ? (
-            <p className="banner warn copy-error">
-              The copy {/^from /i.test(switchError.location.label) ? switchError.location.label : `at ${switchError.location.label}`} would not hand over the PDF — {switchError.message}. You are still
-              reading the copy you had.
-              {switchError.check?.where === 'cloudflare' ? (
-                <>
-                  {' '}
-                  That is Cloudflare checking for a person, which the proxy's requests never pass — but your own browser
-                  does.
-                </>
-              ) : null}{' '}
-              {switchError.check?.where !== 'cloudflare' && browseAvailable ? (
-                <>
-                  <button
-                    type="button"
-                    className="link-btn"
-                    onClick={browseHere}
-                  >
-                    {switchError.signIn ? `Browse to ${switchError.signIn.host} and sign in here` : `Browse to ${switchError.location.host} here`}
-                  </button>
-                  .
-                </>
-              ) : null}
-              <PdfDropIn host={switchError.location.host} url={switchError.location.url} onFile={takeFile} />{' '}
-              <button type="button" className="link-btn" onClick={() => setSwitchError(null)}>
-                Dismiss
-              </button>
-            </p>
-          ) : null}
+          <button
+            type="button"
+            className="icon-btn sm"
+            aria-pressed={notesOpen}
+            onClick={onToggleNotes}
+            aria-label="Toggle highlights and notes"
+          >
+            <PanelRightIcon size={18} />
+          </button>
         </div>
-      ) : null}
+
+        <div className="progress">
+          <span style={{ width: `${Math.round(paper.progress * 100)}%` }} />
+        </div>
+
+        {showCopies && knownLocations ? (
+          <div className="copy-bar">
+            <div className="copy-line">
+              <span className="copy-lead">Reading the copy</span>
+              <button
+                type="button"
+                className="copy-current"
+                aria-expanded={pickerOpen}
+                aria-haspopup="dialog"
+                onClick={() => setPickerOpen((open) => !open)}
+                title="Read a different copy of this paper"
+              >
+                {pdfFrom === 'drive'
+                  ? 'in your Drive'
+                  : pdfFrom === 'file'
+                    ? 'from your file'
+                    : pdfFrom === 'browser'
+                      ? 'from the browser here'
+                      : pdfLocation
+                        ? `at ${pdfLocation.label}`
+                        : 'found first'}
+                <ChevronDownIcon size={13} />
+              </button>
+              {switching ? (
+                <span className="copy-status">
+                  <span className="spinner" /> Fetching the copy at {switching.label}…
+                </span>
+              ) : pdfDoubt ? (
+                <span className="copy-status doubtful">
+                  It {pdfDoubt}.{' '}
+                  <button type="button" className="link-btn" onClick={() => setPickerOpen(true)}>
+                    Pick another copy
+                  </button>
+                </span>
+              ) : (
+                <span className="copy-status">
+                  {(() => {
+                    const others = knownLocations.length - (pdfFrom === 'proxy' && pdfLocation ? 1 : 0);
+                    return others <= 0 ? '· the only copy known' : `· ${others === 1 ? 'one other' : `${others} others`} to pick from`;
+                  })()}
+                </span>
+              )}
+            </div>
+            {pickerOpen ? (
+              <CopyPicker
+                locations={knownLocations}
+                current={pdfFrom === 'proxy' ? pdfLocation?.url ?? null : null}
+                choice={pdfChoice}
+                notes={copyNotes}
+                switching={switching?.url ?? null}
+                onPick={pickCopy}
+                onBrowse={
+                  browseAvailable
+                    ? () => {
+                        setPickerOpen(false);
+                        browseHere();
+                      }
+                    : undefined
+                }
+                onFile={takeFile}
+                onForget={pdfChoice ? forgetChoice : undefined}
+                onClose={closePicker}
+              />
+            ) : null}
+            {switchError ? (
+              <p className="banner warn copy-error">
+                The copy {/^from /i.test(switchError.location.label) ? switchError.location.label : `at ${switchError.location.label}`} would not hand over the PDF — {switchError.message}. You are still
+                reading the copy you had.
+                {switchError.check?.where === 'cloudflare' ? (
+                  <>
+                    {' '}
+                    That is Cloudflare checking for a person, which the proxy's requests never pass — but your own browser
+                    does.
+                  </>
+                ) : null}{' '}
+                {switchError.check?.where !== 'cloudflare' && browseAvailable ? (
+                  <>
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={browseHere}
+                    >
+                      {switchError.signIn ? `Browse to ${switchError.signIn.host} and sign in here` : `Browse to ${switchError.location.host} here`}
+                    </button>
+                    .
+                  </>
+                ) : null}
+                <PdfDropIn host={switchError.location.host} url={switchError.location.url} onFile={takeFile} />{' '}
+                <button type="button" className="link-btn" onClick={() => setSwitchError(null)}>
+                  Dismiss
+                </button>
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
 
       {mode === 'pdf' ? (
         <div className="pdf-pane">

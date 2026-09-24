@@ -312,3 +312,11 @@ export const CameraIcon = (props: IconProps) => (
     <circle cx="12" cy="13" r="3.5" />
   </Icon>
 );
+
+/** Zen mode: the page alone, the panes pulled back to the edges. */
+export const ZenIcon = (props: IconProps) => (
+  <Icon {...props} strokeWidth={1.8}>
+    <path d="M3.5 8.5v-2a2 2 0 0 1 2-2h2M16.5 4.5h2a2 2 0 0 1 2 2v2M20.5 15.5v2a2 2 0 0 1-2 2h-2M7.5 19.5h-2a2 2 0 0 1-2-2v-2" />
+    <path d="M9 12h6" />
+  </Icon>
+);
