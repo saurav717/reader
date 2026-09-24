@@ -395,7 +395,9 @@ function TurnView({ turn, index, actions, question }: { turn: Turn; index: numbe
           className="chat-text"
           onClick={(event) => {
             const link = (event.target as HTMLElement).closest<HTMLElement>('.chat-passage');
-            if (link) showAt(Number(link.dataset.passage) - 1);
+            if (!link) return;
+            event.preventDefault();
+            showAt(Number(link.dataset.passage) - 1);
           }}
           dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(markdown(text), { ADD_ATTR: ['target'] }) }} />
       ) : null}

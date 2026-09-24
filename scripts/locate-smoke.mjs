@@ -141,6 +141,16 @@ const marked = await page.evaluate(({ x, y }) => document.elementsFromPoint(x, y
 check('the mark lies over the passage', Boolean(marked));
 check('with the caption Claude gave it', /Where the authors define “oracle selection”/.test(await page.locator('.passage-tag').textContent()));
 check('and where it is', /3\.3 Feature selection/.test(await page.locator('.passage-tag').textContent()));
+// The link to the passage runs on from the words before it, broken across lines if it must.
+const flow = await page.locator('.chat-passage').first().evaluate((link) => {
+  const before = document.createRange();
+  before.setStart(link.parentNode, 0);
+  before.setEndBefore(link);
+  const lastBefore = [...before.getClientRects()].pop();
+  const first = link.getClientRects()[0];
+  return { tag: link.tagName, sameLine: Math.abs(lastBefore.top - first.top) < 4 };
+});
+check('the passage link flows with the text, not onto a line of its own', flow.tag === 'A' && flow.sameLine, JSON.stringify(flow));
 check('the row says it is on the page', /On the page now/.test(await page.locator('.chat-passage-row').first().textContent()));
 await page.screenshot({ path: `${OUT}/locate-1-reflow.png` });
 await page.locator('.assistant-win').screenshot({ path: `${OUT}/locate-1b-chat.png` });

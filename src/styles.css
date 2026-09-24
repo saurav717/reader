@@ -2931,18 +2931,20 @@ body.win-moving .assistant-win { transition: none; }
 :root { --mark: 255 203 71; }
 :root[data-theme='dark'] { --mark: 246 214 102; }
 .chat-passage {
-  display: inline; padding: 0 2px; margin: 0; border: 0; border-radius: 3px; cursor: pointer;
-  font: inherit; color: inherit; text-align: inherit;
-  background: linear-gradient(transparent 52%, rgb(var(--mark) / 0.5) 52%);
+  padding: 1px 3px; margin: 0 -1px; border-radius: 4px; cursor: pointer;
+  color: var(--ink); text-decoration: none;
+  background: rgb(var(--mark) / 0.45);
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
   transition: background 0.2s;
 }
 .chat-passage::after {
   content: attr(data-passage);
-  display: inline-grid; place-items: center; min-width: 15px; height: 15px; margin-left: 4px; padding: 0 3px;
+  display: inline-grid; place-items: center; min-width: 15px; height: 15px; margin-left: 5px; padding: 0 3px;
   border-radius: 8px; vertical-align: 1px;
   font: 700 9.5px/1 var(--sans); color: var(--accent-on); background: var(--accent);
 }
-.chat-passage:hover { background: rgb(var(--mark) / 0.55); }
+.chat-passage:hover { background: rgb(var(--mark) / 0.65); color: var(--ink); }
+.chat-passage:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .chat-passages {
   margin: 12px 0 6px; border-radius: 14px; overflow: hidden;
@@ -3010,8 +3012,8 @@ body.win-moving .assistant-win { transition: none; }
 :root[data-theme='dark'] .look-marker .passage-band {
   mix-blend-mode: normal; background: rgb(var(--mark) / 0.2); box-shadow: inset 0 -2px 0 rgb(var(--mark) / 0.75);
 }
-:root[data-theme='dark'] .chat-passage { background: linear-gradient(transparent 52%, rgb(var(--mark) / 0.22) 52%); }
-:root[data-theme='dark'] .chat-passage:hover { background: rgb(var(--mark) / 0.22); }
+:root[data-theme='dark'] .chat-passage { background: rgb(var(--mark) / 0.2); }
+:root[data-theme='dark'] .chat-passage:hover { background: rgb(var(--mark) / 0.32); }
 @keyframes marker-sweep { from { transform: scaleX(0); } }
 @keyframes marker-breathe { 50% { filter: saturate(1.4) brightness(1.03); } }
 
@@ -3118,8 +3120,14 @@ body.win-moving .assistant-win { transition: none; }
 /* The first paragraph is the answer; what follows is the reasoning behind it. */
 .chat-claude .chat-text > p:first-child { font-size: 15px; line-height: 1.6; }
 .chat-claude .chat-text p { margin: 0 0 11px; }
-.chat-claude .chat-text strong { font-weight: 650; color: var(--ink); background: linear-gradient(transparent 64%, rgb(var(--mark) / 0.42) 64%); padding: 0 1px; border-radius: 2px; }
-:root[data-theme='dark'] .chat-claude .chat-text strong { background: linear-gradient(transparent 70%, rgb(var(--mark) / 0.28) 70%); }
+.chat-claude .chat-text strong {
+  font-weight: 650; color: var(--ink); padding: 1px 3px; margin: 0 -1px; border-radius: 4px;
+  background: rgb(var(--mark) / 0.3);
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+:root[data-theme='dark'] .chat-claude .chat-text strong { background: rgb(var(--mark) / 0.16); }
+/* A bold phrase inside a heading, a table head or a card is only bold. */
+.chat-claude .chat-text :is(h4, h5, h6, th) strong { background: none; padding: 0; margin: 0; }
 .chat-claude .chat-text em { font-family: var(--serif); font-size: 1.06em; }
 .chat-claude .chat-text a { color: var(--accent); text-decoration: underline; text-decoration-color: rgb(var(--accent-rgb) / 0.4); text-underline-offset: 3px; }
 .chat-claude .chat-text a:hover { text-decoration-color: var(--accent); }
@@ -3201,3 +3209,5 @@ body.win-moving .assistant-win { transition: none; }
 .chat-thinking summary::-webkit-details-marker { display: none; }
 .chat-thinking summary::before { content: '›'; font-size: 13px; transition: rotate 0.15s; }
 .chat-thinking[open] summary::before { rotate: 90deg; }
+/* A passage link is marked, not underlined: the general link style is for links out of the app. */
+.chat-claude .chat-text a.chat-passage { color: var(--ink); text-decoration: none; }

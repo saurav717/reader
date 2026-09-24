@@ -364,3 +364,9 @@ describe('maths in answers', () => {
     assert.equal(inline('see \\(a<b\\)'), 'see <span class="chat-math" data-tex="a&lt;b">a&lt;b</span>');
   });
 });
+
+describe('a link to a passage', () => {
+  it('is an inline link, so a long phrase wraps with the line', () => {
+    assert.equal(inline('see [they call it oracle selection](passage:1).'), 'see <a class="chat-passage" href="#passage-1" data-passage="1">they call it oracle selection</a>.');
+  });
+});

@@ -28,9 +28,11 @@ export function inline(src: string): string {
     `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`,
   );
   // A passage of the open paper an answer points at, `[the words](passage:2)`:
-  // a button that scrolls the paper to the answer's second passage and marks it.
+  // a link that scrolls the paper to the answer's second passage and marks it.
   s = s.replace(/\[([^\]\n]+)\]\(passage:\s*(\d+)\)/g, (_, text: string, n: string) => {
-    codes.push(`<button type="button" class="chat-passage" data-passage="${n}">${text}</button>`);
+    // A link, not a button: a button is never broken across two lines, so a
+    // long phrase would leave the line before it short and start a line of its own.
+    codes.push(`<a class="chat-passage" href="#passage-${n}" data-passage="${n}">${text}</a>`);
     return `\u0000${codes.length - 1}\u0000`;
   });
   // A paper named in an answer, `[Name et al. 2021](paper:Its full title)`: the
