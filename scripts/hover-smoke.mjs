@@ -53,6 +53,7 @@ p { margin: 0 0 4pt; }
 /** OpenAlex, as far as this paper goes: the paper's own record, two people, and the cited works. */
 const WORK = {
   id: 'https://openalex.org/W1',
+  topics: [{ display_name: 'Neural operators', field: { display_name: 'Computer Science' } }],
   title: 'Fourier Neural Operator for Parametric Partial Differential Equations',
   authorships: [
     { author: { id: 'https://openalex.org/A1', display_name: 'Zongyi Li' }, institutions: [{ display_name: 'California Institute of Technology' }] },
@@ -68,6 +69,20 @@ const AUTHOR = {
   summary_stats: { h_index: 21, i10_index: 30 },
   last_known_institutions: [{ display_name: 'Massachusetts Institute of Technology' }],
   topics: [{ display_name: 'Neural operators' }, { display_name: 'Scientific machine learning' }],
+};
+/** The record OpenAlex files the second author under: a namesake in another field altogether. */
+const NAMESAKE = {
+  id: 'https://openalex.org/A2',
+  display_name: 'Nikola Kovachki',
+  orcid: null,
+  works_count: 193,
+  cited_by_count: 2000,
+  summary_stats: { h_index: 19, i10_index: 44 },
+  last_known_institutions: [{ display_name: 'Victoria University of Wellington' }],
+  topics: [
+    { display_name: 'Music Technology and Sound Studies', count: 40, field: { display_name: 'Engineering' } },
+    { display_name: 'Advanced Optical Sensing Technologies', count: 30, field: { display_name: 'Physics and Astronomy' } },
+  ],
 };
 const cited = (title, year, cites, extra = {}) => ({
   id: `https://openalex.org/W${Math.abs(title.length * 7919)}`,
@@ -115,15 +130,27 @@ await context.route('**/scholar/authors*', (route) =>
     ],
   }),
 );
+// Open Library has no book of the paper's title, so nobody is found elsewhere.
+await context.route('**/openlibrary.org/**', (route) => json(route, { docs: [] }));
 const asked = [];
 await context.route('**/api.openalex.org/**', (route) => {
   const url = new URL(route.request().url());
   asked.push(`${url.pathname}?${Array.from(url.searchParams, ([key, value]) => `${key}=${value}`).join('&')}`);
   if (url.pathname.startsWith('/works/doi:')) return json(route, WORK);
   if (url.pathname === '/authors/A1') return json(route, AUTHOR);
+  if (url.pathname === '/authors/A2') return json(route, NAMESAKE);
   if (url.pathname === '/works') {
     const filter = url.searchParams.get('filter') || '';
-    if (filter.startsWith('author.id:')) return json(route, { results: [DEEPONET, GRAPH] });
+    if (url.searchParams.has('group_by')) return json(route, { group_by: [{ key: '2019', count: 3 }, { key: '2020', count: 4 }] });
+    if (filter.startsWith('author.id:A1')) return json(route, { results: [DEEPONET, GRAPH] });
+    if (filter.startsWith('author.id:A2')) return json(route, { results: [cited('Achieving sub-millimetre precision with a range imaging camera', 2007, 72)] });
+    if (filter.startsWith('raw_author_name.search:')) {
+      return json(route, {
+        results: [
+          { ...cited('Neural operator: Learning maps between function spaces', 2021, 1500), authorships: [{ author: { display_name: 'Nikola B. Kovachki' } }] },
+        ],
+      });
+    }
     if (/graph kernel/i.test(filter)) return json(route, { results: [GRAPH] });
     if (/deeponet/i.test(filter)) return json(route, { results: [DEEPONET] });
   }
@@ -175,6 +202,21 @@ await page.screenshot({ path: `${OUT}hover-author.png` });
 await page.mouse.move(700, 4);
 await page.waitForSelector('.hover-card', { state: 'detached', timeout: 3000 });
 check('the card goes when the pointer leaves', (await page.locator('.hover-card').count()) === 0);
+
+console.log('\n== an author OpenAlex mistakes for a namesake ==');
+await page.locator('.paper-authors .author-name', { hasText: 'Nikola Kovachki' }).hover();
+await page.waitForSelector('.hover-card .hc-works', { timeout: 10000 });
+const other = (await page.locator('.hover-card').textContent()) || '';
+check('the namesake’s counts are not shown', (await page.locator('.hover-card .hc-stats').count()) === 0);
+check('nor where the namesake is', !other.includes('Now at Victoria University of Wellington'), other.slice(0, 160));
+check('the card says the record is someone else’s', other.includes('that is not them') && other.includes('Engineering'));
+check('and that there is no Scholar profile', other.includes('No Google Scholar profile'));
+check('nor a profile anywhere', other.includes('No registered profile of theirs was found'));
+check('and lists other work under the name', other.includes('Learning maps between function spaces') && other.includes('some may be a namesake'));
+await page.screenshot({ path: `${OUT}hover-author-nowhere.png` });
+
+await page.mouse.move(700, 4);
+await page.waitForSelector('.hover-card', { state: 'detached', timeout: 3000 });
 
 console.log('\n== a citation ==');
 await page.locator('.paper-body .cite', { hasText: '[1]' }).hover();

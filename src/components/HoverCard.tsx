@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AuthorRef, PaperRef } from '../types';
-import { authorDetails, resolveReference, scholarProfile, type AuthorDetails } from '../lib/hoverInfo';
+import {
+  authorDetails,
+  profilesElsewhere,
+  resolveReference,
+  scholarProfile,
+  worksUnderName,
+  type AuthorDetails,
+  type Elsewhere,
+  type OtherWork,
+} from '../lib/hoverInfo';
 import { scholarAuthorUrl, scholarPaperUrl } from '../lib/locations';
 import { hasProxy } from '../lib/api';
 import { ExternalIcon, SearchIcon } from './icons';
@@ -138,26 +147,45 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
     () => (answer === null ? { name, via: 'none', topics: [], topWorks: [] } : answer),
     [answer, name],
   );
+  // Asked alongside OpenAlex, not after it: it goes by the paper, not by the record.
+  const elsewhere = useAnswer<Elsewhere>(() => profilesElsewhere(name, paper), `${paper.id}|${name}`);
   const [profile, setProfile] = useState<AuthorRef | null | undefined>(undefined);
   useEffect(() => {
     if (details === undefined) return;
     let live = true;
     setProfile(undefined);
     const places = [details?.affiliationHere, details?.affiliation].filter((place): place is string => Boolean(place));
-    void scholarProfile(name, places).then((found) => live && setProfile(found));
+    // A lone profile with the name is theirs only when OpenAlex tied this very person to the paper.
+    const tied = details.via === 'paper' && !details.mistaken;
+    void scholarProfile(name, places, tied).then((found) => live && setProfile(found));
     return () => {
       live = false;
     };
   }, [details, name]);
   const scholarAsking = hasProxy() && details !== undefined && profile === undefined;
 
+  // A record of their own at OpenAlex that is plainly them counts as a profile.
+  const ownRecord = details?.openAlexId !== undefined && details.via === 'paper';
+  const pages = elsewhere?.profiles ?? [];
+  const settled = details !== undefined && elsewhere !== undefined && !scholarAsking;
+  const nowhere = settled && !profile && !ownRecord && !details?.orcid && !pages.length;
+  const namesake = useAnswer<OtherWork[]>(
+    () => (nowhere ? worksUnderName(name, paper) : Promise.resolve([])),
+    `${paper.id}|${name}|${nowhere}`,
+  );
+
   const now = details?.affiliation && details.affiliation !== details.affiliationHere ? details.affiliation : undefined;
   const interests = profile?.interests?.length ? profile.interests : details?.topics ?? [];
+  const who = [elsewhere?.fullName, elsewhere?.lived].filter(Boolean).join(', ');
+  // Their books from Open Library stand in for OpenAlex's list when OpenAlex has none that are theirs.
+  const otherWorks = details?.topWorks.length ? [] : elsewhere?.works ?? [];
 
   return (
     <>
       <div className="hc-head">
         <p className="hc-name">{name}</p>
+        {who ? <p className="hc-sub">{who}</p> : null}
+        {elsewhere?.description ? <p className="hc-sub">{elsewhere.description}</p> : null}
         {details?.affiliationHere ? <p className="hc-sub">{details.affiliationHere}</p> : null}
         {now ? <p className="hc-sub">Now at {now}</p> : null}
         {!details?.affiliationHere && !now && profile?.affiliation ? <p className="hc-sub">{profile.affiliation}</p> : null}
@@ -196,9 +224,9 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
                 </div>
               ) : null}
             </dl>
-          ) : details.via === 'none' ? (
-            <p className="hc-note">No index has a record of this person that could be told apart from others of the name.</p>
           ) : null}
+
+          {elsewhere?.about ? <p className="hc-about">{elsewhere.about}</p> : null}
 
           {profile ? (
             <p className="hc-scholar">
@@ -211,6 +239,26 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
           ) : scholarAsking ? (
             <p className="hc-scholar muted">
               <span className="spinner" /> Asking Google Scholar…
+            </p>
+          ) : hasProxy() ? (
+            <p className="hc-scholar muted">No Google Scholar profile of theirs.</p>
+          ) : null}
+
+          {pages.length ? (
+            <p className="hc-scholar">
+              <span>{profile ? 'Also on' : 'Profiles elsewhere:'}</span>
+              {pages.map((page, index) => (
+                <span key={page.site}>
+                  <a href={page.url} target="_blank" rel="noreferrer noopener">
+                    {page.site} <ExternalIcon size={10} />
+                  </a>
+                  {index < pages.length - 1 ? ' ·' : ''}
+                </span>
+              ))}
+            </p>
+          ) : elsewhere === undefined && !profile ? (
+            <p className="hc-scholar muted">
+              <span className="spinner" /> Looking for them elsewhere…
             </p>
           ) : null}
 
@@ -225,33 +273,50 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
           ) : null}
 
           {details.topWorks.length ? (
-            <div className="hc-works">
-              <p className="hc-label">Most cited</p>
-              <ul>
-                {details.topWorks.map((work) => (
-                  <li key={work.id}>
-                    <button type="button" className="hc-work" onClick={() => discover(`"${work.title}"`)} title="Find it in Discover">
-                      {work.title}
-                    </button>
-                    <span className="hc-meta">
-                      {[yearOf(work.published), work.citedBy !== undefined ? `${compact(work.citedBy)} citations` : '']
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <WorkList
+              label="Most cited"
+              works={details.topWorks.map((work) => ({ title: work.title, year: Number(yearOf(work.published)) || undefined, citedBy: work.citedBy }))}
+            />
+          ) : null}
+          {otherWorks.length ? <WorkList label="Other works" works={otherWorks} /> : null}
+
+          {details.mistaken ? (
+            <p className="hc-note">
+              OpenAlex files this paper under{' '}
+              <a href={`https://openalex.org/authors/${details.mistaken.openAlexId}`} target="_blank" rel="noreferrer noopener">
+                a record
+              </a>
+              {details.mistaken.affiliation ? ` at ${details.mistaken.affiliation}` : ''} that is not them — {details.mistaken.reason} — so
+              none of it is shown here.
+            </p>
           ) : null}
 
-          {details.via === 'name' ? (
+          {nowhere ? (
+            <>
+              <p className="hc-note">
+                No registered profile of theirs was found — not on Google Scholar, OpenAlex, ORCID, Wikipedia or Open Library.
+              </p>
+              {namesake === undefined ? (
+                <p className="hc-loading">
+                  <span className="spinner" /> Finding their other work…
+                </p>
+              ) : namesake?.length ? (
+                <>
+                  <WorkList label="Other works under the name" works={namesake} />
+                  <p className="hc-note">Found by the name alone — some may be a namesake's.</p>
+                </>
+              ) : null}
+            </>
+          ) : details.via === 'name' && !details.mistaken ? (
             <p className="hc-note">Found by the name alone, not through this paper — it may be someone else of that name.</p>
+          ) : details.via === 'none' && !pages.length && settled && !profile ? (
+            <p className="hc-note">No index has a record of this person that could be told apart from others of the name.</p>
           ) : null}
         </>
       )}
 
       <div className="hc-links">
-        {!profile ? (
+        {!profile && !hasProxy() ? (
           <a href={scholarAuthorUrl(name)} target="_blank" rel="noreferrer noopener">
             Google Scholar <ExternalIcon size={10} />
           </a>
@@ -266,11 +331,38 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
             OpenAlex <ExternalIcon size={10} />
           </a>
         ) : null}
-        <button type="button" className="hc-action" onClick={() => discover(`author:${name}`)}>
+        <button type="button" className="hc-action" onClick={() => discover(`author:${elsewhere?.fullName ?? name}`)}>
           <SearchIcon size={11} /> All their papers
         </button>
       </div>
     </>
+  );
+}
+
+/** A short list of someone's works, each one a search for it in Discover. */
+function WorkList({ label, works }: { label: string; works: OtherWork[] }) {
+  return (
+    <div className="hc-works">
+      <p className="hc-label">{label}</p>
+      <ul>
+        {works.map((work) => (
+          <li key={`${work.title}|${work.year ?? ''}`}>
+            <button type="button" className="hc-work" onClick={() => discover(`"${work.title}"`)} title="Find it in Discover">
+              {work.title}
+            </button>
+            <span className="hc-meta">
+              {[
+                work.year ? String(work.year) : '',
+                work.citedBy !== undefined ? `${compact(work.citedBy)} citations` : '',
+                work.editions ? `${work.editions} edition${work.editions === 1 ? '' : 's'}` : '',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
