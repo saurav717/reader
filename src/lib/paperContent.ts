@@ -11,6 +11,8 @@ export interface PaperContent {
   mode: 'pdf' | 'html' | 'abstract';
   sourceLabel: string;
   notice?: string;
+  /** The authors as the PDF's first page names them — every one, where a search result may have cut the list short. */
+  authors?: string[];
   /** Hands back what the HTML refers to — the images painted from a PDF — once it is off the screen. */
   release?: () => void;
 }
@@ -60,6 +62,7 @@ export async function loadPaperContentFromPdf(
     html: withCitations(clean),
     mode: 'pdf',
     sourceLabel: `Reflowed from the PDF · ${reflowed.pages} ${reflowed.pages === 1 ? 'page' : 'pages'}`,
+    authors: reflowed.authors,
     release: reflowed.release,
   };
 }

@@ -199,6 +199,8 @@ export interface ReflowedPdf {
   pages: number;
   /** Running text found, in characters. Near zero means a scanned PDF. */
   characters: number;
+  /** The authors named on the first page, where they could be read. */
+  authors?: string[];
   /** Hands back the images the HTML refers to. */
   release: () => void;
 }
@@ -287,6 +289,7 @@ export async function reflowPdf(
       html,
       pages: doc.numPages,
       characters: layout.characters,
+      authors: layout.authors,
       release: () => {
         for (const url of urls.values()) URL.revokeObjectURL(url);
         urls.clear();

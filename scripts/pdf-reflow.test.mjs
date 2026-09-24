@@ -163,6 +163,39 @@ describe('headings and front matter', () => {
     assert.equal(texts(layout)[0], 'Abstract');
     assert.ok(!texts(layout).some((text) => text.includes('Lovelace')));
   });
+
+  it('reads every author off the first page, past affiliations and addresses', () => {
+    const runs = [
+      line('Fusion Approaches to Predict Post-stroke Aphasia Severity from', 100, 70, { size: 14, font: 'NimbusRomNo9L-Medi', width: 400 }),
+      line('Multimodal Neuroimaging Data', 200, 88, { size: 14, font: 'NimbusRomNo9L-Medi', width: 200 }),
+      line('Saurav Chennuri, Sha Lai, Anne Billot, Maria Varkanitsa, Emily J. Braun, Swathi Kiran,', 80, 120, { size: 11, width: 440 }),
+      line('Archana Venkataraman, Janusz Konrad, Prakash Ishwar, and Margrit Betke', 110, 134, { size: 11, width: 380 }),
+      line('Boston University', 250, 148, { size: 11, width: 90 }),
+      line('{saurav07,lais823,abillot,mvarkan,ejbraun,kirans,archanav,jkonrad,pi,betke}@bu.edu', 90, 162, { size: 9, font: 'NimbusMonL-Regu', width: 420 }),
+      line('Abstract', 54, 200, { size: 11, font: 'NimbusRomNo9L-Medi' }),
+      ...column(54, 214, ['The abstract of the paper runs for a couple of lines of body text', 'and then a third, which is short.', 'End.']),
+    ];
+    const layout = layoutPages([page(runs)], { title: 'Fusion Approaches to Predict Post-stroke Aphasia Severity from Multimodal Neuroimaging Data' });
+    assert.deepEqual(layout.authors, [
+      'Saurav Chennuri', 'Sha Lai', 'Anne Billot', 'Maria Varkanitsa', 'Emily J. Braun', 'Swathi Kiran',
+      'Archana Venkataraman', 'Janusz Konrad', 'Prakash Ishwar', 'Margrit Betke',
+    ]);
+  });
+
+  it('drops the superscript marks that point at affiliations', () => {
+    const runs = [
+      line('A Very Important Paper', 150, 80, { size: 17, font: 'NimbusRomNo9L-Medi', width: 300 }),
+      line('Ada Lovelace', 150, 100, { size: 11, width: 60 }),
+      line('1', 211, 96, { size: 7, width: 3 }),
+      line(', Charles Babbage', 215, 100, { size: 11, width: 80 }),
+      line('1,2', 296, 96, { size: 7, width: 8 }),
+      line('1', 150, 114, { size: 7, width: 3 }),
+      line('University of London', 154, 118, { size: 11, width: 100 }),
+      line('Abstract', 54, 140, { size: 11, font: 'NimbusRomNo9L-Medi' }),
+      ...column(54, 154, ['The abstract of the paper runs for a couple of lines of body text', 'and then a third, which is short.', 'End.']),
+    ];
+    assert.deepEqual(layoutPages([page(runs)], { title: 'A Very Important Paper' }).authors, ['Ada Lovelace', 'Charles Babbage']);
+  });
 });
 
 describe('the bibliography', () => {

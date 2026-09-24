@@ -69,7 +69,12 @@ How to help:
 
 What you can see:
 - <paper_text>, when present, is the text of the open paper as the app extracted it. Figures
-  are missing and equations may be garbled — say so if that matters.
+  are missing and equations may be garbled — say so if that matters. In PDF mode it is read
+  from the PDF file, page by page, each page marked [Page N].
+- In PDF mode, the pages in view may also come as images at the start of the message: that
+  is exactly what the reader is looking at, figures and equations included. Read them.
+- The reader can also attach a screenshot of the whole browser tab. It shows the app as they
+  see it — this chat window may be floating over part of it; look past that.
 - Each message carries a <screen> block holding what is on the reader's screen at that
   moment: the paper's details, the passage in view, the text they have selected, and their
   highlights and notes. It is re-read for every message, so trust the newest one and ignore
@@ -114,6 +119,8 @@ export interface Screen {
   visible?: string;
   selection?: string;
   highlights?: ScreenHighlight[];
+  /** The pages in view as JPEG pictures (base64), in PDF mode, each with the line that introduces it. */
+  images?: { label: string; data: string }[];
   /** Titles in the list on screen, when no paper is open. */
   library?: string[];
 }
@@ -123,7 +130,7 @@ export type ContextKey = 'paper' | 'fullText' | 'visible' | 'selection' | 'highl
 export const CONTEXT_ROWS: [ContextKey, string, string][] = [
   ['paper', 'Paper details', 'title, authors, venue, identifiers and abstract'],
   ['fullText', 'Full text', 'the whole paper as the reader extracted it (cached between questions)'],
-  ['visible', 'Passage in view', 'the paragraphs on screen right now'],
+  ['visible', 'Passage in view', 'the paragraphs on screen right now — in PDF mode, a picture of the pages in view'],
   ['selection', 'Your selection', 'the text you last selected in the paper'],
   ['highlights', 'Highlights and notes', 'what you have marked in this paper, and what you wrote'],
   ['library', 'The list on screen', 'the titles in the collection you are looking at'],
@@ -181,6 +188,8 @@ export interface Turn {
   streaming?: boolean;
   error?: string;
   truncated?: boolean;
+  /** A screenshot went with this question. */
+  shot?: boolean;
 }
 
 export interface Chat {
@@ -202,6 +211,8 @@ export interface AssistantState {
   hasKey: boolean;
   /** A passage attached to the next question with "Ask Claude" on a selection. */
   quote: string;
+  /** A screenshot of the tab (base64 JPEG) attached to the next question. */
+  shot: string;
 }
 
 let state: AssistantState = {
@@ -212,6 +223,7 @@ let state: AssistantState = {
   prefs: { model: DEFAULT_MODEL, context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true } },
   hasKey: false,
   quote: '',
+  shot: '',
 };
 let loaded = false;
 const listeners = new Set<() => void>();
@@ -279,6 +291,10 @@ export function saveKey(key: string) {
 
 export function forgetKey() {
   saveKey('');
+}
+
+export function setShot(shot: string) {
+  set({ shot });
 }
 
 export function setQuote(quote: string) {
@@ -524,13 +540,24 @@ export function systemBlocks(screen: Screen, on: Record<ContextKey, boolean>) {
  * user turn — not the first one, because "what does this mean?" is about the
  * passage on screen now, not the one from ten minutes ago.
  */
-export function buildMessages(turns: Turn[], block: string) {
+export function buildMessages(turns: Turn[], block: string, images: Screen['images'] = []) {
   const sent = turns.filter((t) => t.role === 'user' || t.content);
   const newest = sent.map((t) => t.role).lastIndexOf('user');
-  return sent.map((t, i) => ({
-    role: t.role,
-    content: i === newest && block ? `${block}\n\n${t.content}` : t.content,
-  }));
+  return sent.map((t, i) => {
+    const text = i === newest && block ? `${block}\n\n${t.content}` : t.content;
+    if (i !== newest || !images?.length) return { role: t.role, content: text };
+    // The pages in view lead the newest question, each named, then the text.
+    return {
+      role: t.role,
+      content: [
+        ...images.flatMap((image) => [
+          { type: 'text' as const, text: image.label },
+          { type: 'image' as const, source: { type: 'base64' as const, media_type: 'image/jpeg' as const, data: image.data } },
+        ]),
+        { type: 'text' as const, text },
+      ],
+    };
+  });
 }
 
 /** A quoted passage, as the Markdown blockquote that leads the question. */
@@ -569,15 +596,18 @@ export function stop() {
   stream?.abort();
 }
 
-export async function send(text: string, screen: Screen) {
+export async function send(text: string, screenOrPending: Screen | Promise<Screen>) {
   const question = withQuote(state.quote, text.trim());
   if (!text.trim() || state.live || !state.hasKey) return;
 
   const reply: Turn = { role: 'assistant', content: '', thinking: '', streaming: true };
-  set({ turns: [...state.turns, { role: 'user', content: question }, reply], live: true, quote: '' });
+  const shot = state.shot;
+  set({ turns: [...state.turns, { role: 'user', content: question, ...(shot ? { shot: true } : {}) }, reply], live: true, quote: '', shot: '' });
 
   let SDK: SDK | null = null;
   try {
+    // Reading a PDF's text can take a moment the first time; the question is already on screen.
+    const screen = await screenOrPending;
     SDK = await sdk();
     const api = await anthropic();
     const on = state.prefs.context;
@@ -585,6 +615,10 @@ export async function send(text: string, screen: Screen) {
     const messages = buildMessages(
       state.turns.filter((t) => t !== reply),
       screenBlock(screen, on),
+      [
+        ...(on.visible ? screen.images ?? [] : []),
+        ...(shot ? [{ label: 'A screenshot of the reader’s browser tab, taken as they asked:', data: shot }] : []),
+      ],
     );
 
     stream = api.messages.stream({

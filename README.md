@@ -1608,9 +1608,14 @@ screen before it answers, so there is nothing to paste.
   highlights and notes. The whole text of the paper goes in the system prompt
   behind a cache breakpoint, so the second question about a paper reads it from
   Anthropic's cache at a tenth of the price. The ⚙ menu lists each part and has a
-  switch for it. In **PDF** mode the browser's own viewer draws the page, so the
-  text is not reachable — Claude has the details and abstract to go on, and says
-  so; switch to **Reflow** for the full text.
+  switch for it. In **PDF** mode the page is a picture, so the text is read from
+  the PDF file itself, page by page. When the PDF is set as a book, the pages in
+  view also go along as images, so Claude sees the figures and equations you see.
+  (The browser's own viewer keeps its page number to itself, so there Claude gets
+  the whole text but doesn't know which page you're on.)
+- **Screenshot**: the 📷 beside the box attaches a screenshot of the tab to the
+  next question. The browser asks every time, because a page can't capture the
+  screen by itself. One frame is taken, then the capture stops.
 - **Move it**: drag the title bar, resize from any edge or corner, double-click the
   bar to send it home (and again to fill the workspace). ⌘ + an arrow moves it,
   faster the longer the key is held; ⌘⇧ + an arrow throws it at that edge and
@@ -1778,6 +1783,7 @@ node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 node scripts/hover-smoke.mjs    # the cards over an author's name and a citation
 node scripts/pdf-book-smoke.mjs # a Scholar byline read right, the venue's card, the PDF as a book
+node scripts/pdf-assistant-smoke.mjs # every author off the PDF's first page; Ask Claude reading a PDF
 node scripts/library-smoke.mjs  # the list and cards, selecting, moving, marking, Junk and back
 
 npm run build                  # then, needing no server of its own:

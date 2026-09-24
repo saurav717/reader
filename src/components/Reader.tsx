@@ -37,6 +37,8 @@ import {
 import { HIGHLIGHT_COLORS, type HighlightColor, type ReadingMode } from '../types';
 import LookupPopover, { type LookupTarget } from './LookupPopover';
 import HoverCard, { type CitedEntry, type HoverTarget } from './HoverCard';
+import { showPdf } from '../lib/screen';
+import { fullerAuthors } from '../lib/byline';
 import { CITE_CLASS, REF_CLASS, citationHead, citationText, entryText, parseReference } from '../lib/citations';
 import {
   ArrowLeftIcon,
@@ -110,6 +112,7 @@ export default function Reader({
     setPaperPdfUrl,
     setPaperPdfChoice,
     setPaperDriveFile,
+    setPaperAuthors,
     settings,
     updateSettings,
     driveConnected,
@@ -416,8 +419,12 @@ export default function Reader({
         : loadPaperContent(paper, controller.signal, { arxivId });
     load
       .then((loaded) => {
-        if (!controller.signal.aborted) setContent(loaded);
-        else loaded.release?.();
+        if (!controller.signal.aborted) {
+          setContent(loaded);
+          // A search result may have cut the byline short; the PDF has it whole.
+          const fuller = fullerAuthors(paper.authors, loaded.authors);
+          if (fuller) void setPaperAuthors(paper.id, fuller);
+        } else loaded.release?.();
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -902,6 +909,13 @@ export default function Reader({
     return () => URL.revokeObjectURL(url);
   }, [pdfBlob]);
 
+  // What Ask Claude reads in PDF mode, where the paper is a picture rather than text on the page.
+  const showingPdf = mode === 'pdf' && !browsing && !pdfError ? pdfBlob : null;
+  useEffect(() => {
+    showPdf(showingPdf);
+    return () => showPdf(null);
+  }, [showingPdf]);
+
   const downloadPdf = useCallback(async () => {
     if (!pdfTarget || saving) return;
     setSaving(true);
@@ -1090,6 +1104,8 @@ export default function Reader({
   }
 
   const year = paper.published ? new Date(paper.published).getFullYear() : null;
+  // Scholar's venues often lead with the year — "2023 IEEE/CVF …" — which the year beside it already says.
+  const venueShown = paper.venue && year ? paper.venue.replace(new RegExp(`^${year}\\s+(?=\\S)`), '') : paper.venue;
   const showVenue = (element: HTMLElement, delay?: number) =>
     paper.venue ? openHover(element, () => ({ kind: 'venue', venue: paper.venue!, anchor: element.getBoundingClientRect() }), delay) : undefined;
 
@@ -1121,7 +1137,7 @@ export default function Reader({
               }
             }}
           >
-            {paper.venue}
+            {venueShown}
           </span>
         ) : null}
       </div>

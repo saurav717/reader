@@ -96,6 +96,8 @@ export interface Layout {
   readable: boolean;
   /** The font size most of the text is set in. */
   bodySize: number;
+  /** The authors named on the first page, in order, where they could be read. */
+  authors?: string[];
 }
 
 // ------------------------------------------------------------------ fonts --
@@ -1007,6 +1009,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
 
   const blocks: Block[] = [];
   let characters = 0;
+  let frontAuthors: string[] = [];
   let inReferences = false;
   const headings: { block: Extract<Block, { kind: 'heading' }>; size: number; numbered: number }[] = [];
   let carry: Extract<Block, { kind: 'paragraph' }> | null = null;
@@ -1078,6 +1081,10 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
     // reader's own heading; the text starts at the abstract.
     if (at === 0) {
       const abstractAt = paras.findIndex((paragraph, index) => index < 40 && /^abstract\b/i.test(plain(spansOf(paragraph.lines))));
+      frontAuthors = authorsOnFront(
+        ordered.filter((line) => line.baseline < (abstractAt > 0 ? paras[abstractAt].lines[0].top : page.height * 0.4)),
+        options.title,
+      );
       if (abstractAt > 0) {
         paras = paras.slice(abstractAt);
       } else if (options.title) {
@@ -1182,7 +1189,95 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
     entry.block.level = (byNumber || bySize) as 2 | 3 | 4;
   }
 
-  return { blocks: splitReferences(blocks), crops, characters, readable: readable(blocks), bodySize: measures.bodySize };
+  return {
+    blocks: splitReferences(blocks),
+    crops,
+    characters,
+    readable: readable(blocks),
+    bodySize: measures.bodySize,
+    authors: frontAuthors.length ? frontAuthors : undefined,
+  };
+}
+
+// ---------------------------------------------------------------- authors --
+//
+// The byline on the first page. Search results cut it short — Google Scholar
+// keeps six names and initials — so the PDF's own list is the one to trust.
+// Each line above the abstract is split into pieces at commas, "and", and the
+// wide gaps of a byline set in a row, with the superscript marks that point
+// at affiliations dropped; a line whose every piece reads as a person's name
+// is a line of authors. Affiliations and addresses fail that test on their
+// words ("University", "Department") or their shape (one word, digits, @).
+
+const NAME_PARTICLES = new Set(['van', 'von', 'de', 'der', 'den', 'del', 'della', 'di', 'da', 'dos', 'das', 'du', 'la', 'le', 'bin', 'ibn', 'al', 'el', 'ten', 'ter', 'y']);
+const NOT_A_NAME = new RegExp(
+  '\\b(' +
+    [
+      'univ\\w*', 'universit\\w*', 'institut\\w*', 'college', 'school', 'department', 'dept', 'faculty', 'laborator\\w*', 'labs?',
+      'cent(?:er|re)', 'research', 'inc', 'ltd', 'llc', 'corp\\w*', 'company', 'hospital', 'clinic', 'academy', 'foundation', 'group',
+      'google', 'microsoft', 'meta', 'deepmind', 'openai', 'anthropic', 'amazon', 'apple', 'nvidia', 'ibm', 'adobe', 'intel', 'samsung',
+      'tech\\w*', 'science\\w*', 'engineering', 'polytechnic', 'politecnico', 'hochschule', 'national', 'state', 'medical', 'medicine',
+      'abstract', 'introduction', 'keywords', 'equal', 'contribution', 'corresponding', 'author\\w*', 'email', 'street', 'road', 'avenue',
+      'usa', 'uk', 'china', 'india', 'germany', 'france', 'japan', 'canada', 'korea', 'italy', 'spain', 'switzerland', 'netherlands',
+      'australia', 'singapore', 'israel', 'united', 'kingdom', 'states', 'republic', 'new york', 'san \\w+', 'los angeles',
+      'conference', 'workshop', 'proceedings', 'journal', 'preprint', 'arxiv', 'submitted', 'accepted', 'published',
+    ].join('|') +
+    ')\\b',
+  'i',
+);
+
+/** Whether a piece of a byline reads as one person's name: "Saurav Chennuri", "Emily J. Braun", "Ludwig van Beethoven". */
+export function looksLikeName(piece: string): boolean {
+  const words = piece.split(' ').filter(Boolean);
+  if (words.length < 2 || words.length > 5) return false;
+  if (/[\d@{}()[\]:;/\\|]/.test(piece) || NOT_A_NAME.test(piece)) return false;
+  let capitals = 0;
+  for (const word of words) {
+    if (NAME_PARTICLES.has(word.toLowerCase()) && word === word.toLowerCase()) continue;
+    if (!/^\p{Lu}[\p{L}\p{M}'’.-]*$/u.test(word)) return false;
+    capitals += 1;
+  }
+  // A shouted line — "ABSTRACT", a running head — is not a name.
+  return capitals >= 2 && !/^[\p{Lu}\s.'-]{12,}$/u.test(piece);
+}
+
+/** A byline's line cut into the pieces that could each be a name. */
+export function bylinePieces(text: string): string[] {
+  return text
+    .replace(/\S+@\S+/g, ' , ')
+    .replace(/[*∗†‡§¶⋆♯♮✉#]+/g, ' ')
+    .split(/\s*(?:,|;|·|•|\||\s{3,}|\band\b|&)\s*/)
+    .map((piece) => piece.replace(/\s+/g, ' ').replace(/^[\s.,-]+|[\s,-]+$/g, '').trim())
+    .filter(Boolean);
+}
+
+/** The names on the lines above a first page's abstract, in reading order. */
+function authorsOnFront(lines: Line[], title?: string): string[] {
+  const wanted = title ? normalTitle(title) : '';
+  const names: string[] = [];
+  for (const line of lines.slice(0, 40)) {
+    const text = norm(line.text);
+    const flat = normalTitle(text);
+    if (!flat || (wanted && flat.length > 8 && wanted.includes(flat))) continue;
+    // Superscripts are affiliation marks; a wide gap between runs separates
+    // names set in a row.
+    let marked = '';
+    let end = Number.NEGATIVE_INFINITY;
+    for (const run of line.runs) {
+      const raised = run.size < line.size * 0.85 && line.baseline - run.y > line.size * 0.15;
+      if (end > Number.NEGATIVE_INFINITY && run.x - end > line.size * 1.5) marked += '   ';
+      else if (end > Number.NEGATIVE_INFINITY && run.x - end > 0.08 * line.size) marked += ' ';
+      end = run.x + run.width;
+      marked += raised ? ' , ' : run.str;
+    }
+    // Lines of anything else are passed over rather than ending the byline:
+    // one set as a grid has each row of names followed by their addresses.
+    const pieces = bylinePieces(marked);
+    if (pieces.length && pieces.every(looksLikeName)) {
+      for (const name of pieces) if (!names.includes(name)) names.push(name);
+    }
+  }
+  return names.length <= 60 ? names : [];
 }
 
 // ------------------------------------------------------------ references --
