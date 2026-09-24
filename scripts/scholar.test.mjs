@@ -442,6 +442,7 @@ describe('reading a profile page', () => {
     assert.equal(person.affiliation, 'Boston University');
     assert.equal(person.verifiedEmail, 'bu.edu');
     assert.deepEqual(person.interests, ['Machine Learning', 'Neuroimaging']);
+    assert.equal(person.homepage, 'https://example.org');
   });
 
   it('reads the counts in the corner, all time', () => {

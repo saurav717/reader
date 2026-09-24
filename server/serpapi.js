@@ -209,6 +209,7 @@ export function fromSerpAuthorProfile(json, userId) {
     interests: list(author.interests)
       .map((interest) => (typeof interest === 'string' ? interest.trim() : str(interest?.title)))
       .filter(Boolean),
+    homepage: /^https?:/i.test(str(author.website)) ? str(author.website) : undefined,
     citedBy: num(citations?.all),
     citedBySince: since(citations),
     hIndex: num(row('h_index')?.all),

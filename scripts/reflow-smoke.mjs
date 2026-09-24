@@ -275,6 +275,7 @@ await page.route('**/scholar/person*', (route) =>
           name: 'Zongyi Li',
           profileUrl: 'https://scholar.google.com/citations?hl=en&user=ZLIxxxxxxxx',
           affiliation: 'Caltech',
+          homepage: 'https://zongyili.example.org',
           interests: ['Operator learning'],
           citedBy: 12345,
           hIndex: 21,
@@ -297,7 +298,8 @@ await page.waitForFunction(() => document.querySelector('.hover-card .hc-from')?
 const card = page.locator('.hover-card');
 check('the author card shows the counts from their Scholar profile', ((await card.locator('.hc-stats').textContent()) || '').includes('12k'), (await card.textContent()) || '');
 check('and says where they come from', ((await card.locator('.hc-from').textContent()) || '').includes('Google Scholar'));
-check('with a link to the profile the paper names', (await card.locator('a[href*="user=ZLIxxxxxxxx"]').count()) === 1);
+check('with a button to the profile the paper names, under the name', (await card.locator('.hc-profiles a.hc-profile[href*="user=ZLIxxxxxxxx"]').count()) === 1);
+check('and one to their homepage', (await card.locator('.hc-profiles a.hc-profile', { hasText: 'Homepage' }).getAttribute('href')) === 'https://zongyili.example.org');
 check('and their most cited work from it', ((await card.textContent()) || '').includes('Neural operator: Graph kernel network'));
 check('found through the paper, not by the name', !nameSearched);
 await page.screenshot({ path: `${OUT}/author-card.png` });

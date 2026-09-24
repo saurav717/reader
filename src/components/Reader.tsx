@@ -1637,7 +1637,7 @@ export default function Reader({
       {hover ? (
         <HoverCard
           target={hover}
-          paper={{ id: paper.id, title: paper.title, doi: paper.doi, arxivId: paper.arxivId }}
+          paper={{ id: paper.id, title: paper.title, doi: paper.doi, arxivId: paper.arxivId, year: Number(paper.published?.slice(0, 4)) || undefined }}
           onEnter={holdHover}
           onLeave={() => leaveHover()}
           onClose={closeHover}
