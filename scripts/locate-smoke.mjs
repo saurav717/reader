@@ -141,7 +141,7 @@ const marked = await page.evaluate(({ x, y }) => document.elementsFromPoint(x, y
 check('the mark lies over the passage', Boolean(marked));
 check('with the caption Claude gave it', /Where the authors define “oracle selection”/.test(await page.locator('.passage-tag').textContent()));
 check('and where it is', /3\.3 Feature selection/.test(await page.locator('.passage-tag').textContent()));
-check('the row says it was shown', /Shown in the paper/.test(await page.locator('.chat-passage-row').first().textContent()));
+check('the row says it is on the page', /On the page now/.test(await page.locator('.chat-passage-row').first().textContent()));
 await page.screenshot({ path: `${OUT}/locate-1-reflow.png` });
 
 console.log('\n== it goes by itself, and comes back on a click ==');
@@ -157,6 +157,31 @@ await page.waitForSelector('.passage-tag', { timeout: 5000 });
 check('the second passage can be shown too', /How close a fair selection gets/.test(await page.locator('.passage-tag').textContent()));
 await page.waitForTimeout(900);
 await page.screenshot({ path: `${OUT}/locate-2-second.png` });
+
+console.log('\n== three looks ==');
+for (const look of ['Spotlight', 'Outline', 'Marker']) {
+  if (await page.locator('.passage-tag').isVisible()) await page.locator('.passage-tag button').click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).first().evaluate((button) => button.click());
+  await page.getByRole('group', { name: 'How a passage Ask Claude points at is marked' }).getByRole('button', { name: look }).click();
+  await page.getByRole('button', { name: 'Close settings' }).click();
+  await page.waitForTimeout(300);
+  await page.locator('.chat-passage-row').first().click();
+  await page.waitForSelector('.passage-tag', { timeout: 5000 });
+  await page.waitForTimeout(1100);
+  check(`${look}: the passage is marked`, (await page.locator(`.passage-flash.look-${look.toLowerCase()}`).count()) === 1);
+  check(`${look}: the row in the chat says it is on the page`, /On the page now/.test(await page.locator('.chat-passage-row').first().textContent()));
+  await page.screenshot({ path: `${OUT}/locate-look-${look.toLowerCase()}.png` });
+}
+await page.locator('.passage-tag button').click();
+await page.getByRole('button', { name: 'Switch to the dark theme' }).evaluate((button) => button.click());
+await page.waitForTimeout(300);
+await page.locator('.chat-passage-row').first().click();
+await page.waitForSelector('.passage-tag', { timeout: 5000 });
+await page.waitForTimeout(1100);
+await page.screenshot({ path: `${OUT}/locate-look-marker-dark.png` });
+await page.locator('.passage-tag button').click();
+await page.getByRole('button', { name: 'Switch to the light theme' }).evaluate((button) => button.click());
+check('the row lets go when the mark does', !/On the page now/.test(await page.locator('.chat-passage-row').first().textContent()));
 
 console.log('\n== the PDF set as a book ==');
 await page.locator('.passage-tag button').click().catch(() => undefined);
@@ -180,7 +205,7 @@ const under = await page.evaluate(({ x, y }) => {
   return spans.map((span) => span.textContent).join(' ');
 }, { x: bookBand.x + 30, y: bookBand.y + bookBand.height / 2 });
 check('the mark lies over the quoted words on the page', /feature set|oracle/.test(under), under);
-check('the row names the page', /Shown in the paper|page 3/.test(await page.locator('.chat-passage-row').first().textContent()));
+check('the row names the page', /On the page now|page 3/.test(await page.locator('.chat-passage-row').first().textContent()));
 await page.screenshot({ path: `${OUT}/locate-3-pdf-book.png` });
 
 console.log('\n== the browser’s own PDF viewer: the page only ==');
@@ -194,7 +219,7 @@ await page.waitForSelector('.passage-tag', { timeout: 10000 });
 const src = await page.locator('.pdf-pane iframe').getAttribute('src');
 check('the viewer is sent to the page', /#page=3$/.test(src || ''), src);
 check('the caption says which page', /page 3/.test(await page.locator('.passage-tag').textContent()));
-check('the row says only the page could be shown', /Shown: page 3/.test(await page.locator('.chat-passage-row').first().textContent()));
+check('the row says only the page could be shown', /Opened at page 3/.test(await page.locator('.chat-passage-row').first().textContent()));
 await page.screenshot({ path: `${OUT}/locate-4-pdf-viewer.png` });
 
 check('no page errors', errors.length === 0, errors.join(' | '));

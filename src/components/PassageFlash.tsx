@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CloseIcon } from './icons';
+import type { PassageLook } from '../types';
+import { CloseIcon, SparkleIcon } from './icons';
 
 /** How long the mark stays before it fades, unless the pointer is on its caption. */
 const LINGER_MS = 9000;
@@ -18,7 +19,11 @@ export interface Flash {
   anchor?: HTMLElement | null;
   /** Changes for every new flash, so the same passage shown twice starts again. */
   key: number;
+  /** Its number in the answer's list, shown on the caption as it is in the chat. */
+  n?: number;
 }
+
+const LINGER_S = LINGER_MS / 1000;
 
 interface Box {
   left: number;
@@ -34,9 +39,10 @@ interface Box {
  * text, and re-measured every frame, so it follows the passage as the page
  * scrolls, turns or reflows, and leaves nothing behind.
  */
-export default function PassageFlash({ flash, onDone }: { flash: Flash; onDone: () => void }) {
+export default function PassageFlash({ flash, look = 'marker', onDone }: { flash: Flash; look?: PassageLook; onDone: () => void }) {
   const [boxes, setBoxes] = useState<Box[]>([]);
   const [leaving, setLeaving] = useState(false);
+  const [holding, setHolding] = useState(false);
   const held = useRef(false);
 
   useEffect(() => {
@@ -92,41 +98,83 @@ export default function PassageFlash({ flash, onDone }: { flash: Flash; onDone: 
 
   const first = boxes[0];
   const anchor = !flash.range ? flash.anchor?.getBoundingClientRect() : null;
-  // Above the first line when there is room, else under the last.
   const last = boxes[boxes.length - 1];
-  // Lined up with the passage's left edge, not its first word, which can end a line.
-  const left = boxes.length ? Math.max(8, Math.min(Math.min(...boxes.map((box) => box.left)), window.innerWidth - 380)) : 0;
+  // The passage as one box: what the spotlight lights and the outline frames.
+  const around = boxes.length
+    ? boxes.reduce(
+        (box, next) => {
+          const right = Math.max(box.left + box.width, next.left + next.width);
+          const bottom = Math.max(box.top + box.height, next.top + next.height);
+          const left = Math.min(box.left, next.left);
+          const top = Math.min(box.top, next.top);
+          return { left, top, width: right - left, height: bottom - top };
+        },
+        { ...boxes[0] },
+      )
+    : null;
+  // Lined up with the passage's left edge, not its first word, which can end a line;
+  // above it when there is room, else under it, with the pointer towards it.
+  const CARD = 360;
+  const left = around ? Math.max(8, Math.min(around.left - 6, window.innerWidth - CARD - 8)) : 0;
+  const above = first ? first.top > 110 : true;
   const place: React.CSSProperties | null = first
-    ? first.top > 84
-      ? { left, top: first.top - 8, transform: 'translateY(-100%)' }
-      : { left, top: last.top + last.height + 8 }
+    ? above
+      ? { left, top: first.top - 14, transform: 'translateY(-100%)' }
+      : { left, top: last.top + last.height + 14 }
     : anchor
       ? { left: anchor.left + anchor.width / 2, top: anchor.top + 14, transform: 'translateX(-50%)' }
       : null;
+  const pointer = around ? Math.max(14, Math.min(around.left + 18 - left, CARD - 24)) : null;
 
   return createPortal(
-    <div className={`passage-flash${leaving ? ' is-leaving' : ''}`} aria-live="polite">
+    <div className={`passage-flash look-${look}${leaving ? ' is-leaving' : ''}`} aria-live="polite">
+      {look === 'spotlight' && around ? (
+        <div className="passage-spot" style={{ left: around.left - 10, top: around.top - 8, width: around.width + 20, height: around.height + 16 }} />
+      ) : null}
+      {look === 'outline' && around ? (
+        <div className="passage-frame" style={{ left: around.left - 12, top: around.top - 8, width: around.width + 24, height: around.height + 16 }} />
+      ) : null}
       {boxes.map((box, index) => (
-        <div key={index} className="passage-band" style={{ left: box.left - 3, top: box.top - 2, width: box.width + 6, height: box.height + 4 }} />
+        <div
+          key={index}
+          className="passage-band"
+          style={{ left: box.left - 3, top: box.top - 1, width: box.width + 6, height: box.height + 2, animationDelay: `${index * 110}ms, ${index * 110 + 500}ms` }}
+        />
       ))}
       {place ? (
         <div
-          className="passage-tag"
-          style={place}
+          className={`passage-tag${above ? ' is-above' : ' is-below'}${first ? '' : ' is-floating'}${holding ? ' is-held' : ''}`}
+          style={{ ...place, ...(pointer !== null && first ? { ['--pointer' as string]: `${pointer}px` } : {}), ['--linger' as string]: `${LINGER_S}s` }}
           role="status"
-          onPointerEnter={() => (held.current = true)}
-          onPointerLeave={() => (held.current = false)}
+          onPointerEnter={() => {
+            held.current = true;
+            setHolding(true);
+          }}
+          onPointerLeave={() => {
+            held.current = false;
+            setHolding(false);
+          }}
         >
-          <span className="passage-pin" aria-hidden="true">
-            ✦
+          <span className="passage-badge" aria-hidden="true">
+            {flash.n ?? <SparkleIcon size={13} />}
           </span>
           <span className="passage-text">
+            <span className="passage-eyebrow">
+              <SparkleIcon size={11} /> Claude points here
+            </span>
             <b>{flash.label}</b>
-            {flash.where ? <span>{flash.where}</span> : null}
+            {flash.where ? (
+              <span className="passage-where">
+                {flash.where.split(' · ').map((part) => (
+                  <i key={part}>{part}</i>
+                ))}
+              </span>
+            ) : null}
           </span>
           <button type="button" aria-label="Clear the highlight" onClick={onDone}>
             <CloseIcon size={13} />
           </button>
+          <span className="passage-time" aria-hidden="true" />
         </div>
       ) : null}
     </div>,

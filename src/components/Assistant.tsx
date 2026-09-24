@@ -25,7 +25,7 @@ import {
   subscribe,
 } from '../lib/assistant';
 import type { Passage, Recommendation, Screen, Turn } from '../lib/assistant';
-import { showPassage, type LocateResult } from '../lib/locate';
+import { FLASH_EVENT, showPassage, type LocateResult } from '../lib/locate';
 import {
   RUN_GAP,
   SNAP_STEPS,
@@ -222,35 +222,54 @@ type Shown = LocateResult | 'looking';
  * caption, the paper's own words, and Show — which scrolls the paper there
  * and marks the passage for a few seconds.
  */
-function PassageList({ passages, shown, onShow }: { passages: Passage[]; shown: Record<number, Shown>; onShow: (index: number) => void }) {
+function PassageList({ passages, shown, onShow, onPage }: { passages: Passage[]; shown: Record<number, Shown>; onShow: (index: number) => void; onPage?: string | null }) {
   return (
     <div className="chat-passages">
       <div className="chat-passages-head">
-        <span aria-hidden="true">✦</span> Found in the paper
+        <span className="chat-passages-title">
+          <SparkleIcon size={12} /> Found in the paper
+        </span>
+        <span className="chat-passages-count">{passages.length}</span>
+        <span className="chat-passages-hint">Click one to see it on the page</span>
       </div>
       <ol>
         {passages.map((passage, index) => {
           const state = shown[index];
-          const where = [passage.section, passage.page ? `p. ${passage.page}` : ''].filter(Boolean).join(' · ');
+          const live = onPage === passage.quote;
+          const missing = state && state !== 'looking' && !state.found;
           return (
-            <li key={index} className={state && state !== 'looking' && !state.found ? 'is-missing' : ''}>
+            <li key={index} className={`${live ? 'is-live' : ''}${missing ? ' is-missing' : ''}`}>
               <button type="button" className="chat-passage-row" onClick={() => onShow(index)} title="Scroll the paper to this passage and mark it">
                 <span className="chat-passage-n">{index + 1}</span>
                 <span className="chat-passage-body">
                   <b>{passage.label}</b>
                   <q>{passage.quote}</q>
                   <span className="chat-passage-meta">
-                    {where ? <span>{where}</span> : null}
-                    {state === 'looking' ? (
+                    {passage.section ? <i>{passage.section}</i> : null}
+                    {passage.page ? <i>p. {passage.page}</i> : null}
+                    {live && state && state !== 'looking' && state.pageOnly ? (
+                      <span className="ok live">
+                        <span className="dot" /> Opened at page {state.page}
+                      </span>
+                    ) : live ? (
+                      <span className="ok live">
+                        <span className="dot" /> On the page now
+                      </span>
+                    ) : state === 'looking' ? (
                       <span>Finding it…</span>
-                    ) : state?.found ? (
-                      <span className="ok">{state.pageOnly ? `Shown: page ${state.page}` : 'Shown in the paper'}</span>
-                    ) : state ? (
+                    ) : state?.found && state.pageOnly ? (
+                      <span className="ok">Opened at page {state.page}</span>
+                    ) : missing ? (
                       <span className="bad">{state.reason ?? 'Not found on the page'}</span>
                     ) : null}
                   </span>
                 </span>
-                <span className="chat-passage-go">Show</span>
+                <span className="chat-passage-go">
+                  {live ? 'Shown' : 'Show'}
+                  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 8h8M8.5 4.5 12 8l-3.5 3.5" />
+                  </svg>
+                </span>
               </button>
             </li>
           );
@@ -258,6 +277,17 @@ function PassageList({ passages, shown, onShow }: { passages: Passage[]; shown: 
       </ol>
     </div>
   );
+}
+
+/** The quote of the passage marked on the page right now, if any. */
+function usePassageOnPage(): string | null {
+  const [quote, setQuote] = useState<string | null>(null);
+  useEffect(() => {
+    const on = (event: Event) => setQuote((event as CustomEvent<{ quote: string | null }>).detail?.quote ?? null);
+    window.addEventListener(FLASH_EVENT, on);
+    return () => window.removeEventListener(FLASH_EVENT, on);
+  }, []);
+  return quote;
 }
 
 const PEEK_WIDTH = 320;
@@ -278,12 +308,13 @@ function TurnView({ turn, index, actions, question }: { turn: Turn; index: numbe
   const passages = pointed.passages;
   const { text, papers } = isClaude ? readingList(pointed.text) : { text: turn.content, papers: [] };
   const [shown, setShown] = useState<Record<number, Shown>>({});
+  const onPage = usePassageOnPage();
   const showAt = useCallback(
     (at: number) => {
       const passage = passages[at];
       if (!passage) return;
       setShown((current) => ({ ...current, [at]: 'looking' }));
-      void showPassage(passage).then((result) => setShown((current) => ({ ...current, [at]: result })));
+      void showPassage({ ...passage, n: at + 1 }).then((result) => setShown((current) => ({ ...current, [at]: result })));
     },
     // The passages are re-read from the content on every render; their text is what matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -360,7 +391,7 @@ function TurnView({ turn, index, actions, question }: { turn: Turn; index: numbe
           }}
           dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(markdown(text), { ADD_ATTR: ['target'] }) }} />
       ) : null}
-      {passages.length && !turn.streaming ? <PassageList passages={passages} shown={shown} onShow={showAt} /> : null}
+      {passages.length && !turn.streaming ? <PassageList passages={passages} shown={shown} onShow={showAt} onPage={onPage} /> : null}
       {papers.length && !turn.streaming ? <ReadingList papers={papers} actions={actions} onShow={show} /> : null}
       {text || papers.length || passages.length ? null : turn.streaming ? (
         <p className="chat-wait">

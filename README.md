@@ -1661,6 +1661,23 @@ screen before it answers, so there is nothing to paste.
 
   ![Ask Claude pointing at a passage: the paper scrolled to it, the passage marked, its caption above it, and the list of passages under the answer](docs/locate.png)
 
+  How the passage is marked is chosen under **Settings → Passages Ask Claude
+  points at**:
+  - **Marker** (the default): a highlighter swept over the words, line by line.
+  - **Spotlight**: the passage lit, with the rest of the page dimmed for a
+    moment.
+  - **Outline**: framed, with a bar in the accent colour down its side.
+
+  Each look has a caption card. It carries the passage's number, as in the
+  chat, the label, and the section and page as chips, with a notch pointing
+  at the passage. A line along its bottom drains as the mark's time runs out,
+  and waits while the pointer is on the card. In the chat, the row of the
+  passage on the page says **On the page now** until the mark goes.
+
+  | Marker | Spotlight | Outline |
+  | --- | --- | --- |
+  | ![](docs/locate-marker.png) | ![](docs/locate-spotlight.png) | ![](docs/locate-outline.png) |
+
   The code: `src/lib/locate.ts` (the finding), `src/components/PassageFlash.tsx`
   (the mark), and the `reader:locate` listener in `Reader.tsx`.
   `scripts/locate-smoke.mjs` tries each mode.

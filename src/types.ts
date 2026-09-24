@@ -217,6 +217,8 @@ export interface Settings {
    * shadow cast from the pane, a frosted mist, or a glow in the accent colour.
    */
   zenHaze: ZenHaze;
+  /** How a passage Ask Claude points at is marked on the page. */
+  passageLook: PassageLook;
   /**
    * Used for the OpenAlex and Crossref "polite pools" — which are faster and
    * more reliable than the anonymous ones — and required by Unpaywall. Left
@@ -258,6 +260,8 @@ export const GLASS_WALLS: { id: GlassWall; label: string; note: string }[] = [
 export type ReadingMode = 'pdf' | 'reflow';
 
 export type ZenHaze = 'shadow' | 'mist' | 'glow';
+
+export type PassageLook = 'marker' | 'spotlight' | 'outline';
 
 export interface GoogleUser {
   name: string;

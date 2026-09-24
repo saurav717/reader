@@ -2928,69 +2928,161 @@ body.win-moving .assistant-win { transition: none; }
    =========================================================================== */
 
 /* In the answer: a link to one of them, and the list of them under it. */
+:root { --mark: 255 203 71; }
+:root[data-theme='dark'] { --mark: 246 214 102; }
 .chat-passage {
-  display: inline; padding: 0 3px; margin: 0 -1px; border: 0; border-radius: 4px; cursor: pointer;
-  font: inherit; color: var(--accent-ink);
-  background: linear-gradient(transparent 55%, rgb(var(--accent-rgb) / 0.22) 55%);
+  display: inline; padding: 0 2px; margin: 0; border: 0; border-radius: 3px; cursor: pointer;
+  font: inherit; color: inherit; text-align: inherit;
+  background: linear-gradient(transparent 52%, rgb(var(--mark) / 0.5) 52%);
+  transition: background 0.2s;
 }
-.chat-passage::after { content: ' ↗'; font-size: 0.8em; color: var(--accent); }
-.chat-passage:hover { background: rgb(var(--accent-rgb) / 0.18); }
-.chat-passages { margin: 10px 0 6px; border: 1px solid rgb(var(--accent-rgb) / 0.3); border-radius: 12px; background: rgb(var(--accent-rgb) / 0.06); overflow: hidden; }
-.chat-passages-head { padding: 8px 12px 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
-.chat-passages ol { list-style: none; margin: 0; padding: 0 4px 4px; }
+.chat-passage::after {
+  content: attr(data-passage);
+  display: inline-grid; place-items: center; min-width: 15px; height: 15px; margin-left: 4px; padding: 0 3px;
+  border-radius: 8px; vertical-align: 1px;
+  font: 700 9.5px/1 var(--sans); color: var(--accent-on); background: var(--accent);
+}
+.chat-passage:hover { background: rgb(var(--mark) / 0.55); }
+
+.chat-passages {
+  margin: 12px 0 6px; border-radius: 14px; overflow: hidden;
+  border: 1px solid rgb(var(--accent-rgb) / 0.22);
+  background:
+    linear-gradient(180deg, rgb(var(--accent-rgb) / 0.09), rgb(var(--accent-rgb) / 0.03) 60%),
+    rgb(var(--win-edge) / 0.02);
+}
+.chat-passages-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 6px; }
+.chat-passages-title { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); }
+.chat-passages-count { min-width: 18px; height: 18px; padding: 0 5px; display: grid; place-items: center; border-radius: 9px; font: 700 10.5px var(--sans); color: var(--accent); background: rgb(var(--accent-rgb) / 0.14); }
+.chat-passages-hint { margin-left: auto; font-size: 11px; color: var(--muted); }
+.chat-passages ol { list-style: none; margin: 0; padding: 2px 6px 6px; display: grid; gap: 4px; }
 .chat-passage-row {
-  display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; width: 100%;
-  padding: 8px; border: 0; border-radius: 9px; background: transparent; cursor: pointer; text-align: left; color: inherit;
+  position: relative; display: grid; grid-template-columns: auto 1fr auto; gap: 11px; align-items: start; width: 100%;
+  padding: 10px 10px 10px 9px; border: 1px solid transparent; border-radius: 11px;
+  background: rgb(var(--win-rgb) / 0.55); cursor: pointer; text-align: left; color: inherit;
+  transition: border-color 0.18s, background 0.18s, transform 0.18s, box-shadow 0.18s;
 }
-.chat-passage-row:hover { background: rgb(var(--accent-rgb) / 0.1); }
+.chat-passage-row:hover { border-color: rgb(var(--accent-rgb) / 0.35); background: rgb(var(--win-rgb) / 0.9); transform: translateY(-1px); box-shadow: 0 8px 20px -14px rgb(var(--accent-rgb) / 0.8); }
 .chat-passage-n {
-  display: grid; place-items: center; width: 20px; height: 20px; margin-top: 1px; border-radius: 50%;
-  font: 600 11px var(--mono); color: var(--accent-on); background: var(--accent);
+  display: grid; place-items: center; width: 22px; height: 22px; margin-top: 1px; border-radius: 50%;
+  font: 700 11px var(--sans); color: var(--accent-on); background: var(--accent);
+  box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.15);
 }
-.chat-passage-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.chat-passage-body b { font-size: 12.5px; font-weight: 600; }
+.chat-passage-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.chat-passage-body b { font-size: 13px; font-weight: 600; line-height: 1.35; }
 .chat-passage-body q {
-  font: italic 12.5px/1.45 var(--serif); color: var(--ink-2);
+  quotes: none; padding: 1px 0 1px 10px; border-left: 2px solid rgb(var(--mark) / 0.9);
+  font: italic 13px/1.5 var(--serif); color: var(--ink-2);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.chat-passage-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 11px; color: var(--muted); }
-.chat-passage-meta .ok { color: var(--accent); }
+.chat-passage-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.chat-passage-meta i { font-style: normal; padding: 1px 7px; border-radius: 6px; background: rgb(var(--win-edge) / 0.06); }
+.chat-passage-meta .ok { color: var(--accent); font-weight: 600; }
 .chat-passage-meta .bad { color: var(--danger); }
+.chat-passage-meta .live { display: inline-flex; align-items: center; gap: 5px; }
+.chat-passage-meta .live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: live-dot 1.2s ease-in-out infinite; }
+@keyframes live-dot { 50% { box-shadow: 0 0 0 4px rgb(var(--accent-rgb) / 0.2); } }
 .chat-passage-go {
-  align-self: center; padding: 3px 9px; border-radius: 7px; font-size: 11.5px; font-weight: 600;
-  color: var(--accent); border: 1px solid rgb(var(--accent-rgb) / 0.4);
+  align-self: center; display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600;
+  color: var(--accent); background: rgb(var(--accent-rgb) / 0.1);
+  transition: background 0.18s, color 0.18s;
 }
-.chat-passage-row:hover .chat-passage-go { color: var(--accent-on); background: var(--accent); border-color: var(--accent); }
-.chat-passages li.is-missing .chat-passage-n { background: var(--muted); }
+.chat-passage-row:hover .chat-passage-go { color: var(--accent-on); background: var(--accent); }
+.chat-passages li.is-live .chat-passage-row { border-color: rgb(var(--accent-rgb) / 0.55); background: rgb(var(--win-rgb) / 0.95); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12); }
+.chat-passages li.is-live .chat-passage-go { color: var(--accent-on); background: var(--accent); }
+.chat-passages li.is-missing .chat-passage-n { background: var(--muted); box-shadow: none; }
 
-/* On the page: a band over each line of the passage, and its caption. */
+/* On the page. Not a positioned layer of its own, so the marks can sit under
+   the Claude window while the caption rises over it: it is never hidden. */
 .passage-flash { pointer-events: none; transition: opacity 0.6s ease; }
-/* Not a positioned layer of its own, so the bands can sit under the Claude
-   window while the caption rises over it: the caption must never be hidden. */
 .passage-flash.is-leaving { opacity: 0; }
-.passage-band {
-  position: fixed; z-index: 44; pointer-events: none; border-radius: 4px;
-  background: rgb(var(--accent-rgb) / 0.2);
-  box-shadow: 0 0 0 1.5px rgb(var(--accent-rgb) / 0.55);
-  animation: passage-in 0.5s ease-out, passage-pulse 1.6s ease-in-out 0.5s 2;
+.passage-band, .passage-spot, .passage-frame { position: fixed; z-index: 44; pointer-events: none; }
+
+/* Marker: a highlighter swept over each line in turn. */
+.look-marker .passage-band {
+  border-radius: 3px 6px 4px 7px;
+  background: linear-gradient(100deg, rgb(var(--mark) / 0.62), rgb(var(--mark) / 0.48) 70%, rgb(var(--mark) / 0.58));
+  mix-blend-mode: multiply;
+  transform-origin: left center;
+  animation: marker-sweep 0.42s cubic-bezier(0.3, 0.7, 0.3, 1) both, marker-breathe 2.4s ease-in-out 0.5s 2;
 }
-@keyframes passage-in { from { opacity: 0; transform: scale(1.04); } }
-@keyframes passage-pulse { 50% { background: rgb(var(--accent-rgb) / 0.36); } }
+:root[data-theme='dark'] .look-marker .passage-band {
+  mix-blend-mode: normal; background: rgb(var(--mark) / 0.2); box-shadow: inset 0 -2px 0 rgb(var(--mark) / 0.75);
+}
+:root[data-theme='dark'] .chat-passage { background: linear-gradient(transparent 58%, rgb(var(--mark) / 0.28) 58%); }
+:root[data-theme='dark'] .chat-passage:hover { background: rgb(var(--mark) / 0.22); }
+@keyframes marker-sweep { from { transform: scaleX(0); } }
+@keyframes marker-breathe { 50% { filter: saturate(1.4) brightness(1.03); } }
+
+/* Spotlight: the passage lit, everything round it dimmed for a moment. */
+.passage-spot {
+  border-radius: 12px;
+  box-shadow: 0 0 0 200vmax rgb(12 14 12 / 0.34), 0 0 0 2px rgb(var(--accent-rgb) / 0.55), 0 0 40px 8px rgb(var(--accent-rgb) / 0.25);
+  animation: spot-in 0.5s ease-out both;
+}
+@keyframes spot-in { from { box-shadow: 0 0 0 200vmax rgb(12 14 12 / 0), 0 0 0 2px rgb(var(--accent-rgb) / 0), 0 0 40px 8px rgb(var(--accent-rgb) / 0); } }
+.look-spotlight .passage-band { background: rgb(var(--accent-rgb) / 0.1); border-radius: 3px; animation: fade-in 0.4s ease-out both; }
+
+/* Outline: framed, with a bar down its side. */
+.passage-frame {
+  border-radius: 10px;
+  border: 1.5px solid rgb(var(--accent-rgb) / 0.6);
+  background: rgb(var(--accent-rgb) / 0.06);
+  box-shadow: inset 4px 0 0 var(--accent), 0 10px 30px -12px rgb(var(--accent-rgb) / 0.55);
+  animation: frame-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes frame-in { from { opacity: 0; transform: scale(1.03); } }
+.look-outline .passage-band { background: rgb(var(--accent-rgb) / 0.14); border-radius: 3px; animation: fade-in 0.5s ease-out 0.15s both; }
+@keyframes fade-in { from { opacity: 0; } }
+
+/* The caption: a small card saying what the passage is, pointing at it. */
 .passage-tag {
-  position: fixed; z-index: 46; display: flex; align-items: flex-start; gap: 9px; max-width: 370px;
-  padding: 9px 8px 9px 11px; border-radius: 11px; pointer-events: auto;
-  color: var(--accent-on); background: var(--accent);
-  box-shadow: 0 14px 34px -12px rgb(var(--accent-rgb) / 0.8), 0 2px 6px rgba(0, 0, 0, 0.18);
-  animation: passage-tag-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --pointer: 24px;
+  position: fixed; z-index: 46; display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 10px;
+  width: 360px; max-width: calc(100vw - 16px);
+  padding: 11px 8px 13px 11px; border-radius: 14px; pointer-events: auto; overflow: visible;
+  color: var(--ink); background: rgb(var(--win-rgb) / 0.97);
+  border: 1px solid rgb(var(--accent-rgb) / 0.35);
+  box-shadow: 0 18px 44px -16px rgb(0 0 0 / 0.45), 0 2px 8px rgb(0 0 0 / 0.08), inset 0 1px 0 rgb(255 255 255 / 0.4);
+  animation: tag-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   font-size: 12.5px; line-height: 1.35;
 }
-@keyframes passage-tag-in { from { opacity: 0; margin-top: 6px; } }
-.passage-pin { font-size: 13px; line-height: 1.3; }
-.passage-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.passage-text b { font-weight: 600; }
-.passage-text span { font-size: 11px; opacity: 0.8; }
-.passage-tag button { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; opacity: 0.75; }
-.passage-tag button:hover { opacity: 1; background: rgb(255 255 255 / 0.15); }
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .passage-tag { background: rgb(var(--win-rgb) / 0.88); -webkit-backdrop-filter: blur(16px) saturate(160%); backdrop-filter: blur(16px) saturate(160%); }
+}
+@keyframes tag-in { from { opacity: 0; translate: 0 6px; } }
+.passage-tag.is-below { animation-name: tag-in-below; }
+@keyframes tag-in-below { from { opacity: 0; translate: 0 -6px; } }
+/* The pointer: a notch in the card's edge, towards the passage. */
+.passage-tag:not(.is-floating)::before {
+  content: ''; position: absolute; left: var(--pointer); width: 12px; height: 12px;
+  background: inherit; border: inherit; border-width: 0 1px 1px 0; rotate: 45deg;
+}
+.passage-tag.is-above::before { bottom: -7px; }
+.passage-tag.is-below::before { top: -7px; border-width: 1px 0 0 1px; }
+.passage-badge {
+  display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%;
+  font: 700 13px var(--sans); color: var(--accent-on);
+  background: radial-gradient(circle at 30% 30%, rgb(255 255 255 / 0.25), transparent 60%), var(--accent);
+  box-shadow: 0 0 0 4px rgb(var(--accent-rgb) / 0.16);
+}
+.passage-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.passage-eyebrow { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--accent); }
+.passage-text b { font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+.passage-where { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
+.passage-where i { font-style: normal; font-size: 11px; padding: 1px 7px; border-radius: 6px; color: var(--ink-2); background: rgb(var(--accent-rgb) / 0.1); }
+.passage-tag button { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+.passage-tag button:hover { color: var(--ink); background: rgb(var(--win-edge) / 0.08); }
+/* How long it has left: a line along the bottom that drains, and waits while the pointer is on the card. */
+.passage-time {
+  position: absolute; left: 12px; right: 12px; bottom: 5px; height: 2px; border-radius: 1px;
+  background: rgb(var(--accent-rgb) / 0.55); transform-origin: left center;
+  animation: passage-drain var(--linger, 9s) linear both;
+}
+.passage-tag.is-held .passage-time { animation-play-state: paused; }
+@keyframes passage-drain { to { transform: scaleX(0); } }
 @media (prefers-reduced-motion: reduce) {
-  .passage-band, .passage-tag { animation: none; }
+  .passage-band, .passage-tag, .passage-spot, .passage-frame { animation: none; }
+}
 }

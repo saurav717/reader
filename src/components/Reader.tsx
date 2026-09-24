@@ -38,7 +38,7 @@ import { HIGHLIGHT_COLORS, type HighlightColor, type ReadingMode } from '../type
 import LookupPopover, { type LookupTarget } from './LookupPopover';
 import HoverCard, { type CitedEntry, type HoverTarget } from './HoverCard';
 import { pdfPageTexts, showPdf } from '../lib/screen';
-import { findPassage, LOCATE_EVENT, pageOf, type LocateRequest, type LocateResult } from '../lib/locate';
+import { findPassage, FLASH_EVENT, LOCATE_EVENT, pageOf, type LocateRequest, type LocateResult } from '../lib/locate';
 import PassageFlash, { type Flash } from './PassageFlash';
 import { fullerAuthors } from '../lib/byline';
 import { CITE_CLASS, REF_CLASS, citationHead, citationText, entryText, parseReference } from '../lib/citations';
@@ -1108,8 +1108,10 @@ export default function Reader({
   useEffect(() => {
     const where = (request: LocateRequest, page?: number) =>
       [request.section, page ? `page ${page}` : undefined].filter(Boolean).join(' · ') || undefined;
-    const mark = (range: Range | undefined, request: LocateRequest, page?: number, clip?: HTMLElement | null) =>
-      setFlash({ range, label: request.label, where: where(request, page), clip, anchor: document.querySelector<HTMLElement>('.main'), key: ++flashKey.current });
+    const mark = (range: Range | undefined, request: LocateRequest, page?: number, clip?: HTMLElement | null) => {
+      setFlash({ range, label: request.label, where: where(request, page), clip, anchor: document.querySelector<HTMLElement>('.main'), key: ++flashKey.current, n: request.n });
+      window.dispatchEvent(new CustomEvent(FLASH_EVENT, { detail: { quote: request.quote } }));
+    };
     /** Brings a range into view: scrolled to a third of the way down, or its page of the book turned to. */
     const bringIntoView = (range: Range) => {
       const element = range.startContainer.parentElement;
@@ -1167,6 +1169,7 @@ export default function Reader({
   useEffect(() => {
     setFlash(null);
     setPdfPage(null);
+    window.dispatchEvent(new CustomEvent(FLASH_EVENT, { detail: { quote: null } }));
   }, [paperId, mode, layout]);
 
   const onScroll = () => {
@@ -1748,7 +1751,16 @@ export default function Reader({
         </div>
       )}
 
-      {flash ? <PassageFlash flash={flash} onDone={() => setFlash(null)} /> : null}
+      {flash ? (
+        <PassageFlash
+          flash={flash}
+          look={settings.passageLook}
+          onDone={() => {
+            setFlash(null);
+            window.dispatchEvent(new CustomEvent(FLASH_EVENT, { detail: { quote: null } }));
+          }}
+        />
+      ) : null}
 
       {mode === 'pdf' && !pdfError && pdfLookup !== 'none' ? (
         <p style={{ margin: 0, padding: '8px 16px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)' }}>

@@ -89,7 +89,12 @@ export interface LocateRequest {
   label: string;
   section?: string;
   page?: number;
+  /** Its number in the answer's list. */
+  n?: number;
 }
+
+/** Sent by the reader when a passage is marked (its quote) and when the mark goes (null). */
+export const FLASH_EVENT = 'reader:passage-flash';
 
 export interface LocateResult {
   found: boolean;
