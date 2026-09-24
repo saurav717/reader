@@ -36,7 +36,7 @@ import { WorkersWebSocketTransport } from '@cloudflare/puppeteer/internal/cloudf
 import { connectToCDPBrowser } from '@cloudflare/puppeteer/internal/cloudflare/utils.js';
 import { BROWSER_UA } from '../server/scholar.js';
 import { fetchChecked, MAX_PDF_BYTES, rejectUrl } from '../server/fetchPdf.js';
-import { pdfCandidates, pdfLinksIn } from '../server/pdfLinks.js';
+import { grabTargets, pdfCandidates, pdfLinksIn } from '../server/pdfLinks.js';
 import { acceptKey, BUTTONS, clamp, clicks, closedError, fetchFileInPage, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
 import * as browserless from './browserless.js';
 
@@ -360,12 +360,13 @@ export async function grab(env, session, driver = defaultDriver) {
     } catch {
       showingPdf = /\.pdf(\?|$)/i.test(url);
     }
-    const urls = showingPdf ? [url] : [...pdfCandidates(url), ...pdfLinksIn(html, url), url];
+    const { urls, why } = showingPdf ? { urls: [url], why: null } : await grabTargets(url, html);
     // The page fetches first, with the standing it has earned — a bot check
     // passed, a sign-in made — and the Worker's own fetch follows the links.
     const bytes = (await fetchFileInPage(page, urls, MAX_PDF_BYTES)) || (await fetchFileWithCookies(page, urls));
     if (!bytes) {
       throw new Error(
+        why ||
         `no PDF was found from ${new URL(url).hostname} — open the file itself in the browser here, or sign in first if the page is asking for it`,
       );
     }

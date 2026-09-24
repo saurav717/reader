@@ -68,7 +68,102 @@ export function pdfLinksIn(html, base) {
   for (const tag of html.match(/<i?frame\b[^>]*>/gi) || []) push(attr(tag, 'src'));
   for (const tag of html.match(/<a\b[^>]*>/gi) || []) {
     const href = attr(tag, 'href');
-    if (href && /\.pdf(\?|$)|\/pdf\/|stampPDF|getPDF/i.test(href)) push(href);
+    if (href && /\.pdf(\?|$)|\/pdf\/|stampPDF|getPDF|[?&]output=pdf\b/i.test(href)) push(href);
   }
-  return found.filter((url) => /^https:\/\//i.test(url));
+  // Google Books writes its own links `http://`; everyone else's stay out.
+  return found
+    .map(httpsGoogleBooks)
+    .filter((url, index, all) => /^https:\/\//i.test(url) && !/\.acsm(\?|$)/i.test(url) && all.indexOf(url) === index);
+}
+
+// ---------------------------------------------------------- Google Books ----
+
+const GOOGLE_BOOKS_HOST = /^(?:books\.google\.[a-z.]+|(?:www\.)?google\.[a-z.]+|play\.google\.com)$/i;
+
+/**
+ * The volume id of a Google Books page, in any of the shapes Google gives
+ * one: `books.google.com/books?id=…`, `…/books/about/Title.html?id=…`, the
+ * newer `google.com/books/edition/Title/…`, and Play Books' store page.
+ * Null for anything else, a Google search included.
+ */
+export function googleBooksId(target) {
+  let url;
+  try {
+    url = new URL(target);
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  if (!GOOGLE_BOOKS_HOST.test(host)) return null;
+  const valid = (id) => (id && /^[A-Za-z0-9_-]{8,20}$/.test(id) ? id : null);
+  if (host.startsWith('books.google.')) return valid(url.searchParams.get('id'));
+  if (host === 'play.google.com') {
+    return url.pathname.startsWith('/store/books/details') ? valid(url.searchParams.get('id')) : null;
+  }
+  const edition = url.pathname.match(/^\/books\/edition\/[^/]*\/([A-Za-z0-9_-]+)/);
+  return edition ? valid(edition[1]) : null;
+}
+
+/** A Google Books link written `http://`, as its own pages write them, made `https://`. */
+const httpsGoogleBooks = (value) =>
+  value.replace(/^http:\/\/(books\.google\.[a-z.]+|books\.googleusercontent\.com)\//i, 'https://$1/');
+
+/**
+ * Where Google Books keeps a volume's PDF, and — when it keeps none a person
+ * may download — why, in words for the person. The page itself never holds
+ * the file: its viewer draws the pages as pictures, and its "Download PDF"
+ * link carries a signature only Google's own answer knows. So the Books API
+ * is asked for the volume's `downloadLink`, and the classic book page, whose
+ * download link carries that signature, is walked after it.
+ *
+ * Only a book Google lets anyone download — public domain, or free — has a
+ * PDF to find. A preview is pictures of some of the pages, and a bought
+ * ebook is Adobe's DRM (`.acsm`); neither is a file this can or should take.
+ *
+ * `fetchImpl` is the proxy's own fetch, so the tests can stand in for Google.
+ */
+export async function googleBooksPdf(target, fetchImpl = fetch) {
+  const id = googleBooksId(target);
+  if (!id) return null;
+  const page = `https://books.google.com/books?id=${encodeURIComponent(id)}&hl=en`;
+  let volume = null;
+  try {
+    const response = await fetchImpl(`https://www.googleapis.com/books/v1/volumes/${encodeURIComponent(id)}`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (response.ok) volume = await response.json();
+  } catch {
+    // The page is still worth walking without the API's answer.
+  }
+  const access = volume?.accessInfo || {};
+  const link = typeof access.pdf?.downloadLink === 'string' ? access.pdf.downloadLink : '';
+  const drm = /\.acsm(\?|$)|acs4_fulfillment/i.test(link);
+  const urls = [];
+  if (link && !drm) urls.push(httpsGoogleBooks(link));
+  urls.push(`https://books.google.com/books/download/?id=${encodeURIComponent(id)}&output=pdf`, page);
+
+  let why = null;
+  if (volume && !(access.pdf?.isAvailable && link && !drm)) {
+    const title = volume.volumeInfo?.title ? `“${volume.volumeInfo.title}”` : 'this book';
+    if (access.viewability === 'PARTIAL' || access.viewability === 'NO_PAGES') {
+      why = `Google Books only shows a preview of ${title} — some of its pages, as pictures — and has no PDF of it to download`;
+    } else if (drm) {
+      why = `Google Books sells ${title} as a protected ebook (an Adobe .acsm file), not as a PDF anyone can download`;
+    } else {
+      why = `Google Books offers no PDF of ${title} to download`;
+    }
+    why += '. Look for it under Books & PDFs in Discover — Open Library and the Internet Archive often have a free scan — or drop in a copy of your own.';
+  }
+  return { id, urls, why };
+}
+
+/**
+ * Every URL "Fetch the PDF from this page" should try, in order, for the
+ * page the browser is on — and, where the site is one that can say so, why
+ * there may be no file to find. Shared by the Node proxy and the Worker.
+ */
+export async function grabTargets(url, html, fetchImpl = fetch) {
+  const books = await googleBooksPdf(url, fetchImpl);
+  const urls = [...(books?.urls || []), ...pdfCandidates(url), ...pdfLinksIn(html, url), url];
+  return { urls: urls.filter((each, index) => urls.indexOf(each) === index), why: books?.why || null };
 }

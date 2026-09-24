@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 
 process.env.READER_PROFILE_DIR = join(tmpdir(), `reader-no-profile-${process.pid}`);
 const { availability, everSignedIn, pdfCandidates, pdfLinksIn, status } = await import('../server/access.js');
+const { googleBooksId, googleBooksPdf, grabTargets } = await import('../server/pdfLinks.js');
 
 describe('which URL a signed-in browser asks for', () => {
   it('turns an IEEE document page into its stamp endpoints, file first', () => {
@@ -68,6 +69,68 @@ describe('where a landing page says its PDF is', () => {
     assert.deepEqual(pdfLinksIn(html, 'https://publisher.example/article/x'), [
       'https://publisher.example/content/pdf/x.pdf',
     ]);
+  });
+});
+
+describe('a book on Google Books', () => {
+  const volume = (accessInfo, title = 'Flatland') => async (url) => {
+    assert.equal(String(url), 'https://www.googleapis.com/books/v1/volumes/2fsVAAAAYAAJ');
+    return new Response(JSON.stringify({ volumeInfo: { title }, accessInfo }), { status: 200 });
+  };
+
+  it('knows the volume from every shape of link, and nothing else', () => {
+    assert.equal(googleBooksId('https://books.google.com/books?id=2fsVAAAAYAAJ&printsec=frontcover'), '2fsVAAAAYAAJ');
+    assert.equal(googleBooksId('https://www.google.co.uk/books/edition/Flatland/2fsVAAAAYAAJ?hl=en&gbpv=1'), '2fsVAAAAYAAJ');
+    assert.equal(googleBooksId('https://play.google.com/store/books/details?id=2fsVAAAAYAAJ'), '2fsVAAAAYAAJ');
+    assert.equal(googleBooksId('https://www.google.com/search?q=flatland'), null);
+    assert.equal(googleBooksId('https://link.springer.com/book/10.1007/x'), null);
+  });
+
+  it('asks the Books API for a free book’s download link and tries it first', async () => {
+    const found = await googleBooksPdf(
+      'https://www.google.com/books/edition/Flatland/2fsVAAAAYAAJ?gbpv=1',
+      volume({ viewability: 'ALL_PAGES', pdf: { isAvailable: true, downloadLink: 'http://books.google.com/books/download/Flatland.pdf?id=2fsVAAAAYAAJ&output=pdf&sig=S' } }),
+    );
+    assert.equal(found.urls[0], 'https://books.google.com/books/download/Flatland.pdf?id=2fsVAAAAYAAJ&output=pdf&sig=S');
+    assert.ok(found.urls.includes('https://books.google.com/books?id=2fsVAAAAYAAJ&hl=en'));
+    assert.equal(found.why, null);
+  });
+
+  it('says a preview is only a preview, and a bought ebook is DRM', async () => {
+    const preview = await googleBooksPdf('https://books.google.com/books?id=2fsVAAAAYAAJ', volume({ viewability: 'PARTIAL', pdf: { isAvailable: false } }));
+    assert.match(preview.why, /only shows a preview of “Flatland”/);
+    const bought = await googleBooksPdf(
+      'https://books.google.com/books?id=2fsVAAAAYAAJ',
+      volume({ viewability: 'PARTIAL', pdf: { isAvailable: true, downloadLink: 'http://books.google.com/books/download/F-sample-pdf.acsm?id=2fsVAAAAYAAJ' } }),
+    );
+    assert.ok(!bought.urls.some((url) => /acsm/.test(url)));
+    assert.ok(bought.why);
+  });
+
+  it('still walks the book page when the API cannot be reached', async () => {
+    const found = await googleBooksPdf('https://books.google.com/books?id=2fsVAAAAYAAJ', async () => {
+      throw new Error('offline');
+    });
+    assert.ok(found.urls.includes('https://books.google.com/books?id=2fsVAAAAYAAJ&hl=en'));
+    assert.equal(found.why, null);
+  });
+
+  it('finds the download link Google writes http:// on its own page', () => {
+    const html = '<a href="http://books.google.com/books/download/Flatland.pdf?id=2fsVAAAAYAAJ&amp;output=pdf&amp;sig=S">Download PDF</a>';
+    assert.deepEqual(pdfLinksIn(html, 'https://books.google.com/books?id=2fsVAAAAYAAJ'), [
+      'https://books.google.com/books/download/Flatland.pdf?id=2fsVAAAAYAAJ&output=pdf&sig=S',
+    ]);
+  });
+
+  it('puts the Google Books candidates ahead of the page’s own, for the grab', async () => {
+    const { urls, why } = await grabTargets('https://books.google.com/books?id=2fsVAAAAYAAJ', '', volume({ pdf: { isAvailable: true, downloadLink: 'https://books.google.com/books/download/F.pdf?id=2fsVAAAAYAAJ&sig=S' } }));
+    assert.equal(urls[0], 'https://books.google.com/books/download/F.pdf?id=2fsVAAAAYAAJ&sig=S');
+    assert.equal(urls.at(-1), 'https://books.google.com/books?id=2fsVAAAAYAAJ');
+    assert.equal(why, null);
+    const elsewhere = await grabTargets('https://link.springer.com/article/10.1007/x', '', async () => {
+      throw new Error('should not be asked');
+    });
+    assert.deepEqual(elsewhere, { urls: ['https://link.springer.com/article/10.1007/x'], why: null });
   });
 });
 

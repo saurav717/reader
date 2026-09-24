@@ -30,7 +30,7 @@
  * is one asked for again, and refused.
  */
 import { MAX_PDF_BYTES, rejectUrl } from '../server/fetchPdf.js';
-import { pdfCandidates, pdfLinksIn } from '../server/pdfLinks.js';
+import { grabTargets } from '../server/pdfLinks.js';
 import { BUTTONS, challengedHost, checkAfter, clamp, clicks, closedError, fetchFileInPage, isMainDocument, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
 import {
   apply,
@@ -1224,10 +1224,11 @@ export class BrowserSession {
     } catch {
       // Mid-navigation; the candidates from the URL alone are still worth a try.
     }
-    const urls = [...pdfCandidates(url), ...pdfLinksIn(html, url), url];
+    const { urls, why } = await grabTargets(url, html);
     const bytes = (await fetchFileInPage(page, urls, MAX_PDF_BYTES)) || (await fetchFileWithCookies(page, urls));
     if (!bytes) {
       throw new Error(
+        why ||
         `no PDF was found from ${new URL(url).hostname} — open the file itself in the browser here, or sign in first if the page is asking for it`,
       );
     }

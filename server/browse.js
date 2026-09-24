@@ -36,10 +36,9 @@ import {
   ensureContext,
   fetchFileThrough,
   isPdf,
-  pdfCandidates,
-  pdfLinksIn,
   signInWindowOpen,
 } from './access.js';
+import { grabTargets } from './pdfLinks.js';
 import { isPrivateHost, MAX_PDF_BYTES, rejectUrl } from './fetchPdf.js';
 import { acceptKey, BUTTONS, challengedHost, checkAfter, clamp, clicks, closedError, fetchFileInPage, isMainDocument, VIEWPORT } from './browseShared.js';
 
@@ -412,14 +411,15 @@ export async function grab() {
   } catch {
     // Mid-navigation; the candidates from the URL alone are still worth a try.
   }
-  const urls = [...pdfCandidates(url), ...pdfLinksIn(html, url), url];
+  const { urls, why } = await grabTargets(url, html);
   // The page fetches first, with the standing it has — a bot check passed
   // binds its clearance to this page's user-agent, which the profile's own
   // requests do not share — and the profile's fetch follows the links after.
   const bytes = (await fetchFileInPage(page, urls, MAX_PDF_BYTES)) || (await fetchFileThrough(page.context(), urls));
   if (!bytes) {
     throw new Error(
-      `no PDF was found from ${new URL(url).hostname} — open the file itself in the browser here, or sign in first if the page is asking for it`,
+      why ||
+        `no PDF was found from ${new URL(url).hostname} — open the file itself in the browser here, or sign in first if the page is asking for it`,
     );
   }
   session.pdf = { bytes, from: url };
