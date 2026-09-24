@@ -153,6 +153,7 @@ interface StoreValue {
    * another browser, say — so the next open goes straight to it by id.
    */
   setPaperDriveFile: (id: string, found: { folderId: string; pdfFileId: string; pdfLink?: string }) => Promise<void>;
+  setPaperAuthors: (id: string, authors: string[]) => Promise<void>;
 
   createCollection: (name: string) => Promise<Collection>;
   renameCollection: (id: string, name: string) => Promise<void>;
@@ -734,6 +735,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [savePaper],
   );
 
+  /** The byline read off the PDF, where it names more people, or names them in full. */
+  const setPaperAuthors = useCallback(
+    async (id: string, authors: string[]) => {
+      const paper = latest.current.papers.find((item) => item.id === id);
+      if (!paper || paper.authors.join('\n') === authors.join('\n')) return;
+      const updated: Paper = { ...paper, authors };
+      await savePaper(updated);
+      latest.current.papers = latest.current.papers.map((item) => (item.id === id ? updated : item));
+    },
+    [savePaper],
+  );
+
   const setPaperDriveFile = useCallback(
     async (id: string, found: { folderId: string; pdfFileId: string; pdfLink?: string }) => {
       const paper = latest.current.papers.find((item) => item.id === id);
@@ -914,6 +927,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setPaperPdfUrl,
       setPaperPdfChoice,
       setPaperDriveFile,
+      setPaperAuthors,
       createCollection,
       renameCollection,
       deleteCollection,
@@ -935,7 +949,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }),
     [
       ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog,
-      addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile,
+      addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile, setPaperAuthors,
       createCollection, renameCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
       githubConnected, githubLog, githubPending, pushToGitHub,

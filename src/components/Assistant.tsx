@@ -15,6 +15,7 @@ import {
   setContext,
   setModel,
   setQuote,
+  setShot,
   stop,
   subscribe,
 } from '../lib/assistant';
@@ -38,7 +39,8 @@ import {
 } from '../lib/floatWindow';
 import type { Rect, Side } from '../lib/floatWindow';
 import { markdown } from '../lib/markdown';
-import { CloseIcon, SparkleIcon } from './icons';
+import { CameraIcon, CloseIcon, SparkleIcon } from './icons';
+import { canCapture, captureTab } from '../lib/screen';
 
 const DIRS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
 const ARROWS: Record<string, Side> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
@@ -70,6 +72,7 @@ function TurnView({ turn }: { turn: Turn }) {
   if (turn.role === 'user') {
     return (
       <div className="chat-turn chat-user">
+        {turn.shot ? <span className="chat-shot-tag">Screenshot attached</span> : null}
         <div
           className="chat-text"
           // The quote that leads a question renders as a quote; the rest is plain text.
@@ -155,7 +158,7 @@ function KeyCard() {
 interface Props {
   onClose: () => void;
   /** Read the screen at the moment of sending. */
-  screen: () => Screen;
+  screen: () => Screen | Promise<Screen>;
   /** Whether a paper is open, for the suggestions on an empty thread. */
   reading: boolean;
 }
@@ -165,6 +168,24 @@ export default function Assistant({ onClose, screen, reading }: Props) {
   const [drawer, setDrawer] = useState<'settings' | 'history' | null>(null);
   const [input, setInput] = useState('');
   const [said, setSaid] = useState('');
+  const [shooting, setShooting] = useState(false);
+  const [shotError, setShotError] = useState('');
+
+  // The browser asks each time; a refusal is not an error worth more than a line.
+  const takeShot = async () => {
+    if (shooting) return;
+    setShooting(true);
+    setShotError('');
+    try {
+      setShot(await captureTab());
+    } catch (error) {
+      const name = (error as Error)?.name;
+      setShotError(name === 'NotAllowedError' || name === 'AbortError' ? '' : `No screenshot — ${String((error as Error)?.message ?? error).replace(/\.$/, '')}.`);
+    } finally {
+      setShooting(false);
+      inputRef.current?.focus();
+    }
+  };
 
   // ---- the frame ------------------------------------------------------------
   const [win, setWin] = useState(loadWindow);
@@ -572,7 +593,31 @@ export default function Assistant({ onClose, screen, reading }: Props) {
         </div>
       ) : null}
 
+      {s.shot ? (
+        <div className="chat-quote chat-shot">
+          <img src={`data:image/jpeg;base64,${s.shot}`} alt="The screenshot that goes with the next question" />
+          <span className="chat-quote-text">A screenshot of this tab goes with your next question.</span>
+          <button type="button" className="win-btn" onClick={() => setShot('')} aria-label="Remove the screenshot" title="Remove">
+            <CloseIcon size={12} />
+          </button>
+        </div>
+      ) : shotError ? (
+        <p className="chat-shot-error">{shotError}</p>
+      ) : null}
+
       <form className="chat-compose" onSubmit={submit}>
+        {canCapture() ? (
+          <button
+            type="button"
+            className="btn sm chat-shot-btn"
+            onClick={() => void takeShot()}
+            disabled={!s.hasKey || s.live || shooting}
+            aria-label="Attach a screenshot of this tab"
+            title="Attach a screenshot of this tab — your browser asks first"
+          >
+            <CameraIcon size={16} />
+          </button>
+        ) : null}
         <textarea
           ref={inputRef}
           rows={1}

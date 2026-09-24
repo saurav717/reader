@@ -107,6 +107,24 @@ describe('the messages', () => {
     ]);
   });
 
+  it('puts the pictures of the screen before the newest question, each named', () => {
+    const messages = assistant.buildMessages(
+      [
+        { role: 'user', content: 'first' },
+        { role: 'assistant', content: 'answer' },
+        { role: 'user', content: 'what is in figure 2?' },
+      ],
+      '<screen>S</screen>',
+      [{ label: 'Page 3 of the PDF, as it is on screen:', data: 'AAAA' }],
+    );
+    assert.equal(messages[0].content, 'first');
+    assert.deepEqual(messages[2].content, [
+      { type: 'text', text: 'Page 3 of the PDF, as it is on screen:' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } },
+      { type: 'text', text: '<screen>S</screen>\n\nwhat is in figure 2?' },
+    ]);
+  });
+
   it('drops an empty assistant turn — a stopped or failed answer', () => {
     const messages = assistant.buildMessages(
       [

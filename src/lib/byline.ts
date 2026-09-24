@@ -96,3 +96,43 @@ export function tidyByline<T extends PaperRef>(paper: T): T {
     published: paper.published || (read.year ? `${read.year}-01-01` : ''),
   };
 }
+
+const fold = (text: string) =>
+  text
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z\s-]/g, '')
+    .trim();
+
+/** Whether "S Chennuri" and "Saurav Chennuri" are the same person: the same surname, and first names that agree as far as both go. */
+export function sameAuthor(short: string, full: string): boolean {
+  const a = fold(short).split(/\s+/).filter(Boolean);
+  const b = fold(full).split(/\s+/).filter(Boolean);
+  if (!a.length || !b.length || a[a.length - 1] !== b[b.length - 1]) return false;
+  const first = a[0];
+  const other = b[0];
+  // Scholar runs initials together, "EJ Braun"; the byline spells them "Emily J. Braun".
+  return a.length === 1 || b.length === 1 || other.startsWith(first) || first.startsWith(other) || (first.length <= 3 && first[0] === other[0]);
+}
+
+/**
+ * The byline read off the PDF, when it is the same list as the one on
+ * record only fuller — more names, or names in full — and null otherwise.
+ * Every name on record has to be found in it, in the same order: a byline
+ * read wrongly, or the PDF of some other paper, is not allowed to rewrite
+ * who wrote this one.
+ */
+export function fullerAuthors(known: string[], found: string[] | undefined): string[] | null {
+  if (!found?.length) return null;
+  if (!known.length) return found;
+  let at = 0;
+  for (const name of known) {
+    const match = found.findIndex((candidate, index) => index >= at && sameAuthor(name, candidate));
+    if (match < 0) return null;
+    at = match + 1;
+  }
+  const longer = found.length > known.length;
+  const fuller = found.join(' ').length > known.join(' ').length;
+  return longer || fuller ? found : null;
+}

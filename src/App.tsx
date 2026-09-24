@@ -5,7 +5,7 @@ import { HIGHLIGHT_COLORS } from './types';
 import type { Screen } from './lib/assistant';
 import { setQuote } from './lib/assistant';
 import { followLight } from './lib/glassLight';
-import { clearSelection, currentSelection, paperText, trackSelection, visiblePassage } from './lib/screen';
+import { clearSelection, currentSelection, paperText, pdfPageImages, pdfPagesInView, pdfPageTexts, trackSelection, visiblePassage } from './lib/screen';
 import Assistant from './components/Assistant';
 import CollectionView from './components/CollectionView';
 import JunkView from './components/JunkView';
@@ -192,11 +192,33 @@ export default function App() {
   }, []);
 
   /** What the Claude window may know about the page, read at the moment of sending. */
-  const readScreen = useCallback((): Screen => {
+  const readScreen = useCallback(async (): Promise<Screen> => {
     if (view.kind === 'paper') {
       const paper = papers.find((p) => p.id === view.id);
       if (paper) {
-        const fullText = paperText();
+        let fullText = paperText();
+        let visible = visiblePassage();
+        let mode = 'Reflow (the app’s own text rendering)';
+        let images: Screen['images'];
+        // In PDF mode nothing of the paper is in the page's own DOM: read the
+        // file itself, and send the pages in view as pictures when we know them.
+        const pdf = fullText ? null : pdfPageTexts();
+        if (pdf) {
+          try {
+            const pages = await pdf;
+            fullText = pages.map((text, index) => `[Page ${index + 1}]\n${text}`).join('\n\n');
+            const inView = pdfPagesInView();
+            visible = inView.map((number) => `[Page ${number}]\n${pages[number - 1] ?? ''}`).join('\n\n');
+            images = pdfPageImages();
+            mode = inView.length
+              ? `PDF, set as a book — ${inView.length > 1 ? `pages ${inView[0]}–${inView[inView.length - 1]}` : `page ${inView[0]}`} of ${pages.length} in view`
+              : `PDF, in the browser’s own viewer (${pages.length} pages; which page is in view is not known to the app)`;
+          } catch {
+            mode = 'PDF (its text could not be read)';
+          }
+        } else if (!fullText) {
+          mode = 'PDF (still loading)';
+        }
         const kind = (color: string) => HIGHLIGHT_COLORS.find((c) => c.id === color)?.label ?? color;
         return {
           where: 'Reading a paper',
@@ -210,12 +232,12 @@ export default function App() {
             doi: paper.doi,
             url: paper.landingUrl,
             abstract: paper.abstract,
-            // In PDF mode the browser's own viewer draws the page, and none of its text reaches the app.
-            mode: fullText ? 'Reflow (the app’s own text rendering)' : 'PDF (the text is not readable by the app)',
+            mode,
             progress: Math.round((paper.progress || 0) * 100),
           },
           fullText,
-          visible: visiblePassage(),
+          visible,
+          images,
           selection: currentSelection(),
           highlights: highlights
             .filter((h) => h.paperId === paper.id && !h.orphaned)

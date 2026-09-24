@@ -325,3 +325,30 @@ describe('their Google Scholar profile', () => {
     assert.match(found.error, /captcha/);
   });
 });
+
+const { fullerAuthors, sameAuthor } = await load('src/lib/byline.ts');
+
+describe('the byline off the PDF', () => {
+  const scholar = ['S Chennuri', 'S Lai', 'A Billot', 'M Varkanitsa', 'EJ Braun', 'S Kiran'];
+  const pdf = ['Saurav Chennuri', 'Sha Lai', 'Anne Billot', 'Maria Varkanitsa', 'Emily J. Braun', 'Swathi Kiran', 'Archana Venkataraman', 'Janusz Konrad', 'Prakash Ishwar', 'Margrit Betke'];
+
+  it('matches initials to names in full', () => {
+    assert.ok(sameAuthor('EJ Braun', 'Emily J. Braun'));
+    assert.ok(sameAuthor('S Chennuri', 'Saurav Chennuri'));
+    assert.ok(!sameAuthor('S Chennuri', 'Saurav Lai'));
+  });
+
+  it('takes the whole list where Scholar cut it at six', () => {
+    assert.deepEqual(fullerAuthors(scholar, pdf), pdf);
+  });
+
+  it('keeps the record where the PDF names someone else', () => {
+    assert.equal(fullerAuthors(scholar, ['Ada Lovelace', 'Charles Babbage']), null);
+    assert.equal(fullerAuthors(scholar, pdf.slice(0, 4)), null);
+  });
+
+  it('keeps the record where the PDF adds nothing', () => {
+    assert.equal(fullerAuthors(pdf, pdf), null);
+    assert.equal(fullerAuthors(pdf, undefined), null);
+  });
+});
