@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useStore } from '../lib/store';
 import { HIGHLIGHT_COLORS, type Highlight, type HighlightColor } from '../types';
-import { CloseIcon, FileIcon, TrashIcon } from './icons';
+import { CloseIcon, FileIcon, PopOutIcon, TrashIcon } from './icons';
 
 interface Props {
   paperId: string;
@@ -9,6 +9,10 @@ interface Props {
   orphanIds: string[];
   onSelect: (id: string | null) => void;
   onClose: () => void;
+  /** Lift the notes off the dock into a window of their own that floats over the page. */
+  onPopOut?: () => void;
+  /** In that window, whose bar has the title and the close button already. */
+  inWindow?: boolean;
 }
 
 function toMarkdown(title: string, highlights: Highlight[]): string {
@@ -26,7 +30,7 @@ function toMarkdown(title: string, highlights: Highlight[]): string {
   return lines.join('\n');
 }
 
-export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, onClose }: Props) {
+export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, onClose, onPopOut, inWindow = false }: Props) {
   const { papers, highlights, updateHighlight, deleteHighlight } = useStore();
   const paper = papers.find((item) => item.id === paperId);
   const [filter, setFilter] = useState<HighlightColor | 'all'>('all');
@@ -65,17 +69,24 @@ export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, on
 
   return (
     <aside className="panel notes-rail" aria-label="Highlights and notes">
-      <div className="panel-head">
-        <h2>Highlights</h2>
-        <button type="button" className="icon-btn sm" onClick={exportMarkdown} aria-label="Export highlights as Markdown">
-          <FileIcon size={16} />
-        </button>
-        <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the highlights panel">
-          <CloseIcon size={17} />
-        </button>
-      </div>
+      {inWindow ? null : (
+        <div className="panel-head">
+          <h2>Highlights</h2>
+          {onPopOut ? (
+            <button type="button" className="icon-btn sm" onClick={onPopOut} aria-label="Pop the notes out into a window" title="Pop out — a window you can move anywhere (⌘ + arrows)">
+              <PopOutIcon size={16} />
+            </button>
+          ) : null}
+          <button type="button" className="icon-btn sm" onClick={exportMarkdown} aria-label="Export highlights as Markdown">
+            <FileIcon size={16} />
+          </button>
+          <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the highlights panel">
+            <CloseIcon size={17} />
+          </button>
+        </div>
+      )}
 
-      <div style={{ padding: '0 16px 12px', display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ padding: inWindow ? '10px 12px 10px' : '0 16px 12px', display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
         <button type="button" className="chip" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
           All {total}
         </button>
@@ -96,6 +107,11 @@ export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, on
         <button type="button" className="chip" aria-pressed={notesOnly} onClick={() => setNotesOnly(!notesOnly)}>
           With notes
         </button>
+        {inWindow ? (
+          <button type="button" className="icon-btn sm" style={{ marginLeft: 'auto' }} onClick={exportMarkdown} aria-label="Export highlights as Markdown" title="Export as Markdown">
+            <FileIcon size={16} />
+          </button>
+        ) : null}
       </div>
 
       {orphanIds.length ? (

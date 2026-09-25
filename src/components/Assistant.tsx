@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify';
 import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react';
+import type { FormEvent } from 'react';
 import {
   CONTEXT_ROWS,
   MODELS,
@@ -27,25 +27,8 @@ import {
 import type { Passage, Recommendation, Screen, Turn } from '../lib/assistant';
 import { FLASH_EVENT, showPassage, type LocateResult } from '../lib/locate';
 import { typesetMath } from '../lib/typesetMath';
-import {
-  RUN_GAP,
-  SNAP_STEPS,
-  STACK_WIDTH,
-  STYLES,
-  clamp,
-  clearOf,
-  defaultRect,
-  fit,
-  loadWindow,
-  nudge,
-  resize,
-  saveWindow,
-  snap,
-  stride,
-  styleAt,
-  zoom,
-} from '../lib/floatWindow';
-import type { Rect, Side } from '../lib/floatWindow';
+import { STYLES, clamp, clearOf, styleAt } from '../lib/floatWindow';
+import { stacked, useFloatingWindow, viewport } from './FloatingWindow';
 import { markdown } from '../lib/markdown';
 import { CameraIcon, CheckIcon, CloseIcon, PlusIcon, SearchIcon, SparkleIcon } from './icons';
 import { useStore } from '../lib/store';
@@ -55,16 +38,6 @@ import type { PaperLayout } from './paperCards';
 import type { ChatMarks, PassageLook } from '../types';
 import { discover } from './HoverCard';
 import { canCapture, captureTab } from '../lib/screen';
-
-const DIRS = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'];
-const ARROWS: Record<string, Side> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
-const EDGE_NAME: Record<Side, string> = { left: 'left', right: 'right', up: 'top', down: 'bottom' };
-
-const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
-const stacked = () => window.innerWidth <= STACK_WIDTH;
-
-const isEditable = (el: Element | null) =>
-  !!el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || (el as HTMLElement).isContentEditable);
 
 /** "just now" / "14 mins ago" / "3 days ago" — enough to find a chat by. */
 function ago(ts: number): string {
@@ -633,63 +606,12 @@ export default function Assistant({ onClose, screen, reading }: Props) {
   };
 
   // ---- the frame ------------------------------------------------------------
-  const [win, setWin] = useState(loadWindow);
-  const [rect, setRect] = useState<Rect>(() => fit(win.rect ?? defaultRect(viewport()), viewport()));
-  const [isStacked, setStacked] = useState(stacked);
-  const rectRef = useRef(rect);
-  rectRef.current = rect;
-  const drag = useRef<{ id: number; dir: string | null; x0: number; y0: number; start: Rect } | null>(null);
-  const snapped = useRef<{ side: Side; step: number } | null>(null);
-  const run = useRef<{ side: Side; step: number; at: number; stuck: boolean } | null>(null);
-  const runSave = useRef(0);
-
-  const persist = useCallback(
-    (next: Rect, patch: Partial<typeof win> = {}) => {
-      setWin((current) => {
-        const merged = { ...current, ...patch, rect: next };
-        saveWindow(merged);
-        return merged;
-      });
-    },
-    [],
-  );
-
-  // A window that survives a reload has to survive a resized browser too.
-  useEffect(() => {
-    const onResize = () => {
-      setStacked(stacked());
-      setRect((current) => fit(current, viewport()));
-    };
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  const begin = (event: ReactPointerEvent<HTMLElement>, dir: string | null) => {
-    if (event.button !== 0 || stacked()) return;
-    if (!dir && (event.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
-    drag.current = { id: event.pointerId, dir, x0: event.clientX, y0: event.clientY, start: { ...rectRef.current } };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    document.body.classList.add('win-moving');
-    event.preventDefault();
-  };
-  const step = (event: ReactPointerEvent<HTMLElement>) => {
-    const d = drag.current;
-    if (!d || event.pointerId !== d.id) return;
-    // Moved by hand: the next arrow press starts its cycle over.
-    snapped.current = null;
-    run.current = null;
-    const dx = event.clientX - d.x0;
-    const dy = event.clientY - d.y0;
-    setRect(d.dir ? resize(d.start, d.dir, dx, dy, viewport()) : fit({ ...d.start, x: d.start.x + dx, y: d.start.y + dy }, viewport()));
-  };
-  const end = (event: ReactPointerEvent<HTMLElement>) => {
-    const d = drag.current;
-    if (!d || event.pointerId !== d.id) return;
-    event.currentTarget.releasePointerCapture?.(d.id);
-    drag.current = null;
-    document.body.classList.remove('win-moving');
-    persist(rectRef.current);
-  };
+  const { win, rectRef, floating, persist, place, frame: raise, position, bar, grips } = useFloatingWindow({
+    id: 'assistant',
+    store: 'reader.assistant.window',
+    name: 'Claude window',
+    say: setSaid,
+  });
 
   // A paper named in an answer is searched for in Discover. The pane opens on the
   // right, which is where the window stands by default, so the window steps
@@ -705,10 +627,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
         return;
       }
       const next = clearOf(rectRef.current, pane.getBoundingClientRect().left, viewport());
-      if (!next) return;
-      setRect(next);
-      rectRef.current = next;
-      persist(next);
+      if (next) place(next);
     };
     requestAnimationFrame(step);
   };
@@ -803,48 +722,11 @@ export default function Assistant({ onClose, screen, reading }: Props) {
   };
 
   // ---- the keyboard ---------------------------------------------------------
-  // ⌘ + an arrow *moves* the window, faster the longer the key is held; ⌘⇧ +
-  // an arrow throws it at that edge and cycles half / a third / two thirds.
-  // Plain ⌘ + arrow is left alone in a text field, where it moves the caret.
+  // Moving the window by the keys is the frame's (`useFloatingWindow`).
   // Escape from inside the window closes it.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      const mod = event.metaKey || event.ctrlKey;
-      const side = ARROWS[event.key];
-      if (mod && side && !event.altKey && !stacked()) {
-        if (event.shiftKey) {
-          event.preventDefault();
-          const i = snapped.current?.side === side ? snapped.current.step + 1 : 0;
-          snapped.current = { side, step: i % SNAP_STEPS.length };
-          run.current = null;
-          const next = snap(side, i, viewport());
-          setRect(next);
-          persist(next);
-          setSaid(`Claude window: ${EDGE_NAME[side]} ${SNAP_STEPS[i % SNAP_STEPS.length].label}`);
-          return;
-        }
-        if (isEditable(document.activeElement)) return;
-        event.preventDefault();
-        snapped.current = null;
-        const now = performance.now();
-        const going = !!run.current && run.current.side === side && now - run.current.at < RUN_GAP;
-        const by = stride(going ? run.current!.step : null);
-        const before = rectRef.current;
-        const moved = nudge(before, side, by, viewport());
-        const stuck = moved.x === before.x && moved.y === before.y;
-        setRect(moved);
-        rectRef.current = moved;
-        if (!going) persist(moved);
-        clearTimeout(runSave.current);
-        runSave.current = window.setTimeout(() => persist(rectRef.current), RUN_GAP);
-        // A held arrow repeats thirty times a second: speak once when the run
-        // starts, and once more the first time it runs out of room.
-        if (stuck && !(going && run.current?.stuck)) setSaid(`Claude window: at the ${EDGE_NAME[side]}`);
-        else if (!going && !stuck) setSaid(`Claude window moving ${side}`);
-        run.current = { side, step: by, at: now, stuck };
-        return;
-      }
-      if (event.key === 'Escape' && !mod && frame.current?.contains(document.activeElement)) {
+      if (event.key === 'Escape' && !(event.metaKey || event.ctrlKey) && frame.current?.contains(document.activeElement)) {
         event.preventDefault();
         if (s.live) stop();
         else onClose();
@@ -852,7 +734,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, persist, s.live]);
+  }, [onClose, s.live]);
 
   // ---- the thread -----------------------------------------------------------
   const frame = useRef<HTMLElement>(null);
@@ -910,10 +792,6 @@ export default function Assistant({ onClose, screen, reading }: Props) {
 
   const model = MODELS.find((m) => m.id === s.prefs.model) ?? MODELS[0];
   const style = styleAt(win.style);
-  const floating = !isStacked;
-  const position = floating
-    ? { left: rect.x, top: rect.y, width: rect.w, height: rect.h, ['--win-tint' as string]: String(win.tint) }
-    : {};
 
   return (
     <section
@@ -924,23 +802,9 @@ export default function Assistant({ onClose, screen, reading }: Props) {
       role="dialog"
       aria-modal="false"
       aria-label="Ask Claude"
+      {...raise}
     >
-      <header
-        className="win-bar"
-        onPointerDown={(event) => begin(event, null)}
-        onPointerMove={step}
-        onPointerUp={end}
-        onPointerCancel={end}
-        onDoubleClick={(event) => {
-          if (!floating || (event.target as HTMLElement).closest('button, input, label')) return;
-          snapped.current = null;
-          run.current = null;
-          const next = zoom(rectRef.current, viewport());
-          setRect(next);
-          persist(next);
-        }}
-        title={floating ? 'Drag to move · double-click to zoom · ⌘ + arrows to move · ⌘⇧ + arrows to snap' : undefined}
-      >
+      <header className="win-bar" {...bar}>
         <SparkleIcon size={15} className="win-mark" />
         <span className="win-name">Ask Claude</span>
         <span className="win-ctl">
@@ -1210,18 +1074,9 @@ export default function Assistant({ onClose, screen, reading }: Props) {
         )}
       </form>
 
-      {floating
-        ? DIRS.map((dir) => (
-            <div
-              key={dir}
-              className={`win-grip win-grip-${dir}`}
-              onPointerDown={(event) => begin(event, dir)}
-              onPointerMove={step}
-              onPointerUp={end}
-              onPointerCancel={end}
-            />
-          ))
-        : null}
+      {grips.map(({ key, ...grip }) => (
+        <div key={key} {...grip} />
+      ))}
 
       <span className="vh" aria-live="polite">
         {said}

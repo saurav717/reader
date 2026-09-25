@@ -1458,8 +1458,9 @@ numeric offset is kept only to break ties between several identical quotes. When
 quote genuinely cannot be found, the note is kept and flagged rather than dropped.
 
 In the reader: select text, then click a colour or press `1`–`4`; `N` highlights and
-opens a note. `⌘K` / `Ctrl-K` opens the palette, which searches your library and
-arXiv together.
+opens a note. `H` opens and closes the highlights and notes — see
+[Notes beside the page, or in a window](#notes-beside-the-page-or-in-a-window).
+`⌘K` / `Ctrl-K` opens the palette, which searches your library and arXiv together.
 
 ## Who wrote it, and what it cites
 
@@ -1712,7 +1713,8 @@ screen before it answers, so there is nothing to paste.
   cycles a half, a third and two thirds. The slider in the bar sets how see-through
   it is, and the button beside it cycles four frames — Frosted, Clear, Terminal and
   Aurora. It keeps its place across reloads. On a phone it is a sheet across the
-  bottom.
+  bottom. With the notes out in their window too, the keys move whichever of the
+  two was pressed or typed in last, and that one is drawn on top.
 - **Settings** (⚙) are cards:
   - **Highlights in answers**: preview tiles.
   - **Passages on the page**: the same choice as in Settings, drawn as
@@ -1838,6 +1840,36 @@ reflows as they come and go. In the glass theme they take the tint of the cards
 that float over the paper, since what is behind them is the page rather than
 the wallpaper. The styles are the *zen* section at the end of
 `src/styles.css`; the edges and the timing are in `src/App.tsx`.
+
+### Notes beside the page, or in a window
+
+Opening the highlights and notes in zen mode — **H**, or the button in the top
+bar or the rail — does not lay them over the page. They come out at the right
+and stay out, and the page slides left to make room for them, smoothly, at the
+pace they slide in. **H** again, or their ✕, puts them away and the page slides
+back. Out of zen mode it is the same when the library and the dock are both shut:
+the notes slide in from the right edge and the text gives way to them, and closing
+them slides them off. With either side open already, the dock opens as it always
+has.
+
+![zen mode with the notes out beside the page, the text moved left to make room](docs/notes-beside-zen.png)
+
+A PDF is not moved for them. Over the PDF — as a book or in the browser's viewer —
+and over the explanation, the notes open instead in a window of their own that
+floats over the page, the same kind as Ask Claude's: dragged by its bar, resized
+from any edge, **⌘ + an arrow** to move it (faster the longer the key is held),
+**⌘⇧ + an arrow** to throw it at an edge, double-click the bar to send it home.
+It keeps its place across reloads. With Ask Claude open too, the keys move
+whichever window was pressed or typed in last, and that one comes to the front.
+
+![the PDF as a book in zen mode, the notes in a window over it](docs/notes-window-pdf.png)
+
+The button beside the notes' export (⧉) pops them out into that window anywhere,
+Reflow included, and they stay popped out until the window's dock button puts
+them back beside the page. The window is `src/components/NotesWindow.tsx`; what it
+shares with Ask Claude is `src/components/FloatingWindow.tsx`.
+`scripts/notes-smoke.mjs` checks that the text glides rather than jumps, that the
+PDF stays where it is, and the keys with both windows open.
 
 ## Explain
 
@@ -2073,6 +2105,7 @@ npm run test:unit              # query building, merging, citations, the Git mir
 npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
 node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
+node scripts/notes-smoke.mjs   # the notes beside the page, and in a window over the PDF
 node scripts/recommend-smoke.mjs  # papers named in an answer: cards, Find, Add, the list
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 node scripts/hover-smoke.mjs    # the cards over an author's name and a citation

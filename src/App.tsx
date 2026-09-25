@@ -17,6 +17,7 @@ import CommandPalette from './components/CommandPalette';
 import Discover from './components/Discover';
 import Library from './components/Library';
 import NotesRail from './components/NotesRail';
+import NotesWindow from './components/NotesWindow';
 import Reader from './components/Reader';
 import Settings from './components/Settings';
 import Welcome from './components/Welcome';
@@ -28,6 +29,7 @@ const LAYOUT_KEY = 'reader.layout';
 const ASSISTANT_KEY = 'reader.assistant.open';
 const ZEN_KEY = 'reader.zen';
 const EXPLAIN_KEY = 'reader.explain.open';
+const NOTES_FLOAT_KEY = 'reader.notes.float';
 
 /** Which edge's panes are out while in zen mode: the top one is the reader's top bar. */
 type Peek = 'left' | 'right' | 'top' | null;
@@ -37,6 +39,27 @@ const ZEN_PANES = '.rail, .app > .panel, .dock, .reader-head';
 
 /** How long the pointer may be off a pane before it slides back. */
 const PEEK_LINGER_MS = 320;
+
+/** How long the page takes to make room for the notes, or to take it back; `--slide-time` in the styles. */
+const SLIDE_MS = 340;
+
+/**
+ * Below this width the dock is laid over the page rather than beside it
+ * (`@media (max-width: 1080px)` in the styles), so there is no page to move.
+ */
+const BESIDE_MIN_WIDTH = 1080;
+
+/**
+ * Whether the paper is shown as its PDF, drawn as a book or in the browser's
+ * viewer. A PDF is not made to move for the notes: they float over it instead.
+ */
+function showingPdf(): boolean {
+  return Boolean(document.querySelector('.main :is(.pdf-book, .pdf-frame)'));
+}
+
+function reducedMotion(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
 
 /** A key pressed while typing is text, not a shortcut. */
 function isTyping(target: EventTarget | null): boolean {
@@ -108,6 +131,32 @@ export default function App() {
   // panes out over the page, with a haze cast from them across it.
   const [zen, setZen] = useState(() => localStorage.getItem(ZEN_KEY) === 'true');
   const [peek, setPeek] = useState<Peek>(null);
+  // Opening the notes in zen mode keeps them out, beside the page: the page
+  // slides left to make room for them, rather than having them laid over it.
+  const [notesBeside, setNotesBeside] = useState(false);
+  // What the dock held before the notes were brought out beside the page, to
+  // go back to when they are put away: closed in zen, closed for good.
+  const dockBeforeBeside = useRef<Dock>(null);
+  // Outside zen, with the library and the dock both shut, opening the notes
+  // slides them in from the right edge and the page gives way to them
+  // smoothly, and closing them does the same backwards. `out` holds the dock
+  // on screen while it leaves.
+  const [dockSlide, setDockSlide] = useState<'in' | 'out' | null>(null);
+  const slideTimer = useRef<number>();
+  // The notes in a window of their own, floating over the page the way Ask
+  // Claude does. They go there over a PDF or the explanation, which are not
+  // made to move for them, and anywhere once popped out, which is remembered.
+  const [notesWindow, setNotesWindow] = useState(false);
+  const [notesFloat, setNotesFloat] = useState(() => localStorage.getItem(NOTES_FLOAT_KEY) === 'true');
+  useEffect(() => {
+    localStorage.setItem(NOTES_FLOAT_KEY, String(notesFloat));
+  }, [notesFloat]);
+  useEffect(() => () => window.clearTimeout(slideTimer.current), []);
+  // Opening and closing the notes, which depend on what else is open; set
+  // each render, and kept in refs so the key handler and the callbacks handed
+  // to the reader stay the same.
+  const openNotesRef = useRef<() => void>(() => undefined);
+  const toggleNotesRef = useRef<() => void>(() => undefined);
   // Explain: the whole paper taught by Claude, over the reader the way zen mode is.
   const [explainOpen, setExplainOpen] = useState(() => localStorage.getItem(EXPLAIN_KEY) === 'true');
   const toggleExplain = useCallback(() => setExplainOpen((current) => !current), []);
@@ -132,6 +181,8 @@ export default function App() {
   const toggleZen = useCallback(() => {
     setZen((current) => !current);
     setPeek(null);
+    // Zen mode puts every pane away, the notes too; opening them in it brings them back beside the page.
+    setNotesBeside(false);
   }, []);
 
   useEffect(() => {
@@ -233,6 +284,13 @@ export default function App() {
         toggleExplain();
         return;
       }
+      // H, the same way, opens and closes the highlights and notes beside the page.
+      if (readingNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'h' && !isTyping(event.target)) {
+        if (document.querySelector('.scrim, .sheet, .palette')) return;
+        event.preventDefault();
+        toggleNotesRef.current();
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
         setPaletteOpen((current) => !current);
@@ -262,10 +320,10 @@ export default function App() {
 
   // The highlights pane comes forward when you write a note; a plain highlight
   // only moves a dock that is already open.
-  const revealNotes = useCallback(
-    (force: boolean) => setDock((current) => (force || current ? 'notes' : null)),
-    [],
-  );
+  const revealNotes = useCallback((force: boolean) => {
+    if (force) openNotesRef.current();
+    else setDock((current) => (current ? 'notes' : null));
+  }, []);
 
   const dismissWelcome = useCallback(() => {
     localStorage.setItem(WELCOME_KEY, 'true');
@@ -402,7 +460,7 @@ export default function App() {
       observer?.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [zenOn, peek, libraryOpen, dock]);
+  }, [zenOn, peek, libraryOpen, dock, notesBeside]);
 
   if (!ready) {
     return (
@@ -427,15 +485,84 @@ export default function App() {
   const inZen = zenOn && !showWelcome;
   const explained = reading ? papers.find((paper) => paper.id === reading) : undefined;
   // In zen mode the right edge always has something to bring out: the dock as
-  // it was left, or the highlights if it was shut.
-  const shownDock: Dock = inZen ? dockPane ?? 'notes' : dockPane;
+  // it was left, or the highlights if it was shut — or Discover, when the
+  // highlights are out in their window already.
+  const shownDock: Dock = inZen ? dockPane ?? (notesWindow ? 'discover' : 'notes') : dockPane;
+  // The notes out beside the page in zen mode: the dock stays out, and the page makes room for it.
+  const besideInZen = inZen && notesBeside;
+  // Whether the page has room to give: below this width the dock is laid over it.
+  const pageCanMove = () => window.innerWidth > BESIDE_MIN_WIDTH && !reducedMotion();
+  const notesDocked = inZen ? besideInZen && dockPane === 'notes' : dockPane === 'notes' && dockSlide !== 'out';
+  const notesShown = notesWindow || notesDocked;
+  // `docked`: into the dock whatever is on the page, as asked for from the window's bar.
+  const openNotes = (docked = false) => {
+    window.clearTimeout(slideTimer.current);
+    const pageWouldMove = inZen || (!libraryOpen && (!dockPane || dockSlide === 'out'));
+    if (!docked && (notesFloat || explainOpen || (pageWouldMove && showingPdf()))) {
+      setNotesWindow(true);
+      return;
+    }
+    setNotesWindow(false);
+    setDock('notes');
+    if (inZen) {
+      if (!notesBeside) dockBeforeBeside.current = dock;
+      setNotesBeside(true);
+      setPeek(null);
+      setDockSlide(null);
+      return;
+    }
+    // Only a page with nothing either side of it slides; otherwise the dock opens as it always has.
+    if (!libraryOpen && (!dockPane || dockSlide === 'out') && pageCanMove()) {
+      setDockSlide('in');
+      slideTimer.current = window.setTimeout(() => setDockSlide(null), SLIDE_MS);
+    } else {
+      setDockSlide(null);
+    }
+  };
+  const closeDock = () => {
+    window.clearTimeout(slideTimer.current);
+    if (inZen) {
+      if (notesBeside) {
+        setNotesBeside(false);
+        setDock(dockBeforeBeside.current);
+      } else {
+        setPeek(null);
+      }
+      return;
+    }
+    if (dockPane && !libraryOpen && pageCanMove()) {
+      setDockSlide('out');
+      slideTimer.current = window.setTimeout(() => {
+        setDock(null);
+        setDockSlide(null);
+      }, SLIDE_MS);
+    } else {
+      setDock(null);
+      setDockSlide(null);
+    }
+  };
+  const closeNotes = () => (notesWindow ? setNotesWindow(false) : closeDock());
+  const toggleNotes = () => (notesShown ? closeNotes() : openNotes());
+  const popNotesOut = () => {
+    setNotesFloat(true);
+    closeDock();
+    setNotesWindow(true);
+  };
+  const dockNotes = () => {
+    setNotesFloat(false);
+    openNotes(true);
+  };
+  openNotesRef.current = openNotes;
+  toggleNotesRef.current = toggleNotes;
   // Which edge an element belongs to: its panes, or the strip that brings them out.
+  // The dock does not count while it is out beside the page: it is not waiting to slide back.
   const sideOf = (target: EventTarget | null): Peek => {
     const element = target instanceof Element ? target.closest(`${ZEN_PANES}, .zen-edge`) : null;
     if (!element) return null;
     if (element.classList.contains('zen-edge')) return (element as HTMLElement).dataset.side as Peek;
     if (element.classList.contains('reader-head')) return 'top';
-    return element.classList.contains('dock') ? 'right' : 'left';
+    if (element.classList.contains('dock')) return besideInZen ? null : 'right';
+    return 'left';
   };
   // One pair of handlers for every pane: a hidden pane takes no pointer, so
   // the pointer is only ever over one that is out, or the strip at its edge.
@@ -453,7 +580,7 @@ export default function App() {
   return (
     <div
       ref={appRef}
-      className={`app${inZen ? ` is-zen haze-${settings.zenHaze}` : ''}${inZen && peek ? ` peek-${peek}` : ''}`}
+      className={`app${inZen ? ` is-zen haze-${settings.zenHaze}` : ''}${inZen && peek ? ` peek-${peek}` : ''}${besideInZen ? ' notes-beside' : ''}${!inZen && dockSlide ? ` dock-slide-${dockSlide}` : ''}`}
       {...zenPointer}
     >
       <nav className="rail" aria-label="Primary">
@@ -483,10 +610,10 @@ export default function App() {
         <button
           type="button"
           className="icon-btn"
-          aria-pressed={dockPane === 'notes'}
+          aria-pressed={notesShown}
           aria-label="Highlights and notes"
-          title="Highlights"
-          onClick={() => setDock(dockPane === 'notes' ? null : 'notes')}
+          title="Highlights and notes (H)"
+          onClick={toggleNotes}
         >
           <HighlighterIcon size={19} />
         </button>
@@ -549,10 +676,10 @@ export default function App() {
       ) : view.kind === 'paper' ? (
         <Reader
           paperId={view.id}
-          notesOpen={dockPane === 'notes'}
+          notesOpen={notesShown}
           selectedHighlightId={selectedHighlightId}
           onBack={() => setView(collections[0] ? { kind: 'collection', id: collections[0].id } : { kind: 'all' })}
-          onToggleNotes={() => setDock(dockPane === 'notes' ? null : 'notes')}
+          onToggleNotes={toggleNotes}
           onNotes={revealNotes}
           onToggleSidebar={() => setLibraryOpen(!libraryOpen)}
           zen={inZen}
@@ -593,7 +720,7 @@ export default function App() {
 
           {shownDock === 'discover' ? (
             <Discover
-              onClose={() => (inZen ? setPeek(null) : setDock(null))}
+              onClose={closeDock}
               onOpen={openPaper}
               ask={discoverAsk}
               here={view.kind === 'collection' ? view.id : undefined}
@@ -605,10 +732,22 @@ export default function App() {
               selectedId={selectedHighlightId}
               orphanIds={orphanIds}
               onSelect={setSelectedHighlightId}
-              onClose={() => (inZen ? setPeek(null) : setDock(null))}
+              onClose={closeDock}
+              onPopOut={popNotesOut}
             />
           )}
         </div>
+      ) : null}
+
+      {notesWindow && reading && !showWelcome ? (
+        <NotesWindow
+          paperId={reading}
+          selectedId={selectedHighlightId}
+          orphanIds={orphanIds}
+          onSelect={setSelectedHighlightId}
+          onClose={() => setNotesWindow(false)}
+          onDock={dockNotes}
+        />
       ) : null}
 
       {inZen ? (

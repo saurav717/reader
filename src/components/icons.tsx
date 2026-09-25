@@ -96,6 +96,14 @@ export const PanelRightIcon = (props: IconProps) => (
   </Icon>
 );
 
+/** A pane lifted off into a window of its own. */
+export const PopOutIcon = (props: IconProps) => (
+  <Icon {...props} strokeWidth={1.8}>
+    <path d="M13.5 4.5h-8a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-8" />
+    <path d="M14.5 3.5h6v6M20.5 3.5l-8 8" />
+  </Icon>
+);
+
 export const NoteIcon = (props: IconProps) => (
   <Icon {...props} strokeWidth={1.8}>
     <path d="M20.5 14.5a3 3 0 0 1-3 3H9.8L5 21V6.5a3 3 0 0 1 3-3h9.5a3 3 0 0 1 3 3z" />

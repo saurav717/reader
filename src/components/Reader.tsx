@@ -1702,6 +1702,7 @@ export default function Reader({
             />
           ) : pdfObjectUrl ? (
             <iframe
+              className="pdf-frame"
               title={`${paper.title} (PDF)`}
               src={pdfPage ? `${pdfObjectUrl}#page=${pdfPage}` : pdfObjectUrl}
               style={{ flexGrow: 1, border: 0, width: '100%', background: 'var(--rail)' }}

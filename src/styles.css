@@ -94,7 +94,7 @@ input, textarea { font: inherit; color: inherit; }
 
 /* ---------------------------------------------------------------- shell -- */
 
-.app { display: flex; height: 100%; overflow: hidden; }
+.app { display: flex; height: 100%; overflow: hidden; --dock-w: 348px; --slide-time: 0.34s; --slide-ease: cubic-bezier(0.2, 0.8, 0.2, 1); }
 
 .rail {
   width: 60px;
@@ -169,7 +169,7 @@ a.icon-btn:hover { color: var(--ink); }
 /* The right-hand dock: discover and highlights share one column so the
    reading column never has a panel on both sides of it at once. */
 .dock {
-  width: 348px;
+  width: var(--dock-w);
   flex-shrink: 0;
   background: var(--panel);
   border-left: 1px solid var(--border);
@@ -1934,6 +1934,10 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
   border-radius: 0 0 2px 0; opacity: 0; transition: opacity 0.12s;
 }
 .assistant-win:hover .win-grip-se::after { opacity: 0.5; }
+/* The highlights and notes popped out into a window of the same make: the
+   dock's pane, given up its own background so the window's glass shows. */
+.notes-win .notes-rail { width: 100%; flex: 1 1 auto; min-height: 0; background: transparent; border: 0; }
+.notes-win .note-card { background: rgb(var(--win-rgb) / 0.72); }
 body.win-moving, body.win-moving * { user-select: none; }
 body.win-moving .assistant-win { transition: none; }
 
@@ -2405,9 +2409,49 @@ body.win-moving .assistant-win { transition: none; }
 @media (max-width: 720px) {
   .app.is-zen { --zen-rail: 52px; }
 }
+
+/* The notes beside the page. Opened in zen mode, the dock comes out and
+   stays out, and rather than being laid over the page it takes a column of
+   its own: the page's right edge draws in by the dock's width, so the text,
+   centred in it, glides left to make room, at the pace the dock slides in.
+   The right edge's strip has nothing left to bring out, and no haze falls,
+   since nothing is laid over the page. */
+.app.is-zen > .main { transition: margin-right var(--zen-time) var(--zen-ease); }
+.app.is-zen.notes-beside > .main { margin-right: calc(var(--dock-w) + var(--zen-inset)); }
+:root .app.is-zen.notes-beside > .dock {
+  translate: none;
+  visibility: visible;
+  opacity: 1;
+  box-shadow: none;
+  transition: translate var(--zen-time) var(--zen-ease), opacity calc(var(--zen-time) * 0.6) ease, visibility 0s, box-shadow var(--zen-time) ease;
+}
+.app.notes-beside .zen-edge[data-side='right'] { pointer-events: none; opacity: 0; }
+.app.notes-beside .zen-haze[data-side='right'] { opacity: 0; }
+
+/* Outside zen mode, with nothing either side of the page, the dock slides in
+   from the right edge instead of appearing, and the page narrows with it:
+   the dock's margin starts a dock's width (and the gap) past the window's
+   edge, so it takes no room at first and all of it by the end. Leaving is
+   the same backwards, and the dock is only taken away once it is off. */
+.app { --dock-gap: 0px; }
+:root[data-glass='on'] .app { --dock-gap: 10px; }
+@keyframes dock-slide-in {
+  from { margin-right: calc(-1 * (var(--dock-w) + var(--dock-gap))); }
+  to { margin-right: 0; }
+}
+/* Not the same keyframes reversed: that would reverse the easing too, and
+   the dock would hang in place before rushing off. */
+@keyframes dock-slide-out {
+  from { margin-right: 0; }
+  to { margin-right: calc(-1 * (var(--dock-w) + var(--dock-gap))); }
+}
+.app.dock-slide-in > .dock { animation: dock-slide-in var(--slide-time) var(--slide-ease) both; }
+.app.dock-slide-out > .dock { animation: dock-slide-out var(--slide-time) var(--slide-ease) both; }
+
 @media (prefers-reduced-motion: reduce) {
   .app.is-zen { --zen-time: 0s; }
   .zen-haze { transition: none; }
+  .app { --slide-time: 0s; }
 }
 
 /* A paper named in an answer: the name itself, underlined and numbered as its
