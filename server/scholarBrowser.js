@@ -37,6 +37,7 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { availability, extraBrowserArgs } from './access.js';
+import { worded } from './fetchPdf.js';
 import { BROWSER_UA, blockedReason, isScholarUrl } from './scholar.js';
 
 /**
@@ -149,9 +150,12 @@ export async function browserFetch(url, { signal } = {}) {
     try {
       response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     } catch (error) {
-      // Playwright's message is a call log several lines long; the first line
-      // is the one that says what happened, and is what reaches the panel.
-      throw new Error(`the proxy's browser could not load the page: ${String(error?.message || error).split('\n')[0]}`);
+      // Playwright's message is a call log several lines long, and names
+      // things — paths, flags, the machine's own addresses — that are for
+      // whoever runs the proxy, not for the panel. The log gets the first
+      // line; the panel gets that the page would not load.
+      console.warn(`[scholar] the browser could not load ${url}: ${String(error?.message || error).split('\n')[0]}`);
+      throw worded("the proxy's browser could not load the page");
     }
     const html = await page.content();
     signal?.removeEventListener('abort', abort);
@@ -172,9 +176,9 @@ export async function browserFetch(url, { signal } = {}) {
  * anything.
  */
 export async function openCaptcha(url) {
-  if (!isScholarUrl(url)) throw new Error('only a scholar.google.com page can be opened here');
+  if (!isScholarUrl(url)) throw worded('only a scholar.google.com page can be opened here');
   const ready = await availability();
-  if (!ready.available) throw new Error(ready.reason);
+  if (!ready.available) throw worded(ready.reason);
 
   solved = false;
   const ctx = await ensureContext('headed');
@@ -229,7 +233,8 @@ export async function captchaStatus() {
     solved,
     /** Whether Scholar is asked through the browser on this proxy. */
     browser: browserWanted(),
-    profile: PROFILE_DIR,
+    /** Whether a solve has ever landed here. The directory itself is the proxy's business. */
+    profileExists: existsSync(PROFILE_DIR),
   };
 }
 

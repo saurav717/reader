@@ -3,7 +3,8 @@
 // fetch it directly: arXiv serves no CORS headers, and neither do most of the
 // publishers and repositories an open-access PDF link points at.
 
-import { disposition, fetchChecked, readPdf, rejectUrl } from './fetchPdf.js';
+import { disposition, FETCH_TIMEOUT_MS, fetchChecked, readPdf, rejectUrl, worded } from './fetchPdf.js';
+import { loopbackHost, privateReason, rateLimit, tokenRefusal, tokenRequired, validToken } from './guard.js';
 import { fetchOpenReview, openReviewFiles } from './openreview.js';
 import { pmcFiles } from './pmc.js';
 import * as access from './access.js';
@@ -56,9 +57,11 @@ function corsHeaders(req) {
     'Access-Control-Allow-Origin': origin,
     Vary: 'Origin',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    // The browser session's input arrives as JSON, which is the one header
-    // a cross-origin POST from the app has to be allowed to send.
-    'Access-Control-Allow-Headers': 'Content-Type',
+    // The browser session's input arrives as JSON; the token from Settings
+    // rides in Authorization; and X-Reader-Client is the app's own id for
+    // the browser it is in. A cross-origin request may send none of these
+    // unless they are named here.
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -71,7 +74,7 @@ function readJson(req, limit = 64 * 1024) {
     req.on('data', (chunk) => {
       size += chunk.length;
       if (size > limit) {
-        reject(new Error('that request body is too large'));
+        reject(worded('that request body is too large'));
         req.destroy();
         return;
       }
@@ -82,7 +85,7 @@ function readJson(req, limit = 64 * 1024) {
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
       } catch {
-        reject(new Error('that request body is not JSON'));
+        reject(worded('that request body is not JSON'));
       }
     });
     req.on('error', reject);
@@ -94,22 +97,66 @@ function readJson(req, limit = 64 * 1024) {
  * sign-ins — came from this app. A page on any other site could POST here
  * without reading the answer, and opening browser windows on somebody's
  * machine at a URL of another site's choosing is not something to allow.
+ *
+ * A browser names where a cross-origin POST came from in Origin, and that
+ * has to be one of ours. No Origin at all is not a browser page — curl, a
+ * script, an old browser on the same origin — and is taken at its word only
+ * when it can show something a page on another site cannot: the token, or
+ * a Host header that says the request came in over loopback, which a page
+ * elsewhere cannot reach. The Host header on its own proves nothing — the
+ * one asking chose it — so it is never compared against the Origin.
  */
-function fromThisApp(req) {
+export function fromThisApp(req) {
   const origin = req.headers.origin;
-  if (!origin) return true; // same-origin without an Origin header: not a browser, or an old one
-  if (ALLOWED_ORIGINS.has(origin)) return true;
-  try {
-    return new URL(origin).host === req.headers.host;
-  } catch {
-    return false;
-  }
+  if (origin) return ALLOWED_ORIGINS.has(origin);
+  if (validToken(req)) return true;
+  return loopbackHost(req.headers.host);
+}
+
+/**
+ * Answers a gated route when the request may not use it, and says so with
+ * true; null when it may. See server/guard.js for which routes and why.
+ */
+function gate(req, res) {
+  const reason = tokenRefusal(req);
+  if (!reason) return null;
+  send(res, 401, { error: reason, auth: true }, { 'Cache-Control': 'no-store' });
+  return true;
+}
+
+/**
+ * Answers a route that costs something when this client has asked for it
+ * too often lately, and says so with true; null otherwise. The token
+ * exempts a request, since it says who is asking; without one the client's
+ * address is all there is.
+ */
+function limited(req, res, kind) {
+  const retryAfter = rateLimit(req, kind);
+  if (retryAfter === null) return null;
+  send(res, 429, { error: 'too many requests — try again in a moment' }, { 'Retry-After': String(retryAfter), 'Cache-Control': 'no-store' });
+  return true;
+}
+
+/**
+ * What to tell the person about an error: its message when it was written
+ * for them (`worded` in server/fetchPdf.js), and a short generic line
+ * otherwise, with the real one on the server's log. A library's message —
+ * a DNS failure, a TLS complaint, Playwright's call log — is for whoever
+ * runs the proxy, not for a page on the other side of it.
+ */
+function said(error, fallback = 'could not fetch that') {
+  if (error?.forPerson || error?.code === 'closed') return String(error.message);
+  console.warn(`[api] ${fallback}: ${error?.stack || error?.message || error}`);
+  return fallback;
 }
 
 function send(res, status, body, headers = {}) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...headers });
   res.end(typeof body === 'string' ? body : JSON.stringify(body));
 }
+
+/** How a fetch to arXiv is made: named, and given up on after a while. */
+const upstreamInit = (extra = {}) => ({ headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), ...extra });
 
 async function arxivQuery(url, res) {
   const params = new URLSearchParams();
@@ -120,9 +167,7 @@ async function arxivQuery(url, res) {
   if (!params.has('search_query') && !params.has('id_list')) {
     return send(res, 400, { error: 'search_query or id_list is required' });
   }
-  const upstream = await fetch(`https://export.arxiv.org/api/query?${params}`, {
-    headers: { 'User-Agent': UA },
-  });
+  const upstream = await fetch(`https://export.arxiv.org/api/query?${params}`, upstreamInit());
   const text = await upstream.text();
   res.writeHead(upstream.ok ? 200 : upstream.status, {
     'Content-Type': 'application/atom+xml; charset=utf-8',
@@ -143,7 +188,7 @@ async function arxivHtml(url, res) {
   ];
   for (const candidate of candidates) {
     try {
-      const upstream = await fetch(candidate.url, { headers: { 'User-Agent': UA }, redirect: 'follow' });
+      const upstream = await fetch(candidate.url, upstreamInit({ redirect: 'follow' }));
       if (!upstream.ok) continue;
       const html = await upstream.text();
       // ar5iv answers 200 with a stub when it has no conversion for a paper.
@@ -161,10 +206,7 @@ async function arxivHtml(url, res) {
 async function arxivPdf(url, res) {
   const id = url.searchParams.get('id') || '';
   if (!ARXIV_ID.test(id)) return send(res, 400, { error: 'bad arXiv id' });
-  const upstream = await fetch(`https://arxiv.org/pdf/${id}`, {
-    headers: { 'User-Agent': UA },
-    redirect: 'follow',
-  });
+  const upstream = await fetch(`https://arxiv.org/pdf/${id}`, upstreamInit({ redirect: 'follow' }));
   if (!upstream.ok) return send(res, upstream.status, { error: 'could not fetch PDF' });
   const buffer = Buffer.from(await upstream.arrayBuffer());
   res.writeHead(200, {
@@ -180,11 +222,13 @@ async function arxivPdf(url, res) {
 // Any other open-access PDF: OpenAlex and Semantic Scholar hand out links to
 // publishers and repositories that send no CORS headers either, so the browser
 // needs this route to read them. See server/fetchPdf.js for what it refuses.
-async function pdf(url, res) {
+async function pdf(req, url, res) {
   const target = url.searchParams.get('url') || '';
-  const reason = rejectUrl(target);
+  const reason = rejectUrl(target) || (await privateReason(target));
   if (reason) return send(res, 400, { error: reason });
   const host = new URL(target).hostname;
+  // Every fetch below re-checks each hop, by name and by what DNS says of it.
+  const options = { userAgent: UA, check: privateReason };
 
   // A login wall is the one failure a person can do something about: sign in
   // through their institution, in a window this proxy opens, and ask again.
@@ -194,12 +238,15 @@ async function pdf(url, res) {
   const loginWall = async (status, error, extra = {}) => {
     const pmc = await fromPmc();
     if (pmc) return servePdf(res, url, pmc);
-    if (access.everSignedIn()) {
+    // The retry reads with somebody's institutional session, which is
+    // not something to hand to whoever can reach the proxy: with a token
+    // set, the token; without one, the loopback-only proxy on this machine.
+    if (access.everSignedIn() && !tokenRefusal(req)) {
       try {
         const bytes = await access.fetchWithSession(target);
-        return servePdf(res, url, bytes);
+        return servePdf(res, url, bytes, { private: true });
       } catch (retry) {
-        return send(res, status, { error: `${error}; ${retry?.message || retry}`, loginWall: true, host, ...extra });
+        return send(res, status, { error: `${error}; ${said(retry, 'the signed-in browser could not fetch it either')}`, loginWall: true, host, ...extra });
       }
     }
     return send(res, status, { error, loginWall: true, host, ...extra });
@@ -209,7 +256,7 @@ async function pdf(url, res) {
   const fromPmc = async () => {
     for (const file of await pmcFiles(target, { userAgent: UA })) {
       try {
-        const { response } = await fetchChecked(file, { userAgent: UA });
+        const { response } = await fetchChecked(file, options);
         if (response.ok) return await readPdf(response, response.headers.get('content-type'));
       } catch {
         // The next file, or none.
@@ -233,9 +280,9 @@ async function pdf(url, res) {
 
   let result;
   try {
-    result = await fetchChecked(target, { userAgent: UA });
+    result = await fetchChecked(target, options);
   } catch (error) {
-    return send(res, 400, { error: String(error?.message || error) });
+    return send(res, error?.forPerson ? 400 : 502, { error: said(error) });
   }
   const { response } = result;
   // Cloudflare marks the check it serves in place of a page, whatever the
@@ -258,20 +305,25 @@ async function pdf(url, res) {
   try {
     bytes = await readPdf(response, response.headers.get('content-type'));
   } catch (error) {
-    const message = String(error?.message || error);
+    const message = said(error, 'could not read that PDF');
     if (/web page/.test(message)) return loginWall(415, message);
     return send(res, 415, { error: message });
   }
   return servePdf(res, url, bytes);
 }
 
-function servePdf(res, url, bytes) {
+/**
+ * The file, to the app. A public PDF may be cached by anything between here
+ * and the app; one fetched with somebody's sign-in (`private`) may not —
+ * it is theirs, and a shared cache would hand it to the next person.
+ */
+function servePdf(res, url, bytes, { private: personal = false } = {}) {
   const buffer = Buffer.from(bytes);
   res.writeHead(200, {
     'Content-Type': 'application/pdf',
     'Content-Length': buffer.length,
     'Content-Disposition': disposition(url.searchParams),
-    'Cache-Control': 'public, max-age=86400',
+    'Cache-Control': personal ? 'private, no-store' : 'public, max-age=86400',
     'X-Content-Type-Options': 'nosniff',
   });
   res.end(buffer);
@@ -291,7 +343,7 @@ async function accessSignIn(req, url, res) {
   try {
     return send(res, 200, { ok: true, ...(await access.openSignIn(target)) });
   } catch (error) {
-    return send(res, 400, { error: String(error?.message || error) });
+    return send(res, 400, { error: said(error, 'could not open the sign-in window') });
   }
 }
 
@@ -301,7 +353,7 @@ async function accessAction(req, res, action) {
   try {
     return send(res, 200, { ok: true, ...(await action()) });
   } catch (error) {
-    return send(res, 502, { error: String(error?.message || error) });
+    return send(res, 502, { error: said(error, 'could not do that') });
   }
 }
 
@@ -320,7 +372,7 @@ async function browseOpen(req, url, res) {
   try {
     return send(res, 200, { ok: true, ...(await browse.open(url.searchParams.get('url') || '')) }, { 'Cache-Control': 'no-store' });
   } catch (error) {
-    return send(res, 400, { error: String(error?.message || error) });
+    return send(res, 400, { error: said(error, 'could not open the browser') });
   }
 }
 
@@ -341,14 +393,14 @@ async function browseInput(req, res) {
     const body = await readJson(req);
     events = Array.isArray(body) ? body : Array.isArray(body.events) ? body.events : [body];
   } catch (error) {
-    return send(res, 400, { error: String(error?.message || error) });
+    return send(res, 400, { error: said(error, 'could not read that') });
   }
   if (events.length > 64) return send(res, 400, { error: 'too many events at once' });
   try {
     for (const event of events) await browse.input(event || {});
     return send(res, 200, { ok: true }, { 'Cache-Control': 'no-store' });
   } catch (error) {
-    return send(res, error?.code === 'closed' ? 409 : 400, { error: String(error?.message || error) });
+    return send(res, error?.code === 'closed' ? 409 : 400, { error: said(error, 'the browser could not do that') });
   }
 }
 
@@ -358,7 +410,7 @@ async function browseGrab(req, url, res) {
   try {
     await browse.grab();
   } catch (error) {
-    return send(res, error?.code === 'closed' ? 409 : 404, { error: String(error?.message || error) });
+    return send(res, error?.code === 'closed' ? 409 : 404, { error: said(error, 'no PDF could be fetched from that page') });
   }
   return browsePdf(url, res);
 }
@@ -418,7 +470,14 @@ const serpKey = () => (process.env.SERPAPI_KEY || '').trim();
 /** How this proxy asks Scholar, for /health and for anyone wondering. */
 export const scholarVia = () => (serpKey() ? 'serpapi' : 'direct');
 
-async function scholar(res, { kind, params, url, parse }) {
+async function scholar(req, res, { kind, params, url, parse }) {
+  // SerpApi is metered on this proxy's key, so with a token set only the
+  // token may spend it. Scholar asked directly costs nothing but Google's
+  // patience, and stays open.
+  if (serpKey()) {
+    const refused = gate(req, res);
+    if (refused) return refused;
+  }
   try {
     const results = serpKey()
       ? await askSerp(kind, params, serpKey())
@@ -431,7 +490,7 @@ async function scholar(res, { kind, params, url, parse }) {
     if (error && error.serpapi) {
       return send(res, 503, { error: error.message, serpapi: true, reason: error.reason });
     }
-    return send(res, 502, { error: String(error?.message || error) });
+    return send(res, 502, { error: said(error, 'could not reach Scholar') });
   }
 }
 
@@ -447,29 +506,29 @@ async function scholarCaptcha(req, url, res) {
   try {
     return send(res, 200, { ok: true, ...(await openCaptcha(target)) });
   } catch (error) {
-    return send(res, 400, { error: String(error?.message || error) });
+    return send(res, 400, { error: said(error, 'could not open the captcha window') });
   }
 }
 
-function scholarSearch(url, res) {
+function scholarSearch(req, url, res) {
   const query = (url.searchParams.get('q') || '').trim();
   if (!query) return send(res, 400, { error: 'q is required' });
   const start = Math.max(0, Math.min(90, Number(url.searchParams.get('start')) || 0));
-  return scholar(res, { kind: 'search', params: { query, start }, url: searchUrl(query, { start }), parse: parseResults });
+  return scholar(req, res, { kind: 'search', params: { query, start }, url: searchUrl(query, { start }), parse: parseResults });
 }
 
-function scholarAuthors(url, res) {
+function scholarAuthors(req, url, res) {
   const name = (url.searchParams.get('name') || '').trim();
   if (!name) return send(res, 400, { error: 'name is required' });
-  return scholar(res, { kind: 'authors', params: { name }, url: authorSearchUrl(name), parse: parseAuthors });
+  return scholar(req, res, { kind: 'authors', params: { name }, url: authorSearchUrl(name), parse: parseAuthors });
 }
 
-function scholarProfile(url, res) {
+function scholarProfile(req, url, res) {
   const user = (url.searchParams.get('user') || '').trim();
   if (!/^[\w-]{6,32}$/.test(user)) return send(res, 400, { error: 'bad Scholar profile id' });
   const start = Math.max(0, Number(url.searchParams.get('start')) || 0);
   const sort = profileSort(url.searchParams.get('sort'));
-  return scholar(res, {
+  return scholar(req, res, {
     kind: 'profile',
     params: { user, start, sort },
     url: profileUrl(user, { start, sort }),
@@ -480,10 +539,10 @@ function scholarProfile(url, res) {
 // One person, from the top of their profile: name, place, interests, their
 // citations, h-index and i10-index, and their most cited works. The hover
 // card over an author asks for it once it knows which profile is theirs.
-function scholarPerson(url, res) {
+function scholarPerson(req, url, res) {
   const user = (url.searchParams.get('user') || '').trim();
   if (!/^[\w-]{6,32}$/.test(user)) return send(res, 400, { error: 'bad Scholar profile id' });
-  return scholar(res, {
+  return scholar(req, res, {
     kind: 'person',
     params: { user },
     url: profileUrl(user, { sort: 'citations' }),
@@ -498,12 +557,12 @@ export const CITATION_ID = /^[\w-]{6,32}:[\w-]{6,32}$/;
 // One entry on a profile, opened: where the file Scholar found for it, and
 // the cluster it belongs to, are shown. The list gives neither, so the app
 // asks for this when it comes to reading one of a profile's papers.
-function scholarWork(url, res) {
+function scholarWork(req, url, res) {
   const user = (url.searchParams.get('user') || '').trim();
   const citation = (url.searchParams.get('citation') || '').trim();
   if (!PROFILE_ID.test(user)) return send(res, 400, { error: 'bad Scholar profile id' });
   if (!CITATION_ID.test(citation)) return send(res, 400, { error: 'bad Scholar citation id' });
-  return scholar(res, {
+  return scholar(req, res, {
     kind: 'work',
     params: { user, citation },
     url: workUrl(user, citation),
@@ -511,10 +570,10 @@ function scholarWork(url, res) {
   });
 }
 
-function scholarVersions(url, res) {
+function scholarVersions(req, url, res) {
   const cluster = (url.searchParams.get('cluster') || '').trim();
   if (!/^\d{1,25}$/.test(cluster)) return send(res, 400, { error: 'bad cluster id' });
-  return scholar(res, { kind: 'versions', params: { cluster }, url: versionsUrl(cluster), parse: parseResults });
+  return scholar(req, res, { kind: 'versions', params: { cluster }, url: versionsUrl(cluster), parse: parseResults });
 }
 
 // Only the handful of hosts the app actually reads from; an open proxy here
@@ -532,7 +591,9 @@ async function asset(url, res) {
   if (parsed.protocol !== 'https:' || !ASSET_HOSTS.has(parsed.hostname)) {
     return send(res, 403, { error: 'host not allowed' });
   }
-  const upstream = await fetch(parsed, { headers: { 'User-Agent': UA }, redirect: 'follow' });
+  // The hosts are arXiv's own, but a name is only a name until DNS says.
+  if (await privateReason(parsed.toString())) return send(res, 403, { error: 'host not allowed' });
+  const upstream = await fetch(parsed, upstreamInit({ redirect: 'follow' }));
   if (!upstream.ok) return send(res, upstream.status, { error: 'upstream error' });
   const buffer = Buffer.from(await upstream.arrayBuffer());
   res.writeHead(200, {
@@ -541,6 +602,38 @@ async function asset(url, res) {
     'Cache-Control': 'public, max-age=86400',
   });
   res.end(buffer);
+}
+
+/**
+ * The status of the browser inside the reader, for whoever asks. Where the
+ * browser is, what the page is called and the picture of it are what the
+ * person signed in there is looking at, so those go only to the token when
+ * one is wanted; the rest — whether it could open, whether anything is —
+ * is what the app needs to offer it, and is public.
+ */
+async function browseStatus(req, res) {
+  const full = await browse.status();
+  if (!tokenRequired() || validToken(req)) return send(res, 200, full, { 'Cache-Control': 'no-store' });
+  const { url, title, frame, pdf, check, ...rest } = full;
+  return send(res, 200, { ...rest, pdf: pdf ? { size: pdf.size } : null }, { 'Cache-Control': 'no-store' });
+}
+
+/**
+ * The routes that want the token, when one is wanted — see server/guard.js.
+ * Everything under /browse and /access but the two status routes, the
+ * captcha window, and the routes above that spend on what is this proxy's.
+ */
+function gated(pathname) {
+  if (pathname === '/browse/status' || pathname === '/access/status') return false;
+  return pathname.startsWith('/browse/') || pathname.startsWith('/access/') || pathname.startsWith('/scholar/captcha');
+}
+
+/** Which rate-limit bucket a route draws from, if any. */
+function costOf(pathname) {
+  if (pathname === '/pdf' || pathname === '/asset') return 'pdf';
+  if (pathname.startsWith('/scholar/') && !pathname.startsWith('/scholar/captcha')) return 'scholar';
+  if (pathname === '/browse/open') return 'browse';
+  return null;
 }
 
 export default async function apiRouter(req, res, next) {
@@ -554,6 +647,15 @@ export default async function apiRouter(req, res, next) {
     const writeHead = res.writeHead.bind(res);
     res.writeHead = (status, headers) => writeHead(status, { ...cors, ...(headers || {}) });
   }
+  if (gated(url.pathname)) {
+    const refused = gate(req, res);
+    if (refused) return refused;
+  }
+  const cost = costOf(url.pathname);
+  if (cost) {
+    const held = limited(req, res, cost);
+    if (held) return held;
+  }
   try {
     switch (url.pathname) {
       case '/arxiv/query':
@@ -563,19 +665,19 @@ export default async function apiRouter(req, res, next) {
       case '/arxiv/pdf':
         return await arxivPdf(url, res);
       case '/pdf':
-        return await pdf(url, res);
+        return await pdf(req, url, res);
       case '/scholar/search':
-        return await scholarSearch(url, res);
+        return await scholarSearch(req, url, res);
       case '/scholar/authors':
-        return await scholarAuthors(url, res);
+        return await scholarAuthors(req, url, res);
       case '/scholar/profile':
-        return await scholarProfile(url, res);
+        return await scholarProfile(req, url, res);
       case '/scholar/person':
-        return await scholarPerson(url, res);
+        return await scholarPerson(req, url, res);
       case '/scholar/versions':
-        return await scholarVersions(url, res);
+        return await scholarVersions(req, url, res);
       case '/scholar/work':
-        return await scholarWork(url, res);
+        return await scholarWork(req, url, res);
       case '/scholar/captcha':
         return await scholarCaptcha(req, url, res);
       case '/scholar/captcha/status':
@@ -593,7 +695,7 @@ export default async function apiRouter(req, res, next) {
       case '/access/forget':
         return await accessAction(req, res, () => access.forget());
       case '/browse/status':
-        return send(res, 200, await browse.status(), { 'Cache-Control': 'no-store' });
+        return await browseStatus(req, res);
       case '/browse/open':
         return await browseOpen(req, url, res);
       case '/browse/frame':
@@ -612,12 +714,14 @@ export default async function apiRouter(req, res, next) {
           access: (await access.availability()).available,
           browse: (await access.browseAvailability()).available,
           scholar: scholarVia(),
+          /** Whether the sign-in and browser routes want a token — so the app can ask for one. */
+          auth: tokenRequired(),
         });
       default:
         if (next) return next();
         return send(res, 404, { error: 'not found' });
     }
   } catch (error) {
-    return send(res, 502, { error: String(error && error.message ? error.message : error) });
+    return send(res, 502, { error: said(error) });
   }
 }

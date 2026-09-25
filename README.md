@@ -55,6 +55,21 @@ publishers and repositories that hold everything else. Everything else — OpenA
 Semantic Scholar, Crossref, Unpaywall, GitHub and Google — sends CORS headers and is
 called straight from the page.
 
+Out of the box the server listens on `127.0.0.1` only, and every route is open to
+whoever is sitting at the machine. Some of those routes are personal — the
+institutional sign-in, the browser inside the reader, a PDF fetched with your
+sign-in, Scholar through a SerpApi key — so a proxy that other machines can reach
+needs a password. Set `READER_TOKEN` to any long random string, and paste the same
+string into **Settings → Paper proxy** in the app; the app sends it with every
+request, and those routes answer 401 without it. `READER_HOST=0.0.0.0` widens where
+the server listens, and is refused unless `READER_TOKEN` is set. Plain PDF fetches,
+arXiv and `/health` stay open either way, and `/health` says `"auth": true` when a
+token is wanted. The costly routes are also rate-limited per address (the token
+exempts you); set `TRUST_PROXY=1` when the server sits behind a reverse proxy so
+the address it limits is the client's, from `X-Forwarded-For`, not the reverse
+proxy's own. On Vercel there is no loopback to hide behind, so `READER_TOKEN` is
+required there for those routes.
+
 ## Searching
 
 One box searches every selected source at once and merges the answers
