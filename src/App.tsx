@@ -342,6 +342,13 @@ export default function App() {
       if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && (event.key === '\\' || event.key.toLowerCase() === 'j')) {
         event.preventDefault();
         setAssistantOpen((current) => !current);
+        return;
+      }
+      // ⌘⇧\, beside it, opens and closes the notes the same way, typing or not.
+      // Matched on the key rather than the character, which Shift makes `|`.
+      if (readingNow && (event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.code === 'Backslash') {
+        event.preventDefault();
+        toggleNotesRef.current();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -652,7 +659,7 @@ export default function App() {
           className="icon-btn"
           aria-pressed={notesShown}
           aria-label="Highlights and notes"
-          title="Highlights and notes (H)"
+          title="Highlights and notes (H, or ⌘⇧\)"
           onClick={toggleNotes}
         >
           <HighlighterIcon size={19} />

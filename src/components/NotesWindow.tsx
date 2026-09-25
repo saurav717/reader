@@ -90,7 +90,7 @@ export default function NotesWindow({ paperId, selectedId, orphanIds, onSelect, 
           <button type="button" className="win-btn" onClick={onDock} aria-label="Put the notes back beside the page" title="Dock beside the page">
             <PanelRightIcon size={14} />
           </button>
-          <button type="button" className="win-btn" onClick={onClose} aria-label="Close the notes" title="Close (Esc, or H)">
+          <button type="button" className="win-btn" onClick={onClose} aria-label="Close the notes" title="Close (Esc, H or ⌘⇧\)">
             <CloseIcon size={14} />
           </button>
         </span>

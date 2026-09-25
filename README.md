@@ -1458,7 +1458,8 @@ numeric offset is kept only to break ties between several identical quotes. When
 quote genuinely cannot be found, the note is kept and flagged rather than dropped.
 
 In the reader: select text, then click a colour or press `1`–`4`; `N` highlights and
-opens a note. `H` opens and closes the highlights and notes — see
+opens a note. `H` — or `⌘⇧\`, which works while typing too — opens and
+closes the highlights and notes; see
 [Notes beside the page, or in a window](#notes-beside-the-page-or-in-a-window).
 `⌘K` / `Ctrl-K` opens the palette, which searches your library and arXiv together.
 
@@ -1844,7 +1845,8 @@ the wallpaper. The styles are the *zen* section at the end of
 
 ### Notes beside the page, or in a window
 
-Opening the highlights and notes in zen mode — **H**, or the button in the top
+Opening the highlights and notes in zen mode — **H**, `⌘⇧\` (beside Ask
+Claude's `⌘\`, and it works while you are typing), or the button in the top
 bar or the rail — does not lay them over the page. They come out at the right
 and stay out, and the page slides left to make room for them, smoothly, at the
 pace they slide in. **H** again, or their ✕, puts them away and the page slides

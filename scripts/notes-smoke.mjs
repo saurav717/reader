@@ -6,7 +6,8 @@
  * over it, as Ask Claude does, moved with ⌘ + arrows and snapped with
  * ⌘⇧ + arrows — and with Ask Claude open too, only the window in front
  * moves. The dock's pop-out button lifts the notes into the window, and the
- * window's dock button puts them back. Each step is photographed.
+ * window's dock button puts them back. ⌘⇧\ opens and closes them as H
+ * does, and while typing too. Each step is photographed.
  *
  *   npm run build && npm start &
  *   node scripts/notes-smoke.mjs        # SMOKE_BASE=http://localhost:8080
@@ -314,6 +315,26 @@ check('H opens the window next time, in Reflow too', (await page.locator('.notes
 await page.locator('.notes-win').getByRole('button', { name: 'Put the notes back beside the page' }).click();
 await settle();
 check('docked again, H opens the dock', (await page.locator('.notes-win').count()) === 0 && (await page.locator('.dock').count()) === 1);
+
+console.log('\n== ⌘⇧\\ opens and closes them, typing or not ==');
+await page.keyboard.press(`${mod}+Shift+Backslash`);
+await settle();
+check('⌘⇧\\ closes the notes', (await page.locator('.dock').count()) === 0);
+await page.keyboard.press(`${mod}+Backslash`);
+await page.waitForSelector('.assistant-win');
+await page.waitForTimeout(300);
+const typingIn = () => page.evaluate(() => /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName ?? '') && Boolean(document.activeElement.closest('.assistant-win')));
+await page.locator('.assistant-win input[type="password"]').click();
+await page.keyboard.type('sk');
+check('with the cursor in a box in Ask Claude…', await typingIn());
+await page.keyboard.press(`${mod}+Shift+Backslash`);
+await settle();
+check('…⌘⇧\\ opens the notes', (await page.locator('.dock').count()) === 1);
+check('and leaves Ask Claude open, with the cursor where it was', (await page.locator('.assistant-win').count()) === 1 && (await typingIn()));
+await page.keyboard.press(`${mod}+Shift+Backslash`);
+await settle();
+check('and again closes them', (await page.locator('.dock').count()) === 0);
+await page.keyboard.press(`${mod}+Backslash`);
 
 check('no errors on the page', errors.length === 0, errors.join('\n'));
 await browser.close();
