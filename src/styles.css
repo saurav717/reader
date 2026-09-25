@@ -3144,6 +3144,157 @@ body.win-moving .assistant-win { transition: none; }
 .drive-line.is-error span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .explain-looking { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; padding-top: 24px; }
 
+/* ---------------------------------------------------------------------------
+   Implementation: the second page of Explain (components/Implement.tsx).
+   The same bar, outline and sections; these are the pieces it adds — the
+   tab, a directory tree, starter files, the compute budget for the reader's
+   machine, the picker for that machine, and the Colab menu.
+   --------------------------------------------------------------------------- */
+.explain-pages button { display: inline-flex; align-items: center; gap: 6px; }
+.explain-pages button[aria-pressed='true'] { color: var(--accent-ink); }
+.explain-pages button svg { opacity: 0.8; }
+.explain-pages button[aria-pressed='true'] svg { opacity: 1; color: var(--accent); }
+
+/* The tree: a row a file, indented by depth, the note after the name. */
+.impl-tree, .impl-file, .impl-budget { margin: 0 0 18px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; max-width: 860px; }
+.impl-tree > header, .impl-file > header, .impl-budget > header {
+  display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 12px;
+  border-bottom: 1px solid var(--border-soft); background: var(--panel);
+}
+.impl-tree ol { list-style: none; margin: 0; padding: 8px 0 10px; font: 12.5px/1.6 var(--mono); }
+.impl-tree li { display: flex; align-items: baseline; gap: 8px; padding-right: 14px; min-height: 24px; }
+.impl-tree li:hover { background: rgba(127, 127, 127, 0.07); }
+.tree-icon { flex: none; align-self: center; display: inline-flex; color: var(--muted); }
+.impl-tree li.is-dir .tree-icon { color: var(--accent); }
+.tree-name { white-space: nowrap; }
+.impl-tree li.is-dir .tree-name { font-weight: 600; }
+.tree-note { color: var(--muted); font: 12px/1.5 var(--sans); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tree-note::before { content: '— '; }
+.impl-tree .tree-writing { padding-left: 14px; color: var(--muted); }
+
+/* A starter file: its path as the title, the code under it. */
+.file-path { flex: 1; min-width: 0; font: 12.5px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.file-dir { color: var(--muted); }
+.file-path b { font-weight: 600; color: var(--ink); }
+.file-meta { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.impl-file .cell-code { max-height: 520px; overflow: auto; }
+.explain-cell.is-shell .cell-index { color: var(--v-holds); }
+.explain-cell.is-shell .cell-code { color: var(--ink-2); }
+
+/* The budget: three or four numbers, then a phase a row, each with its bar. */
+.impl-budget .cell-title b { font-weight: 600; }
+.budget-empty { padding: 18px 16px; color: var(--muted); font-size: 13px; }
+.budget-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; padding: 14px 14px 6px; }
+.budget-stat { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--panel) 70%, transparent); }
+.stat-label { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.budget-stat > b { font: 600 22px/1.15 var(--sans); letter-spacing: -0.01em; color: var(--ink); }
+.stat-note { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.budget-scroll { overflow-x: auto; }
+.budget-table { width: 100%; min-width: 520px; border-collapse: collapse; font: 13px/1.45 var(--sans); margin: 8px 0 0; }
+.budget-table th { text-align: left; padding: 8px 14px; font-weight: 600; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border-soft); }
+.budget-table td { padding: 9px 14px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.budget-table tr:last-child td { border-bottom: 0; }
+.budget-table td b { font-weight: 600; }
+.budget-table .mono { font: 12px var(--mono); white-space: nowrap; }
+.phase-note { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.budget-table td:nth-child(3) { min-width: 180px; position: relative; }
+.phase-bar { height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, var(--hl-blue))); margin: 6px 0 4px; }
+.phase-hours { font-weight: 600; font-size: 13px; }
+.phase-usd { margin-left: 8px; color: var(--muted); font-size: 12px; }
+.fit-chip {
+  display: inline-block; font: 600 10.5px/1 var(--sans); letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
+  padding: 4px 7px; border-radius: 5px; color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent);
+}
+.fit-fits { --c: var(--v-holds); }
+.fit-sharded { --c: var(--v-refined); }
+.fit-tight { --c: var(--v-superseded); }
+.fit-no { --c: var(--v-disproved); }
+.budget-foot { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px 12px; border-top: 1px dashed var(--border); font-size: 12px; color: var(--ink-2); background: color-mix(in srgb, var(--panel) 60%, transparent); }
+.budget-foot .is-bad { color: var(--danger); font-weight: 500; }
+.budget-foot .shrink { color: var(--ink); }
+.budget-foot .assumption { color: var(--muted); font-size: 11.5px; }
+
+/* The picker. In the budget it opens under the header; in the empty state it is the card at the bottom. */
+.hardware-panel {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 12px;
+  padding: 12px 14px 12px; border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--surface));
+}
+.hw-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 11px; color: var(--muted); }
+.hw-field > span { display: flex; justify-content: space-between; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 600; }
+.hw-field > span b { color: var(--ink); font-weight: 600; letter-spacing: 0; text-transform: none; font-size: 12px; }
+.hw-field select, .hw-field input[type='number'] {
+  width: 100%; height: 32px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--ink); font-size: 12.5px; min-width: 0;
+}
+.hw-gpu { grid-column: span 2; }
+.hw-range input { width: 100%; accent-color: var(--accent); }
+.hw-note { grid-column: 1 / -1; font-size: 11.5px; color: var(--muted); }
+.hardware-panel.is-compact { grid-template-columns: 1fr 1fr; }
+.hardware-panel.is-compact .hw-gpu { grid-column: 1 / -1; }
+
+.impl-machine { margin: 0 0 22px; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--surface); }
+.impl-machine-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding: 12px 14px 10px; }
+.impl-machine-head b { font-size: 14px; font-weight: 600; }
+.impl-machine-head span { font-size: 12.5px; color: var(--muted); }
+.impl-machine .hardware-panel { border-bottom: 0; }
+.impl-promises { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.impl-promises li.p-data { --c: var(--v-refined); }
+.impl-promises li.p-tree { --c: var(--accent); }
+.impl-promises li.p-budget { --c: var(--v-superseded); }
+.impl-promises li.p-colab { --c: #e8710a; }
+
+/* The machine in the outline: what it is, and the budget in a line. */
+.outline-hardware { margin: 18px 0 0; padding: 12px 10px 4px; border-top: 1px solid var(--border-soft); }
+.hw-summary-line { display: flex; flex-direction: column; gap: 1px; margin-bottom: 8px; }
+.hw-summary-line b { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.hw-summary-line span { font-size: 11px; color: var(--muted); }
+.hw-summary-est { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin-bottom: 8px; }
+.est-time { font: 600 13px var(--sans); color: var(--ink); }
+.est-cost { font: 500 11.5px var(--mono); color: var(--muted); }
+.hw-change { font-size: 11.5px; color: var(--accent); text-decoration: none; }
+.hw-change:hover { text-decoration: underline; }
+
+/* Colab, in the bar: the scaffold out of the page. */
+.btn.colab-open { display: inline-flex; align-items: center; gap: 6px; }
+.colab-menu { min-width: 340px; max-width: 400px; max-height: none; padding: 8px; cursor: default; }
+.colab-menu .menu-label { margin: 2px 8px 8px; text-transform: none; letter-spacing: 0; font-weight: 500; }
+.menu .colab-action { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 10px; }
+.colab-action b { font-size: 13px; font-weight: 600; }
+.colab-action span { font-size: 11.5px; color: var(--muted); white-space: normal; line-height: 1.4; }
+.colab-action:hover span { color: inherit; opacity: 0.8; }
+.colab-status { margin: 2px 8px 8px; padding: 8px 10px; border-radius: 8px; font-size: 12px; line-height: 1.45; color: var(--ink-2); background: var(--panel); }
+.colab-status b { font-weight: 600; color: var(--ink); }
+.colab-status.is-ok { color: var(--ink); background: color-mix(in srgb, var(--v-holds) 12%, transparent); }
+.colab-status.is-error { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.colab-status a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.colab-hint { display: flex; align-items: center; gap: 8px; margin: 6px 8px 2px; font-size: 11px; color: var(--muted); line-height: 1.4; }
+
+.layout-notebook .impl-tree, .layout-notebook .impl-file, .layout-notebook .impl-budget { max-width: none; }
+/* Beside the paper, the bar has half the window: the brand is its mark, the tabs their icons, and the title goes. */
+.layout-beside .explain-bar-title, .layout-beside .explain-brand > span, .layout-beside .explain-pages button span { display: none; }
+.layout-beside .explain-bar { gap: 8px; padding-left: 14px; }
+.layout-beside .explain-pages button { padding: 5px 9px; }
+/* A tree, a file or the budget is a table's width: its row spans the margin too. */
+.layout-margin .explain-row.is-wide { display: block; }
+.layout-margin .explain-row.is-wide .impl-budget { max-width: 1000px; }
+.layout-margin .explain-row.is-wide .impl-file, .layout-margin .explain-row.is-wide .impl-tree { max-width: 900px; }
+.hw-summary-est .fit-chip, .budget-stat .fit-chip { white-space: normal; line-height: 1.3; align-self: flex-start; }
+.budget-stat .fit-chip { font-size: 12px; padding: 5px 8px; }
+/* A table in the prose with a long code span in a cell: the span breaks, and on a phone the table scrolls on its own. */
+.explain-prose td code { overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .explain-prose table { display: block; overflow-x: auto; }
+  .hardware-panel { grid-template-columns: 1fr 1fr; }
+  .hw-gpu { grid-column: 1 / -1; }
+  .impl-promises { grid-template-columns: minmax(0, 1fr); }
+  .budget-table td:nth-child(3) { min-width: 120px; }
+  .explain-bar .explain-pages { display: flex; }
+  .explain-pages button span { display: none; }
+  .explain-pages button { padding: 5px 9px; }
+}
+:root[data-glass='on'] .impl-tree, :root[data-glass='on'] .impl-file, :root[data-glass='on'] .impl-budget, :root[data-glass='on'] .impl-machine { background: rgb(var(--float-rgb) / 0.55); }
+
 /* ===========================================================================
    Passages Ask Claude points at (lib/locate.ts, components/PassageFlash.tsx).
    =========================================================================== */
@@ -3941,3 +4092,50 @@ input.board-link-label { cursor: text; outline: none; min-width: 150px; text-ali
 .board-frame-head small { font-weight: 500; color: var(--muted); margin-left: 4px; }
 .board-link { stroke-dasharray: 6 5; }
 .board-link.is-picked { stroke-dasharray: none; }
+
+/* The local workspace (components/Implement.tsx, server/workspace.js): the
+   machine found through the proxy, the scaffold written there, and the
+   console at the foot of the page where its commands run. */
+.hw-detect { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; font-size: 11.5px; color: var(--ink-2); }
+.hw-detect .btn { display: inline-flex; align-items: center; gap: 6px; }
+.btn.local-open { display: inline-flex; align-items: center; gap: 6px; }
+.btn.local-open.is-on { color: var(--accent); border-color: var(--accent); }
+.local-menu { min-width: 360px; max-width: 420px; max-height: min(600px, calc(100vh - 120px)); padding: 8px; cursor: default; }
+.local-machine { display: flex; flex-direction: column; gap: 2px; margin: 2px 8px 8px; font-size: 12px; color: var(--muted); line-height: 1.4; }
+.local-machine b { font-size: 13px; color: var(--ink); font-weight: 600; }
+.local-setup { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border-soft); font: 11.5px/1.5 var(--mono); color: var(--ink); white-space: pre-wrap; }
+.local-dir { margin-top: 4px; font: 11px var(--mono); color: var(--muted); word-break: break-all; }
+.local-command b { font: 500 12.5px var(--mono); }
+.local-command span { font: 11px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.colab-status .link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.btn.local-run { color: var(--v-holds); border-color: color-mix(in srgb, var(--v-holds) 45%, transparent); }
+.btn.local-run:hover { background: color-mix(in srgb, var(--v-holds) 12%, transparent); }
+
+.run-console {
+  position: fixed; left: max(42%, 380px); right: 0; bottom: 0; z-index: 41;
+  max-height: 44vh; display: flex; flex-direction: column;
+  border-top: 1px solid var(--border); border-left: 1px solid var(--border-soft); border-radius: 14px 0 0 0;
+  background: var(--surface); box-shadow: 0 -20px 50px -30px rgb(0 0 0 / 0.45);
+  animation: explain-in 0.24s ease-out;
+}
+.explain:not(.layout-beside) .run-console { left: 0; border-left: 0; border-radius: 0; }
+.run-console > header { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--border-soft); color: var(--accent); font-size: 12.5px; }
+.console-dir { flex: 1; min-width: 0; font: 12px var(--mono); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.console-live { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--v-holds); }
+.console-live .spinner { width: 10px; height: 10px; border-width: 1.5px; }
+.console-form { display: flex; align-items: center; gap: 8px; padding: 8px 10px 6px 14px; }
+.console-prompt { font: 600 13px var(--mono); color: var(--v-holds); }
+.console-form input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--paper); color: var(--ink); font: 12.5px var(--mono); }
+.console-form input:focus { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.14); }
+.console-suggestions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 14px 8px; }
+.console-error { padding: 4px 14px; color: var(--danger); font-size: 12px; }
+.console-out {
+  flex: 1; min-height: 120px; margin: 0; padding: 10px 14px 14px; overflow: auto;
+  font: 12px/1.55 var(--mono); color: var(--ink); background: var(--panel); white-space: pre-wrap; word-break: break-word;
+}
+:root[data-theme='dark'] .console-out { background: #101211; color: #d8dcd6; }
+:root[data-glass='on'] .run-console { background: rgb(var(--float-rgb) / 0.9); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+@media (max-width: 900px) {
+  .run-console { left: 0; border-left: 0; border-radius: 0; max-height: 50vh; }
+  .btn.local-open span, .btn.colab-open span { display: none; }
+}

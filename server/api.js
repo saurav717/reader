@@ -27,6 +27,7 @@ import {
 import { captchaStatus, closeCaptcha, openCaptcha, scholarFetcher } from './scholarBrowser.js';
 import * as browse from './browse.js';
 import { askSerp } from './serpapi.js';
+import * as workspace from './workspace.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 
@@ -625,7 +626,38 @@ async function browseStatus(req, res) {
  */
 function gated(pathname) {
   if (pathname === '/browse/status' || pathname === '/access/status') return false;
-  return pathname.startsWith('/browse/') || pathname.startsWith('/access/') || pathname.startsWith('/scholar/captcha');
+  return pathname.startsWith('/browse/') || pathname.startsWith('/access/') || pathname.startsWith('/scholar/captcha') || pathname.startsWith('/workspace/');
+}
+
+// ------------------------------------------------------------ workspace ----
+//
+// The Implementation page's scaffold, on this machine: what the machine is,
+// the files written under READER_WORKSPACE, and a command run there with its
+// output streamed back. See server/workspace.js. Writing and running are
+// POSTs from this app only; the whole prefix is gated by the token when one
+// is wanted, since a run is a shell on the proxy's machine.
+
+async function workspaceScaffold(req, res) {
+  if (req.method !== 'POST') return send(res, 405, { error: 'POST the files to write' });
+  if (!fromThisApp(req)) return send(res, 403, { error: 'not from this app' });
+  try {
+    const body = await readJson(req, 4 * 1024 * 1024);
+    return send(res, 200, { ok: true, ...(await workspace.writeScaffold(body)) }, { 'Cache-Control': 'no-store' });
+  } catch (error) {
+    return send(res, 400, { error: said(error, 'could not write the scaffold') });
+  }
+}
+
+async function workspaceRun(req, res) {
+  if (req.method !== 'POST') return send(res, 405, { error: 'POST the command to run' });
+  if (!fromThisApp(req)) return send(res, 403, { error: 'not from this app' });
+  let body;
+  try {
+    body = await readJson(req);
+    workspace.run(body, res, req);
+  } catch (error) {
+    return send(res, 400, { error: said(error, 'could not run that') });
+  }
 }
 
 /** Which rate-limit bucket a route draws from, if any. */
@@ -708,6 +740,12 @@ export default async function apiRouter(req, res, next) {
         return browsePdf(url, res);
       case '/browse/close':
         return await accessAction(req, res, () => browse.close());
+      case '/workspace/status':
+        return send(res, 200, await workspace.status(), { 'Cache-Control': 'no-store' });
+      case '/workspace/scaffold':
+        return await workspaceScaffold(req, res);
+      case '/workspace/run':
+        return await workspaceRun(req, res);
       case '/health':
         return send(res, 200, {
           ok: true,
@@ -716,6 +754,8 @@ export default async function apiRouter(req, res, next) {
           scholar: scholarVia(),
           /** Whether the sign-in and browser routes want a token — so the app can ask for one. */
           auth: tokenRequired(),
+          /** Whether READER_WORKSPACE names a directory the Implementation page can write into and run in. */
+          workspace: workspace.available(),
         });
       default:
         if (next) return next();

@@ -2256,6 +2256,121 @@ requests from the bar (`explain-revise-*.md`), one held halfway so the
 rewrite can be photographed, and it photographs each layout.
 `scripts/explain.test.mjs` tests the parser and `applyEdits`.
 
+## Implementation
+
+Explain has a second page. **Implementation**, the tab beside **Explanation**
+in the bar, is the paper as a project: Claude reads it again and plans how to
+build it, for the machine you have. It is written, kept, revised and undone the
+same way as the explanation — one page per paper, in IndexedDB, with the bar
+at the top for questions and changes — and the two pages are separate, so a
+paper can have either, or both.
+
+![the Implementation tab before it is planned: what it will cover, and the picker for your machine](docs/implement-start.png)
+
+What it writes, in this order:
+
+- **At a glance**: what will be built, the smallest faithful reproduction, and
+  whether your machine is enough for it — and if not, what scaled-down version is.
+- **What to build, and what to leave out**: the paper's components in a table
+  with *Build it? Yes / Simplify / Skip* and why, then the design decisions,
+  each with the alternative considered.
+- **Datasets**: what the paper used, what is public, size, licence, where to get
+  it, and the shell commands that fetch and prepare it. When the paper's data
+  is not released, the substitute, and how much it changes the result.
+- **Repository layout**: the directories and files as a tree, each with what it
+  holds, and why the code is split that way.
+- **Starter files**: the config, the core algorithm with the paper's equations
+  written out and cited, the training entry point, a Makefile, a README — each
+  a card with its path, real code rather than pseudocode.
+- **The pipeline, step by step**: a figure, and the order to build and test
+  things in, with what to check before moving on.
+- **Compute budget**: see below.
+- **Constraints and pitfalls**, **Evaluation** (the paper's numbers to match,
+  and a cell that computes the headline metric) and **Milestones**.
+
+![the Implementation page: the outline with the machine and its budget, and the plan](docs/implement.png)
+
+![the repository tree, a row a file, with what each holds](docs/implement-tree.png)
+
+![starter files as cards: the path, the language, the code](docs/implement-files.png)
+
+### The budget, for your machine
+
+Claude is not asked for hours, which depend on the machine. It is asked for
+the **work** — floating-point operations a phase, memory a phase, disk, RAM —
+in a `compute` block, with the arithmetic shown in the prose so you can check
+it. The page turns the work into hours, dollars and *does it fit* for the
+machine you pick: a Colab T4 or A100, a desktop's RTX card, rented H100s by
+the hour, an Apple laptop, or no GPU at all, times how many, with your RAM,
+free disk, hours a day and an assumed utilisation. Change the machine and the
+budget follows, phase by phase, with a bar to each; the outline keeps the
+total in view. Colab's session limit becomes a count of sessions. A phase
+whose memory only fits with offloading or quantisation is marked, charged
+for it, and the block's `shrink` line says how to get under.
+
+![the compute budget on one Colab T4: two weeks, free, twenty sessions, needs offloading](docs/implement-budget.png)
+
+![the same budget on two rented H100s: hours, a cost, and it fits — the outline follows](docs/implement-budget-h100.png)
+
+The machine is sent to Claude with every request, after the paper's cache
+breakpoint so changing it does not pay for the paper again, and the plan is
+written for it: the scale, the micro-batch, the substitutions. The catalogue
+and the sums are `src/lib/hardware.ts`.
+
+### Colab
+
+**Colab** in the bar takes the scaffold out of the page. With a Git repository
+connected (Settings → Git repository), one click commits the starter files,
+the plan as `PLAN.md` and a notebook under `implementations/<paper>/` and
+opens the notebook in Colab straight from GitHub. Without one, the notebook
+and a zip of the scaffold download, and Colab's *File → Upload notebook*
+takes the notebook. The notebook's first cells make the directories and write
+every starter file into the Colab session's disk, then the page's own cells
+follow — so running it top to bottom lays the repository out and runs it.
+
+![the Colab menu: commit and open, or download the notebook or the zip](docs/implement-colab.png)
+
+### Your own machine
+
+A paper that wants days of training on a GPU under the desk is the other
+case. The reader's own proxy runs on that machine, so **Local** in the bar
+asks it three things: what the machine is (its NVIDIA cards, memory, free
+disk, Python and torch — **Use this machine** on the picker puts them in the
+budget), to write the scaffold into a directory there, and to run a command
+in it with the output streamed back into a console at the foot of the page.
+Every shell cell on the page gets **▶ Run locally** once the scaffold is
+there; the Makefile's targets are offered as one-click commands; and the
+console takes anything else. A file you have changed is never overwritten
+unless you say so.
+
+None of it is on until the proxy is pointed at a directory:
+
+```bash
+READER_WORKSPACE=~/reader-workspace npm start
+```
+
+Files only ever go under that directory, one folder a paper, and a path that
+climbs out of it is refused. A command runs as whoever started the proxy, in
+their shell, so the routes are gated like the browser's: the token when one
+is wanted, and only from this app. The Worker has no disk, so the Local menu
+on a static deployment says what to run instead. The server side is
+`server/workspace.js`; the page's side is `src/lib/workspace.ts`.
+
+![the Local menu: the machine, the scaffold written, the commands to run there](docs/implement-local.png)
+
+![the console at the foot of the page: a command run in the project, its output streamed back; Run locally on a shell cell](docs/implement-console.png)
+
+![the plan in dark, in the Notebook layout](docs/implement-dark.png)
+
+### Tests
+
+`scripts/implement.test.mjs` reads the plan's blocks, works a budget out on
+several machines, and checks the zip, the notebook and the commit's files;
+`scripts/workspace.test.mjs` writes and runs in a temporary workspace.
+`scripts/implement-smoke.mjs` runs the whole page in a browser against a
+stand-in for `api.anthropic.com` (`scripts/fixtures/implement-minitron.md`),
+with `READER_WORKSPACE` set on the server, and photographs every state.
+
 ## Layout
 
 ```

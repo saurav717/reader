@@ -45,7 +45,7 @@ export async function load(entry, { external = [] } = {}) {
  * through another has to load both at once or it is talking to two different
  * copies.
  */
-export async function loadTogether(entries) {
+export async function loadTogether(entries, { external = [] } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'reader-test-'));
   temporary.push(directory);
   const barrel = join(directory, 'entry.mjs');
@@ -63,6 +63,7 @@ export async function loadTogether(entries) {
     target: 'node22',
     banner: { js: 'const __viteEnv = {};' },
     define: { 'import.meta.env': '__viteEnv' },
+    external,
     logLevel: 'silent',
   });
   return import(pathToFileURL(outfile).href);
