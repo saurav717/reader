@@ -322,11 +322,12 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               className="btn sm"
-              disabled={checking || !proxy.trim()}
+              // The one compiled in is a proxy too: with the box empty, that is what is tested.
+              disabled={checking || !(proxy.trim() || BUILT_IN_BASE)}
               onClick={async () => {
                 setChecking(true);
                 updateSettings({ proxyBase: proxy.trim() });
-                setProxyCheck(await checkProxy(proxy));
+                setProxyCheck(await checkProxy(proxy.trim() || BUILT_IN_BASE || ''));
                 forgetAccess();
                 setAccess(await accessStatus());
                 setChecking(false);
