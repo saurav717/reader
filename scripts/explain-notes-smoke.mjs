@@ -297,7 +297,9 @@ await page.waitForSelector('.notes-win .note-piece', { timeout: 5000 });
 await settle(300);
 const after = await kinds();
 check('the notes are all there', after.length === 8 && after.at(-2) === 'Text', after.join(' | '));
-check('the text written is kept', ((await page.locator('.notes-win .note-piece.is-text textarea').inputValue()) || '').startsWith('Multi-head = several'));
+// Written notes are drawn as Markdown until clicked: the words, either way.
+const written = await page.locator('.notes-win .note-piece.is-text :is(textarea, .note-shown)').first().evaluate((element) => (element instanceof HTMLTextAreaElement ? element.value : element.textContent || '').trim());
+check('the text written is kept', written.startsWith('Multi-head = several'), written);
 check('and the line under the diagram', (await page.locator('.notes-win .note-piece').first().locator('textarea').inputValue()) === 'The figure to remember.');
 
 console.log('\n== back to where a piece came from ==');
