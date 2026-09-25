@@ -18,7 +18,8 @@ import Discover from './components/Discover';
 import Library from './components/Library';
 import NotesRail from './components/NotesRail';
 import NotesWindow from './components/NotesWindow';
-import { CLOSE_EXPLAIN, OPEN_EXPLAIN, OPEN_NOTES } from './lib/notes';
+import NotesBoard from './components/NotesBoard';
+import { CLOSE_EXPLAIN, OPEN_BOARD, OPEN_EXPLAIN, OPEN_NOTES } from './lib/notes';
 import Reader from './components/Reader';
 import Settings from './components/Settings';
 import Welcome from './components/Welcome';
@@ -158,6 +159,8 @@ export default function App() {
   // Claude does. They go there over a PDF or the explanation, which are not
   // made to move for them, and anywhere once popped out, which is remembered.
   const [notesWindow, setNotesWindow] = useState(false);
+  // The open paper's notes full screen, on a board of their own.
+  const [boardOpen, setBoardOpen] = useState(false);
   const notesWindowRef = useRef(notesWindow);
   notesWindowRef.current = notesWindow;
   const [notesFloat, setNotesFloat] = useState(() => localStorage.getItem(NOTES_FLOAT_KEY) === 'true');
@@ -261,13 +264,20 @@ export default function App() {
   // Explain page it came from, or the paper under it.
   useEffect(() => {
     const onNotes = () => openNotesRef.current();
+    // The board covers the page as Explain does, and takes its place.
+    const onBoard = () => {
+      setExplainOpen(false);
+      setBoardOpen(true);
+    };
     const onExplain = () => setExplainOpen(true);
     const offExplain = () => setExplainOpen(false);
     window.addEventListener(OPEN_NOTES, onNotes);
+    window.addEventListener(OPEN_BOARD, onBoard);
     window.addEventListener(OPEN_EXPLAIN, onExplain);
     window.addEventListener(CLOSE_EXPLAIN, offExplain);
     return () => {
       window.removeEventListener(OPEN_NOTES, onNotes);
+      window.removeEventListener(OPEN_BOARD, onBoard);
       window.removeEventListener(OPEN_EXPLAIN, onExplain);
       window.removeEventListener(CLOSE_EXPLAIN, offExplain);
     };
@@ -315,6 +325,17 @@ export default function App() {
   const readingNow = view.kind === 'paper';
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // B, on its own and not while typing, opens and shuts the notes board —
+      // the paper's notes full screen. While it is open, the keys for what
+      // is under it wait.
+      if (readingNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'b' && !isTyping(event.target)) {
+        if (document.querySelector('.scrim, .sheet, .palette')) return;
+        event.preventDefault();
+        setExplainOpen(false);
+        setBoardOpen((current) => !current);
+        return;
+      }
+      if (document.querySelector('.notes-board') && !event.metaKey && !event.ctrlKey) return;
       // Z, on its own and not while typing, takes a paper in and out of zen mode.
       if (readingNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'z' && !isTyping(event.target)) {
         if (document.querySelector('.scrim, .sheet, .palette')) return;
@@ -525,6 +546,10 @@ export default function App() {
       window.removeEventListener('resize', measure);
     };
   }, [zenOn, peek, libraryOpen, dock, notesBeside]);
+
+  // Another paper, or none: the board was the last one's.
+  const boardPaper = view.kind === 'paper' ? view.id : null;
+  useEffect(() => setBoardOpen(false), [boardPaper]);
 
   if (!ready) {
     return (
@@ -829,6 +854,10 @@ export default function App() {
           onOpenPaper={openPaper}
           onOpenSettings={() => setSettingsOpen(true)}
         />
+      ) : null}
+
+      {boardOpen && explained && !showWelcome ? (
+        <NotesBoard key={explained.id} paperId={explained.id} title={explained.title} onClose={() => setBoardOpen(false)} />
       ) : null}
 
       {explainOpen && explained && !showWelcome ? (

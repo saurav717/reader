@@ -29,8 +29,33 @@ export interface NoteSource {
   page?: number;
 }
 
+/** What a piece of writing is, where it is marked as something: a question to come back to, a key point, a summary. */
+export type NoteTag = 'question' | 'key' | 'summary';
+
+/** A sticky's place on a page of the PDF: the page, and where on it, as fractions of its width and height. */
+export interface NotePin {
+  page: number;
+  x: number;
+  y: number;
+}
+
+export const STICKY_COLORS = ['yellow', 'green', 'blue', 'pink'] as const;
+export type StickyColor = (typeof STICKY_COLORS)[number];
+
 export type NoteBlock =
-  | { id: string; kind: 'text'; md: string; at: string }
+  | {
+      id: string;
+      kind: 'text';
+      md: string;
+      at: string;
+      /** A question, a key point, a summary. */
+      tag?: NoteTag;
+      /** Where it was written — the page and section in view — or the section it is about. */
+      source?: NoteSource;
+      /** Stuck to a place on a page of the PDF. */
+      pin?: NotePin;
+      color?: StickyColor;
+    }
   | {
       id: string;
       kind: 'clip';
@@ -227,6 +252,8 @@ const newId = () => `n${Date.now().toString(36)}${Math.random().toString(36).sli
 export const OPEN_NOTES = 'reader:open-notes';
 /** Asks for the Explain page to be opened, and for a place on it to be shown (a `NoteSource`). */
 export const OPEN_EXPLAIN = 'reader:open-explain';
+/** Asks for the paper's notes to be opened full screen, on the board. */
+export const OPEN_BOARD = 'reader:open-board';
 /** Asks for the Explain page to be closed, to show the paper under it. */
 export const CLOSE_EXPLAIN = 'reader:close-explain';
 export const SHOW_IN_EXPLAIN = 'reader:explain-show';
@@ -241,12 +268,46 @@ function add(paperId: string, block: NoteBlock) {
   return block;
 }
 
-export function addText(paperId: string, md = ''): NoteBlock {
-  return add(paperId, { id: newId(), kind: 'text', md, at: new Date().toISOString() });
+export type TextExtras = Partial<Pick<Extract<NoteBlock, { kind: 'text' }>, 'tag' | 'source' | 'pin' | 'color'>>;
+
+export function addText(paperId: string, md = '', extras: TextExtras = {}, after?: string): Extract<NoteBlock, { kind: 'text' }> {
+  const block: Extract<NoteBlock, { kind: 'text' }> = { id: newId(), kind: 'text', md, at: new Date().toISOString(), ...extras };
+  add(paperId, block);
+  if (after) placeAfter(paperId, block.id, after);
+  return block;
 }
 
-export function addClip(paperId: string, clip: Omit<NoteClip, 'id' | 'kind' | 'at'>): NoteBlock {
-  return add(paperId, { ...clip, id: newId(), kind: 'clip', at: new Date().toISOString() });
+/** A piece moved to just after another in the list (to the top, for `after` = ''). */
+export function placeAfter(paperId: string, id: string, after: string) {
+  const blocks = notesFor(paperId).filter((block) => block.id !== id);
+  const moved = notesFor(paperId).find((block) => block.id === id);
+  if (!moved) return;
+  const at = after ? blocks.findIndex((block) => block.id === after) + 1 : 0;
+  if (after && at === 0) return;
+  blocks.splice(at, 0, moved);
+  put(paperId, blocks);
+}
+
+/** A piece of writing's tag, pin or colour changed. `null` takes it off. */
+export function markText(paperId: string, id: string, patch: { tag?: NoteTag | null; pin?: NotePin | null; color?: StickyColor | null; source?: NoteSource | null }) {
+  put(
+    paperId,
+    notesFor(paperId).map((block) => {
+      if (block.id !== id || block.kind !== 'text') return block;
+      const next: Record<string, unknown> = { ...block };
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === null) delete next[key];
+        else if (value !== undefined) next[key] = value;
+      }
+      return next as NoteBlock;
+    }),
+  );
+}
+
+export function addClip(paperId: string, clip: Omit<NoteClip, 'id' | 'kind' | 'at'>, after?: string): NoteBlock {
+  const block = add(paperId, { ...clip, id: newId(), kind: 'clip', at: new Date().toISOString() });
+  if (after) placeAfter(paperId, block.id, after);
+  return block;
 }
 
 export function updateNote(paperId: string, id: string, patch: { md?: string; note?: string }) {
@@ -356,7 +417,10 @@ export function notesMarkdown(blocks: NoteBlock[]): string {
   const lines: string[] = [];
   for (const block of blocks) {
     if (block.kind === 'text') {
-      if (block.md.trim()) lines.push(block.md.trim(), '');
+      if (!block.md.trim()) continue;
+      const tag = block.tag ? `**${TAG_NAMES[block.tag]}:** ` : '';
+      const where = block.pin ? ` _(pinned to p. ${block.pin.page})_` : '';
+      lines.push(`${tag}${block.md.trim()}${where}`, '');
       continue;
     }
     const where = ` — ${sourceName(block.source)}`;
@@ -368,6 +432,50 @@ export function notesMarkdown(blocks: NoteBlock[]): string {
     if (block.note?.trim()) lines.push(block.note.trim(), '');
   }
   return lines.join('\n');
+}
+
+export const TAG_NAMES: Record<NoteTag, string> = { question: 'Question', key: 'Key point', summary: 'Summary' };
+
+/** What a piece of writing is called on its card: a sticky, a question, a key point, a summary — or just text. */
+export function textLabel(block: Extract<NoteBlock, { kind: 'text' }>): string {
+  if (block.pin) return `Sticky · p. ${block.pin.page}`;
+  return block.tag ? TAG_NAMES[block.tag] : 'Text';
+}
+
+// ---------------------------------------------------------------------------
+// How the notes are shown in the pane — one choice, the same in the dock and
+// the window, kept for the next visit.
+// ---------------------------------------------------------------------------
+
+export type NotesView = 'list' | 'document' | 'sections' | 'jots';
+const VIEW_KEY = 'reader.notes.view';
+const VIEWS: NotesView[] = ['list', 'document', 'sections', 'jots'];
+let viewNow: NotesView = (() => {
+  try {
+    const kept = localStorage.getItem(VIEW_KEY) as NotesView | null;
+    return kept && VIEWS.includes(kept) ? kept : 'list';
+  } catch {
+    return 'list';
+  }
+})();
+const viewListeners = new Set<() => void>();
+export function setNotesView(view: NotesView) {
+  viewNow = view;
+  try {
+    localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    /* kept for this visit only */
+  }
+  viewListeners.forEach((listener) => listener());
+}
+export function useNotesView(): NotesView {
+  return useSyncExternalStore(
+    (listener) => {
+      viewListeners.add(listener);
+      return () => viewListeners.delete(listener);
+    },
+    () => viewNow,
+  );
 }
 
 /** Every paper's notes in one file, a heading to a paper. */

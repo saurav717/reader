@@ -294,7 +294,7 @@ export default function Reader({
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
       // Not under the Explain page, which snips itself, nor under a dialog.
-      if (document.querySelector('.explain:not(.layout-beside), .scrim, .sheet, .palette')) return;
+      if (document.querySelector('.explain:not(.layout-beside), .notes-board, .scrim, .sheet, .palette')) return;
       if (event.key.toLowerCase() === 's') {
         event.preventDefault();
         toggleSnipRef.current();

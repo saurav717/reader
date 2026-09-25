@@ -1,11 +1,78 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
-import { NOTE_ADDED, notesMarkdown, useAllNotes, useNotes } from '../lib/notes';
+import { NOTE_ADDED, OPEN_BOARD, notesMarkdown, setNotesView, useAllNotes, useNotes, useNotesView } from '../lib/notes';
+import type { NotesView } from '../lib/notes';
+import NotesDocument from './NotesDocument';
+import NotesSections from './NotesSections';
+import NotesJots from './NotesJots';
 import type { NoteBlock } from '../lib/notes';
 import NotesList from './NotesList';
 import NotesIndex, { saveMarkdown } from './NotesIndex';
 import { HIGHLIGHT_COLORS, type Highlight, type HighlightColor } from '../types';
 import { CloseIcon, FileIcon, PopOutIcon, TrashIcon } from './icons';
+
+const openBoard = () => window.dispatchEvent(new CustomEvent(OPEN_BOARD));
+
+const VIEWS: { id: NotesView | 'board'; name: string; hint: string }[] = [
+  { id: 'list', name: 'List', hint: 'Each piece a card, in the order you put them' },
+  { id: 'document', name: 'Document', hint: 'One page of writing — / drops in highlights and figures' },
+  { id: 'sections', name: 'By section', hint: "Cornell style: cues, notes and a summary for each of the paper's sections" },
+  { id: 'jots', name: 'Jots', hint: 'Quick capture: a line at a time, each keeping its page' },
+  { id: 'board', name: 'Board ⤢', hint: 'Full screen: move and size every piece anywhere (B)' },
+];
+
+/** Which way the notes are shown — the same in the dock and the window. */
+function ViewMenu() {
+  const view = useNotesView();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: PointerEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const esc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        setOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', away, true);
+    window.addEventListener('keydown', esc, true);
+    return () => {
+      document.removeEventListener('pointerdown', away, true);
+      window.removeEventListener('keydown', esc, true);
+    };
+  }, [open]);
+  const name = VIEWS.find((item) => item.id === view)?.name ?? 'List';
+  return (
+    <div className="notes-view" ref={ref}>
+      <button type="button" className="notes-view-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title="How the notes are shown">
+        View: <b>{name}</b> ▾
+      </button>
+      {open ? (
+        <div className="notes-view-menu" role="menu">
+          {VIEWS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={item.id === view}
+              onClick={() => {
+                setOpen(false);
+                if (item.id === 'board') openBoard();
+                else setNotesView(item.id);
+              }}
+            >
+              <span className="notes-view-name">{item.name}</span>
+              <span className="notes-view-hint">{item.hint}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 interface Props {
   paperId: string;
@@ -48,6 +115,7 @@ export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, on
   const [filter, setFilter] = useState<HighlightColor | 'all'>('all');
   const [notesOnly, setNotesOnly] = useState(false);
   const notes = useNotes(paperId);
+  const view = useNotesView();
   // Which list is showing: your notes, or the highlights. Until one is picked,
   // the notes — unless there are only highlights so far.
   const [picked, setTab] = useState<'notes' | 'highlights' | null>(null);
@@ -123,6 +191,11 @@ export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, on
       {inWindow ? null : (
         <div className="panel-head">
           <h2>Notes</h2>
+          {paper ? (
+            <button type="button" className="icon-btn sm board-open" onClick={openBoard} aria-label="Open the notes full screen, on a board" title="Full screen — a board to arrange them on (B)">
+              ⤢
+            </button>
+          ) : null}
           {onPopOut ? (
             <button type="button" className="icon-btn sm" onClick={onPopOut} aria-label="Pop the notes out into a window" title="Pop out — a window you can move anywhere (⌘ + arrows)">
               <PopOutIcon size={16} />
@@ -152,15 +225,30 @@ export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, on
             <button type="button" role="tab" aria-selected={tab === 'highlights'} onClick={() => setTab('highlights')}>
               Highlights{total ? <span className="notes-tab-count">{total}</span> : null}
             </button>
+            <span style={{ flex: 1 }} />
+            {tab === 'notes' ? <ViewMenu /> : null}
             {inWindow ? (
-              <button type="button" className="icon-btn sm" style={{ marginLeft: 'auto' }} onClick={exportMarkdown} aria-label="Export notes and highlights as Markdown" title="Export as Markdown">
+              <button type="button" className="icon-btn sm board-open" onClick={openBoard} aria-label="Open the notes full screen, on a board" title="Full screen — a board to arrange them on (B)">
+                ⤢
+              </button>
+            ) : null}
+            {inWindow ? (
+              <button type="button" className="icon-btn sm" onClick={exportMarkdown} aria-label="Export notes and highlights as Markdown" title="Export as Markdown">
                 <FileIcon size={16} />
               </button>
             ) : null}
           </div>
 
           {tab === 'notes' ? (
-            <NotesList paperId={paperId} />
+            view === 'document' ? (
+              <NotesDocument paperId={paperId} />
+            ) : view === 'sections' ? (
+              <NotesSections paperId={paperId} />
+            ) : view === 'jots' ? (
+              <NotesJots paperId={paperId} />
+            ) : (
+              <NotesList paperId={paperId} />
+            )
           ) : (
             <>
               <div style={{ padding: inWindow ? '0 12px 10px' : '0 16px 12px', display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>

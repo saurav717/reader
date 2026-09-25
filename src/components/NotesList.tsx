@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CLOSE_EXPLAIN, NOTE_ADDED, OPEN_EXPLAIN, SHOW_IN_EXPLAIN, addText, moveNote, removeNote, sourceName, updateNote, useNotes } from '../lib/notes';
+import { CLOSE_EXPLAIN, NOTE_ADDED, OPEN_EXPLAIN, SHOW_IN_EXPLAIN, addText, moveNote, removeNote, sourceName, textLabel, updateNote, useNotes } from '../lib/notes';
 import type { NoteBlock, NoteSource } from '../lib/notes';
 import { showPassage } from '../lib/locate';
 import { cleanClip } from '../lib/sanitize';
+import MarkdownNote from './MarkdownNote';
 import { ExplainIcon, FileIcon, PlusIcon, TrashIcon } from './icons';
 
 /** Waits, a frame at a time, until something is — or is no longer — on the page. */
@@ -24,7 +25,7 @@ function when(selector: string, there: boolean, within = 4000): Promise<boolean>
  * Explain closed if it covers the paper, then the passage marked — or, for a
  * snip with no words to find it by, its page of the PDF turned to.
  */
-async function showSource(source: NoteSource) {
+export async function showSource(source: NoteSource) {
   if (source.from === 'explain') {
     if (!document.querySelector('.explain')) {
       window.dispatchEvent(new CustomEvent(OPEN_EXPLAIN));
@@ -37,8 +38,10 @@ async function showSource(source: NoteSource) {
     window.dispatchEvent(new CustomEvent(CLOSE_EXPLAIN));
     await when('.explain', false);
   }
-  if (source.quote) {
-    const shown = await showPassage({ quote: source.quote, page: source.page, section: source.section, label: 'From your notes' });
+  // Something written with no words of the paper to find it by is shown at its section's heading.
+  const quote = source.quote ?? (source.page ? undefined : source.section);
+  if (quote) {
+    const shown = await showPassage({ quote, page: source.page, section: source.section, label: 'From your notes' });
     if (shown.found || !source.page) return;
   }
   if (source.page) window.dispatchEvent(new CustomEvent('reader:pdf-page', { detail: { page: source.page } }));
@@ -52,16 +55,13 @@ function grow(element: HTMLTextAreaElement | null) {
 }
 
 function Piece({ paperId, block, first, last, fresh }: { paperId: string; block: NoteBlock; first: boolean; last: boolean; fresh: boolean }) {
-  const textRef = useRef<HTMLTextAreaElement>(null);
   const cardRef = useRef<HTMLElement>(null);
   const [noting, setNoting] = useState(false);
   const html = useMemo(() => (block.kind === 'clip' ? cleanClip(block.html) : ''), [block]);
 
-  useEffect(() => grow(textRef.current));
   useEffect(() => {
     if (!fresh) return;
     cardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    if (block.kind === 'text') textRef.current?.focus();
   }, [fresh, block.kind]);
 
   const tools = (
@@ -80,22 +80,19 @@ function Piece({ paperId, block, first, last, fresh }: { paperId: string; block:
 
   if (block.kind === 'text') {
     return (
-      <article ref={cardRef} className={`note-piece is-text${fresh ? ' is-fresh' : ''}`}>
+      <article ref={cardRef} className={`note-piece is-text${fresh ? ' is-fresh' : ''}${block.pin ? ` is-sticky is-${block.color ?? 'yellow'}` : ''}${block.tag ? ` is-${block.tag}` : ''}`}>
         <header className="note-piece-head">
-          <span className="note-piece-kind">Text</span>
+          <span className="note-piece-kind">{textLabel(block)}</span>
           {tools}
         </header>
-        <textarea
-          ref={textRef}
-          className="note-write"
-          value={block.md}
-          placeholder="Write…"
-          aria-label="Your note"
-          onChange={(event) => {
-            updateNote(paperId, block.id, { md: event.target.value });
-            grow(event.target);
-          }}
-        />
+        <MarkdownNote md={block.md} focus={fresh} onChange={(md) => updateNote(paperId, block.id, { md })} />
+        {block.source ? (
+          <footer className="note-piece-foot">
+            <button type="button" className="note-source" onClick={() => block.source && void showSource(block.source)} title={block.pin ? 'Show it on its page' : 'Show where it was written'}>
+              <FileIcon size={12} /> {sourceName(block.source)}
+            </button>
+          </footer>
+        ) : null}
       </article>
     );
   }

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { TWO_PAGE_MIN_WIDTH, usePageTurns } from './BookView';
 import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from './icons';
 import { useKept } from './Keep';
 import PdfSnip from './PdfSnip';
-import { addClip } from '../lib/notes';
+import { addClip, addText, useNotes } from '../lib/notes';
+import PagePins, { stickiesOf } from './PdfPins';
 
 type Engine = typeof import('../lib/pdfReflow');
 
@@ -19,6 +21,18 @@ interface Props {
   /** Where the paper was left, 0–1, to open on the same page. */
   initialProgress: number;
   onProgress: (fraction: number) => void;
+}
+
+/** One page at a time, two side by side, or whichever fits the frame. */
+type PagesShown = 'auto' | 'one' | 'two';
+const PAGES_KEY = 'reader.pdf.pages';
+function pagesShownAtFirst(): PagesShown {
+  try {
+    const kept = localStorage.getItem(PAGES_KEY);
+    return kept === 'one' || kept === 'two' ? kept : 'auto';
+  } catch {
+    return 'auto';
+  }
 }
 
 /** Space kept round a spread inside the frame, and under it for the pages' shadow. */
@@ -76,7 +90,18 @@ export default function PdfBookView({ paperId, snipping, onSnipping, blob, title
   }, []);
 
   const pages = opened?.doc.numPages ?? 0;
-  const columns = frame.width >= TWO_PAGE_MIN_WIDTH && frame.width >= frame.height ? 2 : 1;
+  // Two pages side by side where they fit — or one, or two, as picked.
+  const [pagesShown, setPagesShown] = useState<PagesShown>(pagesShownAtFirst);
+  const twoFit = frame.width >= TWO_PAGE_MIN_WIDTH && frame.width >= frame.height;
+  const columns = pagesShown === 'one' ? 1 : pagesShown === 'two' ? (frame.width >= 640 ? 2 : 1) : twoFit ? 2 : 1;
+  const choosePages = (next: PagesShown) => {
+    setPagesShown(next);
+    try {
+      localStorage.setItem(PAGES_KEY, next);
+    } catch {
+      /* kept for this visit only */
+    }
+  };
   const spreads = Math.max(1, Math.ceil(pages / columns));
 
   // Open where the paper was left, once the pages are counted; keep the same page when the spread changes width.
@@ -157,15 +182,93 @@ export default function PdfBookView({ paperId, snipping, onSnipping, blob, title
   };
   const lastShown = shown[shown.length - 1] ?? firstShown;
 
+  // ---- stickies ---------------------------------------------------------------
+  // A note pinned to a place on a page: double-click anywhere on a page, or
+  // 📌 Pin (or M) and click. Each is one of the paper's notes, a numbered
+  // marker where it was put with its card beside it; the marker is dragged
+  // to move it, and clicked to fold the card away.
+  const blocks = useNotes(paperId);
+  const stickies = stickiesOf(blocks);
+  const [pinning, setPinning] = useState(false);
+  const [folded, setFolded] = useState<Set<string>>(() => new Set());
+  const [cardsHidden, setCardsHidden] = useState(false);
+  const [freshPin, setFreshPin] = useState<string | null>(null);
+  useEffect(() => {
+    if (snipping) setPinning(false);
+  }, [snipping]);
+  const pinAt = (target: EventTarget, clientX: number, clientY: number) => {
+    const page = target instanceof Element ? target.closest<HTMLElement>('.pdf-book-page') : null;
+    if (!page || (target instanceof Element && target.closest('.pdf-pins button, .pdf-sticky'))) return false;
+    const rect = page.getBoundingClientRect();
+    const number = Number(page.dataset.page) || 1;
+    window.getSelection()?.removeAllRanges();
+    setPicked(null);
+    const sticky = addText(paperId, '', {
+      pin: { page: number, x: Math.min(0.98, Math.max(0.02, (clientX - rect.left) / rect.width)), y: Math.min(0.98, Math.max(0.02, (clientY - rect.top) / rect.height)) },
+      source: { from: 'paper', page: number },
+    });
+    setFreshPin(sticky.id);
+    setCardsHidden(false);
+    setPinning(false);
+    return true;
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (document.querySelector('.explain:not(.layout-beside), .notes-board, .scrim, .sheet, .palette')) return;
+      if (event.key.toLowerCase() === 'm') {
+        event.preventDefault();
+        onSnipping(false);
+        setPinning((current) => !current);
+      } else if (event.key === 'Escape' && pinning) {
+        setPinning(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pinning, onSnipping]);
+  const pinsOn = (number: number, width: number, height: number) => (
+    <PagePins
+      paperId={paperId}
+      page={number}
+      stickies={stickies}
+      width={width}
+      height={height}
+      folded={cardsHidden ? new Set(stickies.map(({ sticky }) => sticky.id)) : folded}
+      fresh={freshPin}
+      onToggle={(id) => {
+        if (cardsHidden) {
+          setCardsHidden(false);
+          setFolded(new Set(stickies.map(({ sticky }) => sticky.id).filter((other) => other !== id)));
+          return;
+        }
+        setFolded((current) => {
+          const next = new Set(current);
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+          return next;
+        });
+      }}
+    />
+  );
+
   return (
     <div className="book-view pdf-book" aria-label={`${title} (PDF), as a book`}>
       <div
         ref={frameRef}
-        className={`pdf-book-spread${columns === 2 ? ' two' : ''}`}
+        className={`pdf-book-spread${columns === 2 ? ' two' : ''}${pinning ? ' is-pinning' : ''}`}
         onWheel={turns.onWheel}
         onTouchStart={turns.onTouchStart}
         onTouchEnd={turns.onTouchEnd}
-        onMouseUp={() => !snipping && takeSelection()}
+        onMouseUp={() => !snipping && !pinning && takeSelection()}
+        onClick={(event) => {
+          if (pinning) pinAt(event.target, event.clientX, event.clientY);
+        }}
+        onDoubleClick={(event) => {
+          if (!snipping && !pinning) pinAt(event.target, event.clientX, event.clientY);
+        }}
       >
         {error ? (
           <p className="banner warn" style={{ margin: 16 }}>
@@ -185,10 +288,12 @@ export default function PdfBookView({ paperId, snipping, onSnipping, blob, title
                 number={number}
                 scale={scale}
                 side={columns === 2 ? (index === 0 ? 'left' : 'right') : 'single'}
+                overlay={(width, height) => pinsOn(number, width, height)}
               />
             ))}
           </div>
         )}
+        {pinning ? <div className="pin-hint">📌 Click anywhere on a page to pin a note there · double-click works any time · Esc to stop</div> : null}
         {snipping && opened && pageSize ? (
           <PdfSnip paperId={paperId} doc={opened.doc} engine={opened.engine} pages={shown} scale={scale} holder={frameRef} announce={announce} />
         ) : null}
@@ -221,6 +326,31 @@ export default function PdfBookView({ paperId, snipping, onSnipping, blob, title
         >
           ✂ Snip
         </button>
+        <button
+          type="button"
+          className="btn sm ghost pin-btn"
+          aria-pressed={pinning}
+          onClick={() => {
+            onSnipping(false);
+            setPinning(!pinning);
+          }}
+          title="Pin a sticky note to a place on the page — or double-click the page (M)"
+        >
+          📌 Pin
+        </button>
+        {stickies.length ? (
+          <button type="button" className="btn sm ghost" aria-pressed={!cardsHidden} onClick={() => setCardsHidden(!cardsHidden)} title={cardsHidden ? 'Show the stickies' : 'Fold the stickies down to their numbers'}>
+            {cardsHidden ? `Show ${stickies.length} stickies` : 'Fold stickies'}
+          </button>
+        ) : null}
+        <span className="segmented pdf-pages-choice" role="group" aria-label="Pages at a time">
+          <button type="button" aria-pressed={columns === 1} onClick={() => choosePages('one')} title="One page at a time">
+            1 page
+          </button>
+          <button type="button" aria-pressed={columns === 2} onClick={() => choosePages('two')} disabled={frame.width < 640} title="Two pages side by side, as a book">
+            2 pages
+          </button>
+        </span>
       </div>
       {picked ? (
         <div className="selection-toolbar" style={{ top: picked.top, left: picked.left }} role="toolbar" aria-label="The selection">
@@ -239,7 +369,22 @@ export default function PdfBookView({ paperId, snipping, onSnipping, blob, title
  * and its text over it in pdf.js's text layer. Drawn again at a new scale,
  * with whatever was being drawn before given up.
  */
-function PdfPage({ doc, engine, number, scale, side }: { doc: PDFDocumentProxy; engine: Engine; number: number; scale: number; side: 'left' | 'right' | 'single' }) {
+function PdfPage({
+  doc,
+  engine,
+  number,
+  scale,
+  side,
+  overlay,
+}: {
+  doc: PDFDocumentProxy;
+  engine: Engine;
+  number: number;
+  scale: number;
+  side: 'left' | 'right' | 'single';
+  /** What is laid over the page once its size is known: its stickies. */
+  overlay?: (width: number, height: number) => ReactNode;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -301,6 +446,7 @@ function PdfPage({ doc, engine, number, scale, side }: { doc: PDFDocumentProxy; 
     >
       <canvas ref={canvasRef} style={size ? { width: size.width, height: size.height } : undefined} />
       <div ref={textRef} className="pdf-text" />
+      {size && overlay ? overlay(size.width, size.height) : null}
     </div>
   );
 }

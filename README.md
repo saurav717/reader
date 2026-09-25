@@ -1946,6 +1946,67 @@ shares with Ask Claude is `src/components/FloatingWindow.tsx`.
 `scripts/notes-smoke.mjs` checks that the text glides rather than jumps, that the
 PDF stays where it is, and the keys with both windows open.
 
+#### Ways to see them: List, Document, By section, Jots, Board
+
+**View ▾** beside the Notes tab chooses how a paper's notes are shown, in the
+pane and in the window alike (the choice is remembered). Every view shows the
+same notes, so a piece added in one is in all of them.
+
+- **List:** each piece is a card, in the order you put them, with ↑ ↓ to
+  reorder. Writing is drawn as Markdown (headings, lists, checklists, maths);
+  click it to edit.
+- **Document:** one page of writing, with what you kept from the paper set in
+  among it. Typing `/` at the start of a line opens a menu:
+  - from the paper: one of your highlights, or a figure or table from the
+    reflowed paper;
+  - for writing: a heading, a checklist or a `$$` equation;
+  - marking the passage as a question, a key point or a summary.
+  
+  Checklist boxes tick with a click.
+- **By section:** Cornell-style notes, one block per section of the paper:
+  - questions to test yourself with (cues) down the left;
+  - notes on the right;
+  - a one-line summary underneath.
+  
+  The section you're reading is marked *Reading now*. Sections you've
+  highlighted but not written about wait at the end, followed by a summary of
+  the whole paper.
+- **Jots:** quick capture. Type a line and press Enter. Each jot remembers the
+  page and section you were on (📍) and can be marked **? question** or
+  **★ key**. They're listed in the order written, and a jot's chip takes you
+  back to where you wrote it.
+- **Board** (⤢ in the pane, or **B**): the notes full screen, each piece a card.
+  - Drag a card by its bar, and resize it from its corner.
+  - Drag the board to pan it; ⌘/Ctrl + the wheel zooms.
+  - Double-click to write a new note there.
+  - **Tidy by section** puts the cards back in columns under section headings.
+  - The minimap in the corner shows the whole board.
+  
+  Where the cards are is saved for each paper (`board:<id>`), separately from
+  the notes. So arranging the board never changes the list's order, and
+  reordering the list never moves a card. **Esc** or **B** closes it.
+
+![Notes by section](docs/notes-sections.png)
+
+![The notes board](docs/notes-board.png)
+
+#### Stickies on the PDF
+
+On the PDF as a book, **double-click** anywhere on a page (or press **📌 Pin**
+or **M**, then click) to pin a sticky there.
+- It is numbered in reading order, and its card sits beside the marker.
+- Drag the marker to move it, click the marker to fold the card, or pick one of
+  four colours.
+- **Fold stickies** shrinks them all down to their numbers.
+- **1 page / 2 pages** switches between one page at a time and two side by
+  side, and the stickies follow either way.
+
+A sticky is one of the paper's notes like any other. It appears in every view
+labelled *Sticky · p. 2*, and its chip turns to its page. (The PDF in the
+browser's own viewer can't be drawn over, so stickies need the book view.)
+
+![Stickies pinned to the PDF](docs/notes-stickies.png)
+
 #### Each paper keeps its own notes
 
 Notes belong to one paper. They are stored under that paper's id in the
@@ -2252,6 +2313,7 @@ node scripts/notes-smoke.mjs   # the notes beside the page, and in a window over
 node scripts/explain-notes-smoke.mjs # keeping diagrams, code, tables, maths and passages from Explain
 node scripts/paper-notes-smoke.mjs   # keeping figures, tables and passages from Reflow and the PDF, and snipping
 node scripts/notes-per-paper-smoke.mjs # each paper's own notes, the list of all of them, and the library's counts
+node scripts/notes-views-smoke.mjs     # List, Document, By section, Jots and the Board; stickies on the PDF
 node scripts/recommend-smoke.mjs  # papers named in an answer: cards, Find, Add, the list
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 node scripts/hover-smoke.mjs    # the cards over an author's name and a citation
