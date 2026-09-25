@@ -197,7 +197,7 @@ check('the row lets go when the mark does', !/On the page now/.test(await page.l
 console.log('\n== the PDF set as a book ==');
 await page.locator('.passage-tag button').click().catch(() => undefined);
 await page.locator('.segmented button', { hasText: 'PDF' }).evaluate((button) => button.click());
-await page.waitForSelector('.pdf-pane iframe', { timeout: 30000 });
+await page.waitForSelector('.pdf-scroll .pdf-book-page', { timeout: 30000 });
 await page.getByRole('button', { name: /Read as a book/i }).evaluate((button) => button.click());
 await page.waitForSelector('.pdf-book-page[data-text="ready"]', { timeout: 30000 });
 await page.locator('.chat-passage-row').first().click();
@@ -219,19 +219,19 @@ check('the mark lies over the quoted words on the page', /feature set|oracle/.te
 check('the row names the page', /On the page now|page 3/.test(await page.locator('.chat-passage-row').first().textContent()));
 await page.screenshot({ path: `${OUT}/locate-3-pdf-book.png` });
 
-console.log('\n== the browser’s own PDF viewer: the page only ==');
+console.log('\n== the PDF scrolled: the page, and the words on it ==');
 // The mark may have faded by itself already.
 if (await page.locator('.passage-tag').isVisible()) await page.locator('.passage-tag button').click();
 // The top bar's switch can sit under the Claude window; press it directly.
 await page.getByRole('button', { name: /Read as one scrolling page/i }).evaluate((button) => button.click());
-await page.waitForSelector('.pdf-pane iframe', { timeout: 30000 });
+await page.waitForSelector('.pdf-scroll .pdf-book-page[data-text="ready"]', { timeout: 30000 });
 await page.locator('.chat-passage-row').first().click();
-await page.waitForSelector('.passage-tag', { timeout: 10000 });
-const src = await page.locator('.pdf-pane iframe').getAttribute('src');
-check('the viewer is sent to the page', /#page=3$/.test(src || ''), src);
+await page.waitForSelector('.passage-band', { timeout: 10000 });
+await page.waitForTimeout(1200);
+check('the column is scrolled to the page', (await page.locator('.pdf-book').getAttribute('data-current-page')) === '3', await page.locator('.pdf-book').getAttribute('data-current-page'));
+check('the words are marked on it', (await page.locator('.passage-band').count()) >= 1);
 check('the caption says which page', /page 3/.test(await page.locator('.passage-tag').textContent()));
-check('the row says only the page could be shown', /Opened at page 3/.test(await page.locator('.chat-passage-row').first().textContent()));
-await page.screenshot({ path: `${OUT}/locate-4-pdf-viewer.png` });
+await page.screenshot({ path: `${OUT}/locate-4-pdf-scrolled.png` });
 
 check('no page errors', errors.length === 0, errors.join(' | '));
 await browser.close();

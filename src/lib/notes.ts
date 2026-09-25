@@ -488,6 +488,21 @@ export function allNotesMarkdown(papers: { title: string; blocks: NoteBlock[] }[
   return lines.join('\n');
 }
 
+/** A kept figure's words: its caption, named once — "[Figure 1: Results…]", not "[Figure 1: Figure 1: Results…]". */
+export function captioned(label: string, caption: string): string {
+  const said = caption.trim();
+  if (!said) return `[${label}]`;
+  return said.toLowerCase().startsWith(label.toLowerCase()) ? `[${said}]` : `[${label}: ${said}]`;
+}
+
+/** A kept piece's words without its name said again at the front, however they were kept. */
+export function withoutLabel(label: string, text: string): string {
+  let said = text.trim().replace(/^\[([\s\S]*)\]$/, '$1').trim();
+  const name = label.toLowerCase();
+  while (name && said.toLowerCase().startsWith(name)) said = said.slice(label.length).replace(/^[\s:.·—-]+/, '');
+  return said;
+}
+
 /** Where a piece came from, in words: "Explain · Multi-head attention", "Paper · p. 3 · 4 Why self-attention". */
 export function sourceName(source: NoteSource): string {
   return [source.from === 'explain' ? 'Explain' : 'Paper', source.page ? `p. ${source.page}` : '', source.section ?? ''].filter(Boolean).join(' · ');

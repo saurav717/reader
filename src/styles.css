@@ -3831,3 +3831,113 @@ body.win-moving .assistant-win { transition: none; }
 .board-card .note-shown { padding: 4px 12px 12px; flex: 1; }
 .board-card.is-sized .note-shown { overflow: auto; min-height: 0; }
 .board-card .note-write.board-write { padding: 4px 12px 12px; }
+
+/* ------------------------------------------------ the PDF, scrolled --
+   Every page in one column, drawn by pdf.js as it nears the screen, so
+   it can be selected, snipped and pinned as the book can. */
+.pdf-scroll-wrap { position: relative; flex: 1 1 0; min-height: 0; display: flex; }
+.pdf-book-spread.pdf-scroll { overflow-y: auto; overflow-x: hidden; max-width: none; }
+.pdf-scroll-pages { position: relative; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 16px 0 28px; min-height: 100%; }
+.pdf-scroll-slot { position: relative; flex: none; background: #fff; box-shadow: var(--shadow-md), 0 0 0 1px var(--border); }
+.pdf-scroll-slot > .pdf-book-page { box-shadow: none; }
+.pdf-scroll-pages > .snip-layer { position: absolute; inset: 0; }
+.pdf-scroll-pages > .snip-layer .snip-hint { display: none; }
+.pdf-scroll-wrap > .snip-hint, .pdf-scroll-wrap > .pin-hint { position: absolute; top: auto; bottom: 12px; z-index: 6; }
+
+/* ------------------------------------------------ notes, under glass --
+   What floats over something else — a menu, the board's tools, a card on
+   the board — takes the glass's floating tint and blur, as the app's other
+   menus do, rather than the see-through surface of a pane. */
+:root[data-glass='on'] :is(.notes-view-menu, .doc-menu, .board-tools, .board-zoom, .board-mini) {
+  background: rgb(var(--float-rgb) / max(0.92, var(--float-a))); border-color: var(--rim-lo);
+  -webkit-backdrop-filter: blur(20px) saturate(185%); backdrop-filter: blur(20px) saturate(185%);
+}
+:root[data-glass='on'] .notes-board { background: rgb(var(--win-rgb) / 0.96); -webkit-backdrop-filter: blur(28px) saturate(160%); backdrop-filter: blur(28px) saturate(160%); }
+:root[data-glass='on'] .board-wrap { background-color: transparent; }
+:root[data-glass='on'] .board-card:not(.is-sticky) { background: rgb(var(--float-rgb) / 0.97); }
+:root[data-glass='on'] .board-card .board-card-note, :root[data-glass='on'] .doc-clip { background: rgb(var(--float-rgb) / 0.6); }
+.jot-label { font-weight: 600; color: var(--ink-2); }
+
+/* ------------------------------------------ the board: arrows and frames -- */
+.board-links { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.board-link { stroke: rgb(var(--accent-rgb) / 0.62); stroke-width: 2; fill: none; }
+.board-link.is-picked, .board-link.is-drawing { stroke: var(--accent); stroke-width: 2.6; }
+.board-link.is-drawing { stroke-dasharray: 6 5; }
+.board-arrow-head { fill: rgb(var(--accent-rgb) / 0.75); }
+.board-arrow-head.is-picked { fill: var(--accent); }
+.board-link-hit { stroke: transparent; stroke-width: 16; fill: none; pointer-events: stroke; cursor: pointer; }
+.board-link-label {
+  position: absolute; transform: translate(-50%, -50%); z-index: 9000; display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 9px; border-radius: 999px; white-space: nowrap; cursor: pointer;
+  background: var(--paper); border: 1px solid rgb(var(--accent-rgb) / 0.4); color: var(--accent-ink); font: 500 12px var(--sans);
+}
+.board-link-label.is-empty { color: var(--muted); font-style: italic; }
+.board-link-label.is-picked { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.board-link-label button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 14px; padding: 0 0 0 2px; }
+input.board-link-label { cursor: text; outline: none; min-width: 150px; text-align: center; }
+.board-card.is-target:hover { box-shadow: 0 0 0 2px var(--accent), 0 16px 34px -18px rgba(0, 0, 0, 0.4); }
+/* The handle an arrow is drawn from: the middle of a card's right side. */
+.board-connect {
+  position: absolute; right: -8px; top: 50%; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; cursor: crosshair; touch-action: none;
+  background: var(--surface); border: 2px solid var(--accent); opacity: 0; transition: opacity 0.12s, transform 0.12s;
+}
+.board-card:hover .board-connect, .board-card.is-selected .board-connect { opacity: 1; }
+.board-connect:hover { transform: scale(1.25); }
+.tool-arrow .board-card, .tool-arrow .board-card-head { cursor: crosshair; }
+.tool-frame, .tool-text, .tool-sticky { cursor: crosshair; }
+/* A card's own colour on the board. */
+.board-card-colors { display: flex; gap: 3px; opacity: 0; transition: opacity 0.12s; }
+.board-card:hover .board-card-colors, .board-card.is-selected .board-card-colors { opacity: 1; }
+.board-card-colors button { width: 11px; height: 11px; padding: 0; border-radius: 50%; border: 1px solid rgb(0 0 0 / 0.22); background: var(--sticky); cursor: pointer; }
+.board-card-colors button[aria-pressed='true'] { box-shadow: 0 0 0 2px var(--accent); }
+.board-card.is-sticky { border-color: rgb(0 0 0 / 0.08); }
+.board-card.is-sticky .board-card-head, .board-card.is-sticky .note-shown { color: var(--sticky-ink); }
+/* Frames: a named area, under the cards. */
+.board-frame { position: absolute; border: 1.5px solid rgb(var(--accent-rgb) / 0.3); border-radius: 18px; background: rgb(var(--accent-rgb) / 0.04); }
+.board-frame.is-picked { border-color: var(--accent); }
+.board-frame.is-drawing { border-style: dashed; border-color: var(--accent); background: rgb(var(--accent-rgb) / 0.07); pointer-events: none; }
+.board-frame-head {
+  position: absolute; left: 14px; top: -13px; display: inline-flex; align-items: center; gap: 6px; max-width: calc(100% - 28px);
+  padding: 2px 6px 2px 10px; border-radius: 8px; background: var(--paper); cursor: grab; touch-action: none;
+  font: 600 12.5px var(--sans); color: var(--accent-ink); white-space: nowrap;
+}
+:root[data-glass='on'] .board-frame-head { background: rgb(var(--win-rgb) / 0.96); }
+.board-frame-head span { overflow: hidden; text-overflow: ellipsis; }
+.board-frame-head input { border: 0; outline: none; background: transparent; font: inherit; color: inherit; width: 180px; }
+.board-frame-head button { border: 0; background: transparent; color: inherit; opacity: 0; cursor: pointer; font-size: 14px; padding: 0 2px; }
+.board-frame:hover .board-frame-head button, .board-frame.is-picked .board-frame-head button { opacity: 0.7; }
+.board-frame-size { position: absolute; right: 4px; bottom: 4px; width: 14px; height: 14px; cursor: nwse-resize; border-right: 2px solid transparent; border-bottom: 2px solid transparent; border-radius: 0 0 6px 0; touch-action: none; }
+.board-frame:hover .board-frame-size, .board-frame.is-picked .board-frame-size { border-color: rgb(var(--accent-rgb) / 0.6); }
+.board-mini i { position: absolute; border: 1px solid rgb(var(--accent-rgb) / 0.35); border-radius: 3px; }
+/* The tools. */
+.board-tools button[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
+.board-tools kbd { font: 500 10.5px var(--mono); color: var(--muted); }
+.board-tool-hint {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 2; pointer-events: none; white-space: nowrap;
+  padding: 6px 12px; border-radius: 9px; background: rgb(22 22 19 / 0.88); color: #f6f3ea; font: 500 12.5px var(--sans);
+}
+
+/* The board beside the paper: the paper stays on the left to be read, kept from and snipped. */
+.notes-board.layout-beside {
+  left: max(42%, 380px); border-left: 1px solid var(--border);
+  box-shadow: -40px 0 80px -30px rgba(22, 22, 19, 0.35); animation-name: explain-slide;
+}
+.notes-board.layout-beside .board-sync, .notes-board.layout-beside .board-tools kbd, .notes-board.layout-beside .explain-bar-title { display: none; }
+.notes-board.layout-beside .board-bar { gap: 8px; }
+.notes-board.layout-beside .board-bar .explain-brand { flex: 1; }
+.board-where button { font-size: 11.5px; padding: 4px 10px; }
+.notes-board.layout-beside .board-mini { display: none; }
+.notes-board.layout-beside .board-zoom { right: 16px; }
+.notes-board.layout-beside .board-tools { left: 16px; transform: none; max-width: calc(100% - 200px); flex-wrap: wrap; }
+/* Moving a card: where it was, the lines it snaps onto, and what moving it does. */
+.board-ghost { position: absolute; border: 2px dashed rgb(var(--accent-rgb) / 0.45); border-radius: 12px; background: rgb(var(--accent-rgb) / 0.05); pointer-events: none; }
+.board-guide { position: absolute; z-index: 9998; background: #e0457b; pointer-events: none; }
+.board-guide.is-x { width: 1px; }
+.board-guide.is-y { height: 1px; }
+.board-drag-tip {
+  position: absolute; z-index: 9999; pointer-events: none; white-space: nowrap;
+  padding: 5px 10px; border-radius: 8px; background: rgb(22 22 19 / 0.9); color: #f6f3ea; font: 500 12px var(--sans);
+}
+.board-frame-head small { font-weight: 500; color: var(--muted); margin-left: 4px; }
+.board-link { stroke-dasharray: 6 5; }
+.board-link.is-picked { stroke-dasharray: none; }

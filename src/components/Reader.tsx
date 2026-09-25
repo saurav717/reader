@@ -40,7 +40,7 @@ import HoverCard, { type CitedEntry, type HoverTarget } from './HoverCard';
 import { pdfPageTexts, showPdf } from '../lib/screen';
 import { findPassage, FLASH_EVENT, LOCATE_EVENT, pageOf, type LocateRequest, type LocateResult } from '../lib/locate';
 import PassageFlash, { type Flash } from './PassageFlash';
-import { addClip, copyOf } from '../lib/notes';
+import { addClip, captioned, copyOf } from '../lib/notes';
 import { tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
 import { fullerAuthors } from '../lib/byline';
@@ -120,7 +120,7 @@ function describePiece(element: HTMLElement): { label: string; text: string; quo
   const table = element.querySelector('table:not(.ltx_equation)');
   const kind = element.matches('.pdf-equation, .ltx_equation, .ltx_equationgroup') ? 'Equation' : table || /^tab/i.test(caption) || element.matches('.pdf-table, .ltx_table') ? 'Table' : 'Figure';
   const label = named ? `${kind === 'Table' ? 'Table' : /^fig/i.test(named[1]) ? 'Figure' : named[1][0].toUpperCase() + named[1].slice(1).toLowerCase()} ${named[2]}` : kind;
-  const text = table ? `${caption ? `${caption}\n\n` : ''}${tableText(table)}` : caption ? `[${label}: ${caption}]` : `[${label}]`;
+  const text = table ? `${caption ? `${caption}\n\n` : ''}${tableText(table)}` : captioned(label, caption);
   return { label, text, quote: caption.slice(0, 80) || undefined };
 }
 
@@ -280,10 +280,9 @@ export default function Reader({
   const canSnip = mode === 'reflow' || Boolean(pdfBlob);
   const toggleSnip = () => {
     if (snipping) return setSnipping(false);
-    if (mode === 'pdf') {
-      if (!pdfBlob) return;
-      if (layout !== 'book') chooseLayout('book');
-    }
+    // The PDF is snipped as it is laid out, a book or a scrolled column; only
+    // with no copy of its own to draw — the browser's viewer — is there nothing to snip.
+    if (mode === 'pdf' && !pdfBlob) return;
     setSnipping(true);
   };
   const toggleSnipRef = useRef(toggleSnip);
@@ -294,7 +293,7 @@ export default function Reader({
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
       // Not under the Explain page, which snips itself, nor under a dialog.
-      if (document.querySelector('.explain:not(.layout-beside), .notes-board, .scrim, .sheet, .palette')) return;
+      if (document.querySelector('.explain:not(.layout-beside), .notes-board:not(.layout-beside), .scrim, .sheet, .palette')) return;
       if (event.key.toLowerCase() === 's') {
         event.preventDefault();
         toggleSnipRef.current();
@@ -1242,7 +1241,8 @@ export default function Reader({
       const texts = pdfPageTexts();
       const page = texts ? pageOf(await texts, request.quote, request.page) : null;
       if (!page) return { found: false, reason: 'Those words are not in the PDF’s text.' };
-      if (now.layout === 'book' && now.pdfBlob) {
+      // The PDF drawn by the reader, a book or scrolled: turned to the page, and the words marked on it.
+      if (now.pdfBlob) {
         window.dispatchEvent(new CustomEvent('reader:pdf-page', { detail: { page } }));
         const layer = await waitFor(() => document.querySelector<HTMLElement>(`.pdf-book-page[data-page="${page}"][data-text="ready"] .pdf-text`));
         const range = layer ? findPassage(layer, request.quote) : null;
@@ -1807,8 +1807,10 @@ export default function Reader({
               </a>
               .
             </p>
-          ) : pdfBlob && layout === 'book' ? (
+          ) : pdfBlob ? (
             <PdfBookView
+              key={layout}
+              flow={layout === 'book' ? 'book' : 'scroll'}
               paperId={paper.id}
               snipping={snipping}
               onSnipping={setSnipping}
@@ -1882,8 +1884,19 @@ export default function Reader({
 
       {mode === 'pdf' && !pdfError && pdfLookup !== 'none' ? (
         <p style={{ margin: 0, padding: '8px 16px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)' }}>
-          {layout === 'book' && pdfBlob ? (
-            'Highlighting works in Reflow mode — here the text can be selected, copied and added to your notes, anything snipped into them with ✂ Snip (or S), and the pages turned with the arrow keys.'
+          {pdfBlob ? (
+            <>
+              Highlighting works in Reflow mode — here the text can be selected, copied and added to your notes, anything snipped into them with ✂ Snip (or S), a sticky pinned with a double-click, and the pages {layout === 'book' ? 'turned' : 'stepped through'} with the arrow keys.
+              {pdfObjectUrl ? (
+                <>
+                  {' '}
+                  <a href={pdfObjectUrl} target="_blank" rel="noreferrer noopener">
+                    Open it in the browser's own viewer
+                  </a>
+                  .
+                </>
+              ) : null}
+            </>
           ) : (
             <>
               Highlighting works in Reflow mode — the PDF is rendered by your browser's own viewer, which the reader cannot reach into.

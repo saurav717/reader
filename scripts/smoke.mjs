@@ -240,11 +240,11 @@ await page.getByRole('button', { name: /Add to collection/i }).click();
 await page.getByRole('button', { name: /^Read$/ }).click();
 
 console.log('\n== pdf ==');
-await page.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
-check('a paper opens on its PDF', await page.locator('.pdf-pane iframe').isVisible());
+await page.waitForSelector('.pdf-pane :is(iframe, .pdf-scroll-slot)', { timeout: 10000 });
+check('a paper opens on its PDF', await page.locator('.pdf-pane :is(iframe, .pdf-scroll)').first().isVisible());
 check(
   'the PDF comes from the proxy, not the publisher',
-  (await page.locator('.pdf-pane iframe').getAttribute('src'))?.startsWith('blob:'),
+  (await page.locator('.pdf-pane iframe, .main a[href^=\"blob:\"]').first().evaluate((el) => el.getAttribute('src') ?? el.getAttribute('href')))?.startsWith('blob:'),
 );
 const download = page.locator('.topbar button[aria-label="Download the PDF"]');
 check('a download button sits next to the mode switch', await download.isVisible());
@@ -403,8 +403,8 @@ await phone.getByLabel('Search papers').press('Enter');
 await phone.waitForSelector('article.result');
 await phone.locator('article.result', { hasText: 'Fourier Neural Operator' }).locator('h3').click();
 await phone.getByRole('button', { name: /^Read$/ }).click();
-await phone.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
-check('the phone opens on the PDF too', await phone.locator('.pdf-pane iframe').isVisible());
+await phone.waitForSelector('.pdf-pane :is(iframe, .pdf-scroll-slot)', { timeout: 10000 });
+check('the phone opens on the PDF too', await phone.locator('.pdf-pane :is(iframe, .pdf-scroll)').first().isVisible());
 await phone.locator('.segmented button', { hasText: 'Reflow' }).click();
 await phone.waitForSelector('.paper-body p');
 check('phone reader opens with the panel dismissed', (await phone.locator('.panel').count()) === 0);
@@ -453,11 +453,11 @@ await oaPage.waitForSelector('article.result');
 await oaPage.locator('article.result', { hasText: 'On operators between function spaces' }).locator('h3').click();
 await oaPage.getByRole('button', { name: /Add to collection/i }).click();
 await oaPage.getByRole('button', { name: /^Read$/ }).click();
-await oaPage.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
-check('an OpenAlex paper opens on its PDF rather than the abstract', await oaPage.locator('.pdf-pane iframe').isVisible());
+await oaPage.waitForSelector('.pdf-pane :is(iframe, .pdf-scroll-slot)', { timeout: 10000 });
+check('an OpenAlex paper opens on its PDF rather than the abstract', await oaPage.locator('.pdf-pane :is(iframe, .pdf-scroll)').first().isVisible());
 check(
   'its PDF is fetched through the proxy',
-  (await oaPage.locator('.pdf-pane iframe').getAttribute('src'))?.startsWith('blob:'),
+  (await oaPage.locator('.pdf-pane iframe, .main a[href^=\"blob:\"]').first().evaluate((el) => el.getAttribute('src') ?? el.getAttribute('href')))?.startsWith('blob:'),
 );
 check(
   'the download button is there for it too',
@@ -576,7 +576,7 @@ check('adding a paper puts its PDF and sidecar in Drive', drive.uploads >= 2, `u
 const proxyHitsBeforeRead = proxyPdfHits;
 
 await drivePage.getByRole('button', { name: /^Read$/ }).click();
-await drivePage.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
+await drivePage.waitForSelector('.pdf-pane :is(iframe, .pdf-scroll-slot)', { timeout: 10000 });
 await drivePage.waitForTimeout(1500);
 check('opening it reads the copy in Drive', drive.downloads >= 1, `downloads=${drive.downloads}`);
 check(
@@ -624,7 +624,7 @@ await latePage.waitForTimeout(600);
 await latePage.getByRole('button', { name: 'Close settings' }).click();
 
 await latePage.getByRole('button', { name: /^Read$/ }).click();
-await latePage.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
+await latePage.waitForSelector('.pdf-pane :is(iframe, .pdf-scroll-slot)', { timeout: 10000 });
 await latePage.waitForTimeout(2500);
 check('opening it puts the PDF in Drive', lateDrive.pdfUploads === 1, `pdf uploads=${lateDrive.pdfUploads}`);
 check('and the sidecar with it', lateDrive.uploads >= 2, `uploads=${lateDrive.uploads}`);

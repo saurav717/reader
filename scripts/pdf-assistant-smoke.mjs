@@ -127,11 +127,11 @@ const asText = (content) => (typeof content === 'string' ? content : (content ||
 
 console.log('\n== Ask Claude, PDF in the browser’s viewer ==');
 await page.locator('.segmented button', { hasText: 'PDF' }).click();
-await page.waitForSelector('.pdf-pane iframe', { timeout: 30000 });
+await page.waitForSelector('.pdf-pane :is(iframe, .pdf-scroll-slot)', { timeout: 30000 });
 let sent = await ask('What is this paper about?');
 check('the paper text goes along', /<paper_text[\s\S]*\[Page 1\][\s\S]*Aphasia is a language impairment/.test(sent?.system?.[1]?.text || ''));
 check('page by page', /\[Page 2\][\s\S]*Introduction/.test(sent?.system?.[1]?.text || ''));
-check('and Claude is told the view', /Viewing as: PDF, in the browser’s own viewer/.test(asText(lastUser(sent))), asText(lastUser(sent)).match(/Viewing as: .*/)?.[0]);
+check('and Claude is told the view', /Viewing as: PDF, scrolled — page 1 of 2 in view/.test(asText(lastUser(sent))), asText(lastUser(sent)).match(/Viewing as: .*/)?.[0]);
 
 console.log('\n== Ask Claude, PDF as a book ==');
 await page.getByRole('button', { name: /Read as a book/i }).click();

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { TableCell } from '../lib/pdfLayout';
-import { addClip } from '../lib/notes';
+import { addClip, captioned } from '../lib/notes';
 
 type Engine = typeof import('../lib/pdfReflow');
 
@@ -201,7 +201,7 @@ export default function PdfSnip({ paperId, doc, engine, pages, scale, holder, an
       text = piece.text || '[Equation]';
     } else {
       html = `<figure class="${region.kind === 'table' ? 'pdf-table' : 'pdf-figure'}">${region.kind === 'table' ? caption + picture : picture + caption}</figure>`;
-      text = region.caption ? `[${region.label}: ${region.caption}]` : `[${region.label}]`;
+      text = captioned(region.label, region.caption);
     }
     addClip(paperId, { label: region.label, html, text, source: { from: 'paper', page, quote: (region.caption || piece.text).slice(0, 80) || undefined } });
     announce(region.label);

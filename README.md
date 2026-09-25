@@ -1976,15 +1976,30 @@ same notes, so a piece added in one is in all of them.
   **★ key**. They're listed in the order written, and a jot's chip takes you
   back to where you wrote it.
 - **Board** (⤢ in the pane, or **B**): the notes full screen, each piece a card.
-  - Drag a card by its bar, and resize it from its corner.
-  - Drag the board to pan it; ⌘/Ctrl + the wheel zooms.
-  - Double-click to write a new note there.
-  - **Tidy by section** puts the cards back in columns under section headings.
-  - The minimap in the corner shows the whole board.
+  The header switches between **Board** (full screen), **Beside the paper**
+  (the paper stays on the left to read, keep from and snip) and **List** (back
+  to the pane).
+  - **Select (V):** drag a card by its bar, resize it from its corner, and drag
+    the board to pan it; ⌘/Ctrl + the wheel zooms.
+  - **Alignment:** a moved card snaps into line with the cards near it. A pink
+    guide shows the line, a dashed outline shows where it came from, and ⌥
+    moves it freely.
+  - **Text (T):** click (or double-click the board, in Select) to write a note.
+  - **Sticky (S):** click to put a coloured sticky there. Any card can take one
+    of four colours from the dots on its bar.
+  - **Frame (F):** drag to draw a named frame. Moving a frame moves the cards
+    inside it; double-click the name to rename it.
+  - **Arrow (A):** drag from one card to another, or from the ● on a card's
+    right edge. Arrows curve from edge to edge and follow the cards.
+    Double-click an arrow to label it, or pick it and press Delete to remove it.
+  - **Tidy by section:** puts the cards into columns, one frame per section,
+    named with its page. **Fit** shows every card, and the minimap shows the
+    whole board.
+  - **⌘Z** undoes the last change to the board.
   
-  Where the cards are is saved for each paper (`board:<id>`), separately from
-  the notes. So arranging the board never changes the list's order, and
-  reordering the list never moves a card. **Esc** or **B** closes it.
+  Card positions, arrows and frames are saved for each paper (`board:<id>`),
+  separately from the notes. So arranging the board never changes the list's
+  order, and reordering the list never moves a card. **Esc** or **B** closes it.
 
 ![Notes by section](docs/notes-sections.png)
 
@@ -1992,7 +2007,7 @@ same notes, so a piece added in one is in all of them.
 
 #### Stickies on the PDF
 
-On the PDF as a book, **double-click** anywhere on a page (or press **📌 Pin**
+On the PDF, as a book or scrolled, **double-click** anywhere on a page (or press **📌 Pin**
 or **M**, then click) to pin a sticky there.
 - It is numbered in reading order, and its card sits beside the marker.
 - Drag the marker to move it, click the marker to fold the card, or pick one of
@@ -2002,8 +2017,13 @@ or **M**, then click) to pin a sticky there.
   side, and the stickies follow either way.
 
 A sticky is one of the paper's notes like any other. It appears in every view
-labelled *Sticky · p. 2*, and its chip turns to its page. (The PDF in the
-browser's own viewer can't be drawn over, so stickies need the book view.)
+labelled *Sticky · p. 2*, and its chip turns to its page.
+
+The PDF's scroll view (the other layout button) is drawn by the reader too, as
+one column of pages, each drawn as it nears the screen. So its text can be
+selected and added to your notes, **✂ Snip** outlines its figures and tables,
+and stickies can be pinned to it, just as in the book. A link under the pages
+still opens the file in the browser's own viewer.
 
 ![Stickies pinned to the PDF](docs/notes-stickies.png)
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { TAG_NAMES, addText, removeNote, useNotes } from '../lib/notes';
+import { TAG_NAMES, addText, removeNote, useNotes, withoutLabel } from '../lib/notes';
 import type { NoteBlock, NoteTag } from '../lib/notes';
 import { whereNow } from '../lib/where';
 import type { Whereabouts } from '../lib/where';
@@ -17,14 +17,15 @@ const dayOf = (iso: string) => {
 const whereName = (where: Whereabouts) => [where.page ? `p. ${where.page}` : '', where.section ?? ''].filter(Boolean).join(' · ');
 
 function Jot({ paperId, block }: { paperId: string; block: NoteBlock }) {
-  const text = block.kind === 'text' ? block.md : `${block.label}: ${block.note || block.text}`;
+  const text = block.kind === 'text' ? block.md : block.note || withoutLabel(block.label, block.text);
   const source = block.source;
   return (
     <article className={`jot${block.kind === 'text' && block.tag ? ` is-${block.tag}` : ''}${block.kind === 'clip' ? ' is-kept' : ''}`}>
       <p className="jot-text">
         {block.kind === 'text' && block.tag === 'question' ? <b>? </b> : null}
         {block.kind === 'text' && block.tag === 'key' ? <b>★ </b> : null}
-        {text.trim() || <span className="jot-empty">(empty)</span>}
+        {block.kind === 'clip' ? <b className="jot-label">{block.label} · </b> : null}
+        {text.trim()}
       </p>
       <div className="jot-meta">
         {source && (source.page || source.section || source.from === 'explain') ? (
@@ -59,7 +60,8 @@ export default function NotesJots({ paperId }: { paperId: string }) {
   const list = useRef<HTMLDivElement>(null);
   const area = useRef<HTMLTextAreaElement>(null);
 
-  const ordered = [...blocks].sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+  // Writing begun and left empty elsewhere is not a jot.
+  const ordered = blocks.filter((block) => block.kind !== 'text' || block.md.trim()).sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight });
   }, [blocks.length]);

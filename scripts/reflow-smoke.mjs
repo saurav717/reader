@@ -164,8 +164,8 @@ await page.waitForSelector('article.result');
 await page.locator('article.result', { hasText: 'Fourier Neural Operator' }).locator('h3').click();
 await page.getByRole('button', { name: /Add to collection/i }).click();
 await page.getByRole('button', { name: /^Read$/ }).click();
-await page.waitForSelector('.pdf-pane iframe', { timeout: 15000 });
-check('the paper opens on its PDF', await page.locator('.pdf-pane iframe').isVisible());
+await page.waitForSelector('.pdf-pane :is(iframe, .pdf-scroll-slot)', { timeout: 15000 });
+check('the paper opens on its PDF', await page.locator('.pdf-pane :is(iframe, .pdf-scroll)').first().isVisible());
 
 console.log('\n== reflow ==');
 await page.locator('.segmented button', { hasText: 'Reflow' }).click();
@@ -362,8 +362,8 @@ await page.locator('article.result', { hasText: 'A Scanned Paper' }).locator('h3
 await page.getByRole('button', { name: /^Read$/ }).click();
 // Nothing to reflow, so the reader turns to the PDF itself — the viewer
 // shows a scan fine — and says why when the text is asked for anyway.
-await page.waitForSelector('.pdf-pane iframe', { timeout: 30000 });
-check('a scan opens on the PDF instead', await page.locator('.pdf-pane iframe').isVisible());
+await page.waitForSelector('.pdf-pane :is(iframe, .pdf-scroll-slot)', { timeout: 30000 });
+check('a scan opens on the PDF instead', await page.locator('.pdf-pane :is(iframe, .pdf-scroll)').first().isVisible());
 await page.locator('.segmented button', { hasText: 'Reflow' }).click();
 await page.waitForSelector('.reader-column .banner', { timeout: 30000 });
 check('and Reflow says why there is no text', ((await page.locator('.reader-column .banner').textContent()) || '').includes('no text that can be read'));
@@ -386,7 +386,7 @@ await bare.getByLabel('Search papers').press('Enter');
 await bare.waitForSelector('article.result');
 await bare.locator('article.result', { hasText: 'Fourier Neural Operator' }).locator('h3').click();
 await bare.getByRole('button', { name: /^Read$/ }).click();
-await bare.waitForSelector('.pdf-pane iframe', { timeout: 15000 });
+await bare.waitForSelector('.pdf-pane :is(iframe, .pdf-scroll-slot)', { timeout: 15000 });
 await bare.locator('.segmented button', { hasText: 'Reflow' }).click();
 await bare.waitForSelector('.paper-body h2', { timeout: 60000 });
 check('the paper is still read, on the main thread', (await bare.locator('.paper-body figure.pdf-table table').count()) === 2 && (await bare.locator('.paper-body figure.pdf-figure img').count()) === 1);
