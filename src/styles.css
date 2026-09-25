@@ -2000,6 +2000,31 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 .note-clip .explain-caveat { margin: 0; }
 .note-clip .chat-math-block, .note-clip .katex-display { overflow-x: auto; overflow-y: hidden; }
 .notes-win .note-piece { background: rgb(var(--win-rgb) / 0.72); }
+/* Kept from the paper: its figures and tables, reflowed, from LaTeXML, or snipped off the PDF. */
+.note-clip figure { margin: 0; }
+.note-clip img { display: block; max-width: 100%; height: auto; border-radius: 6px; background: #fff; }
+.note-clip figcaption, .note-clip .ltx_caption { font: 12px/1.45 var(--sans); color: var(--ink-2); margin: 6px 0; }
+.note-clip .pdf-table figcaption { margin-top: 0; }
+.note-clip .pdf-equation, .note-clip .ltx_equation { overflow-x: auto; }
+.note-clip math { font-size: 1.05em; }
+
+/* Snipping the PDF into your notes: the figures, tables and equations found
+   on the pages in view outlined, the one under the pointer lit and named, and
+   a dragged box drawn as it is dragged. */
+.snip-layer { position: absolute; inset: 0; z-index: 4; cursor: crosshair; touch-action: none; }
+.snip-region { position: absolute; border: 1.5px dashed rgb(var(--accent-rgb) / 0.55); border-radius: 5px; background: rgb(var(--accent-rgb) / 0.04); pointer-events: none; transition: background 0.12s ease, border-color 0.12s ease; }
+.snip-region.is-hot { border-style: solid; border-color: var(--accent); background: rgb(var(--accent-rgb) / 0.1); }
+.snip-region-label {
+  position: absolute; left: -1.5px; bottom: 100%; margin-bottom: 4px; white-space: nowrap;
+  padding: 3px 8px; border-radius: 6px 6px 6px 0; background: var(--accent); color: var(--accent-on); font: 600 11.5px var(--sans);
+}
+.snip-drag { position: absolute; border: 2px solid var(--accent); border-radius: 3px; background: rgb(var(--accent-rgb) / 0.1); pointer-events: none; }
+.snip-hint {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 5; pointer-events: none; white-space: nowrap;
+  padding: 6px 12px; border-radius: 10px; background: var(--ink); color: var(--paper); font: 500 12px var(--sans); box-shadow: var(--shadow-md);
+}
+.book-nav .snip-btn { flex-shrink: 0; white-space: nowrap; }
+.book-nav .snip-btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
 
 /* On the Explain page: the corner button on whatever is pointed at, and the
    line that says it was kept. */

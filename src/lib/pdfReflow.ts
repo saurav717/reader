@@ -336,3 +336,5 @@ export async function openPdf(blob: Blob): Promise<{ doc: PDFDocumentProxy; clos
 
 /** The page's text, laid over its picture so that it can be selected and copied. */
 export { TextLayer } from 'pdfjs-dist/legacy/build/pdf.mjs';
+// For finding the figures and tables on one page, where the PDF is set as a book.
+export { layoutPages, plain, spansToHtml } from './pdfLayout';

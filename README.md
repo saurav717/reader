@@ -1903,6 +1903,34 @@ whichever window was pressed or typed in last, and that one comes to the front.
 
 ![the PDF as a book in zen mode, the notes in a window over it](docs/notes-window-pdf.png)
 
+#### Keeping pieces of the paper
+
+Whatever way the paper is read, its pieces go into your notes too:
+
+- **Reflow, or the HTML rendering.** Point at a figure, a table or a display
+  equation and **Add to notes** comes up on its corner; select any text and
+  the toolbar has **Add to notes** beside *Ask*. A figure's picture is held in
+  the note itself — a reflowed figure is drawn from the PDF while the paper is
+  open, and would otherwise be gone once it is closed — and a table comes as
+  its rows and columns.
+- **The PDF, as a book.** Select text on a page and **Add to notes** is under
+  it. **✂ Snip** (or **S**) outlines the figures, tables and equations found on
+  the pages in view — the same reading of the page that reflows it: point at
+  one to see what it is, click to keep it whole with its caption, a table as a
+  table rather than a picture of one. Or drag any box, and it is kept as a
+  picture with the words inside it. **Esc** or **S** puts the tool away.
+- **The PDF in the browser's viewer** cannot be reached into, so the line
+  under it offers to open it as a book instead.
+
+![Reflow: pointing at a figure puts Add to notes on its corner](docs/paper-notes-figure.png)
+
+![the PDF as a book in snip mode: Table 1 outlined and named, 6 rows × 4, click to add](docs/paper-notes-snip.png)
+
+Each piece is labelled with the page and section it came from, *Paper · p. 3 ·
+4 Why self-attention*; pressing the label shows it in the paper again, closing
+Explain first if it covers the paper, or turning to its page for a snip with no
+words to find it by. `scripts/paper-notes-smoke.mjs` keeps one of each.
+
 The button beside the notes' export (⧉) pops them out into that window anywhere,
 Reflow included, and they stay popped out until the window's dock button puts
 them back beside the page. The window is `src/components/NotesWindow.tsx`; what it
@@ -2176,6 +2204,7 @@ node scripts/smoke.mjs         # in another
 node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
 node scripts/notes-smoke.mjs   # the notes beside the page, and in a window over the PDF
 node scripts/explain-notes-smoke.mjs # keeping diagrams, code, tables, maths and passages from Explain
+node scripts/paper-notes-smoke.mjs   # keeping figures, tables and passages from Reflow and the PDF, and snipping
 node scripts/recommend-smoke.mjs  # papers named in an answer: cards, Find, Add, the list
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 node scripts/hover-smoke.mjs    # the cards over an author's name and a citation
