@@ -88,7 +88,24 @@ export type Block =
   | { kind: 'prose'; md: string }
   | { kind: 'figure'; svg: string; caption: string; open: boolean }
   | { kind: 'code'; lang: string; title: string; code: string; output?: string; open: boolean }
-  | { kind: 'caveat'; verdict: Verdict; title: string; md: string };
+  | { kind: 'caveat'; verdict: Verdict; title: string; md: string }
+  // The Implementation page's own blocks (implement.ts): a directory tree, a
+  // starter file, and the work in the paper as numbers the page turns into hours.
+  | { kind: 'tree'; text: string; open: boolean }
+  | { kind: 'file'; path: string; lang: string; code: string; open: boolean }
+  | { kind: 'compute'; text: string; open: boolean };
+
+/** The language a starter file is coloured as, from its name. */
+export function langOf(path: string): string {
+  const ext = path.toLowerCase().split('.').pop() ?? '';
+  if (/^(py|pyi)$/.test(ext)) return 'python';
+  if (/^(sh|bash|zsh)$/.test(ext) || /^(makefile|dockerfile)$/i.test(path.split('/').pop() ?? '')) return 'bash';
+  if (/^(yml|yaml)$/.test(ext)) return 'yaml';
+  if (/^(json|jsonl)$/.test(ext)) return 'json';
+  if (/^(toml|cfg|ini)$/.test(ext)) return 'toml';
+  if (/^(md|markdown)$/.test(ext)) return 'markdown';
+  return 'text';
+}
 
 export interface Section {
   id: string;
@@ -164,6 +181,24 @@ export function parseExplanation(src: string): Section[] {
       } else if (lang === 'python' || lang === 'py') {
         flush();
         current.blocks.push({ kind: 'code', lang: 'python', title: info.title ?? '', code: text, open });
+      } else if (lang === 'bash' || lang === 'sh' || lang === 'shell') {
+        // A shell cell: a bash block with a title is a cell of the page; one without is ordinary Markdown code.
+        if (info.title === undefined) {
+          prose.push(line, ...body);
+          if (!open) prose.push('```');
+        } else {
+          flush();
+          current.blocks.push({ kind: 'code', lang: 'bash', title: info.title, code: text, open });
+        }
+      } else if (lang === 'tree') {
+        flush();
+        current.blocks.push({ kind: 'tree', text: text.replace(/^\s*\n|\s+$/g, ''), open });
+      } else if (lang === 'file' && info.path) {
+        flush();
+        current.blocks.push({ kind: 'file', path: info.path, lang: info.lang ?? langOf(info.path), code: text, open });
+      } else if (lang === 'compute') {
+        flush();
+        current.blocks.push({ kind: 'compute', text, open });
       } else {
         // Any other fence is ordinary Markdown code; hand it back to the prose.
         prose.push(line, ...body);
@@ -201,7 +236,28 @@ export function notebook(title: string, sections: Section[]): string {
       if (block.kind === 'prose') parts.push(block.md);
       else if (block.kind === 'caveat') parts.push(`> **${VERDICTS[block.verdict]}${block.title ? ` — ${block.title}` : ''}.** ${block.md.replace(/\n/g, '\n> ')}`);
       else if (block.kind === 'figure') parts.push(`*Figure: ${block.caption || 'see the explanation page'}*`);
-      else if (block.kind === 'code' && block.lang === 'python') {
+      else if (block.kind === 'tree') parts.push(`\`\`\`\n${block.text}\n\`\`\``);
+      else if (block.kind === 'compute') parts.push('*The compute budget is on the Implementation page, worked out for your hardware.*');
+      else if (block.kind === 'file') {
+        // A starter file becomes a cell that writes it, so running the notebook top to bottom lays the repository out.
+        push();
+        cells.push({
+          cell_type: 'code',
+          execution_count: null,
+          metadata: {},
+          outputs: [],
+          source: `%%writefile ${block.path}\n${block.code}`.split(/(?<=\n)/),
+        });
+      } else if (block.kind === 'code' && block.lang === 'bash') {
+        push();
+        cells.push({
+          cell_type: 'code',
+          execution_count: null,
+          metadata: {},
+          outputs: [],
+          source: `%%bash\n# ${block.title}\n${block.code}`.split(/(?<=\n)/),
+        });
+      } else if (block.kind === 'code' && block.lang === 'python') {
         push();
         cells.push({
           cell_type: 'code',

@@ -177,6 +177,12 @@ export default {
         );
       }
 
+      // A Worker has no disk and no GPU: the local workspace is the Node proxy's alone.
+      if (path === '/workspace/status') {
+        return json({ available: false, reason: 'The local workspace needs the proxy in server/ running on your own machine, with READER_WORKSPACE set.' }, 200, headers);
+      }
+      if (path.startsWith('/workspace/')) return json({ error: 'the local workspace is not available on a Worker' }, 404, headers);
+
       // The browser inside the reader, on Cloudflare's Browser Rendering
       // rather than a Chromium of this Worker's own — see worker/browse.js.
       // Opening one takes a POST from the site; everything after takes the

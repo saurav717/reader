@@ -345,3 +345,30 @@ export const ExplainIcon = (props: IconProps) => (
     <path d="M18.5 2.8c.3 1.8 1.2 2.7 3 3-1.8.3-2.7 1.2-3 3-.3-1.8-1.2-2.7-3-3 1.8-.3 2.7-1.2 3-3Z" />
   </Icon>
 );
+
+/** Two linked rings, the way Colab's mark is drawn: the scaffold, taken to a notebook. */
+export const ColabIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M9.5 8.2A4.5 4.5 0 1 0 9.5 15.8" />
+    <path d="M14.5 8.2a4.5 4.5 0 1 1 0 7.6" />
+    <path d="M9.5 8.2a4.5 4.5 0 0 1 5 0M9.5 15.8a4.5 4.5 0 0 0 5 0" />
+  </Icon>
+);
+
+/** A plan: a list with its boxes ticked, the paper as a project. */
+export const PlanIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="3.5" y="3.5" width="17" height="17" rx="3" />
+    <path d="M7.5 9l1.5 1.5L12 7.5M7.5 15l1.5 1.5L12 13.5" />
+    <path d="M14 9.5h3M14 15.5h3" />
+  </Icon>
+);
+
+/** A machine of one's own: a monitor with a base. */
+export const LocalIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="3" y="4.5" width="18" height="12" rx="2.5" />
+    <path d="M9 20h6M12 16.5V20" />
+    <path d="M7.5 10.5l2 2-2 2M11.5 14.5h3" />
+  </Icon>
+);

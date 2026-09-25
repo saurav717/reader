@@ -22,6 +22,17 @@ import {
   VERDICTS,
 } from '../lib/explain';
 import type { DriveState, RevisionScope } from '../lib/explain';
+import {
+  dismissImplementPending,
+  generateImplementation,
+  implementationFor,
+  loadImplementation,
+  reviseImplementation,
+  scaffoldNotebook,
+  stopImplementing,
+  subscribeImplement,
+  undoImplementRevision,
+} from '../lib/implement';
 import { findPassage, FLASH_EVENT, setExplainLocator, showPassage } from '../lib/locate';
 import { markdown } from '../lib/markdown';
 import { SHOW_IN_EXPLAIN, addClip, copyOf } from '../lib/notes';
@@ -29,7 +40,8 @@ import type { NoteSource } from '../lib/notes';
 import { selectedText } from '../lib/screen';
 import { useStore } from '../lib/store';
 import { typesetMath } from '../lib/typesetMath';
-import { CloseIcon, ExplainIcon, NoteIcon, OpacityIcon, SparkleIcon } from './icons';
+import { CloseIcon, ExplainIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon } from './icons';
+import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
 import { tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
 import type { Flash } from './PassageFlash';
@@ -52,6 +64,61 @@ const readLayout = (): ExplainLayout => {
   }
   return 'margin';
 };
+
+/**
+ * The two pages Explain shows: the explanation, and the implementation plan
+ * (implement.ts). They are written, kept, revised and undone the same way,
+ * so the view is written once against this shape and given whichever store
+ * the tab in the bar picks.
+ */
+export type ExplainPage = 'explain' | 'implement';
+const PAGE_KEY = 'reader.explain.page';
+const readPage = (): ExplainPage => {
+  try {
+    return localStorage.getItem(PAGE_KEY) === 'implement' ? 'implement' : 'explain';
+  } catch {
+    return 'explain';
+  }
+};
+interface PageStore {
+  subscribe: (listener: () => void) => () => void;
+  get: (paperId: string) => ReturnType<typeof explanationFor>;
+  driveState: (paperId: string) => DriveState | undefined;
+  load: (paperId: string) => Promise<unknown>;
+  generate: (screen: Screen, model: string) => Promise<void>;
+  revise: (screen: Screen, request: string, scope: RevisionScope) => Promise<void>;
+  undo: (paperId: string) => void;
+  dismiss: (paperId: string) => void;
+  stop: () => void;
+}
+const STORES: Record<ExplainPage, PageStore> = {
+  explain: {
+    subscribe: subscribeExplain,
+    get: explanationFor,
+    driveState: driveStateFor,
+    load: loadExplanation,
+    generate: generateExplanation,
+    revise: reviseExplanation,
+    undo: undoRevision,
+    dismiss: dismissPending,
+    stop: stopExplaining,
+  },
+  implement: {
+    subscribe: subscribeImplement,
+    get: implementationFor,
+    driveState: () => undefined,
+    load: loadImplementation,
+    generate: generateImplementation,
+    revise: reviseImplementation,
+    undo: undoImplementRevision,
+    dismiss: dismissImplementPending,
+    stop: stopImplementing,
+  },
+};
+const PAGES: { id: ExplainPage; label: string; note: string }[] = [
+  { id: 'explain', label: 'Explanation', note: 'What the paper says: the problem, the method, why it works, and what has changed since' },
+  { id: 'implement', label: 'Implementation', note: 'How to build it: what to reproduce, the datasets, the repository, the starter files, and what it costs on your machine' },
+];
 
 const VERDICT_CELL = /<td>(Still holds|Holds|Refined(?: since)?|Superseded|Disputed|Disproved)<\/td>/gi;
 /** Prose, with a verdict alone in a table cell (the "Since then" table) drawn as its chip. */
@@ -109,12 +176,15 @@ export function highlightPython(code: string): string {
 function CodeCell({ block, index }: { block: Extract<Block, { kind: 'code' }>; index: number }) {
   const [copied, setCopied] = useState(false);
   const python = block.lang === 'python';
+  const shell = block.lang === 'bash';
+  // A shell cell runs on the reader's own machine once the scaffold is written there (the Local menu).
+  const { project, console: local } = useLocal();
   return (
-    <figure className="explain-cell">
+    <figure className={`explain-cell${shell ? ' is-shell' : ''}`}>
       <header>
-        <span className="cell-index">{python ? `In [${index}]` : 'Out'}</span>
+        <span className="cell-index">{python ? `In [${index}]` : shell ? '$' : 'Out'}</span>
         <span className="cell-title">{block.title}</span>
-        {python ? (
+        {python || shell ? (
           <>
             <button
               type="button"
@@ -128,17 +198,24 @@ function CodeCell({ block, index }: { block: Extract<Block, { kind: 'code' }>; i
             >
               {copied ? 'Copied' : 'Copy'}
             </button>
-            <button
-              type="button"
-              className="btn sm colab"
-              disabled
-              title="Running cells in Google Colab is coming next. For now, “Notebook” in the bar downloads every cell as an .ipynb that Colab opens."
-            >
-              <span className="colab-mark" aria-hidden="true">
-                co
-              </span>
-              Run in Colab
-            </button>
+            {shell && project ? (
+              <button type="button" className="btn sm local-run" disabled={local.running || block.open} onClick={() => void runLocally(block.code.trim())} title={`Run in ${project.dir}`}>
+                ▶ Run locally
+              </button>
+            ) : null}
+            {python ? (
+              <button
+                type="button"
+                className="btn sm colab"
+                disabled
+                title="Running cells in Google Colab is coming next. For now, “Notebook” in the bar downloads every cell as an .ipynb that Colab opens."
+              >
+                <span className="colab-mark" aria-hidden="true">
+                  co
+                </span>
+                Run in Colab
+              </button>
+            ) : null}
           </>
         ) : null}
       </header>
@@ -186,10 +263,10 @@ function Caveat({ block }: { block: Extract<Block, { kind: 'caveat' }> }) {
 // ---------------------------------------------------------------------------
 
 /** What on the page can be kept whole, by pointing at it. */
-const KEEPABLE = '.explain-figure, .explain-cell, .explain-caveat, .explain-prose table, .explain-prose pre, .explain-prose .chat-math-block';
+const KEEPABLE = '.explain-figure, .explain-cell, .explain-caveat, .impl-tree, .impl-file, .impl-budget, .explain-prose table, .explain-prose pre, .explain-prose .chat-math-block';
 
 /** What a box dragged over the page keeps, whole: each piece of it the box touches. */
-const SNIPPABLE = '.explain-prose > *, .explain-figure, .explain-cell, .explain-caveat';
+const SNIPPABLE = '.explain-prose > *, .explain-figure, .explain-cell, .explain-caveat, .impl-tree, .impl-file, .impl-budget';
 
 const firstLine = (text: string) => text.split('\n').map((line) => line.trim()).find(Boolean);
 
@@ -215,6 +292,20 @@ function describe(element: HTMLElement): { label: string; text: string; quote?: 
     const body = element.querySelector('.caveat-body')?.textContent?.trim() ?? '';
     return { label: `Caveat${verdict ? ` · ${verdict}` : ''}`, text: body, quote: body.slice(0, 80) };
   }
+  if (element.matches('.impl-tree')) {
+    const rows = Array.from(element.querySelectorAll('.tree-name')).map((row) => row.textContent?.trim() ?? '');
+    return { label: 'Repository layout', text: rows.join('\n'), quote: rows[0] };
+  }
+  if (element.matches('.impl-file')) {
+    const path = element.getAttribute('data-path') ?? 'file';
+    const code = element.querySelector('.cell-code')?.textContent ?? '';
+    return { label: `File · ${path}`, text: `# ${path}\n${code}`, quote: firstLine(code) };
+  }
+  if (element.matches('.impl-budget')) {
+    const table = element.querySelector('table');
+    const machine = element.querySelector('.cell-title')?.textContent?.trim();
+    return { label: machine ?? 'Compute budget', text: table ? tableText(table) : element.textContent ?? '' };
+  }
   if (element.matches('table')) {
     const cell = element.querySelector('tr:nth-child(2) > *, td');
     return { label: 'Table', text: tableText(element), quote: cell?.textContent?.trim() };
@@ -234,7 +325,13 @@ function sectionText(section: Section): string {
           ? `[Diagram${block.caption ? `: ${block.caption}` : ''}]`
           : block.kind === 'code'
             ? `\`\`\`\n${block.code}\n\`\`\`${block.output !== undefined ? `\n\nExpected output:\n\`\`\`\n${block.output}\n\`\`\`` : ''}`
-            : `${VERDICTS[block.verdict]}${block.title ? ` — ${block.title}` : ''}: ${block.md}`,
+            : block.kind === 'tree'
+              ? `\`\`\`\n${block.text}\n\`\`\``
+              : block.kind === 'file'
+                ? `# ${block.path}\n\`\`\`\n${block.code}\n\`\`\``
+                : block.kind === 'compute'
+                  ? `Compute budget:\n${block.text}`
+                  : `${VERDICTS[block.verdict]}${block.title ? ` — ${block.title}` : ''}: ${block.md}`,
     )
     .join('\n\n');
 }
@@ -261,12 +358,14 @@ function SectionView({
   /** Being rewritten now, just rewritten, or changed by an earlier request. */
   state?: 'revising' | 'fresh' | 'revised';
 }) {
-  const rows: { prose: Block[]; side: Block[] }[] = [];
+  const rows: { prose: Block[]; side: Block[]; wide?: boolean }[] = [];
+  // A tree, a starter file or the budget is a table's width: it goes in the reading column, not the margin.
+  const wide = (block: Block) => block.kind === 'prose' || block.kind === 'tree' || block.kind === 'file' || block.kind === 'compute';
   for (const block of section.blocks) {
     const row = rows[rows.length - 1];
-    if (block.kind === 'prose') {
-      if (row && !row.side.length) row.prose.push(block);
-      else rows.push({ prose: [block], side: [] });
+    if (wide(block)) {
+      if (row && !row.side.length && block.kind === 'prose') row.prose.push(block);
+      else rows.push({ prose: [block], side: [], wide: block.kind !== 'prose' });
     } else if (row) row.side.push(block);
     else rows.push({ prose: [], side: [block] });
   }
@@ -277,6 +376,12 @@ function SectionView({
       <Figure key={key} block={block} />
     ) : block.kind === 'code' ? (
       <CodeCell key={key} block={block} index={cells.get(block) ?? 0} />
+    ) : block.kind === 'tree' ? (
+      <TreeBlock key={key} block={block} />
+    ) : block.kind === 'file' ? (
+      <FileBlock key={key} block={block} />
+    ) : block.kind === 'compute' ? (
+      <ComputeBlock key={key} block={block} />
     ) : (
       <Caveat key={key} block={block} />
     );
@@ -314,7 +419,7 @@ function SectionView({
         </header>
       ) : null}
       {rows.map((row, index) => (
-        <div key={index} className="explain-row">
+        <div key={index} className={`explain-row${row.wide ? ' is-wide' : ''}`}>
           <div className="row-main">{row.prose.map(draw)}</div>
           {row.side.length ? <div className="row-side">{row.side.map(draw)}</div> : null}
         </div>
@@ -439,8 +544,11 @@ function OpacityControl({ value, fallback, onChange }: { value: number | null; f
 
 export default function Explain({ paperId, title, authors, published, screen, onClose }: Props) {
   const assistant = useSyncExternalStore(subscribe, getState);
-  const explanation = useSyncExternalStore(subscribeExplain, () => explanationFor(paperId));
-  const driveState = useSyncExternalStore(subscribeExplain, () => driveStateFor(paperId));
+  const [page, setPage] = useState<ExplainPage>(readPage);
+  const store = STORES[page];
+  const implementing = page === 'implement';
+  const explanation = useSyncExternalStore(store.subscribe, () => store.get(paperId));
+  const driveState = useSyncExternalStore(store.subscribe, () => store.driveState(paperId));
   const [layout, setLayout] = useState<ExplainLayout>(readLayout);
   const [model, setModel] = useState<string>(assistant.prefs.model);
   const [keyDraft, setKeyDraft] = useState('');
@@ -461,8 +569,18 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const defaultOpacity = settings.glass ? Math.round((0.5 + 0.2 * settings.glassFrost) * 100) / 100 : 1;
   useEffect(() => {
     setChecked(false);
-    void loadExplanation(paperId).finally(() => setChecked(true));
-  }, [paperId, driveConnected]);
+    void store.load(paperId).finally(() => setChecked(true));
+  }, [paperId, driveConnected, store]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(PAGE_KEY, page);
+    } catch {
+      // private mode
+    }
+    // A new page: the bar's chips were about the other one.
+    setScope({});
+    setJustAsked(false);
+  }, [page]);
 
   useEffect(() => {
     try {
@@ -687,7 +805,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
     setJustAsked(true);
     const asked = scope;
     setScope({});
-    await reviseExplanation(read, request, asked);
+    await store.revise(read, request, asked);
   };
   const adjust = (sectionTitle: string) => {
     setScope({ section: sectionTitle });
@@ -711,17 +829,62 @@ export default function Explain({ paperId, title, authors, published, screen, on
 
   const start = async () => {
     const read = await screen();
-    await generateExplanation(read, model);
+    await store.generate(read, model);
   };
 
   const download = () => {
-    const blob = new Blob([notebook(title, sections)], { type: 'application/x-ipynb+json' });
+    const blob = new Blob([implementing ? scaffoldNotebook(title, sections) : notebook(title, sections)], { type: 'application/x-ipynb+json' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `${title.slice(0, 80).replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'paper'}.ipynb`;
+    link.download = `${title.slice(0, 80).replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'paper'}${implementing ? '-implementation' : ''}.ipynb`;
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(link.href), 2000);
   };
+
+  // Which model, and the button — or the key, first. The same on both pages' empty states.
+  const startControls = (
+    <>
+              {assistant.hasKey ? (
+                <>
+                  <div className="explain-start">
+                    <div className="model-pick" role="radiogroup" aria-label="Model">
+                      {MODELS.map((m) => (
+                        <button key={m.id} type="button" role="radio" aria-checked={model === m.id} onClick={() => setModel(m.id)}>
+                          <b>{m.label}</b>
+                          <span>{m.note}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <button type="button" className="btn primary cta" onClick={() => void start()}>
+                      <SparkleIcon size={17} /> {implementing ? 'Plan the implementation' : 'Explain this paper'}
+                    </button>
+                  </div>
+                  <p className="hint">
+                    <b>Written once</b> and kept for this paper
+                    {driveState ? ', in this browser and in the paper’s folder in your Drive' : implementing ? ', in this browser' : ''}. A long paper costs about as much as a few long answers in Ask Claude.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <form
+                    className="explain-start"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      saveKey(keyDraft);
+                    }}
+                  >
+                    <input type="password" placeholder="sk-ant-…" value={keyDraft} onChange={(event) => setKeyDraft(event.target.value)} aria-label="Anthropic API key" />
+                    <button type="submit" className="btn primary cta" disabled={!keyDraft.trim()}>
+                      Use this key
+                    </button>
+                  </form>
+                  <p className="hint">
+                    <b>The same key as Ask Claude.</b> It stays in this browser and goes only to api.anthropic.com.
+                  </p>
+                </>
+              )}
+    </>
+  );
 
   const year = published?.slice(0, 4);
   const byline = [authors.slice(0, 3).join(', ') + (authors.length > 3 ? ' et al.' : ''), year].filter(Boolean).join(' · ');
@@ -729,18 +892,26 @@ export default function Explain({ paperId, title, authors, published, screen, on
 
   return (
     <div
-      className={`explain layout-${layout}${opacity !== null && opacity < 1 ? ' is-see-through' : ''}`}
+      className={`explain layout-${layout} page-${page}${opacity !== null && opacity < 1 ? ' is-see-through' : ''}`}
       style={opacity !== null ? ({ '--explain-a': opacity } as CSSProperties) : undefined}
       role="dialog"
-      aria-label={`Explanation of ${title}`}
+      aria-label={`${implementing ? 'Implementation plan for' : 'Explanation of'} ${title}`}
     >
       <header className="explain-bar">
         <span className="explain-brand">
-          <ExplainIcon size={17} /> Explained by Claude
+          <ExplainIcon size={17} /> <span>Explained by Claude</span>
         </span>
         <span className="explain-bar-title" title={title}>
           {title}
         </span>
+        <div className="segmented explain-pages" role="tablist" aria-label="Page">
+          {PAGES.map((option) => (
+            <button key={option.id} type="button" role="tab" aria-selected={page === option.id} aria-pressed={page === option.id} title={option.note} onClick={() => setPage(option.id)}>
+              {option.id === 'implement' ? <PlanIcon size={13} /> : <ExplainIcon size={13} />}
+              <span>{option.label}</span>
+            </button>
+          ))}
+        </div>
         <div className="segmented" role="group" aria-label="Layout">
           {LAYOUTS.map((option) => (
             <button key={option.id} type="button" aria-pressed={layout === option.id} title={option.note} onClick={() => setLayout(option.id)}>
@@ -748,18 +919,23 @@ export default function Explain({ paperId, title, authors, published, screen, on
             </button>
           ))}
         </div>
-        {hasCode && !streaming ? (
+        {implementing && explanation?.content && !streaming ? (
+          <>
+            <ColabMenu title={title} content={shown} sections={sections} />
+            <LocalMenu title={title} content={shown} sections={sections} />
+          </>
+        ) : hasCode && !streaming ? (
           <button type="button" className="btn sm" onClick={download} title="Every cell and its explanation as a Jupyter notebook — File → Upload notebook in Colab opens it">
             Notebook ↓
           </button>
         ) : null}
         {explanation?.content && !streaming ? (
-          <button type="button" className="btn sm ghost rewrite" onClick={() => void start()} disabled={!assistant.hasKey} title="Write it again from scratch">
+          <button type="button" className="btn sm ghost rewrite" onClick={() => void start()} disabled={!assistant.hasKey} title={implementing ? 'Plan it again from scratch, for the machine picked now' : 'Write it again from scratch'}>
             Rewrite
           </button>
         ) : null}
         {streaming ? (
-          <button type="button" className="btn sm" onClick={stopExplaining}>
+          <button type="button" className="btn sm" onClick={store.stop}>
             Stop
           </button>
         ) : null}
@@ -826,15 +1002,17 @@ export default function Explain({ paperId, title, authors, published, screen, on
               }}
               placeholder={
                 !explanation?.content
-                  ? 'Ask questions or request changes here, once the explanation is written'
+                  ? `Ask questions or request changes here, once the ${implementing ? 'plan' : 'explanation'} is written`
                   : scope.section || scope.quote
                     ? 'Ask about this, or say how to change it…'
-                    : 'Ask anything about this explanation, or tell Claude how to change it…  ( / )'
+                    : implementing
+                      ? 'Ask about the plan, or change it — a different dataset, framework, scale…  ( / )'
+                      : 'Ask anything about this explanation, or tell Claude how to change it…  ( / )'
               }
               aria-label="Ask about the explanation, or ask for a change"
             />
             {busy && pending ? (
-              <button type="button" className="btn sm" onClick={stopExplaining}>
+              <button type="button" className="btn sm" onClick={store.stop}>
                 Stop
               </button>
             ) : (
@@ -853,15 +1031,26 @@ export default function Explain({ paperId, title, authors, published, screen, on
           ) : pending?.error ? (
             <div className="ask-status is-error">
               <span className="ask-note">{pending.error}</span>
-              <button type="button" className="btn sm ghost" onClick={() => dismissPending(paperId)}>
+              <button type="button" className="btn sm ghost" onClick={() => store.dismiss(paperId)}>
                 Dismiss
               </button>
             </div>
           ) : askFocused && !ask && canAsk && !justAsked ? (
             <div className="ask-suggestions">
-              {(scope.section || scope.quote
-                ? ['Explain this more simply', 'Go deeper into the maths', 'Add a figure for this', 'Add a PyTorch version of the code', 'Is this still true today?']
-                : ['Make the whole page simpler, for a beginner', 'Add a section on how to implement it today', 'Use PyTorch instead of numpy', 'What has changed in the last two years?', 'Typeset the maths, and walk through it step by step', 'Fewer figures, more intuition']
+              {(implementing
+                ? scope.section || scope.quote
+                  ? ['Go into more detail here', 'Give me the full file, not a skeleton', 'What could go wrong at this step?', 'Is there a smaller version of this?', 'Add a figure for this']
+                  : [
+                      'Plan the smallest version that still tests the idea',
+                      'Use PyTorch Lightning and Hydra configs',
+                      'Use JAX instead of PyTorch',
+                      'Swap the dataset for one I can download in an hour',
+                      'Write every starter file in full',
+                      'Add a Dockerfile and a Makefile',
+                    ]
+                : scope.section || scope.quote
+                  ? ['Explain this more simply', 'Go deeper into the maths', 'Add a figure for this', 'Add a PyTorch version of the code', 'Is this still true today?']
+                  : ['Make the whole page simpler, for a beginner', 'Add a section on how to implement it today', 'Use PyTorch instead of numpy', 'What has changed in the last two years?', 'Typeset the maths, and walk through it step by step', 'Fewer figures, more intuition']
               ).map((suggestion) => (
                 <button key={suggestion} type="button" className="ask-suggestion" onMouseDown={(event) => event.preventDefault()} onClick={() => void submit(suggestion)}>
                   {suggestion}
@@ -872,7 +1061,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
             <div className="ask-status is-done">
               <span className="check">✓</span>
               <span className="ask-note">{lastRevision.note || `Done: ${lastRevision.request}`}</span>
-              <button type="button" className="btn sm ghost" onClick={() => undoRevision(paperId)} title={`Put the page back as it was before “${lastRevision.request}”`}>
+              <button type="button" className="btn sm ghost" onClick={() => store.undo(paperId)} title={`Put the page back as it was before “${lastRevision.request}”`}>
                 Undo
               </button>
             </div>
@@ -925,9 +1114,10 @@ export default function Explain({ paperId, title, authors, published, screen, on
                 ))}
             </div>
           ) : null}
+          {implementing && explanation?.content ? <HardwareSummary sections={sections} /> : null}
           {explanation?.content ? (
             <div className="outline-meta">
-              {streaming ? 'Claude is writing…' : `Written by ${writtenWith} · ${new Date(explanation.created).toLocaleDateString()}`}
+              {streaming ? (implementing ? 'Claude is planning…' : 'Claude is writing…') : `${implementing ? 'Planned' : 'Written'} by ${writtenWith} · ${new Date(explanation.created).toLocaleDateString()}`}
               <DriveLine state={driveState} />
             </div>
           ) : null}
@@ -943,8 +1133,12 @@ export default function Explain({ paperId, title, authors, published, screen, on
           {!explanation?.content && !checked ? (
             <p className="explain-looking">
               <span className="spinner" />
-              {driveState?.state === 'checking' ? 'Looking in your Drive for an explanation of this paper…' : 'Opening the explanation…'}
+              {driveState?.state === 'checking' ? 'Looking in your Drive for an explanation of this paper…' : implementing ? 'Opening the plan…' : 'Opening the explanation…'}
             </p>
+          ) : !explanation?.content && checked && !streaming && implementing ? (
+            <ImplementEmpty title={title} byline={byline}>
+              {startControls}
+            </ImplementEmpty>
           ) : !explanation?.content && checked && !streaming ? (
             <div className="explain-empty">
               <div className="explain-kicker pill">
@@ -987,51 +1181,13 @@ export default function Explain({ paperId, title, authors, published, screen, on
                   <span>what still holds, and what was superseded or disproved</span>
                 </li>
               </ul>
-              {assistant.hasKey ? (
-                <>
-                  <div className="explain-start">
-                    <div className="model-pick" role="radiogroup" aria-label="Model">
-                      {MODELS.map((m) => (
-                        <button key={m.id} type="button" role="radio" aria-checked={model === m.id} onClick={() => setModel(m.id)}>
-                          <b>{m.label}</b>
-                          <span>{m.note}</span>
-                        </button>
-                      ))}
-                    </div>
-                    <button type="button" className="btn primary cta" onClick={() => void start()}>
-                      <SparkleIcon size={17} /> Explain this paper
-                    </button>
-                  </div>
-                  <p className="hint">
-                    <b>Written once</b> and kept for this paper
-                    {driveState ? ', in this browser and in the paper’s folder in your Drive' : ''}. A long paper costs about as much as a few long answers in Ask Claude.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <form
-                    className="explain-start"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      saveKey(keyDraft);
-                    }}
-                  >
-                    <input type="password" placeholder="sk-ant-…" value={keyDraft} onChange={(event) => setKeyDraft(event.target.value)} aria-label="Anthropic API key" />
-                    <button type="submit" className="btn primary cta" disabled={!keyDraft.trim()}>
-                      Use this key
-                    </button>
-                  </form>
-                  <p className="hint">
-                    <b>The same key as Ask Claude.</b> It stays in this browser and goes only to api.anthropic.com.
-                  </p>
-                </>
-              )}
+              {startControls}
             </div>
           ) : (
             <>
               <header className="explain-title">
                 <div className="explain-kicker">
-                  <ExplainIcon size={16} /> Explained by Claude
+                  {implementing ? <PlanIcon size={16} /> : <ExplainIcon size={16} />} {implementing ? 'Implementation plan by Claude' : 'Explained by Claude'}
                 </div>
                 <h1>{title}</h1>
                 {byline ? <div className="byline">{byline}</div> : null}
@@ -1059,7 +1215,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
                   ) : explanation?.content ? (
                     <span>Claude is writing{sections.length ? ` — ${sections[sections.length - 1].title || 'the opening'}` : ''}…</span>
                   ) : (
-                    <span>Claude is reading the paper… a long one can take a minute or two before the first words.</span>
+                    <span>Claude is reading the paper… a long one can take a minute or two before the first words{implementing ? ' of the plan' : ''}.</span>
                   )}
                 </p>
               ) : null}
@@ -1097,6 +1253,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
         </div>
       ) : null}
 
+      {implementing ? <RunConsole sections={sections} /> : null}
       {keeper.button}
       {toast}
       {snipping ? <BoxSnip root={docRef} selector={SNIPPABLE} onKeep={keepBox} /> : null}
