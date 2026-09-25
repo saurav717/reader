@@ -1819,7 +1819,8 @@ Discover or the highlights, whichever was showing, or the highlights if the
 dock was shut; to the top edge, and the top bar comes down, with the progress
 line and the copy you are reading under it. Move
 back onto the page, press Escape, or tap anywhere off them, and they slide away
-again. A pane with the cursor in its search box stays out until you leave the
+again. A pointer resting at the edge that brought a pane out keeps it out, even
+in the glass theme, where the panes stand a little in from the edge. A pane with the cursor in its search box stays out until you leave the
 box. **Z** again leaves zen mode. It is remembered, so a reload comes back to it.
 
 ![zen mode over a PDF read as a book: the dock out at the right edge, its shadow falling across the page](docs/zen.png)
@@ -1977,6 +1978,36 @@ says to switch layouts or close Explain rather than mark words no one can see.
 over it and checks what was sent, where the mark landed, and the selection
 toolbar.
 
+### Keeping it in your notes
+
+What Claude writes is often worth keeping: a worked example, a code cell, a
+table, a diagram, a caveat. Any of it goes into your notes:
+
+- **Point at it.** A diagram, a code cell (with its expected output), a table,
+  an equation or a caveat shows **Add to notes** on its corner.
+- **Select it.** Any selection on the page — a sentence, a list, a paragraph
+  with maths in it — has **Add to notes** in its toolbar, beside **Ask Claude**.
+- **A whole section.** Its heading has **Add to notes** beside *Ask or adjust*.
+
+![pointing at a diagram on the Explain page: Add to notes on its corner, and the line that says it was kept](docs/explain-notes-keep.png)
+
+A line at the bottom says what was kept, with **Open notes**. What is kept is
+a copy of it as it was drawn: the diagram still a drawing that follows the
+theme, the code still coloured, the maths still typeset, the page's own
+buttons left behind. It is a copy on purpose — Rewrite, or a request from the
+bar, changes the page, and your notes stay as they were. Each piece is labelled
+with the section it came from; pressing the label opens Explain if it is shut
+and marks the passage, or brings the section into view.
+
+![the notes over Explain: a diagram and a code cell kept from it, each labelled with its section](docs/explain-notes-kept.png)
+
+They are in the **Notes** tab beside **Highlights**, in the order they were
+kept, among whatever you write there yourself (**+ Write**). Each piece can be
+moved up or down, deleted, or given a line of your own (**+ note**). Notes are
+kept per paper in IndexedDB, and **Export** puts them in the Markdown with the
+highlights. The code is `src/lib/notes.ts` and `src/components/NotesList.tsx`;
+`scripts/explain-notes-smoke.mjs` keeps one of everything and checks it.
+
 ### Kept in Drive
 
 With Drive connected, the explanation is also saved in the paper's own folder,
@@ -2106,6 +2137,7 @@ npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
 node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
 node scripts/notes-smoke.mjs   # the notes beside the page, and in a window over the PDF
+node scripts/explain-notes-smoke.mjs # keeping diagrams, code, tables, maths and passages from Explain
 node scripts/recommend-smoke.mjs  # papers named in an answer: cards, Find, Add, the list
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 node scripts/hover-smoke.mjs    # the cards over an author's name and a citation

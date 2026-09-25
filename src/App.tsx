@@ -18,6 +18,7 @@ import Discover from './components/Discover';
 import Library from './components/Library';
 import NotesRail from './components/NotesRail';
 import NotesWindow from './components/NotesWindow';
+import { OPEN_EXPLAIN, OPEN_NOTES } from './lib/notes';
 import Reader from './components/Reader';
 import Settings from './components/Settings';
 import Welcome from './components/Welcome';
@@ -59,6 +60,16 @@ function showingPdf(): boolean {
 
 function reducedMotion(): boolean {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** How far in from the window's edge a pointer is still at that edge. */
+const EDGE_GAP = 16;
+
+/** The edge of the window a point is at, if any; the top one stops short of the corners, as its strip does. */
+function edgeAt(x: number, y: number): Peek {
+  if (x <= EDGE_GAP) return 'left';
+  if (x >= window.innerWidth - EDGE_GAP) return 'right';
+  return y <= EDGE_GAP ? 'top' : null;
 }
 
 /** A key pressed while typing is text, not a shortcut. */
@@ -194,13 +205,29 @@ export default function App() {
     setPeek(side);
     setHazeSide(side);
   }, []);
+  // Where the pointer last was, for asking what is under it now.
+  const pointerAt = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const onMove = (event: PointerEvent) => {
+      pointerAt.current = { x: event.clientX, y: event.clientY };
+    };
+    window.addEventListener('pointermove', onMove, { passive: true });
+    return () => window.removeEventListener('pointermove', onMove);
+  }, []);
+  const peekNow = useRef<Peek>(null);
+  peekNow.current = peek;
   // Leaving a pane lets it go after a moment, so a pointer crossing from the
   // rail to the library, or overshooting the edge, does not snap it shut. A
   // pane with the cursor in a text field stays out until the field is left.
+  // So does one with the pointer still at its edge of the window: in the glass
+  // theme the panes stand a little in from the edge, and a pointer resting in
+  // that gap, where it brought the pane out, is not a pointer that has left.
   const peekOut = useCallback(() => {
     window.clearTimeout(peekTimer.current);
     peekTimer.current = window.setTimeout(() => {
       if (isTyping(document.activeElement) && document.activeElement?.closest(ZEN_PANES)) return;
+      const at = pointerAt.current;
+      if (at && peekNow.current && edgeAt(at.x, at.y) === peekNow.current) return;
       setPeek(null);
     }, PEEK_LINGER_MS);
   }, []);
@@ -226,6 +253,19 @@ export default function App() {
     };
     window.addEventListener('reader:ask-claude', onAsk);
     return () => window.removeEventListener('reader:ask-claude', onAsk);
+  }, []);
+
+  // "Open notes" after keeping something from Explain; and, from a piece in the
+  // notes, the Explain page it came from.
+  useEffect(() => {
+    const onNotes = () => openNotesRef.current();
+    const onExplain = () => setExplainOpen(true);
+    window.addEventListener(OPEN_NOTES, onNotes);
+    window.addEventListener(OPEN_EXPLAIN, onExplain);
+    return () => {
+      window.removeEventListener(OPEN_NOTES, onNotes);
+      window.removeEventListener(OPEN_EXPLAIN, onExplain);
+    };
   }, []);
 
   // "All their papers" or "Add or read" on a card in the paper: the search
@@ -713,7 +753,7 @@ export default function App() {
                 aria-selected={shownDock === 'notes'}
                 onClick={() => setDock('notes')}
               >
-                Highlights
+                Notes
               </button>
             </div>
           ) : null}
