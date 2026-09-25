@@ -24,12 +24,13 @@ import {
 import type { DriveState, RevisionScope } from '../lib/explain';
 import { findPassage, FLASH_EVENT, setExplainLocator, showPassage } from '../lib/locate';
 import { markdown } from '../lib/markdown';
-import { OPEN_NOTES, SHOW_IN_EXPLAIN, addClip, copyOf } from '../lib/notes';
+import { SHOW_IN_EXPLAIN, addClip, copyOf } from '../lib/notes';
 import type { NoteSource } from '../lib/notes';
 import { selectedText } from '../lib/screen';
 import { useStore } from '../lib/store';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ExplainIcon, NoteIcon, OpacityIcon, SparkleIcon } from './icons';
+import { tableText, useKept, useKeeper } from './Keep';
 import type { Flash } from './PassageFlash';
 import PassageFlash from './PassageFlash';
 
@@ -211,9 +212,8 @@ function describe(element: HTMLElement): { label: string; text: string; quote?: 
     return { label: `Caveat${verdict ? ` · ${verdict}` : ''}`, text: body, quote: body.slice(0, 80) };
   }
   if (element.matches('table')) {
-    const rows = Array.from(element.querySelectorAll('tr'), (row) => Array.from(row.children, (cell) => (cell.textContent ?? '').trim().replace(/\|/g, '\\|')));
-    const text = rows.map((cells, index) => `| ${cells.join(' | ')} |${index === 0 ? `\n|${cells.map(() => ' --- |').join('')}` : ''}`).join('\n');
-    return { label: 'Table', text, quote: rows[1]?.[0] ?? rows[0]?.[0] };
+    const cell = element.querySelector('tr:nth-child(2) > *, td');
+    return { label: 'Table', text: tableText(element), quote: cell?.textContent?.trim() };
   }
   if (element.matches('.chat-math-block')) return { label: 'Equation', text: `$$${element.dataset.tex ?? ''}$$` };
   const code = element.textContent ?? '';
@@ -607,51 +607,30 @@ export default function Explain({ paperId, title, authors, published, screen, on
   // an "Add to notes" button on its corner; a selection has one in its
   // toolbar; a section's heading has one for the whole section. What is kept
   // is a copy, so a later rewrite of the page leaves your notes as they were.
-  const [keepable, setKeepable] = useState<{ element: HTMLElement; top: number; right: number } | null>(null);
-  const [kept, setKept] = useState<{ label: string; at: number } | null>(null);
-  useEffect(() => {
-    if (!kept) return;
-    const timer = window.setTimeout(() => setKept(null), 3200);
-    return () => window.clearTimeout(timer);
-  }, [kept]);
-  useEffect(() => {
-    const scroller = scrollRef.current;
-    if (!keepable || !scroller) return;
-    const away = () => setKeepable(null);
-    scroller.addEventListener('scroll', away, { passive: true });
-    return () => scroller.removeEventListener('scroll', away);
-  }, [keepable]);
-  const keep = (clip: { label: string; html: string; text: string; source: NoteSource }) => {
-    if (!clip.html.trim() && !clip.text.trim()) return;
-    addClip(paperId, clip);
-    setKept({ label: clip.label, at: Date.now() });
+  const { announce, toast } = useKept();
+  const keep = async (clip: { label: string; html: Promise<string>; text: string; source: NoteSource }) => {
+    const html = await clip.html;
+    if (!html.trim() && !clip.text.trim()) return;
+    addClip(paperId, { ...clip, html });
+    announce(clip.label);
   };
   const sectionOf = (element: Element) => element.closest<HTMLElement>('.explain-section')?.dataset.title || undefined;
-  const pointAt = (target: EventTarget | null) => {
-    const element = target instanceof Element ? target.closest<HTMLElement>(KEEPABLE) : null;
-    if (!element || !docRef.current?.contains(element)) return;
-    // A table or an equation inside a caveat is kept with its caveat.
-    const whole = element.parentElement?.closest<HTMLElement>(KEEPABLE) ?? element;
-    const rect = whole.getBoundingClientRect();
-    if (keepable?.element === whole) return;
-    setKeepable({ element: whole, top: Math.max(rect.top + 6, 56), right: window.innerWidth - rect.right + 6 });
-  };
   const keepElement = (element: HTMLElement) => {
     const { label, text, quote } = describe(element);
-    keep({ label, html: copyOf(element), text, source: { from: 'explain', section: sectionOf(element), quote } });
-    setKeepable(null);
+    void keep({ label, html: copyOf(element), text, source: { from: 'explain', section: sectionOf(element), quote } });
   };
+  const keeper = useKeeper({ root: docRef, selector: KEEPABLE, onKeep: keepElement });
   const keepSection = (section: Section, element: HTMLElement) => {
     // Its rows, not the section itself: a copy that called itself a section of the page would be taken for one.
     const rows = document.createDocumentFragment();
     element.querySelectorAll(':scope > .explain-row').forEach((row) => rows.appendChild(row.cloneNode(true)));
-    keep({ label: 'Section', html: copyOf(rows), text: sectionText(section), source: { from: 'explain', section: section.title || undefined } });
+    void keep({ label: 'Section', html: copyOf(rows), text: sectionText(section), source: { from: 'explain', section: section.title || undefined } });
   };
   const keepSelection = () => {
     const selection = window.getSelection();
     if (!picked || !selection?.rangeCount) return;
     const range = selection.getRangeAt(0);
-    keep({ label: 'Passage', html: copyOf(range.cloneContents()), text: picked.text, source: { from: 'explain', section: picked.section, quote: picked.text.slice(0, 160) } });
+    void keep({ label: 'Passage', html: copyOf(range.cloneContents()), text: picked.text, source: { from: 'explain', section: picked.section, quote: picked.text.slice(0, 160) } });
     selection.removeAllRanges();
     setPicked(null);
   };
@@ -918,10 +897,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
           className="explain-doc"
           ref={docRef}
           onMouseUp={takeSelection}
-          onMouseOver={(event) => pointAt(event.target)}
-          onMouseLeave={(event) => {
-            if (!(event.relatedTarget instanceof Element && event.relatedTarget.closest('.note-clip-btn'))) setKeepable(null);
-          }}
+          onMouseOver={keeper.onMouseOver}
+          onMouseLeave={keeper.onMouseLeave}
         >
           {!explanation?.content && !checked ? (
             <p className="explain-looking">
@@ -1080,31 +1057,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
         </div>
       ) : null}
 
-      {keepable && keepable.element.isConnected ? (
-        <button
-          type="button"
-          className="note-clip-btn"
-          style={{ top: keepable.top, right: keepable.right }}
-          onClick={() => keepElement(keepable.element)}
-          onMouseLeave={(event) => {
-            if (!(event.relatedTarget instanceof Node && keepable.element.contains(event.relatedTarget))) setKeepable(null);
-          }}
-          title="Keep this in your notes"
-        >
-          <NoteIcon size={14} /> Add to notes
-        </button>
-      ) : null}
-
-      {kept ? (
-        <div className="note-kept" role="status" key={kept.at}>
-          <span>
-            <b>{kept.label}</b> added to your notes
-          </span>
-          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent(OPEN_NOTES))}>
-            Open notes
-          </button>
-        </div>
-      ) : null}
+      {keeper.button}
+      {toast}
 
       {flash ? (
         <PassageFlash

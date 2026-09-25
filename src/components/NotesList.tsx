@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NOTE_ADDED, OPEN_EXPLAIN, SHOW_IN_EXPLAIN, addText, moveNote, removeNote, updateNote, useNotes } from '../lib/notes';
+import { CLOSE_EXPLAIN, NOTE_ADDED, OPEN_EXPLAIN, SHOW_IN_EXPLAIN, addText, moveNote, removeNote, sourceName, updateNote, useNotes } from '../lib/notes';
 import type { NoteBlock, NoteSource } from '../lib/notes';
+import { showPassage } from '../lib/locate';
 import { cleanClip } from '../lib/sanitize';
-import { ExplainIcon, PlusIcon, TrashIcon } from './icons';
+import { ExplainIcon, FileIcon, PlusIcon, TrashIcon } from './icons';
 
-/** Waits, a frame at a time, for something to be on the page. */
-function whenThere(selector: string, within = 4000): Promise<boolean> {
+/** Waits, a frame at a time, until something is — or is no longer — on the page. */
+function when(selector: string, there: boolean, within = 4000): Promise<boolean> {
   const until = performance.now() + within;
   return new Promise((resolve) => {
     const look = () => {
-      if (document.querySelector(selector)) resolve(true);
+      if (Boolean(document.querySelector(selector)) === there) resolve(true);
       else if (performance.now() > until) resolve(false);
       else requestAnimationFrame(look);
     };
@@ -17,13 +18,30 @@ function whenThere(selector: string, within = 4000): Promise<boolean> {
   });
 }
 
-/** Back to where a piece was kept from: Explain opened if it is shut, then the passage marked, or its section scrolled to. */
+/**
+ * Back to where a piece was kept from. From Explain: Explain opened if it is
+ * shut, then the passage marked, or its section scrolled to. From the paper:
+ * Explain closed if it covers the paper, then the passage marked — or, for a
+ * snip with no words to find it by, its page of the PDF turned to.
+ */
 async function showSource(source: NoteSource) {
-  if (!document.querySelector('.explain')) {
-    window.dispatchEvent(new CustomEvent(OPEN_EXPLAIN));
-    if (!(await whenThere('.explain .explain-section'))) return;
+  if (source.from === 'explain') {
+    if (!document.querySelector('.explain')) {
+      window.dispatchEvent(new CustomEvent(OPEN_EXPLAIN));
+      if (!(await when('.explain .explain-section', true))) return;
+    }
+    window.dispatchEvent(new CustomEvent(SHOW_IN_EXPLAIN, { detail: source }));
+    return;
   }
-  window.dispatchEvent(new CustomEvent(SHOW_IN_EXPLAIN, { detail: source }));
+  if (document.querySelector('.explain:not(.layout-beside)')) {
+    window.dispatchEvent(new CustomEvent(CLOSE_EXPLAIN));
+    await when('.explain', false);
+  }
+  if (source.quote) {
+    const shown = await showPassage({ quote: source.quote, page: source.page, section: source.section, label: 'From your notes' });
+    if (shown.found || !source.page) return;
+  }
+  if (source.page) window.dispatchEvent(new CustomEvent('reader:pdf-page', { detail: { page: source.page } }));
 }
 
 /** A textarea as tall as what is in it. */
@@ -90,8 +108,8 @@ function Piece({ paperId, block, first, last, fresh }: { paperId: string; block:
       </header>
       <div className="note-clip" dangerouslySetInnerHTML={{ __html: html }} />
       <footer className="note-piece-foot">
-        <button type="button" className="note-source" onClick={() => void showSource(block.source)} title="Show it in the explanation">
-          <ExplainIcon size={12} /> Explain{block.source.section ? ` · ${block.source.section}` : ''}
+        <button type="button" className="note-source" onClick={() => void showSource(block.source)} title={block.source.from === 'explain' ? 'Show it in the explanation' : 'Show it in the paper'}>
+          {block.source.from === 'explain' ? <ExplainIcon size={12} /> : <FileIcon size={12} />} {sourceName(block.source)}
         </button>
         {!block.note && !noting ? (
           <button type="button" className="btn ghost sm" onClick={() => setNoting(true)}>
@@ -142,8 +160,8 @@ export default function NotesList({ paperId }: { paperId: string }) {
     <div className="scroll notes-list">
       {!blocks.length ? (
         <p className="notes-empty">
-          Write here, or keep things from the paper’s Explain page: select any of it and choose <b>Add to notes</b>, or point at a diagram, code cell, table or
-          equation, or a section’s heading.
+          Write here, or keep things from the paper and its Explain page: select any text and choose <b>Add to notes</b>, or point at a figure, table,
+          equation, diagram or code cell. Over the PDF, <b>✂ Snip</b> (or S) keeps any figure or table, or a box you drag.
         </p>
       ) : null}
       {blocks.map((block, index) => (

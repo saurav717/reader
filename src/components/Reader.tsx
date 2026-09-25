@@ -40,6 +40,8 @@ import HoverCard, { type CitedEntry, type HoverTarget } from './HoverCard';
 import { pdfPageTexts, showPdf } from '../lib/screen';
 import { findPassage, FLASH_EVENT, LOCATE_EVENT, pageOf, type LocateRequest, type LocateResult } from '../lib/locate';
 import PassageFlash, { type Flash } from './PassageFlash';
+import { addClip, copyOf } from '../lib/notes';
+import { tableText, useKept, useKeeper } from './Keep';
 import { fullerAuthors } from '../lib/byline';
 import { CITE_CLASS, REF_CLASS, citationHead, citationText, entryText, parseReference } from '../lib/citations';
 import {
@@ -56,6 +58,7 @@ import {
   PanelRightIcon,
   SunIcon,
   OpenBookIcon,
+  PlusIcon,
   ScrollPageIcon,
   SparkleIcon,
   ZenIcon,
@@ -99,6 +102,22 @@ interface PendingSelection {
   left: number;
   selector: Selector;
   section?: string;
+  /** The selection itself, for keeping a copy of it in the notes. */
+  range: Range;
+}
+
+/** What in the paper can be kept whole: its figures and tables — reflowed or LaTeXML's — and its display equations. */
+const KEEPABLE = 'figure, .pdf-equation, .ltx_equation, .ltx_equationgroup';
+
+/** What a piece of the paper is called in the notes, and what it says as text. */
+function describePiece(element: HTMLElement): { label: string; text: string; quote?: string } {
+  const caption = element.querySelector('figcaption, .ltx_caption')?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+  const named = caption.match(/^(fig(?:ure)?|table|algorithm|listing)\.?\s*(s?\d+[a-z]?(?:\.\d+)?)/i);
+  const table = element.querySelector('table:not(.ltx_equation)');
+  const kind = element.matches('.pdf-equation, .ltx_equation, .ltx_equationgroup') ? 'Equation' : table || /^tab/i.test(caption) || element.matches('.pdf-table, .ltx_table') ? 'Table' : 'Figure';
+  const label = named ? `${kind === 'Table' ? 'Table' : /^fig/i.test(named[1]) ? 'Figure' : named[1][0].toUpperCase() + named[1].slice(1).toLowerCase()} ${named[2]}` : kind;
+  const text = table ? `${caption ? `${caption}\n\n` : ''}${tableText(table)}` : caption ? `[${label}: ${caption}]` : `[${label}]`;
+  return { label, text, quote: caption.slice(0, 80) || undefined };
 }
 
 export default function Reader({
@@ -209,6 +228,32 @@ export default function Reader({
 
   const bodyRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // ---- keeping pieces of the paper in your notes ----------------------------
+  // Pointing at a figure, a table or a display equation puts "Add to notes" on
+  // its corner, and a selection has it in its toolbar. The copy holds its
+  // picture itself: a reflowed figure's is an object URL, gone when the paper
+  // is closed.
+  const { announce, toast: keptToast } = useKept();
+  const keepPiece = async (element: HTMLElement) => {
+    const root = bodyRef.current;
+    if (!root) return;
+    const { label, text, quote } = describePiece(element);
+    // Inside it, so the heading it falls under is the last one before it, not every one in the paper around it.
+    const around = document.createRange();
+    around.selectNodeContents(element);
+    const section = sectionFor(around, root);
+    addClip(paperId, { label, html: await copyOf(element), text, source: { from: 'paper', section, quote } });
+    announce(label);
+  };
+  const keeper = useKeeper({ root: bodyRef, selector: KEEPABLE, onKeep: (element) => void keepPiece(element) });
+  const keepSelection = async (chosen: PendingSelection) => {
+    setPending(null);
+    window.getSelection()?.removeAllRanges();
+    const { range, section, selector } = chosen;
+    addClip(paperId, { label: 'Passage', html: await copyOf(range.cloneContents()), text: selector.exact, source: { from: 'paper', section, quote: selector.exact.slice(0, 160) } });
+    announce('Passage');
+  };
 
   // The cards over an author's name and over a citation. One is open at a
   // time; it opens a moment after the pointer arrives, so that moving across
@@ -1014,6 +1059,7 @@ export default function Reader({
       left: Math.max(12, Math.min(window.innerWidth - 400, rect.left)),
       selector: selectorFromOffsets(index, offsets.start, offsets.end),
       section: sectionFor(range, root),
+      range: range.cloneRange(),
     });
   }, []);
 
@@ -1317,8 +1363,14 @@ export default function Reader({
           // Only take the menu over when there is something to look up.
           if (openLookup()) event.preventDefault();
         }}
-        onMouseOver={onBodyOver}
-        onMouseLeave={() => leaveHover()}
+        onMouseOver={(event) => {
+          onBodyOver(event);
+          keeper.onMouseOver(event);
+        }}
+        onMouseLeave={(event) => {
+          leaveHover();
+          keeper.onMouseLeave(event);
+        }}
         onFocus={onBodyOver}
         onBlur={() => leaveHover()}
         onClick={(event) => {
@@ -1695,6 +1747,7 @@ export default function Reader({
             </p>
           ) : pdfBlob && layout === 'book' ? (
             <PdfBookView
+              paperId={paper.id}
               blob={pdfBlob}
               title={paper.title}
               initialProgress={paper.progress}
@@ -1765,9 +1818,22 @@ export default function Reader({
 
       {mode === 'pdf' && !pdfError && pdfLookup !== 'none' ? (
         <p style={{ margin: 0, padding: '8px 16px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)' }}>
-          {layout === 'book' && pdfBlob
-            ? 'Highlighting works in Reflow mode — here the text can be selected and copied, and the pages turned with the arrow keys.'
-            : "Highlighting works in Reflow mode — the PDF is rendered by your browser's own viewer."}
+          {layout === 'book' && pdfBlob ? (
+            'Highlighting works in Reflow mode — here the text can be selected, copied and added to your notes, figures and tables snipped with ✂ Snip, and the pages turned with the arrow keys.'
+          ) : (
+            <>
+              Highlighting works in Reflow mode — the PDF is rendered by your browser's own viewer, which the reader cannot reach into.
+              {pdfBlob ? (
+                <>
+                  {' '}
+                  <button type="button" className="link-btn" onClick={() => chooseLayout('book')}>
+                    Open it as a book
+                  </button>{' '}
+                  to add its text, figures and tables to your notes.
+                </>
+              ) : null}
+            </>
+          )}
         </p>
       ) : null}
 
@@ -1809,6 +1875,15 @@ export default function Reader({
           </button>
           <button
             type="button"
+            className="wide"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => void keepSelection(pending)}
+            title="Keep this passage in your notes, as it is set — maths, links and all"
+          >
+            <PlusIcon size={15} /> Add to notes
+          </button>
+          <button
+            type="button"
             onClick={() => {
               void navigator.clipboard?.writeText(pending.selector.exact);
               setPending(null);
@@ -1819,6 +1894,9 @@ export default function Reader({
           </button>
         </div>
       ) : null}
+
+      {keeper.button}
+      {keptToast}
 
       {hover ? (
         <HoverCard

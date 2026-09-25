@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { TWO_PAGE_MIN_WIDTH, usePageTurns } from './BookView';
-import { ChevronLeftIcon, ChevronRightIcon } from './icons';
+import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from './icons';
+import { useKept } from './Keep';
+import PdfSnip from './PdfSnip';
+import { addClip } from '../lib/notes';
 
 type Engine = typeof import('../lib/pdfReflow');
 
 interface Props {
+  /** Whose notes a passage or a snip goes into. */
+  paperId: string;
   blob: Blob;
   title: string;
   /** Where the paper was left, 0–1, to open on the same page. */
@@ -16,13 +21,21 @@ interface Props {
 /** Space kept round a spread inside the frame, and under it for the pages' shadow. */
 const MARGIN = 16;
 
+/** A key pressed while typing is text, not a shortcut. */
+const typing = (target: EventTarget | null) => {
+  const element = target as HTMLElement | null;
+  return Boolean(element && (element.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName)));
+};
+
+const esc = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 /**
  * The PDF itself set as a book: its own pages, two side by side — one on a
  * narrow screen — drawn by pdf.js, turned the way the reflowed book is
  * turned. The text of each page is laid over its picture, so it can be
  * selected and copied as in the browser's own viewer.
  */
-export default function PdfBookView({ blob, title, initialProgress, onProgress }: Props) {
+export default function PdfBookView({ paperId, blob, title, initialProgress, onProgress }: Props) {
   const frameRef = useRef<HTMLDivElement>(null);
   const [opened, setOpened] = useState<{ doc: PDFDocumentProxy; engine: Engine } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +122,58 @@ export default function PdfBookView({ blob, title, initialProgress, onProgress }
     : 1;
   const shown = Array.from({ length: columns }, (_, index) => spread * columns + index + 1).filter((number) => number <= pages);
   const firstShown = shown[0] ?? 1;
+
+  // ---- into your notes ------------------------------------------------------
+  // Snip mode (✂, or S) outlines the figures, tables and equations on the
+  // pages in view: click one to keep it, or drag a box. Text selected on a
+  // page has "Add to notes" under it.
+  const { announce, toast } = useKept();
+  const [snipping, setSnipping] = useState(false);
+  const [picked, setPicked] = useState<{ text: string; page?: number; top: number; left: number } | null>(null);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || typing(event.target)) return;
+      // Not under the Explain page, where the pages cannot be seen.
+      if (document.querySelector('.explain:not(.layout-beside)')) return;
+      if (event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        setSnipping((current) => !current);
+      } else if (event.key === 'Escape' && snipping) {
+        setSnipping(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [snipping]);
+  useEffect(() => {
+    if (!picked) return;
+    const drop = () => {
+      if (window.getSelection()?.isCollapsed) setPicked(null);
+    };
+    document.addEventListener('selectionchange', drop);
+    return () => document.removeEventListener('selectionchange', drop);
+  }, [picked]);
+  useEffect(() => setPicked(null), [spread, snipping]);
+  const takeSelection = () => {
+    const selection = window.getSelection();
+    const text = selection?.toString().replace(/\s+/g, ' ').trim() ?? '';
+    const node = selection?.anchorNode;
+    const element = node instanceof Element ? node : node?.parentElement;
+    const page = element?.closest<HTMLElement>('.pdf-book-page');
+    if (!selection?.rangeCount || text.length < 3 || !page || !frameRef.current?.contains(page)) {
+      setPicked(null);
+      return;
+    }
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    setPicked({ text, page: Number(page.dataset.page) || undefined, top: rect.bottom + 8, left: Math.max(12, Math.min(window.innerWidth - 180, rect.left)) });
+  };
+  const keepSelection = () => {
+    if (!picked) return;
+    addClip(paperId, { label: 'Passage', html: `<p>${esc(picked.text)}</p>`, text: picked.text, source: { from: 'paper', page: picked.page, quote: picked.text.slice(0, 160) } });
+    window.getSelection()?.removeAllRanges();
+    setPicked(null);
+    announce('Passage');
+  };
   const lastShown = shown[shown.length - 1] ?? firstShown;
 
   return (
@@ -119,6 +184,7 @@ export default function PdfBookView({ blob, title, initialProgress, onProgress }
         onWheel={turns.onWheel}
         onTouchStart={turns.onTouchStart}
         onTouchEnd={turns.onTouchEnd}
+        onMouseUp={() => !snipping && takeSelection()}
       >
         {error ? (
           <p className="banner warn" style={{ margin: 16 }}>
@@ -142,6 +208,9 @@ export default function PdfBookView({ blob, title, initialProgress, onProgress }
             ))}
           </div>
         )}
+        {snipping && opened && pageSize ? (
+          <PdfSnip paperId={paperId} doc={opened.doc} engine={opened.engine} pages={shown} scale={scale} holder={frameRef} announce={announce} />
+        ) : null}
         <button type="button" className="book-turn prev" onClick={() => go(spread - 1)} disabled={spread <= 0} aria-label="Previous page">
           <ChevronLeftIcon size={22} />
         </button>
@@ -162,7 +231,24 @@ export default function PdfBookView({ blob, title, initialProgress, onProgress }
           aria-label="Go to page"
           disabled={spreads <= 1}
         />
+        <button
+          type="button"
+          className="btn sm ghost snip-btn"
+          aria-pressed={snipping}
+          onClick={() => setSnipping(!snipping)}
+          title="Snip figures, tables and equations into your notes — or drag any box (S)"
+        >
+          ✂ Snip
+        </button>
       </div>
+      {picked ? (
+        <div className="selection-toolbar" style={{ top: picked.top, left: picked.left }} role="toolbar" aria-label="The selection">
+          <button type="button" className="wide" onMouseDown={(event) => event.preventDefault()} onClick={keepSelection} title="Keep this passage in your notes">
+            <PlusIcon size={15} /> Add to notes
+          </button>
+        </div>
+      ) : null}
+      {toast}
     </div>
   );
 }

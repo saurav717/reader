@@ -18,7 +18,7 @@ import Discover from './components/Discover';
 import Library from './components/Library';
 import NotesRail from './components/NotesRail';
 import NotesWindow from './components/NotesWindow';
-import { OPEN_EXPLAIN, OPEN_NOTES } from './lib/notes';
+import { CLOSE_EXPLAIN, OPEN_EXPLAIN, OPEN_NOTES } from './lib/notes';
 import Reader from './components/Reader';
 import Settings from './components/Settings';
 import Welcome from './components/Welcome';
@@ -255,16 +255,19 @@ export default function App() {
     return () => window.removeEventListener('reader:ask-claude', onAsk);
   }, []);
 
-  // "Open notes" after keeping something from Explain; and, from a piece in the
-  // notes, the Explain page it came from.
+  // "Open notes" after keeping something; and, from a piece in the notes, the
+  // Explain page it came from, or the paper under it.
   useEffect(() => {
     const onNotes = () => openNotesRef.current();
     const onExplain = () => setExplainOpen(true);
+    const offExplain = () => setExplainOpen(false);
     window.addEventListener(OPEN_NOTES, onNotes);
     window.addEventListener(OPEN_EXPLAIN, onExplain);
+    window.addEventListener(CLOSE_EXPLAIN, offExplain);
     return () => {
       window.removeEventListener(OPEN_NOTES, onNotes);
       window.removeEventListener(OPEN_EXPLAIN, onExplain);
+      window.removeEventListener(CLOSE_EXPLAIN, offExplain);
     };
   }, []);
 
