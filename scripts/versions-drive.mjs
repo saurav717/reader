@@ -264,7 +264,7 @@ console.log('\n== add it: download from whichever copy answers, save it to Drive
 // adding a paper to a collection is what puts it in Drive and opens it.
 check('there is no second button to press for Drive', (await page.getByRole('button', { name: /Save to Drive/i }).count()) === 0);
 await page.getByRole('button', { name: /Add to collection/i }).click();
-await page.waitForSelector('.pdf-pane iframe', { timeout: 20000 });
+await page.waitForSelector('.pdf-pane :is(iframe, .pdf-scroll-slot)', { timeout: 20000 });
 check('the paper is in the collection', await result.locator('.pill-added', { hasText: /In Reading list/ }).isVisible());
 check('adding says nothing went wrong', (await result.locator('.banner').count()) === 0, (await result.locator('.banner').allTextContents()).join(' | '));
 
@@ -284,7 +284,7 @@ check(
 );
 
 console.log('\n== the viewer shows the copy that is in Drive ==');
-check('the PDF pane is open', await page.locator('.pdf-pane iframe').isVisible());
+check('the PDF pane is open', await page.locator('.pdf-pane :is(iframe, .pdf-scroll)').first().isVisible());
 check(
   'the bytes came back out of Drive',
   drive.downloads.length >= 1,
@@ -294,7 +294,7 @@ const subtitle = await page.locator('.topbar .sub').textContent();
 check('the reader says the copy is from Drive', /PDF from your Drive/.test(subtitle || ''), subtitle || '');
 check(
   'the viewer is showing a file it holds, not a publisher URL',
-  (await page.locator('.pdf-pane iframe').getAttribute('src'))?.startsWith('blob:'),
+  (await page.locator('.pdf-pane iframe, .main a[href^=\"blob:\"]').first().evaluate((el) => el.getAttribute('src') ?? el.getAttribute('href')))?.startsWith('blob:'),
 );
 check('there is a link straight to the file in Drive', (await page.locator('.topbar a[href*="drive.google.com"]').count()) === 1);
 await page.screenshot({ path: `${OUT}/drive-pdf.png` });
@@ -371,10 +371,10 @@ await refusedResult.locator('h3').click();
 await refusedPage.waitForSelector('.locations ul li a', { timeout: 15000 });
 await refusedPage.getByRole('button', { name: /Add to collection/i }).click();
 await refusedPage.waitForSelector('article.result .banner.error', { timeout: 20000 });
-await refusedPage.waitForSelector('.pdf-pane iframe', { timeout: 20000 });
+await refusedPage.waitForSelector('.pdf-pane :is(iframe, .pdf-scroll-slot)', { timeout: 20000 });
 const refusedSaid = (await refusedResult.locator('.banner.error').textContent()) || '';
 check('the result says Drive refused, with Google’s own reason', /Drive would not take it/.test(refusedSaid) && /403/.test(refusedSaid) && /Drive API/.test(refusedSaid), refusedSaid);
-check('the paper still opens, on the copy that was fetched', await refusedPage.locator('.pdf-pane iframe').isVisible());
+check('the paper still opens, on the copy that was fetched', await refusedPage.locator('.pdf-pane :is(iframe, .pdf-scroll)').first().isVisible());
 const refusedSub = (await refusedPage.locator('.topbar .sub').textContent()) || '';
 check('and says where that copy came from', /PDF from Example University/.test(refusedSub), refusedSub);
 await refusedPage.screenshot({ path: `${OUT}/add-drive-refused.png` });

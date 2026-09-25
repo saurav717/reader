@@ -212,11 +212,18 @@ export function pdfPageTexts(): Promise<string[]> | null {
   return pages;
 }
 
-/** The page numbers in view when the PDF is set as a book; empty in the browser's viewer. */
+/** Whether a page is on the screen — scrolled, the pages either side are drawn too, ahead of time. */
+function onScreen(element: Element): boolean {
+  const rect = element.getBoundingClientRect();
+  return rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth;
+}
+
+/** The page numbers in view when the PDF is drawn by the reader, as a book or scrolled; empty in the browser's viewer. */
 export function pdfPagesInView(): number[] {
-  return Array.from(document.querySelectorAll('.pdf-book-page'), (el) =>
-    Number(el.getAttribute('aria-label')?.match(/\d+/)?.[0]),
-  ).filter((n) => n > 0);
+  return Array.from(document.querySelectorAll('.pdf-book-page'))
+    .filter(onScreen)
+    .map((el) => Number(el.getAttribute('aria-label')?.match(/\d+/)?.[0]))
+    .filter((n) => n > 0);
 }
 
 /**
@@ -226,7 +233,7 @@ export function pdfPagesInView(): number[] {
  */
 export function pdfPageImages(max = 2): { label: string; data: string }[] {
   const out: { label: string; data: string }[] = [];
-  for (const el of Array.from(document.querySelectorAll('.pdf-book-page:not(.drawing)')).slice(0, max)) {
+  for (const el of Array.from(document.querySelectorAll('.pdf-book-page:not(.drawing)')).filter(onScreen).slice(0, max)) {
     const canvas = el.querySelector('canvas');
     const page = Number(el.getAttribute('aria-label')?.match(/\d+/)?.[0]);
     if (!canvas || !canvas.width || !canvas.height) continue;

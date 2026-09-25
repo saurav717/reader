@@ -335,7 +335,7 @@ export default function App() {
         setBoardOpen((current) => !current);
         return;
       }
-      if (document.querySelector('.notes-board') && !event.metaKey && !event.ctrlKey) return;
+      if (document.querySelector('.notes-board:not(.layout-beside)') && !event.metaKey && !event.ctrlKey) return;
       // Z, on its own and not while typing, takes a paper in and out of zen mode.
       if (readingNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'z' && !isTyping(event.target)) {
         if (document.querySelector('.scrim, .sheet, .palette')) return;
@@ -442,7 +442,7 @@ export default function App() {
             visible = inView.map((number) => `[Page ${number}]\n${pages[number - 1] ?? ''}`).join('\n\n');
             images = pdfPageImages();
             mode = inView.length
-              ? `PDF, set as a book — ${inView.length > 1 ? `pages ${inView[0]}–${inView[inView.length - 1]}` : `page ${inView[0]}`} of ${pages.length} in view`
+              ? `PDF, ${document.querySelector('.pdf-book.is-scrolled') ? 'scrolled' : 'set as a book'} — ${inView.length > 1 ? `pages ${inView[0]}–${inView[inView.length - 1]}` : `page ${inView[0]}`} of ${pages.length} in view`
               : `PDF, in the browser’s own viewer (${pages.length} pages; which page is in view is not known to the app)`;
           } catch {
             mode = 'PDF (its text could not be read)';

@@ -176,7 +176,7 @@ await page.screenshot({ path: `${OUT}/scholar-versions.png` });
 
 console.log('\n== download from the first host that will part with a file ==');
 await page.getByRole('button', { name: /Add to collection/i }).click();
-await page.waitForSelector('.pdf-pane iframe', { timeout: 20000 });
+await page.waitForSelector('.pdf-pane :is(iframe, .pdf-scroll-slot)', { timeout: 20000 });
 
 check(
   'the link Scholar put on the result itself was tried first',

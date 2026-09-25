@@ -183,7 +183,7 @@ await setSettings({ zenHaze: 'shadow' });
 await page.mouse.move(W / 2, 3, { steps: 4 });
 await settle();
 await page.locator('.segmented button', { hasText: 'PDF' }).click({ timeout: 20000 });
-await page.waitForSelector('.pdf-pane iframe', { timeout: 30000 });
+await page.waitForSelector('.pdf-scroll .pdf-book-page', { timeout: 30000 });
 await page.getByRole('button', { name: /Read as a book/i }).click();
 await page.waitForSelector('.pdf-book-page:not(.drawing)', { timeout: 30000 });
 await page.waitForTimeout(800);

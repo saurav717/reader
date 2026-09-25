@@ -19,6 +19,87 @@ export interface Place {
   h?: number;
   /** Which is on top: the last one touched. */
   z: number;
+  /** A colour of its own, on the board only — a sticky's. */
+  color?: BoardColor;
+}
+
+export const BOARD_COLORS = ['yellow', 'green', 'blue', 'pink'] as const;
+export type BoardColor = (typeof BOARD_COLORS)[number];
+
+/** An arrow from one card to another, and what it says. */
+export interface BoardLink {
+  id: string;
+  from: string;
+  to: string;
+  label?: string;
+}
+
+/** A named area of the board; moving it moves the cards inside it. */
+export interface BoardFrame {
+  id: string;
+  title: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Drawn by a tidy, and redrawn by the next one; a frame drawn by hand stays. */
+  auto?: boolean;
+  /** The page its section starts on, where that is known. */
+  page?: number;
+}
+
+/** A line cards are snapped into: an edge or the middle of another card. */
+export interface Guide {
+  axis: 'x' | 'y';
+  at: number;
+  from: number;
+  to: number;
+}
+
+/**
+ * A card being moved to `box`, pulled into line with the others it comes
+ * within `reach` of — its left, middle or right on theirs, and its top,
+ * middle or bottom — and the lines it was pulled onto, to be drawn.
+ */
+export function snap(box: { x: number; y: number; w: number; h: number }, others: { x: number; y: number; w: number; h: number }[], reach: number): { x: number; y: number; guides: Guide[] } {
+  let best = { dx: Infinity, dy: Infinity };
+  let hitX: { at: number; other: (typeof others)[number] } | null = null;
+  let hitY: { at: number; other: (typeof others)[number] } | null = null;
+  const mine = { x: [box.x, box.x + box.w / 2, box.x + box.w], y: [box.y, box.y + box.h / 2, box.y + box.h] };
+  for (const other of others) {
+    const theirs = { x: [other.x, other.x + other.w / 2, other.x + other.w], y: [other.y, other.y + other.h / 2, other.y + other.h] };
+    for (const a of mine.x)
+      for (const b of theirs.x)
+        if (Math.abs(b - a) <= reach && Math.abs(b - a) < Math.abs(best.dx)) {
+          best = { ...best, dx: b - a };
+          hitX = { at: b, other };
+        }
+    for (const a of mine.y)
+      for (const b of theirs.y)
+        if (Math.abs(b - a) <= reach && Math.abs(b - a) < Math.abs(best.dy)) {
+          best = { ...best, dy: b - a };
+          hitY = { at: b, other };
+        }
+  }
+  const x = box.x + (Number.isFinite(best.dx) ? best.dx : 0);
+  const y = box.y + (Number.isFinite(best.dy) ? best.dy : 0);
+  const guides: Guide[] = [];
+  if (hitX) guides.push({ axis: 'x', at: hitX.at, from: Math.min(y, hitX.other.y) - 24, to: Math.max(y + box.h, hitX.other.y + hitX.other.h) + 24 });
+  if (hitY) guides.push({ axis: 'y', at: hitY.at, from: Math.min(x, hitY.other.x) - 24, to: Math.max(x + box.w, hitY.other.x + hitY.other.w) + 24 });
+  return { x: Math.round(x), y: Math.round(y), guides };
+}
+
+/** A gentle curve from one point to another, leaving and arriving along the way it mostly runs; and its middle. */
+export function curve(start: { x: number; y: number }, end: { x: number; y: number }) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const across = Math.abs(dx) >= Math.abs(dy);
+  const c1 = across ? { x: start.x + dx / 2, y: start.y } : { x: start.x, y: start.y + dy / 2 };
+  const c2 = across ? { x: start.x + dx / 2, y: end.y } : { x: end.x, y: start.y + dy / 2 };
+  return {
+    d: `M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`,
+    mid: { x: (start.x + 3 * c1.x + 3 * c2.x + end.x) / 8, y: (start.y + 3 * c1.y + 3 * c2.y + end.y) / 8 },
+  };
 }
 
 export interface BoardView {
@@ -38,9 +119,32 @@ export interface BoardLabel {
 
 export interface BoardLayout {
   places: Record<string, Place>;
+  /** Headings from an older tidy; frames have taken their place. */
   labels?: BoardLabel[];
+  links?: BoardLink[];
+  frames?: BoardFrame[];
   view?: BoardView;
 }
+
+export const boardId = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+/** Where a line from a box's middle towards a point leaves the box. */
+export function edgePoint(box: { x: number; y: number; w: number; h: number }, toward: { x: number; y: number }) {
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  const dx = toward.x - cx;
+  const dy = toward.y - cy;
+  if (!dx && !dy) return { x: cx, y: cy };
+  const scale = Math.min(dx ? box.w / 2 / Math.abs(dx) : Infinity, dy ? box.h / 2 / Math.abs(dy) : Infinity);
+  return { x: cx + dx * scale, y: cy + dy * scale };
+}
+
+/** Whether a box's middle lies inside a frame. */
+export const inside = (frame: { x: number; y: number; w: number; h: number }, box: { x: number; y: number; w: number; h: number }) => {
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  return cx >= frame.x && cx <= frame.x + frame.w && cy >= frame.y && cy <= frame.y + frame.h;
+};
 
 export const CARD_W = 300;
 export const GAP = 24;
@@ -94,7 +198,7 @@ export function sectionsOf(blocks: NoteBlock[]): string[] {
  * Every card put back in columns, one to a section, in the list's order —
  * a way back from a board that has got out of hand. Sizes set by hand stay.
  */
-export function tidyBySection(blocks: NoteBlock[], heights: Record<string, number>, places: Record<string, Place>): { places: Record<string, Place>; labels: BoardLabel[] } {
+export function tidyBySection(blocks: NoteBlock[], heights: Record<string, number>, places: Record<string, Place>): { places: Record<string, Place>; labels: BoardLabel[]; frames: BoardFrame[] } {
   const sections = sectionsOf(blocks);
   const order: string[] = [];
   sections.forEach((section) => {
@@ -102,23 +206,27 @@ export function tidyBySection(blocks: NoteBlock[], heights: Record<string, numbe
   });
   const next: Record<string, Place> = {};
   const labels: BoardLabel[] = [];
+  const frames: BoardFrame[] = [];
   let z = 1;
   let x = EDGE;
   for (const section of order) {
     let y = EDGE + 28;
     let widest = CARD_W;
-    labels.push({ id: `l${labels.length}`, text: section, x, y: EDGE });
+    const top = y;
+    let page: number | undefined;
     blocks.forEach((block, index) => {
+      if (sections[index] === section && block.kind === 'clip' && block.source.page) page = Math.min(page ?? Infinity, block.source.page);
       if (sections[index] !== section) return;
       const kept = places[block.id];
       const w = kept?.w ?? CARD_W;
-      next[block.id] = { x, y, w, h: kept?.h, z: z++ };
+      next[block.id] = { x, y, w, h: kept?.h, z: z++, color: kept?.color };
       y += (kept?.h ?? heights[block.id] ?? 160) + GAP;
       widest = Math.max(widest, w);
     });
+    frames.push({ id: `auto-${frames.length}`, title: section, x: x - 14, y: top - 40, w: widest + 28, h: y - GAP - top + 54, auto: true, page });
     x += widest + GAP * 2;
   }
-  return { places: next, labels };
+  return { places: next, labels, frames };
 }
 
 /** The view that shows every card, with a margin, no closer than 100%. */

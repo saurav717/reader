@@ -145,7 +145,7 @@ await page.keyboard.press('Escape');
 
 console.log('\n== the PDF as a book ==');
 await page.locator('.segmented button', { hasText: 'PDF' }).click();
-await page.waitForSelector('.pdf-pane iframe', { timeout: 30000 });
+await page.waitForSelector('.pdf-scroll .pdf-book-page', { timeout: 30000 });
 await page.getByRole('button', { name: /Read as a book/i }).click();
 await page.waitForSelector('.pdf-book-page:not(.drawing)', { timeout: 30000 });
 await page.waitForFunction(() => document.querySelectorAll('.pdf-book-page:not(.drawing)').length === 2, null, { timeout: 15000 }).catch(() => {});
@@ -172,8 +172,9 @@ check('a narrow window shows one page', (await page.locator('.pdf-book-page').co
 await page.screenshot({ path: `${OUT}/pdf-book-narrow.png` });
 await page.setViewportSize({ width: 1920, height: 1080 });
 await page.getByRole('button', { name: /Read as one scrolling page/i }).click();
-await page.waitForSelector('.pdf-pane iframe', { timeout: 10000 });
-check('the scroll view is the browser’s viewer again', await page.locator('.pdf-pane iframe').isVisible());
+await page.waitForSelector('.pdf-scroll .pdf-book-page', { timeout: 10000 });
+// Scrolled, the PDF is still drawn by the reader — so it can be selected, snipped and pinned.
+check('the scroll view is one column of the PDF’s own pages', (await page.locator('.pdf-scroll-slot').count()) > 1 && (await page.locator('.pdf-pane iframe').count()) === 0);
 
 check('no errors on the page', errors.length === 0, errors.join('\n'));
 await browser.close();

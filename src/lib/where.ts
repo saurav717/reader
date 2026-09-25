@@ -11,9 +11,9 @@ const HEADINGS = '.paper-body h1, .paper-body h2, .paper-body h3, .paper-body h4
 
 export function whereNow(): Whereabouts {
   const where: Whereabouts = {};
-  // The PDF as a book: the first page of the spread in view.
-  const page = document.querySelector<HTMLElement>('.main .pdf-book-page[data-page]');
-  if (page) where.page = Number(page.dataset.page) || undefined;
+  // The PDF, as a book or scrolled: the first page in view.
+  const book = document.querySelector<HTMLElement>('.main .pdf-book[data-current-page]');
+  if (book) where.page = Number(book.dataset.currentPage) || undefined;
   // The reflowed paper: the last heading above a third of the way down the screen.
   const line = window.innerHeight / 3;
   let section: string | undefined;

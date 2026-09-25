@@ -186,17 +186,18 @@ await page.keyboard.press('s');
 await settle(200);
 check('S puts it away', (await page.locator('.box-snip-layer').count()) === 0);
 
-console.log('\n== the PDF, in the browser’s viewer ==');
+console.log('\n== the PDF, scrolled ==');
 await page.locator('.segmented button', { hasText: 'PDF' }).click();
-await page.waitForSelector('.pdf-frame', { timeout: 20000 });
+await page.waitForSelector('.pdf-scroll .pdf-book-page[data-text="ready"]', { timeout: 20000 });
 await settle(600);
-const asBook = page.getByRole('button', { name: 'Open it as a book' });
-check('it says the viewer cannot be reached into, and offers the book', (await asBook.count()) === 1);
+check('the scrolled PDF is drawn by the reader, with the browser’s viewer a link away', (await page.locator('.pdf-frame').count()) === 0 && (await page.getByRole('link', { name: /browser's own viewer/ }).count()) === 1);
 await page.locator('.reader-head .snip-toggle').click();
-await page.waitForSelector('.pdf-book-page[data-text="ready"]', { timeout: 20000 });
-await page.waitForSelector('.snip-layer', { timeout: 5000 }).catch(() => undefined);
-check('✂ Snip there opens it as a book, with snipping on', (await page.locator('.pdf-book').count()) === 1 && (await page.locator('.snip-layer').count()) === 1);
+await page.waitForSelector('.pdf-scroll .snip-layer', { timeout: 5000 }).catch(() => undefined);
+check('✂ Snip works on it as it is, scrolled', (await page.locator('.pdf-scroll .snip-layer').count()) === 1);
 await page.keyboard.press('Escape');
+await settle(300);
+await page.getByRole('button', { name: /Read as a book/ }).click();
+await page.waitForSelector('.pdf-book:not(.is-scrolled) .pdf-book-page[data-text="ready"]', { timeout: 20000 });
 await settle(800);
 
 console.log('\n== the PDF as a book: a passage ==');
