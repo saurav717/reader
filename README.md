@@ -435,6 +435,27 @@ and from the page that looks exactly like the Worker being down. An origin is a
 scheme and a host: `https://saurav717.github.io`, never the `/reader/` path the
 app is served under.
 
+`ALLOWED_ORIGINS` keeps other *sites* out; it does not keep other *people*
+out, since anything but a browser sends whichever Origin header it likes, and
+the Worker's address is in this site's JavaScript for anyone to read. So the
+routes that could cost you something — driving the browser inside the reader,
+keeping and using a sign-in, fetching a file through Browserless, asking
+Scholar on your SerpApi account — take a token as well, and are off until one
+is set:
+
+```bash
+openssl rand -base64 32 | npx --yes wrangler@4 secret put READER_TOKEN   # then npm run deploy:worker
+```
+
+Paste the same string into **Settings → Paper proxy → token**, once, in each
+browser you use the reader from. It goes to the Worker as a header and nowhere
+else. arXiv, open-access PDFs and Scholar asked directly need no token, so a
+visitor without one still gets a working reader. The browser session and the
+cookies of a sign-in are kept per browser (an id the site makes up and sends
+along), never in one jar for everyone, and a jar unused for thirty days is
+dropped. Without the token, `/pdf` is also rate-limited per address (the
+`[[ratelimits]]` binding in `wrangler.toml`, sixty a minute).
+
 Then tell the app about it. Either rebuild with `VITE_API_BASE` set to the
 Worker's URL, or — and this is the point of it being a setting — paste that URL
 into **Settings → Paper proxy** and press **Test it**. The address is kept in

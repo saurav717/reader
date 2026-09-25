@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import DOMPurify from 'dompurify';
 import { NOTE_ADDED, OPEN_EXPLAIN, SHOW_IN_EXPLAIN, addText, moveNote, removeNote, updateNote, useNotes } from '../lib/notes';
 import type { NoteBlock, NoteSource } from '../lib/notes';
+import { cleanClip } from '../lib/sanitize';
 import { ExplainIcon, PlusIcon, TrashIcon } from './icons';
 
 /** Waits, a frame at a time, for something to be on the page. */
@@ -37,7 +37,7 @@ function Piece({ paperId, block, first, last, fresh }: { paperId: string; block:
   const textRef = useRef<HTMLTextAreaElement>(null);
   const cardRef = useRef<HTMLElement>(null);
   const [noting, setNoting] = useState(false);
-  const html = useMemo(() => (block.kind === 'clip' ? DOMPurify.sanitize(block.html) : ''), [block]);
+  const html = useMemo(() => (block.kind === 'clip' ? cleanClip(block.html) : ''), [block]);
 
   useEffect(() => grow(textRef.current));
   useEffect(() => {

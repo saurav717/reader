@@ -14,7 +14,7 @@
  * it, and `/access/status` is how this side finds out which it is talking to
  * — so the offer is made where it can work, and explained where it cannot.
  */
-import { api, apiBase, hasProxy } from './api';
+import { apiBase, apiFetch, hasProxy } from './api';
 
 export interface AccessStatus {
   /** Whether this proxy can open a sign-in window at all. */
@@ -43,7 +43,7 @@ const UNAVAILABLE: AccessStatus = {
 };
 
 async function ask(path: string, init?: RequestInit): Promise<AccessStatus> {
-  const response = await fetch(api(path), { ...init, headers: { Accept: 'application/json' } });
+  const response = await apiFetch(path, { ...init, headers: { Accept: 'application/json' } });
   const payload = (await response.json().catch(() => ({}))) as Partial<AccessStatus> & { error?: string };
   if (!response.ok) throw new Error(payload.error || `The proxy answered ${response.status}.`);
   return { ...UNAVAILABLE, ...payload };

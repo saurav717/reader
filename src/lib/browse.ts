@@ -18,7 +18,7 @@
  * mouse movement collapsed to the latest position while a request is out.
  */
 import type { PaperLocation, PaperRef } from '../types';
-import { api, hasProxy } from './api';
+import { api, apiFetch, clientId, hasProxy } from './api';
 import { scholarPaperUrl } from './locations';
 import type { SignInOffer } from './pdf';
 
@@ -158,7 +158,7 @@ function withSession(path: string): string {
 }
 
 async function ask<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(api(withSession(path)), { ...init, headers: { Accept: 'application/json', ...(init?.headers || {}) } });
+  const response = await apiFetch(withSession(path), { ...init, headers: { Accept: 'application/json', ...(init?.headers || {}) } });
   const payload = (await response.json().catch(() => ({}))) as T & { error?: string; retryAfter?: unknown; browsers?: unknown };
   if (!response.ok) throw refused(response.status, payload);
   return payload;
@@ -206,7 +206,7 @@ export async function openBrowser(url: string): Promise<BrowseStatus> {
  * has waited its turn. Rejects the way an aborted fetch does on abort.
  */
 export async function nextFrame(after: number, signal?: AbortSignal): Promise<BrowseStatus> {
-  const response = await fetch(api(withSession(`/browse/frame?after=${after}`)), { headers: { Accept: 'application/json' }, signal });
+  const response = await apiFetch(withSession(`/browse/frame?after=${after}`), { headers: { Accept: 'application/json' }, signal });
   const payload = (await response.json().catch(() => ({}))) as Partial<BrowseStatus> & { error?: string; retryAfter?: unknown };
   if (!response.ok) throw refused(response.status, payload);
   return { ...UNAVAILABLE, ...payload };
@@ -227,7 +227,10 @@ export function streamUrl(): string | null {
   if (!hasProxy() || !session) return null;
   let url: URL;
   try {
-    url = new URL(api(withSession('/browse/stream')), typeof location === 'undefined' ? 'http://localhost/' : location.href);
+    // A WebSocket carries no headers of its own, so the client id goes on
+    // the address; the session id, which only this browser was handed, is
+    // what admits it.
+    url = new URL(api(withSession(`/browse/stream?client=${encodeURIComponent(clientId())}`)), typeof location === 'undefined' ? 'http://localhost/' : location.href);
   } catch {
     return null;
   }
@@ -304,7 +307,7 @@ export function openStream(handlers: { onStatus: (status: BrowseStatus) => void;
 }
 
 async function pdfFrom(path: string, init?: RequestInit): Promise<Blob> {
-  const response = await fetch(api(withSession(path)), init);
+  const response = await apiFetch(withSession(path), init);
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as { error?: string; retryAfter?: unknown };
     throw refused(response.status, payload);
@@ -350,7 +353,7 @@ export function openReviewPdfUrl(pageUrl: string | null | undefined): string | n
 export async function proxyPdf(url: string, name: string, signal?: AbortSignal): Promise<Blob> {
   let response: Response;
   try {
-    response = await fetch(api(`/pdf?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`), { signal });
+    response = await apiFetch(`/pdf?url=${encodeURIComponent(url)}&name=${encodeURIComponent(name)}`, { signal });
   } catch (error) {
     if (signal?.aborted) throw error;
     throw new Error(`the proxy could not be reached (${error instanceof Error ? error.message : String(error)})`);
@@ -384,7 +387,7 @@ export async function closeBrowser(): Promise<void> {
   const open = session;
   session = null;
   if (open) {
-    await fetch(api(`/browse/close?session=${encodeURIComponent(open)}`), { method: 'POST', headers: { Accept: 'application/json' } }).catch(() => undefined);
+    await apiFetch(`/browse/close?session=${encodeURIComponent(open)}`, { method: 'POST', headers: { Accept: 'application/json' } }).catch(() => undefined);
     return;
   }
   await ask('/browse/close', { method: 'POST' }).catch(() => undefined);

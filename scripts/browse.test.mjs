@@ -19,7 +19,13 @@ import { cleanup, load } from './bundle.mjs';
 // a sign-in was once made here.
 process.env.READER_PROFILE_DIR = join(tmpdir(), `reader-no-profile-${process.pid}`);
 const { default: apiRouter } = await import('../server/api.js');
+const { setLookup, setRateLimits } = await import('../server/guard.js');
 const { acceptKey, VIEWPORT } = await import('../server/browse.js');
+
+// No DNS here, and no patience for the rate limit: the refusals below are
+// asked for faster than a person would, and none of the names resolve.
+setLookup(async () => [{ address: '203.0.113.10', family: 4 }]);
+setRateLimits({ browse: 1000, pdf: 1000, scholar: 1000 });
 const { extraBrowserArgs } = await import('../server/access.js');
 const { isPrivateHost } = await import('../server/fetchPdf.js');
 
@@ -351,13 +357,44 @@ describe('the browser from the Worker', () => {
   it('keeps and forgets cookies only where there is somewhere to keep them', async () => {
     const store = new Map();
     const env = { SESSIONS: { get: async (k) => store.get(k) ?? null, put: async (k, v) => store.set(k, v), delete: async (k) => store.delete(k) } };
+    // One jar per browser that uses the reader, keyed by its client id; with
+    // no id there is no jar at all, whatever the namespace holds.
+    const mine = worker.forClient(env, 'client-aaaaaaaaaaaaaaaa');
+    const theirs = worker.forClient(env, 'client-bbbbbbbbbbbbbbbb');
     assert.deepEqual(await worker.storedCookies({}), []);
     assert.deepEqual(await worker.storedCookies(env), []);
-    store.set('browser-cookies', JSON.stringify([{ name: 'a', value: '1', domain: '.x.org', path: '/' }, { name: 'gone', value: '2', domain: '.x.org', path: '/', expires: 1 }]));
-    assert.deepEqual((await worker.storedCookies(env)).map((c) => c.name), ['a']);
-    assert.equal(await worker.forgetCookies(env), true);
+    assert.deepEqual(await worker.storedCookies(mine), []);
+    store.set('cookies:client-aaaaaaaaaaaaaaaa', JSON.stringify([{ name: 'a', value: '1', domain: '.x.org', path: '/' }, { name: 'gone', value: '2', domain: '.x.org', path: '/', expires: 1 }]));
+    assert.deepEqual((await worker.storedCookies(mine)).map((c) => c.name), ['a']);
+    assert.deepEqual(await worker.storedCookies(theirs), [], "another browser's jar is another jar");
+    assert.deepEqual(await worker.storedCookies(env), [], 'no client, no jar');
+    assert.equal(await worker.forgetCookies(env), false);
+    assert.equal(await worker.forgetCookies(mine), true);
     assert.equal(await worker.forgetCookies({}), false);
-    assert.deepEqual(await worker.storedCookies(env), []);
+    assert.deepEqual(await worker.storedCookies(mine), []);
+  });
+
+  it('keeps a jar for a month at most, and never Google\'s own cookies', async () => {
+    const puts = [];
+    const env = { SESSIONS: { get: async () => null, put: async (k, v, o) => puts.push([k, JSON.parse(v), o]), delete: async () => undefined } };
+    const page = {
+      createCDPSession: async () => ({
+        send: async () => ({
+          cookies: [
+            { name: 'sid', value: '1', domain: '.ieee.org', path: '/' },
+            { name: 'SID', value: 'g', domain: '.google.com', path: '/' },
+            { name: 'x', value: 'y', domain: 'accounts.google.com', path: '/' },
+          ],
+        }),
+        detach: async () => undefined,
+      }),
+    };
+    assert.equal(await worker.saveCookies(env, page), false, 'no client, nothing kept');
+    assert.equal(await worker.saveCookies(worker.forClient(env, 'client-aaaaaaaaaaaaaaaa'), page), true);
+    assert.equal(puts.length, 1);
+    assert.equal(puts[0][0], 'cookies:client-aaaaaaaaaaaaaaaa');
+    assert.deepEqual(puts[0][1].map((c) => c.name), ['sid']);
+    assert.deepEqual(puts[0][2], { expirationTtl: 30 * 24 * 3600 });
   });
 
   it('puts a kept sign-in back in one call, and one at a time only when the batch is refused', async () => {
@@ -366,8 +403,11 @@ describe('the browser from the Worker', () => {
       { name: 'b', value: '2', domain: '.y.org', path: '/' },
       { name: 'c', value: '3', domain: '.z.org', path: '/' },
     ];
-    const store = new Map([['browser-cookies', JSON.stringify(kept)]]);
-    const env = { SESSIONS: { get: async (k) => store.get(k) ?? null, put: async (k, v) => store.set(k, v), delete: async (k) => store.delete(k) } };
+    const store = new Map([['cookies:client-aaaaaaaaaaaaaaaa', JSON.stringify(kept)]]);
+    const env = worker.forClient(
+      { SESSIONS: { get: async (k) => store.get(k) ?? null, put: async (k, v) => store.set(k, v), delete: async (k) => store.delete(k) } },
+      'client-aaaaaaaaaaaaaaaa',
+    );
     const fakePage = (session) => ({ createCDPSession: async () => session, setCookie: async () => { throw new Error('not this way'); } });
 
     // A hundred cookies is one call, not two hundred.
@@ -415,18 +455,52 @@ describe('the Worker entry', () => {
     const stub = { fetch: async (url, init) => (got.push({ url: String(url), init }), new Response('upgraded', { status: 200 })) };
     const env = { BROWSER_SESSION: { idFromName: (name) => ({ name }), get: (id, options) => (got.push({ id, options }), stub) } };
     const from = { Origin: 'https://saurav717.github.io' };
-    const elsewhere = await entry.fetch(new Request('https://proxy.example/browse/stream?session=tok', { headers: { Origin: 'https://evil.example', Upgrade: 'websocket' } }), env);
+    const stream = 'https://proxy.example/browse/stream?session=tok&client=client-aaaaaaaaaaaaaaaa';
+    const elsewhere = await entry.fetch(new Request(stream, { headers: { Origin: 'https://evil.example', Upgrade: 'websocket' } }), env);
     assert.equal(elsewhere.status, 403);
-    const plain = await entry.fetch(new Request('https://proxy.example/browse/stream?session=tok', { headers: from }), env);
+    const plain = await entry.fetch(new Request(stream, { headers: from }), env);
     assert.equal(plain.status, 426);
-    const without = await entry.fetch(new Request('https://proxy.example/browse/stream?session=tok', { headers: { ...from, Upgrade: 'websocket' } }), { BROWSER: {} });
+    const nobody = await entry.fetch(new Request('https://proxy.example/browse/stream?session=tok', { headers: { ...from, Upgrade: 'websocket' } }), env);
+    assert.equal(nobody.status, 400, 'no client id, no object to hand it to');
+    const without = await entry.fetch(new Request(stream, { headers: { ...from, Upgrade: 'websocket' } }), { BROWSER: {} });
     assert.equal(without.status, 404);
-    const through = await entry.fetch(new Request('https://proxy.example/browse/stream?session=tok', { headers: { ...from, Upgrade: 'websocket' } }), env);
+    const through = await entry.fetch(new Request(stream, { headers: { ...from, Upgrade: 'websocket' } }), env);
     assert.equal(through.status, 200);
     assert.equal(await through.text(), 'upgraded', 'the object\'s answer, untouched');
-    assert.deepEqual(got[0], { id: { name: 'the-browser' }, options: undefined });
-    assert.equal(got[1].url, 'https://browser-session/stream?session=tok');
+    // The object is this browser's own, named by its client id.
+    assert.deepEqual(got[0], { id: { name: 'client:client-aaaaaaaaaaaaaaaa' }, options: undefined });
+    assert.equal(got[1].url, 'https://browser-session/stream?session=tok&client=client-aaaaaaaaaaaaaaaa');
     assert.equal(got[1].init.headers.get('upgrade'), 'websocket');
+  });
+
+  it('drives the browser with the token only, and keeps the session object\'s own routes and secrets to itself', async () => {
+    const { default: entry } = await import('../worker/index.js');
+    const status = { open: true, session: 'tok', url: 'https://ieeexplore.ieee.org/x', title: 'A paper', held: true, log: [{ what: 'opened' }], lastError: { message: 'slow', at: 1, url: 'https://x' } };
+    const env = {
+      READER_TOKEN: 'the-token',
+      BROWSER_SESSION: { idFromName: (name) => ({ name }), get: () => ({ fetch: async () => new Response(JSON.stringify(status)) }) },
+    };
+    const from = { Origin: 'https://saurav717.github.io', 'X-Reader-Client': 'client-aaaaaaaaaaaaaaaa' };
+    const anonymous = await entry.fetch(new Request('https://proxy.example/browse/open?url=https%3A%2F%2Fexample.com%2F', { method: 'POST', headers: from }), env);
+    assert.equal(anonymous.status, 401);
+    assert.equal((await anonymous.json()).token, true);
+    const wrong = await entry.fetch(new Request('https://proxy.example/browse/open?url=https%3A%2F%2Fexample.com%2F', { method: 'POST', headers: { ...from, Authorization: 'Bearer the-tokex' } }), env);
+    assert.equal(wrong.status, 401);
+    const right = await entry.fetch(new Request('https://proxy.example/browse/open?url=https%3A%2F%2Fexample.com%2F', { method: 'POST', headers: { ...from, Authorization: 'Bearer the-token' } }), env);
+    assert.equal(right.status, 200);
+    // Without a secret at all, the routes that need one are off and say so.
+    const off = await entry.fetch(new Request('https://proxy.example/browse/open?url=https%3A%2F%2Fexample.com%2F', { method: 'POST', headers: from }), { BROWSER_SESSION: env.BROWSER_SESSION });
+    assert.equal(off.status, 401);
+    assert.match((await off.json()).error, /READER_TOKEN/);
+    // The status without the token says whether a browser is held, not where it is or how to take it over.
+    const peek = await (await entry.fetch(new Request('https://proxy.example/browse/status', { headers: from }), env)).json();
+    assert.deepEqual(peek, { open: true, held: true, lastError: { message: 'slow', at: 1 } });
+    const mine = await (await entry.fetch(new Request('https://proxy.example/browse/status', { headers: { ...from, Authorization: 'Bearer the-token' } }), env)).json();
+    assert.equal(mine.session, 'tok');
+    assert.equal(mine.url, 'https://ieeexplore.ieee.org/x');
+    // The note the object takes from /pdf is not a public route.
+    const noted = await entry.fetch(new Request('https://proxy.example/browse/note-check?host=arxiv.org', { headers: { ...from, Authorization: 'Bearer the-token' } }), env);
+    assert.equal(noted.status, 404);
   });
 
   it('makes the session object where it is asked to, named by the place, so a change of place makes a new one', async () => {
@@ -436,8 +510,8 @@ describe('the Worker entry', () => {
       BROWSER_SESSION_LOCATION: 'wnam',
       BROWSER_SESSION: { idFromName: (name) => ({ name }), get: (id, options) => (got.push({ id, options }), { fetch: async () => new Response('{"open":false}') }) },
     };
-    await entry.fetch(new Request('https://proxy.example/browse/status'), env);
-    assert.deepEqual(got[0], { id: { name: 'the-browser@wnam' }, options: { locationHint: 'wnam' } });
+    await entry.fetch(new Request('https://proxy.example/browse/status', { headers: { 'X-Reader-Client': 'client-aaaaaaaaaaaaaaaa' } }), env);
+    assert.deepEqual(got[0], { id: { name: 'client:client-aaaaaaaaaaaaaaaa@wnam' }, options: { locationHint: 'wnam' } });
   });
 });
 

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
 
-const { arxivQuery, arxivIdFromQuery, nameInQuery, nameMatches, papersByAuthor, search, searchAuthors, sortPapers } =
+const { arxivQuery, arxivIdFromQuery, nameInQuery, nameMatches, papersByAuthor, search, searchAuthors, sortPapers, webUrl } =
   await load('src/lib/sources.ts');
 
 const realFetch = globalThis.fetch;
@@ -207,6 +207,39 @@ describe('merging what the sources return', () => {
     handlers['api.openalex.org'] = () => json({ results: [openAlexWork()] });
     return search('q', ['openalex']).then((outcome) => {
       assert.equal(outcome.exhausted, true);
+    });
+  });
+});
+
+describe('the links an index hands back', () => {
+  it('keeps https, upgrades http, and drops everything else', () => {
+    assert.equal(webUrl('https://example.org/a'), 'https://example.org/a');
+    assert.equal(webUrl('http://example.org/a'), 'https://example.org/a');
+    assert.equal(webUrl(' https://example.org/a '), 'https://example.org/a');
+    for (const bad of ['javascript:alert(1)', 'data:text/html,hi', 'ftp://example.org/a', '/relative', 'example.org', '', null, undefined]) {
+      assert.equal(webUrl(bad), undefined, `should refuse ${JSON.stringify(bad)}`);
+    }
+  });
+
+  it('does not let a record choose the landing page or the PDF outside https', () => {
+    handlers['api.openalex.org'] = () =>
+      json({
+        results: [
+          openAlexWork({
+            display_name: 'Odd Links',
+            primary_location: { landing_page_url: 'javascript:alert(1)', pdf_url: 'data:application/pdf;base64,AAAA' },
+            best_oa_location: { landing_page_url: 'http://example.org/paper', pdf_url: null },
+          }),
+        ],
+      });
+    handlers['api.crossref.org'] = () =>
+      json({ message: { items: [crossrefItem({ DOI: '10.1/odd', title: ['Odder Links'], URL: 'javascript:alert(2)' })] } });
+
+    return search('odd', ['openalex', 'crossref']).then((outcome) => {
+      const [odd, odder] = ['Odd Links', 'Odder Links'].map((title) => outcome.results.find((paper) => paper.title === title));
+      assert.equal(odd.landingUrl, 'https://example.org/paper');
+      assert.equal(odd.pdfUrl, undefined);
+      assert.equal(odder.landingUrl, 'https://doi.org/10.1/odd');
     });
   });
 });

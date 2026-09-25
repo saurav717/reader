@@ -10,9 +10,9 @@
 //  to, and what you kept should not change under you when it does.
 // ===========================================================================
 
-import DOMPurify from 'dompurify';
 import { useEffect, useSyncExternalStore } from 'react';
 import { db } from './db';
+import { cleanClip } from './sanitize';
 
 /** Where a kept piece came from, so it can be shown there again. */
 export interface NoteSource {
@@ -150,8 +150,10 @@ const CONTROLS = 'button, .caret, .revised-pill, .note-clip-btn, input, select, 
 
 /**
  * A copy of part of the page, safe to keep and draw again: its controls and
- * ids taken out, and cleaned the way everything drawn from Claude's writing
- * is. The diagram's SVG and KaTeX's maths come through as they are.
+ * ids taken out, and cleaned again — a little more strictly than the page
+ * was, since a copy is kept for good and drawn without the page around it:
+ * nothing that fetches, frames or restyles. The diagram's SVG and KaTeX's
+ * maths come through as they are.
  */
 export function copyOf(source: Node | DocumentFragment): string {
   const holder = document.createElement('div');
@@ -163,12 +165,22 @@ export function copyOf(source: Node | DocumentFragment): string {
     element.removeAttribute('data-section');
     element.removeAttribute('data-title');
   });
-  return DOMPurify.sanitize(holder.innerHTML);
+  return cleanClip(holder.innerHTML);
 }
 
 // ---------------------------------------------------------------------------
 // As Markdown, for the export
 // ---------------------------------------------------------------------------
+
+/**
+ * Code in a fence that the code cannot close: a run of backticks one longer
+ * than the longest run inside it, and never fewer than three.
+ */
+function fenced(text: string): string {
+  const longest = Math.max(2, ...Array.from(text.matchAll(/`+/g), (run) => run[0].length));
+  const fence = '`'.repeat(longest + 1);
+  return `${fence}\n${text}\n${fence}`;
+}
 
 export function notesMarkdown(blocks: NoteBlock[]): string {
   const lines: string[] = [];
@@ -178,9 +190,11 @@ export function notesMarkdown(blocks: NoteBlock[]): string {
       continue;
     }
     const where = block.source.section ? ` — Explain · ${block.source.section}` : ' — Explain';
-    lines.push(`**${block.label}**${where}`, '');
+    // The label is one line of bold; a newline in it would end the bold
+    // early and start something else on the next line.
+    lines.push(`**${block.label.replace(/\s*[\r\n]+\s*/g, ' ').trim()}**${where}`, '');
     const code = /^(Code|Output)/.test(block.label);
-    lines.push(code ? `\`\`\`\n${block.text.trim()}\n\`\`\`` : block.text.trim().replace(/^/gm, '> '), '');
+    lines.push(code ? fenced(block.text.trim()) : block.text.trim().replace(/^/gm, '> '), '');
     if (block.note?.trim()) lines.push(block.note.trim(), '');
   }
   return lines.join('\n');

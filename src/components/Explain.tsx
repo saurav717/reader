@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify';
+import { cleanFigure } from '../lib/sanitize';
 import type { CSSProperties } from 'react';
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Screen } from '../lib/assistant';
@@ -155,7 +156,7 @@ function CodeCell({ block, index }: { block: Extract<Block, { kind: 'code' }>; i
 
 function Figure({ block }: { block: Extract<Block, { kind: 'figure' }> }) {
   const svg = useMemo(
-    () => (block.open ? '' : DOMPurify.sanitize(block.svg, { USE_PROFILES: { svg: true, svgFilters: true } })),
+    () => (block.open ? '' : cleanFigure(block.svg)),
     [block.svg, block.open],
   );
   return (

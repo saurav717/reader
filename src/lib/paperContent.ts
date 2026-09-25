@@ -174,10 +174,13 @@ export async function loadPaperContent(paper: Paper, signal?: AbortSignal, optio
     }
     absolutise(article, payload.base);
 
+    // The SVG profile is for the figures LaTeXML draws inline; an SVG
+    // `<image>` would fetch from wherever the page says, so it goes the
+    // way `<style>` and `<link>` do.
     const clean = DOMPurify.sanitize(article.innerHTML, {
       USE_PROFILES: { html: true, mathMl: true, svg: true },
       ADD_ATTR: ['target', 'loading'],
-      FORBID_TAGS: ['style', 'link'],
+      FORBID_TAGS: ['style', 'link', 'image'],
     });
 
     return {

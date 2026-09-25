@@ -15,6 +15,11 @@ import { tmpdir } from 'node:os';
 // below is a login wall, not something to retry through a browser.
 process.env.READER_PROFILE_DIR = join(tmpdir(), `reader-no-profile-${process.pid}`);
 const { default: apiRouter } = await import('../server/api.js');
+const { resetRateLimits, setLookup, setRateLimits } = await import('../server/guard.js');
+
+// No DNS here: every name resolves to a public address, except the one name
+// below that stands for a host pointing its name at this machine.
+setLookup(async (host) => [{ address: host === 'rebind.example' ? '127.0.0.1' : '203.0.113.10', family: 4 }]);
 
 const PDF = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(2048, 0x20), Buffer.from('\n%%EOF')]);
 
@@ -273,11 +278,24 @@ describe("a site's check for a person, met by the PDF proxy", () => {
     const noted = [];
     const env = {
       BROWSERLESS_TOKEN: 'secret',
+      READER_TOKEN: 'the-token',
       BROWSER_SESSION: { idFromName: (name) => name, get: () => ({ fetch: async (url) => (noted.push(String(url)), new Response('{"ok":true}')) }) },
     };
-    const response = await worker.fetch(
+    // Browserless is metered on the account whose token the Worker holds:
+    // without the reader's token it is never asked, and the check is said
+    // to be Cloudflare's, refusing the Worker.
+    const anonymous = await worker.fetch(
       new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://www.academia.edu/download/1/10.pdf'), {
         headers: { Origin: 'https://saurav717.github.io' },
+      }),
+      env,
+    );
+    assert.equal(anonymous.status, 502);
+    assert.equal((await anonymous.json()).where, 'cloudflare');
+    assert.equal(asked.filter((url) => url.startsWith('https://production-sfo.browserless.io/')).length, 0);
+    const response = await worker.fetch(
+      new Request('https://proxy.example/pdf?url=' + encodeURIComponent('https://www.academia.edu/download/1/10.pdf'), {
+        headers: { Origin: 'https://saurav717.github.io', Authorization: 'Bearer the-token', 'X-Reader-Client': 'client-aaaaaaaaaaaaaaaa' },
       }),
       env,
     );
@@ -292,7 +310,7 @@ describe("a site's check for a person, met by the PDF proxy", () => {
     // Browserless was asked, at its stealth Chromium, with the token — and the host noted for the pane.
     const browserless = asked.find((url) => url.startsWith('https://production-sfo.browserless.io/'));
     assert.match(browserless, /^https:\/\/production-sfo\.browserless\.io\/chromium\/stealth\?token=secret&timeout=90000$/);
-    assert.deepEqual(noted, ['https://browser-session/note-check?host=www.academia.edu']);
+    assert.deepEqual(noted, ['https://browser-session/note-check?host=www.academia.edu&client=client-aaaaaaaaaaaaaaaa']);
   });
 });
 
@@ -548,5 +566,215 @@ describe("OpenReview's API refusing the Worker too", () => {
       env: { OPENREVIEW_USERNAME: 'slow@example.org', OPENREVIEW_PASSWORD: 'secret' },
     });
     assert.match(signedIn.said[0], /api2\.openreview\.net would not sign the account in \(did not answer within 2 s\)/);
+  });
+});
+
+// --------------------------------------------- what a name can hide behind ----
+
+const { isPrivateHost, rejectUrl } = await import('../server/fetchPdf.js');
+
+describe('the private-address rules, on the spellings that used to slip past them', () => {
+  const refused = [
+    ['IPv4-mapped IPv6 loopback', 'https://[::ffff:127.0.0.1]/'],
+    ['IPv4-mapped IPv6 cloud metadata', 'https://[::ffff:169.254.169.254]/'],
+    ['IPv4-mapped IPv6 in hex', 'https://[::ffff:7f00:1]/'],
+    ['NAT64 to cloud metadata', 'https://[64:ff9b::a9fe:a9fe]/'],
+    ['IPv6 site-local', 'https://[fec0::1]/'],
+    ['the unspecified IPv6 address', 'https://[::]/'],
+    ['localhost with a trailing dot', 'https://localhost./'],
+    ['an internal name with a trailing dot', 'https://metadata.google.internal./'],
+  ];
+  for (const [label, target] of refused) {
+    it(`refuses ${label}`, () => {
+      assert.match(rejectUrl(target), /not reachable/, target);
+    });
+  }
+
+  it('still lets the public internet through', () => {
+    assert.equal(rejectUrl('https://arxiv.org/'), null);
+    assert.equal(rejectUrl('https://[2606:4700::6810:84e5]/'), null);
+    assert.equal(isPrivateHost('arxiv.org.'), false);
+  });
+
+  it('refuses a public-looking name that resolves to this machine, before anything is fetched', async () => {
+    let fetched = 0;
+    upstream = () => {
+      fetched += 1;
+      return pdfResponse();
+    };
+    const response = await get('https://rebind.example/paper.pdf');
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /not reachable/);
+    assert.equal(fetched, 0);
+  });
+
+  it('refuses a redirect onto such a name too', async () => {
+    upstream = (url) =>
+      url.includes('/bounce')
+        ? new Response(null, { status: 302, headers: { location: 'https://rebind.example/paper.pdf' } })
+        : pdfResponse();
+    const response = await get('https://repository.example.org/bounce');
+    assert.equal(response.status, 400);
+    assert.match((await response.json()).error, /not reachable/);
+  });
+
+  it('says only that it could not fetch, not what the network said', async () => {
+    upstream = () => {
+      throw Object.assign(new TypeError('fetch failed'), { cause: new Error('connect ECONNREFUSED 10.0.0.7:443') });
+    };
+    const warn = console.warn;
+    console.warn = () => undefined;
+    try {
+      const response = await get('https://repository.example.org/paper.pdf');
+      assert.equal(response.status, 502);
+      const { error } = await response.json();
+      assert.equal(error, 'could not fetch that');
+    } finally {
+      console.warn = warn;
+    }
+  });
+});
+
+// ---------------------------------------------------- who may ask for what ----
+
+import { request as httpRequest } from 'node:http';
+
+/** A request with whatever headers we like — fetch() will not let a Host header be set. */
+const raw = (path, { method = 'GET', headers = {} } = {}) =>
+  new Promise((resolve, reject) => {
+    const req = httpRequest(`${base}${path}`, { method, headers }, (res) => {
+      const chunks = [];
+      res.on('data', (chunk) => chunks.push(chunk));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+
+describe('a request with no Origin header', () => {
+  // A private address the browser refuses before it looks for Chromium:
+  // the answer tells whether the request got as far as the route.
+  const open = '/browse/open?url=' + encodeURIComponent('https://127.0.0.1/');
+
+  it('is taken for this machine when it came in over loopback', async () => {
+    const response = await raw(open, { method: 'POST', headers: { Host: 'localhost:8080' } });
+    assert.equal(response.status, 400);
+    assert.match(JSON.parse(response.body).error, /not reachable/);
+    for (const host of ['127.0.0.1', '[::1]:8080']) {
+      assert.equal((await raw(open, { method: 'POST', headers: { Host: host } })).status, 400, host);
+    }
+  });
+
+  it('is refused when the Host header says it came from anywhere else', async () => {
+    const response = await raw(open, { method: 'POST', headers: { Host: 'proxy.example.org' } });
+    assert.equal(response.status, 403);
+    assert.match(JSON.parse(response.body).error, /not from this app/);
+  });
+
+  it('is never let in by an Origin that merely matches the Host', async () => {
+    const response = await raw(open, { method: 'POST', headers: { Host: 'proxy.example.org', Origin: 'http://proxy.example.org' } });
+    assert.equal(response.status, 403);
+  });
+});
+
+describe('a proxy with a token', () => {
+  const open = '/browse/open?url=' + encodeURIComponent('https://127.0.0.1/');
+  const withToken = async (fn) => {
+    process.env.READER_TOKEN = 'abc';
+    try {
+      return await fn();
+    } finally {
+      delete process.env.READER_TOKEN;
+    }
+  };
+
+  it('says so in /health, so the app can ask for it', async () => {
+    assert.equal((await (await realFetch(`${base}/health`)).json()).auth, false);
+    await withToken(async () => {
+      assert.equal((await (await realFetch(`${base}/health`)).json()).auth, true);
+    });
+  });
+
+  it('wants it for the browser, and takes it as a bearer', async () =>
+    withToken(async () => {
+      const without = await realFetch(`${base}${open}`, { method: 'POST' });
+      assert.equal(without.status, 401);
+      assert.match((await without.json()).error, /needs its token/);
+      const wrong = await realFetch(`${base}${open}`, { method: 'POST', headers: { Authorization: 'Bearer abd' } });
+      assert.equal(wrong.status, 401);
+      const longer = await realFetch(`${base}${open}`, { method: 'POST', headers: { Authorization: 'Bearer abcd' } });
+      assert.equal(longer.status, 401);
+      const right = await realFetch(`${base}${open}`, { method: 'POST', headers: { Authorization: 'Bearer abc' } });
+      assert.equal(right.status, 400);
+      assert.match((await right.json()).error, /not reachable/);
+    }));
+
+  it('wants it for the frames, the input and the sign-in, but not for the two status routes', async () =>
+    withToken(async () => {
+      for (const path of ['/browse/frame?after=-1', '/browse/pdf', '/access/signin', '/access/forget', '/scholar/captcha/status']) {
+        assert.equal((await realFetch(`${base}${path}`)).status, 401, path);
+      }
+      for (const path of ['/browse/status', '/access/status']) {
+        assert.equal((await realFetch(`${base}${path}`)).status, 200, path);
+      }
+    }));
+
+  it('lets a request with the token in and no Origin pass as this app', async () =>
+    withToken(async () => {
+      const response = await raw(open, { method: 'POST', headers: { Host: 'proxy.example.org', Authorization: 'Bearer abc' } });
+      assert.equal(response.status, 400);
+    }));
+
+  it('keeps the plain PDF fetch, arXiv and /health open', async () =>
+    withToken(async () => {
+      upstream = () => pdfResponse();
+      assert.equal((await get('https://repository.example.org/paper.pdf')).status, 200);
+      assert.equal((await realFetch(`${base}/health`)).status, 200);
+    }));
+
+  it('allows the token and the client id through CORS', async () => {
+    const response = await realFetch(`${base}/browse/open`, {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://saurav717.github.io', 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'authorization' },
+    });
+    assert.equal(response.status, 204);
+    assert.match(response.headers.get('access-control-allow-headers'), /Authorization/);
+    assert.match(response.headers.get('access-control-allow-headers'), /X-Reader-Client/);
+  });
+});
+
+describe('what the public status routes say', () => {
+  it('never where the profiles are on disk', async () => {
+    const access = await (await realFetch(`${base}/access/status`)).json();
+    assert.equal(access.profile, undefined);
+    assert.equal(access.profileExists, false);
+    const captcha = await (await realFetch(`${base}/scholar/captcha/status`)).json();
+    assert.equal(captcha.profile, undefined);
+    assert.equal(captcha.profileExists, false);
+  });
+});
+
+describe('asking too often', () => {
+  it('is held off with a 429 and told when to come back, unless the token says who it is', async () => {
+    setRateLimits({ pdf: 2 });
+    resetRateLimits();
+    upstream = () => pdfResponse();
+    try {
+      assert.equal((await get('https://repository.example.org/1.pdf')).status, 200);
+      assert.equal((await get('https://repository.example.org/2.pdf')).status, 200);
+      const held = await get('https://repository.example.org/3.pdf');
+      assert.equal(held.status, 429);
+      assert.match(held.headers.get('retry-after'), /^\d+$/);
+      assert.match((await held.json()).error, /too many/);
+      process.env.READER_TOKEN = 'abc';
+      const asked = await realFetch(`${base}/pdf?url=${encodeURIComponent('https://repository.example.org/4.pdf')}`, {
+        headers: { Authorization: 'Bearer abc' },
+      });
+      assert.equal(asked.status, 200);
+    } finally {
+      delete process.env.READER_TOKEN;
+      setRateLimits();
+      resetRateLimits();
+    }
   });
 });

@@ -293,6 +293,31 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             </small>
           </label>
 
+          <label className="setting">
+            <span className="vh">Proxy token</span>
+            <input
+              type="password"
+              value={settings.proxyToken}
+              onChange={(event) => updateSettings({ proxyToken: event.target.value })}
+              placeholder="The proxy's READER_TOKEN"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <small>
+              What the proxy asks for before it drives the browser inside the reader, keeps a sign-in, or asks
+              Scholar on its SerpApi account — anyone can read the proxy's address out of this site, so those
+              take a token. Set it on the proxy (<span className="mono">npx wrangler secret put READER_TOKEN</span>{' '}
+              for the Worker, <span className="mono">READER_TOKEN=…</span> for <span className="mono">npm start</span>) and
+              paste it here once. Sent only to the proxy. arXiv and open-access PDFs need none.
+            </small>
+          </label>
+
+          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+            Whatever proxy this is, it sees what goes through it: the PDFs, arXiv pages and Scholar queries, and
+            everything typed into the browser inside the reader — a sign-in's password included. Point this at a
+            proxy you run, or one run by someone you would tell your password to.
+          </p>
+
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button
               type="button"
