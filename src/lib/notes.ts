@@ -188,6 +188,31 @@ export function useNoteCounts(): Map<string, number> {
   return useMemo(() => new Map(all.map((summary) => [summary.paperId, summary.count])), [all]);
 }
 
+// ---------------------------------------------------------------------------
+// The paper the pointer is on in the library, so the list of every paper's
+// notes can light that paper's card and dim the rest while it is there.
+// ---------------------------------------------------------------------------
+
+let hovered: string | null = null;
+const hoverListeners = new Set<() => void>();
+
+/** The pointer is on a paper's row in the library (`null`: it has left it). */
+export function hoverPaper(paperId: string | null) {
+  if (hovered === paperId) return;
+  hovered = paperId;
+  hoverListeners.forEach((listener) => listener());
+}
+
+export function useHoveredPaper(): string | null {
+  return useSyncExternalStore(
+    (listener) => {
+      hoverListeners.add(listener);
+      return () => hoverListeners.delete(listener);
+    },
+    () => hovered,
+  );
+}
+
 /** The notes of a paper deleted for good go with it. */
 export function forgetNotes(paperId: string) {
   cache.delete(paperId);

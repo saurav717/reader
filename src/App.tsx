@@ -158,6 +158,8 @@ export default function App() {
   // Claude does. They go there over a PDF or the explanation, which are not
   // made to move for them, and anywhere once popped out, which is remembered.
   const [notesWindow, setNotesWindow] = useState(false);
+  const notesWindowRef = useRef(notesWindow);
+  notesWindowRef.current = notesWindow;
   const [notesFloat, setNotesFloat] = useState(() => localStorage.getItem(NOTES_FLOAT_KEY) === 'true');
   useEffect(() => {
     localStorage.setItem(NOTES_FLOAT_KEY, String(notesFloat));
@@ -359,15 +361,26 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [toggleZen, toggleExplain, readingNow]);
 
-  const openPaper = useCallback((id: string) => {
+  /** `fromDiscover`: opened from Discover's pane, which stays — with its results and what it said about the save. */
+  const openPaper = useCallback((id: string, fromDiscover = false) => {
     setView({ kind: 'paper', id });
     setSelectedHighlightId(null);
     setOrphanIds([]);
     if (isNarrow()) {
       setLibraryOpen(false);
       setDock(null);
+      return;
+    }
+    // A paper opens with its notes beside it; the notes window, if that is
+    // where they are, turns to the paper by itself.
+    if (!notesWindowRef.current && !fromDiscover) {
+      window.clearTimeout(slideTimer.current);
+      setDockSlide(null);
+      setDock('notes');
     }
   }, []);
+
+  const openFromDiscover = useCallback((id: string) => openPaper(id, true), [openPaper]);
 
   // The highlights pane comes forward when you write a note; a plain highlight
   // only moves a dock that is already open.
@@ -769,7 +782,7 @@ export default function App() {
           {shownDock === 'discover' ? (
             <Discover
               onClose={closeDock}
-              onOpen={openPaper}
+              onOpen={openFromDiscover}
               ask={discoverAsk}
               here={view.kind === 'collection' ? view.id : undefined}
               focus={discoverFocus}

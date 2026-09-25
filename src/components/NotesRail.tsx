@@ -49,9 +49,10 @@ export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, on
   const [notesOnly, setNotesOnly] = useState(false);
   const notes = useNotes(paperId);
   // Which list is showing: your notes, or the highlights. Until one is picked,
-  // the notes once there are any, and the highlights before that.
+  // the notes — unless there are only highlights so far.
   const [picked, setTab] = useState<'notes' | 'highlights' | null>(null);
-  const tab = picked ?? (notes.length ? 'notes' : 'highlights');
+  const highlighted = highlights.some((highlight) => highlight.paperId === paperId);
+  const tab = picked ?? (notes.length || !highlighted ? 'notes' : 'highlights');
   // A highlight picked — or a note begun on one — is shown among the highlights;
   // something kept from Explain, among the notes.
   useEffect(() => {

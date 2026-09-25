@@ -4,7 +4,7 @@ import { STATUS_LABEL, STATUS_ORDER, statusOf, type ReadingStatus } from '../lib
 import { coverFor } from '../lib/libraryLook';
 import type { View } from '../types.view';
 import type { Paper } from '../types';
-import { useNoteCounts } from '../lib/notes';
+import { hoverPaper, useNoteCounts } from '../lib/notes';
 import { CheckIcon, ChevronDownIcon, ClockIcon, CloseIcon, InboxIcon, NoteIcon, PlusIcon, StackIcon, TrashIcon } from './icons';
 import RemovePaperDialog from './RemovePaperDialog';
 import { PAPERS_MIME, ProgressRing, carriesPapers, draggedPapers } from './LibraryBits';
@@ -218,6 +218,8 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
                       type="button"
                       className={`paper-row ${activePaperId === paper.id ? 'is-active' : ''}`}
                       onClick={() => onOpenPaper(paper.id)}
+                      onMouseEnter={() => hoverPaper(paper.id)}
+                      onMouseLeave={() => hoverPaper(null)}
                       title={paper.title}
                       draggable
                       onDragStart={(event) => {

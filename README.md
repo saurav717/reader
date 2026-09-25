@@ -1964,14 +1964,25 @@ The search box searches titles, authors and those first lines. Clicking a card
 opens that paper with its notes, and the ⤓ button exports every paper's notes as
 one Markdown file, with a heading per paper.
 
+Opening a paper opens its notes in the dock, from the library, the library
+panel or ⌘K. The exception is a paper opened from Discover: Discover stays, so
+you keep your search results and whatever it said about saving the paper. If
+the notes are popped out, the window switches to the paper instead.
+
 With no paper open, H (or `⌘⇧\`) brings up the same list in the dock, and the
-dock's **Notes** tab is always there. Library rows show how many notes each
+dock's **Notes** tab is always there. Pointing at a paper in the library (a
+row, a card, or the library panel) highlights that paper's card in the list and
+fades the rest, so its notes are found without searching. The line above the
+cards names the paper. If it has no notes, every card fades and the line says
+so. Library rows show how many notes each
 paper has. A paper moved to Junk keeps its notes, which come back if you restore
 it. Deleting it from Junk for good deletes its notes too. The list is
 `src/components/NotesIndex.tsx`. `scripts/notes-per-paper-smoke.mjs` switches
 between three papers and checks that each shows only its own notes.
 
 ![All notes: one card per paper](docs/notes-per-paper.png)
+
+![Pointing at a paper in the library highlights its notes](docs/notes-hover.png)
 
 ## Explain
 

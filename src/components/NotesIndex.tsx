@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
-import { allNotesMarkdown, notesFor, useAllNotes } from '../lib/notes';
+import { allNotesMarkdown, notesFor, useAllNotes, useHoveredPaper } from '../lib/notes';
 import { coverFor, relativeDay } from '../lib/libraryLook';
 import { DownloadIcon, SearchIcon } from './icons';
 
@@ -30,6 +30,11 @@ export default function NotesIndex({ current, onOpenPaper }: Props) {
   const { papers } = useStore();
   const all = useAllNotes();
   const [query, setQuery] = useState('');
+  // The paper the pointer is on in the library: its card lit, every other dimmed —
+  // all of them, when it has no notes.
+  const hovered = useHoveredPaper();
+  const pointedAt = hovered ? papers.find((paper) => paper.id === hovered) : undefined;
+  const cards = useRef(new Map<string, HTMLButtonElement>());
 
   // Notes on a paper no longer in the library — in Junk, say — wait there for it.
   const rows = useMemo(() => {
@@ -39,6 +44,12 @@ export default function NotesIndex({ current, onOpenPaper }: Props) {
       .filter((row): row is { summary: (typeof all)[number]; paper: NonNullable<(typeof row)['paper']> } => Boolean(row.paper))
       .filter(({ summary, paper }) => !words || `${paper.title} ${paper.authors.join(' ')} ${summary.preview}`.toLowerCase().includes(words));
   }, [all, papers, query]);
+
+  const lit = pointedAt && rows.some(({ paper }) => paper.id === pointedAt.id) ? pointedAt.id : null;
+  useEffect(() => {
+    if (lit) cards.current.get(lit)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [lit]);
+  const pointedHasNotes = pointedAt && all.some((summary) => summary.paperId === pointedAt.id);
 
   const exportAll = () =>
     saveMarkdown(
@@ -58,6 +69,17 @@ export default function NotesIndex({ current, onOpenPaper }: Props) {
         </button>
       </div>
 
+      {/* Always there, so the cards do not move as the pointer crosses the library. */}
+      <p className={`notes-index-pointing${pointedAt ? ' is-on' : ''}${pointedAt && !lit ? ' is-none' : ''}`} aria-live="polite">
+        {!pointedAt
+          ? 'Point at a paper in the library to find its notes.'
+          : lit
+            ? `Notes on “${pointedAt.title}”`
+            : pointedHasNotes
+              ? `“${pointedAt.title}” has notes, but not in this search.`
+              : `No notes on “${pointedAt.title}” yet.`}
+      </p>
+
       {!all.length ? (
         <p className="notes-empty">
           No notes yet. Each paper keeps its own: open one, press <b>H</b>, and write or keep things from it. They will be listed here, a paper to a card.
@@ -70,7 +92,11 @@ export default function NotesIndex({ current, onOpenPaper }: Props) {
         <button
           key={paper.id}
           type="button"
-          className={`notes-index-row${paper.id === current ? ' is-current' : ''}`}
+          ref={(element) => {
+            if (element) cards.current.set(paper.id, element);
+            else cards.current.delete(paper.id);
+          }}
+          className={`notes-index-row${paper.id === current ? ' is-current' : ''}${pointedAt ? (paper.id === lit ? ' is-lit' : ' is-dim') : ''}`}
           onClick={() => onOpenPaper?.(paper.id)}
           style={{ ['--h' as string]: String(coverFor(paper).hue) }}
           aria-current={paper.id === current ? 'true' : undefined}

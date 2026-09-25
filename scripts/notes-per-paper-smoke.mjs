@@ -108,6 +108,7 @@ await page.evaluate(async ({ picture }) => {
   const day = (n) => new Date(Date.now() - n * 86400000).toISOString();
   const paper = (id, title, authors, published, venue) => ({ id, source: 'scholar', title, authors, abstract: '', published, categories: [], venue, addedAt: day(9), collectionIds: [], tags: [], progress: 0.4 });
   await put('papers', paper('bert', 'BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding', ['Jacob Devlin', 'Ming-Wei Chang', 'Kenton Lee', 'Kristina Toutanova'], '2019', 'NAACL'));
+  await put('papers', paper('gpt', 'Language Models are Few-Shot Learners', ['Tom B. Brown', 'Benjamin Mann', 'Nick Ryder'], '2020', 'NeurIPS'));
   await put('papers', paper('resnet', 'Deep Residual Learning for Image Recognition', ['Kaiming He', 'Xiangyu Zhang', 'Shaoqing Ren', 'Jian Sun'], '2016', 'CVPR'));
   const text = (id, md, at) => ({ id, kind: 'text', md, at });
   const clip = (id, label, html, words, section, at, note) => ({ id, kind: 'clip', label, html, text: words, note, source: { from: 'paper', section }, at });
@@ -149,14 +150,17 @@ await page.waitForTimeout(800);
 const shot = (name) => page.screenshot({ path: `${OUT}/notes-paper-${name}.png` });
 const paperName = () => page.locator('.dock .notes-paper-title').first().textContent();
 
-console.log('\n== the notes are the open paper\'s ==');
+console.log('\n== a paper opened from Discover leaves Discover where it is ==');
+check('Discover, and its results, stay', (await page.locator('.dock .discover-panel article.result').count()) > 0);
 await page.keyboard.press('h');
 await page.waitForSelector('.dock .notes-paper', { timeout: 5000 });
+check('on the Notes tab, ready to write in', (await page.locator('.dock .notes-tabs [role=tab][aria-selected=true]').textContent())?.startsWith('Notes'));
+
+console.log('\n== the notes are the open paper\'s ==');
 await page.waitForTimeout(500);
 check('the pane names the paper its notes are on', (await paperName()) === TITLE, await paperName());
 const switchText = (await page.locator('.dock .notes-paper-switch').textContent()) || '';
 check('and offers the other papers\' notes', /All notes · 2 papers/.test(switchText), switchText);
-await page.locator('.dock .notes-tabs').getByRole('tab', { name: /^Notes/ }).click();
 await page.locator('.dock .notes-write-btn').click();
 await page.keyboard.type('Attention only: no recurrence, no convolution. Every position sees every other in one step — O(1) path length (Table 1).');
 await page.locator('.paper-body').click({ position: { x: 10, y: 10 } });
@@ -211,7 +215,6 @@ check('the window shows the paper opened from it', /Residual/.test((await page.l
 check('with its picture', (await page.locator('.notes-win .note-clip img').count()) === 1);
 await shot('4-window');
 await page.locator('.notes-win').getByRole('button', { name: /back beside the page/ }).click();
-await page.keyboard.press('h');
 await page.waitForTimeout(600);
 
 console.log('\n== the library counts them, and H lists them with no paper open ==');
@@ -219,12 +222,54 @@ await page.locator('.library-panel').getByRole('button', { name: /All papers/ })
 await page.waitForTimeout(800);
 const chipsText = await page.locator('.lib-chip.note').allTextContents();
 check('each paper with notes has a count on its row', chipsText.length === 3, chipsText.join(' | '));
-await page.keyboard.press('h');
 await page.waitForSelector('.dock .notes-index-row', { timeout: 5000 });
 await page.waitForTimeout(600);
-check('H with no paper open lists every paper\'s notes', (await page.locator('.dock .notes-index-row').count()) === 3);
+check('with no paper open the notes pane lists every paper\'s notes', (await page.locator('.dock .notes-index-row').count()) === 3);
 check('and names no paper as open', (await page.locator('.dock .notes-index-row.is-current').count()) === 0);
+await page.keyboard.press('h');
+await page.waitForTimeout(500);
+check('H shuts it', (await page.locator('.dock .notes-index-row').count()) === 0);
+await page.keyboard.press('h');
+await page.waitForSelector('.dock .notes-index-row', { timeout: 5000 });
+await page.waitForTimeout(400);
+check('and H brings it back', (await page.locator('.dock .notes-index-row').count()) === 3);
 await shot('5-library');
+
+console.log('\n== pointing at a paper lights its notes ==');
+const lit = () => page.locator('.dock .notes-index-row.is-lit .notes-index-title').allTextContents();
+const dim = () => page.locator('.dock .notes-index-row.is-dim').count();
+const pointing = () => page.locator('.dock .notes-index-pointing').textContent();
+await page.locator('.lib-row', { hasText: 'BERT' }).hover();
+await page.waitForTimeout(400);
+check('its card is lit', (await lit()).length === 1 && /BERT/.test((await lit())[0]), (await lit()).join(' | '));
+check('the others dimmed', (await dim()) === 2, String(await dim()));
+check('and it says whose they are', /Notes on “BERT/.test((await pointing()) || ''), await pointing());
+await shot('6-hover');
+await page.locator('.lib-row', { hasText: 'Few-Shot' }).hover();
+await page.waitForTimeout(400);
+check('a paper with no notes dims them all', (await lit()).length === 0 && (await dim()) === 3, String(await dim()));
+check('and says so', /No notes on “Language Models are Few-Shot Learners” yet/.test((await pointing()) || ''), await pointing());
+await shot('7-hover-none');
+await page.locator('.library-panel .paper-row', { hasText: 'Residual' }).hover();
+await page.waitForTimeout(400);
+check('the library panel\'s rows light them too', /Residual/.test((await lit())[0] || ''), (await lit()).join(' | '));
+await page.mouse.move(W / 2, H - 20);
+await page.waitForTimeout(400);
+check('moving off leaves them all as they were', (await lit()).length === 0 && (await dim()) === 0);
+
+console.log('\n== opening a paper opens its notes ==');
+await page.locator('.dock-tabs').getByRole('tab', { name: 'Discover' }).click();
+await page.waitForTimeout(300);
+await page.locator('.lib-row', { hasText: 'BERT' }).locator('.lib-main').click();
+await page.waitForFunction(() => /BERT/.test(document.querySelector('.dock .notes-paper-title')?.textContent || ''), null, { timeout: 8000 }).catch(() => undefined);
+await page.waitForTimeout(500);
+check('from the library, the paper opens with its notes beside it', /BERT/.test((await page.locator('.dock .notes-paper-title').textContent().catch(() => '')) || ''));
+await page.keyboard.press('h');
+await page.waitForTimeout(600);
+await page.locator('.library-panel .paper-row', { hasText: TITLE }).click();
+await page.waitForFunction((title) => document.querySelector('.dock .notes-paper-title')?.textContent === title, TITLE, { timeout: 8000 }).catch(() => undefined);
+await page.waitForTimeout(500);
+check('even with the notes shut before', (await page.locator('.dock .notes-paper-title').textContent().catch(() => '')) === TITLE);
 
 check('no page errors', !errors.length, errors.join(' | '));
 await browser.close();

@@ -21,7 +21,7 @@ import {
   type SortBy,
   type ViewPrefs,
 } from '../lib/libraryView';
-import { useNoteCounts } from '../lib/notes';
+import { hoverPaper, useNoteCounts } from '../lib/notes';
 import { CheckIcon, CloseIcon, CloudCheckIcon, CloudIcon, DriveMark, FlagIcon, FolderMoveIcon, GridIcon, ListIcon, NoteIcon, PlusIcon, SearchIcon, SlidersIcon, TableIcon, TrashIcon } from './icons';
 import RemovePaperDialog from './RemovePaperDialog';
 import { CoverTile, Menu, PAPERS_MIME, ProgressRing, progressLabel } from './LibraryBits';
@@ -136,6 +136,9 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
     return counts;
   }, [highlights]);
   const noteCounts = useNoteCounts();
+  // The pointer on a row lights that paper's notes in the pane beside, and dims the rest.
+  const pointAt = (paper: Paper) => ({ onMouseEnter: () => hoverPaper(paper.id), onMouseLeave: () => hoverPaper(null) });
+  useEffect(() => () => hoverPaper(null), []);
   const highlightTotal = rows.reduce((total, paper) => total + (highlightCounts.get(paper.id) ?? 0), 0);
   const readingCount = rows.filter((paper) => statusOf(paper) === 'reading').length;
 
@@ -352,6 +355,7 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
         className={`lib-row${isSelected ? ' is-selected' : ''}`}
         draggable
         onDragStart={(event) => onDragStart(paper, event)}
+        {...pointAt(paper)}
       >
         <CoverTile
           paper={paper}
@@ -386,6 +390,7 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
         className={`lib-card${isSelected ? ' is-selected' : ''}`}
         draggable
         onDragStart={(event) => onDragStart(paper, event)}
+        {...pointAt(paper)}
       >
         <div className="lib-card-band">
           <CoverTile
@@ -427,6 +432,7 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
         className={`lib-line${isSelected ? ' is-selected' : ''}`}
         draggable
         onDragStart={(event) => onDragStart(paper, event)}
+        {...pointAt(paper)}
         style={{ gridTemplateColumns: columns }}
       >
         <CoverTile paper={paper} size="mini" selected={isSelected} selecting={selecting} onToggle={(event) => toggle(paper.id, event)} label={`Select ${paper.title}`} />
