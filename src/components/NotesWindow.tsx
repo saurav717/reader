@@ -13,6 +13,8 @@ interface Props {
   onClose: () => void;
   /** Put the notes back in the dock, beside the page. */
   onDock: () => void;
+  /** Opens another paper, its notes following it into the window. */
+  onOpenPaper?: (id: string) => void;
 }
 
 /**
@@ -33,7 +35,7 @@ function notesStart(view: Viewport): Rect {
  * moved instead — by its bar, or with ⌘ + arrows while it is the window in
  * front, and thrown at an edge with ⌘⇧ + arrows.
  */
-export default function NotesWindow({ paperId, selectedId, orphanIds, onSelect, onClose, onDock }: Props) {
+export default function NotesWindow({ paperId, selectedId, orphanIds, onSelect, onClose, onDock, onOpenPaper }: Props) {
   const [said, setSaid] = useState('');
   const { win, rectRef, floating, persist, frame, position, bar, grips } = useFloatingWindow({
     id: 'notes',
@@ -71,7 +73,7 @@ export default function NotesWindow({ paperId, selectedId, orphanIds, onSelect, 
     >
       <header className="win-bar" {...bar}>
         <HighlighterIcon size={15} className="win-mark" />
-        <span className="win-name">Highlights &amp; notes</span>
+        <span className="win-name">Notes</span>
         <span className="win-ctl">
           {floating ? (
             <label className="win-tint" title="Window transparency">
@@ -96,7 +98,7 @@ export default function NotesWindow({ paperId, selectedId, orphanIds, onSelect, 
         </span>
       </header>
 
-      <NotesRail paperId={paperId} selectedId={selectedId} orphanIds={orphanIds} onSelect={onSelect} onClose={onClose} inWindow />
+      <NotesRail key={paperId || 'every-paper'} paperId={paperId} onOpenPaper={onOpenPaper} selectedId={selectedId} orphanIds={orphanIds} onSelect={onSelect} onClose={onClose} inWindow />
 
       {grips.map(({ key, ...grip }) => (
         <div key={key} {...grip} />

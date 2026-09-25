@@ -327,8 +327,9 @@ export default function App() {
         toggleExplain();
         return;
       }
-      // H, the same way, opens and closes the highlights and notes beside the page.
-      if (readingNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'h' && !isTyping(event.target)) {
+      // H, the same way, opens and closes the highlights and notes beside the
+      // page — and, with no paper open, the list of every paper's notes.
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'h' && !isTyping(event.target)) {
         if (document.querySelector('.scrim, .sheet, .palette')) return;
         event.preventDefault();
         toggleNotesRef.current();
@@ -349,7 +350,7 @@ export default function App() {
       }
       // ⌘⇧\, beside it, opens and closes the notes the same way, typing or not.
       // Matched on the key rather than the character, which Shift makes `|`.
-      if (readingNow && (event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.code === 'Backslash') {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.code === 'Backslash') {
         event.preventDefault();
         toggleNotesRef.current();
       }
@@ -529,9 +530,8 @@ export default function App() {
   const needsDrive = Boolean(settings.googleClientId.trim()) && !driveConnected;
   const showWelcome = !skippedConnect && (needsDrive || (!welcomed && !papers.length));
   const reading = view.kind === 'paper' ? view.id : null;
-  // Highlights only mean anything with a paper open, so the dock falls back to
-  // Discover rather than showing an empty rail.
-  const dockPane: Dock = dock === 'notes' && !reading ? 'discover' : dock;
+  // With no paper open the notes pane lists every paper's notes, a card to each.
+  const dockPane: Dock = dock;
   const inZen = zenOn && !showWelcome;
   const explained = reading ? papers.find((paper) => paper.id === reading) : undefined;
   // In zen mode the right edge always has something to bring out: the dock as
@@ -747,26 +747,24 @@ export default function App() {
 
       {shownDock && !showWelcome ? (
         <div className="dock">
-          {reading ? (
-            <div className="dock-tabs" role="tablist" aria-label="Side panel">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={shownDock === 'discover'}
-                onClick={() => setDock('discover')}
-              >
-                Discover
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={shownDock === 'notes'}
-                onClick={() => setDock('notes')}
-              >
-                Notes
-              </button>
-            </div>
-          ) : null}
+          <div className="dock-tabs" role="tablist" aria-label="Side panel">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={shownDock === 'discover'}
+              onClick={() => setDock('discover')}
+            >
+              Discover
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={shownDock === 'notes'}
+              onClick={() => setDock('notes')}
+            >
+              Notes
+            </button>
+          </div>
 
           {shownDock === 'discover' ? (
             <Discover
@@ -778,7 +776,9 @@ export default function App() {
             />
           ) : (
             <NotesRail
-              paperId={view.kind === 'paper' ? view.id : ''}
+              key={reading ?? 'every-paper'}
+              paperId={reading ?? ''}
+              onOpenPaper={openPaper}
               selectedId={selectedHighlightId}
               orphanIds={orphanIds}
               onSelect={setSelectedHighlightId}
@@ -789,9 +789,10 @@ export default function App() {
         </div>
       ) : null}
 
-      {notesWindow && reading && !showWelcome ? (
+      {notesWindow && !showWelcome ? (
         <NotesWindow
-          paperId={reading}
+          paperId={reading ?? ''}
+          onOpenPaper={openPaper}
           selectedId={selectedHighlightId}
           orphanIds={orphanIds}
           onSelect={setSelectedHighlightId}

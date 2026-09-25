@@ -21,7 +21,8 @@ import {
   type SortBy,
   type ViewPrefs,
 } from '../lib/libraryView';
-import { CheckIcon, CloseIcon, CloudCheckIcon, CloudIcon, DriveMark, FlagIcon, FolderMoveIcon, GridIcon, ListIcon, PlusIcon, SearchIcon, SlidersIcon, TableIcon, TrashIcon } from './icons';
+import { useNoteCounts } from '../lib/notes';
+import { CheckIcon, CloseIcon, CloudCheckIcon, CloudIcon, DriveMark, FlagIcon, FolderMoveIcon, GridIcon, ListIcon, NoteIcon, PlusIcon, SearchIcon, SlidersIcon, TableIcon, TrashIcon } from './icons';
 import RemovePaperDialog from './RemovePaperDialog';
 import { CoverTile, Menu, PAPERS_MIME, ProgressRing, progressLabel } from './LibraryBits';
 
@@ -134,6 +135,7 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
     for (const highlight of highlights) counts.set(highlight.paperId, (counts.get(highlight.paperId) ?? 0) + 1);
     return counts;
   }, [highlights]);
+  const noteCounts = useNoteCounts();
   const highlightTotal = rows.reduce((total, paper) => total + (highlightCounts.get(paper.id) ?? 0), 0);
   const readingCount = rows.filter((paper) => statusOf(paper) === 'reading').length;
 
@@ -313,6 +315,7 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
 
   const meta = (paper: Paper) => {
     const count = highlightCounts.get(paper.id) ?? 0;
+    const noted = noteCounts.get(paper.id) ?? 0;
     const elsewhere = paper.collectionIds
       .filter((id) => id !== collection?.id)
       .map((id) => collections.find((item) => item.id === id))
@@ -327,6 +330,11 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
           </span>
         ))}
         {count && shows('highlights') ? <span className="lib-chip hl">{count} highlight{count === 1 ? '' : 's'}</span> : null}
+        {noted && shows('highlights') ? (
+          <span className="lib-chip note" title="Pieces in this paper's notes">
+            <NoteIcon size={11} /> {noted} note{noted === 1 ? '' : 's'}
+          </span>
+        ) : null}
         {!shows('collections') ? null : paper.tags.slice(0, 2).map((tag) => (
           <span key={tag} className="lib-chip">
             #{tag}
@@ -412,6 +420,7 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
   const line = (paper: Paper) => {
     const isSelected = selected.has(paper.id);
     const count = highlightCounts.get(paper.id) ?? 0;
+    const noted = noteCounts.get(paper.id) ?? 0;
     return (
       <div
         key={paper.id}
@@ -424,6 +433,12 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
         <button type="button" className="lib-line-title" onClick={(event) => open(paper, event)} title={paper.title}>
           <span className="lib-line-text">{paper.title}</span>
           {count && shows('highlights') ? <span className="lib-line-count" title={`${count} highlight${count === 1 ? '' : 's'}`}>{count}</span> : null}
+          {noted && shows('highlights') ? (
+            <span className="lib-line-count is-notes" title={`${noted} piece${noted === 1 ? '' : 's'} in its notes`}>
+              <NoteIcon size={10} />
+              {noted}
+            </span>
+          ) : null}
         </button>
         {shows('authors') ? <span className="lib-line-cell">{authorLine(paper.authors, 2)}</span> : null}
         {shows('venue') ? <span className="lib-line-cell lib-venue">{paper.venue || (paper.arxivId ? `arXiv:${paper.arxivId}` : '')}</span> : null}

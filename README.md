@@ -1946,6 +1946,33 @@ shares with Ask Claude is `src/components/FloatingWindow.tsx`.
 `scripts/notes-smoke.mjs` checks that the text glides rather than jumps, that the
 PDF stays where it is, and the keys with both windows open.
 
+#### Each paper keeps its own notes
+
+Notes belong to one paper. They are stored under that paper's id in the
+browser (IndexedDB, `notes:<id>`), and when you open another paper, the pane and
+the window both switch to that paper's notes. The top of the pane names the paper
+(*Notes on this paper · Attention Is All You Need*).
+
+**All notes** beside the title lists every paper you have notes on, one card per
+paper. The most recently changed comes first. Each card shows:
+
+- how much is in them: *3 pieces · 2 written · 1 kept · 1 picture*;
+- when you last changed them;
+- their first line.
+
+The search box searches titles, authors and those first lines. Clicking a card
+opens that paper with its notes, and the ⤓ button exports every paper's notes as
+one Markdown file, with a heading per paper.
+
+With no paper open, H (or `⌘⇧\`) brings up the same list in the dock, and the
+dock's **Notes** tab is always there. Library rows show how many notes each
+paper has. A paper moved to Junk keeps its notes, which come back if you restore
+it. Deleting it from Junk for good deletes its notes too. The list is
+`src/components/NotesIndex.tsx`. `scripts/notes-per-paper-smoke.mjs` switches
+between three papers and checks that each shows only its own notes.
+
+![All notes: one card per paper](docs/notes-per-paper.png)
+
 ## Explain
 
 With a paper open, press **E** (or **Explain** in the top bar) and Claude
@@ -2213,6 +2240,7 @@ node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
 node scripts/notes-smoke.mjs   # the notes beside the page, and in a window over the PDF
 node scripts/explain-notes-smoke.mjs # keeping diagrams, code, tables, maths and passages from Explain
 node scripts/paper-notes-smoke.mjs   # keeping figures, tables and passages from Reflow and the PDF, and snipping
+node scripts/notes-per-paper-smoke.mjs # each paper's own notes, the list of all of them, and the library's counts
 node scripts/recommend-smoke.mjs  # papers named in an answer: cards, Find, Add, the list
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 node scripts/hover-smoke.mjs    # the cards over an author's name and a citation

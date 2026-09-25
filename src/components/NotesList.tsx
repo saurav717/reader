@@ -160,7 +160,7 @@ export default function NotesList({ paperId }: { paperId: string }) {
     <div className="scroll notes-list">
       {!blocks.length ? (
         <p className="notes-empty">
-          Write here, or keep things from the paper and its Explain page: select any text and choose <b>Add to notes</b>, or point at a figure, table,
+          These notes are this paper's own; every other paper keeps its own. Write here, or keep things from the paper and its Explain page: select any text and choose <b>Add to notes</b>, or point at a figure, table,
           equation, diagram or code cell. Over the PDF, <b>✂ Snip</b> (or S) keeps any figure or table, or a box you drag.
         </p>
       ) : null}

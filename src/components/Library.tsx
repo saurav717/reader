@@ -4,7 +4,8 @@ import { STATUS_LABEL, STATUS_ORDER, statusOf, type ReadingStatus } from '../lib
 import { coverFor } from '../lib/libraryLook';
 import type { View } from '../types.view';
 import type { Paper } from '../types';
-import { CheckIcon, ChevronDownIcon, ClockIcon, CloseIcon, InboxIcon, PlusIcon, StackIcon, TrashIcon } from './icons';
+import { useNoteCounts } from '../lib/notes';
+import { CheckIcon, ChevronDownIcon, ClockIcon, CloseIcon, InboxIcon, NoteIcon, PlusIcon, StackIcon, TrashIcon } from './icons';
 import RemovePaperDialog from './RemovePaperDialog';
 import { PAPERS_MIME, ProgressRing, carriesPapers, draggedPapers } from './LibraryBits';
 
@@ -27,6 +28,7 @@ const yearOf = (paper: Paper) => /^\d{4}/.exec(paper.published || '')?.[0];
 
 export default function Library({ view, activePaperId, onSelect, onOpenPaper, onClose }: Props) {
   const { papers, collections, createCollection, junk, setPaperCollections, setReadingStatus } = useStore();
+  const noteCounts = useNoteCounts();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [collapsed, setCollapsed] = useState<ReadingStatus[]>([]);
@@ -231,6 +233,12 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
                           {paper.authors[0] || 'Unknown author'}
                           {paper.authors.length > 1 ? ' et al.' : ''}
                           {yearOf(paper) ? ` · ${yearOf(paper)}` : ''}
+                          {noteCounts.get(paper.id) ? (
+                            <span className="paper-row-notes" title="Pieces in this paper's notes">
+                              {' · '}
+                              <NoteIcon size={10} /> {noteCounts.get(paper.id)}
+                            </span>
+                          ) : null}
                         </span>
                       </span>
                       {group.status === 'reading' ? (

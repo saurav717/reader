@@ -666,6 +666,8 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 .paper-row-ring { flex: none; display: flex; align-items: center; gap: 5px; margin-top: 2px; }
 .paper-row-ring .mono { font-size: 10px; color: var(--muted); min-width: 24px; }
 .library-panel .paper-row.is-active .paper-row-spine { opacity: 1; }
+.paper-row-notes { color: var(--accent-ink); white-space: nowrap; }
+.paper-row-notes svg { vertical-align: -1px; }
 
 /* A paper's tile: its journal's colour, what it is and its year. */
 .cover {
@@ -763,6 +765,7 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
   background: rgba(127, 127, 127, 0.1); color: var(--ink-2); font-size: 10.5px; white-space: nowrap;
 }
 .lib-chip.hl { background: color-mix(in srgb, var(--hl-yellow) 70%, transparent); color: var(--ink); }
+.lib-chip.note { background: var(--accent-soft); color: var(--accent-ink); gap: 4px; }
 .lib-chip .dot, .menu .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .lib-status { display: flex; align-items: center; gap: 9px; font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
 .lib-actions { display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity 0.12s; }
@@ -888,6 +891,7 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
   flex: none; padding: 0 6px; border-radius: 999px; font-family: var(--sans); font-size: 10px; line-height: 16px;
   background: color-mix(in srgb, var(--hl-yellow) 70%, transparent); color: var(--ink);
 }
+.lib-line-count.is-notes { display: inline-flex; align-items: center; gap: 3px; background: var(--accent-soft); color: var(--accent-ink); }
 .lib-line-cell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
 .lib-line-cell.lib-venue { max-width: none; }
 .lib-line-cell.mono { font-size: 11.5px; }
@@ -1943,7 +1947,37 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
    keep from its Explain page. A kept piece is drawn with Explain's own
    styles, sized down to the pane. */
 .notes-tabs { display: flex; align-items: center; gap: 4px; padding: 0 12px 10px; flex-shrink: 0; }
-.notes-tabs.in-window { padding-top: 10px; }
+/* Whose notes these are: each paper keeps its own, and the button beside
+   the title turns to the list of every paper's. */
+.notes-paper { display: flex; align-items: center; gap: 8px; padding: 0 12px 10px 16px; flex-shrink: 0; }
+.notes-paper.in-window { padding: 10px 12px 8px 14px; }
+.notes-paper-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.notes-paper-eyebrow { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.notes-paper-title { font: 500 13px/1.35 var(--serif); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notes-paper-switch { flex: none; white-space: nowrap; }
+.notes-paper-switch[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
+/* Every paper's notes, a card to each. */
+.notes-index { padding: 0 12px 20px; display: flex; flex-direction: column; gap: 8px; }
+.notes-index-bar { display: flex; align-items: center; gap: 6px; }
+.notes-index-search {
+  flex: 1; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 9px;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--muted);
+}
+.notes-index-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 12.5px; }
+.notes-index-row {
+  all: unset; box-sizing: border-box; display: flex; align-items: flex-start; gap: 9px; width: 100%; cursor: pointer;
+  padding: 9px 10px 10px 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+}
+.notes-index-row:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.notes-index-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.notes-index-row.is-current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.notes-index-spine { flex: none; width: 3px; align-self: stretch; border-radius: 3px; background: hsl(var(--h, 160) 45% 48%); }
+.notes-index-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.notes-index-title { font: 500 13.5px/1.35 var(--serif); color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.notes-index-meta { font-size: 11px; color: var(--muted); }
+.notes-index-preview { font: 12.5px/1.45 var(--serif); color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.notes-index-here { flex: none; font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); }
+.notes-win .notes-index-row { background: rgb(var(--win-rgb) / 0.72); }
 .notes-tabs [role='tab'] {
   height: 28px; padding: 0 11px; border: 1px solid transparent; border-radius: 8px;
   background: transparent; color: var(--ink-2); font-size: 12px; cursor: pointer;

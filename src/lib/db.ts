@@ -57,4 +57,21 @@ export const db = {
 
   getKv: <T>(key: string) => run<T | undefined>('kv', 'readonly', (s) => s.get(key) as IDBRequest<T | undefined>),
   setKv: (key: string, value: unknown) => run('kv', 'readwrite', (s) => s.put(value, key)),
+  deleteKv: (key: string) => run('kv', 'readwrite', (s) => s.delete(key)),
+  /** Every value whose key starts with `prefix`, with its key. */
+  kvWithPrefix: <T>(prefix: string) =>
+    open().then(
+      (db) =>
+        new Promise<[string, T][]>((resolve, reject) => {
+          const found: [string, T][] = [];
+          const request = db.transaction('kv', 'readonly').objectStore('kv').openCursor(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
+          request.onsuccess = () => {
+            const cursor = request.result;
+            if (!cursor) return resolve(found);
+            found.push([String(cursor.key), cursor.value as T]);
+            cursor.continue();
+          };
+          request.onerror = () => reject(request.error);
+        }),
+    ),
 };

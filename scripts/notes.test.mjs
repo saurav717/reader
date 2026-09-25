@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
 
-const { notesMarkdown } = await load('src/lib/notes.ts');
+const { notesMarkdown, summarise, allNotesMarkdown } = await load('src/lib/notes.ts');
 
 after(cleanup);
 
@@ -36,5 +36,40 @@ describe('the export as Markdown', () => {
   it('keeps a label on one line', () => {
     const out = notesMarkdown([clip('Passage\n\n## not a heading', 'words')]);
     assert.match(out, /^\*\*Passage ## not a heading\*\* — Explain · Setup$/m);
+  });
+});
+
+describe("each paper's notes, summed up", () => {
+  const text = (id, md, at) => ({ id, kind: 'text', md, at });
+
+  it('has nothing to say of a paper with no notes', () => {
+    assert.equal(summarise('p1', []), null);
+  });
+
+  it('counts what was written, what was kept, and the pictures among it', () => {
+    const picture = { ...clip('Figure', 'Figure 1'), id: 'n2', html: '<figure><img src="data:image/png;base64,AA"></figure>', at: '2026-01-02T00:00:00Z' };
+    const summary = summarise('p1', [text('n1', 'First   thought\nabout it', '2026-01-01T00:00:00Z'), picture, { ...clip('Passage', 'words'), id: 'n3', at: '2026-01-01T12:00:00Z' }]);
+    assert.equal(summary.count, 3);
+    assert.equal(summary.written, 1);
+    assert.equal(summary.kept, 2);
+    assert.equal(summary.pictures, 1);
+    assert.equal(summary.preview, 'First thought about it');
+    assert.equal(summary.updated, '2026-01-02T00:00:00Z');
+  });
+
+  it('is as new as its last change, not only its newest piece', () => {
+    const summary = summarise('p1', [text('n1', 'x', '2026-01-01T00:00:00Z')], '2026-03-01T00:00:00Z');
+    assert.equal(summary.updated, '2026-03-01T00:00:00Z');
+  });
+
+  it('exports every paper under a heading of its own, skipping those with none', () => {
+    const out = allNotesMarkdown([
+      { title: 'Attention\nIs All You Need', blocks: [text('n1', 'Self-attention, everywhere', '')] },
+      { title: 'Empty', blocks: [] },
+      { title: 'BERT', blocks: [text('n2', 'Masked words', '')] },
+    ]);
+    assert.match(out, /^## Attention Is All You Need\n\nSelf-attention, everywhere$/m);
+    assert.match(out, /^## BERT\n\nMasked words$/m);
+    assert.doesNotMatch(out, /## Empty/);
   });
 });
