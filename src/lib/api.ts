@@ -52,23 +52,72 @@ export function normaliseProxyBase(value: string | null | undefined): string | n
   }
 }
 
-function fromStorage(): string | null {
+function fromStorage(): { base: string | null; token: string } {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { proxyBase?: string };
-    return normaliseProxyBase(parsed.proxyBase);
+    if (!raw) return { base: null, token: '' };
+    const parsed = JSON.parse(raw) as { proxyBase?: string; proxyToken?: string };
+    return { base: normaliseProxyBase(parsed.proxyBase), token: (parsed.proxyToken || '').trim() };
   } catch {
     // No localStorage (a test runner, a locked-down browser), or nothing saved.
-    return null;
+    return { base: null, token: '' };
   }
 }
 
-let override: string | null = fromStorage();
+const saved = fromStorage();
+let override: string | null = saved.base;
+/**
+ * The proxy's token, where it has one. A proxy on the open internet is
+ * reachable by anyone who reads its address out of this site's JavaScript,
+ * so what drives a browser, keeps or uses a sign-in, or spends a metered
+ * account takes a token, set on the proxy (the READER_TOKEN secret of the
+ * Worker, or of `npm start`) and pasted here once. It goes only to the
+ * proxy, as a header; arXiv and open-access PDFs need none.
+ */
+let token = saved.token;
 
 /** Called by the store whenever Settings changes, and once on load. */
 export function setProxyBase(value: string | null | undefined): void {
   override = normaliseProxyBase(value);
+}
+
+export function setProxyToken(value: string | null | undefined): void {
+  token = (value || '').trim();
+}
+
+export function hasProxyToken(): boolean {
+  return token !== '';
+}
+
+const CLIENT_KEY = 'reader.client-id';
+
+/**
+ * Which browser this is, to the proxy: an id made up once and kept, under
+ * which the proxy keeps this browser's session and sign-in and no other's.
+ * A name, not a secret — the token above is the secret.
+ */
+export function clientId(): string {
+  try {
+    const kept = localStorage.getItem(CLIENT_KEY);
+    if (kept && /^[A-Za-z0-9_-]{16,64}$/.test(kept)) return kept;
+    const fresh = crypto.randomUUID();
+    localStorage.setItem(CLIENT_KEY, fresh);
+    return fresh;
+  } catch {
+    return 'no-storage-0000-0000';
+  }
+}
+
+/** The headers every request to the proxy carries: who this is, and the token when there is one. */
+export function apiHeaders(extra: HeadersInit = {}): Record<string, string> {
+  const headers: Record<string, string> = { 'X-Reader-Client': clientId() };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return { ...headers, ...(extra instanceof Headers ? Object.fromEntries(extra.entries()) : Array.isArray(extra) ? Object.fromEntries(extra) : extra) };
+}
+
+/** `fetch`, to the proxy, with those headers on. */
+export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(api(path), { ...init, headers: apiHeaders(init.headers) });
 }
 
 /** The proxy in use, or null when this deployment has none. */
@@ -98,10 +147,15 @@ export async function checkProxy(value: string): Promise<{ ok: boolean; message:
   try {
     const response = await fetch(`${base}/health`, { headers: { Accept: 'application/json' } });
     if (!response.ok) return { ok: false, message: `The proxy answered ${response.status}.` };
-    const payload = (await response.json()) as { ok?: boolean };
-    return payload?.ok
-      ? { ok: true, message: 'The proxy answered. arXiv and PDFs are available.' }
-      : { ok: false, message: 'Something answered, but it is not this app’s proxy.' };
+    const payload = (await response.json()) as { ok?: boolean; auth?: boolean };
+    if (!payload?.ok) return { ok: false, message: 'Something answered, but it is not this app’s proxy.' };
+    if (payload.auth && !token) {
+      return { ok: true, message: 'The proxy answered. It takes a token for the browser inside the reader, sign-ins and Scholar — paste it below.' };
+    }
+    if (payload.auth === false) {
+      return { ok: true, message: 'The proxy answered. It has no READER_TOKEN set, so the browser inside the reader and kept sign-ins are off on it.' };
+    }
+    return { ok: true, message: 'The proxy answered. arXiv and PDFs are available.' };
   } catch {
     return {
       ok: false,

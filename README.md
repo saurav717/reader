@@ -55,6 +55,21 @@ publishers and repositories that hold everything else. Everything else — OpenA
 Semantic Scholar, Crossref, Unpaywall, GitHub and Google — sends CORS headers and is
 called straight from the page.
 
+Out of the box the server listens on `127.0.0.1` only, and every route is open to
+whoever is sitting at the machine. Some of those routes are personal — the
+institutional sign-in, the browser inside the reader, a PDF fetched with your
+sign-in, Scholar through a SerpApi key — so a proxy that other machines can reach
+needs a password. Set `READER_TOKEN` to any long random string, and paste the same
+string into **Settings → Paper proxy** in the app; the app sends it with every
+request, and those routes answer 401 without it. `READER_HOST=0.0.0.0` widens where
+the server listens, and is refused unless `READER_TOKEN` is set. Plain PDF fetches,
+arXiv and `/health` stay open either way, and `/health` says `"auth": true` when a
+token is wanted. The costly routes are also rate-limited per address (the token
+exempts you); set `TRUST_PROXY=1` when the server sits behind a reverse proxy so
+the address it limits is the client's, from `X-Forwarded-For`, not the reverse
+proxy's own. On Vercel there is no loopback to hide behind, so `READER_TOKEN` is
+required there for those routes.
+
 ## Searching
 
 One box searches every selected source at once and merges the answers
@@ -434,6 +449,27 @@ A wide-open proxy is one anyone can point at arXiv on your account's quota, so
 and from the page that looks exactly like the Worker being down. An origin is a
 scheme and a host: `https://saurav717.github.io`, never the `/reader/` path the
 app is served under.
+
+`ALLOWED_ORIGINS` keeps other *sites* out; it does not keep other *people*
+out, since anything but a browser sends whichever Origin header it likes, and
+the Worker's address is in this site's JavaScript for anyone to read. So the
+routes that could cost you something — driving the browser inside the reader,
+keeping and using a sign-in, fetching a file through Browserless, asking
+Scholar on your SerpApi account — take a token as well, and are off until one
+is set:
+
+```bash
+openssl rand -base64 32 | npx --yes wrangler@4 secret put READER_TOKEN   # then npm run deploy:worker
+```
+
+Paste the same string into **Settings → Paper proxy → token**, once, in each
+browser you use the reader from. It goes to the Worker as a header and nowhere
+else. arXiv, open-access PDFs and Scholar asked directly need no token, so a
+visitor without one still gets a working reader. The browser session and the
+cookies of a sign-in are kept per browser (an id the site makes up and sends
+along), never in one jar for everyone, and a jar unused for thirty days is
+dropped. Without the token, `/pdf` is also rate-limited per address (the
+`[[ratelimits]]` binding in `wrangler.toml`, sixty a minute).
 
 Then tell the app about it. Either rebuild with `VITE_API_BASE` set to the
 Worker's URL, or — and this is the point of it being a setting — paste that URL

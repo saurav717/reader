@@ -1,5 +1,5 @@
 import type { Paper, PaperLocation, PaperRef } from '../types';
-import { api, hasProxy, NO_PROXY_REASON } from './api';
+import { api, apiHeaders, hasProxy, NO_PROXY_REASON } from './api';
 import { downloadFile, ensureDriveToken, findFile, findFolder } from './google';
 import { baseName, ROOT_FOLDER } from './sidecar';
 import { findLocations } from './locations';
@@ -233,7 +233,8 @@ export class PdfError extends Error {
 async function downloadPdf(url: string, signal?: AbortSignal): Promise<Blob> {
   let response: Response;
   try {
-    response = await fetch(url, { signal });
+    // Always the proxy's address (see pdfProxyUrl), so the token goes along.
+    response = await fetch(url, { signal, headers: apiHeaders() });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new PdfError('Could not reach the PDF.');

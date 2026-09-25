@@ -52,7 +52,30 @@ const FRAME_PAUSE_MS = 350;
 export const NAVIGATION_TIMEOUT_MS = 20_000;
 /** How many pages to follow from a landing page before giving up on the file. */
 const MAX_PAGE_HOPS = 4;
-const COOKIES_KEY = 'browser-cookies';
+/**
+ * Where a person's cookies are kept: one jar per browser that uses the
+ * reader, never one for everyone. The client id comes from the app with
+ * every request (worker/index.js scopes `env` with it); with no id there is
+ * no jar, and a sign-in lasts as long as the browser session.
+ */
+const cookiesKey = (env) => (env?.READER_CLIENT ? `cookies:${env.READER_CLIENT}` : null);
+/** A jar unused for this long is dropped by KV on its own. */
+const COOKIES_TTL_S = 30 * 24 * 3600;
+/**
+ * Cookies never worth keeping: a sign-in through Google leaves Google's own
+ * session behind, which no publisher needs afterwards, and which is far
+ * more than a paper is worth holding on to.
+ */
+const NEVER_KEPT = /(^|\.)(google\.com|googleapis\.com|googleusercontent\.com|youtube\.com|gstatic\.com)$/i;
+const worthKeeping = (cookie) => !NEVER_KEPT.test(String(cookie.domain || '').replace(/^\./, ''));
+
+/** `env` with the client id the jar is keyed by, for the calls below. */
+export function forClient(env, client) {
+  if (!client) return env;
+  const scoped = Object.create(env);
+  Object.defineProperty(scoped, 'READER_CLIENT', { value: client, enumerable: false });
+  return scoped;
+}
 
 export const NO_BROWSER =
   'This Worker has no browser binding. Add `[browser] binding = "BROWSER"` to wrangler.toml — Browser Rendering is on Cloudflare\'s free plan — and redeploy it with `npm run deploy:worker`; or set a BROWSERLESS_TOKEN secret for a browser at Browserless instead.';
@@ -468,10 +491,11 @@ const unexpired = (cookie) => !(typeof cookie.expires === 'number' && cookie.exp
 
 /** Keep the session's cookies, where there is a KV namespace to keep them in. */
 export async function saveCookies(env, page) {
-  if (!env?.SESSIONS) return false;
+  const key = cookiesKey(env);
+  if (!env?.SESSIONS || !key) return false;
   try {
-    const cookies = (await allCookies(page)).filter(unexpired).map(forSetCookie);
-    await env.SESSIONS.put(COOKIES_KEY, JSON.stringify(cookies));
+    const cookies = (await allCookies(page)).filter(unexpired).filter(worthKeeping).map(forSetCookie);
+    await env.SESSIONS.put(key, JSON.stringify(cookies), { expirationTtl: COOKIES_TTL_S });
     return true;
   } catch {
     return false;
@@ -480,9 +504,10 @@ export async function saveCookies(env, page) {
 
 /** The cookies kept, or none. */
 export async function storedCookies(env) {
-  if (!env?.SESSIONS) return [];
+  const key = cookiesKey(env);
+  if (!env?.SESSIONS || !key) return [];
   try {
-    const raw = await env.SESSIONS.get(COOKIES_KEY);
+    const raw = await env.SESSIONS.get(key);
     const cookies = raw ? JSON.parse(raw) : [];
     return Array.isArray(cookies) ? cookies.filter(unexpired) : [];
   } catch {
@@ -533,8 +558,9 @@ export async function restoreCookies(env, page, { cookies, cdp } = {}) {
 
 /** Forget every cookie kept. */
 export async function forgetCookies(env) {
-  if (!env?.SESSIONS) return false;
-  await env.SESSIONS.delete(COOKIES_KEY);
+  const key = cookiesKey(env);
+  if (!env?.SESSIONS || !key) return false;
+  await env.SESSIONS.delete(key);
   return true;
 }
 

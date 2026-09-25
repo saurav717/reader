@@ -39,12 +39,19 @@ globalThis.document = {
 globalThis.window = {};
 
 // The browser's storage, as far as this module uses it: a session is kept
-// there for the hour its token lasts, so a reload comes back signed in.
+// in `sessionStorage` for the hour its token lasts, so a reload comes back
+// signed in — and only there, never in `localStorage`, so a new tab does not.
 const stored = new Map();
-globalThis.localStorage = {
+globalThis.sessionStorage = {
   getItem: (key) => (stored.has(key) ? stored.get(key) : null),
   setItem: (key, value) => stored.set(key, String(value)),
   removeItem: (key) => stored.delete(key),
+};
+const lasting = new Map();
+globalThis.localStorage = {
+  getItem: (key) => (lasting.has(key) ? lasting.get(key) : null),
+  setItem: (key, value) => lasting.set(key, String(value)),
+  removeItem: (key) => lasting.delete(key),
 };
 const SESSION_KEY = 'reader.google.session';
 
@@ -236,6 +243,14 @@ describe('staying signed in across a reload', () => {
     const module = await fresh();
     assert.equal(module.restoredUser(), null);
     assert.equal(stored.has(SESSION_KEY), false);
+  });
+
+  it('keeps the token out of localStorage, so it does not outlive the tab', async () => {
+    const module = await fresh();
+    install(grant(WITH_DRIVE));
+    await module.connectDrive('client-id');
+    assert.equal(stored.has(SESSION_KEY), true);
+    assert.equal(lasting.size, 0);
   });
 
   it('forgets the session on sign-out', async () => {

@@ -40,6 +40,7 @@ import {
   limitsOf,
   NAVIGATION_TIMEOUT_MS,
   NO_BROWSER,
+  forClient,
   restoreCookies,
   saveCookies,
   storedCookies,
@@ -353,6 +354,7 @@ const json = (body, status = 200, headers = {}) =>
 export class BrowserSession {
   constructor(state, env) {
     this.state = state;
+    this.rawEnv = env;
     this.env = env;
     this.browser = null;
     this.page = null;
@@ -420,6 +422,11 @@ export class BrowserSession {
   async fetch(request) {
     const url = new URL(request.url);
     const path = url.pathname;
+    // Whose object this is. The Worker names the object by the client id
+    // and sends the id along, and the jar of cookies is keyed by it too, so
+    // a sign-in made here is put back for this person and no other.
+    const client = url.searchParams.get('client') || '';
+    if (client && this.env.READER_CLIENT !== client) this.env = forClient(this.rawEnv, client);
     try {
       if (path === '/status') return json(await this.report());
       if (path === '/open') return json({ ok: true, ...(await this.open(url.searchParams.get('url') || '')) });

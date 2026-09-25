@@ -16,15 +16,16 @@ import { ROOT_FOLDER, driveFolderUrl, isInDrive, junkPaperInDrive, restorePaperI
 import { FINISHED_AT, type ReadingStatus } from './status';
 import { pathFor, syncPapersToGitHub, targetFrom } from './github';
 import { setContactEmail } from './contact';
-import { setProxyBase } from './api';
+import { setProxyBase, setProxyToken } from './api';
 import * as google from './google';
 
 const SETTINGS_KEY = 'reader.settings';
 /**
  * That Drive was connected once, which is all a page with no backend may
- * remember: the token itself lives in memory and dies with the tab. It is what
- * lets a return visit offer to reconnect, and reconnect without asking for
- * consent a second time.
+ * remember for long: the token itself lives in `sessionStorage`, so it
+ * outlasts a reload but not the tab. It is what lets a return visit in a new
+ * tab offer to reconnect, and reconnect without asking for consent a second
+ * time.
  */
 const DRIVE_KEY = 'reader.drive.connected';
 
@@ -35,6 +36,7 @@ const defaultSettings: Settings = {
   savePdf: true,
   syncOnOpen: true,
   proxyBase: '',
+  proxyToken: '',
   theme: 'light',
   glass: false,
   glassFrost: 0.5,
@@ -302,6 +304,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     root.dataset.wall = settings.glassWall;
     setContactEmail(settings.contactEmail);
     setProxyBase(settings.proxyBase);
+    setProxyToken(settings.proxyToken);
   }, [settings]);
 
   const githubConnected = Boolean(targetFrom(settings));

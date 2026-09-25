@@ -4,10 +4,14 @@
  * the access token Google hands out lasts about an hour, and is re-requested
  * on the grant already given when it expires.
  *
- * For that hour it is kept in `localStorage`, beside who it belongs to, so a
- * reload or a reopened tab is still signed in rather than starting over at
- * the connect screen. It goes when it expires, when Drive refuses it, and on
- * sign-out — which also revokes it.
+ * For that hour it is kept in `sessionStorage`, beside who it belongs to, so
+ * a reload is still signed in rather than starting over at the connect
+ * screen — but a new tab is not: a bearer token is the one thing here worth
+ * stealing, and session storage is neither shared across tabs nor left on
+ * disk for whatever else runs on this origin to read later. A new tab is
+ * offered the reconnect (the store remembers that Drive was connected once)
+ * and needs the one click. The token goes when it expires, when Drive
+ * refuses it, and on sign-out — which also revokes it.
  *
  * Sign-in asks only for identity. Drive is a second, incremental consent for
  * `drive.file` — the app can only ever see files it created itself.
@@ -104,13 +108,14 @@ interface StoredToken {
 const SESSION_KEY = 'reader.google.session';
 
 /**
- * The session the last page load left behind, if it is still live. Anything
- * malformed or expired is cleared rather than trusted. Storage may be missing
- * or refused (a private window, a test), and then there is simply nothing.
+ * The session the last page load of this tab left behind, if it is still
+ * live. Anything malformed or expired is cleared rather than trusted. Storage
+ * may be missing or refused (a private window, a test), and then there is
+ * simply nothing.
  */
 function readSession(): StoredToken | null {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
+    const raw = sessionStorage.getItem(SESSION_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StoredToken>;
     const live =
@@ -119,7 +124,7 @@ function readSession(): StoredToken | null {
       Array.isArray(parsed.scopes) &&
       parsed.expiresAt > Date.now();
     if (!live) {
-      localStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(SESSION_KEY);
       return null;
     }
     return parsed as StoredToken;
@@ -130,8 +135,8 @@ function readSession(): StoredToken | null {
 
 function writeSession(next: StoredToken | null): void {
   try {
-    if (next) localStorage.setItem(SESSION_KEY, JSON.stringify(next));
-    else localStorage.removeItem(SESSION_KEY);
+    if (next) sessionStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    else sessionStorage.removeItem(SESSION_KEY);
   } catch {
     // Nothing to do: the session then lasts the page load, as it used to.
   }

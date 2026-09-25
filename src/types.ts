@@ -194,6 +194,13 @@ export interface Settings {
    * was compiled with, which on a static host is nothing at all.
    */
   proxyBase: string;
+  /**
+   * The proxy's token, when it has one: what lets this browser drive the
+   * browser inside the reader, keep a sign-in and ask Scholar through the
+   * proxy's SerpApi account. Set on the proxy as READER_TOKEN; sent only
+   * to the proxy, as a header.
+   */
+  proxyToken: string;
   theme: 'light' | 'dark';
   /**
    * The glass material: the window's panes turn into frosted, nearly clear

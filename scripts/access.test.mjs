@@ -145,10 +145,11 @@ describe('whether this proxy can open a window', () => {
     if (!ready.available) assert.match(ready.reason, /Playwright|Chromium|screen/);
   });
 
-  it('reports the window closed and where the profile would be', async () => {
+  it('reports the window closed and that there is no profile yet — and never where one would be', async () => {
     const answer = await status();
     assert.equal(answer.window, 'closed');
     assert.equal(answer.everSignedIn, false);
-    assert.equal(answer.profile, process.env.READER_PROFILE_DIR);
+    assert.equal(answer.profileExists, false);
+    assert.equal(answer.profile, undefined);
   });
 });

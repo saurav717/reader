@@ -36,7 +36,8 @@ import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { MAX_PDF_BYTES, rejectUrl } from './fetchPdf.js';
+import { MAX_PDF_BYTES, rejectUrl, worded } from './fetchPdf.js';
+import { privateReason } from './guard.js';
 import { pdfCandidates, pdfLinksIn } from './pdfLinks.js';
 
 // Re-exported: the tests and server/browse.js import them from here.
@@ -49,6 +50,8 @@ export const PROFILE_DIR =
 const FETCH_TIMEOUT_MS = 45_000;
 /** How many pages to follow from a landing page before giving up on the file. */
 const MAX_PAGE_HOPS = 4;
+/** How many redirects one of those pages may send us through, each one checked. */
+const MAX_REDIRECTS = 5;
 
 // --------------------------------------------------------------- status ----
 
@@ -229,9 +232,9 @@ export function everSignedIn() {
  */
 export async function openSignIn(url) {
   const reason = rejectUrl(url);
-  if (reason) throw new Error(reason);
+  if (reason) throw worded(reason);
   const ready = await availability();
-  if (!ready.available) throw new Error(ready.reason);
+  if (!ready.available) throw worded(ready.reason);
 
   const ctx = await ensureContext('headed');
   // A persistent context opens with a blank page; use it rather than leaving
@@ -249,11 +252,15 @@ export async function openSignIn(url) {
   return { host: new URL(url).hostname };
 }
 
-/** What the app polls while the window is open. */
+/**
+ * What the app polls while the window is open. Whether the profile exists
+ * rather than where: this route is public, and a path on the proxy's disk
+ * is nobody else's business.
+ */
 export async function status() {
   const ready = await availability();
   const window = signInPage && !signInPage.isClosed() ? 'open' : 'closed';
-  return { ...ready, window, everSignedIn: everSignedIn(), profile: PROFILE_DIR, browse: await browseAvailability() };
+  return { ...ready, window, everSignedIn: everSignedIn(), profileExists: everSignedIn(), browse: await browseAvailability() };
 }
 
 /** Whether the sign-in window is open, for server/browse.js to pick a mode by. */
@@ -297,17 +304,17 @@ export const isPdf = (bytes) => bytes.length > 4 && bytes.subarray(0, 5).toStrin
  * get the file.
  */
 export async function fetchWithSession(target) {
-  const reason = rejectUrl(target);
-  if (reason) throw new Error(reason);
-  if (!everSignedIn()) throw new Error('no sign-in on this proxy yet');
+  const reason = rejectUrl(target) || (await privateReason(target));
+  if (reason) throw worded(reason);
+  if (!everSignedIn()) throw worded('no sign-in on this proxy yet');
 
   const ctx = await ensureContext(signInPage && !signInPage.isClosed() ? 'headed' : 'headless');
   const host = new URL(target).hostname;
-  if (!(await cookiesFor(target)).length) throw new Error(`not signed in at ${host}`);
+  if (!(await cookiesFor(target)).length) throw worded(`not signed in at ${host}`);
 
   const found = await fetchFileThrough(ctx, pdfCandidates(target));
   if (found) return found;
-  throw new Error(`signed in at ${host}, but it still would not hand over the PDF — does your institution subscribe to it?`);
+  throw worded(`signed in at ${host}, but it still would not hand over the PDF — does your institution subscribe to it?`);
 }
 
 /**
@@ -317,6 +324,11 @@ export async function fetchWithSession(target) {
  * of the pages within reach was a file. Shared by the signed-in retry above
  * and by the browser session in server/browse.js, which starts from the page
  * the person is looking at.
+ *
+ * Redirects are followed by hand, the way `fetchChecked` follows them, so
+ * that every hop is checked against the same rules as the page that sent
+ * us there: a publisher's redirect is the one URL in this walk that nobody
+ * — not the indexes, not the person — chose, and it must not lead inside.
  */
 export async function fetchFileThrough(ctx, urls) {
   const queue = [...urls];
@@ -327,24 +339,49 @@ export async function fetchFileThrough(ctx, urls) {
     if (seen.has(url) || rejectUrl(url)) continue;
     seen.add(url);
     hops += 1;
-    let response;
-    try {
-      response = await ctx.request.get(url, {
-        headers: { Accept: 'application/pdf,text/html;q=0.9,*/*;q=0.8' },
-        maxRedirects: 5,
-        timeout: FETCH_TIMEOUT_MS,
-      });
-    } catch {
-      continue;
-    }
+    const response = await followRedirects(ctx, url);
+    if (!response) continue;
     const length = Number(response.headers()['content-length'] || 0);
-    if (length > MAX_PDF_BYTES) throw new Error('that PDF is too large to fetch');
+    if (length > MAX_PDF_BYTES) throw worded('that PDF is too large to fetch');
     const body = await response.body();
-    if (body.length > MAX_PDF_BYTES) throw new Error('that PDF is too large to fetch');
+    if (body.length > MAX_PDF_BYTES) throw worded('that PDF is too large to fetch');
     if (response.ok() && isPdf(body)) return body;
     const type = (response.headers()['content-type'] || '').toLowerCase();
     if (type.includes('html') || type.includes('xml') || !type) {
       for (const link of pdfLinksIn(body.toString('utf8'), response.url())) queue.push(link);
+    }
+  }
+  return null;
+}
+
+/**
+ * One GET through the context, with each redirect it answers checked before
+ * it is followed — by name, and by what DNS says the name means — and given
+ * up on after `MAX_REDIRECTS`. Null when the request failed, or a hop was
+ * refused; a refused hop is not worth reporting, since the page that sent
+ * us there is just one of several tried.
+ */
+async function followRedirects(ctx, start) {
+  let current = start;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    if (rejectUrl(current) || (await privateReason(current))) return null;
+    let response;
+    try {
+      response = await ctx.request.get(current, {
+        headers: { Accept: 'application/pdf,text/html;q=0.9,*/*;q=0.8' },
+        maxRedirects: 0,
+        timeout: FETCH_TIMEOUT_MS,
+      });
+    } catch {
+      return null;
+    }
+    const status = response.status();
+    const location = response.headers()['location'];
+    if (![301, 302, 303, 307, 308].includes(status) || !location) return response;
+    try {
+      current = new URL(location, current).toString();
+    } catch {
+      return null;
     }
   }
   return null;

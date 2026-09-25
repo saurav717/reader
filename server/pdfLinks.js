@@ -48,6 +48,9 @@ const decode = (value) =>
  * Scholar's sake; IEEE keeps the path in a JSON blob instead, and its stamp
  * page wraps the file in a frame. Absolute URLs, in the order worth trying.
  */
+/** How many of a page's links are worth trying before the page is given up on. */
+const MAX_LINKS = 12;
+
 export function pdfLinksIn(html, base) {
   const found = [];
   const push = (value) => {
@@ -71,9 +74,13 @@ export function pdfLinksIn(html, base) {
     if (href && /\.pdf(\?|$)|\/pdf\/|stampPDF|getPDF|[?&]output=pdf\b/i.test(href)) push(href);
   }
   // Google Books writes its own links `http://`; everyone else's stay out.
+  // And only the first dozen: the file is among the first few links on any
+  // page that has it, and a page built to keep a fetcher busy could list
+  // thousands.
   return found
     .map(httpsGoogleBooks)
-    .filter((url, index, all) => /^https:\/\//i.test(url) && !/\.acsm(\?|$)/i.test(url) && all.indexOf(url) === index);
+    .filter((url, index, all) => /^https:\/\//i.test(url) && !/\.acsm(\?|$)/i.test(url) && all.indexOf(url) === index)
+    .slice(0, MAX_LINKS);
 }
 
 // ---------------------------------------------------------- Google Books ----

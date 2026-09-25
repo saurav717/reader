@@ -23,6 +23,28 @@ class_name = "BrowserSession"
 tag = "v1"
 new_sqlite_classes = ["BrowserSession"]
 
+# The token the reader pastes into Settings → Paper proxy. This Worker's
+# address is in the site's JavaScript for anyone to read, and an Origin
+# header is a browser's courtesy, not a credential — so what drives the
+# browser inside the reader, keeps or uses a sign-in, fetches a file at
+# Browserless or asks Scholar through SerpApi takes this token, and is
+# off until it is set. arXiv, open-access PDFs and Scholar asked directly
+# need none. Any long random string:
+#
+#     openssl rand -base64 32 | npx wrangler secret put READER_TOKEN
+#
+# The session and the cookies of a sign-in are kept per browser that uses
+# the reader (an id the site makes up and sends along), never in one jar
+# for everyone, and a jar unused for thirty days is dropped.
+
+# How many files a minute one address may ask /pdf for without the token.
+# Rate limiting is on every plan; the namespace id is any number unique
+# within this account.
+[[ratelimits]]
+name = "PDF_LIMIT"
+namespace_id = "1001"
+simple = { limit = 60, period = 60 }
+
 # OpenReview papers are fetched from OpenReview's API, which asks an
 # anonymous request for a check a Worker cannot pass. Signed in, it asks
 # nothing: give the Worker an OpenReview account (README, "OpenReview,

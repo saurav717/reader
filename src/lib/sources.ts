@@ -242,7 +242,24 @@ export function openAlexPdf(work: OpenAlexWork): string | undefined {
     work.primary_location?.pdf_url ||
     work.open_access?.oa_url ||
     (pmcid ? `https://www.ncbi.nlm.nih.gov/pmc/articles/${pmcid}/pdf/` : undefined);
-  return candidate && /^https:/i.test(candidate) ? candidate : undefined;
+  return webUrl(candidate);
+}
+
+/**
+ * A URL from an index's record, kept only if it is one the reader should
+ * ever open: it has to parse, and it has to be https — `http:` is upgraded,
+ * the way the PDF helpers do, since every host these records point at
+ * serves both. Anything else (`javascript:`, `data:`, a bare path, an
+ * empty string) is dropped rather than handed to a link or the proxy.
+ */
+export function webUrl(candidate: string | null | undefined): string | undefined {
+  if (!candidate) return undefined;
+  const upgraded = String(candidate).trim().replace(/^http:\/\//i, 'https://');
+  try {
+    return new URL(upgraded).protocol === 'https:' ? upgraded : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function fromOpenAlex(work: OpenAlexWork): PaperRef {
@@ -260,8 +277,8 @@ export function fromOpenAlex(work: OpenAlexWork): PaperRef {
     doi,
     pdfUrl: openAlexPdf(work) || (arxivFromDoi ? `https://arxiv.org/pdf/${arxivFromDoi}` : undefined),
     landingUrl:
-      work.primary_location?.landing_page_url ||
-      work.best_oa_location?.landing_page_url ||
+      webUrl(work.primary_location?.landing_page_url) ||
+      webUrl(work.best_oa_location?.landing_page_url) ||
       (doi ? `https://doi.org/${doi}` : undefined),
     venue: work.primary_location?.source?.display_name || work.best_oa_location?.source?.display_name || undefined,
     citedBy: typeof work.cited_by_count === 'number' ? work.cited_by_count : undefined,
@@ -312,7 +329,7 @@ function fromSemanticScholar(paper: SemanticScholarPaper): PaperRef {
     categories: [],
     arxivId,
     doi,
-    pdfUrl: paper.openAccessPdf?.url || (arxivId ? `https://arxiv.org/pdf/${arxivId}` : undefined),
+    pdfUrl: webUrl(paper.openAccessPdf?.url) || (arxivId ? `https://arxiv.org/pdf/${arxivId}` : undefined),
     landingUrl: arxivId ? `https://arxiv.org/abs/${arxivId}` : doi ? `https://doi.org/${doi}` : undefined,
     venue: paper.venue || undefined,
     citedBy: typeof paper.citationCount === 'number' ? paper.citationCount : undefined,
@@ -384,8 +401,8 @@ function fromCrossref(item: CrossrefItem): PaperRef {
     doi,
     // Crossref's link list is mostly publisher-gated; a real PDF is resolved
     // later, by Unpaywall and the two indexes, when the paper is opened.
-    pdfUrl: pdfLink && /^https:/i.test(pdfLink) ? pdfLink : undefined,
-    landingUrl: item.URL || (doi ? `https://doi.org/${doi}` : undefined),
+    pdfUrl: webUrl(pdfLink),
+    landingUrl: webUrl(item.URL) || (doi ? `https://doi.org/${doi}` : undefined),
     venue: clean(item['container-title']?.[0]) || undefined,
     citedBy: typeof item['is-referenced-by-count'] === 'number' ? item['is-referenced-by-count'] : undefined,
   };

@@ -51,8 +51,9 @@ function cors(origin) {
     'Access-Control-Allow-Origin': allowed,
     'Vary': 'Origin',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    // The browser session's input arrives as JSON.
-    'Access-Control-Allow-Headers': 'Content-Type',
+    // The browser session's input arrives as JSON; the app's token and its
+    // client id come as headers (see `authorized` and `clientOf` below).
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -64,6 +65,77 @@ const json = (body, status, headers) =>
   });
 
 /**
+ * Who may use what costs something or belongs to someone. A Worker on the
+ * open internet is reachable by anyone who reads its address out of the
+ * site's JavaScript, and an Origin header is a browser's courtesy, not a
+ * credential — anything but a browser sends whichever it likes. So the
+ * routes that drive a browser, keep or use a sign-in, or spend a metered
+ * account (Browserless, SerpApi) take a token: the READER_TOKEN secret,
+ * which whoever runs this Worker pastes into Settings → Paper proxy once.
+ *
+ *     npx wrangler secret put READER_TOKEN
+ *
+ * Without the secret those routes are simply off, and say so. Everything a
+ * stranger could do no harm with — arXiv, an open-access PDF, Scholar asked
+ * directly — needs no token, so the site keeps working for a visitor who
+ * has none.
+ */
+const TOKEN_MESSAGE = 'this proxy needs its token — paste it under Settings → Paper proxy';
+const NO_TOKEN_MESSAGE = 'this Worker has no READER_TOKEN secret, so what needs one is off — see wrangler.toml';
+
+function sameSecret(given, expected) {
+  // Compared byte for byte whatever the outcome, so a wrong token takes as
+  // long to refuse as a nearly right one.
+  const a = new TextEncoder().encode(given);
+  const b = new TextEncoder().encode(expected);
+  let differ = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) differ |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  return differ === 0;
+}
+
+/** Whether the request carries this Worker's token. */
+function authorized(request, env) {
+  const expected = String(env.READER_TOKEN || '').trim();
+  if (!expected) return false;
+  const given = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
+  return Boolean(given) && sameSecret(given, expected);
+}
+
+/** The refusal, worded for whether there is a token to give at all. */
+const needsToken = (env, headers) => json({ error: env.READER_TOKEN ? TOKEN_MESSAGE : NO_TOKEN_MESSAGE, token: true }, 401, headers);
+
+/**
+ * Which browser this is: an id the app makes up once and keeps, sent with
+ * every request. The browser session and the jar of cookies are both kept
+ * under it, so one person's sign-in is never another's. Its shape is
+ * checked and nothing else: it is a name, not a secret — the session token
+ * and READER_TOKEN are the secrets.
+ */
+const CLIENT_ID = /^[A-Za-z0-9_-]{16,64}$/;
+function clientOf(request, url) {
+  const given = request.headers.get('X-Reader-Client') || url.searchParams.get('client') || '';
+  return CLIENT_ID.test(given) ? given : '';
+}
+
+/** Who is asking, for the rate limit: the connecting address. */
+const addressOf = (request) => request.headers.get('CF-Connecting-IP') || 'unknown';
+
+/**
+ * How many times a minute one address may ask for a file. A rate-limit
+ * binding in wrangler.toml; without one the Worker relies on the token
+ * alone, which is what gates the paths that cost anything.
+ */
+async function overLimit(env, request) {
+  if (!env.PDF_LIMIT) return false;
+  try {
+    const { success } = await env.PDF_LIMIT.limit({ key: addressOf(request) });
+    return !success;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The one session object, which holds the browser. It lives where its
  * first request came from, which is near the person and, when the browser
  * is at Browserless, far from the browser — and every frame and every
@@ -72,9 +144,12 @@ const json = (body, status, headers) =>
  * San Francisco, weur for London or Amsterdam); the object is named by
  * the hint, so changing it makes a new one there.
  */
-function sessionStub(env) {
+function sessionStub(env, client) {
   const hint = String(env.BROWSER_SESSION_LOCATION || '').trim().toLowerCase();
-  const name = hint ? `the-browser@${hint}` : 'the-browser';
+  // One object per browser that uses the reader, named by its client id —
+  // never one for everyone, whose screen and sign-in the next visitor
+  // would land in.
+  const name = `client:${client}${hint ? `@${hint}` : ''}`;
   return env.BROWSER_SESSION.get(env.BROWSER_SESSION.idFromName(name), hint ? { locationHint: hint } : undefined);
 }
 
@@ -95,7 +170,11 @@ export default {
 
     try {
       if (path === '/health') {
-        return json({ ok: true, access: false, browse: browse.availability(env).available, scholar: serpKey ? 'serpapi' : 'direct' }, 200, headers);
+        return json(
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), browse: browse.availability(env).available, scholar: serpKey ? 'serpapi' : 'direct' },
+          200,
+          headers,
+        );
       }
 
       // The browser inside the reader, on Cloudflare's Browser Rendering
@@ -108,6 +187,21 @@ export default {
         const changes = ['/browse/open', '/browse/input', '/browse/grab', '/browse/close'].includes(path);
         if (changes && request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
         if (changes && !fromThisApp) return json({ error: 'not from this app' }, 403, headers);
+        // Driving a browser takes the token; looking at whether there is one
+        // to drive does not. The session object's own `/note-check` is the
+        // Worker's to call from `/pdf`, never the internet's.
+        const withToken = authorized(request, env);
+        if (changes && !withToken) return needsToken(env, headers);
+        if (path === '/browse/note-check') return json({ error: 'not found' }, 404, headers);
+        const client = clientOf(request, url);
+        if (!client && path !== '/browse/status') return json({ error: 'no client id — this site is older than this Worker; reload it' }, 400, headers);
+        const scoped = browse.forClient(env, client);
+        const forClient = (search) => {
+          const params = new URLSearchParams(search);
+          if (client) params.set('client', client);
+          const string = params.toString();
+          return string ? `?${string}` : '';
+        };
 
         // The stream: a WebSocket the session object answers with frames
         // and takes input on, handed through as it came, upgrade and all.
@@ -117,7 +211,7 @@ export default {
           if (!fromThisApp) return json({ error: 'not from this app' }, 403, headers);
           if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') return json({ error: 'a WebSocket upgrade' }, 426, headers);
           if (!env.BROWSER_SESSION) return json({ error: 'no session object holds the browser here; poll /browse/frame instead' }, 404, headers);
-          return sessionStub(env).fetch(new URL(`https://browser-session/stream${url.search}`), { headers: request.headers });
+          return sessionStub(env, client).fetch(new URL(`https://browser-session/stream${forClient(url.search)}`), { headers: request.headers });
         }
 
         // Held open in a Durable Object where one is bound (the fast way,
@@ -125,13 +219,30 @@ export default {
         // The status too: the object knows whether it holds a browser, whether
         // an open is in flight and for how long, and what last went wrong.
         if (env.BROWSER_SESSION) {
-          const stub = sessionStub(env);
-          const inner = new URL(`https://browser-session${path.replace(/^\/browse/, '')}${url.search}`);
+          // The status of nobody's object in particular is the availability.
+          if (path === '/browse/status' && !client) {
+            return json({ ...browse.idle(env), browsers: await browse.limitsOf(env) }, 200, { ...headers, 'Cache-Control': 'no-store' });
+          }
+          const stub = sessionStub(env, client);
+          const inner = new URL(`https://browser-session${path.replace(/^\/browse/, '')}${forClient(url.search)}`);
           const answer = await stub.fetch(inner, {
             method: request.method,
             headers: { 'Content-Type': request.headers.get('Content-Type') || 'application/json' },
             body: request.method === 'POST' ? await request.text() : undefined,
           });
+          // The status says where the page is and what it is called, and
+          // hands the session back to whoever holds this client id — which
+          // is a name anyone could send. Without the token it says only
+          // whether a browser is held and what Cloudflare allows.
+          if (path === '/browse/status' && !withToken) {
+            const full = await answer.json().catch(() => ({}));
+            const { session: _session, url: _url, title: _title, log: _log, lastError, frame: _frame, pdf: _pdf, ...rest } = full;
+            return json(
+              { ...rest, ...(lastError?.message ? { lastError: { message: lastError.message, at: lastError.at } } : {}) },
+              answer.status,
+              { ...headers, 'Cache-Control': 'no-store' },
+            );
+          }
           const type = answer.headers.get('Content-Type') || 'application/json; charset=utf-8';
           const extra = type.startsWith('application/pdf')
             ? { 'Content-Disposition': disposition(url.searchParams), 'X-Content-Type-Options': 'nosniff' }
@@ -153,7 +264,7 @@ export default {
             if (request.method !== 'POST') return json({ error: 'POST to open the browser' }, 405, headers);
             if (!fromThisApp) return json({ error: 'not from this app' }, 403, headers);
             try {
-              return json({ ok: true, ...(await browse.open(env, url.searchParams.get('url') || '')) }, 200, { ...headers, 'Cache-Control': 'no-store' });
+              return json({ ok: true, ...(await browse.open(scoped, url.searchParams.get('url') || '')) }, 200, { ...headers, 'Cache-Control': 'no-store' });
             } catch (error) {
               if (rateLimited(error)) throw error; // worded below, with the wait
               return json({ error: String(error?.message || error) }, 400, headers);
@@ -161,7 +272,7 @@ export default {
           }
           if (path === '/browse/frame') {
             try {
-              return json(await browse.frame(env, session), 200, { ...headers, 'Cache-Control': 'no-store' });
+              return json(await browse.frame(scoped, session), 200, { ...headers, 'Cache-Control': 'no-store' });
             } catch (error) {
               if (error?.code !== 'closed') throw error;
               return json(browse.idle(env), 200, { ...headers, 'Cache-Control': 'no-store' });
@@ -178,14 +289,14 @@ export default {
               return json({ error: 'that request body is not JSON' }, 400, headers);
             }
             if (events.length > 64) return json({ error: 'too many events at once' }, 400, headers);
-            return json(await browse.input(env, session, events), 200, { ...headers, 'Cache-Control': 'no-store' });
+            return json(await browse.input(scoped, session, events), 200, { ...headers, 'Cache-Control': 'no-store' });
           }
           if (path === '/browse/grab' || path === '/browse/pdf') {
             if (path === '/browse/grab' && request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
             if (path === '/browse/grab' && !fromThisApp) return json({ error: 'not from this app' }, 403, headers);
             let bytes;
             try {
-              bytes = await browse.grab(env, session);
+              bytes = await browse.grab(scoped, session);
             } catch (error) {
               if (error?.code === 'closed') throw error;
               return json({ error: String(error?.message || error) }, 404, headers);
@@ -204,7 +315,7 @@ export default {
           if (path === '/browse/close') {
             if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
             if (!fromThisApp) return json({ error: 'not from this app' }, 403, headers);
-            return json({ ok: true, ...(await browse.close(env, session)) }, 200, { ...headers, 'Cache-Control': 'no-store' });
+            return json({ ok: true, ...(await browse.close(scoped, session)) }, 200, { ...headers, 'Cache-Control': 'no-store' });
           }
           return json({ error: 'not found' }, 404, headers);
         } catch (error) {
@@ -230,10 +341,12 @@ export default {
       if (path.startsWith('/access/')) {
         // "Forget sign-ins" has something to forget here only where the
         // cookies of a browser session were kept.
+        const scoped = browse.forClient(env, clientOf(request, url));
         if (path === '/access/forget' && request.method === 'POST' && ALLOWED_ORIGINS.includes(origin)) {
-          return json({ ok: true, forgotten: await browse.forgetCookies(env) }, 200, headers);
+          if (!authorized(request, env)) return needsToken(env, headers);
+          return json({ ok: true, forgotten: await browse.forgetCookies(scoped) }, 200, headers);
         }
-        const kept = env.SESSIONS ? (await browse.storedCookies(env)).length > 0 : false;
+        const kept = env.SESSIONS && authorized(request, env) ? (await browse.storedCookies(scoped)).length > 0 : false;
         return json(
           {
             available: false,
@@ -272,6 +385,8 @@ export default {
       }
       if (path.startsWith('/scholar/')) {
         if (serpKey) {
+          // SerpApi is metered on the account whose key this is.
+          if (!authorized(request, env)) return needsToken(env, headers);
           const kind = path.replace('/scholar/', '');
           const query = (url.searchParams.get('q') || '').trim();
           const name = (url.searchParams.get('name') || '').trim();
@@ -381,7 +496,8 @@ export default {
           { url: `https://ar5iv.labs.arxiv.org/html/${bare}`, source: 'ar5iv' },
         ]) {
           const upstream = await fetch(candidate.url, { headers: { 'User-Agent': UA }, redirect: 'follow' });
-          if (!upstream.ok) continue;
+          // Followed wherever arXiv sent it, which had better still be arXiv.
+          if (!upstream.ok || !ASSET_HOSTS.has(new URL(upstream.url).hostname)) continue;
           const html = await upstream.text();
           if (html.length < 2000 || /No HTML for/i.test(html)) continue;
           return json({ html, source: candidate.source, base: upstream.url }, 200, {
@@ -418,6 +534,14 @@ export default {
         const target = url.searchParams.get('url') || '';
         const reason = rejectUrl(target);
         if (reason) return json({ error: reason }, 400, headers);
+        // Whose request: with the token, the sign-in kept for this client is
+        // tried on a login wall and a browser at Browserless on a check for
+        // a person; without it the file is fetched plainly or not at all.
+        const withToken = authorized(request, env);
+        const scoped = browse.forClient(env, withToken ? clientOf(request, url) : '');
+        if (!withToken && (await overLimit(env, request))) {
+          return json({ error: 'too many files at once from this address; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });
+        }
 
         const servePdfBytes = (bytes) =>
           new Response(bytes, {
@@ -478,13 +602,13 @@ export default {
         const loginWall = async (status, error) => {
           const pmc = await fromPmc();
           if (pmc) return servePdf(pmc);
-          const cookie = browse.cookieHeaderFor(await browse.storedCookies(env), target);
+          const cookie = withToken ? browse.cookieHeaderFor(await browse.storedCookies(scoped), target) : '';
           if (cookie) {
             try {
               const retry = await fetchChecked(target, { userAgent: UA, headers: { Cookie: cookie } });
               if (retry.response.ok) {
                 const bytes = await readPdf(retry.response, retry.response.headers.get('content-type'));
-                return servePdf(bytes);
+                return servePdf(bytes, { private: true });
               }
             } catch {
               // Signed in, but not to this; say what the first attempt said.
@@ -492,14 +616,16 @@ export default {
           }
           return json({ error, loginWall: true, host }, status, headers);
         };
-        const servePdf = (bytes) =>
+        // A file that came through someone's sign-in, or a browser passing
+        // a check on their behalf, is theirs: nothing on the way may keep it.
+        const servePdf = (bytes, { private: mine = false } = {}) =>
           new Response(bytes, {
             headers: {
               ...headers,
               'Content-Type': 'application/pdf',
               'Content-Length': String(bytes.length),
               'Content-Disposition': disposition(url.searchParams),
-              'Cache-Control': 'public, max-age=86400',
+              'Cache-Control': mine ? 'private, no-store' : 'public, max-age=86400',
               'X-Content-Type-Options': 'nosniff',
             },
           });
@@ -533,12 +659,15 @@ export default {
         if ((response.headers.get('cf-mitigated') || '').trim().toLowerCase() === 'challenge') {
           const pmc = await fromPmc();
           if (pmc) return servePdf(pmc);
-          if (browserless.configured(env)) {
-            const got = await browserless.fetchFile(env, target, { restoreCookies: browse.restoreCookies, saveCookies: browse.saveCookies });
-            if (got?.bytes) return servePdf(got.bytes);
-            if (env.BROWSER_SESSION) {
-              await sessionStub(env)
-                .fetch(`https://browser-session/note-check?host=${encodeURIComponent(host)}`, { method: 'POST' })
+          // Browserless is metered on the account whose token this is, and
+          // the browser there carries this person's sign-in: with the token only.
+          if (browserless.configured(env) && withToken) {
+            const got = await browserless.fetchFile(scoped, target, { restoreCookies: browse.restoreCookies, saveCookies: browse.saveCookies });
+            if (got?.bytes) return servePdf(got.bytes, { private: true });
+            const client = clientOf(request, url);
+            if (env.BROWSER_SESSION && client) {
+              await sessionStub(env, client)
+                .fetch(`https://browser-session/note-check?host=${encodeURIComponent(host)}&client=${encodeURIComponent(client)}`, { method: 'POST' })
                 .catch(() => undefined);
             }
             return json(
@@ -605,6 +734,7 @@ export default {
         }
         const upstream = await fetch(parsed, { headers: { 'User-Agent': UA }, redirect: 'follow' });
         if (!upstream.ok) return json({ error: 'upstream error' }, upstream.status, headers);
+        if (!ASSET_HOSTS.has(new URL(upstream.url).hostname)) return json({ error: 'host not allowed' }, 403, headers);
         return new Response(upstream.body, {
           headers: {
             ...headers,

@@ -15,9 +15,21 @@
 
 export const MAX_PDF_BYTES = 64 * 1024 * 1024;
 const MAX_HOPS = 5;
+/** How long one upstream request may take before it is given up on. */
+export const FETCH_TIMEOUT_MS = 30_000;
+
+/**
+ * An error whose message was written for the person reading, and may be
+ * shown to them as it is. Everything else that is thrown — a DNS failure,
+ * a TLS complaint, a library's call log — is for the server's log only;
+ * server/api.js tells the two apart by this mark.
+ */
+export function worded(message) {
+  return Object.assign(new Error(message), { forPerson: true });
+}
 
 /** Reserved IPv4 space, as [first octet, mask, value] tests over the octets. */
-function isPrivateIPv4(host) {
+export function isPrivateIPv4(host) {
   const parts = host.split('.');
   if (parts.length !== 4) return false;
   const octets = parts.map((part) => Number(part));
@@ -36,11 +48,40 @@ function isPrivateIPv4(host) {
   );
 }
 
-function isPrivateIPv6(host) {
+/**
+ * The IPv4 address an IPv6 one carries, when it is one of the forms that
+ * carry one: IPv4-mapped (`::ffff:127.0.0.1`, which Node also writes in hex
+ * as `::ffff:7f00:1`) and NAT64 (`64:ff9b::a9fe:a9fe`). Null otherwise.
+ * Both are how a public-looking IPv6 literal ends up connecting to this
+ * machine or the cloud's metadata service, so the IPv4 rules apply to them.
+ */
+export function embeddedIPv4(address) {
+  const lower = address.toLowerCase();
+  const prefixes = ['::ffff:', '64:ff9b::'];
+  for (const prefix of prefixes) {
+    if (!lower.startsWith(prefix)) continue;
+    const rest = lower.slice(prefix.length);
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(rest)) return rest;
+    // Two hex groups, `7f00:1`, are the same four octets written as a number.
+    const hex = rest.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hex) {
+      const high = parseInt(hex[1], 16);
+      const low = parseInt(hex[2], 16);
+      return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
+    }
+  }
+  return null;
+}
+
+/** Whether an IPv6 address is a private, loopback, link-local or site-local one, or wraps an IPv4 one that is. */
+export function isPrivateIPv6(host) {
   const address = host.replace(/^\[|\]$/g, '').toLowerCase();
   if (address === '::1' || address === '::') return true;
-  // Unique-local (fc00::/7) and link-local (fe80::/10).
-  return /^f[cd]/.test(address) || /^fe[89ab]/.test(address);
+  const inner = embeddedIPv4(address);
+  if (inner) return isPrivateIPv4(inner);
+  // Unique-local (fc00::/7), link-local (fe80::/10) and the deprecated
+  // site-local range (fec0::/10), which some networks still route inside.
+  return /^f[cd]/.test(address) || /^fe[89ab]/.test(address) || /^fec/.test(address);
 }
 
 const BLOCKED_SUFFIXES = ['.localhost', '.local', '.internal', '.home.arpa'];
@@ -53,7 +94,10 @@ const BLOCKED_SUFFIXES = ['.localhost', '.local', '.internal', '.home.arpa'];
  * index handed over and so cannot check the whole URL up front.
  */
 export function isPrivateHost(hostname) {
-  const host = (hostname || '').toLowerCase();
+  // A trailing dot is the fully-qualified spelling of the same name —
+  // `localhost.` resolves exactly as `localhost` does — so it is dropped
+  // before anything is compared, or the suffix checks would miss it.
+  const host = (hostname || '').toLowerCase().replace(/\.+$/, '');
   if (!host) return true;
   if (host === 'localhost' || BLOCKED_SUFFIXES.some((suffix) => host.endsWith(suffix))) return true;
   return isPrivateIPv4(host) || isPrivateIPv6(host);
@@ -81,41 +125,47 @@ export function rejectUrl(target) {
 /**
  * fetch(), but following redirects by hand so every hop is checked. Returns the
  * final response, or throws with a message meant for the person reading.
+ * `check`, when given, is asked about every hop as well — the Node proxy
+ * hands in the DNS test from server/guard.js there, which the hostname rules
+ * alone cannot do — and answers a reason, or nothing. Each hop gets its own
+ * deadline, so a host that accepts the connection and never answers cannot
+ * hold the request open indefinitely.
  */
-export async function fetchChecked(target, { userAgent, headers = {} }) {
+export async function fetchChecked(target, { userAgent, headers = {}, check, timeoutMs = FETCH_TIMEOUT_MS }) {
   let current = target;
   for (let hop = 0; hop <= MAX_HOPS; hop += 1) {
-    const reason = rejectUrl(current);
-    if (reason) throw new Error(reason);
+    const reason = rejectUrl(current) || (check ? await check(current) : null);
+    if (reason) throw worded(reason);
     const response = await fetch(current, {
       headers: { 'User-Agent': userAgent, Accept: 'application/pdf,*/*', ...headers },
       redirect: 'manual',
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (![301, 302, 303, 307, 308].includes(response.status)) return { response, url: current };
     const location = response.headers.get('location');
     if (!location) return { response, url: current };
     current = new URL(location, current).toString();
   }
-  throw new Error('that link redirects too many times');
+  throw worded('that link redirects too many times');
 }
 
 /** The body, if it is a PDF and within the cap. Throws with a reason if not. */
 export async function readPdf(response, contentType) {
   const declared = (contentType || '').toLowerCase();
   const length = Number(response.headers.get('content-length') || 0);
-  if (length > MAX_PDF_BYTES) throw new Error('that PDF is too large to fetch');
+  if (length > MAX_PDF_BYTES) throw worded('that PDF is too large to fetch');
 
   const chunks = [];
   let total = 0;
   const reader = response.body?.getReader();
-  if (!reader) throw new Error('the server sent no PDF');
+  if (!reader) throw worded('the server sent no PDF');
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     total += value.length;
     if (total > MAX_PDF_BYTES) {
       await reader.cancel();
-      throw new Error('that PDF is too large to fetch');
+      throw worded('that PDF is too large to fetch');
     }
     chunks.push(value);
   }
@@ -131,7 +181,7 @@ export async function readPdf(response, contentType) {
   // publisher wants a session, or the link has rotted. Say which it was.
   const magic = String.fromCharCode(...bytes.slice(0, 5));
   if (!magic.startsWith('%PDF') && !declared.includes('pdf')) {
-    throw new Error('that link gave a web page rather than a PDF');
+    throw worded('that link gave a web page rather than a PDF');
   }
   return bytes;
 }

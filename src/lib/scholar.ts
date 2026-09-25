@@ -20,7 +20,17 @@
  * one with a screen: `npm start` on your own machine.
  */
 import type { AuthorRef, PaperOrder, PaperRef } from '../types';
-import { api, hasProxy } from './api';
+import { apiFetch, hasProxy } from './api';
+
+/** The address as given when it is an https one, else nothing — sources.ts has the same, which imports this file. */
+const webUrl = (url: string | undefined | null): string | undefined => {
+  if (!url) return undefined;
+  try {
+    return new URL(url).protocol === 'https:' ? url : undefined;
+  } catch {
+    return undefined;
+  }
+};
 import { titleFits } from './citations';
 import { tidyByline } from './byline';
 
@@ -106,7 +116,7 @@ async function ask<T>(path: string, page: string, signal?: AbortSignal): Promise
   if (!hasProxy()) throw new ScholarError(NO_PROXY);
   let response: Response;
   try {
-    response = await fetch(api(path), { signal });
+    response = await apiFetch(path, { signal });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw new ScholarError('Could not reach the proxy to ask Google Scholar.');
@@ -153,8 +163,10 @@ export function fromScholar(result: ScholarResult): PaperRef {
     categories: [],
     arxivId: arxiv,
     doi: doi?.toLowerCase(),
-    pdfUrl: result.pdfUrl,
-    landingUrl: result.url,
+    // Scholar's page is parsed HTML, and a link in it is whatever it said:
+    // only a web address is kept, never something a click would run.
+    pdfUrl: webUrl(result.pdfUrl),
+    landingUrl: webUrl(result.url),
     venue: result.venue,
     citedBy: result.citedBy,
     scholarCluster: result.clusterId,
@@ -354,7 +366,7 @@ const CAPTCHA_UNAVAILABLE: CaptchaStatus = {
 };
 
 async function askCaptcha(path: string, init?: RequestInit): Promise<CaptchaStatus> {
-  const response = await fetch(api(path), { ...init, headers: { Accept: 'application/json' } });
+  const response = await apiFetch(path, { ...init, headers: { Accept: 'application/json' } });
   const payload = (await response.json().catch(() => ({}))) as Partial<CaptchaStatus> & { error?: string };
   if (!response.ok) throw new Error(payload.error || `The proxy answered ${response.status}.`);
   return { ...CAPTCHA_UNAVAILABLE, ...payload };

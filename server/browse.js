@@ -39,7 +39,8 @@ import {
   signInWindowOpen,
 } from './access.js';
 import { grabTargets } from './pdfLinks.js';
-import { isPrivateHost, MAX_PDF_BYTES, rejectUrl } from './fetchPdf.js';
+import { isPrivateHost, MAX_PDF_BYTES, rejectUrl, worded } from './fetchPdf.js';
+import { resolvesPrivately } from './guard.js';
 import { acceptKey, BUTTONS, challengedHost, checkAfter, clamp, clicks, closedError, fetchFileInPage, isMainDocument, VIEWPORT } from './browseShared.js';
 
 export { acceptKey, VIEWPORT };
@@ -139,9 +140,9 @@ function changed() {
  */
 export async function open(url) {
   const reason = rejectUrl(url);
-  if (reason) throw new Error(reason);
+  if (reason) throw worded(reason);
   const ready = await browseAvailability();
-  if (!ready.available) throw new Error(ready.reason);
+  if (!ready.available) throw worded(ready.reason);
 
   await close();
   // The profile can be open once; the sign-in window, if it is up, keeps its
@@ -196,15 +197,22 @@ async function attach(page) {
 
   if (!page.__readerAttached) {
     page.__readerAttached = true;
-    // Never inside the proxy's own network, whatever a page links to.
-    await page.route('**/*', (route) => {
-      let host = '';
+    // Never inside the proxy's own network, whatever a page links to — and
+    // nowhere but https: a page could otherwise point the browser at
+    // file:, or at plain http on the network it sits in. The name is
+    // checked, and then what DNS says the name means, since a page can
+    // link a name of its own choosing that resolves to this machine. A
+    // request that trips either is refused the way an ad blocker would.
+    await page.route('**/*', async (route) => {
+      let parsed = null;
       try {
-        host = new URL(route.request().url()).hostname;
+        parsed = new URL(route.request().url());
       } catch {
         // not a URL the browser will fetch anyway
       }
-      return isPrivateHost(host) ? route.abort('blockedbyclient') : route.continue();
+      const allowed =
+        parsed && parsed.protocol === 'https:' && !isPrivateHost(parsed.hostname) && !(await resolvesPrivately(parsed.hostname));
+      return allowed ? route.continue() : route.abort('blockedbyclient');
     });
     page.on('dialog', (dialog) => dialog.dismiss().catch(() => undefined));
     page.on('framenavigated', (frame) => {
@@ -372,7 +380,7 @@ export async function input(event) {
     case 'navigate': {
       const target = String(event.url || '').trim();
       const reason = rejectUrl(target);
-      if (reason) throw new Error(reason);
+      if (reason) throw worded(reason);
       session.loading = true;
       changed();
       return page.goto(target, { waitUntil: 'commit', timeout: 30_000 }).catch(() => undefined);
@@ -386,7 +394,7 @@ export async function input(event) {
       changed();
       return page.reload({ waitUntil: 'commit', timeout: 30_000 }).catch(() => undefined);
     default:
-      throw new Error(`unknown input: ${String(event.type)}`);
+      throw worded(`unknown input: ${String(event.type)}`);
   }
 }
 
@@ -404,7 +412,7 @@ export async function grab() {
   if (session.pdf) return { from: session.pdf.from, size: session.pdf.bytes.length };
   const { page } = session;
   const url = page.url();
-  if (rejectUrl(url)) throw new Error('the page the browser is on is not one a PDF can be fetched from');
+  if (rejectUrl(url)) throw worded('the page the browser is on is not one a PDF can be fetched from');
   let html = '';
   try {
     html = await page.content();
@@ -417,7 +425,7 @@ export async function grab() {
   // requests do not share — and the profile's fetch follows the links after.
   const bytes = (await fetchFileInPage(page, urls, MAX_PDF_BYTES)) || (await fetchFileThrough(page.context(), urls));
   if (!bytes) {
-    throw new Error(
+    throw worded(
       why ||
         `no PDF was found from ${new URL(url).hostname} — open the file itself in the browser here, or sign in first if the page is asking for it`,
     );

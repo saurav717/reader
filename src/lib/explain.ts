@@ -22,8 +22,11 @@ import { anthropic, explainError, FULL_TEXT_MAX_CHARS, MODELS, sdk, tag } from '
 import type { Screen, SDK } from './assistant';
 import { db } from './db';
 
-/** The explanation is long by design; this caps a runaway, it does not budget one. */
-const MAX_TOKENS = 32000;
+/**
+ * The explanation is long by design; this caps a runaway, it does not budget one.
+ * Thinking comes out of the same allowance, so it has room for both.
+ */
+const MAX_TOKENS = 64000;
 
 export const EXPLAIN_SYSTEM = `You are writing the explanation page of a research-paper reader: a long-form,
 teach-it-properly walkthrough of ONE paper, which the reader studies instead of (or beside) the paper itself.
@@ -383,6 +386,8 @@ export interface Explanation {
   model: string;
   created: number;
   streaming?: boolean;
+  /** While streaming: a summary of what Claude is thinking before (and between) the writing. Not kept. */
+  thinking?: string;
   error?: string;
   truncated?: boolean;
   /** Requests made from the bar, oldest first; each keeps the page as it was, for Undo. */
@@ -540,7 +545,7 @@ export function subscribeExplain(listener: () => void) {
 export const explanationFor = (paperId: string) => cache.get(paperId);
 
 function persistLocal(entry: Explanation) {
-  const { pending: _pending, streaming: _streaming, ...kept } = entry;
+  const { pending: _pending, streaming: _streaming, thinking: _thinking, ...kept } = entry;
   void db.setKv(KEY(entry.paperId), kept).catch(() => undefined);
 }
 
@@ -562,7 +567,7 @@ export async function loadExplanation(paperId: string): Promise<Explanation | un
     try {
       const kept = await db.getKv<Explanation>(KEY(paperId));
       if (kept && !cache.has(paperId)) {
-        cache.set(paperId, { ...kept, streaming: false, pending: undefined });
+        cache.set(paperId, { ...kept, streaming: false, thinking: undefined, pending: undefined });
         notify();
       }
     } catch {
@@ -612,11 +617,23 @@ const firstAsk = (screen: Screen) =>
     ? 'Write the explanation page for this paper.'
     : 'Only the details and abstract of this paper could be read, not its full text. Write the explanation page from them and what you reliably know of the paper, and say at the top that the full text was not available.';
 
-/** Streams one request, calling `onText` a frame at a time with everything so far. */
+/** A paper's worth of thinking takes minutes; this is what the page shows meanwhile. */
+function setThinking(paperId: string, thinking: string | undefined) {
+  const entry = cache.get(paperId);
+  if (!entry || entry.thinking === thinking) return;
+  cache.set(paperId, { ...entry, thinking });
+  notify();
+}
+
+/**
+ * Streams one request, calling `onText` a frame at a time with everything so far.
+ * Thinking is asked for as a summary (the models that think show nothing by
+ * default, which on a whole paper reads as a hang) and kept on the entry.
+ */
 async function streamOnce(
   paperId: string,
   model: string,
-  effort: 'medium' | 'high',
+  effort: 'low' | 'medium' | 'high',
   params: { system: ReturnType<typeof systemFor>; messages: { role: 'user' | 'assistant'; content: string }[] },
   onText: (text: string) => void,
 ): Promise<{ stop: string | null }> {
@@ -626,18 +643,30 @@ async function streamOnce(
     model: spec.id,
     max_tokens: MAX_TOKENS,
     ...params,
-    ...(spec.adaptive ? { thinking: { type: 'adaptive' as const }, output_config: { effort } } : {}),
+    ...(spec.adaptive ? { thinking: { type: 'adaptive' as const, display: 'summarized' as const }, output_config: { effort } } : {}),
   });
   running = { paperId, stream };
   let text = '';
+  let thinking = '';
   let frame = 0;
-  stream.on('text', (delta: string) => {
-    text += delta;
+  const paint = () => {
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
+      // The text first: the first page's `onText` puts down a fresh entry.
       onText(text);
+      setThinking(paperId, thinking || undefined);
     });
+  };
+  stream.on('thinking', (delta: string) => {
+    thinking += delta;
+    paint();
+  });
+  stream.on('text', (delta: string) => {
+    text += delta;
+    // Writing again: what it thought before this stretch is spent.
+    thinking = '';
+    paint();
   });
   try {
     const final = await stream.finalMessage();
@@ -645,6 +674,7 @@ async function streamOnce(
   } finally {
     if (frame) cancelAnimationFrame(frame);
     onText(text);
+    setThinking(paperId, undefined);
   }
 }
 
@@ -660,7 +690,7 @@ export async function generateExplanation(screen: Screen, model: string) {
   let SDK: SDK | null = null;
   try {
     SDK = await sdk();
-    const { stop } = await streamOnce(paper.id, model, 'high', { system: systemFor(screen), messages: [{ role: 'user', content: firstAsk(screen) }] }, (text) => {
+    const { stop } = await streamOnce(paper.id, model, 'medium', { system: systemFor(screen), messages: [{ role: 'user', content: firstAsk(screen) }] }, (text) => {
       entry.content = text;
       cache.set(paper.id, { ...entry });
       notify();
