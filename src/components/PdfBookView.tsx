@@ -11,6 +11,9 @@ type Engine = typeof import('../lib/pdfReflow');
 interface Props {
   /** Whose notes a passage or a snip goes into. */
   paperId: string;
+  /** Whether ✂ Snip is on, and turning it on or off — the reader's to hold, since its top bar and S turn it on too. */
+  snipping: boolean;
+  onSnipping: (on: boolean) => void;
   blob: Blob;
   title: string;
   /** Where the paper was left, 0–1, to open on the same page. */
@@ -21,12 +24,6 @@ interface Props {
 /** Space kept round a spread inside the frame, and under it for the pages' shadow. */
 const MARGIN = 16;
 
-/** A key pressed while typing is text, not a shortcut. */
-const typing = (target: EventTarget | null) => {
-  const element = target as HTMLElement | null;
-  return Boolean(element && (element.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element.tagName)));
-};
-
 const esc = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /**
@@ -35,7 +32,7 @@ const esc = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').
  * turned. The text of each page is laid over its picture, so it can be
  * selected and copied as in the browser's own viewer.
  */
-export default function PdfBookView({ paperId, blob, title, initialProgress, onProgress }: Props) {
+export default function PdfBookView({ paperId, snipping, onSnipping, blob, title, initialProgress, onProgress }: Props) {
   const frameRef = useRef<HTMLDivElement>(null);
   const [opened, setOpened] = useState<{ doc: PDFDocumentProxy; engine: Engine } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -124,27 +121,11 @@ export default function PdfBookView({ paperId, blob, title, initialProgress, onP
   const firstShown = shown[0] ?? 1;
 
   // ---- into your notes ------------------------------------------------------
-  // Snip mode (✂, or S) outlines the figures, tables and equations on the
-  // pages in view: click one to keep it, or drag a box. Text selected on a
-  // page has "Add to notes" under it.
+  // Snip mode (✂ here or in the top bar, or S) outlines the figures, tables
+  // and equations on the pages in view: click one to keep it, or drag a box.
+  // Text selected on a page has "Add to notes" under it.
   const { announce, toast } = useKept();
-  const [snipping, setSnipping] = useState(false);
   const [picked, setPicked] = useState<{ text: string; page?: number; top: number; left: number } | null>(null);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || typing(event.target)) return;
-      // Not under the Explain page, where the pages cannot be seen.
-      if (document.querySelector('.explain:not(.layout-beside)')) return;
-      if (event.key.toLowerCase() === 's') {
-        event.preventDefault();
-        setSnipping((current) => !current);
-      } else if (event.key === 'Escape' && snipping) {
-        setSnipping(false);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [snipping]);
   useEffect(() => {
     if (!picked) return;
     const drop = () => {
@@ -235,7 +216,7 @@ export default function PdfBookView({ paperId, blob, title, initialProgress, onP
           type="button"
           className="btn sm ghost snip-btn"
           aria-pressed={snipping}
-          onClick={() => setSnipping(!snipping)}
+          onClick={() => onSnipping(!snipping)}
           title="Snip figures, tables and equations into your notes — or drag any box (S)"
         >
           ✂ Snip

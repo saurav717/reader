@@ -1905,24 +1905,32 @@ whichever window was pressed or typed in last, and that one comes to the front.
 
 #### Keeping pieces of the paper
 
-Whatever way the paper is read, its pieces go into your notes too:
+Whatever way the paper is read, its pieces go into your notes too. The
+quickest is **✂ Snip** in the top bar (or **S**), in every view: drag a box over
+anything and what it touches is kept.
 
 - **Reflow, or the HTML rendering.** Point at a figure, a table or a display
   equation and **Add to notes** comes up on its corner; select any text and
   the toolbar has **Add to notes** beside *Ask*. A figure's picture is held in
   the note itself — a reflowed figure is drawn from the PDF while the paper is
   open, and would otherwise be gone once it is closed — and a table comes as
-  its rows and columns.
+  its rows and columns. With ✂ Snip, a box dragged over the page lights every
+  paragraph, figure and table it touches, and keeps them whole, as text.
 - **The PDF, as a book.** Select text on a page and **Add to notes** is under
   it. **✂ Snip** (or **S**) outlines the figures, tables and equations found on
   the pages in view — the same reading of the page that reflows it: point at
   one to see what it is, click to keep it whole with its caption, a table as a
   table rather than a picture of one. Or drag any box, and it is kept as a
   picture with the words inside it. **Esc** or **S** puts the tool away.
-- **The PDF in the browser's viewer** cannot be reached into, so the line
-  under it offers to open it as a book instead.
+- **The PDF in the browser's viewer** cannot be reached into, so ✂ Snip opens
+  it as a book with snipping on, and the line under it offers the same.
+- **The Explain page** has ✂ Snip in its bar (and **S** while it covers the
+  paper): a box over prose, diagrams, code cells or caveats keeps them as they
+  are set.
 
 ![Reflow: pointing at a figure puts Add to notes on its corner](docs/paper-notes-figure.png)
+
+![✂ Snip over Reflow: the paragraph and the figure the box touches are lit, to be kept as they are set](docs/paper-notes-box.png)
 
 ![the PDF as a book in snip mode: Table 1 outlined and named, 6 rows × 4, click to add](docs/paper-notes-snip.png)
 

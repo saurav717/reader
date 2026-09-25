@@ -42,6 +42,7 @@ import { findPassage, FLASH_EVENT, LOCATE_EVENT, pageOf, type LocateRequest, typ
 import PassageFlash, { type Flash } from './PassageFlash';
 import { addClip, copyOf } from '../lib/notes';
 import { tableText, useKept, useKeeper } from './Keep';
+import BoxSnip from './BoxSnip';
 import { fullerAuthors } from '../lib/byline';
 import { CITE_CLASS, REF_CLASS, citationHead, citationText, entryText, parseReference } from '../lib/citations';
 import {
@@ -105,6 +106,9 @@ interface PendingSelection {
   /** The selection itself, for keeping a copy of it in the notes. */
   range: Range;
 }
+
+/** What a box dragged over the reflowed paper keeps, whole: each piece of it the box touches. */
+const SNIPPABLE = 'p, li, h1, h2, h3, h4, h5, blockquote, figure, table, pre, aside, .pdf-equation, .ltx_equation, .ltx_equationgroup';
 
 /** What in the paper can be kept whole: its figures and tables — reflowed or LaTeXML's — and its display equations. */
 const KEEPABLE = 'figure, .pdf-equation, .ltx_equation, .ltx_equationgroup';
@@ -254,6 +258,53 @@ export default function Reader({
     addClip(paperId, { label: 'Passage', html: await copyOf(range.cloneContents()), text: selector.exact, source: { from: 'paper', section, quote: selector.exact.slice(0, 160) } });
     announce('Passage');
   };
+
+  // ✂ Snip — the top bar's button, or S: a box dragged over the page keeps
+  // what it touches. Over Reflow, the paragraphs, figures and tables
+  // themselves, as text; over the PDF set as a book, a figure or table found
+  // on the page, or a picture of the box. The browser's own PDF viewer cannot
+  // be drawn over, so Snip turns the book on first.
+  const [snipping, setSnipping] = useState(false);
+  useEffect(() => setSnipping(false), [paperId, mode]);
+  const keepBox = async (elements: HTMLElement[]) => {
+    const root = bodyRef.current;
+    if (!root) return;
+    const copy = document.createDocumentFragment();
+    elements.forEach((element) => copy.appendChild(element.cloneNode(true)));
+    const text = elements.map((element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n\n');
+    const around = document.createRange();
+    around.selectNodeContents(elements[0]);
+    addClip(paperId, { label: 'Snip', html: await copyOf(copy), text, source: { from: 'paper', section: sectionFor(around, root), quote: text.slice(0, 120) || undefined } });
+    announce('Snip');
+  };
+  const canSnip = mode === 'reflow' || Boolean(pdfBlob);
+  const toggleSnip = () => {
+    if (snipping) return setSnipping(false);
+    if (mode === 'pdf') {
+      if (!pdfBlob) return;
+      if (layout !== 'book') chooseLayout('book');
+    }
+    setSnipping(true);
+  };
+  const toggleSnipRef = useRef(toggleSnip);
+  toggleSnipRef.current = toggleSnip;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      // Not under the Explain page, which snips itself, nor under a dialog.
+      if (document.querySelector('.explain:not(.layout-beside), .scrim, .sheet, .palette')) return;
+      if (event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        toggleSnipRef.current();
+      } else if (event.key === 'Escape') {
+        setSnipping(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // The cards over an author's name and over a citation. One is open at a
   // time; it opens a moment after the pointer arrives, so that moving across
@@ -1507,6 +1558,17 @@ export default function Reader({
               {layout === 'book' ? <ScrollPageIcon size={17} /> : <OpenBookIcon size={18} />}
             </button>
           ) : null}
+          {canSnip ? (
+            <button
+              type="button"
+              className="btn sm snip-toggle"
+              aria-pressed={snipping}
+              title="Snip: drag a box over anything on the page — text, a figure, a table — to add it to your notes (S)"
+              onClick={toggleSnip}
+            >
+              ✂ Snip
+            </button>
+          ) : null}
           {onToggleExplain ? (
             <button
               type="button"
@@ -1748,6 +1810,8 @@ export default function Reader({
           ) : pdfBlob && layout === 'book' ? (
             <PdfBookView
               paperId={paper.id}
+              snipping={snipping}
+              onSnipping={setSnipping}
               blob={pdfBlob}
               title={paper.title}
               initialProgress={paper.progress}
@@ -1819,7 +1883,7 @@ export default function Reader({
       {mode === 'pdf' && !pdfError && pdfLookup !== 'none' ? (
         <p style={{ margin: 0, padding: '8px 16px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)' }}>
           {layout === 'book' && pdfBlob ? (
-            'Highlighting works in Reflow mode — here the text can be selected, copied and added to your notes, figures and tables snipped with ✂ Snip, and the pages turned with the arrow keys.'
+            'Highlighting works in Reflow mode — here the text can be selected, copied and added to your notes, anything snipped into them with ✂ Snip (or S), and the pages turned with the arrow keys.'
           ) : (
             <>
               Highlighting works in Reflow mode — the PDF is rendered by your browser's own viewer, which the reader cannot reach into.
@@ -1829,7 +1893,7 @@ export default function Reader({
                   <button type="button" className="link-btn" onClick={() => chooseLayout('book')}>
                     Open it as a book
                   </button>{' '}
-                  to add its text, figures and tables to your notes.
+                  — or press ✂ Snip — to add its text, figures and tables to your notes.
                 </>
               ) : null}
             </>
@@ -1897,6 +1961,7 @@ export default function Reader({
 
       {keeper.button}
       {keptToast}
+      {snipping && mode === 'reflow' ? <BoxSnip root={bodyRef} selector={SNIPPABLE} onKeep={(elements) => void keepBox(elements)} /> : null}
 
       {hover ? (
         <HoverCard

@@ -161,14 +161,42 @@ check('the figure’s picture is held in the note, not pointed at', /<img[^>]+sr
 check('the table is a table', /<table/.test(blocks[1].html) && blocks[1].text.includes('| Self-Attention'), blocks[1].text.slice(0, 120));
 check('each knows its section', blocks[0].source.section?.includes('Attention') && blocks[2].source.section?.includes('Attention'), `${blocks[0].source.section} / ${blocks[2].source.section}`);
 
+console.log('\n== ✂ Snip over Reflow: a box over the text ==');
+const snipButton = page.locator('.reader-head .snip-toggle');
+check('the top bar has ✂ Snip', (await snipButton.count()) === 1);
+await snipButton.click();
+await page.waitForSelector('.box-snip-layer', { timeout: 3000 });
+const first = page.locator('.paper-body p').filter({ hasText: 'An attention function' }).first();
+await first.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+await settle(300);
+const fbox = await first.boundingBox();
+await page.mouse.move(fbox.x + 20, fbox.y + 10);
+await page.mouse.down();
+await page.mouse.move(fbox.x + fbox.width - 40, fbox.y + fbox.height + 120, { steps: 10 });
+const lit = await page.locator('.is-snip-picked').count();
+check('what the box touches is lit as it is drawn', lit >= 2, `${lit} lit`);
+await shot('1b-reflow-box');
+await page.mouse.up();
+await settle(400);
+check('letting go keeps it', (await kept()).startsWith('Snip'), await kept());
+blocks = await notesOf();
+check('as the text itself, not a picture of it', blocks.at(-1).label === 'Snip' && /<p/.test(blocks.at(-1).html) && blocks.at(-1).text.includes('An attention function'), blocks.at(-1).text.slice(0, 80));
+check('nothing is left lit', (await page.locator('.is-snip-picked').count()) === 0);
+await page.keyboard.press('s');
+await settle(200);
+check('S puts it away', (await page.locator('.box-snip-layer').count()) === 0);
+
 console.log('\n== the PDF, in the browser’s viewer ==');
 await page.locator('.segmented button', { hasText: 'PDF' }).click();
 await page.waitForSelector('.pdf-frame', { timeout: 20000 });
 await settle(600);
 const asBook = page.getByRole('button', { name: 'Open it as a book' });
 check('it says the viewer cannot be reached into, and offers the book', (await asBook.count()) === 1);
-await asBook.click();
+await page.locator('.reader-head .snip-toggle').click();
 await page.waitForSelector('.pdf-book-page[data-text="ready"]', { timeout: 20000 });
+await page.waitForSelector('.snip-layer', { timeout: 5000 }).catch(() => undefined);
+check('✂ Snip there opens it as a book, with snipping on', (await page.locator('.pdf-book').count()) === 1 && (await page.locator('.snip-layer').count()) === 1);
+await page.keyboard.press('Escape');
 await settle(800);
 
 console.log('\n== the PDF as a book: a passage ==');
@@ -230,10 +258,10 @@ await page.keyboard.press('h');
 await page.waitForSelector('.notes-win .note-piece', { timeout: 5000 });
 await settle(400);
 const labels = await page.locator('.notes-win .note-piece-kind').allTextContents();
-check('six pieces, as kept', labels.join(' | ') === 'Figure 1 | Table 1 | Passage | Passage | Table 1 | Snip', labels.join(' | '));
+check('seven pieces, as kept', labels.join(' | ') === 'Figure 1 | Table 1 | Passage | Snip | Passage | Table 1 | Snip', labels.join(' | '));
 check('the figure shows its picture', await page.locator('.notes-win .note-piece').first().locator('.note-clip img').evaluate((img) => img.complete && img.naturalWidth > 50));
-check('the snipped table shows as a table', (await page.locator('.notes-win .note-piece').nth(4).locator('.note-clip table tr').count()) >= 4);
-check('labelled with the page', ((await page.locator('.notes-win .note-piece').nth(4).locator('.note-source').textContent()) || '').includes('p. 3'));
+check('the snipped table shows as a table', (await page.locator('.notes-win .note-piece').nth(5).locator('.note-clip table tr').count()) >= 4);
+check('labelled with the page', ((await page.locator('.notes-win .note-piece').nth(5).locator('.note-source').textContent()) || '').includes('p. 3'));
 await shot('5-in-the-notes');
 
 console.log('\n== back to where one came from ==');
@@ -253,7 +281,7 @@ await page.mouse.move(W / 2, H / 2);
 await page.keyboard.press('h');
 await page.waitForSelector('.note-piece', { timeout: 5000 });
 await settle(400);
-check('the pieces are all there', (await page.locator('.note-piece').count()) === 6);
+check('the pieces are all there', (await page.locator('.note-piece').count()) === 7);
 check('and the figure’s picture still shows, though the paper was closed', await page.locator('.note-piece').first().locator('.note-clip img').evaluate((img) => img.complete && img.naturalWidth > 50));
 
 check('no errors on the page', errors.length === 0, errors.join('\n'));

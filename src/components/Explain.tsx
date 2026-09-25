@@ -31,6 +31,7 @@ import { useStore } from '../lib/store';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ExplainIcon, NoteIcon, OpacityIcon, SparkleIcon } from './icons';
 import { tableText, useKept, useKeeper } from './Keep';
+import BoxSnip from './BoxSnip';
 import type { Flash } from './PassageFlash';
 import PassageFlash from './PassageFlash';
 
@@ -186,6 +187,9 @@ function Caveat({ block }: { block: Extract<Block, { kind: 'caveat' }> }) {
 
 /** What on the page can be kept whole, by pointing at it. */
 const KEEPABLE = '.explain-figure, .explain-cell, .explain-caveat, .explain-prose table, .explain-prose pre, .explain-prose .chat-math-block';
+
+/** What a box dragged over the page keeps, whole: each piece of it the box touches. */
+const SNIPPABLE = '.explain-prose > *, .explain-figure, .explain-cell, .explain-caveat';
 
 const firstLine = (text: string) => text.split('\n').map((line) => line.trim()).find(Boolean);
 
@@ -620,6 +624,31 @@ export default function Explain({ paperId, title, authors, published, screen, on
     void keep({ label, html: copyOf(element), text, source: { from: 'explain', section: sectionOf(element), quote } });
   };
   const keeper = useKeeper({ root: docRef, selector: KEEPABLE, onKeep: keepElement });
+  // ✂ Snip, or S while this covers the paper: a box dragged over the page
+  // keeps every piece of it the box touches, as it is set.
+  const [snipping, setSnipping] = useState(false);
+  const keepBox = (elements: HTMLElement[]) => {
+    const copy = document.createDocumentFragment();
+    elements.forEach((element) => copy.appendChild(element.cloneNode(true)));
+    const text = elements.map((element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n\n');
+    void keep({ label: 'Snip', html: copyOf(copy), text, source: { from: 'explain', section: sectionOf(elements[0]), quote: text.slice(0, 120) || undefined } });
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || layout === 'beside') return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        setSnipping((current) => !current);
+      } else if (event.key === 'Escape' && snipping) {
+        event.stopPropagation();
+        setSnipping(false);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [layout, snipping]);
   const keepSection = (section: Section, element: HTMLElement) => {
     // Its rows, not the section itself: a copy that called itself a section of the page would be taken for one.
     const rows = document.createDocumentFragment();
@@ -732,6 +761,17 @@ export default function Explain({ paperId, title, authors, published, screen, on
         {streaming ? (
           <button type="button" className="btn sm" onClick={stopExplaining}>
             Stop
+          </button>
+        ) : null}
+        {explanation?.content ? (
+          <button
+            type="button"
+            className="btn sm ghost snip-toggle"
+            aria-pressed={snipping}
+            onClick={() => setSnipping(!snipping)}
+            title="Snip: drag a box over anything here — prose, a diagram, a code cell, a table — to add it to your notes (S)"
+          >
+            ✂ Snip
           </button>
         ) : null}
         <OpacityControl value={opacity} fallback={defaultOpacity} onChange={(value) => updateSettings({ explainOpacity: value })} />
@@ -1059,6 +1099,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
 
       {keeper.button}
       {toast}
+      {snipping ? <BoxSnip root={docRef} selector={SNIPPABLE} onKeep={keepBox} /> : null}
 
       {flash ? (
         <PassageFlash

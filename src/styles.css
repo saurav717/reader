@@ -2024,6 +2024,12 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
   padding: 6px 12px; border-radius: 10px; background: var(--ink); color: var(--paper); font: 500 12px var(--sans); box-shadow: var(--shadow-md);
 }
 .book-nav .snip-btn { flex-shrink: 0; white-space: nowrap; }
+/* A box dragged over reflowed text or the Explain page: the layer lies over
+   the page's pane, and each piece the box touches is lit as it is drawn. */
+.box-snip-layer { position: fixed; z-index: 39; cursor: crosshair; touch-action: none; }
+.is-snip-picked { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; background-color: rgb(var(--accent-rgb) / 0.07); }
+.snip-toggle { white-space: nowrap; flex-shrink: 0; }
+.snip-toggle[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
 .book-nav .snip-btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
 
 /* On the Explain page: the corner button on whatever is pointed at, and the
