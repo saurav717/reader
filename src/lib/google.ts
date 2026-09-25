@@ -488,3 +488,9 @@ export async function uploadFile(
   const response = await driveFetch(accessToken, url, { method: options.fileId ? 'PATCH' : 'POST', body: form });
   return (await response.json()) as DriveFile;
 }
+
+/** When a file the app put in Drive last changed, without downloading it. */
+export async function fileModifiedTime(accessToken: string, fileId: string, signal?: AbortSignal): Promise<string | undefined> {
+  const response = await driveFetch(accessToken, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=modifiedTime`, { signal });
+  return ((await response.json()) as { modifiedTime?: string }).modifiedTime;
+}

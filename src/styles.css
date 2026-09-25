@@ -4139,3 +4139,82 @@ input.board-link-label { cursor: text; outline: none; min-width: 150px; text-ali
   .run-console { left: 0; border-left: 0; border-radius: 0; max-height: 50vh; }
   .btn.local-open span, .btn.colab-open span { display: none; }
 }
+
+/* Colab, over Drive (lib/colab.ts): the run's panel at the foot of the page,
+   the loss as one line, and a cell's real output beside what Claude expected. */
+.btn.colab-open.is-on { color: #e8710a; border-color: color-mix(in srgb, #e8710a 55%, transparent); }
+.menu .colab-action.is-primary { border: 1px solid rgb(var(--accent-rgb) / 0.35); background: var(--accent-soft); margin-bottom: 4px; }
+.menu .colab-action.is-primary b { color: var(--accent-ink); }
+.colab-panel {
+  position: fixed; right: 16px; bottom: 16px; z-index: 42; width: min(440px, calc(100vw - 32px));
+  display: flex; flex-direction: column; border-radius: 14px; overflow: hidden;
+  border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-md);
+  animation: explain-in 0.24s ease-out;
+}
+.colab-panel > header { display: flex; align-items: center; gap: 8px; padding: 9px 8px 9px 12px; border-bottom: 1px solid var(--border-soft); color: #e8710a; font-size: 12.5px; cursor: pointer; }
+.colab-panel.is-shut > header { border-bottom: 0; }
+.colab-panel > header b { color: var(--ink); font-weight: 600; white-space: nowrap; }
+.run-spacer { flex: 1; }
+.run-meta { display: flex; justify-content: space-between; gap: 10px; font: 11px var(--mono); color: var(--muted); }
+/* Docked in the outline: the column's width, no float. */
+.colab-panel.is-docked { position: static; width: auto; margin: 14px 0 0; box-shadow: none; border-radius: 12px; animation: none; }
+.colab-panel.is-docked > header { padding: 8px 6px 8px 10px; font-size: 12px; gap: 6px; flex-wrap: wrap; }
+.colab-panel.is-docked .run-chip { white-space: normal; line-height: 1.3; }
+.colab-panel.is-docked .run-open { display: none; }
+.colab-panel.is-docked .colab-body { max-height: none; padding: 8px 10px 10px; gap: 8px; }
+.colab-panel.is-docked .run-log { max-height: 150px; font-size: 10.5px; }
+.colab-panel.is-docked .run-hint { font-size: 12px; }
+.colab-panel.is-docked .run-foot { flex-direction: column; align-items: flex-start; gap: 4px; }
+.colab-panel.is-docked .run-polled { margin-left: 0; }
+.colab-panel.is-docked .run-meta { flex-direction: column; gap: 2px; }
+.colab-panel.is-docked .run-meta .run-gpu { max-width: none; white-space: normal; text-align: left; }
+.colab-panel.is-docked .run-meta .run-time { text-align: left; }
+.colab-panel.is-docked .colab-body > .run-meta + .run-hint { margin-top: 0; }
+.colab-panel.is-docked .colab-body .docked-open { font-size: 11.5px; font-weight: 600; color: var(--accent); text-decoration: none; }
+.run-chip { display: inline-flex; align-items: center; gap: 6px; font: 600 10.5px/1 var(--sans); letter-spacing: 0.04em; text-transform: uppercase; padding: 4px 7px; border-radius: 5px; color: var(--c, var(--muted)); background: color-mix(in srgb, var(--c, var(--muted)) 14%, transparent); white-space: nowrap; }
+.run-chip .spinner { width: 9px; height: 9px; border-width: 1.5px; }
+.run-chip.state-waiting { --c: var(--v-refined); }
+.run-chip.state-running { --c: var(--v-holds); }
+.run-chip.state-done { --c: var(--accent); }
+.run-chip.state-failed { --c: var(--v-disproved); }
+.run-chip.state-stale { --c: var(--v-superseded); }
+.run-gpu { font: 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px; }
+.run-time { text-align: right; font: 11px var(--mono); color: var(--muted); white-space: nowrap; }
+.run-open { font-size: 11.5px; font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; }
+.run-open:hover { text-decoration: underline; }
+.colab-body { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; max-height: 60vh; overflow-y: auto; }
+.run-hint, .run-message { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+.run-hint b { color: var(--ink); font-weight: 600; }
+.run-message { color: var(--ink); }
+.run-progress { position: relative; height: 22px; border-radius: 6px; background: var(--panel); overflow: hidden; }
+.run-bar { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--hl-blue))); transition: width 0.4s ease; }
+.run-progress span { position: relative; display: block; line-height: 22px; padding: 0 8px; font: 500 11px/22px var(--mono); color: var(--ink); }
+.run-error { margin: 0; padding: 8px 10px; border-radius: 8px; font: 11.5px/1.5 var(--mono); color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); white-space: pre-wrap; }
+.run-log { margin: 0; padding: 8px 10px; border-radius: 8px; max-height: 180px; overflow: auto; font: 11px/1.5 var(--mono); color: var(--ink-2); background: var(--panel); white-space: pre-wrap; word-break: break-word; }
+:root[data-theme='dark'] .run-log { background: #101211; color: #c9cec6; }
+.run-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 11px; color: var(--muted); }
+.run-foot .is-bad { color: var(--danger); }
+.run-polled { margin-left: auto; }
+/* The chart: one series, the accent; grid and ticks recessive; a readout where the pointer is. */
+.metric-chart { margin: 0; padding: 8px 10px 6px; border-radius: 8px; border: 1px solid var(--border-soft); background: var(--surface); }
+.metric-chart figcaption { display: flex; justify-content: space-between; align-items: baseline; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 4px; }
+.metric-chart figcaption b { font: 600 13px var(--mono); color: var(--ink); text-transform: none; letter-spacing: 0; }
+.metric-chart figcaption i { font: 11px var(--sans); color: var(--muted); font-style: normal; }
+.metric-chart svg { display: block; width: 100%; height: auto; }
+.metric-chart .grid { stroke: var(--border-soft); stroke-width: 1; }
+.metric-chart .tick { font: 9.5px var(--mono); fill: var(--muted); }
+.metric-chart .series { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.metric-chart .crosshair { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.metric-chart .marker { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+/* A cell's output from Colab, and what Claude expected under it, quieter. */
+.cell-output.is-colab { border-top: 1px dashed color-mix(in srgb, #e8710a 60%, var(--border)); background: color-mix(in srgb, #e8710a 5%, var(--surface)); }
+.cell-output.is-colab .cell-output-label { display: flex; align-items: center; gap: 5px; color: #e8710a; }
+.cell-output.is-colab pre { color: var(--ink); }
+.cell-output .cell-image { display: block; max-width: 100%; margin: 6px 16px 12px; border-radius: 6px; }
+.cell-output .cell-error { color: var(--danger); }
+.cell-output.is-expected { opacity: 0.75; }
+.cell-output.is-expected pre { max-height: 120px; overflow: auto; }
+@media (max-width: 900px) {
+  .colab-panel { right: 8px; bottom: 8px; left: 8px; width: auto; }
+  .run-gpu { display: none; }
+}

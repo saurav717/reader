@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify';
 import { cleanFigure } from '../lib/sanitize';
 import type { CSSProperties } from 'react';
-import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Fragment, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Screen } from '../lib/assistant';
 import { getState, MODELS, saveKey, subscribe } from '../lib/assistant';
 import type { Block, Section } from '../lib/explain';
@@ -41,7 +41,7 @@ import { selectedText } from '../lib/screen';
 import { useStore } from '../lib/store';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ExplainIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon } from './icons';
-import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
+import { ColabMenu, ColabOutput, ColabOutputsContext, ColabRunPanel, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, RunConsole, runLocally, TreeBlock, useColab, useLocal } from './Implement';
 import { tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
 import type { Flash } from './PassageFlash';
@@ -120,6 +120,19 @@ const PAGES: { id: ExplainPage; label: string; note: string }[] = [
   { id: 'implement', label: 'Implementation', note: 'How to build it: what to reproduce, the datasets, the repository, the starter files, and what it costs on your machine' },
 ];
 
+/** Whether the window is one column, where the outline is hidden. */
+function useNarrow() {
+  const query = '(max-width: 900px)';
+  const [narrow, setNarrow] = useState(() => (typeof window !== 'undefined' ? window.matchMedia(query).matches : false));
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const onChange = () => setNarrow(media.matches);
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+  return narrow;
+}
+
 const VERDICT_CELL = /<td>(Still holds|Holds|Refined(?: since)?|Superseded|Disputed|Disproved)<\/td>/gi;
 /** Prose, with a verdict alone in a table cell (the "Since then" table) drawn as its chip. */
 const html = (md: string) =>
@@ -179,6 +192,8 @@ function CodeCell({ block, index }: { block: Extract<Block, { kind: 'code' }>; i
   const shell = block.lang === 'bash';
   // A shell cell runs on the reader's own machine once the scaffold is written there (the Local menu).
   const { project, console: local } = useLocal();
+  // What the cell printed in Colab, once it has run there (the Colab menu), by its title.
+  const fromColab = useContext(ColabOutputsContext).get(block.title);
   return (
     <figure className={`explain-cell${shell ? ' is-shell' : ''}`}>
       <header>
@@ -223,9 +238,10 @@ function CodeCell({ block, index }: { block: Extract<Block, { kind: 'code' }>; i
         <code dangerouslySetInnerHTML={{ __html: python ? highlightPython(block.code) : esc(block.code) }} />
         {block.open ? <span className="caret" aria-hidden="true" /> : null}
       </pre>
+      {fromColab ? <ColabOutput outputs={fromColab} /> : null}
       {block.output !== undefined ? (
-        <div className="cell-output">
-          <div className="cell-output-label">Expected output · written by Claude, not run yet</div>
+        <div className={`cell-output${fromColab ? ' is-expected' : ''}`}>
+          <div className="cell-output-label">{fromColab ? 'What Claude expected' : 'Expected output · written by Claude, not run yet'}</div>
           <pre>{block.output}</pre>
         </div>
       ) : null}
@@ -886,6 +902,11 @@ export default function Explain({ paperId, title, authors, published, screen, on
     </>
   );
 
+  const colabOutputs = useColab(paperId).outputs;
+  // The Colab run's panel sits in the outline; where there is no outline — beside the paper, or a phone — it floats.
+  const narrow = useNarrow();
+  const floating = layout === 'beside' || narrow;
+
   const year = published?.slice(0, 4);
   const byline = [authors.slice(0, 3).join(', ') + (authors.length > 3 ? ' et al.' : ''), year].filter(Boolean).join(' · ');
   const writtenWith = MODELS.find((m) => m.id === explanation?.model)?.label ?? explanation?.model;
@@ -921,7 +942,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
         </div>
         {implementing && explanation?.content && !streaming ? (
           <>
-            <ColabMenu title={title} content={shown} sections={sections} />
+            <ColabMenu paperId={paperId} title={title} content={shown} sections={sections} />
             <LocalMenu title={title} content={shown} sections={sections} />
           </>
         ) : hasCode && !streaming ? (
@@ -1115,6 +1136,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
             </div>
           ) : null}
           {implementing && explanation?.content ? <HardwareSummary sections={sections} /> : null}
+          {implementing && explanation?.content && !floating ? <ColabRunPanel paperId={paperId} docked /> : null}
           {explanation?.content ? (
             <div className="outline-meta">
               {streaming ? (implementing ? 'Claude is planning…' : 'Claude is writing…') : `${implementing ? 'Planned' : 'Written'} by ${writtenWith} · ${new Date(explanation.created).toLocaleDateString()}`}
@@ -1123,6 +1145,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           ) : null}
         </nav>
 
+        <ColabOutputsContext.Provider value={colabOutputs}>
         <article
           className="explain-doc"
           ref={docRef}
@@ -1224,6 +1247,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
             </>
           )}
         </article>
+        </ColabOutputsContext.Provider>
       </div>
 
       {picked ? (
@@ -1254,6 +1278,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
       ) : null}
 
       {implementing ? <RunConsole sections={sections} /> : null}
+      {implementing && explanation?.content && floating ? <ColabRunPanel paperId={paperId} /> : null}
       {keeper.button}
       {toast}
       {snipping ? <BoxSnip root={docRef} selector={SNIPPABLE} onKeep={keepBox} /> : null}

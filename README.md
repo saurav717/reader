@@ -2319,16 +2319,58 @@ and the sums are `src/lib/hardware.ts`.
 
 ### Colab
 
-**Colab** in the bar takes the scaffold out of the page. With a Git repository
-connected (Settings → Git repository), one click commits the starter files,
-the plan as `PLAN.md` and a notebook under `implementations/<paper>/` and
-opens the notebook in Colab straight from GitHub. Without one, the notebook
-and a zip of the scaffold download, and Colab's *File → Upload notebook*
-takes the notebook. The notebook's first cells make the directories and write
-every starter file into the Colab session's disk, then the page's own cells
-follow — so running it top to bottom lays the repository out and runs it.
+Google Colab has no API a website can drive: nothing starts a runtime or
+runs a cell from outside, the free tier belongs to the Google session in your
+browser, and colab.research.google.com will not be framed. What Colab does
+do, officially, is open a notebook that is in your Drive and mount that
+Drive inside the session. So Drive is the bridge, both ways, and the Drive
+grant the reader already has is all it needs.
 
-![the Colab menu: commit and open, or download the notebook or the zip](docs/implement-colab.png)
+**Colab** in the bar, with Drive connected: **Save to Drive and open in
+Colab** writes the notebook into the paper's own folder —
+`Papers_collection/<paper>/<paper>.ipynb` — and opens Colab on it. The
+notebook's first cells make the directories and write every starter file
+into the session; its second cell mounts Drive and reports back; the page's
+own cells follow; the last cell says it is done. Press **Runtime → Run all**
+there, allow the mount when it asks, and the run shows up on the page:
+
+- **Colab run**, in the outline: the state (waiting for Run all, running and
+  which cell, done, a cell failed, or no word for a while), the GPU Colab
+  gave you, how long it has been, progress when the notebook reports
+  `status(steps=…, step=…)`, the **loss** as a line with a readout under the
+  pointer whenever a cell calls `metric(step, loss=…)`, and the tail of the
+  log — everything the cells print.
+- **Output from Colab** on every cell that has run, in place of the output
+  Claude expected, which drops below it, quieter: text, images, and the
+  error if the cell failed.
+
+![the Colab menu with Drive connected: Save to Drive and open in Colab](docs/implement-colab.png)
+
+![the run coming back: the GPU, the cell, the progress, the loss, the log](docs/implement-colab-running.png)
+
+![done: each cell's real output from Colab beside the one Claude expected](docs/implement-colab-done.png)
+
+How it comes back: the second cell tees `stdout` and `stderr` into
+`runs/<paper>/log.txt`, writes `status.json` after every cell (the
+notebook's `post_run_cell` hook), and appends a JSON line to
+`metrics.jsonl` on each `metric()`. Those three files are made by the
+reader, empty, *before* Colab opens, and the notebook overwrites them
+through the mount: the app's Drive grant is `drive.file`, files the app
+made, so files the app made are the ones it can keep reading. The page
+asks Drive for their modified times every eight seconds while the run is
+live, downloads what changed, and reads the notebook itself — Colab
+autosaves it, outputs and all — for the cells' outputs. A run is remembered
+per paper, so opening the page later picks it up where it is; a running
+status that goes twelve minutes without a change is shown as *no word for a
+while*, which is what a free session ending looks like.
+
+Without Drive connected, the menu still offers the notebook as a download
+(Colab's *File → Upload notebook* takes it) and, with a Git repository
+connected, a commit of the scaffold that Colab opens from GitHub — but
+neither of those reports back. The code is `src/lib/colab.ts`;
+`scripts/colab.test.mjs` tests the reporter cell and the parsing, and
+`scripts/implement-colab-smoke.mjs` runs the whole loop against an
+in-memory Drive with a stand-in for the Colab session writing into it.
 
 ### Your own machine
 
@@ -2366,6 +2408,7 @@ on a static deployment says what to run instead. The server side is
 
 `scripts/implement.test.mjs` reads the plan's blocks, works a budget out on
 several machines, and checks the zip, the notebook and the commit's files;
+`scripts/colab.test.mjs` the reporter cell and what comes back from a run;
 `scripts/workspace.test.mjs` writes and runs in a temporary workspace.
 `scripts/implement-smoke.mjs` runs the whole page in a browser against a
 stand-in for `api.anthropic.com` (`scripts/fixtures/implement-minitron.md`),

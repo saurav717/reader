@@ -7,9 +7,11 @@
 //  and the Colab menu that takes the scaffold out of the page.
 // ===========================================================================
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 import type { Block, Section } from '../lib/explain';
+import { colabFor, forgetColabRun, isDone, loadColabRun, logTail, STALE_AFTER_MS, startColabRun, stopWatching, subscribeColab, watchColabRun } from '../lib/colab';
+import type { CellOutput, MetricPoint, RunState } from '../lib/colab';
 import { commitFiles, targetFrom } from '../lib/github';
 import type { RepoFiles } from '../lib/github';
 import { DEFAULT_HARDWARE, estimate, FIT_TEXT, flopsText, GPUS, gpuById, hoursText, matchGpu, normaliseHardware, parseCompute, usdText } from '../lib/hardware';
@@ -552,11 +554,14 @@ function download(name: string, blob: Blob) {
  * commit, and Colab is opened on the notebook. Without a repository, the
  * notebook and the zip download, and Colab's upload takes them.
  */
-export function ColabMenu({ title, content, sections }: { title: string; content: string; sections: Section[] }) {
-  const { settings } = useStore();
+export function ColabMenu({ paperId, title, content, sections }: { paperId: string; title: string; content: string; sections: Section[] }) {
+  const { settings, papers, driveConnected } = useStore();
+  const paper = papers.find((p) => p.id === paperId);
   const target = targetFrom(settings);
+  const colab = useColab(paperId);
   const [open, setOpen] = useState(false);
   const [push, setPush] = useState<PushState>({ state: 'idle' });
+  const [blocked, setBlocked] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -579,6 +584,23 @@ export function ColabMenu({ title, content, sections }: { title: string; content
   const files = useMemo(() => scaffold(title, content, sections), [title, content, sections]);
   const fileCount = Object.keys(files.files).length - 2;
   const slug = slugOf(title);
+  const canDrive = driveConnected && Boolean(paper) && Boolean(settings.googleClientId.trim());
+
+  // Drive, then Colab on the notebook. The window is opened from the click,
+  // before Drive is asked, or the browser would count it as a pop-up.
+  const openInColab = async () => {
+    if (!paper) return;
+    setBlocked(null);
+    const win = window.open('', '_blank');
+    try {
+      const run = await startColabRun({ paper, settings }, title, sections);
+      if (win) win.location.href = run.colabUrl;
+      else setBlocked(run.colabUrl);
+      setOpen(false);
+    } catch {
+      win?.close();
+    }
+  };
 
   const pushToGitHub = async () => {
     if (!target) return;
@@ -587,7 +609,6 @@ export function ColabMenu({ title, content, sections }: { title: string; content
       const result = await commitFiles(target, files.files as RepoFiles, `Implementation scaffold for “${title.slice(0, 72)}”, planned by Claude in Reader`);
       const url = colabUrl(target.owner, target.repo, target.branch, `${files.folder}/${slug}.ipynb`);
       setPush({ state: 'pushed', url, commit: result.commit });
-      // The window opens from the click when the commit is quick; when it is not, the link in the menu is there.
       window.open(url, '_blank', 'noopener');
     } catch (error) {
       setPush({ state: 'error', message: error instanceof Error ? error.message : String(error) });
@@ -596,20 +617,59 @@ export function ColabMenu({ title, content, sections }: { title: string; content
 
   return (
     <div className="menu-wrap" ref={box}>
-      <button type="button" className="btn sm colab-open" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title="Take the scaffold to Google Colab, a zip, or your Git repository">
-        <ColabIcon size={15} /> Colab
+      <button type="button" className={`btn sm colab-open${colab.run ? ' is-on' : ''}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title="Run it in Google Colab: the notebook into your Drive and Colab opened on it, with the run reported back here">
+        <ColabIcon size={15} /> <span>Colab</span>
       </button>
       {open ? (
         <div className="menu right colab-menu" role="menu" aria-label="Colab">
           <div className="menu-label">
-            {fileCount} starter {fileCount === 1 ? 'file' : 'files'}, the plan, and a notebook that writes them
+            {fileCount} starter {fileCount === 1 ? 'file' : 'files'}, the plan, and a notebook that writes them and reports back
           </div>
+          {canDrive ? (
+            <>
+              <button type="button" role="menuitem" className="colab-action is-primary" disabled={colab.saving} onClick={() => void openInColab()}>
+                <b>{colab.saving ? 'Saving to your Drive…' : colab.run ? 'Save again and open in Colab' : 'Save to Drive and open in Colab'}</b>
+                <span>
+                  {settings.driveFolderName || 'Papers_collection'}/{paper?.drive?.folderName ?? 'the paper’s folder'}/{slug}.ipynb — then Runtime → Run all there; the run shows here as it goes
+                </span>
+              </button>
+              {colab.error ? <div className="colab-status is-error">{colab.error}</div> : null}
+              {blocked ? (
+                <div className="colab-status is-ok">
+                  Saved. The browser held the window back —{' '}
+                  <a href={blocked} target="_blank" rel="noreferrer noopener">
+                    open it in Colab ↗
+                  </a>
+                </div>
+              ) : colab.run && !colab.saving ? (
+                <div className="colab-status is-ok">
+                  In your Drive.{' '}
+                  <a href={colab.run.colabUrl} target="_blank" rel="noreferrer noopener">
+                    Open in Colab ↗
+                  </a>
+                  {colab.run.notebookLink ? (
+                    <>
+                      {' · '}
+                      <a href={colab.run.notebookLink} target="_blank" rel="noreferrer noopener">
+                        the file
+                      </a>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="colab-status">
+              <b>Connect Drive for one click.</b> With Drive connected (Settings → Google), the notebook goes into the paper’s folder, Colab opens on it, and the run reports back
+              to this page. Until then, the notebook below opens with <i>File → Upload notebook</i>.
+            </div>
+          )}
           {target ? (
             <>
               <button type="button" role="menuitem" className="colab-action" disabled={push.state === 'pushing'} onClick={() => void pushToGitHub()}>
                 <b>{push.state === 'pushing' ? 'Committing…' : 'Commit to GitHub and open in Colab'}</b>
                 <span>
-                  {files.folder}/ in {target.owner}/{target.repo} on {target.branch}
+                  {files.folder}/ in {target.owner}/{target.repo} on {target.branch} — no reporting back this way
                 </span>
               </button>
               {push.state === 'pushed' ? (
@@ -623,12 +683,7 @@ export function ColabMenu({ title, content, sections }: { title: string; content
                 <div className="colab-status is-error">{push.message}</div>
               ) : null}
             </>
-          ) : (
-            <div className="colab-status">
-              <b>No repository connected.</b> Give Settings → Git repository a repo and a token, and one click commits the scaffold and opens it in Colab. Until then, the
-              notebook below opens with <i>File → Upload notebook</i>.
-            </div>
-          )}
+          ) : null}
           <button
             type="button"
             role="menuitem"
@@ -651,10 +706,228 @@ export function ColabMenu({ title, content, sections }: { title: string; content
             <span className="colab-mark" aria-hidden="true">
               co
             </span>
-            Running a cell here, in place, waits on a Colab connection; the notebook is the same cells.
+            Colab has no API a site may run cells through, and the free tier is your Google session’s: the notebook runs in Colab’s tab, and Drive brings the run back here.
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The run, as it comes back through Drive
+// ---------------------------------------------------------------------------
+
+export const useColab = (paperId: string) => useSyncExternalStore(subscribeColab, () => colabFor(paperId));
+
+/** The outputs Colab saved, by cell title, for the cells on the page. */
+export const ColabOutputsContext = createContext<Map<string, CellOutput[]>>(new Map());
+
+const STATE_TEXT: Record<RunState, string> = {
+  waiting: 'Waiting for Run all',
+  running: 'Running',
+  done: 'Done',
+  failed: 'A cell failed',
+  stale: 'No word for a while',
+};
+
+const elapsed = (from?: string, to?: string) => {
+  if (!from) return '';
+  const ms = (to ? Date.parse(to) : Date.now()) - Date.parse(from);
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  return hoursText(ms / 3_600_000);
+};
+
+/** A single series against step, in the accent, with a readout where the pointer is. */
+function MetricChart({ points, name }: { points: MetricPoint[]; name: string }) {
+  const [at, setAt] = useState<number | null>(null);
+  const data = points.filter((point) => name in point.values);
+  if (data.length < 2) return null;
+  const W = 320;
+  const H = 96;
+  const pad = { l: 34, r: 8, t: 8, b: 18 };
+  const xs = data.map((point) => point.step);
+  const ys = data.map((point) => point.values[name]);
+  const x0 = Math.min(...xs);
+  const x1 = Math.max(...xs);
+  const y0 = Math.min(...ys);
+  const y1 = Math.max(...ys);
+  const sx = (x: number) => pad.l + ((x - x0) / Math.max(1e-9, x1 - x0)) * (W - pad.l - pad.r);
+  const sy = (y: number) => pad.t + (1 - (y - y0) / Math.max(1e-9, y1 - y0)) * (H - pad.t - pad.b);
+  const path = data.map((point, i) => `${i ? 'L' : 'M'}${sx(point.step).toFixed(1)} ${sy(point.values[name]).toFixed(1)}`).join(' ');
+  const fmt = (value: number) => (Math.abs(value) >= 100 ? value.toFixed(0) : value.toPrecision(3));
+  const picked = at === null ? null : data[at];
+  return (
+    <figure className="metric-chart" aria-label={`${name} against step`}>
+      <figcaption>
+        <span>{name}</span>
+        {picked ? (
+          <b>
+            {fmt(picked.values[name])} <i>at step {picked.step}</i>
+          </b>
+        ) : (
+          <b>
+            {fmt(ys[ys.length - 1])} <i>latest</i>
+          </b>
+        )}
+      </figcaption>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        onMouseMove={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          const x = ((event.clientX - rect.left) / rect.width) * W;
+          let best = 0;
+          data.forEach((point, i) => {
+            if (Math.abs(sx(point.step) - x) < Math.abs(sx(data[best].step) - x)) best = i;
+          });
+          setAt(best);
+        }}
+        onMouseLeave={() => setAt(null)}
+      >
+        <line x1={pad.l} x2={W - pad.r} y1={sy(y0)} y2={sy(y0)} className="grid" />
+        <line x1={pad.l} x2={W - pad.r} y1={sy(y1)} y2={sy(y1)} className="grid" />
+        <text x={pad.l - 4} y={sy(y1) + 4} textAnchor="end" className="tick">
+          {fmt(y1)}
+        </text>
+        <text x={pad.l - 4} y={sy(y0) + 4} textAnchor="end" className="tick">
+          {fmt(y0)}
+        </text>
+        <text x={pad.l} y={H - 4} className="tick">
+          {x0}
+        </text>
+        <text x={W - pad.r} y={H - 4} textAnchor="end" className="tick">
+          {x1}
+        </text>
+        <path d={path} className="series" />
+        {picked ? (
+          <>
+            <line x1={sx(picked.step)} x2={sx(picked.step)} y1={pad.t} y2={H - pad.b} className="crosshair" />
+            <circle cx={sx(picked.step)} cy={sy(picked.values[name])} r={4} className="marker" />
+          </>
+        ) : null}
+      </svg>
+    </figure>
+  );
+}
+
+/**
+ * The run's panel: the state, the GPU, how far it is, the loss, the log's
+ * tail, and where it is in Colab. It follows the run through Drive while
+ * the page is open, and again when the page is opened later.
+ */
+export function ColabRunPanel({ paperId, docked }: { paperId: string; docked?: boolean }) {
+  const { settings } = useStore();
+  const colab = useColab(paperId);
+  const [shut, setShut] = useState(false);
+  useEffect(() => {
+    void loadColabRun(paperId).then((run) => {
+      if (run && !isDone(colabFor(paperId).status?.state) && !colabFor(paperId).watching) watchColabRun(paperId, settings);
+    });
+    return () => stopWatching(paperId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paperId]);
+  const run = colab.run;
+  if (!run) return null;
+  const status = colab.status ?? { state: 'waiting' as RunState };
+  const state = status.state;
+  const metric = colab.metrics.length ? Object.keys(colab.metrics[colab.metrics.length - 1].values).find((key) => /loss/i.test(key)) ?? Object.keys(colab.metrics[colab.metrics.length - 1].values)[0] : undefined;
+  const progress = status.steps && status.step !== undefined ? Math.min(1, status.step / status.steps) : colab.metrics.length && status.steps ? Math.min(1, colab.metrics[colab.metrics.length - 1].step / status.steps) : null;
+  const tail = logTail(colab.log);
+  return (
+    <section className={`colab-panel state-${state}${shut ? ' is-shut' : ''}${docked ? ' is-docked' : ''}`} role="region" aria-label="Colab run">
+      <header onClick={() => setShut(!shut)}>
+        <ColabIcon size={15} />
+        <b>Colab run</b>
+        <span className={`run-chip state-${state}`}>
+          {state === 'running' || (state === 'waiting' && colab.watching) ? <span className="spinner" /> : null}
+          {STATE_TEXT[state]}
+          {state === 'running' && status.cell ? ` · cell ${status.cell}` : ''}
+        </span>
+        <span className="run-spacer" />
+        <a href={run.colabUrl} target="_blank" rel="noreferrer noopener" className="run-open" onClick={(event) => event.stopPropagation()}>
+          Open in Colab ↗
+        </a>
+        <button
+          type="button"
+          className="icon-btn sm"
+          aria-label="Forget this run"
+          title="Forget this run here (the notebook and its files stay in Drive)"
+          onClick={(event) => {
+            event.stopPropagation();
+            forgetColabRun(paperId);
+          }}
+        >
+          <CloseIcon size={14} />
+        </button>
+      </header>
+      {!shut ? (
+        <div className="colab-body">
+          {status.gpu || (state !== 'waiting' && status.started) ? (
+            <div className="run-meta">
+              {status.gpu ? <span className="run-gpu">{status.gpu}</span> : null}
+              {state !== 'waiting' ? <span className="run-time">{elapsed(status.started, isDone(state) ? status.updated : undefined)}{isDone(state) ? ' in all' : ' so far'}</span> : null}
+            </div>
+          ) : null}
+          {state === 'waiting' ? (
+            <p className="run-hint">
+              The notebook is open in Colab. Press <b>Runtime → Run all</b> there, allow the Drive mount when it asks, and the run shows here: the GPU it got, each cell as it
+              runs, the log, the loss, and every cell’s output beside the cell on this page.
+              {colab.watching ? ' Watching your Drive for it.' : ''}
+            </p>
+          ) : null}
+          {status.message ? <p className="run-message">{status.message}</p> : null}
+          {progress !== null ? (
+            <div className="run-progress" aria-label="Progress">
+              <div className="run-bar" style={{ width: `${Math.round(progress * 100)}%` }} />
+              <span>
+                {status.step ?? colab.metrics[colab.metrics.length - 1]?.step ?? 0} / {status.steps} steps · {Math.round(progress * 100)}%
+              </span>
+            </div>
+          ) : null}
+          {state === 'failed' && status.error ? <pre className="run-error">{status.error}</pre> : null}
+          {state === 'stale' ? <p className="run-hint">Nothing has been written for {hoursText(STALE_AFTER_MS / 3_600_000)}: the session may have ended or been idle. Colab’s free sessions stop after a while; a checkpoint in Drive lets the notebook pick up again.</p> : null}
+          {metric ? <MetricChart points={colab.metrics} name={metric} /> : null}
+          {tail ? <pre className="run-log">{tail}</pre> : null}
+          <div className="run-foot">
+            {docked ? (
+              <a href={run.colabUrl} target="_blank" rel="noreferrer noopener" className="docked-open">
+                Open in Colab ↗
+              </a>
+            ) : null}
+            {colab.outputs.size ? <span>{colab.outputs.size} cells reported their output — shown beside the cells{docked ? '' : ' above'}.</span> : null}
+            {colab.error ? <span className="is-bad">Drive: {colab.error}</span> : null}
+            {!colab.watching && !isDone(state) ? (
+              <button type="button" className="btn sm ghost" onClick={() => watchColabRun(paperId, settings)}>
+                Watch again
+              </button>
+            ) : null}
+            {colab.polled ? <span className="run-polled">checked {new Date(colab.polled).toLocaleTimeString()}</span> : null}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/** A cell's output as Colab saved it, in place of the one Claude expected. */
+export function ColabOutput({ outputs, when }: { outputs: CellOutput[]; when?: string }) {
+  return (
+    <div className="cell-output is-colab">
+      <div className="cell-output-label">
+        <ColabIcon size={12} /> Output from Colab{when ? ` · ${when}` : ''}
+      </div>
+      {outputs.map((output, i) =>
+        output.kind === 'image' ? (
+          <img key={i} src={output.src} alt="" className="cell-image" />
+        ) : output.kind === 'error' ? (
+          <pre key={i} className="cell-error">
+            {output.name}: {output.value}
+          </pre>
+        ) : (
+          <pre key={i}>{output.text}</pre>
+        ),
+      )}
     </div>
   );
 }
