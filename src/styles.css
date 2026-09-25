@@ -94,7 +94,7 @@ input, textarea { font: inherit; color: inherit; }
 
 /* ---------------------------------------------------------------- shell -- */
 
-.app { display: flex; height: 100%; overflow: hidden; }
+.app { display: flex; height: 100%; overflow: hidden; --dock-w: 348px; --slide-time: 0.34s; --slide-ease: cubic-bezier(0.2, 0.8, 0.2, 1); }
 
 .rail {
   width: 60px;
@@ -169,7 +169,7 @@ a.icon-btn:hover { color: var(--ink); }
 /* The right-hand dock: discover and highlights share one column so the
    reading column never has a panel on both sides of it at once. */
 .dock {
-  width: 348px;
+  width: var(--dock-w);
   flex-shrink: 0;
   background: var(--panel);
   border-left: 1px solid var(--border);
@@ -1934,6 +1934,92 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
   border-radius: 0 0 2px 0; opacity: 0; transition: opacity 0.12s;
 }
 .assistant-win:hover .win-grip-se::after { opacity: 0.5; }
+/* The highlights and notes popped out into a window of the same make: the
+   dock's pane, given up its own background so the window's glass shows. */
+.notes-win .notes-rail { width: 100%; flex: 1 1 auto; min-height: 0; background: transparent; border: 0; }
+.notes-win .note-card { background: rgb(var(--win-rgb) / 0.72); }
+/* ---------------------------------------------------------------- notes --
+   Your notes on a paper, beside its highlights: what you write, and what you
+   keep from its Explain page. A kept piece is drawn with Explain's own
+   styles, sized down to the pane. */
+.notes-tabs { display: flex; align-items: center; gap: 4px; padding: 0 12px 10px; flex-shrink: 0; }
+.notes-tabs.in-window { padding-top: 10px; }
+.notes-tabs [role='tab'] {
+  height: 28px; padding: 0 11px; border: 1px solid transparent; border-radius: 8px;
+  background: transparent; color: var(--ink-2); font-size: 12px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.notes-tabs [role='tab']:hover { background: rgba(127, 127, 127, 0.1); }
+.notes-tabs [role='tab'][aria-selected='true'] { background: var(--surface); border-color: var(--border); color: var(--ink); font-weight: 500; }
+.notes-tab-count { font-size: 10.5px; color: var(--muted); font-weight: 500; }
+.notes-list { padding: 0 12px 20px; display: flex; flex-direction: column; gap: 8px; }
+.notes-empty { padding: 4px 4px 2px; margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+.notes-write-btn { align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; }
+.note-piece { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px 9px; }
+.note-piece.is-fresh { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); transition: box-shadow 0.6s ease, border-color 0.6s ease; }
+.note-piece-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; min-height: 22px; }
+.note-piece-kind { flex: 1; min-width: 0; font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note-piece-tools { display: flex; gap: 0; opacity: 0.35; transition: opacity 0.15s ease; }
+.note-piece:hover .note-piece-tools, .note-piece:focus-within .note-piece-tools { opacity: 1; }
+.note-piece-tools .icon-btn { width: 24px; height: 24px; font-size: 13px; }
+.note-piece-tools .icon-btn:disabled { opacity: 0.35; cursor: default; }
+.note-write {
+  width: 100%; border: 0; background: transparent; resize: none; overflow: hidden;
+  font: 14.5px/1.55 var(--serif); color: var(--ink); padding: 0; min-height: 44px; outline: none;
+}
+.note-write.is-under { margin-top: 8px; padding: 7px 9px; min-height: 36px; font-size: 13.5px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel); }
+.note-piece-foot { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.note-piece-foot .btn { margin-left: auto; flex-shrink: 0; white-space: nowrap; }
+.note-source {
+  display: inline-flex; align-items: center; gap: 5px; flex: 0 1 auto; min-width: 0;
+  padding: 2px 8px; border: 0; border-radius: 999px; cursor: pointer;
+  background: var(--accent-soft); color: var(--accent-ink); font: 500 11px var(--sans);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.note-source:hover { filter: brightness(0.96); }
+.note-clip { font: 14px/1.55 var(--serif); color: var(--ink); overflow: hidden; }
+.note-clip > :first-child { margin-top: 0; }
+.note-clip > :last-child { margin-bottom: 0; }
+.note-clip p { margin: 0 0 8px; }
+.note-clip ul, .note-clip ol { margin: 0 0 8px; padding-left: 18px; }
+.note-clip h4, .note-clip h5 { font: 600 13.5px/1.35 var(--sans); margin: 8px 0 4px; }
+.note-clip .explain-prose { font-size: 14px; line-height: 1.55; max-width: none; }
+.note-clip .explain-prose p { margin: 0 0 8px; }
+.note-clip .explain-row { display: block; margin: 0; }
+.note-clip .row-side { margin: 8px 0; gap: 8px; }
+.note-clip .explain-figure { padding: 6px; border: 0; background: transparent; }
+.note-clip .figure-art svg { max-height: 280px; }
+.note-clip .explain-figure figcaption { font: 12px/1.45 var(--sans); color: var(--ink-2); margin-top: 6px; }
+.note-clip .explain-cell > header { padding: 5px 8px 5px 10px; }
+.note-clip .cell-code { padding: 9px 10px; font-size: 11.5px; }
+.note-clip .cell-output-label { padding: 6px 10px 0; }
+.note-clip .cell-output pre { padding: 4px 10px 9px; font-size: 11.5px; }
+.note-clip pre { font-size: 11.5px; max-width: 100%; overflow-x: auto; }
+.note-clip table { display: block; overflow-x: auto; font-size: 12px; margin: 0; }
+.note-clip th, .note-clip td { padding: 5px 7px; }
+.note-clip .explain-caveat { margin: 0; }
+.note-clip .chat-math-block, .note-clip .katex-display { overflow-x: auto; overflow-y: hidden; }
+.notes-win .note-piece { background: rgb(var(--win-rgb) / 0.72); }
+
+/* On the Explain page: the corner button on whatever is pointed at, and the
+   line that says it was kept. */
+.note-clip-btn {
+  position: fixed; z-index: 40; display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 10px; border: 0; border-radius: 8px; cursor: pointer;
+  background: var(--ink); color: var(--paper); font: 600 12px var(--sans);
+  box-shadow: var(--shadow-md);
+}
+.note-clip-btn:hover { background: var(--accent); color: var(--accent-on); }
+.note-kept {
+  position: fixed; z-index: 44; left: 50%; bottom: 24px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 14px; border-radius: 12px;
+  background: var(--ink); color: var(--paper); font: 13px var(--sans); box-shadow: var(--shadow-lg);
+  animation: note-kept-in 0.22s ease-out;
+}
+.note-kept button { border: 0; border-radius: 8px; padding: 5px 10px; background: rgb(255 255 255 / 0.14); color: inherit; font: 600 12px var(--sans); cursor: pointer; }
+.note-kept button:hover { background: rgb(255 255 255 / 0.24); }
+@keyframes note-kept-in { from { opacity: 0; transform: translate(-50%, 6px); } }
+
 body.win-moving, body.win-moving * { user-select: none; }
 body.win-moving .assistant-win { transition: none; }
 
@@ -2405,9 +2491,49 @@ body.win-moving .assistant-win { transition: none; }
 @media (max-width: 720px) {
   .app.is-zen { --zen-rail: 52px; }
 }
+
+/* The notes beside the page. Opened in zen mode, the dock comes out and
+   stays out, and rather than being laid over the page it takes a column of
+   its own: the page's right edge draws in by the dock's width, so the text,
+   centred in it, glides left to make room, at the pace the dock slides in.
+   The right edge's strip has nothing left to bring out, and no haze falls,
+   since nothing is laid over the page. */
+.app.is-zen > .main { transition: margin-right var(--zen-time) var(--zen-ease); }
+.app.is-zen.notes-beside > .main { margin-right: calc(var(--dock-w) + var(--zen-inset)); }
+:root .app.is-zen.notes-beside > .dock {
+  translate: none;
+  visibility: visible;
+  opacity: 1;
+  box-shadow: none;
+  transition: translate var(--zen-time) var(--zen-ease), opacity calc(var(--zen-time) * 0.6) ease, visibility 0s, box-shadow var(--zen-time) ease;
+}
+.app.notes-beside .zen-edge[data-side='right'] { pointer-events: none; opacity: 0; }
+.app.notes-beside .zen-haze[data-side='right'] { opacity: 0; }
+
+/* Outside zen mode, with nothing either side of the page, the dock slides in
+   from the right edge instead of appearing, and the page narrows with it:
+   the dock's margin starts a dock's width (and the gap) past the window's
+   edge, so it takes no room at first and all of it by the end. Leaving is
+   the same backwards, and the dock is only taken away once it is off. */
+.app { --dock-gap: 0px; }
+:root[data-glass='on'] .app { --dock-gap: 10px; }
+@keyframes dock-slide-in {
+  from { margin-right: calc(-1 * (var(--dock-w) + var(--dock-gap))); }
+  to { margin-right: 0; }
+}
+/* Not the same keyframes reversed: that would reverse the easing too, and
+   the dock would hang in place before rushing off. */
+@keyframes dock-slide-out {
+  from { margin-right: 0; }
+  to { margin-right: calc(-1 * (var(--dock-w) + var(--dock-gap))); }
+}
+.app.dock-slide-in > .dock { animation: dock-slide-in var(--slide-time) var(--slide-ease) both; }
+.app.dock-slide-out > .dock { animation: dock-slide-out var(--slide-time) var(--slide-ease) both; }
+
 @media (prefers-reduced-motion: reduce) {
   .app.is-zen { --zen-time: 0s; }
   .zen-haze { transition: none; }
+  .app { --slide-time: 0s; }
 }
 
 /* A paper named in an answer: the name itself, underlined and numbered as its

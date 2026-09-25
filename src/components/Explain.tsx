@@ -21,12 +21,14 @@ import {
   VERDICTS,
 } from '../lib/explain';
 import type { DriveState, RevisionScope } from '../lib/explain';
-import { findPassage, FLASH_EVENT, setExplainLocator } from '../lib/locate';
+import { findPassage, FLASH_EVENT, setExplainLocator, showPassage } from '../lib/locate';
 import { markdown } from '../lib/markdown';
+import { OPEN_NOTES, SHOW_IN_EXPLAIN, addClip, copyOf } from '../lib/notes';
+import type { NoteSource } from '../lib/notes';
 import { selectedText } from '../lib/screen';
 import { useStore } from '../lib/store';
 import { typesetMath } from '../lib/typesetMath';
-import { CloseIcon, ExplainIcon, OpacityIcon, SparkleIcon } from './icons';
+import { CloseIcon, ExplainIcon, NoteIcon, OpacityIcon, SparkleIcon } from './icons';
 import type { Flash } from './PassageFlash';
 import PassageFlash from './PassageFlash';
 
@@ -169,6 +171,62 @@ function Caveat({ block }: { block: Extract<Block, { kind: 'caveat' }> }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Keeping a piece of the page in your notes
+// ---------------------------------------------------------------------------
+
+/** What on the page can be kept whole, by pointing at it. */
+const KEEPABLE = '.explain-figure, .explain-cell, .explain-caveat, .explain-prose table, .explain-prose pre, .explain-prose .chat-math-block';
+
+const firstLine = (text: string) => text.split('\n').map((line) => line.trim()).find(Boolean);
+
+/** What a piece is called in the notes, and what it says as text. */
+function describe(element: HTMLElement): { label: string; text: string; quote?: string } {
+  if (element.matches('.explain-figure')) {
+    const caption = element.querySelector('figcaption')?.textContent?.trim();
+    return { label: 'Diagram', text: caption ? `[Diagram: ${caption}]` : '[Diagram]', quote: caption };
+  }
+  if (element.matches('.explain-cell')) {
+    const code = element.querySelector('.cell-code')?.textContent ?? '';
+    const output = element.querySelector('.cell-output pre')?.textContent;
+    const title = element.querySelector('.cell-title')?.textContent?.trim();
+    const input = element.querySelector('.cell-index')?.textContent?.startsWith('In');
+    return {
+      label: `${input ? 'Code' : 'Output'}${title ? ` · ${title}` : ''}`,
+      text: output != null ? `${code}\n\n# Expected output\n${output}` : code,
+      quote: firstLine(code),
+    };
+  }
+  if (element.matches('.explain-caveat')) {
+    const verdict = element.querySelector('.verdict')?.textContent?.trim();
+    const body = element.querySelector('.caveat-body')?.textContent?.trim() ?? '';
+    return { label: `Caveat${verdict ? ` · ${verdict}` : ''}`, text: body, quote: body.slice(0, 80) };
+  }
+  if (element.matches('table')) {
+    const rows = Array.from(element.querySelectorAll('tr'), (row) => Array.from(row.children, (cell) => (cell.textContent ?? '').trim().replace(/\|/g, '\\|')));
+    const text = rows.map((cells, index) => `| ${cells.join(' | ')} |${index === 0 ? `\n|${cells.map(() => ' --- |').join('')}` : ''}`).join('\n');
+    return { label: 'Table', text, quote: rows[1]?.[0] ?? rows[0]?.[0] };
+  }
+  if (element.matches('.chat-math-block')) return { label: 'Equation', text: `$$${element.dataset.tex ?? ''}$$` };
+  const code = element.textContent ?? '';
+  return { label: 'Code', text: code, quote: firstLine(code) };
+}
+
+/** A section as text: its prose, and a line for each figure, cell and caveat in it. */
+function sectionText(section: Section): string {
+  return section.blocks
+    .map((block) =>
+      block.kind === 'prose'
+        ? block.md
+        : block.kind === 'figure'
+          ? `[Diagram${block.caption ? `: ${block.caption}` : ''}]`
+          : block.kind === 'code'
+            ? `\`\`\`\n${block.code}\n\`\`\`${block.output !== undefined ? `\n\nExpected output:\n\`\`\`\n${block.output}\n\`\`\`` : ''}`
+            : `${VERDICTS[block.verdict]}${block.title ? ` — ${block.title}` : ''}: ${block.md}`,
+    )
+    .join('\n\n');
+}
+
 /**
  * A section, as rows: a run of prose, then whatever figures, cells and
  * caveats follow it. In the margin layout the two halves of a row sit side
@@ -179,12 +237,15 @@ function SectionView({
   number,
   cells,
   onAdjust,
+  onKeep,
   state,
 }: {
   section: Section;
   number: number;
   cells: Map<Block, number>;
   onAdjust?: (title: string) => void;
+  /** Keep the whole section in your notes. */
+  onKeep?: (section: Section, element: HTMLElement) => void;
   /** Being rewritten now, just rewritten, or changed by an earlier request. */
   state?: 'revising' | 'fresh' | 'revised';
 }) {
@@ -219,6 +280,19 @@ function SectionView({
             </span>
           ) : state ? (
             <span className="revised-pill">Revised at your request</span>
+          ) : null}
+          {onKeep && state !== 'revising' ? (
+            <button
+              type="button"
+              className="btn sm ghost ask"
+              onClick={(event) => {
+                const element = event.currentTarget.closest<HTMLElement>('.explain-section');
+                if (element) onKeep(section, element);
+              }}
+              title="Keep this whole section in your notes"
+            >
+              Add to notes
+            </button>
           ) : null}
           {onAdjust ? (
             <button type="button" className="btn sm ghost ask" onClick={() => onAdjust(section.title)} title="Ask a question about this section, or ask for it to be changed, in the bar at the top">
@@ -468,7 +542,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
   }, [paperId, layout]);
 
   // A passage selected here can be taken to Ask Claude, as one selected in the paper can.
-  const [picked, setPicked] = useState<{ text: string; top: number; left: number } | null>(null);
+  const [picked, setPicked] = useState<{ text: string; section?: string; top: number; left: number } | null>(null);
   useEffect(() => {
     if (!picked) return;
     const drop = () => {
@@ -519,6 +593,76 @@ export default function Explain({ paperId, title, authors, published, screen, on
     if (!pending) followed.current = '';
   }, [pending]);
 
+  // ---- keeping pieces in your notes ------------------------------------------
+  // Pointing at a diagram, a code cell, a table, an equation or a caveat puts
+  // an "Add to notes" button on its corner; a selection has one in its
+  // toolbar; a section's heading has one for the whole section. What is kept
+  // is a copy, so a later rewrite of the page leaves your notes as they were.
+  const [keepable, setKeepable] = useState<{ element: HTMLElement; top: number; right: number } | null>(null);
+  const [kept, setKept] = useState<{ label: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!kept) return;
+    const timer = window.setTimeout(() => setKept(null), 3200);
+    return () => window.clearTimeout(timer);
+  }, [kept]);
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!keepable || !scroller) return;
+    const away = () => setKeepable(null);
+    scroller.addEventListener('scroll', away, { passive: true });
+    return () => scroller.removeEventListener('scroll', away);
+  }, [keepable]);
+  const keep = (clip: { label: string; html: string; text: string; source: NoteSource }) => {
+    if (!clip.html.trim() && !clip.text.trim()) return;
+    addClip(paperId, clip);
+    setKept({ label: clip.label, at: Date.now() });
+  };
+  const sectionOf = (element: Element) => element.closest<HTMLElement>('.explain-section')?.dataset.title || undefined;
+  const pointAt = (target: EventTarget | null) => {
+    const element = target instanceof Element ? target.closest<HTMLElement>(KEEPABLE) : null;
+    if (!element || !docRef.current?.contains(element)) return;
+    // A table or an equation inside a caveat is kept with its caveat.
+    const whole = element.parentElement?.closest<HTMLElement>(KEEPABLE) ?? element;
+    const rect = whole.getBoundingClientRect();
+    if (keepable?.element === whole) return;
+    setKeepable({ element: whole, top: Math.max(rect.top + 6, 56), right: window.innerWidth - rect.right + 6 });
+  };
+  const keepElement = (element: HTMLElement) => {
+    const { label, text, quote } = describe(element);
+    keep({ label, html: copyOf(element), text, source: { from: 'explain', section: sectionOf(element), quote } });
+    setKeepable(null);
+  };
+  const keepSection = (section: Section, element: HTMLElement) => {
+    // Its rows, not the section itself: a copy that called itself a section of the page would be taken for one.
+    const rows = document.createDocumentFragment();
+    element.querySelectorAll(':scope > .explain-row').forEach((row) => rows.appendChild(row.cloneNode(true)));
+    keep({ label: 'Section', html: copyOf(rows), text: sectionText(section), source: { from: 'explain', section: section.title || undefined } });
+  };
+  const keepSelection = () => {
+    const selection = window.getSelection();
+    if (!picked || !selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    keep({ label: 'Passage', html: copyOf(range.cloneContents()), text: picked.text, source: { from: 'explain', section: picked.section, quote: picked.text.slice(0, 160) } });
+    selection.removeAllRanges();
+    setPicked(null);
+  };
+
+  // Back from your notes: the passage marked, or its section brought into view.
+  useEffect(() => {
+    const onShow = (event: Event) => {
+      const source = (event as CustomEvent<NoteSource>).detail;
+      const scroller = scrollRef.current;
+      const section = Array.from(scroller?.querySelectorAll<HTMLElement>('.explain-section') ?? []).find((element) => element.dataset.title === source.section);
+      const toSection = () => section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (!source.quote) return toSection();
+      void showPassage({ quote: source.quote, label: 'From your notes', section: source.section, source: 'explanation' }).then((shown) => {
+        if (!shown.found) toSection();
+      });
+    };
+    window.addEventListener(SHOW_IN_EXPLAIN, onShow);
+    return () => window.removeEventListener(SHOW_IN_EXPLAIN, onShow);
+  }, []);
+
   const submit = async (request = ask) => {
     if (!request.trim() || busy) return;
     const read = await screen();
@@ -545,7 +689,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
     }
     setScope({ section: section.dataset.title || undefined, quote: text.slice(0, 1500) });
     const rect = selection.getRangeAt(0).getBoundingClientRect();
-    setPicked({ text, top: rect.bottom + 8, left: Math.max(12, Math.min(window.innerWidth - 180, rect.left)) });
+    setPicked({ text, section: section.dataset.title || undefined, top: rect.bottom + 8, left: Math.max(12, Math.min(window.innerWidth - 340, rect.left)) });
   };
 
   const start = async () => {
@@ -761,7 +905,15 @@ export default function Explain({ paperId, title, authors, published, screen, on
           ) : null}
         </nav>
 
-        <article className="explain-doc" ref={docRef} onMouseUp={takeSelection}>
+        <article
+          className="explain-doc"
+          ref={docRef}
+          onMouseUp={takeSelection}
+          onMouseOver={(event) => pointAt(event.target)}
+          onMouseLeave={(event) => {
+            if (!(event.relatedTarget instanceof Element && event.relatedTarget.closest('.note-clip-btn'))) setKeepable(null);
+          }}
+        >
           {!explanation?.content && !checked ? (
             <p className="explain-looking">
               <span className="spinner" />
@@ -866,6 +1018,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
                     number={index + (sections[0]?.title ? 1 : 0)}
                     cells={cells}
                     onAdjust={canAsk && !busy && section.title ? adjust : undefined}
+                    onKeep={!streaming && section.title ? keepSection : undefined}
                     state={stateOf(section)}
                   />
                 </Fragment>
@@ -895,6 +1048,42 @@ export default function Explain({ paperId, title, authors, published, screen, on
             title="Ask Claude about this passage of the explanation — it reads the paper too"
           >
             <SparkleIcon size={15} /> Ask Claude
+          </button>
+          <span className="divider" />
+          <button
+            type="button"
+            className="wide"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={keepSelection}
+            title="Keep this passage in your notes, maths and all"
+          >
+            <NoteIcon size={15} /> Add to notes
+          </button>
+        </div>
+      ) : null}
+
+      {keepable && keepable.element.isConnected ? (
+        <button
+          type="button"
+          className="note-clip-btn"
+          style={{ top: keepable.top, right: keepable.right }}
+          onClick={() => keepElement(keepable.element)}
+          onMouseLeave={(event) => {
+            if (!(event.relatedTarget instanceof Node && keepable.element.contains(event.relatedTarget))) setKeepable(null);
+          }}
+          title="Keep this in your notes"
+        >
+          <NoteIcon size={14} /> Add to notes
+        </button>
+      ) : null}
+
+      {kept ? (
+        <div className="note-kept" role="status" key={kept.at}>
+          <span>
+            <b>{kept.label}</b> added to your notes
+          </span>
+          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent(OPEN_NOTES))}>
+            Open notes
           </button>
         </div>
       ) : null}

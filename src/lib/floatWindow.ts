@@ -188,6 +188,7 @@ export function stride(previous: number | null): number {
 // Persistence
 // ---------------------------------------------------------------------------
 
+/** Where the Ask Claude window keeps its place; other windows pass their own key. */
 const WINDOW_STORE = 'reader.assistant.window';
 
 export interface WindowPrefs {
@@ -196,9 +197,9 @@ export interface WindowPrefs {
   style: WindowStyle;
 }
 
-export function loadWindow(): WindowPrefs {
+export function loadWindow(store = WINDOW_STORE): WindowPrefs {
   try {
-    const saved = JSON.parse(localStorage.getItem(WINDOW_STORE) || '{}') as Partial<WindowPrefs>;
+    const saved = JSON.parse(localStorage.getItem(store) || '{}') as Partial<WindowPrefs>;
     const rect = saved.rect && [saved.rect.x, saved.rect.y, saved.rect.w, saved.rect.h].every(Number.isFinite) ? saved.rect : null;
     const style = styleAt(saved.style).id;
     const tint = typeof saved.tint === 'number' ? clamp(saved.tint, 0.25, 1) : styleAt(style).tint;
@@ -208,10 +209,44 @@ export function loadWindow(): WindowPrefs {
   }
 }
 
-export function saveWindow(prefs: WindowPrefs) {
+export function saveWindow(prefs: WindowPrefs, store = WINDOW_STORE) {
   try {
-    localStorage.setItem(WINDOW_STORE, JSON.stringify(prefs));
+    localStorage.setItem(store, JSON.stringify(prefs));
   } catch {
     // private mode: the window forgets where it was on reload
   }
 }
+
+// ---------------------------------------------------------------------------
+// Which window is in front
+// ---------------------------------------------------------------------------
+// More than one window can float over the paper at once — Ask Claude and the
+// notes. The one last pressed or typed in is in front: it is drawn on top,
+// and it is the one ⌘ + arrows moves, so a key never moves two at once.
+
+let order: string[] = [];
+const watchers = new Set<() => void>();
+const changed = () => watchers.forEach((watcher) => watcher());
+
+/** The open windows, back to front. */
+export const windowOrder = () => order;
+
+export function watchWindows(watcher: () => void): () => void {
+  watchers.add(watcher);
+  return () => watchers.delete(watcher);
+}
+
+/** A window opening, or being pressed, comes to the front. */
+export function raiseWindow(id: string) {
+  if (order[order.length - 1] === id) return;
+  order = [...order.filter((open) => open !== id), id];
+  changed();
+}
+
+export function dropWindow(id: string) {
+  if (!order.includes(id)) return;
+  order = order.filter((open) => open !== id);
+  changed();
+}
+
+export const isFrontWindow = (id: string) => order[order.length - 1] === id;

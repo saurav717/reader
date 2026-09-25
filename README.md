@@ -1458,8 +1458,10 @@ numeric offset is kept only to break ties between several identical quotes. When
 quote genuinely cannot be found, the note is kept and flagged rather than dropped.
 
 In the reader: select text, then click a colour or press `1`–`4`; `N` highlights and
-opens a note. `⌘K` / `Ctrl-K` opens the palette, which searches your library and
-arXiv together.
+opens a note. `H` — or `⌘⇧\`, which works while typing too — opens and
+closes the highlights and notes; see
+[Notes beside the page, or in a window](#notes-beside-the-page-or-in-a-window).
+`⌘K` / `Ctrl-K` opens the palette, which searches your library and arXiv together.
 
 ## Who wrote it, and what it cites
 
@@ -1712,7 +1714,8 @@ screen before it answers, so there is nothing to paste.
   cycles a half, a third and two thirds. The slider in the bar sets how see-through
   it is, and the button beside it cycles four frames — Frosted, Clear, Terminal and
   Aurora. It keeps its place across reloads. On a phone it is a sheet across the
-  bottom.
+  bottom. With the notes out in their window too, the keys move whichever of the
+  two was pressed or typed in last, and that one is drawn on top.
 - **Settings** (⚙) are cards:
   - **Highlights in answers**: preview tiles.
   - **Passages on the page**: the same choice as in Settings, drawn as
@@ -1817,7 +1820,8 @@ Discover or the highlights, whichever was showing, or the highlights if the
 dock was shut; to the top edge, and the top bar comes down, with the progress
 line and the copy you are reading under it. Move
 back onto the page, press Escape, or tap anywhere off them, and they slide away
-again. A pane with the cursor in its search box stays out until you leave the
+again. A pointer resting at the edge that brought a pane out keeps it out, even
+in the glass theme, where the panes stand a little in from the edge. A pane with the cursor in its search box stays out until you leave the
 box. **Z** again leaves zen mode. It is remembered, so a reload comes back to it.
 
 ![zen mode over a PDF read as a book: the dock out at the right edge, its shadow falling across the page](docs/zen.png)
@@ -1838,6 +1842,37 @@ reflows as they come and go. In the glass theme they take the tint of the cards
 that float over the paper, since what is behind them is the page rather than
 the wallpaper. The styles are the *zen* section at the end of
 `src/styles.css`; the edges and the timing are in `src/App.tsx`.
+
+### Notes beside the page, or in a window
+
+Opening the highlights and notes in zen mode — **H**, `⌘⇧\` (beside Ask
+Claude's `⌘\`, and it works while you are typing), or the button in the top
+bar or the rail — does not lay them over the page. They come out at the right
+and stay out, and the page slides left to make room for them, smoothly, at the
+pace they slide in. **H** again, or their ✕, puts them away and the page slides
+back. Out of zen mode it is the same when the library and the dock are both shut:
+the notes slide in from the right edge and the text gives way to them, and closing
+them slides them off. With either side open already, the dock opens as it always
+has.
+
+![zen mode with the notes out beside the page, the text moved left to make room](docs/notes-beside-zen.png)
+
+A PDF is not moved for them. Over the PDF — as a book or in the browser's viewer —
+and over the explanation, the notes open instead in a window of their own that
+floats over the page, the same kind as Ask Claude's: dragged by its bar, resized
+from any edge, **⌘ + an arrow** to move it (faster the longer the key is held),
+**⌘⇧ + an arrow** to throw it at an edge, double-click the bar to send it home.
+It keeps its place across reloads. With Ask Claude open too, the keys move
+whichever window was pressed or typed in last, and that one comes to the front.
+
+![the PDF as a book in zen mode, the notes in a window over it](docs/notes-window-pdf.png)
+
+The button beside the notes' export (⧉) pops them out into that window anywhere,
+Reflow included, and they stay popped out until the window's dock button puts
+them back beside the page. The window is `src/components/NotesWindow.tsx`; what it
+shares with Ask Claude is `src/components/FloatingWindow.tsx`.
+`scripts/notes-smoke.mjs` checks that the text glides rather than jumps, that the
+PDF stays where it is, and the keys with both windows open.
 
 ## Explain
 
@@ -1944,6 +1979,36 @@ says to switch layouts or close Explain rather than mark words no one can see.
 (`scripts/fixtures/explain-maths.md`), checks it is typeset, then asks Claude
 over it and checks what was sent, where the mark landed, and the selection
 toolbar.
+
+### Keeping it in your notes
+
+What Claude writes is often worth keeping: a worked example, a code cell, a
+table, a diagram, a caveat. Any of it goes into your notes:
+
+- **Point at it.** A diagram, a code cell (with its expected output), a table,
+  an equation or a caveat shows **Add to notes** on its corner.
+- **Select it.** Any selection on the page — a sentence, a list, a paragraph
+  with maths in it — has **Add to notes** in its toolbar, beside **Ask Claude**.
+- **A whole section.** Its heading has **Add to notes** beside *Ask or adjust*.
+
+![pointing at a diagram on the Explain page: Add to notes on its corner, and the line that says it was kept](docs/explain-notes-keep.png)
+
+A line at the bottom says what was kept, with **Open notes**. What is kept is
+a copy of it as it was drawn: the diagram still a drawing that follows the
+theme, the code still coloured, the maths still typeset, the page's own
+buttons left behind. It is a copy on purpose — Rewrite, or a request from the
+bar, changes the page, and your notes stay as they were. Each piece is labelled
+with the section it came from; pressing the label opens Explain if it is shut
+and marks the passage, or brings the section into view.
+
+![the notes over Explain: a diagram and a code cell kept from it, each labelled with its section](docs/explain-notes-kept.png)
+
+They are in the **Notes** tab beside **Highlights**, in the order they were
+kept, among whatever you write there yourself (**+ Write**). Each piece can be
+moved up or down, deleted, or given a line of your own (**+ note**). Notes are
+kept per paper in IndexedDB, and **Export** puts them in the Markdown with the
+highlights. The code is `src/lib/notes.ts` and `src/components/NotesList.tsx`;
+`scripts/explain-notes-smoke.mjs` keeps one of everything and checks it.
 
 ### Kept in Drive
 
@@ -2073,6 +2138,8 @@ npm run test:unit              # query building, merging, citations, the Git mir
 npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
 node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
+node scripts/notes-smoke.mjs   # the notes beside the page, and in a window over the PDF
+node scripts/explain-notes-smoke.mjs # keeping diagrams, code, tables, maths and passages from Explain
 node scripts/recommend-smoke.mjs  # papers named in an answer: cards, Find, Add, the list
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 node scripts/hover-smoke.mjs    # the cards over an author's name and a citation

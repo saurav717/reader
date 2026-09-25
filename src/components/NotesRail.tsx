@@ -1,7 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useStore } from '../lib/store';
+import { NOTE_ADDED, notesMarkdown, useNotes } from '../lib/notes';
+import type { NoteBlock } from '../lib/notes';
+import NotesList from './NotesList';
 import { HIGHLIGHT_COLORS, type Highlight, type HighlightColor } from '../types';
-import { CloseIcon, FileIcon, TrashIcon } from './icons';
+import { CloseIcon, FileIcon, PopOutIcon, TrashIcon } from './icons';
 
 interface Props {
   paperId: string;
@@ -9,10 +12,15 @@ interface Props {
   orphanIds: string[];
   onSelect: (id: string | null) => void;
   onClose: () => void;
+  /** Lift the notes off the dock into a window of their own that floats over the page. */
+  onPopOut?: () => void;
+  /** In that window, whose bar has the title and the close button already. */
+  inWindow?: boolean;
 }
 
-function toMarkdown(title: string, highlights: Highlight[]): string {
+function toMarkdown(title: string, highlights: Highlight[], notes: NoteBlock[]): string {
   const lines = [`# ${title}`, ''];
+  if (notes.length) lines.push('## Notes', '', notesMarkdown(notes), highlights.length ? '## Highlights' : '', '');
   let section = '';
   for (const highlight of highlights) {
     if (highlight.section && highlight.section !== section) {
@@ -26,11 +34,28 @@ function toMarkdown(title: string, highlights: Highlight[]): string {
   return lines.join('\n');
 }
 
-export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, onClose }: Props) {
+export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, onClose, onPopOut, inWindow = false }: Props) {
   const { papers, highlights, updateHighlight, deleteHighlight } = useStore();
   const paper = papers.find((item) => item.id === paperId);
   const [filter, setFilter] = useState<HighlightColor | 'all'>('all');
   const [notesOnly, setNotesOnly] = useState(false);
+  const notes = useNotes(paperId);
+  // Which list is showing: your notes, or the highlights. Until one is picked,
+  // the notes once there are any, and the highlights before that.
+  const [picked, setTab] = useState<'notes' | 'highlights' | null>(null);
+  const tab = picked ?? (notes.length ? 'notes' : 'highlights');
+  // A highlight picked — or a note begun on one — is shown among the highlights;
+  // something kept from Explain, among the notes.
+  useEffect(() => {
+    if (selectedId) setTab('highlights');
+  }, [selectedId]);
+  useEffect(() => {
+    const onAdded = (event: Event) => {
+      if ((event as CustomEvent<{ paperId: string }>).detail.paperId === paperId) setTab('notes');
+    };
+    window.addEventListener(NOTE_ADDED, onAdded);
+    return () => window.removeEventListener(NOTE_ADDED, onAdded);
+  }, [paperId]);
 
   const mine = useMemo(() => {
     let list = highlights.filter((highlight) => highlight.paperId === paperId);
@@ -54,7 +79,7 @@ export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, on
 
   const exportMarkdown = () => {
     if (!paper) return;
-    const blob = new Blob([toMarkdown(paper.title, mine)], { type: 'text/markdown' });
+    const blob = new Blob([toMarkdown(paper.title, mine, notes)], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -65,141 +90,168 @@ export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, on
 
   return (
     <aside className="panel notes-rail" aria-label="Highlights and notes">
-      <div className="panel-head">
-        <h2>Highlights</h2>
-        <button type="button" className="icon-btn sm" onClick={exportMarkdown} aria-label="Export highlights as Markdown">
-          <FileIcon size={16} />
-        </button>
-        <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the highlights panel">
-          <CloseIcon size={17} />
-        </button>
-      </div>
-
-      <div style={{ padding: '0 16px 12px', display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button type="button" className="chip" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
-          All {total}
-        </button>
-        {HIGHLIGHT_COLORS.map((colour) => (
-          <button
-            key={colour.id}
-            type="button"
-            className="chip"
-            aria-pressed={filter === colour.id}
-            title={colour.label}
-            aria-label={colour.label}
-            onClick={() => setFilter(filter === colour.id ? 'all' : colour.id)}
-            style={{ padding: 5, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          >
-            <span className="dot" style={{ background: colour.swatch, width: 12, height: 12 }} />
+      {inWindow ? null : (
+        <div className="panel-head">
+          <h2>Notes</h2>
+          {onPopOut ? (
+            <button type="button" className="icon-btn sm" onClick={onPopOut} aria-label="Pop the notes out into a window" title="Pop out — a window you can move anywhere (⌘ + arrows)">
+              <PopOutIcon size={16} />
+            </button>
+          ) : null}
+          <button type="button" className="icon-btn sm" onClick={exportMarkdown} aria-label="Export notes and highlights as Markdown">
+            <FileIcon size={16} />
           </button>
-        ))}
-        <button type="button" className="chip" aria-pressed={notesOnly} onClick={() => setNotesOnly(!notesOnly)}>
-          With notes
+          <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the highlights panel">
+            <CloseIcon size={17} />
+          </button>
+        </div>
+      )}
+
+      <div className={`notes-tabs${inWindow ? ' in-window' : ''}`} role="tablist" aria-label="Notes or highlights">
+        <button type="button" role="tab" aria-selected={tab === 'notes'} onClick={() => setTab('notes')}>
+          Notes{notes.length ? <span className="notes-tab-count">{notes.length}</span> : null}
         </button>
-      </div>
-
-      {orphanIds.length ? (
-        <p className="banner warn" style={{ margin: '0 16px 12px' }}>
-          {orphanIds.length} highlight{orphanIds.length === 1 ? '' : 's'} could not be found in this version of the
-          text. The note is kept; the quote no longer matches.
-        </p>
-      ) : null}
-
-      <div className="scroll" style={{ padding: '0 12px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {!mine.length ? (
-          <p style={{ padding: '8px 4px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
-            Select text in the paper to highlight it. Keys <span className="mono">1</span>–
-            <span className="mono">4</span> pick a colour, <span className="mono">N</span> adds a note.
-          </p>
+        <button type="button" role="tab" aria-selected={tab === 'highlights'} onClick={() => setTab('highlights')}>
+          Highlights{total ? <span className="notes-tab-count">{total}</span> : null}
+        </button>
+        {inWindow ? (
+          <button type="button" className="icon-btn sm" style={{ marginLeft: 'auto' }} onClick={exportMarkdown} aria-label="Export notes and highlights as Markdown" title="Export as Markdown">
+            <FileIcon size={16} />
+          </button>
         ) : null}
-
-        {grouped.map((group) => (
-          <div key={group.section}>
-            <div className="eyebrow" style={{ padding: '6px 4px 8px' }}>
-              {group.section}
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {group.items.map((highlight) => {
-                const colour = HIGHLIGHT_COLORS.find((item) => item.id === highlight.color);
-                const orphaned = orphanIds.includes(highlight.id);
-                const isSelected = selectedId === highlight.id;
-                return (
-                  <article
-                    key={highlight.id}
-                    className="note-card"
-                    style={isSelected ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent)' } : undefined}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
-                      <span className="dot" style={{ background: colour?.swatch }} />
-                      <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>
-                        {new Date(highlight.createdAt).toLocaleDateString()}
-                        {orphaned ? ' · not found in text' : ''}
-                      </span>
-                      <span style={{ flexGrow: 1 }} />
-                      <button
-                        type="button"
-                        className="icon-btn sm"
-                        style={{ width: 24, height: 24 }}
-                        aria-label="Delete this highlight"
-                        onClick={() => {
-                          void deleteHighlight(highlight.id);
-                          if (isSelected) onSelect(null);
-                        }}
-                      >
-                        <TrashIcon size={14} />
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => onSelect(isSelected ? null : highlight.id)}
-                      style={{ all: 'unset', cursor: 'pointer', display: 'block', width: '100%' }}
-                    >
-                      <p className="quote">{highlight.exact}</p>
-                    </button>
-
-                    {typeof highlight.note === 'string' || isSelected ? (
-                      <div style={{ marginTop: 9 }}>
-                        <label className="vh" htmlFor={`note-${highlight.id}`}>
-                          Note on this highlight
-                        </label>
-                        <textarea
-                          id={`note-${highlight.id}`}
-                          value={highlight.note ?? ''}
-                          placeholder="Write a note…"
-                          onChange={(event) => void updateHighlight(highlight.id, { note: event.target.value })}
-                        />
-                      </div>
-                    ) : null}
-
-                    <div style={{ display: 'flex', gap: 5, marginTop: 9, flexWrap: 'wrap' }}>
-                      {highlight.tags.map((tag) => (
-                        <span key={tag} className="tag">
-                          {tag}
-                        </span>
-                      ))}
-                      <button
-                        type="button"
-                        className="btn ghost sm"
-                        onClick={() => {
-                          const tag = window.prompt('Tag (without the #)');
-                          if (!tag) return;
-                          const clean = `#${tag.replace(/^#/, '').trim()}`;
-                          if (!highlight.tags.includes(clean)) {
-                            void updateHighlight(highlight.id, { tags: [...highlight.tags, clean] });
-                          }
-                        }}
-                      >
-                        + tag
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </div>
-        ))}
       </div>
+
+      {tab === 'notes' ? (
+        <NotesList paperId={paperId} />
+      ) : (
+        <>
+          <div style={{ padding: inWindow ? '0 12px 10px' : '0 16px 12px', display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button type="button" className="chip" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
+              All {total}
+            </button>
+            {HIGHLIGHT_COLORS.map((colour) => (
+              <button
+                key={colour.id}
+                type="button"
+                className="chip"
+                aria-pressed={filter === colour.id}
+                title={colour.label}
+                aria-label={colour.label}
+                onClick={() => setFilter(filter === colour.id ? 'all' : colour.id)}
+                style={{ padding: 5, width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                <span className="dot" style={{ background: colour.swatch, width: 12, height: 12 }} />
+              </button>
+            ))}
+            <button type="button" className="chip" aria-pressed={notesOnly} onClick={() => setNotesOnly(!notesOnly)}>
+              With notes
+            </button>
+          </div>
+
+          {orphanIds.length ? (
+            <p className="banner warn" style={{ margin: '0 16px 12px' }}>
+              {orphanIds.length} highlight{orphanIds.length === 1 ? '' : 's'} could not be found in this version of the
+              text. The note is kept; the quote no longer matches.
+            </p>
+          ) : null}
+
+          <div className="scroll" style={{ padding: '0 12px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {!mine.length ? (
+              <p style={{ padding: '8px 4px', fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6 }}>
+                Select text in the paper to highlight it. Keys <span className="mono">1</span>–
+                <span className="mono">4</span> pick a colour, <span className="mono">N</span> adds a note.
+              </p>
+            ) : null}
+
+            {grouped.map((group) => (
+              <div key={group.section}>
+                <div className="eyebrow" style={{ padding: '6px 4px 8px' }}>
+                  {group.section}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {group.items.map((highlight) => {
+                    const colour = HIGHLIGHT_COLORS.find((item) => item.id === highlight.color);
+                    const orphaned = orphanIds.includes(highlight.id);
+                    const isSelected = selectedId === highlight.id;
+                    return (
+                      <article
+                        key={highlight.id}
+                        className="note-card"
+                        style={isSelected ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent)' } : undefined}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+                          <span className="dot" style={{ background: colour?.swatch }} />
+                          <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>
+                            {new Date(highlight.createdAt).toLocaleDateString()}
+                            {orphaned ? ' · not found in text' : ''}
+                          </span>
+                          <span style={{ flexGrow: 1 }} />
+                          <button
+                            type="button"
+                            className="icon-btn sm"
+                            style={{ width: 24, height: 24 }}
+                            aria-label="Delete this highlight"
+                            onClick={() => {
+                              void deleteHighlight(highlight.id);
+                              if (isSelected) onSelect(null);
+                            }}
+                          >
+                            <TrashIcon size={14} />
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => onSelect(isSelected ? null : highlight.id)}
+                          style={{ all: 'unset', cursor: 'pointer', display: 'block', width: '100%' }}
+                        >
+                          <p className="quote">{highlight.exact}</p>
+                        </button>
+
+                        {typeof highlight.note === 'string' || isSelected ? (
+                          <div style={{ marginTop: 9 }}>
+                            <label className="vh" htmlFor={`note-${highlight.id}`}>
+                              Note on this highlight
+                            </label>
+                            <textarea
+                              id={`note-${highlight.id}`}
+                              value={highlight.note ?? ''}
+                              placeholder="Write a note…"
+                              onChange={(event) => void updateHighlight(highlight.id, { note: event.target.value })}
+                            />
+                          </div>
+                        ) : null}
+
+                        <div style={{ display: 'flex', gap: 5, marginTop: 9, flexWrap: 'wrap' }}>
+                          {highlight.tags.map((tag) => (
+                            <span key={tag} className="tag">
+                              {tag}
+                            </span>
+                          ))}
+                          <button
+                            type="button"
+                            className="btn ghost sm"
+                            onClick={() => {
+                              const tag = window.prompt('Tag (without the #)');
+                              if (!tag) return;
+                              const clean = `#${tag.replace(/^#/, '').trim()}`;
+                              if (!highlight.tags.includes(clean)) {
+                                void updateHighlight(highlight.id, { tags: [...highlight.tags, clean] });
+                              }
+                            }}
+                          >
+                            + tag
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </aside>
   );
 }
