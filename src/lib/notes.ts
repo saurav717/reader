@@ -13,7 +13,7 @@
 //  open; what you kept should not change or vanish under you.
 // ===========================================================================
 
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { db } from './db';
 import { cleanClip } from './sanitize';
 
@@ -50,15 +50,23 @@ export type NoteClip = Extract<NoteBlock, { kind: 'clip' }>;
 
 interface Kept {
   blocks: NoteBlock[];
+  /** When they were last changed: a piece added, written in, moved or deleted. */
+  updated?: string;
 }
 
 const KEY = (paperId: string) => `notes:${paperId}`;
 const EMPTY: NoteBlock[] = [];
 
 const cache = new Map<string, NoteBlock[]>();
+const updated = new Map<string, string>();
 const loading = new Set<string>();
 const listeners = new Set<() => void>();
-const changed = () => listeners.forEach((listener) => listener());
+/** Counts every change, so a view of all the papers' notes knows when to look again. */
+let version = 0;
+const changed = () => {
+  version += 1;
+  listeners.forEach((listener) => listener());
+};
 
 export function subscribeNotes(listener: () => void) {
   listeners.add(listener);
@@ -72,6 +80,7 @@ async function load(paperId: string) {
     const kept = await db.getKv<Kept>(KEY(paperId));
     // Something added while this was being read is kept, after what was read.
     const added = cache.get(paperId) ?? [];
+    if (kept?.updated && !updated.has(paperId)) updated.set(paperId, kept.updated);
     cache.set(paperId, [...(kept?.blocks ?? []), ...added.filter((block) => !kept?.blocks.some((old) => old.id === block.id))]);
   } catch {
     if (!cache.has(paperId)) cache.set(paperId, []);
@@ -82,9 +91,11 @@ async function load(paperId: string) {
 }
 
 function put(paperId: string, blocks: NoteBlock[]) {
+  const now = new Date().toISOString();
   cache.set(paperId, blocks);
+  updated.set(paperId, now);
   changed();
-  void db.setKv(KEY(paperId), { blocks } satisfies Kept).catch(() => undefined);
+  void db.setKv(KEY(paperId), { blocks, updated: now } satisfies Kept).catch(() => undefined);
 }
 
 /** A paper's notes, read from IndexedDB the first time they are asked for. */
@@ -96,6 +107,119 @@ export function useNotes(paperId: string): NoteBlock[] {
 }
 
 export const notesFor = (paperId: string) => cache.get(paperId) ?? EMPTY;
+
+// ---------------------------------------------------------------------------
+// Every paper's notes at once: which papers have any, how many, and when they
+// were last touched — for the list of all your notes, and the counts on the
+// library's rows. Each paper's notes are still their own; this only reads
+// them all.
+// ---------------------------------------------------------------------------
+
+export interface NotesSummary {
+  paperId: string;
+  /** Every piece. */
+  count: number;
+  /** Pieces you wrote. */
+  written: number;
+  /** Pieces kept from the paper or its Explain page. */
+  kept: number;
+  /** Kept pictures: figures, snips of the PDF, diagrams. */
+  pictures: number;
+  /** When they were last changed, or the newest piece's time where that is not known. */
+  updated: string;
+  /** The first words of them, to know them by. */
+  preview: string;
+}
+
+/** What a paper's notes come to, in a line. Null when there are none. */
+export function summarise(paperId: string, blocks: NoteBlock[], changedAt?: string): NotesSummary | null {
+  if (!blocks.length) return null;
+  const written = blocks.filter((block) => block.kind === 'text').length;
+  const pictures = blocks.filter((block) => block.kind === 'clip' && /<(img|svg)\b/i.test(block.html)).length;
+  const newest = blocks.reduce((latest, block) => (block.at > latest ? block.at : latest), '');
+  const first = blocks.map((block) => (block.kind === 'text' ? block.md : block.note || block.text)).find((text) => text.trim()) ?? '';
+  return {
+    paperId,
+    count: blocks.length,
+    written,
+    kept: blocks.length - written,
+    pictures,
+    updated: changedAt && changedAt > newest ? changedAt : newest,
+    preview: first.replace(/\s+/g, ' ').trim().slice(0, 160),
+  };
+}
+
+let everyLoaded = false;
+async function loadEvery() {
+  if (everyLoaded) return;
+  everyLoaded = true;
+  try {
+    for (const [key, kept] of await db.kvWithPrefix<Kept>('notes:')) {
+      const paperId = key.slice('notes:'.length);
+      if (kept?.updated && !updated.has(paperId)) updated.set(paperId, kept.updated);
+      if (!cache.has(paperId)) cache.set(paperId, kept?.blocks ?? []);
+    }
+  } catch {
+    everyLoaded = false;
+  }
+  changed();
+}
+
+let summaries: { version: number; list: NotesSummary[] } = { version: -1, list: [] };
+function everySummary(): NotesSummary[] {
+  if (summaries.version === version) return summaries.list;
+  const list = Array.from(cache, ([paperId, blocks]) => summarise(paperId, blocks, updated.get(paperId))).filter((item): item is NotesSummary => Boolean(item));
+  list.sort((a, b) => (a.updated < b.updated ? 1 : a.updated > b.updated ? -1 : 0));
+  summaries = { version, list };
+  return list;
+}
+
+/** Every paper that has notes, the most lately touched first. */
+export function useAllNotes(): NotesSummary[] {
+  useEffect(() => {
+    void loadEvery();
+  }, []);
+  return useSyncExternalStore(subscribeNotes, everySummary);
+}
+
+/** How many pieces of notes each paper has, for the counts on the library's rows. */
+export function useNoteCounts(): Map<string, number> {
+  const all = useAllNotes();
+  return useMemo(() => new Map(all.map((summary) => [summary.paperId, summary.count])), [all]);
+}
+
+// ---------------------------------------------------------------------------
+// The paper the pointer is on in the library, so the list of every paper's
+// notes can light that paper's card and dim the rest while it is there.
+// ---------------------------------------------------------------------------
+
+let hovered: string | null = null;
+const hoverListeners = new Set<() => void>();
+
+/** The pointer is on a paper's row in the library (`null`: it has left it). */
+export function hoverPaper(paperId: string | null) {
+  if (hovered === paperId) return;
+  hovered = paperId;
+  hoverListeners.forEach((listener) => listener());
+}
+
+export function useHoveredPaper(): string | null {
+  return useSyncExternalStore(
+    (listener) => {
+      hoverListeners.add(listener);
+      return () => hoverListeners.delete(listener);
+    },
+    () => hovered,
+  );
+}
+
+/** The notes of a paper deleted for good go with it. */
+export function forgetNotes(paperId: string) {
+  cache.delete(paperId);
+  updated.delete(paperId);
+  changed();
+  void db.deleteKv(KEY(paperId)).catch(() => undefined);
+}
 
 const newId = () => `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 
@@ -242,6 +366,16 @@ export function notesMarkdown(blocks: NoteBlock[]): string {
     const code = /^(Code|Output)/.test(block.label);
     lines.push(code ? fenced(block.text.trim()) : block.text.trim().replace(/^/gm, '> '), '');
     if (block.note?.trim()) lines.push(block.note.trim(), '');
+  }
+  return lines.join('\n');
+}
+
+/** Every paper's notes in one file, a heading to a paper. */
+export function allNotesMarkdown(papers: { title: string; blocks: NoteBlock[] }[]): string {
+  const lines = ['# Notes', ''];
+  for (const paper of papers) {
+    if (!paper.blocks.length) continue;
+    lines.push(`## ${paper.title.replace(/\s*[\r\n]+\s*/g, ' ').trim()}`, '', notesMarkdown(paper.blocks));
   }
   return lines.join('\n');
 }

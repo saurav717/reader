@@ -10,6 +10,7 @@ import {
 } from 'react';
 import type { Collection, GoogleUser, Highlight, HighlightColor, JunkEntry, Paper, PaperRef, Settings } from '../types';
 import { COLLECTION_COLORS } from '../types';
+import { forgetNotes } from './notes';
 import { db } from './db';
 import { tidyByline } from './byline';
 import { ROOT_FOLDER, driveFolderUrl, isInDrive, junkPaperInDrive, restorePaperInDrive, syncPaperToDrive } from './driveSync';
@@ -650,6 +651,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const purgeJunk = useCallback(
     async (ids: string[]) => {
       const gone = new Set(ids);
+      // Deleted for good, a paper's notes go with it; while it was only in Junk they waited for it.
+      ids.forEach(forgetNotes);
       keepJunk(junkNow.current.filter((item) => !gone.has(item.paper.id)));
     },
     [keepJunk],

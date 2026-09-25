@@ -158,6 +158,8 @@ export default function App() {
   // Claude does. They go there over a PDF or the explanation, which are not
   // made to move for them, and anywhere once popped out, which is remembered.
   const [notesWindow, setNotesWindow] = useState(false);
+  const notesWindowRef = useRef(notesWindow);
+  notesWindowRef.current = notesWindow;
   const [notesFloat, setNotesFloat] = useState(() => localStorage.getItem(NOTES_FLOAT_KEY) === 'true');
   useEffect(() => {
     localStorage.setItem(NOTES_FLOAT_KEY, String(notesFloat));
@@ -327,8 +329,9 @@ export default function App() {
         toggleExplain();
         return;
       }
-      // H, the same way, opens and closes the highlights and notes beside the page.
-      if (readingNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'h' && !isTyping(event.target)) {
+      // H, the same way, opens and closes the highlights and notes beside the
+      // page — and, with no paper open, the list of every paper's notes.
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'h' && !isTyping(event.target)) {
         if (document.querySelector('.scrim, .sheet, .palette')) return;
         event.preventDefault();
         toggleNotesRef.current();
@@ -349,7 +352,7 @@ export default function App() {
       }
       // ⌘⇧\, beside it, opens and closes the notes the same way, typing or not.
       // Matched on the key rather than the character, which Shift makes `|`.
-      if (readingNow && (event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.code === 'Backslash') {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && !event.altKey && event.code === 'Backslash') {
         event.preventDefault();
         toggleNotesRef.current();
       }
@@ -358,15 +361,26 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [toggleZen, toggleExplain, readingNow]);
 
-  const openPaper = useCallback((id: string) => {
+  /** `fromDiscover`: opened from Discover's pane, which stays — with its results and what it said about the save. */
+  const openPaper = useCallback((id: string, fromDiscover = false) => {
     setView({ kind: 'paper', id });
     setSelectedHighlightId(null);
     setOrphanIds([]);
     if (isNarrow()) {
       setLibraryOpen(false);
       setDock(null);
+      return;
+    }
+    // A paper opens with its notes beside it; the notes window, if that is
+    // where they are, turns to the paper by itself.
+    if (!notesWindowRef.current && !fromDiscover) {
+      window.clearTimeout(slideTimer.current);
+      setDockSlide(null);
+      setDock('notes');
     }
   }, []);
+
+  const openFromDiscover = useCallback((id: string) => openPaper(id, true), [openPaper]);
 
   // The highlights pane comes forward when you write a note; a plain highlight
   // only moves a dock that is already open.
@@ -529,9 +543,8 @@ export default function App() {
   const needsDrive = Boolean(settings.googleClientId.trim()) && !driveConnected;
   const showWelcome = !skippedConnect && (needsDrive || (!welcomed && !papers.length));
   const reading = view.kind === 'paper' ? view.id : null;
-  // Highlights only mean anything with a paper open, so the dock falls back to
-  // Discover rather than showing an empty rail.
-  const dockPane: Dock = dock === 'notes' && !reading ? 'discover' : dock;
+  // With no paper open the notes pane lists every paper's notes, a card to each.
+  const dockPane: Dock = dock;
   const inZen = zenOn && !showWelcome;
   const explained = reading ? papers.find((paper) => paper.id === reading) : undefined;
   // In zen mode the right edge always has something to bring out: the dock as
@@ -747,38 +760,38 @@ export default function App() {
 
       {shownDock && !showWelcome ? (
         <div className="dock">
-          {reading ? (
-            <div className="dock-tabs" role="tablist" aria-label="Side panel">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={shownDock === 'discover'}
-                onClick={() => setDock('discover')}
-              >
-                Discover
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={shownDock === 'notes'}
-                onClick={() => setDock('notes')}
-              >
-                Notes
-              </button>
-            </div>
-          ) : null}
+          <div className="dock-tabs" role="tablist" aria-label="Side panel">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={shownDock === 'discover'}
+              onClick={() => setDock('discover')}
+            >
+              Discover
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={shownDock === 'notes'}
+              onClick={() => setDock('notes')}
+            >
+              Notes
+            </button>
+          </div>
 
           {shownDock === 'discover' ? (
             <Discover
               onClose={closeDock}
-              onOpen={openPaper}
+              onOpen={openFromDiscover}
               ask={discoverAsk}
               here={view.kind === 'collection' ? view.id : undefined}
               focus={discoverFocus}
             />
           ) : (
             <NotesRail
-              paperId={view.kind === 'paper' ? view.id : ''}
+              key={reading ?? 'every-paper'}
+              paperId={reading ?? ''}
+              onOpenPaper={openPaper}
               selectedId={selectedHighlightId}
               orphanIds={orphanIds}
               onSelect={setSelectedHighlightId}
@@ -789,9 +802,10 @@ export default function App() {
         </div>
       ) : null}
 
-      {notesWindow && reading && !showWelcome ? (
+      {notesWindow && !showWelcome ? (
         <NotesWindow
-          paperId={reading}
+          paperId={reading ?? ''}
+          onOpenPaper={openPaper}
           selectedId={selectedHighlightId}
           orphanIds={orphanIds}
           onSelect={setSelectedHighlightId}

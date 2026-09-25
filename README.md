@@ -1905,24 +1905,32 @@ whichever window was pressed or typed in last, and that one comes to the front.
 
 #### Keeping pieces of the paper
 
-Whatever way the paper is read, its pieces go into your notes too:
+Whatever way the paper is read, its pieces go into your notes too. The
+quickest is **✂ Snip** in the top bar (or **S**), in every view: drag a box over
+anything and what it touches is kept.
 
 - **Reflow, or the HTML rendering.** Point at a figure, a table or a display
   equation and **Add to notes** comes up on its corner; select any text and
   the toolbar has **Add to notes** beside *Ask*. A figure's picture is held in
   the note itself — a reflowed figure is drawn from the PDF while the paper is
   open, and would otherwise be gone once it is closed — and a table comes as
-  its rows and columns.
+  its rows and columns. With ✂ Snip, a box dragged over the page lights every
+  paragraph, figure and table it touches, and keeps them whole, as text.
 - **The PDF, as a book.** Select text on a page and **Add to notes** is under
   it. **✂ Snip** (or **S**) outlines the figures, tables and equations found on
   the pages in view — the same reading of the page that reflows it: point at
   one to see what it is, click to keep it whole with its caption, a table as a
   table rather than a picture of one. Or drag any box, and it is kept as a
   picture with the words inside it. **Esc** or **S** puts the tool away.
-- **The PDF in the browser's viewer** cannot be reached into, so the line
-  under it offers to open it as a book instead.
+- **The PDF in the browser's viewer** cannot be reached into, so ✂ Snip opens
+  it as a book with snipping on, and the line under it offers the same.
+- **The Explain page** has ✂ Snip in its bar (and **S** while it covers the
+  paper): a box over prose, diagrams, code cells or caveats keeps them as they
+  are set.
 
 ![Reflow: pointing at a figure puts Add to notes on its corner](docs/paper-notes-figure.png)
+
+![✂ Snip over Reflow: the paragraph and the figure the box touches are lit, to be kept as they are set](docs/paper-notes-box.png)
 
 ![the PDF as a book in snip mode: Table 1 outlined and named, 6 rows × 4, click to add](docs/paper-notes-snip.png)
 
@@ -1937,6 +1945,44 @@ them back beside the page. The window is `src/components/NotesWindow.tsx`; what 
 shares with Ask Claude is `src/components/FloatingWindow.tsx`.
 `scripts/notes-smoke.mjs` checks that the text glides rather than jumps, that the
 PDF stays where it is, and the keys with both windows open.
+
+#### Each paper keeps its own notes
+
+Notes belong to one paper. They are stored under that paper's id in the
+browser (IndexedDB, `notes:<id>`), and when you open another paper, the pane and
+the window both switch to that paper's notes. The top of the pane names the paper
+(*Notes on this paper · Attention Is All You Need*).
+
+**All notes** beside the title lists every paper you have notes on, one card per
+paper. The most recently changed comes first. Each card shows:
+
+- how much is in them: *3 pieces · 2 written · 1 kept · 1 picture*;
+- when you last changed them;
+- their first line.
+
+The search box searches titles, authors and those first lines. Clicking a card
+opens that paper with its notes, and the ⤓ button exports every paper's notes as
+one Markdown file, with a heading per paper.
+
+Opening a paper opens its notes in the dock, from the library, the library
+panel or ⌘K. The exception is a paper opened from Discover: Discover stays, so
+you keep your search results and whatever it said about saving the paper. If
+the notes are popped out, the window switches to the paper instead.
+
+With no paper open, H (or `⌘⇧\`) brings up the same list in the dock, and the
+dock's **Notes** tab is always there. Pointing at a paper in the library (a
+row, a card, or the library panel) highlights that paper's card in the list and
+fades the rest, so its notes are found without searching. The line above the
+cards names the paper. If it has no notes, every card fades and the line says
+so. Library rows show how many notes each
+paper has. A paper moved to Junk keeps its notes, which come back if you restore
+it. Deleting it from Junk for good deletes its notes too. The list is
+`src/components/NotesIndex.tsx`. `scripts/notes-per-paper-smoke.mjs` switches
+between three papers and checks that each shows only its own notes.
+
+![All notes: one card per paper](docs/notes-per-paper.png)
+
+![Pointing at a paper in the library highlights its notes](docs/notes-hover.png)
 
 ## Explain
 
@@ -2205,6 +2251,7 @@ node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
 node scripts/notes-smoke.mjs   # the notes beside the page, and in a window over the PDF
 node scripts/explain-notes-smoke.mjs # keeping diagrams, code, tables, maths and passages from Explain
 node scripts/paper-notes-smoke.mjs   # keeping figures, tables and passages from Reflow and the PDF, and snipping
+node scripts/notes-per-paper-smoke.mjs # each paper's own notes, the list of all of them, and the library's counts
 node scripts/recommend-smoke.mjs  # papers named in an answer: cards, Find, Add, the list
 node scripts/copies-smoke.mjs  # a poster passed over, another copy picked by hand
 node scripts/hover-smoke.mjs    # the cards over an author's name and a citation
