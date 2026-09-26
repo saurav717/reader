@@ -317,6 +317,52 @@ machine, and prints what came back; it is the check to run once, since the field
 names are SerpApi's and not a contract — `scripts/serpapi.test.mjs` pins the
 mapping to saved answers in their documented shape.
 
+#### Through Serply instead
+
+[Serply](https://serply.io) is the cheaper way to the same thing, with a free
+allowance of 2,500 credits a month. Scholar answers two of its endpoints, and
+between them they stand in for every Scholar page the proxy asks for
+(`server/serply.js`):
+
+| Scholar page | Through Serply |
+|---|---|
+| a search | its Scholar endpoint (`/v1/scholar`), the results page as JSON: file, byline, authors' profile ids, citations, cluster |
+| a paper's versions | the same endpoint, asked for the paper's title with its cluster beside it — the one way Serply opens a cluster, so the app sends the title along |
+| people | its Google endpoint (`/v1/search`) for Scholar's profile pages of the name — full name, affiliation, citations, interests, as Google shows them — then anyone else in the bylines of a search for their papers |
+| a profile's works | a Scholar search for the person's papers, kept to those whose byline links this very profile, newest or most cited first; each with its file and cluster, which a profile's own list never had |
+| a person | who they are from Google's profile page, and their most cited works as above |
+| an entry opened | refused: there is only an id to go on. The app finds the paper by its title instead, as it does whenever that page is refused |
+
+What is not rebuilt: Scholar's two-line snippet under each result, which Serply's answer does not carry; and the h-index and i10-index, printed on the profile page
+alone, which Scholar refuses Serply (its page fetch gets the 403 "Sorry…" page) —
+the hover card leaves them out rather than guessing. A profile's list holds what
+Scholar's search finds by the person's name, which for a long career can be less
+than the profile itself. A profile's page costs up to two credits, a person up
+to three, people two; the app sends the person's name along, which saves one.
+
+```bash
+SERPLY_KEY=… npm start                         # the Node proxy
+npx --yes wrangler@4 secret put SERPLY_KEY     # the Worker, then redeploy it
+```
+
+`/health` then says `"scholar": "serply"`. A refusal is reported as Serply's, not
+as a captcha to open in a window here. The key never leaves the proxy; it goes
+only in the header of the request to Serply. Answers are cached for five minutes.
+
+**Both keys.** Set both and `/health` says `"scholar": "serply+serpapi"`; each ask
+goes to the one that answers it better, and to the other when that one refuses
+(`server/scholarServices.js`). A search, people and versions go to Serply first —
+it is cheaper and answers them as fully. A profile, a person and an entry opened
+go to SerpApi first — it reads the profile page exactly, h-index and all — and to
+Serply when SerpApi refuses. A service whose allowance is spent, or whose key is
+wrong, is asked last for the next ten minutes, so an account out of credits does
+not stand in front of every ask; it is still asked when the other refuses too.
+
+`SERPLY_KEY=… node scripts/scholar-live.mjs --raw` asks Serply for real, shows
+its raw answers, and says whether each was read — the check to run once with a
+new key; `scripts/serply.test.mjs` pins the mapping to saved answers
+(`scripts/fixtures/serply-*.json`).
+
 ### Getting a paper from a terminal
 
 `npm run fetch` is the same resolution and download, run from Node rather than
@@ -462,9 +508,43 @@ is set:
 openssl rand -base64 32 | npx --yes wrangler@4 secret put READER_TOKEN   # then npm run deploy:worker
 ```
 
-Paste the same string into **Settings → Paper proxy → token**, once, in each
-browser you use the reader from. It goes to the Worker as a header and nowhere
-else. arXiv, open-access PDFs and Scholar asked directly need no token, so a
+**Nobody has to paste it.** Anyone who signs in with Google in the reader gets
+a pass instead (`server/passes.js`): the app sends the Worker that person's Google
+access token once, to `POST /auth/google`; the Worker asks Google whose it is and
+that it was made for this app (`GOOGLE_CLIENT_ID` in `wrangler.toml`), and answers
+with a pass — the email and an expiry, signed with `READER_TOKEN` — which the app
+keeps where a pasted token would go and fills in by itself. It lasts thirty days
+and is renewed on the next sign-in in its last week, so Google's one-hour tokens
+never show. Signing out drops it. The Google token goes to the proxy compiled
+into the site, or one on this machine, and never to an address typed into
+Settings. So a labmate opens the site, signs in with Google, and everything
+works, on your accounts:
+
+- **Anyone signed in** may use it, unless you name who: `READER_EMAILS` (a
+  secret) takes addresses and `@domain`s, comma-separated — `npx --yes
+  wrangler@4 secret put READER_EMAILS`, e.g. `me@gmail.com, @iith.ac.in`. It is
+  checked whenever a pass is used, so taking someone off ends their pass.
+- **One person** may ask Scholar at most thirty times a minute (`PERSON_LIMIT`
+  in `wrangler.toml`) — far past searching by hand, and a stop on a script.
+- **Changing `READER_TOKEN`** ends every pass at once. The token itself still
+  works as before, unlimited, for you and the scripts; paste it into
+  **Settings → Paper proxy → token** where you would rather not sign in.
+
+It goes to the Worker as a header and nowhere else.
+
+**Who is using it, and how much.** The Worker keeps a tally per person per day,
+for ninety days, in a small Durable Object (`worker/usage.js`, the `USAGE`
+binding): sign-ins, Scholar asks, the requests Serply and SerpApi were charged
+for (answers from the cache cost nothing), the browser opened, and files fetched
+with a pass. Someone signed in is tallied under their Google email; READER_TOKEN
+itself as `owner`; nobody signed out is tallied, since they use nothing that
+costs. Only READER_TOKEN reads it back:
+
+```bash
+READER_TOKEN=… npm run usage                  # the last 30 days, as a table
+READER_TOKEN=… npm run usage -- --days 7
+READER_TOKEN=… npm run usage -- --json
+``` arXiv, open-access PDFs and Scholar asked directly need no token, so a
 visitor without one still gets a working reader. The browser session and the
 cookies of a sign-in are kept per browser (an id the site makes up and sends
 along), never in one jar for everyone, and a jar unused for thirty days is
@@ -2402,6 +2482,7 @@ server/scholar.js       Scholar's pages, fetched and parsed; also the politeness
 server/scholarBrowser.js  the same, through a real Chromium (SCHOLAR_BROWSER=1), and
                         the window a captcha is shown in
 server/serpapi.js       Scholar through SerpApi instead, when SERPAPI_KEY is set
+server/serply.js        Scholar through Serply instead, when SERPLY_KEY is set
 src/lib/google.ts       Google Identity Services + Drive REST
 src/lib/driveSync.ts    what a synced paper looks like in Drive
 src/lib/store.tsx       app state, IndexedDB persistence, the sync queue

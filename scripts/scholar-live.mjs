@@ -10,6 +10,8 @@
  *   node scripts/scholar-live.mjs "attention is all you need"
  *   node scholar-live.mjs --author "Saurav Chennuri"
  *   SCHOLAR_BROWSER=1 node scripts/scholar-live.mjs    # drive real Chromium
+ *   SERPLY_KEY=… node scripts/scholar-live.mjs         # through Serply instead
+ *   SERPLY_KEY=… node scripts/scholar-live.mjs --raw   # and show Serply's raw answers
  *   SERPAPI_KEY=… node scripts/scholar-live.mjs        # through SerpApi instead
  *   node scripts/scholar-live.mjs --save               # refresh the fixtures
  *
@@ -31,6 +33,7 @@ import {
   getScholar,
   parseAuthors,
   parseCitationView,
+  parseProfile,
   parseProfileWorks,
   parseResults,
   plainFetch,
@@ -41,9 +44,15 @@ import {
 } from '../server/scholar.js';
 import { browserWanted, closeBrowser, scholarFetcher } from '../server/scholarBrowser.js';
 import { askSerp } from '../server/serpapi.js';
+import { askSerplyScholar, profilesQuery, serplyScholarUrl, serplySearchUrl } from '../server/serply.js';
 
-/** With a key, every ask below goes through SerpApi — see server/serpapi.js. */
-const SERPAPI_KEY = (process.env.SERPAPI_KEY || '').trim();
+/**
+ * With a Serply key, every ask goes through Serply as the proxy's would —
+ * see server/serply.js. Otherwise, with a SerpApi key, every ask goes
+ * through SerpApi — see server/serpapi.js.
+ */
+const SERPLY_KEY = (process.env.SERPLY_KEY || '').trim();
+const SERPAPI_KEY = SERPLY_KEY ? '' : (process.env.SERPAPI_KEY || '').trim();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -57,9 +66,11 @@ const SAVE = flag('--save');
 const QUERY = args.find((arg) => !arg.startsWith('--') && arg !== valueFor('--author')) || 'attention is all you need';
 const AUTHOR = valueFor('--author') || 'Saurav Chennuri';
 
-const fetchPage = SERPAPI_KEY ? null : await scholarFetcher(plainFetch);
+const fetchPage = SERPLY_KEY || SERPAPI_KEY ? null : await scholarFetcher(plainFetch);
 console.log(
-  SERPAPI_KEY
+  SERPLY_KEY
+    ? 'Asking Google Scholar through Serply, with the key in SERPLY_KEY. Each check spends one credit.\n'
+    : SERPAPI_KEY
     ? 'Asking Google Scholar through SerpApi, with the key in SERPAPI_KEY. Each check spends one search of its allowance.\n'
     : `Asking Google Scholar ${browserWanted() ? 'through a real Chromium' : 'with plain HTTPS requests'}.\n` +
         'A captcha is the normal answer from a server; from a laptop it usually is not.\n',
@@ -68,6 +79,19 @@ console.log(
 let problems = 0;
 
 async function step(label, url, parse, fixture, serp) {
+  if (SERPLY_KEY) {
+    process.stdout.write(`\n── ${label}\n   via Serply: ${serp.kind} ${JSON.stringify(serp.params)}\n`);
+    try {
+      const parsed = await askSerplyScholar(serp.kind, serp.params, SERPLY_KEY);
+      console.log(`   OK       ${parsed.length} results`);
+      if (!parsed.length) console.log('   (nothing came back — an empty answer, or a field Serply renamed; --raw shows its answers)');
+      return parsed;
+    } catch (error) {
+      problems += 1;
+      console.log(`   REFUSED  ${error.reason ? `(${error.reason}) ` : ''}${error.message}`);
+      return null;
+    }
+  }
   if (SERPAPI_KEY) {
     process.stdout.write(`\n── ${label}\n   via SerpApi: ${serp.kind} ${JSON.stringify(serp.params)}\n`);
     try {
@@ -109,6 +133,23 @@ async function step(label, url, parse, fixture, serp) {
   return parsed;
 }
 
+// ------------------------------------------------------------- raw peek ----
+
+// Serply's answers as they came, first entry of each: the field names are
+// Serply's and not a contract, and this is how a renamed one is spotted.
+if (SERPLY_KEY && flag('--raw')) {
+  for (const [label, url] of [
+    ['Scholar endpoint', serplyScholarUrl({ q: QUERY })],
+    ['Google search for profiles', serplySearchUrl(profilesQuery(AUTHOR))],
+  ]) {
+    const response = await fetch(url, { headers: { 'X-Api-Key': SERPLY_KEY, 'User-Agent': 'reader-proxy/1.0', 'X-Proxy-Location': 'US' } });
+    const body = await response.json().catch(() => ({}));
+    const first = (body.articles && body.articles[0]) || (body.results && body.results[0]);
+    console.log(`\n── Raw: ${label} (${response.status})\n   keys: ${Object.keys(body).join(', ')}`);
+    console.log(JSON.stringify(first ?? body, null, 2).split('\n').map((line) => `   ${line}`).join('\n'));
+  }
+}
+
 // ---------------------------------------------------------------- papers ----
 
 const results = await step(`Papers matching "${QUERY}"`, searchUrl(QUERY), parseResults, SAVE ? 'scholar-search' : null, {
@@ -125,14 +166,23 @@ for (const result of (results || []).slice(0, 5)) {
 }
 
 // Every copy of the first result — the list this is all for.
-const cluster = (results || []).find((result) => result.clusterId && result.versionCount)?.clusterId;
+const clustered = (results || []).find((result) => result.clusterId && result.versionCount);
+const cluster = clustered?.clusterId;
 if (cluster) {
   const versions = await step(`Every version of the first result`, versionsUrl(cluster), parseResults, null, {
     kind: 'versions',
-    params: { cluster },
+    params: { cluster, title: clustered.title },
   });
   for (const version of (versions || []).slice(0, 12)) {
     console.log(`     ${version.pdfUrl ? 'PDF ' : '    '} ${version.pdfHost || new URL(version.url || 'https://x/').hostname}`);
+  }
+  // A cluster ignored comes back as some other page of results, which parses fine: say so.
+  const titleOf = (text) => String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 24);
+  const wanted = titleOf(results.find((result) => result.clusterId === cluster)?.title);
+  const same = (versions || []).filter((version) => titleOf(version.title) === wanted).length;
+  if (versions && versions.length && same < versions.length / 2) {
+    problems += 1;
+    console.log(`   ⚠  only ${same} of ${versions.length} look like versions of that paper — the cluster may not have been passed through.`);
   }
   const withFile = (versions || []).filter((version) => version.pdfUrl);
   console.log(`\n   ${withFile.length} of ${(versions || []).length} versions carry a direct file link.`);
@@ -165,15 +215,38 @@ if (first) {
     profileUrl(first.userId),
     parseProfileWorks,
     null,
-    { kind: 'profile', params: { user: first.userId, start: 0 } },
+    { kind: 'profile', params: { user: first.userId, start: 0, sort: 'pubdate', name: first.name } },
   );
   for (const work of (works || []).slice(0, 5)) {
     console.log(`     ${work.year ?? '    '}  ${work.title}${work.citedBy ? ` (cited by ${work.citedBy})` : ''}`);
   }
 
+  // The person, as the hover card over an author shows them.
+  const [person] =
+    (await step(`The person behind ${first.userId}`, profileUrl(first.userId, { sort: 'citations' }), (html) => [parseProfile(html, first.userId)].filter(Boolean), null, {
+      kind: 'person',
+      params: { user: first.userId, name: first.name },
+    })) || [];
+  if (person) {
+    console.log(`     ${person.name}${person.affiliation ? ` — ${person.affiliation}` : ''}`);
+    console.log(`     cited by: ${person.citedBy ?? '—'}  h-index: ${person.hIndex ?? '—'}  interests: ${(person.interests || []).join(', ') || '—'}`);
+    console.log(`     most cited: ${(person.works || [])[0]?.title || '—'}`);
+  }
+
   // One of them, opened: where the file Scholar found for it is shown — a
   // copy on the person's own site, as often as not — and the cluster.
   const entry = (works || []).find((work) => work.citationId);
+  // Through Serply a profile's works carry their file and cluster already, and
+  // an entry cannot be opened by id: the app finds a paper by its title instead.
+  const titled = SERPLY_KEY && (works || []).find((work) => !work.citationId);
+  if (titled) {
+    const found = await step(`The work "${titled.title}", found by its title`, searchUrl(`"${titled.title}"`), parseResults, null, {
+      kind: 'search',
+      params: { query: `"${titled.title}"` },
+    });
+    const same = (found || []).find((result) => result.title.toLowerCase() === titled.title.toLowerCase());
+    console.log(`     ${same ? `found — file: ${same.pdfUrl || '— none listed'}, cluster: ${same.clusterId || '—'}` : '⚠  not found by its title'}`);
+  }
   if (entry) {
     const [opened] = (await step(
       `The entry "${entry.title}", opened`,

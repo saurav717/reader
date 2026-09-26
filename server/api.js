@@ -26,7 +26,7 @@ import {
 } from './scholar.js';
 import { captchaStatus, closeCaptcha, openCaptcha, scholarFetcher } from './scholarBrowser.js';
 import * as browse from './browse.js';
-import { askSerp } from './serpapi.js';
+import { askServices } from './scholarServices.js';
 import * as workspace from './workspace.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
@@ -462,31 +462,43 @@ export function setScholarFetcher(fetcher) {
 }
 
 /**
- * With a SerpApi key on this proxy, Scholar is asked through SerpApi instead
- * — see server/serpapi.js: JSON back, no captcha, and it works from a
- * server. Without one, the page itself, as above.
+ * With a Serply or a SerpApi key on this proxy, Scholar is asked through
+ * them instead — no captcha, and it works from a server. With both, each
+ * ask goes to the one that answers it better and then to the other when it
+ * refuses: see server/scholarServices.js. Without either key, the page
+ * itself, as above.
  */
 const serpKey = () => (process.env.SERPAPI_KEY || '').trim();
+const serplyKey = () => (process.env.SERPLY_KEY || '').trim();
 
 /** How this proxy asks Scholar, for /health and for anyone wondering. */
-export const scholarVia = () => (serpKey() ? 'serpapi' : 'direct');
+export const scholarVia = () =>
+  serplyKey() && serpKey() ? 'serply+serpapi' : serplyKey() ? 'serply' : serpKey() ? 'serpapi' : 'direct';
 
-async function scholar(req, res, { kind, params, url, parse }) {
-  // SerpApi is metered on this proxy's key, so with a token set only the
-  // token may spend it. Scholar asked directly costs nothing but Google's
-  // patience, and stays open.
-  if (serpKey()) {
+/** One ask of Scholar, by whichever way this proxy has: the results and which answered. */
+async function askScholar({ kind, params, url, parse }) {
+  const paid = await askServices(kind, params, { serply: serplyKey(), serpapi: serpKey() });
+  if (paid) return paid;
+  return { results: parse(await getScholar(url, { fetchPage: scholarPage })), via: 'direct' };
+}
+
+async function scholar(req, res, ask) {
+  // Serply and SerpApi are metered on this proxy's keys, so with a token set
+  // only the token may spend them. Scholar asked directly costs nothing but
+  // Google's patience, and stays open.
+  if (serplyKey() || serpKey()) {
     const refused = gate(req, res);
     if (refused) return refused;
   }
   try {
-    const results = serpKey()
-      ? await askSerp(kind, params, serpKey())
-      : parse(await getScholar(url, { fetchPage: scholarPage }));
-    return send(res, 200, { results, source: 'scholar', via: scholarVia() }, { 'Cache-Control': 'private, max-age=300' });
+    const { results, via } = await askScholar(ask);
+    return send(res, 200, { results, source: 'scholar', via }, { 'Cache-Control': 'private, max-age=300' });
   } catch (error) {
     if (error && error.blocked) {
       return send(res, 503, { error: error.message, blocked: true, reason: error.reason, url: error.url });
+    }
+    if (error && error.serply) {
+      return send(res, 503, { error: error.message, serply: true, reason: error.reason });
     }
     if (error && error.serpapi) {
       return send(res, 503, { error: error.message, serpapi: true, reason: error.reason });
@@ -529,9 +541,11 @@ function scholarProfile(req, url, res) {
   if (!/^[\w-]{6,32}$/.test(user)) return send(res, 400, { error: 'bad Scholar profile id' });
   const start = Math.max(0, Number(url.searchParams.get('start')) || 0);
   const sort = profileSort(url.searchParams.get('sort'));
+  // The person's name, where the app knows it: Serply finds works by name.
+  const name = (url.searchParams.get('name') || '').trim().slice(0, 200) || undefined;
   return scholar(req, res, {
     kind: 'profile',
-    params: { user, start, sort },
+    params: { user, start, sort, name },
     url: profileUrl(user, { start, sort }),
     parse: parseProfileWorks,
   });
@@ -543,9 +557,10 @@ function scholarProfile(req, url, res) {
 function scholarPerson(req, url, res) {
   const user = (url.searchParams.get('user') || '').trim();
   if (!/^[\w-]{6,32}$/.test(user)) return send(res, 400, { error: 'bad Scholar profile id' });
+  const name = (url.searchParams.get('name') || '').trim().slice(0, 200) || undefined;
   return scholar(req, res, {
     kind: 'person',
-    params: { user },
+    params: { user, name },
     url: profileUrl(user, { sort: 'citations' }),
     parse: (html) => [parseProfile(html, user)].filter(Boolean),
   });
@@ -574,7 +589,9 @@ function scholarWork(req, url, res) {
 function scholarVersions(req, url, res) {
   const cluster = (url.searchParams.get('cluster') || '').trim();
   if (!/^\d{1,25}$/.test(cluster)) return send(res, 400, { error: 'bad cluster id' });
-  return scholar(req, res, { kind: 'versions', params: { cluster }, url: versionsUrl(cluster), parse: parseResults });
+  // The paper's title, where the app sends it: Serply opens a cluster by it.
+  const title = (url.searchParams.get('title') || '').trim().slice(0, 300) || undefined;
+  return scholar(req, res, { kind: 'versions', params: { cluster, title }, url: versionsUrl(cluster), parse: parseResults });
 }
 
 // Only the handful of hosts the app actually reads from; an open proxy here

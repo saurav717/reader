@@ -734,7 +734,7 @@ async function authorWorks(
   if (author.id.startsWith('scholar:') && author.scholarUserId) {
     // A person's own profile is the best list of what they have written: it is
     // the one they curate, and it includes what no index has a record of.
-    return scholarProfileWorks(author.scholarUserId, { page, order, signal });
+    return scholarProfileWorks(author.scholarUserId, { page, order, signal, name: author.name });
   }
 
   if (author.id.startsWith('s2:')) {

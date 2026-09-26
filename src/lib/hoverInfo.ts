@@ -549,7 +549,7 @@ const why = (error: unknown) => (error instanceof Error ? error.message : String
 
 /** A profile opened: the page's counts and works over what the link or the search gave. */
 async function opened(ref: AuthorRef): Promise<ScholarProfile> {
-  const person = ref.scholarUserId ? await scholarPerson(ref.scholarUserId).catch(() => undefined) : undefined;
+  const person = ref.scholarUserId ? await scholarPerson(ref.scholarUserId, undefined, ref.name).catch(() => undefined) : undefined;
   if (!person) return { ...ref, works: [] };
   return {
     ...ref,
@@ -589,7 +589,7 @@ async function listsPaper(profile: ScholarProfile, paper: { title: string; year?
   if (profile.works.some((work) => isPaper(work.title, paper.title))) return true;
   if (!profile.scholarUserId) return false;
   for (let page = 0; page < NEWEST_PAGES; page += 1) {
-    const works = await scholarProfileWorks(profile.scholarUserId, { page, order: 'newest' }).catch(() => [] as PaperRef[]);
+    const works = await scholarProfileWorks(profile.scholarUserId, { page, order: 'newest', name: profile.name }).catch(() => [] as PaperRef[]);
     if (works.some((work) => isPaper(work.title, paper.title))) return true;
     if (works.length < 20) return false;
     const years = works.map((work) => Number(work.published.slice(0, 4))).filter(Boolean);

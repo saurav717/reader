@@ -230,6 +230,11 @@ function tokenFor(clientId: string, scope: string, prompt: string): Promise<Stor
   return loadGoogleScript().then(() => requestToken(clientId, scope, prompt));
 }
 
+/** The live Google access token of whoever is signed in, for swapping for a proxy pass; null when none. */
+export function liveAccessToken(): string | null {
+  return token && token.expiresAt > Date.now() ? token.accessToken : null;
+}
+
 export function currentScopes(): string[] {
   return token && token.expiresAt > Date.now() ? token.scopes : [];
 }

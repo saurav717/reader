@@ -212,18 +212,26 @@ export async function scholarAuthors(name: string, signal?: AbortSignal): Promis
 }
 
 /**
+ * The person's name beside their profile id, where it is known. A proxy
+ * that reads the profile page has no use for it; one that asks Serply finds
+ * a person's works by searching for their name, and is spared finding out
+ * whose the id is first.
+ */
+const nameParam = (name?: string) => (name?.trim() ? `&name=${encodeURIComponent(name.trim())}` : '');
+
+/**
  * Everything on one person's Scholar profile, which is their own list —
  * newest first, or most cited first, which is the order Scholar gives when
  * not told otherwise and so the one the page is asked for without `sortby`.
  */
 export async function scholarProfileWorks(
   userId: string,
-  options: { page?: number; order?: PaperOrder; signal?: AbortSignal } = {},
+  options: { page?: number; order?: PaperOrder; signal?: AbortSignal; name?: string } = {},
 ): Promise<PaperRef[]> {
   const start = (options.page ?? 0) * 20;
   const sort = options.order === 'cited' ? 'citations' : 'pubdate';
   const results = await ask<ScholarResult>(
-    `/scholar/profile?user=${encodeURIComponent(userId)}&start=${start}&sort=${sort}`,
+    `/scholar/profile?user=${encodeURIComponent(userId)}&start=${start}&sort=${sort}${nameParam(options.name)}`,
     scholarPage('citations', {
       hl: 'en',
       user: userId,
@@ -259,10 +267,10 @@ export async function scholarWork(citationId: string, signal?: AbortSignal): Pro
 }
 
 /** A profile, read from its page — the counts in its corner and its most cited works. */
-export async function scholarPerson(userId: string, signal?: AbortSignal): Promise<ScholarPerson | undefined> {
+export async function scholarPerson(userId: string, signal?: AbortSignal, name?: string): Promise<ScholarPerson | undefined> {
   if (!/^[\w-]{6,32}$/.test(userId)) return undefined;
   const results = await ask<ScholarPerson>(
-    `/scholar/person?user=${encodeURIComponent(userId)}`,
+    `/scholar/person?user=${encodeURIComponent(userId)}${nameParam(name)}`,
     scholarPage('citations', { hl: 'en', user: userId }),
     signal,
   );
@@ -333,10 +341,13 @@ export async function scholarPaperAuthors(
  * trouble. Each version is a result in its own right, carrying the host it
  * sits on and, where Scholar found one, a direct link to the file.
  */
-export async function scholarVersions(clusterId: string, signal?: AbortSignal): Promise<ScholarResult[]> {
+export async function scholarVersions(clusterId: string, signal?: AbortSignal, title?: string): Promise<ScholarResult[]> {
   if (!/^\d{1,25}$/.test(clusterId)) return [];
+  // The paper's title beside its cluster: a proxy that asks Serply cannot
+  // open a cluster by its id alone, and finds it by the title within it.
+  const titled = title?.trim() ? `&title=${encodeURIComponent(title.trim().slice(0, 300))}` : '';
   return ask<ScholarResult>(
-    `/scholar/versions?cluster=${encodeURIComponent(clusterId)}`,
+    `/scholar/versions?cluster=${encodeURIComponent(clusterId)}${titled}`,
     scholarPage('scholar', { hl: 'en', as_sdt: '0,5', cluster: clusterId }),
     signal,
   );

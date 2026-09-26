@@ -343,7 +343,7 @@ async function fromScholar(paper: PaperRef, signal?: AbortSignal): Promise<Paper
   }
   if (!cluster) return found.filter((entry): entry is PaperLocation => Boolean(entry));
 
-  const versions = await scholarVersions(cluster, signal).catch((error: unknown) => {
+  const versions = await scholarVersions(cluster, signal, paper.title).catch((error: unknown) => {
     // The entry's own page answered; a refusal on the second ask costs the
     // other copies, not the one it already found.
     if (found.length) return [];
