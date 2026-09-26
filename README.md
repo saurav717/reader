@@ -1051,26 +1051,44 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   before the columns under it), and a paragraph that runs from the foot of
   one column to the top of the next, or across a page, is one paragraph.
   Headings are the lines set larger or bolder than the body, with levels from
-  their numbering; bullets become lists; the references become one entry
-  each; running heads, page numbers and the arXiv stamp are left out; the
-  title and authors are left to the reader's own heading, which already
-  shows them; and accents TeX sets apart from their letters ("na¨ıve") are
-  put back.
+  their numbering — and, as IEEE sets them, "I. INTRODUCTION" in small
+  capitals and "A. Name" in italics, which are neither — so a Roman numeral
+  starting a heading is never mistaken for a numbered list; bullets become
+  lists; the references become one entry each; running heads, page numbers
+  and the arXiv stamp are left out; and accents TeX sets apart from their
+  letters ("na¨ıve") are put back. A subscript or a superscript stays on its
+  own line, however near a baseline in the other column falls.
+- **The byline.** The title and the authors' names are left to the reader's
+  own heading, which already shows them. What else the first page says
+  about them — the affiliations, "∗Equal contribution", the corresponding
+  author's address — is kept, small, above the abstract, with the names too
+  where their marks ("Ada Lindqvist¹∗") point at it.
+- **Links.** The PDF's own links out — a project page, a repository, an
+  email address — are links in the text, opening in a tab of their own; an
+  address broken across two lines is one link. An address written out in
+  a PDF that never made it a link is made one too.
 - **Figures.** A line that says *Figure 3.* is a caption, and the figure is
   everything between it and the running text on the far side of it — the
-  drawings, the axis labels, the legend, the other panels. That region is
+  drawings, the axis labels, the legend, the other panels — in the
+  caption's column, and near the drawings: text beside it in the other
+  column, a bold abstract say, is never the figure's. That region is
   painted from the page itself, at twice its size, and shown as an image
   under its caption, so a plot looks exactly as it was typeset. The labels
   inside it are in the picture, not the text.
-- **Tables.** *Table 2.* is a caption too, and the rows under it are read
+- **Tables.** *Table 2.* is a caption too — and IEEE's *TABLE IV*, in Roman
+  numerals — with the lines it runs on to, and the rows under it are read
   into a real table: cells that overlap horizontally are a column, cells on
-  one baseline a row, a heading that spans two columns gets a colspan. A
-  table whose cells cannot be told apart is painted instead, like a figure.
+  one baseline a row, a heading that spans two columns gets a colspan, and
+  a bold cell — the best result in its column — stays bold. A table in
+  panels ("A. Component contributions", then "B. …") is read a panel at a
+  time, each with columns of its own and its title a row across the table,
+  and the note set under a table is kept under it. A table whose cells
+  cannot be told apart is painted instead, like a figure.
 - **Equations.** A line numbered *(3)* at the column's edge, or set mostly in
   a mathematics font, is display mathematics, and mathematics read glyph by
   glyph out of a PDF is not worth reading — so the equation and the lines a
-  fraction or a sum spreads over are painted from the page and shown in
-  their place.
+  fraction or a sum spreads over, in its own column, are painted from the
+  page and shown in their place.
 - **Footnotes** are the small text at the foot of each page, kept small and
   set after the text of that page.
 
@@ -1082,7 +1100,11 @@ on the main thread and reads there, slower but the same. When a PDF cannot
 be read at all, the notice under the title says why, in pdf.js's words.
 
 `scripts/pdf-reflow.test.mjs` is that layout written down against made-up
-pages, and `scripts/reflow-smoke.mjs` prints a two-column paper with Chromium
+pages; `scripts/pdf-reflow-ieee.test.mjs` reads a real IEEE conference paper
+(`scripts/fixtures/ieee-two-column.tex`, made up, and the PDF pdflatex made
+of it) with pdf.js as the app does — a figure beside the abstract, tables in
+Roman numerals and in panels, small-capital headings, links and the byline's
+notes; and `scripts/reflow-smoke.mjs` prints a two-column paper with Chromium
 and reads it back through the app — with the worker, and again without it. Inline mathematics stays as the glyphs it
 was set in, which is legible for *x* and *n* and not for much more; a scan,
 or a PDF whose fonts carry no mapping back to letters, has no text to read,

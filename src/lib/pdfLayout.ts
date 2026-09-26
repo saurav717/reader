@@ -29,6 +29,17 @@ export interface TextRun {
   size: number;
   /** The font's own name where known — "NimbusRomNo9L-Medi", "CMMI10". */
   font: string;
+  /** Where the run links to, when it sits inside one of the page's links. */
+  href?: string;
+}
+
+/** A link on the page — a URL or an email address — and the box it answers clicks in. */
+export interface PageLink {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  url: string;
 }
 
 /** The axis-aligned box of one drawing on the page: an image or a path. */
@@ -47,6 +58,7 @@ export interface PageInput {
   height: number;
   runs: TextRun[];
   graphics: GraphicBox[];
+  links?: PageLink[];
 }
 
 // --------------------------------------------------------------- outputs ---
@@ -68,18 +80,21 @@ export interface Span {
   mono?: boolean;
   sup?: boolean;
   sub?: boolean;
+  href?: string;
 }
 
 export interface TableCell {
   spans: Span[];
   colspan?: number;
+  /** A heading cell: the table's header row, or the title of one of its panels. */
+  head?: boolean;
 }
 
 export type Block =
   | { kind: 'heading'; level: 2 | 3 | 4; spans: Span[]; page: number }
   | { kind: 'paragraph'; spans: Span[]; page: number; list?: 'bullet' | 'number' }
   | { kind: 'figure'; crop: Crop; caption: Span[]; label: string; page: number }
-  | { kind: 'table'; crop: Crop; caption: Span[]; label: string; rows: TableCell[][] | null; page: number }
+  | { kind: 'table'; crop: Crop; caption: Span[]; label: string; rows: TableCell[][] | null; notes?: Span[]; page: number }
   | { kind: 'equation'; crop: Crop; label: string; page: number }
   | { kind: 'footnote'; spans: Span[]; page: number };
 
@@ -98,13 +113,19 @@ export interface Layout {
   bodySize: number;
   /** The authors named on the first page, in order, where they could be read. */
   authors?: string[];
+  /**
+   * What the first page says about its authors besides their names — the
+   * affiliations, "∗Equal contribution", the corresponding author's address
+   * — one entry a line, with the byline itself where its marks point there.
+   */
+  front?: Span[][];
 }
 
 // ------------------------------------------------------------------ fonts --
 
 const BOLD = /bold|black|heavy|semibold|demibold|extrab|ultrab|-medi|medium(?!ital)|cmbx|cmb\d|ptmb|ntxb|txb|sfbx|,bold|-bd\b|\bbd\b|\.b$|-b$/i;
 const ITALIC = /italic|oblique|ital\b|-it\b|cmti|cmmi|cmsl|slanted|,italic|\.i$|-i$|\bit$/i;
-const MONO = /mono|cmtt|courier|typewriter|consolas|menlo|inconsolata|nimbusmono|luximono|lmtt|beramono|dejavusansmono|sourcecodepro|firamono/i;
+const MONO = /mono|cmtt|courier|typewriter|consolas|menlo|inconsolata|nimbusmon|luximono|lmtt|beramono|dejavusansmono|sourcecodepro|firamono/i;
 /** Fonts that only ever set mathematics. */
 const MATH = /cmmi|cmsy|cmex|cmmib|cmbsy|msam|msbm|rsfs|eufm|eufb|eurm|eusm|txsy|txmi|txex|pxsy|pxmi|pxex|stixmath|cambriamath|mathematica|symbol\b|standardsym|esint|wasy|stmary|mtsy|mtmi|mtex|lmmi|lmsy|lmex|xits-?math|latinmodernmath/i;
 
@@ -144,6 +165,8 @@ interface Line {
   taken?: boolean;
   /** A caption's label — "Figure", "Table" — when the line starts one. */
   caption?: { kind: 'figure' | 'table'; label: string };
+  /** The caption's first line, on the lines that carry it on. */
+  captionOf?: Line;
 }
 
 const norm = (text: string): string => text.replace(/\s+/g, ' ').trim();
@@ -180,6 +203,71 @@ function joinRuns(runs: Run[], size: number): string {
 }
 
 /**
+ * Runs cut where a link on the page starts and ends, the piece inside it
+ * carrying the link. pdf.js reports a run per font, so "code is at
+ * https://…/." is one run with the address in the middle of it: the link
+ * is the words that sit inside its box, since a link is a whole address or
+ * a whole word, and a full stop after it is the sentence's.
+ */
+export function linkRuns(runs: TextRun[], links: PageLink[]): TextRun[] {
+  if (!links.length) return runs;
+  const out: TextRun[] = [];
+  // A run can hold two addresses; what follows the first is looked at again.
+  const queue = runs.map((run) => ({ run, tried: new Set<PageLink>() }));
+  while (queue.length) {
+    const { run, tried } = queue.shift()!;
+    const height = run.size;
+    const link = links.find((box) => {
+      if (tried.has(box)) return false;
+      const inside = Math.min(box.x1, run.x + run.width) - Math.max(box.x0, run.x);
+      return inside > Math.min(run.width, box.x1 - box.x0) * 0.5 - 0.5 && run.y - 0.3 * height > box.y0 - 1 && run.y - 0.3 * height < box.y1 + 1;
+    });
+    if (!link || !run.str.trim()) {
+      out.push(run);
+      continue;
+    }
+    const length = run.str.length;
+    const per = run.width / Math.max(1, length);
+    // The words whose middles are inside the link's box: the widths of the
+    // letters are not known, only the run's, so a cut placed by counting
+    // characters can land a letter or two off; a word's middle will not.
+    let start = -1;
+    let end = -1;
+    for (const word of run.str.matchAll(/\S+/g)) {
+      const middle = run.x + (word.index! + word[0].length / 2) * per;
+      if (middle < link.x0 - per || middle > link.x1 + per) continue;
+      if (start < 0) start = word.index!;
+      end = word.index! + word[0].length;
+    }
+    if (start < 0) {
+      out.push(run);
+      continue;
+    }
+    // Punctuation after the address is the sentence's — unless it is the
+    // address's own: "https://example." broken before "org/" keeps its stop.
+    const inAddress = (from: number, to: number) => link.url.toLowerCase().includes(run.str.slice(from, to).toLowerCase());
+    while (end > start && /[.,;:)\]'"”’]/.test(run.str[end - 1]) && !inAddress(start, end)) end -= 1;
+    // A stop on its own, caught at the edge of the box, is not the link.
+    if (end <= start || !/[\p{L}\p{N}]/u.test(run.str.slice(start, end))) {
+      out.push(run);
+      continue;
+    }
+    const piece = (from: number, to: number, href?: string): TextRun => ({
+      ...run,
+      str: run.str.slice(from, to),
+      x: run.x + from * per,
+      width: (to - from) * per,
+      ...(href ? { href } : {}),
+    });
+    out.push(piece(start, end, link.url));
+    const rest = new Set([...tried, link]);
+    if (start > 0) queue.unshift({ run: piece(0, start), tried: rest });
+    if (end < length) queue.unshift({ run: piece(end, length), tried: rest });
+  }
+  return out;
+}
+
+/**
  * Runs into lines: one baseline, read left to right, with a gap of more than
  * a line's own em between two runs starting a new line — which is what keeps
  * the two columns of a page apart when both have a line on the same
@@ -189,7 +277,7 @@ function joinRuns(runs: Run[], size: number): string {
  * cut at its gaps afterwards, once every run on it is known.
  */
 function buildLines(page: PageInput): Line[] {
-  const runs: Run[] = page.runs
+  const runs: Run[] = linkRuns(page.runs, page.links || [])
     .filter((run) => run.str.trim().length && run.size > 0)
     .map((run) => ({ ...run, str: composeAccents(run.str), ...faceOf(run.font) }))
     .sort((a, b) => a.y - b.y || a.x - b.x);
@@ -197,10 +285,12 @@ function buildLines(page: PageInput): Line[] {
   const baselines: { runs: Run[]; baseline: number; size: number }[] = [];
   for (const run of runs) {
     let home: (typeof baselines)[number] | undefined;
+    let best = Number.POSITIVE_INFINITY;
     for (let at = baselines.length - 1; at >= 0; at -= 1) {
       const candidate = baselines[at];
       if (run.y - candidate.baseline > 2 * Math.max(candidate.size, run.size)) break;
-      if (Math.abs(run.y - candidate.baseline) > 0.55 * Math.max(candidate.size, run.size)) continue;
+      const drift = Math.abs(run.y - candidate.baseline);
+      if (drift > 0.55 * Math.max(candidate.size, run.size)) continue;
       // Not a run set over or under one already there: that is the next
       // line of its column, drawn into this baseline by a line of larger
       // type in the column beside it, which sits between the two.
@@ -208,8 +298,18 @@ function buildLines(page: PageInput): Line[] {
         (other) => Math.abs(other.y - run.y) > 0.3 * Math.min(other.size, run.size) && Math.min(other.x + other.width, run.x + run.width) - Math.max(other.x, run.x) > 1,
       );
       if (stacked) continue;
-      home = candidate;
-      break;
+      // A run off the baseline — a subscript, a superscript — belongs with
+      // the words beside it, not with a line in the other column whose
+      // baseline happens to fall nearer: only a run on the baseline itself
+      // joins one across a gap, as a table's cells do.
+      const em = Math.max(candidate.size, run.size);
+      const beside = candidate.runs.some((other) => run.x - (other.x + other.width) < 1.5 * em && other.x - (run.x + run.width) < 1.5 * em);
+      if (!beside && drift > 0.15 * em) continue;
+      const score = drift + (beside ? 0 : em);
+      if (score < best) {
+        best = score;
+        home = candidate;
+      }
     }
     if (home) {
       home.runs.push(run);
@@ -273,8 +373,22 @@ function buildLines(page: PageInput): Line[] {
     // The line's size is the size most of its glyphs are set in, and its
     // baseline that of those glyphs — a line that is mostly a superscript
     // is a footnote mark, not a paragraph.
+    // Small capitals — "I. INTRODUCTION", "REFERENCES" as IEEE sets them —
+    // are capitals set smaller on the same baseline, and count at the size
+    // of the capitals they go with.
+    const largest = line.runs.reduce((best, run) => (run.size > best.size ? run : best), line.runs[0]);
+    const smallCaps = (run: Run) =>
+      run !== largest &&
+      run.size >= largest.size * 0.6 &&
+      run.size <= largest.size * 0.92 &&
+      Math.abs(run.y - largest.y) < 0.1 * largest.size &&
+      /\p{Lu}/u.test(run.str) &&
+      !/\p{Ll}/u.test(run.str);
     const weight = new Map<number, number>();
-    for (const run of line.runs) weight.set(run.size, (weight.get(run.size) || 0) + run.str.length);
+    for (const run of line.runs) {
+      const counted = smallCaps(run) ? largest.size : run.size;
+      weight.set(counted, (weight.get(counted) || 0) + run.str.length);
+    }
     let size = line.size;
     let best = -1;
     for (const [candidate, count] of weight) {
@@ -288,8 +402,11 @@ function buildLines(page: PageInput): Line[] {
     const math = line.runs.filter((run) => run.math).reduce((sum, run) => sum + run.str.length, 0);
     const mono = line.runs.filter((run) => run.mono).reduce((sum, run) => sum + run.str.length, 0);
     // The face of the line is the face of most of its letters: a bold
-    // caption with a "3%" set in a mathematics font is still bold.
-    const lettered = line.runs.filter((run) => /\w/.test(run.str));
+    // caption with a "3%" set in a mathematics font is still bold, and so is
+    // a line of a bold abstract with "3.7%" set in upright roman.
+    // A line with no letters — "2.1" set apart from its heading — goes by its digits.
+    const worded = line.runs.filter((run) => /\p{L}/u.test(run.str) && !run.math);
+    const lettered = worded.length ? worded : line.runs.filter((run) => /\w/.test(run.str));
     const letters = lettered.reduce((sum, run) => sum + run.str.length, 0);
     const bold = lettered.filter((run) => run.bold).reduce((sum, run) => sum + run.str.length, 0);
     const italic = lettered.filter((run) => run.italic).reduce((sum, run) => sum + run.str.length, 0);
@@ -402,12 +519,22 @@ function dropFurniture(pages: Line[][], inputs: PageInput[], measures: Measures)
         line.taken = true;
       }
     }
+    // A page number set higher than the margins above count — article's
+    // is 88% of the way down a letter page — is still the page's last
+    // line, a number alone, well clear of the text above it.
+    const kept = lines.filter((line) => !line.taken);
+    const last = kept.reduce<Line | null>((low, line) => (!low || line.baseline > low.baseline ? line : low), null);
+    if (last && /^(page\s+)?\d{1,4}$/i.test(last.text) && last.baseline > page.height * 0.75) {
+      const above = Math.max(0, ...kept.filter((line) => line !== last).map((line) => line.baseline));
+      if (last.baseline - above > 1.8 * last.size) last.taken = true;
+    }
   }
 }
 
 // -------------------------------------------------------------- captions --
 
-const CAPTION = /^(fig(?:ure)?s?|tables?|tab|algorithm|listing|scheme|chart|plate)\.?\s*(s?\d+[a-z]?(?:\.\d+)?)\s*([.:|—–-]|$)/i;
+// IEEE numbers its tables in capital Roman numerals: "TABLE IV".
+const CAPTION = /^(fig(?:ure)?s?|tables?|tab|algorithm|listing|scheme|chart|plate)\.?\s*(s?\d+[a-z]?(?:\.\d+)?|[IVXL]{1,6}\b)\s*([.:|—–-]|$)/i;
 
 function findCaptions(lines: Line[], measures: Measures): void {
   for (const line of lines) {
@@ -418,6 +545,8 @@ function findCaptions(lines: Line[], measures: Measures): void {
     const styled = Boolean(first && (first.bold || first.italic || Math.abs(first.size - measures.bodySize) > 0.4));
     const punctuated = Boolean(match[3]);
     if (!styled && !punctuated) continue;
+    // "Table in" is not a table; Roman numerals are capitals.
+    if (/^[ivxl]/i.test(match[2]) && match[2] !== match[2].toUpperCase()) continue;
     const word = match[1].toLowerCase();
     const kind = word.startsWith('tab') ? 'table' : 'figure';
     line.caption = { kind, label: `${match[1]} ${match[2]}`.replace(/\.$/, '') };
@@ -521,10 +650,37 @@ function bodyLike(line: Line, measures: Measures): boolean {
  * axis labels, its legend; or the table: its rules and its cells. A side
  * with nothing on it is not the side the figure is on.
  */
+/**
+ * The lines a caption runs on to: set under it in its size, each alone on
+ * its baseline, starting where it starts or centred where it is. A table's
+ * caption is above the table, and without these its second line would be
+ * read as the table's first row.
+ */
+function captionTail(caption: Line, lines: Line[]): Line[] {
+  const tail: Line[] = [];
+  let last = caption;
+  const middle = (line: Line) => (line.x0 + line.x1) / 2;
+  for (;;) {
+    const next = lines
+      .filter((line) => line !== last && !line.taken && !line.caption && line.page === caption.page && line.baseline > last.baseline + 0.5 * last.size)
+      .filter((line) => overlapX(line, caption) > 0)
+      .sort((a, b) => a.baseline - b.baseline)[0];
+    if (!next || next.baseline - last.baseline > 1.7 * caption.size || Math.abs(next.size - caption.size) > 0.4) break;
+    if (Math.abs(next.x0 - caption.x0) > 0.6 * caption.size && Math.abs(middle(next) - middle(caption)) > 0.6 * caption.size) break;
+    // Not the first row of a table: nothing else on its baseline.
+    if (lines.some((other) => other !== next && !other.taken && Math.abs(other.baseline - next.baseline) < 0.5 * next.size && overlapX(other, caption) > 0)) break;
+    tail.push(next);
+    last = next;
+  }
+  return tail;
+}
+
 function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: Measures, page: PageInput): Region | null {
   const kind = caption.caption!.kind;
   const sides: ('above' | 'below')[] = kind === 'table' ? ['below', 'above'] : ['above', 'below'];
-  const free = lines.filter((line) => line !== caption && !line.taken);
+  const tail = captionTail(caption, lines);
+  const captionBottom = tail.length ? tail[tail.length - 1].bottom : caption.bottom;
+  const free = lines.filter((line) => line !== caption && !line.taken && !tail.includes(line));
   const em = measures.bodySize;
 
   for (const side of sides) {
@@ -537,6 +693,10 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
     // line under a full one.
     const wall = (line: Line) => {
       if (line.caption || bodyLike(line, measures)) return true;
+      // A heading, by its shape or set large and bold: the text resuming.
+      if (headingLine(line, measures, columnLeft) || (line.allBold && line.size >= measures.bodySize * 1.1)) return true;
+      // A title, or a heading set large: never part of a figure.
+      if (line.size >= measures.bodySize * 1.3 && !clusters.some((cluster) => overlapX(cluster, line) > 0 && cluster.y0 <= line.bottom && cluster.y1 >= line.top)) return true;
       if (Math.abs(line.size - measures.bodySize) > 0.6 || line.x0 > columnLeft + em * 0.3) return false;
       return body.some((other) => other.bottom <= line.top + 1 && line.top - other.bottom < line.size * 1.2);
     };
@@ -544,9 +704,9 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
     if (side === 'above') {
       far = Math.max(0, ...free.filter((line) => inSpan(line) && line.bottom <= caption.top + 1 && wall(line)).map((line) => line.bottom));
     } else {
-      far = Math.min(page.height, ...free.filter((line) => inSpan(line) && line.top >= caption.bottom - 1 && wall(line)).map((line) => line.top));
+      far = Math.min(page.height, ...free.filter((line) => inSpan(line) && line.top >= captionBottom - 1 && wall(line)).map((line) => line.top));
     }
-    const band = side === 'above' ? { y0: far, y1: caption.top } : { y0: caption.bottom, y1: far };
+    const band = side === 'above' ? { y0: far, y1: caption.top } : { y0: captionBottom, y1: far };
     if (band.y1 - band.y0 < em * 0.5) continue;
     const within = (box: { y0: number; y1: number }) => box.y0 >= band.y0 - 2 && box.y1 <= band.y1 + 2;
 
@@ -558,10 +718,17 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
       members = clusters.filter((cluster) => inSpan(cluster) && within(cluster));
       // A cell on the same row as one already held is held too, however
       // far right the column is.
-      const reach = { x0: columnLeft - em, x1: Math.max(columnLeft + measures.columnWidth, span.x1) + em };
-      const onRow = (line: Line) =>
-        line.x0 >= reach.x0 && line.x1 <= reach.x1 && held.some((other) => Math.abs(other.baseline - line.baseline) < 0.5 * line.size);
-      held = free.filter((line) => !line.caption && !wall(line) && (inSpan(line) || onRow(line)) && within({ y0: line.top, y1: line.bottom }));
+      const reach = { x0: Math.min(columnLeft, ...members.map((cluster) => cluster.x0)) - em, x1: Math.max(columnLeft + measures.columnWidth, span.x1) + em };
+      // Text is only ever held inside the caption's column, or under the
+      // drawings: a title or a byline centred across the page overlaps a
+      // figure's column without being in it, and widening the figure to
+      // take it in would take the other column's text with it.
+      const inReach = (line: Line) => line.x0 >= reach.x0 && line.x1 <= reach.x1;
+      const onRow = (line: Line) => held.some((other) => Math.abs(other.baseline - line.baseline) < 0.5 * line.size);
+      // A figure's labels sit by its drawings; text further off is not the figure's.
+      const drawn = kind === 'figure' && members.length ? { y0: Math.min(...members.map((cluster) => cluster.y0)) - 2.5 * em, y1: Math.max(...members.map((cluster) => cluster.y1)) + 2.5 * em } : null;
+      const nearDrawing = (line: Line) => !drawn || (line.bottom >= drawn.y0 && line.top <= drawn.y1);
+      held = free.filter((line) => !line.caption && !wall(line) && inReach(line) && nearDrawing(line) && (inSpan(line) || onRow(line)) && within({ y0: line.top, y1: line.bottom }));
       const x0 = Math.min(span.x0, ...members.map((cluster) => cluster.x0), ...held.map((line) => line.x0));
       const x1 = Math.max(span.x1, ...members.map((cluster) => cluster.x1), ...held.map((line) => line.x1));
       // The first pass finds the rows; the second, their cells beyond the
@@ -577,6 +744,7 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
     if (!members.length && rows < 2 && small < 2) continue;
 
     const boxes = [...members, ...held.map((line) => ({ x0: line.x0, y0: line.top, x1: line.x1, y1: line.bottom }))];
+    for (const line of tail) line.captionOf = caption;
     return {
       kind,
       page: page.index,
@@ -623,20 +791,25 @@ function equationRegions(lines: Line[], clusters: Cluster[], measures: Measures,
       label = seed.text;
       // The number sits at the right edge of the column; the formula is to
       // its left on the same baseline, and there must be one.
-      const same = free().filter((line) => line !== seed && Math.abs(line.baseline - seed.baseline) <= seed.size && line.x1 <= seed.x0 + 2 && seed.x0 - line.x1 < measures.columnWidth);
+      const left = columnLeftOf(seed) - measures.bodySize;
+      const same = free().filter((line) => line !== seed && Math.abs(line.baseline - seed.baseline) <= seed.size && line.x1 <= seed.x0 + 2 && line.x0 >= left && seed.x0 - line.x1 < measures.columnWidth);
       if (!same.length) continue;
       if (same.some((line) => bodyLike(line, measures))) continue;
       for (const line of same) box = { x0: Math.min(box.x0, line.x0), y0: Math.min(box.y0, line.top), x1: Math.max(box.x1, line.x1), y1: Math.max(box.y1, line.bottom) };
     }
-    const columnLeft = box.x0 - measures.columnWidth;
-    const columnRight = box.x1 + measures.columnWidth;
+    // The equation stays in its column: the lines beside it in the next
+    // column over — an abstract in a smaller size, a table's cells — are
+    // not body text either, and are not the equation's.
+    const home = columnLeftOf(seed);
+    const columnLeft = Math.min(box.x0, home) - measures.bodySize;
+    const columnRight = Math.max(box.x1, home + measures.columnWidth) + measures.bodySize;
     const members = new Set<Line>([seed]);
     let grew = true;
     while (grew) {
       grew = false;
       for (const line of free()) {
         if (members.has(line) || line.caption) continue;
-        if (line.x1 < columnLeft || line.x0 > columnRight) continue;
+        if (line.x0 < columnLeft || line.x1 > columnRight) continue;
         if (bodyLike(line, measures)) continue;
         if (overlapX(line, { x0: box.x0 - 30, x1: box.x1 + 30 }) <= 0) continue;
         const gap = line.top > box.y1 ? line.top - box.y1 : line.bottom < box.y0 ? box.y0 - line.bottom : 0;
@@ -644,6 +817,12 @@ function equationRegions(lines: Line[], clusters: Cluster[], measures: Measures,
         // A line that is words rather than symbols, sitting just under the
         // formula, is the paragraph carrying on ("where x is ...").
         if (line.mathShare < 0.2 && /^[A-Za-z][a-z]+\s+[a-z]/.test(line.text) && line.x1 - line.x0 > measures.columnWidth * 0.5) continue;
+        // Nor is a sentence, whatever it is set in, nor the short last line
+        // of the paragraph above — words, at the column's edge, where a
+        // display is never set.
+        const wordy = (line.text.match(/\p{L}{2,}/gu) || []).length;
+        if (line.mathShare < 0.15 && wordy >= 6) continue;
+        if (line.mathShare < 0.1 && wordy >= 2 && Math.abs(line.x0 - home) < line.size * 0.3) continue;
         members.add(line);
         box = { x0: Math.min(box.x0, line.x0), y0: Math.min(box.y0, line.top), x1: Math.max(box.x1, line.x1), y1: Math.max(box.y1, line.bottom) };
         grew = true;
@@ -755,7 +934,11 @@ function paragraphs(ordered: Line[], measures: Measures, columns: Map<Line, numb
       const pitch = line.baseline - previous.baseline;
       const em = Math.max(line.size, previous.size);
       const listItem = BULLET.test(current.lines[0].text) || NUMBERED.test(current.lines[0].text);
-      if (current.columnLeft !== columnLeft) fresh = true;
+      const headed = [headingLine(previous, measures, current.columnLeft), headingLine(line, measures, columnLeft)];
+      if (line.captionOf && current.lines.includes(line.captionOf)) fresh = false;
+      // A heading is a paragraph of its own — two lines of one, set tight, still one.
+      else if (headed[0] || headed[1]) fresh = !(headed[0] && headed[1] && line.baseline - previous.baseline > 0 && line.baseline - previous.baseline < 1.5 * Math.max(line.size, previous.size));
+      else if (current.columnLeft !== columnLeft) fresh = true;
       else if (Math.abs(line.baseline - previous.baseline) < em * 0.5 && line.page === previous.page) fresh = false; // Same baseline: one line split by a gap.
       else if (pitch < 0 || pitch > em * 1.9) fresh = true;
       else if (line.caption || previous.caption) fresh = Boolean(line.caption);
@@ -786,11 +969,20 @@ function paragraphs(ordered: Line[], measures: Measures, columns: Map<Line, numb
 
 // ---------------------------------------------------------------- spans ---
 
-function spansOf(lines: Line[], heading = false): Span[] {
+/**
+ * A run of lines as spans of text in their faces. A face the whole line is
+ * set in is the paragraph's, and left unmarked — a bold abstract is not
+ * bold words — unless `keepFace`, as in a table, where a bold cell is the
+ * best result in its column.
+ */
+function spansOf(lines: Line[], heading = false, keepFace = false): Span[] {
   const spans: Span[] = [];
+  // The paragraph's own face: every line of it bold, or every line italic.
+  const allBold = lines.every((line) => line.allBold);
+  const allItalic = lines.every((line) => line.allItalic);
   const push = (span: Span) => {
     const last = spans[spans.length - 1];
-    if (last && !!last.bold === !!span.bold && !!last.italic === !!span.italic && !!last.mono === !!span.mono && !!last.sup === !!span.sup && !!last.sub === !!span.sub) {
+    if (last && !!last.bold === !!span.bold && !!last.italic === !!span.italic && !!last.mono === !!span.mono && !!last.sup === !!span.sup && !!last.sub === !!span.sub && last.href === span.href) {
       last.text += span.text;
     } else {
       spans.push(span);
@@ -802,14 +994,20 @@ function spansOf(lines: Line[], heading = false): Span[] {
       const before = spans[spans.length - 1];
       const tail = before?.text ?? '';
       const sameBaseline = Math.abs(line.baseline - previous.baseline) < 0.5 * line.size && line.page === previous.page;
-      if (tail.endsWith('-') && !sameBaseline) {
+      const firstRun = line.runs.find((run) => run.str.trim());
+      // An address broken at the line's end runs straight on: the same
+      // link on both lines, or an address ending in "/" before the break.
+      const address = (before?.href && firstRun?.href === before.href) || (!before?.href && !firstRun?.href && /https?:\/\/\S*[/_-]$/.test(tail) && /^[\w%~#?=&/.-]/.test(line.text));
+      if (address && !sameBaseline) {
+        // Nothing between the two halves.
+      } else if (tail.endsWith('-') && !sameBaseline) {
         // A word broken at the line's end: mend it, unless the break is at a
         // hyphen the word keeps — "self-" / "Attention", or "quasi-" /
         // "linear" where the paper writes "quasi-linear" elsewhere.
         const left = /([a-z]+)-$/i.exec(tail)?.[1];
         const right = /^([a-z]+)/i.exec(line.text)?.[1];
         const kept = left && right && keepsHyphen(left, right);
-        if (/^[a-z]/.test(line.text) && /[a-z]{2}-$/.test(tail) && !kept) before.text = tail.slice(0, -1);
+        if (/^[a-z]/.test(line.text) && /[A-Za-z][a-z]-$/.test(tail) && !kept) before.text = tail.slice(0, -1);
       } else if (tail && !tail.endsWith(' ')) {
         push({ text: ' ' });
       }
@@ -821,18 +1019,27 @@ function spansOf(lines: Line[], heading = false): Span[] {
         end = run.x + run.width;
         continue;
       }
-      if (end > Number.NEGATIVE_INFINITY && run.x - end > 0.08 * line.size) push({ text: ' ' });
+      const bare = !/[\p{L}\p{N}]/u.test(piece);
+      if (end > Number.NEGATIVE_INFINITY && run.x - end > 0.08 * line.size) {
+        const prior = spans[spans.length - 1];
+        push(bare && prior ? { text: ' ', bold: prior.bold, italic: prior.italic } : { text: ' ' });
+      }
       end = run.x + run.width;
       const small = run.size < line.size * 0.85;
       const raised = line.baseline - run.y > line.size * 0.15;
       const lowered = run.y - line.baseline > line.size * 0.1;
+      // A stop or a "±" set in another font is in the face of the word
+      // before it: a bold "54.7" is one bold number, and the stop in "3.7"
+      // taken from a mathematics italic is not an italic stop.
+      const prior = spans[spans.length - 1];
       push({
         text: piece.replace(/\s+/g, ' '),
-        bold: !heading && run.bold && !line.allBold ? true : undefined,
-        italic: run.italic && !line.allItalic ? true : undefined,
+        bold: (bare ? prior?.bold : !heading && run.bold && (keepFace || !allBold)) ? true : undefined,
+        italic: (bare ? prior?.italic : run.italic && (keepFace || !allItalic)) ? true : undefined,
         mono: run.mono ? true : undefined,
         sup: small && raised ? true : undefined,
         sub: small && lowered ? true : undefined,
+        href: run.href,
       });
     }
   });
@@ -941,10 +1148,10 @@ export function tableFromLines(lines: Line[], caption?: Line): TableCell[][] | n
       if (at > first) {
         // Two runs in one column on one row: the same cell, split by a gap.
         const previous = out[out.length - 1];
-        if (previous) previous.spans = [...previous.spans, { text: ' ' }, ...spansOf([cell])];
+        if (previous) previous.spans = [...previous.spans, { text: ' ' }, ...spansOf([cell], false, true)];
         continue;
       }
-      out.push({ spans: spansOf([cell]), colspan: last > first ? last - first + 1 : undefined });
+      out.push({ spans: spansOf([cell], false, true), colspan: last > first ? last - first + 1 : undefined });
       at = last + 1;
     }
     while (at < columns.length) {
@@ -955,7 +1162,93 @@ export function tableFromLines(lines: Line[], caption?: Line): TableCell[][] | n
   });
 }
 
+/**
+ * A table read whole: split into its panels where it has them — "A.
+ * Component contributions", then its rows, "B. …", then its own — each
+ * with columns of its own, and a panel's title a row across the table;
+ * and the note set under the table, after its last row, kept as a note.
+ */
+export function tableOf(lines: Line[], caption?: Line): { rows: TableCell[][]; notes?: Span[] } | null {
+  const cells = lines.filter((line) => line !== caption && line.text.trim());
+  if (!cells.length) return null;
+  const byRow: Line[][] = [];
+  for (const cell of cells.slice().sort((a, b) => a.baseline - b.baseline || a.x0 - b.x0)) {
+    const row = byRow[byRow.length - 1];
+    if (row && Math.abs(row[0].baseline - cell.baseline) <= 0.5 * Math.max(row[0].size, cell.size)) row.push(cell);
+    else byRow.push([cell]);
+  }
+  // Notes: the lines alone on their rows after the last row of cells, the
+  // first of them as wide as half the table or more — a paragraph set under it.
+  let end = byRow.length;
+  while (end > 0 && byRow[end - 1].length === 1) end -= 1;
+  if (end > 0 && end < byRow.length) {
+    const widths = byRow.slice(0, end).flat();
+    const span = Math.max(...widths.map((line) => line.x1)) - Math.min(...widths.map((line) => line.x0));
+    const first = byRow[end][0];
+    if (first.x1 - first.x0 < span * 0.5) end = byRow.length;
+  } else end = byRow.length;
+  const notes = byRow.slice(end).flat();
+  const body = byRow.slice(0, end);
+  const left = Math.min(...body.flat().map((line) => line.x0));
+  // A panel's title: alone on its row at the table's left edge, bold or lettered "A.".
+  const titled = (row: Line[]) => row.length === 1 && row[0].x0 - left < row[0].size * 1.5 && (row[0].allBold || /^(\(?[A-Za-z]\)|[A-Z]\.)\s+\S/.test(row[0].text)) && /\p{L}{3}/u.test(row[0].text);
+  const panels: { title?: Line; rows: Line[][] }[] = [];
+  for (const row of body) {
+    const current = panels[panels.length - 1];
+    if (titled(row) && (!current || current.rows.length)) panels.push({ title: row[0], rows: [] });
+    else if (!current) panels.push({ rows: [row] });
+    else current.rows.push(row);
+  }
+  const read = panels.map((panel) => tableFromLines(panel.rows.flat()));
+  // No panels, and no columns to be found: not a table to set as one.
+  if (panels.length === 1 && !panels[0].title && !read[0]) return null;
+  if (!read.some(Boolean)) return null;
+  // A panel too small to read as a table is its lines, one row each.
+  const tables = panels.map((panel, index) => ({
+    title: panel.title,
+    rows: read[index] ?? panel.rows.map((row) => row.slice().sort((a, b) => a.x0 - b.x0).map((line): TableCell => ({ spans: spansOf([line], false, true) }))),
+  }));
+  const width = Math.max(1, ...tables.flatMap((table) => table.rows.map((row) => row.reduce((sum, cell) => sum + (cell.colspan || 1), 0))));
+  const rows: TableCell[][] = [];
+  for (const table of tables) {
+    if (table.title) rows.push([{ spans: spansOf([table.title]), colspan: width > 1 ? width : undefined, head: true }]);
+    table.rows.forEach((row, index) => {
+      const cellsOut = row.map((cell) => ({ ...cell }));
+      const used = cellsOut.reduce((sum, cell) => sum + (cell.colspan || 1), 0);
+      // A panel with fewer columns than the widest: its last cell takes the rest.
+      if (used < width && cellsOut.length) cellsOut[cellsOut.length - 1].colspan = (cellsOut[cellsOut.length - 1].colspan || 1) + width - used;
+      if (index === 0) for (const cell of cellsOut) cell.head = true;
+      rows.push(cellsOut);
+    });
+  }
+  return { rows, notes: notes.length ? spansOf(notes) : undefined };
+}
+
 // --------------------------------------------------------------- headings --
+
+/**
+ * A line that is a heading by its shape, though set neither larger nor
+ * bolder than the text — as IEEE sets them: "I. INTRODUCTION" in small
+ * capitals, centred; "A. Residual latent dynamics" in italics at the
+ * column's edge; "REFERENCES".
+ */
+function headingLine(line: Line, measures: Measures, columnLeft: number): boolean {
+  if (line.caption || line.captionOf || line.mathShare > 0.2) return false;
+  if (Math.abs(line.size - measures.bodySize) > 1.2) return false;
+  const text = line.text;
+  if (text.length > 90 || /[.,;:]$/.test(text)) return false;
+  const words = text.split(' ');
+  if (words.length > 12) return false;
+  const letters = text.replace(/[^\p{L}]/gu, '');
+  // Capitals only: a numbered section, or one of the unnumbered ones.
+  if (letters.length >= 4 && letters === letters.toUpperCase() && line.x1 - line.x0 < measures.columnWidth * 0.9) {
+    if (/^([IVXL]{1,5}|[A-Z]|\d{1,2}(\.\d{1,2})*)\.?\s+\p{Lu}/u.test(text)) return true;
+    if (/^(abstract|references|bibliography|acknowledge?ments?|appendix|appendices|conclusions?)\b/i.test(text)) return true;
+  }
+  // An italic "A. Name" at the column's edge: a subsection.
+  if (line.allItalic && /^[A-Z]\.\s+\p{Lu}/u.test(text) && words.length <= 10 && line.x0 - columnLeft < line.size * 0.5 && line.x1 - line.x0 < measures.columnWidth * 0.85) return true;
+  return false;
+}
 
 function looksLikeHeading(paragraph: Paragraph, measures: Measures): boolean {
   const lines = paragraph.lines;
@@ -963,6 +1256,7 @@ function looksLikeHeading(paragraph: Paragraph, measures: Measures): boolean {
   const text = plain(spansOf(lines));
   if (!text || text.length > 160) return false;
   if (paragraph.region || lines[0].caption) return false;
+  if (lines.every((line) => headingLine(line, measures, paragraph.columnLeft))) return true;
   const size = lines[0].size;
   const larger = size >= measures.bodySize * 1.12;
   const bold = lines.every((line) => line.allBold);
@@ -975,6 +1269,21 @@ function looksLikeHeading(paragraph: Paragraph, measures: Measures): boolean {
   if (lines.length === 1 && !lines[0].allBold && !larger) return false;
   if (words > 20) return false;
   return true;
+}
+
+/**
+ * How deep a heading's number puts it: "3.2 Method" is 2 deep. IEEE's
+ * "II. METHOD" is a section, "A. Losses" under it a subsection, and
+ * "1) Inverse dynamics" under that.
+ */
+function headingDepth(text: string): number {
+  const numbered = /^(\d+(?:\.\d+)*)\.?\s/.exec(text);
+  if (numbered) return numbered[1].split('.').length;
+  const letters = text.replace(/[^\p{L}]/gu, '');
+  if (/^[IVXL]{1,5}\.\s/.test(text) && letters === letters.toUpperCase()) return 1;
+  if (/^[A-Z]\.\s/.test(text)) return 2;
+  if (/^\d+\)\s/.test(text)) return 3;
+  return 0;
 }
 
 // ---------------------------------------------------------------- layout --
@@ -1010,6 +1319,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
   const blocks: Block[] = [];
   let characters = 0;
   let frontAuthors: string[] = [];
+  let front: Span[][] = [];
   let inReferences = false;
   const headings: { block: Extract<Block, { kind: 'heading' }>; size: number; numbered: number }[] = [];
   let carry: Extract<Block, { kind: 'paragraph' }> | null = null;
@@ -1086,7 +1396,16 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
         options.title,
       );
       if (abstractAt > 0) {
-        paras = paras.slice(abstractAt);
+        // A figure or a table at the head of a column is read before the
+        // abstract under it, and is not front matter: it follows the
+        // abstract, as a float would.
+        const before = paras.slice(0, abstractAt);
+        const floats = before.filter((paragraph) => paragraph.region || paragraph.lines[0].caption);
+        front = frontMatter(before.filter((paragraph) => !floats.includes(paragraph)).flatMap((paragraph) => paragraph.lines), measures, options.title);
+        const after = paras.slice(abstractAt);
+        // After the abstract's text, not between its heading and its text.
+        const at = after.length > 1 && plain(spansOf(after[0].lines)).split(' ').length <= 2 ? 2 : 1;
+        paras = [...after.slice(0, at), ...floats, ...after.slice(at)];
       } else if (options.title) {
         const wanted = normalTitle(options.title);
         paras = paras.filter((paragraph, index) => {
@@ -1104,7 +1423,10 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
       for (const equation of pending.slice()) {
         const region = equation.region!;
         const sameColumn = overlapX(region, { x0: first.x0, x1: first.x1 }) > 0 || overlapX(region, { x0: paragraph.columnLeft, x1: paragraph.columnLeft + measures.columnWidth }) > 0;
-        if (sameColumn && first.top >= region.y1 - 2 && (columns.get(first) ?? first.x0) <= region.x1) {
+        // Under it in its column, or anywhere in a column to its right: an
+        // equation at the foot of a column comes before the next column.
+        const nextColumn = paragraph.columnLeft >= region.x1 - 2 && first.page === region.page;
+        if (nextColumn || (sameColumn && first.top >= region.y1 - 2 && (columns.get(first) ?? first.x0) <= region.x1)) {
           placed.push(equation);
           pending.splice(pending.indexOf(equation), 1);
         }
@@ -1126,8 +1448,8 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
         const caption = spansOf(paragraph.lines);
         characters += plain(caption).length;
         if (region.kind === 'table') {
-          const rows = tableFromLines(region.lines, region.caption);
-          blocks.push({ kind: 'table', crop: crop(region, page), caption, label: region.label, rows, page: page.index });
+          const table = tableOf(region.lines, region.caption);
+          blocks.push({ kind: 'table', crop: crop(region, page), caption, label: region.label, rows: table?.rows ?? null, ...(table?.notes ? { notes: table.notes } : {}), page: page.index });
         } else {
           blocks.push({ kind: 'figure', crop: crop(region, page), caption, label: region.label, page: page.index });
         }
@@ -1139,9 +1461,8 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
       characters += text.length;
       if (looksLikeHeading(paragraph, measures)) {
         carry = null;
-        const numbered = /^(\d+(?:\.\d+)*)\.?\s/.exec(text);
         const block: Extract<Block, { kind: 'heading' }> = { kind: 'heading', level: 2, spans, page: page.index };
-        headings.push({ block, size: round(paragraph.lines[0].size), numbered: numbered ? numbered[1].split('.').length : 0 });
+        headings.push({ block, size: round(paragraph.lines[0].size), numbered: headingDepth(text) });
         blocks.push(block);
         inReferences = /^(\d+(\.\d+)*\.?\s+)?(references|bibliography)\b/i.test(text);
         continue;
@@ -1196,6 +1517,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
     readable: readable(blocks),
     bodySize: measures.bodySize,
     authors: frontAuthors.length ? frontAuthors : undefined,
+    front: front.length ? front : undefined,
   };
 }
 
@@ -1249,6 +1571,42 @@ export function bylinePieces(text: string): string[] {
     .split(/\s*(?:,|;|·|•|\||\s{3,}|\band\b|&)\s*/)
     .map((piece) => piece.replace(/\s+/g, ' ').replace(/^[\s.,-]+|[\s,-]+$/g, '').trim())
     .filter(Boolean);
+}
+
+/**
+ * The first page's lines above the abstract, less the title: the byline's
+ * affiliations and notes, which the reader's own heading has no room for.
+ * A line of names is kept only where its marks — "Jiabin Qiu¹∗" — point at
+ * one of the lines kept, since the names alone are in the heading already.
+ * A line that runs on to the next — a long address — is one entry with it.
+ */
+function frontMatter(lines: Line[], measures: Measures, title?: string): Span[][] {
+  const wanted = title ? normalTitle(title) : '';
+  const entries: { spans: Span[]; names: boolean; marked: boolean }[] = [];
+  const largest = Math.max(0, ...lines.map((line) => line.size));
+  for (const line of lines) {
+    const flat = normalTitle(line.text);
+    if (!flat) continue;
+    // The title: the paper's own, or the largest type on the page.
+    if (wanted && flat.length > 3 && wanted.includes(flat)) continue;
+    if (line.size >= measures.bodySize * 1.3 && line.size >= largest - 0.5) continue;
+    const spans = spansOf([line]);
+    const text = plain(spans);
+    if (!text || /^arxiv:/i.test(text)) continue;
+    const marked = spans.some((span) => span.sup) || /[∗*†‡§¶]/.test(text);
+    const pieces = bylinePieces(text.replace(/\d+/g, ' '));
+    const names = pieces.length > 0 && pieces.every(looksLikeName);
+    const previous = entries[entries.length - 1];
+    if (previous && !previous.names && !names && /[\p{Ll},-]$/u.test(plain(previous.spans)) && /^\p{Ll}/u.test(text)) {
+      previous.spans = mergeSpans(previous.spans, spans, /\p{Ll}-$/u.test(plain(previous.spans)));
+      continue;
+    }
+    entries.push({ spans, names, marked });
+  }
+  const notes = entries.filter((entry) => !entry.names);
+  if (!notes.length) return [];
+  const pointed = notes.some((entry) => entry.marked);
+  return entries.filter((entry) => !entry.names || (pointed && entry.marked)).map((entry) => entry.spans);
 }
 
 /** The names on the lines above a first page's abstract, in reading order. */
@@ -1411,8 +1769,38 @@ function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] as string);
 }
 
+/**
+ * Addresses written out in the text — "https://…", "www.…", an email
+ * address — made links, where the PDF itself did not make them one.
+ */
+const ADDRESS = /(https?:\/\/[^\s<>"“”]+|www\.[a-z0-9-]+\.[^\s<>"“”]+|[\w.+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})/gi;
+
+export function linkAddresses(spans: Span[]): Span[] {
+  const out: Span[] = [];
+  for (const span of spans) {
+    if (span.href || !/https?:\/\/|www\.|@/i.test(span.text)) {
+      out.push(span);
+      continue;
+    }
+    let at = 0;
+    for (const match of span.text.matchAll(ADDRESS)) {
+      let address = match[0];
+      // A sentence's full stop or a closing bracket is not the address's.
+      while (/[.,;:!?'"’”]$/.test(address) || (/\)$/.test(address) && !address.includes('('))) address = address.slice(0, -1);
+      if (!address) continue;
+      const start = match.index!;
+      if (start > at) out.push({ ...span, text: span.text.slice(at, start) });
+      const href = address.includes('@') && !/^https?:|^www\./i.test(address) ? `mailto:${address}` : /^www\./i.test(address) ? `https://${address}` : address;
+      out.push({ ...span, text: address, href });
+      at = start + address.length;
+    }
+    if (at < span.text.length) out.push({ ...span, text: span.text.slice(at) });
+  }
+  return out;
+}
+
 export function spansToHtml(spans: Span[]): string {
-  return spans
+  return linkAddresses(spans)
     .map((span) => {
       let html = escapeHtml(span.text);
       if (span.mono) html = `<code>${html}</code>`;
@@ -1420,6 +1808,7 @@ export function spansToHtml(spans: Span[]): string {
       if (span.bold) html = `<strong>${html}</strong>`;
       if (span.sup) html = `<sup>${html}</sup>`;
       if (span.sub) html = `<sub>${html}</sub>`;
+      if (span.href && /^(https?:|mailto:)/i.test(span.href)) html = `<a href="${escapeHtml(span.href)}" target="_blank" rel="noreferrer noopener">${html}</a>`;
       return html;
     })
     .join('');
@@ -1428,10 +1817,13 @@ export function spansToHtml(spans: Span[]): string {
 /**
  * The document as HTML. Crops are images whose sources the caller supplies,
  * once it has painted them; a crop it has no image for is left out, with
- * its caption kept.
+ * its caption kept. `scale` is how many pixels a point was painted at: an
+ * image is sized as painted, which sets a figure's lettering about as large
+ * as the text around it, and its box is kept while it loads.
  */
-export function renderHtml(layout: Layout, imageFor: (crop: Crop) => string | null): string {
+export function renderHtml(layout: Layout, imageFor: (crop: Crop) => string | null, scale = 1): string {
   const out: string[] = [];
+  if (layout.front?.length) out.push(`<div class="pdf-front">${layout.front.map((entry) => `<p>${spansToHtml(entry)}</p>`).join('')}</div>`);
   let list: 'bullet' | 'number' | null = null;
   const closeList = () => {
     if (list) out.push(list === 'bullet' ? '</ul>' : '</ol>');
@@ -1440,8 +1832,8 @@ export function renderHtml(layout: Layout, imageFor: (crop: Crop) => string | nu
   const image = (crop: Crop, alt: string, className: string) => {
     const src = imageFor(crop);
     if (!src) return '';
-    const width = Math.round(crop.x1 - crop.x0);
-    const height = Math.round(crop.y1 - crop.y0);
+    const width = Math.round((crop.x1 - crop.x0) * scale);
+    const height = Math.round((crop.y1 - crop.y0) * scale);
     return `<img class="${className}" src="${escapeHtml(src)}" alt="${escapeHtml(alt)}" width="${width}" height="${height}" loading="lazy" style="aspect-ratio: ${width} / ${height}">`;
   };
   for (const block of layout.blocks) {
@@ -1469,13 +1861,20 @@ export function renderHtml(layout: Layout, imageFor: (crop: Crop) => string | nu
         break;
       case 'table': {
         if (block.rows) {
+          const marked = block.rows.some((row) => row.some((cell) => cell.head));
           const body = block.rows
             .map((row, index) => {
-              const tag = index === 0 ? 'th' : 'td';
-              return `<tr>${row.map((cell) => `<${tag}${cell.colspan ? ` colspan="${cell.colspan}"` : ''}>${spansToHtml(cell.spans)}</${tag}>`).join('')}</tr>`;
+              const title = row.length === 1 && row[0].head && (row[0].colspan || 1) > 1;
+              return `<tr${title ? ' class="pdf-panel"' : ''}>${row
+                .map((cell) => {
+                  const tag = (marked ? cell.head : index === 0) ? 'th' : 'td';
+                  return `<${tag}${cell.colspan ? ` colspan="${cell.colspan}"` : ''}>${spansToHtml(cell.spans)}</${tag}>`;
+                })
+                .join('')}</tr>`;
             })
             .join('');
-          out.push(`<figure class="pdf-table"><figcaption>${spansToHtml(block.caption)}</figcaption><table>${body}</table></figure>`);
+          const notes = block.notes?.length ? `<p class="pdf-table-notes">${spansToHtml(block.notes)}</p>` : '';
+          out.push(`<figure class="pdf-table"><figcaption>${spansToHtml(block.caption)}</figcaption><div class="pdf-table-scroll"><table>${body}</table></div>${notes}</figure>`);
         } else {
           out.push(`<figure class="pdf-table"><figcaption>${spansToHtml(block.caption)}</figcaption>${image(block.crop, block.label, 'pdf-crop')}</figure>`);
         }

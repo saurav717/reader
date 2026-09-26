@@ -8,7 +8,7 @@
 // beyond the default.
 
 import { build } from 'esbuild';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -17,10 +17,14 @@ const temporary = [];
 
 /**
  * `external` names packages to leave as imports rather than bundle — for a
- * module that loads one lazily and whose tests never reach that path.
+ * module that loads one lazily and whose tests never reach that path. With
+ * `imports`, those packages are imported for real: the bundle is written
+ * inside the repository, where Node can find them in node_modules.
  */
-export async function load(entry, { external = [] } = {}) {
-  const directory = await mkdtemp(join(tmpdir(), 'reader-test-'));
+export async function load(entry, { external = [], imports = false } = {}) {
+  const base = imports ? resolve('node_modules/.cache') : tmpdir();
+  if (imports) await mkdir(base, { recursive: true });
+  const directory = await mkdtemp(join(base, 'reader-test-'));
   temporary.push(directory);
   const outfile = join(directory, 'bundle.mjs');
   await build({
