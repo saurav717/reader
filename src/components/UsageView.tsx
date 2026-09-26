@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, hasProxy } from '../lib/api';
-import { ChartIcon, ChevronDownIcon, ChevronRightIcon } from './icons';
+import { ChartIcon, ChevronDownIcon, ChevronRightIcon, RestoreIcon } from './icons';
 
 /** One person's counts, as the Worker's `/usage` reports them (worker/usage.js). */
 interface Counts {
@@ -82,21 +82,64 @@ const COUNTED = [
  * opened — each day on its own. A page of its own in the main area; the
  * owner's alone, since the rail shows its button only to them.
  */
+/** How often the page asks again while it is open and in view. */
+export const REFRESH_MS = 30_000;
+
 export default function UsageView() {
   const [days, setDays] = useState(30);
   const [report, setReport] = useState<UsageReport | null | undefined>(undefined);
   const [open, setOpen] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  // The period of the answer being waited for, so an answer for a period
+  // since changed is dropped rather than shown under the new one.
+  const asking = useRef(days);
+
+  /**
+   * Ask the proxy again. A refresh keeps the table on screen while it waits;
+   * only a new period starts from "Asking…". A refresh that fails keeps the
+   * last numbers rather than blanking them.
+   */
+  const load = useCallback(async (period: number, fresh: boolean) => {
+    asking.current = period;
+    if (fresh) setReport(undefined);
+    setRefreshing(true);
+    try {
+      const answer = await fetchUsage(period);
+      if (asking.current !== period) return;
+      if (answer || fresh) setReport(answer);
+      if (answer) setUpdatedAt(Date.now());
+    } catch {
+      if (asking.current === period && fresh) setReport(null);
+    } finally {
+      if (asking.current === period) setRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    setReport(undefined);
-    fetchUsage(days)
-      .then((answer) => !cancelled && setReport(answer))
-      .catch(() => !cancelled && setReport(null));
-    return () => {
-      cancelled = true;
+    void load(days, true);
+  }, [days, load]);
+
+  // Every thirty seconds while the page is open and the tab is in view — a
+  // hidden tab asks nothing — and at once on coming back to it, if the
+  // numbers are older than that. Each ask is one request to the Worker and
+  // one read of the tally; nothing paid.
+  const lastAsked = useRef(0);
+  lastAsked.current = updatedAt;
+  useEffect(() => {
+    const visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
+    const timer = setInterval(() => {
+      if (visible()) void load(days, false);
+    }, REFRESH_MS);
+    const onVisibility = () => {
+      if (visible() && Date.now() - lastAsked.current >= REFRESH_MS) void load(days, false);
     };
-  }, [days]);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [days, load]);
 
   const cell = { padding: '9px 12px', textAlign: 'right' as const, whiteSpace: 'nowrap' as const };
   const rule = '1px solid var(--border-soft)';
@@ -110,6 +153,23 @@ export default function UsageView() {
           </span>
           <h1 className="collection-title">Usage</h1>
           <span style={{ flexGrow: 1 }} />
+          {updatedAt ? (
+            <span style={{ fontSize: 12, color: 'var(--muted)' }} title="Refreshes every 30 seconds while this page is open and in view">
+              Updated {new Date(updatedAt).toLocaleTimeString()}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="btn sm"
+            onClick={() => void load(days, false)}
+            disabled={refreshing}
+            aria-label="Refresh"
+            title="Refresh now"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <RestoreIcon size={14} />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
           <select className="chat-model" value={days} onChange={(event) => setDays(Number(event.target.value))} aria-label="Period">
             <option value={1}>Today</option>
             <option value={7}>7 days</option>
@@ -208,7 +268,8 @@ export default function UsageView() {
             </table>
             <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 14, lineHeight: 1.6 }}>
               Click a person for each day. Serply credits and SerpApi searches are what each service charged; answers
-              from the proxy’s five-minute cache cost nothing. Counted by your Worker, kept ninety days.
+              from the proxy’s five-minute cache cost nothing. Counted by your Worker, kept ninety days; this page asks
+              again every thirty seconds while it is open.
             </p>
           </>
         )}

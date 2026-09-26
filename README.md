@@ -547,7 +547,9 @@ npx --yes wrangler@4 secret put READER_OWNERS   # your Google email(s), comma-se
 ```
 
 Signed in as one of them, you see everyone who has signed in, their totals and
-each day's, and the per-person limit does not apply to you; nobody else sees it. READER_TOKEN reads it too, from a terminal:
+each day's — asked again every thirty seconds while the page is open and the
+tab in view, never while it is hidden, and at once with **Refresh** — and the
+per-person limit does not apply to you; nobody else sees it. READER_TOKEN reads it too, from a terminal:
 
 ```bash
 READER_TOKEN=… npm run usage                  # the last 30 days, as a table
