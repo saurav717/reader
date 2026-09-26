@@ -21,6 +21,10 @@ interface Counts {
   deepseek_in?: number;
   deepseek_out?: number;
   deepseek_cost?: number;
+  gemini?: number;
+  gemini_in?: number;
+  gemini_out?: number;
+  gemini_cost?: number;
 }
 /** One model's answers: how many, the tokens in and out, and the cost in millionths of a dollar. */
 export interface ModelCounts {

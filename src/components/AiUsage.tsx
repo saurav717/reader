@@ -41,7 +41,7 @@ function useDeepSeekAccount(days: number, refreshedAt: string): DeepSeekAccount 
  * email, and under it each provider's days, for everyone or the one picked.
  */
 
-type Provider = 'claude' | 'deepseek';
+type Provider = 'claude' | 'deepseek' | 'gemini';
 type Person = UsageReport['people'][number];
 
 /** Which provider each model the tally keeps apart belongs to (worker/usage.js MODELS). */
@@ -53,6 +53,10 @@ const MODEL_PROVIDER: Record<string, Provider> = {
   'deepseek-flash': 'deepseek',
   'deepseek-flash-fast': 'deepseek',
   'deepseek-other': 'deepseek',
+  'gemini-3.1-pro-preview': 'gemini',
+  'gemini-3.8-flash': 'gemini',
+  'gemini-3.5-flash-lite': 'gemini',
+  'gemini-other': 'gemini',
 };
 
 /** A model's name as the model picker shows it. */
@@ -61,7 +65,8 @@ export function modelLabel(id: string): string {
   return MODELS.find((model) => model.id === id)?.label ?? id;
 }
 
-const providerOf = (id: string): Provider | null => MODEL_PROVIDER[id] ?? (id.startsWith('claude') ? 'claude' : id.startsWith('deepseek') ? 'deepseek' : null);
+const providerOf = (id: string): Provider | null =>
+  MODEL_PROVIDER[id] ?? (id.startsWith('claude') ? 'claude' : id.startsWith('deepseek') ? 'deepseek' : id.startsWith('gemini') ? 'gemini' : null);
 
 /** Sum per-model counts into `into`. */
 function addModels(into: ByModel, from: ByModel | undefined): ByModel {
@@ -78,6 +83,7 @@ function addModels(into: ByModel, from: ByModel | undefined): ByModel {
 const PROVIDERS: { id: Provider; name: string }[] = [
   { id: 'claude', name: 'Claude' },
   { id: 'deepseek', name: 'DeepSeek' },
+  { id: 'gemini', name: 'Gemini' },
 ];
 
 /** Rows the box shows before it scrolls. */
@@ -240,7 +246,7 @@ export default function AiUsage({ report }: { report: UsageReport }) {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
         <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>AI credits</h2>
         <span style={muted}>
-          {dollars(aiCost(report.totals))} across Claude and DeepSeek · {report.since} to {report.until}
+          {dollars(aiCost(report.totals))} across Claude, DeepSeek and Gemini · {report.since} to {report.until}
         </span>
       </div>
 

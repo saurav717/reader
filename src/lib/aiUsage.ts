@@ -1,7 +1,7 @@
 // ===========================================================================
 //  AI usage, for the owner's tally.
 //
-//  Ask AI and Explain call Anthropic and DeepSeek straight from this browser,
+//  Ask AI and Explain call Anthropic, DeepSeek and Google straight from this browser,
 //  on the visitor's own key, so the proxy never sees them. Once an answer is
 //  in, this tells the proxy how many tokens it took (`POST /usage/ai`, see
 //  worker/usage.js), and the owner's Usage page shows it per person beside
@@ -11,7 +11,7 @@
 
 import { apiFetch, hasProxy, hasProxyToken } from './api';
 
-export type AiProvider = 'claude' | 'deepseek';
+export type AiProvider = 'claude' | 'deepseek' | 'gemini';
 
 export interface AiTokens {
   /** Input read at full price. */

@@ -13,9 +13,9 @@
  *   serpapi  requests SerpApi was charged for (a search each)
  *   browser  the browser inside the reader opened
  *   pdf      a file fetched with a pass — through a kept sign-in, or unlimited
- *   claude, deepseek                 answers from Ask AI and Explain, per provider
+ *   claude, deepseek, gemini         answers from Ask AI and Explain, per provider
  *   claude_in, claude_out, …         the tokens they read and wrote
- *   claude_cost, deepseek_cost       what they cost, in millionths of a dollar
+ *   claude_cost, deepseek_cost, …    what they cost, in millionths of a dollar
  *   models   the same per model: { [model]: { n, in, out, cost } }
  *
  * The AI answers are not the Worker's to make: the app sends them straight to
@@ -31,7 +31,7 @@
 
 import { addSnapshot, balanceReport, pruneDays } from './deepseekBalance.js';
 
-export const AI_PROVIDERS = ['claude', 'deepseek'];
+export const AI_PROVIDERS = ['claude', 'deepseek', 'gemini'];
 export const COUNTS = [
   'signin',
   'scholar',
@@ -57,6 +57,15 @@ export const PRICES = {
   deepseek: {
     'deepseek-flash': { input: 0.28, output: 0.42, cacheRead: 0.028, cacheWrite: 0.28 },
   },
+  // Google's paid tier, prompts under 200K tokens; thinking is billed as
+  // output. Gemini's caching is implicit — nothing to write — and a cached
+  // read is a tenth of the input. 3.8 Flash is at its introductory price,
+  // which Google says rises to $1.50 / $7.50 on 1 January 2027.
+  gemini: {
+    'gemini-3.1-pro-preview': { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 2 },
+    'gemini-3.8-flash': { input: 0.75, output: 3.75, cacheRead: 0.075, cacheWrite: 0.75 },
+    'gemini-3.5-flash-lite': { input: 0.3, output: 2.5, cacheRead: 0.03, cacheWrite: 0.3 },
+  },
 };
 
 /**
@@ -68,6 +77,7 @@ export const PRICES = {
 export const MODELS = {
   claude: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'],
   deepseek: ['deepseek-flash', 'deepseek-flash-fast'],
+  gemini: ['gemini-3.1-pro-preview', 'gemini-3.8-flash', 'gemini-3.5-flash-lite'],
 };
 export const MODEL_FIELDS = ['n', 'in', 'out', 'cost'];
 

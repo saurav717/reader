@@ -52,7 +52,7 @@ describe('the tally', () => {
     const days = {};
     addTo(days, 'a@gmail.com', { scholar: 1, serply: 2 }, 1000);
     addTo(days, 'a@gmail.com', { scholar: 1, serply: 1, nonsense: 5, pdf: -3 }, 2000);
-    const zero = { claude: 0, claude_in: 0, claude_out: 0, claude_cost: 0, deepseek: 0, deepseek_in: 0, deepseek_out: 0, deepseek_cost: 0 };
+    const zero = { claude: 0, claude_in: 0, claude_out: 0, claude_cost: 0, deepseek: 0, deepseek_in: 0, deepseek_out: 0, deepseek_cost: 0, gemini: 0, gemini_in: 0, gemini_out: 0, gemini_cost: 0 };
     assert.deepEqual(days['a@gmail.com'], { signin: 0, scholar: 2, serply: 3, serpapi: 0, browser: 0, pdf: 0, ...zero, last: 2000 });
   });
 
@@ -68,6 +68,9 @@ describe('the tally', () => {
     assert.equal(aiCounts({ provider: 'deepseek', model: 'deepseek-flash', input: 1_000_000, output: 0 }).deepseek_cost, 280_000);
     assert.equal(aiCounts({ provider: 'deepseek', model: 'unknown', input: 1_000_000 }).deepseek_cost, 280_000, 'an unknown model at the provider’s first price');
     assert.equal(aiCounts({ provider: 'deepseek', input: -5, output: 'x' }).deepseek_in, 0);
+    // Gemini: thinking comes in as output; a cached read at a tenth of the input.
+    assert.equal(aiCounts({ provider: 'gemini', model: 'gemini-3.8-flash', input: 1_000_000, output: 1_000_000 }).gemini_cost, 4_500_000);
+    assert.equal(aiCounts({ provider: 'gemini', model: 'gemini-3.1-pro-preview', cacheRead: 1_000_000 }).gemini_cost, 200_000);
     assert.equal(aiCounts({ provider: 'openai', input: 1 }), null);
   });
 

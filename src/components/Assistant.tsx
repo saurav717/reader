@@ -884,7 +884,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           value={model.id}
           disabled={s.live}
           onChange={(event) => setModel(event.target.value)}
-          title="Which model answers — Claude or DeepSeek"
+          title="Which model answers — Claude, DeepSeek or Gemini"
           aria-label="Model"
         >
           {PROVIDER_IDS.map((id) => (

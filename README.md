@@ -29,7 +29,7 @@ Press **⌘\\** and a chat window floats over the paper — see
 [Ask AI](#ask-ai). Press **E** and the model explains the whole paper, with
 figures, runnable code and what has changed since — see [Explain](#explain).
 Both run on Claude or on DeepSeek, whichever you pick — see
-[Choosing a model](#choosing-a-model-claude-or-deepseek).
+[Choosing a model](#choosing-a-model-claude-deepseek-or-gemini).
 
 ## Running it
 
@@ -1867,22 +1867,25 @@ screen before it answers, so there is nothing to paste.
 
 ![the Ask AI window over a paper, answering a question about a selected sentence](docs/ask-claude.png)
 
-### Choosing a model: Claude or DeepSeek
+### Choosing a model: Claude, DeepSeek or Gemini
 
 The picker at the top of the window lists every model, grouped by who runs it:
-**Claude** Opus 5, Sonnet 5 and Haiku 4.5 from Anthropic, and **DeepSeek Flash**
-from DeepSeek — twice, thinking first or answering at once. Explain and
-Implementation have a picker of their own, on their start page, so the chat can
-run on one and the long pages on the other. **Settings → AI models** holds both
-choices and both keys in one place.
+**Claude** Opus 5, Sonnet 5 and Haiku 4.5 from Anthropic, **DeepSeek Flash**
+from DeepSeek — twice, thinking first or answering at once — and **Gemini** 3.1
+Pro, 3.8 Flash and 3.5 Flash-Lite from Google. Explain and Implementation have a
+picker of their own, on their start page, so the chat can run on one and the
+long pages on the other. **Settings → AI models** holds both choices and every
+key in one place.
 
 Each provider has its own API key — from
-[console.anthropic.com](https://console.anthropic.com/settings/keys) or
-[platform.deepseek.com](https://platform.deepseek.com/api_keys). Pick a model
-whose provider has no key yet and the window asks for that one. Each key is kept
-in this browser's localStorage under its own name (`reader.anthropic-key`,
-`reader.deepseek-key`) and sent only to its provider's API; the ⚙ menu and
-Settings can forget either. Usage bills your own account.
+[console.anthropic.com](https://console.anthropic.com/settings/keys),
+[platform.deepseek.com](https://platform.deepseek.com/api_keys) or
+[aistudio.google.com](https://aistudio.google.com/apikey). Pick a model whose
+provider has no key yet and the window asks for that one. Each key is kept in
+this browser's localStorage under its own name (`reader.anthropic-key`,
+`reader.deepseek-key`, `reader.gemini-key`) and sent only to its provider's
+API; the ⚙ menu and Settings can forget any of them. Usage bills your own
+account.
 
 What to know about DeepSeek:
 
@@ -1907,6 +1910,28 @@ What to know about DeepSeek:
 - **Caching** is DeepSeek's own and automatic: the paper leads the system
   prompt, so the second question about it is billed at the cached rate there
   too, without cache breakpoints.
+
+What to know about Gemini:
+
+- **Three models**, by Google's API ids: `gemini-3.1-pro-preview` (Google's Pro,
+  which it still files as a preview), `gemini-3.8-flash` and
+  `gemini-3.5-flash-lite`. When Google renames one, change it in `MODELS` in
+  `src/lib/assistant.ts` and in `PRICES` in `worker/usage.js`.
+- **Thinking** is `thinkingConfig.thinkingLevel`: high for Pro and Flash
+  (medium for a chat question, low when Explain asks for low) and low for
+  Flash-Lite, with `includeThoughts` on, so a summary of the thinking streams
+  as parts marked `thought` and is folded under *Reasoning*. Thinking tokens
+  are billed as output.
+- **Pictures** go as `inlineData` parts, base64, as Claude gets them.
+- **No SDK.** `src/lib/gemini.ts` is one `fetch` to
+  `generativelanguage.googleapis.com/v1beta/models/<model>:streamGenerateContent?alt=sse`,
+  the key in the `x-goog-api-key` header (never in the address), read as
+  server-sent events with the same four methods as the other two.
+- **Caching** is Google's own and implicit: a repeated prefix — the paper, at
+  the head of the system instruction — is read from the cache at a tenth of the
+  price, and the usage tally counts it as a cached read.
+- **No web search here.** Ask AI answers from the paper and what you have on
+  screen; Gemini's Google Search tool is not switched on.
 
 Each answer is labelled with the model that wrote it, and the History keeps that.
 
@@ -2510,7 +2535,7 @@ Claude.
 
 It uses the same API keys and models as Ask AI — Claude or DeepSeek, picked on
 the start page or in **Settings → AI models** (see
-[Choosing a model](#choosing-a-model-claude-or-deepseek)). A page remembers the
+[Choosing a model](#choosing-a-model-claude-deepseek-or-gemini)). A page remembers the
 model that wrote it, and requests from the bar go to that one. The paper's full text goes
 in the system prompt behind a cache breakpoint. The explanation is written
 once, streamed onto the page as it arrives, and kept in IndexedDB for that
@@ -2722,6 +2747,7 @@ npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
 node scripts/assistant-smoke.mjs  # Ask AI on Claude, with Anthropic's API stubbed
 node scripts/deepseek-smoke.mjs   # Ask AI and Explain on DeepSeek, with DeepSeek's API stubbed
+node scripts/gemini-smoke.mjs     # Ask AI and Explain on Gemini, with Google's API stubbed
 node scripts/notes-smoke.mjs   # the notes beside the page, and in a window over the PDF
 node scripts/explain-notes-smoke.mjs # keeping diagrams, code, tables, maths and passages from Explain
 node scripts/paper-notes-smoke.mjs   # keeping figures, tables and passages from Reflow and the PDF, and snipping

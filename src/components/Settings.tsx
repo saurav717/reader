@@ -612,8 +612,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             <KeyRow key={provider} provider={provider} connected={ai.keys[provider]} />
           ))}
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            Each key is kept in this browser only and sent straight to its provider — api.anthropic.com or
-            api.deepseek.com. Usage bills your own account there.
+            Each key is kept in this browser only and sent straight to its provider — api.anthropic.com,
+            api.deepseek.com or generativelanguage.googleapis.com. Usage bills your own account there.
           </p>
         </section>
 

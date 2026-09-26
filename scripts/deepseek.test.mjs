@@ -136,9 +136,9 @@ describe('failures', () => {
 });
 
 describe('models and keys', () => {
-  it('offers Claude and DeepSeek, and knows who runs each model', () => {
+  it('offers Claude, DeepSeek and Gemini, and knows who runs each model', () => {
     const providers = new Set(assistant.MODELS.map((m) => m.provider));
-    assert.deepEqual([...providers], ['anthropic', 'deepseek']);
+    assert.deepEqual([...providers], ['anthropic', 'deepseek', 'gemini']);
     assert.equal(assistant.providerOf('deepseek-flash').company, 'DeepSeek');
     assert.equal(assistant.providerOf('claude-opus-5').name, 'Claude');
     assert.equal(assistant.modelSpec('no-such-model').id, assistant.MODELS[0].id);

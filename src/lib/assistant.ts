@@ -1,15 +1,17 @@
 // ===========================================================================
 //  Ask AI — a chat window that floats over the paper you are reading.
 //
-//  Two providers answer it, and Explain: Anthropic's Claude and DeepSeek. The
-//  model picker says which, and each provider has a key of its own.
+//  Three providers answer it, and Explain: Anthropic's Claude, DeepSeek and
+//  Google's Gemini. The model picker says which, and each provider has a key
+//  of its own.
 //
 //  ON SIGNING IN. Neither publishes a "sign in with …" for third-party
 //  websites: a Claude.ai or Claude Code subscription cannot be spent from a
 //  page like this one, and there is no OAuth flow to offer. So the window asks
-//  for an API key — from console.anthropic.com, or platform.deepseek.com. Each
-//  is kept in this browser's localStorage and sent straight to its provider's
-//  API (api.anthropic.com, or api.deepseek.com — deepseek.ts). Usage bills the
+//  for an API key — from console.anthropic.com, platform.deepseek.com, or
+//  aistudio.google.com. Each is kept in this browser's localStorage and sent
+//  straight to its provider's API (api.anthropic.com, api.deepseek.com —
+//  deepseek.ts — or generativelanguage.googleapis.com — gemini.ts). Usage bills the
 //  visitor's own account, and nothing about a key reaches anyone else.
 //
 //  The SDK is imported on first use, not at boot: Vite splits it into a chunk
@@ -23,13 +25,15 @@
 
 import type AnthropicClient from '@anthropic-ai/sdk';
 import { DeepSeekStream } from './deepseek';
+import { GeminiStream, tokensOf as geminiTokens } from './gemini';
 import { reportAiUsage } from './aiUsage';
 import type { DeepSeekError } from './deepseek';
+import type { GeminiError } from './gemini';
 
 /** What the chat window is called — the models behind it are not all Claude. */
 export const ASSISTANT_NAME = 'Ask AI';
 
-export type Provider = 'anthropic' | 'deepseek';
+export type Provider = 'anthropic' | 'deepseek' | 'gemini';
 
 export interface ProviderInfo {
   id: Provider;
@@ -66,6 +70,17 @@ export const PROVIDERS: Record<Provider, ProviderInfo> = {
     consoleUrl: 'https://platform.deepseek.com/api_keys',
     host: 'api.deepseek.com',
   },
+  gemini: {
+    id: 'gemini',
+    name: 'Gemini',
+    company: 'Google',
+    keyStore: 'reader.gemini-key',
+    // Google AI Studio's keys, which are Google Cloud API keys.
+    keyPrefix: 'AIza',
+    placeholder: 'AIza…',
+    consoleUrl: 'https://aistudio.google.com/apikey',
+    host: 'generativelanguage.googleapis.com',
+  },
 };
 
 export const PROVIDER_IDS = Object.keys(PROVIDERS) as Provider[];
@@ -96,6 +111,8 @@ export interface ModelSpec {
   apiModel?: string;
   /** DeepSeek: think before answering. */
   thinks?: boolean;
+  /** Gemini: how hard to think, at most — a low effort asks for less. */
+  thinking?: 'low' | 'medium' | 'high';
 }
 
 /** Models offered in the pickers, grouped by provider in this order. */
@@ -107,6 +124,10 @@ export const MODELS: readonly ModelSpec[] = [
   // thinking first, and answering straight away.
   { id: 'deepseek-flash', provider: 'deepseek', label: 'DeepSeek Flash', note: 'thinks first · very cheap', adaptive: false, vision: true, thinks: true },
   { id: 'deepseek-flash-fast', apiModel: 'deepseek-flash', provider: 'deepseek', label: 'DeepSeek Flash, no thinking', note: 'answers at once · cheapest', adaptive: false, vision: true, thinks: false },
+  // Google's current three: its Pro (still filed as a preview), its newest Flash, and Flash-Lite.
+  { id: 'gemini-3.1-pro-preview', provider: 'gemini', label: 'Gemini 3.1 Pro', note: 'Google’s most capable', adaptive: false, vision: true, thinking: 'high', maxOutput: 64000 },
+  { id: 'gemini-3.8-flash', provider: 'gemini', label: 'Gemini 3.8 Flash', note: 'fast and capable', adaptive: false, vision: true, thinking: 'high', maxOutput: 64000 },
+  { id: 'gemini-3.5-flash-lite', provider: 'gemini', label: 'Gemini 3.5 Flash-Lite', note: 'fastest · cheapest', adaptive: false, vision: true, thinking: 'low', maxOutput: 64000 },
 ];
 const DEFAULT_MODEL = 'claude-opus-5';
 
@@ -453,7 +474,7 @@ function savePrefs() {
   }
 }
 
-const memKeys: Record<Provider, string> = { anthropic: '', deepseek: '' }; // when localStorage is unavailable
+const memKeys: Record<Provider, string> = { anthropic: '', deepseek: '', gemini: '' }; // when localStorage is unavailable
 const storedKey = (provider: Provider) => {
   try {
     return localStorage.getItem(PROVIDERS[provider].keyStore) || '';
@@ -514,7 +535,7 @@ let state: AssistantState = {
   history: [],
   live: false,
   prefs: { model: DEFAULT_MODEL, context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true } },
-  keys: { anthropic: false, deepseek: false },
+  keys: { anthropic: false, deepseek: false, gemini: false },
   hasKey: false,
   quote: '',
   shot: '',
@@ -607,7 +628,7 @@ export const looksLikeKey = (key: string, provider: Provider) => {
   const trimmed = key.trim();
   if (!trimmed.startsWith(PROVIDERS[provider].keyPrefix)) return false;
   // A Claude key pasted into DeepSeek's box starts with "sk-" too.
-  return provider === 'anthropic' || !trimmed.startsWith(PROVIDERS.anthropic.keyPrefix);
+  return provider !== 'deepseek' || !trimmed.startsWith(PROVIDERS.anthropic.keyPrefix);
 };
 
 export function setShot(shot: string) {
@@ -785,7 +806,8 @@ export type Message = { role: 'user' | 'assistant'; content: string | ReturnType
 /**
  * One streamed answer from whichever provider the model belongs to. Claude
  * thinks adaptively where the model takes it; DeepSeek's reasoner streams its
- * reasoning as thinking of its own accord.
+ * reasoning as thinking of its own accord; Gemini thinks at the model's level,
+ * or lower for a low effort, and streams a summary of it.
  */
 export async function streamModel(params: {
   model: string;
@@ -809,6 +831,18 @@ export async function streamModel(params: {
         const miss = usage.prompt_cache_miss_tokens ?? Math.max(0, (usage.prompt_tokens || 0) - hit);
         reportAiUsage('deepseek', spec.apiModel ?? spec.id, { input: miss, cacheRead: hit, output: usage.completion_tokens || 0 }, spec.id);
       },
+    });
+  }
+  if (spec.provider === 'gemini') {
+    const level = spec.thinking ?? 'high';
+    return new GeminiStream({
+      apiKey: keyFor('gemini'),
+      model: spec.apiModel ?? spec.id,
+      maxTokens,
+      thinking: params.effort === 'low' ? 'low' : params.effort === 'medium' && level === 'high' ? 'medium' : level,
+      system: params.system.map((block) => block.text).join('\n\n'),
+      messages: params.messages as ConstructorParameters<typeof GeminiStream>[0]['messages'],
+      onUsage: (usage) => reportAiUsage('gemini', spec.apiModel ?? spec.id, geminiTokens(usage), spec.id),
     });
   }
   const api = await anthropic();
@@ -1006,6 +1040,19 @@ export function explainError(err: unknown, SDK: SDK | null): string {
     if (status === 429) return 'Rate limited by DeepSeek. Wait a moment and ask again.';
     if (status >= 500) return `DeepSeek is having trouble (${status}): ${message}. Try again in a moment.`;
     return `DeepSeek returned ${status}: ${message}`;
+  }
+  if ((err as Error)?.name === 'GeminiError') {
+    const { status, message, reason } = err as GeminiError;
+    if (status === 0) return 'Could not reach generativelanguage.googleapis.com. Check your connection, or whether something is blocking the request.';
+    // Google answers a bad key with a 400 of its own wording, not a 401.
+    if (status === 401 || /API key not valid|API_KEY_INVALID/i.test(message)) {
+      return 'Google rejected that API key. Check it on aistudio.google.com, then enter it again under ⚙.';
+    }
+    if (status === 403) return `Google would not let that key use this model: ${message}`;
+    if (status === 404) return `Google does not serve that model to this key: ${message}. Try another Gemini model.`;
+    if (status === 429 || reason === 'RESOURCE_EXHAUSTED') return 'Rate limited by Google, or this key’s quota is spent. Wait a moment and ask again, or check it on aistudio.google.com.';
+    if (status >= 500) return `Gemini is having trouble (${status}): ${message}. Try again in a moment.`;
+    return `Gemini returned ${status}: ${message}`;
   }
   if (SDK && err instanceof SDK.AuthenticationError) {
     return 'Anthropic rejected that API key. Check it in the console, then enter it again under ⚙.';
