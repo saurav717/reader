@@ -169,7 +169,7 @@ const before = await page.locator('.reader-scroll').evaluate((el) => el.scrollTo
 
 console.log('\n== an answer, set ==');
 await page.keyboard.press('Control+Backslash');
-const box = page.getByRole('textbox', { name: 'Ask Claude' });
+const box = page.getByRole('textbox', { name: 'Ask AI' });
 await box.waitFor();
 await box.fill('Why does Late Fusion beat Early Fusion here?');
 await box.press('Enter');

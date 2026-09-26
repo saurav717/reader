@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useStore } from '../lib/store';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
@@ -8,6 +8,25 @@ import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
 import { PAPER_LAYOUTS, setLayout, useLayout } from './paperCards';
+import { getState as assistantState, MODELS, PROVIDER_IDS, PROVIDERS, setExplainModel, setModel, subscribe as onAssistant } from '../lib/assistant';
+import { KeyRow } from './Assistant';
+
+/** Every model, grouped by who runs it, saying which still need a key. */
+function ModelOptions({ keys }: { keys: Record<string, boolean> }) {
+  return (
+    <>
+      {PROVIDER_IDS.map((id) => (
+        <optgroup key={id} label={`${PROVIDERS[id].company}${keys[id] ? '' : ' — no key yet'}`}>
+          {MODELS.filter((m) => m.provider === id).map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label} — {m.note}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </>
+  );
+}
 
 const ZEN_HAZES: { id: ZenHaze; label: string; note: string }[] = [
   { id: 'shadow', label: 'Shadow', note: 'casting a long soft shadow across the page.' },
@@ -23,6 +42,7 @@ const PASSAGE_LOOKS: { id: PassageLook; label: string; note: string }[] = [
 
 export default function Settings({ onClose }: { onClose: () => void }) {
   const paperLayout = useLayout();
+  const ai = useSyncExternalStore(onAssistant, assistantState);
   const {
     settings,
     updateSettings,
@@ -569,7 +589,37 @@ export default function Settings({ onClose }: { onClose: () => void }) {
 
         <section style={{ marginBottom: 22 }}>
           <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Papers Ask Claude names
+            AI models
+          </div>
+          <label className="setting">
+            <span>Ask AI (the chat window)</span>
+            <select value={ai.prefs.model} onChange={(event) => setModel(event.target.value)} disabled={ai.live}>
+              <ModelOptions keys={ai.keys} />
+            </select>
+          </label>
+          <label className="setting">
+            <span>Explain and Implementation</span>
+            <select value={ai.prefs.explainModel ?? ai.prefs.model} onChange={(event) => setExplainModel(event.target.value)}>
+              <ModelOptions keys={ai.keys} />
+            </select>
+            <small>
+              What writes a paper’s Explain and Implementation pages. A page already written keeps the model that wrote
+              it; Rewrite uses this one. DeepSeek models read text only, so in PDF mode they get the paper’s text but not
+              pictures of the pages, and they cannot take screenshots.
+            </small>
+          </label>
+          {PROVIDER_IDS.map((provider) => (
+            <KeyRow key={provider} provider={provider} connected={ai.keys[provider]} />
+          ))}
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+            Each key is kept in this browser only and sent straight to its provider — api.anthropic.com or
+            api.deepseek.com. Usage bills your own account there.
+          </p>
+        </section>
+
+        <section style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Papers Ask AI names
           </div>
           <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="Where the papers' cards go">
             {PAPER_LAYOUTS.map(({ value, label, note }) => (
@@ -721,9 +771,9 @@ export default function Settings({ onClose }: { onClose: () => void }) {
 
         <section>
           <div className="eyebrow" style={{ marginBottom: 10 }}>
-            Passages Ask Claude points at
+            Passages Ask AI points at
           </div>
-          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="How a passage Ask Claude points at is marked">
+          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="How a passage Ask AI points at is marked">
             {PASSAGE_LOOKS.map((look) => (
               <button key={look.id} type="button" aria-pressed={settings.passageLook === look.id} onClick={() => updateSettings({ passageLook: look.id })}>
                 {look.label}
@@ -731,7 +781,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             ))}
           </div>
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            Ask Claude <i>“show me where…”</i> and the paper scrolls to the passage, which is{' '}
+            Ask AI <i>“show me where…”</i> and the paper scrolls to the passage, which is{' '}
             {PASSAGE_LOOKS.find((look) => look.id === settings.passageLook)?.note}
           </p>
         </section>

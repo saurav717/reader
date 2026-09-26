@@ -122,7 +122,7 @@ const before = await page.locator('.reader-scroll').evaluate((el) => el.scrollTo
 
 console.log('\n== ask where ==');
 await page.keyboard.press('Control+Backslash');
-const box = page.getByRole('textbox', { name: 'Ask Claude' });
+const box = page.getByRole('textbox', { name: 'Ask AI' });
 await box.waitFor();
 // The window to the right, clear of the reading column.
 await box.fill(QUESTION);
@@ -173,7 +173,7 @@ console.log('\n== three looks ==');
 for (const look of ['Spotlight', 'Outline', 'Marker']) {
   if (await page.locator('.passage-tag').isVisible()) await page.locator('.passage-tag button').click();
   await page.getByRole('button', { name: 'Settings', exact: true }).first().evaluate((button) => button.click());
-  await page.getByRole('group', { name: 'How a passage Ask Claude points at is marked' }).getByRole('button', { name: look }).click();
+  await page.getByRole('group', { name: 'How a passage Ask AI points at is marked' }).getByRole('button', { name: look }).click();
   await page.getByRole('button', { name: 'Close settings' }).click();
   await page.waitForTimeout(300);
   await page.locator('.chat-passage-row').first().click();

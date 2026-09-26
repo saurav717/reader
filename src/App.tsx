@@ -727,8 +727,8 @@ export default function App() {
           type="button"
           className="icon-btn"
           aria-pressed={assistantOpen}
-          aria-label="Ask Claude"
-          title={assistantOpen ? 'Ask Claude is open — click to close it (⌘\\)' : 'Ask Claude about this paper (⌘\\)'}
+          aria-label="Ask AI"
+          title={assistantOpen ? 'Ask AI is open — click to close it (⌘\\)' : 'Ask AI about this paper (⌘\\)'}
           onClick={() => setAssistantOpen(!assistantOpen)}
         >
           <SparkleIcon size={19} />

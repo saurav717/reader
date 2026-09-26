@@ -1,13 +1,16 @@
 // ===========================================================================
-//  Ask Claude — a chat window that floats over the paper you are reading.
+//  Ask AI — a chat window that floats over the paper you are reading.
 //
-//  ON SIGNING IN. Anthropic publishes no "sign in with Claude" for third-party
+//  Two providers answer it, and Explain: Anthropic's Claude and DeepSeek. The
+//  model picker says which, and each provider has a key of its own.
+//
+//  ON SIGNING IN. Neither publishes a "sign in with …" for third-party
 //  websites: a Claude.ai or Claude Code subscription cannot be spent from a
 //  page like this one, and there is no OAuth flow to offer. So the window asks
-//  for an API key from console.anthropic.com. It is kept in this browser's
-//  localStorage and sent straight to api.anthropic.com — the SDK sets the
-//  header Anthropic requires for direct browser calls. Usage bills the
-//  visitor's own account, and nothing about the key reaches anyone else.
+//  for an API key — from console.anthropic.com, or platform.deepseek.com. Each
+//  is kept in this browser's localStorage and sent straight to its provider's
+//  API (api.anthropic.com, or api.deepseek.com — deepseek.ts). Usage bills the
+//  visitor's own account, and nothing about a key reaches anyone else.
 //
 //  The SDK is imported on first use, not at boot: Vite splits it into a chunk
 //  of its own, and a visitor who never opens the window never downloads it.
@@ -19,9 +22,52 @@
 // ===========================================================================
 
 import type AnthropicClient from '@anthropic-ai/sdk';
+import { DeepSeekStream } from './deepseek';
+import type { DeepSeekError } from './deepseek';
 
-/** Where the API key lives. Its own key, so it never rides along with anything else. */
-const KEY_STORE = 'reader.anthropic-key';
+/** What the chat window is called — the models behind it are not all Claude. */
+export const ASSISTANT_NAME = 'Ask AI';
+
+export type Provider = 'anthropic' | 'deepseek';
+
+export interface ProviderInfo {
+  id: Provider;
+  /** The name the models go by: "Claude answered…". */
+  name: string;
+  /** Who bills the key. */
+  company: string;
+  /** Where the key lives. Its own entry, so it never rides along with anything else. */
+  keyStore: string;
+  keyPrefix: string;
+  placeholder: string;
+  consoleUrl: string;
+  host: string;
+}
+
+export const PROVIDERS: Record<Provider, ProviderInfo> = {
+  anthropic: {
+    id: 'anthropic',
+    name: 'Claude',
+    company: 'Anthropic',
+    keyStore: 'reader.anthropic-key',
+    keyPrefix: 'sk-ant-',
+    placeholder: 'sk-ant-…',
+    consoleUrl: 'https://console.anthropic.com/settings/keys',
+    host: 'api.anthropic.com',
+  },
+  deepseek: {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    company: 'DeepSeek',
+    keyStore: 'reader.deepseek-key',
+    keyPrefix: 'sk-',
+    placeholder: 'sk-…',
+    consoleUrl: 'https://platform.deepseek.com/api_keys',
+    host: 'api.deepseek.com',
+  },
+};
+
+export const PROVIDER_IDS = Object.keys(PROVIDERS) as Provider[];
 const PREFS_STORE = 'reader.assistant.v1';
 /** Past conversations — this browser only, no account. */
 const HISTORY_STORE = 'reader.assistant.history.v1';
@@ -34,13 +80,33 @@ const HISTORY_STORE = 'reader.assistant.history.v1';
 const HISTORY_MAX_CHATS = 40;
 const HISTORY_MAX_CHARS = 20000; // per message, stored; the thread on screen is untouched
 
-/** Models offered in the picker. `adaptive` is false for the ones that take no adaptive thinking or effort. */
-export const MODELS = [
-  { id: 'claude-opus-5', label: 'Opus 5', note: 'most capable', adaptive: true },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5', note: 'faster and cheaper', adaptive: true },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', note: 'fastest and cheapest', adaptive: false },
-] as const;
+export interface ModelSpec {
+  id: string;
+  provider: Provider;
+  label: string;
+  note: string;
+  /** Takes adaptive thinking and effort (Claude only). */
+  adaptive: boolean;
+  /** Reads pictures: the pages in view in PDF mode, and screenshots. */
+  vision: boolean;
+  /** The most it will write in one answer; a bigger cap is cut to this. */
+  maxOutput?: number;
+}
+
+/** Models offered in the pickers, grouped by provider in this order. */
+export const MODELS: readonly ModelSpec[] = [
+  { id: 'claude-opus-5', provider: 'anthropic', label: 'Claude Opus 5', note: 'most capable', adaptive: true, vision: true },
+  { id: 'claude-sonnet-5', provider: 'anthropic', label: 'Claude Sonnet 5', note: 'faster and cheaper', adaptive: true, vision: true },
+  { id: 'claude-haiku-4-5', provider: 'anthropic', label: 'Claude Haiku 4.5', note: 'fastest and cheapest', adaptive: false, vision: true },
+  { id: 'deepseek-reasoner', provider: 'deepseek', label: 'DeepSeek Reasoner', note: 'thinks first · text only', adaptive: false, vision: false, maxOutput: 64000 },
+  { id: 'deepseek-chat', provider: 'deepseek', label: 'DeepSeek Chat', note: 'very cheap · text only · short answers', adaptive: false, vision: false, maxOutput: 8000 },
+];
 const DEFAULT_MODEL = 'claude-opus-5';
+
+/** The model with this id, or the default one. */
+export const modelSpec = (id: string | undefined): ModelSpec => MODELS.find((m) => m.id === id) ?? MODELS[0];
+/** The provider behind a model. */
+export const providerOf = (model: string | undefined): ProviderInfo => PROVIDERS[modelSpec(model).provider];
 
 /** A cap, not a budget: it stops a runaway answer, it does not bound spend. */
 const MAX_TOKENS = 16000;
@@ -344,7 +410,10 @@ export const CONTEXT_ROWS: [ContextKey, string, string][] = [
 // ---------------------------------------------------------------------------
 
 export interface Prefs {
+  /** The model that answers in the chat window. */
   model: string;
+  /** The model Explain and Implementation start with; unset follows the chat's. */
+  explainModel?: string;
   context: Record<ContextKey, boolean>;
 }
 
@@ -357,7 +426,8 @@ function loadPrefs(): Prefs {
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_STORE) || '{}') as Partial<Prefs>;
     const model = MODELS.some((m) => m.id === saved.model) ? (saved.model as string) : base.model;
-    return { model, context: { ...base.context, ...(saved.context || {}) } };
+    const explainModel = MODELS.some((m) => m.id === saved.explainModel) ? saved.explainModel : undefined;
+    return { model, ...(explainModel ? { explainModel } : {}), context: { ...base.context, ...(saved.context || {}) } };
   } catch {
     return base;
   }
@@ -371,14 +441,17 @@ function savePrefs() {
   }
 }
 
-let memKey = ''; // when localStorage is unavailable
-const storedKey = () => {
+const memKeys: Record<Provider, string> = { anthropic: '', deepseek: '' }; // when localStorage is unavailable
+const storedKey = (provider: Provider) => {
   try {
-    return localStorage.getItem(KEY_STORE) || '';
+    return localStorage.getItem(PROVIDERS[provider].keyStore) || '';
   } catch {
     return '';
   }
 };
+const keyFor = (provider: Provider) => memKeys[provider] || storedKey(provider);
+const storedKeys = () =>
+  Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, Boolean(keyFor(provider))])) as Record<Provider, boolean>;
 
 // ---------------------------------------------------------------------------
 // The store
@@ -393,6 +466,8 @@ export interface Turn {
   truncated?: boolean;
   /** A screenshot went with this question. */
   shot?: boolean;
+  /** Which model wrote an answer. Chats from before there was a choice have none: they were Claude's. */
+  model?: string;
 }
 
 export interface Chat {
@@ -400,7 +475,7 @@ export interface Chat {
   title: string;
   created: number;
   updated: number;
-  turns: { role: 'user' | 'assistant'; content: string }[];
+  turns: { role: 'user' | 'assistant'; content: string; model?: string }[];
 }
 
 export interface AssistantState {
@@ -411,6 +486,9 @@ export interface AssistantState {
   history: Chat[];
   live: boolean;
   prefs: Prefs;
+  /** Which providers have a key in this browser. */
+  keys: Record<Provider, boolean>;
+  /** Whether the chat's model has a key — whether the window can send. */
   hasKey: boolean;
   /** A passage attached to the next question with "Ask Claude" on a selection. */
   quote: string;
@@ -424,6 +502,7 @@ let state: AssistantState = {
   history: [],
   live: false,
   prefs: { model: DEFAULT_MODEL, context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true } },
+  keys: { anthropic: false, deepseek: false },
   hasKey: false,
   quote: '',
   shot: '',
@@ -435,7 +514,9 @@ const listeners = new Set<() => void>();
 function ensureLoaded() {
   if (loaded) return;
   loaded = true;
-  state = { ...state, prefs: loadPrefs(), history: loadHistory(), hasKey: Boolean(storedKey()) };
+  const prefs = loadPrefs();
+  const keys = storedKeys();
+  state = { ...state, prefs, history: loadHistory(), keys, hasKey: keys[modelSpec(prefs.model).provider] };
 }
 
 function set(patch: Partial<AssistantState>) {
@@ -471,30 +552,51 @@ function schedulePaint() {
 
 export function setModel(model: string) {
   if (!MODELS.some((m) => m.id === model)) return;
-  set({ prefs: { ...state.prefs, model } });
+  set({ prefs: { ...state.prefs, model }, hasKey: state.keys[modelSpec(model).provider] });
   savePrefs();
 }
+
+/** The model Explain and Implementation start with. */
+export function setExplainModel(model: string) {
+  if (!MODELS.some((m) => m.id === model)) return;
+  set({ prefs: { ...state.prefs, explainModel: model } });
+  savePrefs();
+}
+
+/** Whether this model's provider has a key. */
+export const hasKeyFor = (model: string) => getState().keys[modelSpec(model).provider];
 
 export function setContext(key: ContextKey, on: boolean) {
   set({ prefs: { ...state.prefs, context: { ...state.prefs.context, [key]: on } } });
   savePrefs();
 }
 
-export function saveKey(key: string) {
-  memKey = key.trim();
+/** Keep a key for a provider — by default, the one behind the chat's model. */
+export function saveKey(key: string, provider: Provider = modelSpec(state.prefs.model).provider) {
+  const value = key.trim();
+  memKeys[provider] = value;
   try {
-    if (memKey) localStorage.setItem(KEY_STORE, memKey);
-    else localStorage.removeItem(KEY_STORE);
+    if (value) localStorage.setItem(PROVIDERS[provider].keyStore, value);
+    else localStorage.removeItem(PROVIDERS[provider].keyStore);
   } catch {
     // private mode: the key lives for this page load only
   }
-  client = null;
-  set({ hasKey: Boolean(memKey) });
+  if (provider === 'anthropic') client = null;
+  const keys = { ...state.keys, [provider]: Boolean(value) };
+  set({ keys, hasKey: keys[modelSpec(state.prefs.model).provider] });
 }
 
-export function forgetKey() {
-  saveKey('');
+export function forgetKey(provider: Provider = modelSpec(state.prefs.model).provider) {
+  saveKey('', provider);
 }
+
+/** Whether a pasted key looks like one this provider issues. */
+export const looksLikeKey = (key: string, provider: Provider) => {
+  const trimmed = key.trim();
+  if (!trimmed.startsWith(PROVIDERS[provider].keyPrefix)) return false;
+  // A Claude key pasted into DeepSeek's box starts with "sk-" too.
+  return provider === 'anthropic' || !trimmed.startsWith(PROVIDERS.anthropic.keyPrefix);
+};
 
 export function setShot(shot: string) {
   set({ shot });
@@ -531,9 +633,13 @@ export function normaliseHistory(raw: unknown): Chat[] {
       title: String(c.title || '').slice(0, 120),
       created: Number(c.created) || Date.now(),
       updated: Number(c.updated) || Number(c.created) || Date.now(),
-      turns: (c.turns as { role?: string; content?: unknown }[])
+      turns: (c.turns as { role?: string; content?: unknown; model?: unknown }[])
         .filter((t) => t && (t.role === 'user' || t.role === 'assistant'))
-        .map((t) => ({ role: t.role as 'user' | 'assistant', content: String(t.content ?? '') })),
+        .map((t) => ({
+          role: t.role as 'user' | 'assistant',
+          content: String(t.content ?? ''),
+          ...(typeof t.model === 'string' && t.model ? { model: t.model } : {}),
+        })),
     }))
     .filter((c) => c.turns.length)
     .slice(0, HISTORY_MAX_CHATS);
@@ -575,7 +681,7 @@ export function titleFor(turns: { role: string; content: string }[]): string {
 function rememberThread() {
   const stored = state.turns
     .filter((t) => t.content && t.content.trim() && !t.streaming)
-    .map((t) => ({ role: t.role, content: t.content.slice(0, HISTORY_MAX_CHARS) }));
+    .map((t) => ({ role: t.role, content: t.content.slice(0, HISTORY_MAX_CHARS), ...(t.model ? { model: t.model } : {}) }));
   if (!stored.length) return;
   const now = Date.now();
   const history = [...state.history];
@@ -634,7 +740,7 @@ export function clearHistory() {
 export type SDK = typeof AnthropicClient;
 let sdkModule: SDK | null = null;
 let client: AnthropicClient | null = null;
-let stream: ReturnType<AnthropicClient['messages']['stream']> | null = null;
+let stream: ModelStream | null = null;
 
 export async function sdk(): Promise<SDK> {
   if (!sdkModule) sdkModule = (await import('@anthropic-ai/sdk')).default;
@@ -648,10 +754,64 @@ export async function anthropic(): Promise<AnthropicClient> {
     // Deliberate, and the only way a static site can work: the visitor's own
     // key, in the visitor's own browser, going straight to Anthropic.
     dangerouslyAllowBrowser: true,
-    apiKey: memKey || storedKey(),
+    apiKey: keyFor('anthropic'),
     maxRetries: 1,
   });
   return client;
+}
+
+/** What callers hold while an answer streams in, whichever provider is writing it. */
+export interface ModelStream {
+  on(event: 'text' | 'thinking', listener: (delta: string) => void): unknown;
+  abort(): void;
+  finalMessage(): Promise<{ stop_reason: string | null }>;
+}
+
+export type SystemBlock = { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } };
+export type Message = { role: 'user' | 'assistant'; content: string | ReturnType<typeof buildMessages>[number]['content'] };
+
+/**
+ * One streamed answer from whichever provider the model belongs to. Claude
+ * thinks adaptively where the model takes it; DeepSeek's reasoner streams its
+ * reasoning as thinking of its own accord.
+ */
+export async function streamModel(params: {
+  model: string;
+  maxTokens: number;
+  system: SystemBlock[];
+  messages: Message[];
+  effort?: 'low' | 'medium' | 'high';
+}): Promise<ModelStream> {
+  const spec = modelSpec(params.model);
+  const maxTokens = spec.maxOutput ? Math.min(params.maxTokens, spec.maxOutput) : params.maxTokens;
+  if (spec.provider === 'deepseek') {
+    return new DeepSeekStream({
+      apiKey: keyFor('deepseek'),
+      model: spec.id,
+      maxTokens,
+      system: params.system.map((block) => block.text).join('\n\n'),
+      messages: params.messages as ConstructorParameters<typeof DeepSeekStream>[0]['messages'],
+    });
+  }
+  const api = await anthropic();
+  const sdkStream = api.messages.stream({
+    model: spec.id,
+    max_tokens: maxTokens,
+    system: params.system,
+    messages: params.messages as Parameters<AnthropicClient['messages']['stream']>[0]['messages'],
+    ...(spec.adaptive
+      ? { thinking: { type: 'adaptive' as const, display: 'summarized' as const }, output_config: { effort: params.effort ?? ('medium' as const) } }
+      : {}),
+  });
+  return {
+    on(event, listener) {
+      if (event === 'text') sdkStream.on('text', listener);
+      else sdkStream.on('thinking', listener);
+      return this;
+    },
+    abort: () => sdkStream.abort(),
+    finalMessage: async () => ({ stop_reason: (await sdkStream.finalMessage()).stop_reason }),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -736,7 +896,7 @@ export function screenBlock(screen: Screen, on: Record<ContextKey, boolean>): st
 
 /** The system prompt: the instructions, then the paper behind a cache breakpoint. */
 export function systemBlocks(screen: Screen, on: Record<ContextKey, boolean>) {
-  const blocks: { type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }[] = [{ type: 'text', text: SYSTEM }];
+  const blocks: SystemBlock[] = [{ type: 'text', text: SYSTEM }];
   const text = on.fullText ? screen.fullText?.trim() : '';
   if (text && screen.paper) {
     const cut = text.length > FULL_TEXT_MAX_CHARS;
@@ -786,6 +946,11 @@ export function buildMessages(turns: Turn[], block: string, images: Screen['imag
   });
 }
 
+/** Said to a model that reads text only, in place of the pictures the system prompt mentions. */
+export const TEXT_ONLY = `This model reads text only: no pictures of the pages or screenshots are attached, whatever the
+instructions above say about images. Work from <paper_text> and the <screen> block, and if the answer hangs on a figure,
+say that you cannot see it.`;
+
 /** A quoted passage, as the Markdown blockquote that leads the question. */
 export function withQuote(quote: string, text: string): string {
   if (!quote.trim()) return text;
@@ -803,6 +968,17 @@ export function withQuote(quote: string, text: string): string {
 
 /** What a failure should say to someone who is not holding the SDK docs. */
 export function explainError(err: unknown, SDK: SDK | null): string {
+  if ((err as Error)?.name === 'AbortError') return 'Stopped.';
+  // By name, not instanceof: the class may come from another copy of the module (a test bundle).
+  if ((err as Error)?.name === 'DeepSeekError') {
+    const { status, message } = err as DeepSeekError;
+    if (status === 0) return 'Could not reach api.deepseek.com. Check your connection, or whether something is blocking the request.';
+    if (status === 401) return 'DeepSeek rejected that API key. Check it on platform.deepseek.com, then enter it again under ⚙.';
+    if (status === 402) return 'Your DeepSeek balance has run out. Top it up on platform.deepseek.com and ask again.';
+    if (status === 429) return 'Rate limited by DeepSeek. Wait a moment and ask again.';
+    if (status >= 500) return `DeepSeek is having trouble (${status}): ${message}. Try again in a moment.`;
+    return `DeepSeek returned ${status}: ${message}`;
+  }
   if (SDK && err instanceof SDK.AuthenticationError) {
     return 'Anthropic rejected that API key. Check it in the console, then enter it again under ⚙.';
   }
@@ -826,7 +1002,7 @@ export async function send(text: string, screenOrPending: Screen | Promise<Scree
   const question = withQuote(state.quote, text.trim());
   if (!text.trim() || state.live || !state.hasKey) return;
 
-  const reply: Turn = { role: 'assistant', content: '', thinking: '', streaming: true };
+  const reply: Turn = { role: 'assistant', content: '', thinking: '', streaming: true, model: state.prefs.model };
   const shot = state.shot;
   set({ turns: [...state.turns, { role: 'user', content: question, ...(shot ? { shot: true } : {}) }, reply], live: true, quote: '', shot: '' });
 
@@ -834,30 +1010,23 @@ export async function send(text: string, screenOrPending: Screen | Promise<Scree
   try {
     // Reading a PDF's text can take a moment the first time; the question is already on screen.
     const screen = await screenOrPending;
-    SDK = await sdk();
-    const api = await anthropic();
+    const model = modelSpec(state.prefs.model);
+    if (model.provider === 'anthropic') SDK = await sdk();
     const on = state.prefs.context;
-    const model = MODELS.find((m) => m.id === state.prefs.model) ?? MODELS[0];
-    const messages = buildMessages(
-      state.turns.filter((t) => t !== reply),
-      screenBlock(screen, on),
-      [
-        ...(on.visible ? screen.images ?? [] : []),
-        ...(shot ? [{ label: 'A screenshot of the reader’s browser tab, taken as they asked:', data: shot }] : []),
-      ],
-    );
+    // A model that reads text only gets no pictures; the system prompt says why.
+    const images = model.vision
+      ? [
+          ...(on.visible ? screen.images ?? [] : []),
+          ...(shot ? [{ label: 'A screenshot of the reader’s browser tab, taken as they asked:', data: shot }] : []),
+        ]
+      : [];
+    const messages = buildMessages(state.turns.filter((t) => t !== reply), screenBlock(screen, on), images);
+    const system = systemBlocks(screen, on);
+    if (!model.vision) system.push({ type: 'text', text: TEXT_ONLY });
 
-    stream = api.messages.stream({
-      model: model.id,
-      max_tokens: MAX_TOKENS,
-      system: systemBlocks(screen, on),
-      messages,
-      // Adaptive thinking earns its latency on "why does this bound hold";
-      // the models that do not take it simply go without.
-      ...(model.adaptive
-        ? { thinking: { type: 'adaptive' as const, display: 'summarized' as const }, output_config: { effort: 'medium' as const } }
-        : {}),
-    });
+    // Adaptive thinking earns its latency on "why does this bound hold";
+    // the models that do not take it simply go without.
+    stream = await streamModel({ model: model.id, maxTokens: MAX_TOKENS, system, messages, effort: 'medium' });
     stream.on('text', (delta: string) => {
       reply.content += delta;
       schedulePaint();
@@ -869,7 +1038,7 @@ export async function send(text: string, screenOrPending: Screen | Promise<Scree
 
     const final = await stream.finalMessage();
     if (final.stop_reason === 'max_tokens') reply.truncated = true;
-    if (final.stop_reason === 'refusal') reply.error = 'Claude declined to answer that one.';
+    if (final.stop_reason === 'refusal') reply.error = `${PROVIDERS[model.provider].name} declined to answer that one.`;
   } catch (e) {
     reply.error = explainError(e, SDK);
     // An abort with nothing streamed yet is a cancelled turn, not an answer.

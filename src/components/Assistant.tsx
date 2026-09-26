@@ -3,8 +3,13 @@ import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { FormEvent } from 'react';
 import {
+  ASSISTANT_NAME,
   CONTEXT_ROWS,
   MODELS,
+  PROVIDERS,
+  PROVIDER_IDS,
+  looksLikeKey,
+  modelSpec,
   clearHistory,
   deleteChat,
   forgetKey,
@@ -24,7 +29,7 @@ import {
   stop,
   subscribe,
 } from '../lib/assistant';
-import type { Passage, Recommendation, Screen, Turn } from '../lib/assistant';
+import type { Passage, Provider, Recommendation, Screen, Turn } from '../lib/assistant';
 import { FLASH_EVENT, showPassage, type LocateResult } from '../lib/locate';
 import { typesetMath } from '../lib/typesetMath';
 import { STYLES, clamp, clearOf, styleAt } from '../lib/floatWindow';
@@ -228,7 +233,7 @@ function SetSection({ icon, title, note, children }: { icon: string; title: stri
 
 function ChatSettings({
   context,
-  hasKey,
+  keys,
   paperLayout,
   marks,
   look,
@@ -236,7 +241,7 @@ function ChatSettings({
   onLook,
 }: {
   context: Record<string, boolean>;
-  hasKey: boolean;
+  keys: Record<Provider, boolean>;
   paperLayout: PaperLayout;
   marks: ChatMarks;
   look: PassageLook;
@@ -262,7 +267,7 @@ function ChatSettings({
         </div>
       </SetSection>
 
-      <SetSection icon="◎" title="Passages on the page" note="When Claude shows you where something is">
+      <SetSection icon="◎" title="Passages on the page" note="When an answer shows you where something is">
         <div className="look-tiles" role="radiogroup" aria-label="Passages on the page">
           {PAGE_LOOKS.map((option) => (
             <button key={option.id} type="button" role="radio" aria-checked={look === option.id} className={`look-tile look-${option.id}`} onClick={() => onLook(option.id)}>
@@ -279,7 +284,7 @@ function ChatSettings({
         </div>
       </SetSection>
 
-      <SetSection icon="◉" title="What Claude sees" note={`${on} of ${CONTEXT_ROWS.length} on · read fresh each time you send`}>
+      <SetSection icon="◉" title="What the model sees" note={`${on} of ${CONTEXT_ROWS.length} on · read fresh each time you send`}>
         <div className="set-switches">
           {CONTEXT_ROWS.map(([key, label, note]) => (
             <label key={key} className="set-switch" title={note}>
@@ -294,7 +299,7 @@ function ChatSettings({
         </div>
       </SetSection>
 
-      <SetSection icon="▤" title="Papers Claude names" note="Where a paper's card goes in the answer">
+      <SetSection icon="▤" title="Papers an answer names" note="Where a paper's card goes in the answer">
         <div className="set-choices" role="radiogroup" aria-label="Where paper cards go">
           {PAPER_LAYOUTS.map(({ value, label, note }) => (
             <button key={value} type="button" role="radio" aria-checked={paperLayout === value} onClick={() => setLayout(value)}>
@@ -305,17 +310,11 @@ function ChatSettings({
         </div>
       </SetSection>
 
-      {hasKey ? (
-        <SetSection icon="⚿" title="Your Anthropic key" note="Kept in this browser only, sent straight to Anthropic">
-          <div className="set-key">
-            <span className="set-key-dot" aria-hidden="true" />
-            <span>Connected · usage bills your own account</span>
-            <button type="button" className="btn sm danger" onClick={forgetKey}>
-              Forget my key
-            </button>
-          </div>
-        </SetSection>
-      ) : null}
+      <SetSection icon="⚿" title="Your API keys" note="One a provider · kept in this browser only, sent straight to that provider">
+        {PROVIDER_IDS.map((provider) => (
+          <KeyRow key={provider} provider={provider} connected={keys[provider]} />
+        ))}
+      </SetSection>
     </div>
   );
 }
@@ -486,7 +485,7 @@ function TurnView({ turn, index, actions, question }: { turn: Turn; index: numbe
         <span className="chat-avatar">
           <SparkleIcon size={11} />
         </span>
-        Claude
+        {turn.model ? modelSpec(turn.model).label : 'Claude'}
       </div>
       {turn.thinking?.trim() ? (
         <details className="chat-thinking">
@@ -522,53 +521,98 @@ function TurnView({ turn, index, actions, question }: { turn: Turn; index: numbe
   );
 }
 
-function KeyCard() {
+/** Save a key for a provider, after a second look if it does not look like one of theirs. */
+function saveChecked(value: string, provider: Provider) {
+  const key = value.trim();
+  if (!key) return false;
+  const info = PROVIDERS[provider];
+  if (!looksLikeKey(key, provider) && !confirm(`That does not look like one of ${info.company}’s API keys (they start with "${info.keyPrefix}"). Save it anyway?`)) return false;
+  saveKey(key, provider);
+  return true;
+}
+
+function KeyInput({ provider, onSaved }: { provider: Provider; onSaved?: () => void }) {
   const [value, setValue] = useState('');
+  const info = PROVIDERS[provider];
   const save = () => {
-    const key = value.trim();
-    if (!key) return;
-    if (!/^sk-ant-/.test(key) && !confirm('That does not look like an Anthropic API key (they start with "sk-ant-"). Save it anyway?')) return;
-    saveKey(key);
+    if (saveChecked(value, provider)) {
+      setValue('');
+      onSaved?.();
+    }
   };
   return (
+    <div className="chat-key-row">
+      <input
+        type="password"
+        className="chat-key-input"
+        placeholder={info.placeholder}
+        autoComplete="off"
+        spellCheck={false}
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            save();
+          }
+        }}
+        aria-label={`${info.company} API key`}
+      />
+      <button type="button" className="btn primary sm" onClick={save}>
+        Save
+      </button>
+    </div>
+  );
+}
+
+/** A provider's key in the ⚙ menu: connected with a way to forget it, or a box to add one. */
+export function KeyRow({ provider, connected }: { provider: Provider; connected: boolean }) {
+  const info = PROVIDERS[provider];
+  return connected ? (
+    <div className="set-key">
+      <span className="set-key-dot" aria-hidden="true" />
+      <span>
+        <b>{info.company}</b> · connected · usage bills your own account
+      </span>
+      <button type="button" className="btn sm danger" onClick={() => forgetKey(provider)}>
+        Forget
+      </button>
+    </div>
+  ) : (
+    <div className="set-key-add">
+      <span>
+        <b>{info.company}</b> · no key yet —{' '}
+        <a href={info.consoleUrl} target="_blank" rel="noopener noreferrer">
+          get one
+        </a>
+      </span>
+      <KeyInput provider={provider} />
+    </div>
+  );
+}
+
+function KeyCard({ provider }: { provider: Provider }) {
+  const info = PROVIDERS[provider];
+  return (
     <div className="chat-card">
-      <h3>Connect an Anthropic account</h3>
+      <h3>Connect your {info.company} account</h3>
       <p>
-        Anthropic does not offer a “sign in with Claude” for other websites, and a Claude.ai subscription cannot be spent
-        from a web page — so this window needs an <strong>API key</strong> from the developer console.
+        {info.company} does not offer a “sign in with {info.name}” for other websites
+        {provider === 'anthropic' ? ', and a Claude.ai subscription cannot be spent from a web page' : ''} — so {info.name} models need an{' '}
+        <strong>API key</strong> from the developer console. Or pick a model from another provider above.
       </p>
       <ol>
         <li>
           Open{' '}
-          <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">
-            console.anthropic.com/settings/keys
+          <a href={info.consoleUrl} target="_blank" rel="noopener noreferrer">
+            {info.consoleUrl.replace(/^https:\/\//, '')}
           </a>{' '}
           and create a key.
         </li>
-        <li>Paste it below. It is stored in this browser only and sent straight to Anthropic — nobody else sees it.</li>
+        <li>Paste it below. It is stored in this browser only and sent straight to {info.host} — nobody else sees it.</li>
       </ol>
-      <div className="chat-key-row">
-        <input
-          type="password"
-          className="chat-key-input"
-          placeholder="sk-ant-…"
-          autoComplete="off"
-          spellCheck={false}
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              save();
-            }
-          }}
-          aria-label="Anthropic API key"
-        />
-        <button type="button" className="btn primary sm" onClick={save}>
-          Save
-        </button>
-      </div>
-      <p className="chat-card-note">Usage bills your own Anthropic account. Forget the key any time from the ⚙ menu.</p>
+      <KeyInput provider={provider} />
+      <p className="chat-card-note">Usage bills your own {info.company} account. Forget the key any time from the ⚙ menu.</p>
     </div>
   );
 }
@@ -609,7 +653,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
   const { win, rectRef, floating, persist, place, frame: raise, position, bar, grips } = useFloatingWindow({
     id: 'assistant',
     store: 'reader.assistant.window',
-    name: 'Claude window',
+    name: `${ASSISTANT_NAME} window`,
     say: setSaid,
   });
 
@@ -790,7 +834,8 @@ export default function Assistant({ onClose, screen, reading }: Props) {
     ? ['What is the main contribution, in two sentences?', 'Explain the passage I am looking at.', 'What would I need to know to follow section 3?']
     : ['Which of these papers should I read first?', 'What do these papers have in common?'];
 
-  const model = MODELS.find((m) => m.id === s.prefs.model) ?? MODELS[0];
+  const model = modelSpec(s.prefs.model);
+  const provider = PROVIDERS[model.provider];
   const style = styleAt(win.style);
 
   return (
@@ -801,12 +846,12 @@ export default function Assistant({ onClose, screen, reading }: Props) {
       style={position}
       role="dialog"
       aria-modal="false"
-      aria-label="Ask Claude"
+      aria-label={ASSISTANT_NAME}
       {...raise}
     >
       <header className="win-bar" {...bar}>
         <SparkleIcon size={15} className="win-mark" />
-        <span className="win-name">Ask Claude</span>
+        <span className="win-name">{ASSISTANT_NAME}</span>
         <span className="win-ctl">
           {floating ? (
             <>
@@ -827,7 +872,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
               </button>
             </>
           ) : null}
-          <button type="button" className="win-btn" onClick={onClose} aria-label="Close Ask Claude" title="Close (Esc, or ⌘\)">
+          <button type="button" className="win-btn" onClick={onClose} aria-label={`Close ${ASSISTANT_NAME}`} title="Close (Esc, or ⌘\)">
             <CloseIcon size={14} />
           </button>
         </span>
@@ -839,13 +884,17 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           value={model.id}
           disabled={s.live}
           onChange={(event) => setModel(event.target.value)}
-          title="Which Claude model answers"
+          title="Which model answers — Claude or DeepSeek"
           aria-label="Model"
         >
-          {MODELS.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label} — {m.note}
-            </option>
+          {PROVIDER_IDS.map((id) => (
+            <optgroup key={id} label={`${PROVIDERS[id].company}${s.keys[id] ? '' : ' — no key yet'}`}>
+              {MODELS.filter((m) => m.provider === id).map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label} — {m.note}
+                </option>
+              ))}
+            </optgroup>
           ))}
         </select>
         <span style={{ flexGrow: 1 }} />
@@ -875,7 +924,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           className="btn ghost sm"
           aria-pressed={drawer === 'settings'}
           onClick={() => setDrawer(drawer === 'settings' ? null : 'settings')}
-          title="What Claude sees, where paper cards go, and your key"
+          title="What the model sees, where paper cards go, and your keys"
           aria-label="Settings"
         >
           ⚙
@@ -885,7 +934,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
       {drawer === 'settings' ? (
         <ChatSettings
           context={s.prefs.context}
-          hasKey={s.hasKey}
+          keys={s.keys}
           paperLayout={paperLayout}
           marks={settings.chatMarks ?? 'auto'}
           look={settings.passageLook ?? 'marker'}
@@ -939,7 +988,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
               </div>
             </>
           ) : (
-            <p className="chat-set-note">No chats yet. Every conversation is filed here as soon as Claude answers, and stays in this browser until you delete it.</p>
+            <p className="chat-set-note">No chats yet. Every conversation is filed here as soon as it is answered, and stays in this browser until you delete it.</p>
           )}
         </div>
       ) : null}
@@ -987,11 +1036,11 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           window.setTimeout(() => (copy.textContent = 'Copy'), 1200);
         }}
       >
-        {!s.hasKey ? <KeyCard /> : null}
+        {!s.hasKey ? <KeyCard provider={model.provider} /> : null}
         {s.hasKey && !s.turns.length ? (
           <div className="chat-empty">
             <p>
-              Just ask — Claude reads your screen first. {reading ? 'The paper, the passage in view, what you have selected and your highlights' : 'The list you are looking at'}{' '}
+              Just ask — {provider.name} reads your screen first. {reading ? 'The paper, the passage in view, what you have selected and your highlights' : 'The list you are looking at'}{' '}
               go along with the question, so there is nothing to paste. The ⚙ menu says exactly what, and lets you hold anything back.
             </p>
             <ul>
@@ -1037,9 +1086,9 @@ export default function Assistant({ onClose, screen, reading }: Props) {
             type="button"
             className="btn sm chat-shot-btn"
             onClick={() => void takeShot()}
-            disabled={!s.hasKey || s.live || shooting}
+            disabled={!s.hasKey || s.live || shooting || !model.vision}
             aria-label="Attach a screenshot of this tab"
-            title="Attach a screenshot of this tab — your browser asks first"
+            title={model.vision ? 'Attach a screenshot of this tab — your browser asks first' : `${model.label} reads text only — pick a Claude model to send a screenshot`}
           >
             <CameraIcon size={16} />
           </button>
@@ -1049,8 +1098,8 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           rows={1}
           value={input}
           disabled={!s.hasKey}
-          placeholder={s.hasKey ? (reading ? 'Ask about this paper…' : 'Ask Claude…') : 'Add an API key above to start'}
-          aria-label="Ask Claude"
+          placeholder={s.hasKey ? (reading ? 'Ask about this paper…' : `Ask ${provider.name}…`) : `Add a ${provider.company} API key above to start`}
+          aria-label={ASSISTANT_NAME}
           onChange={(event) => {
             setInput(event.target.value);
             grow();

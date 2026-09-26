@@ -18,7 +18,7 @@
 //  finished text is kept per paper in IndexedDB, so it is paid for once.
 // ===========================================================================
 
-import { anthropic, explainError, FULL_TEXT_MAX_CHARS, MODELS, sdk, tag } from './assistant';
+import { explainError, FULL_TEXT_MAX_CHARS, modelSpec, PROVIDERS, sdk, streamModel, tag } from './assistant';
 import type { Screen, SDK } from './assistant';
 import { db } from './db';
 
@@ -693,14 +693,7 @@ async function streamOnce(
   params: { system: ReturnType<typeof systemFor>; messages: { role: 'user' | 'assistant'; content: string }[] },
   onText: (text: string) => void,
 ): Promise<{ stop: string | null }> {
-  const api = await anthropic();
-  const spec = MODELS.find((m) => m.id === model) ?? MODELS[0];
-  const stream = api.messages.stream({
-    model: spec.id,
-    max_tokens: MAX_TOKENS,
-    ...params,
-    ...(spec.adaptive ? { thinking: { type: 'adaptive' as const, display: 'summarized' as const }, output_config: { effort } } : {}),
-  });
+  const stream = await streamModel({ model, maxTokens: MAX_TOKENS, ...params, effort });
   running = { paperId, stream };
   let text = '';
   let thinking = '';
@@ -745,14 +738,14 @@ export async function generateExplanation(screen: Screen, model: string) {
 
   let SDK: SDK | null = null;
   try {
-    SDK = await sdk();
+    if (modelSpec(model).provider === 'anthropic') SDK = await sdk();
     const { stop } = await streamOnce(paper.id, model, 'medium', { system: systemFor(screen), messages: [{ role: 'user', content: firstAsk(screen) }] }, (text) => {
       entry.content = text;
       cache.set(paper.id, { ...entry });
       notify();
     });
     if (stop === 'max_tokens') entry.truncated = true;
-    if (stop === 'refusal') entry.error = 'Claude declined to write this one.';
+    if (stop === 'refusal') entry.error = `${PROVIDERS[modelSpec(model).provider].name} declined to write this one.`;
   } catch (error) {
     entry.error = explainError(error, SDK);
   } finally {
@@ -788,7 +781,7 @@ export async function reviseExplanation(screen: Screen, request: string, scope: 
 
   let SDK: SDK | null = null;
   try {
-    SDK = await sdk();
+    if (modelSpec(current.model).provider === 'anthropic') SDK = await sdk();
     const { stop } = await streamOnce(
       paper.id,
       current.model,
@@ -806,9 +799,9 @@ export async function reviseExplanation(screen: Screen, request: string, scope: 
         update({ pending: { ...pending } });
       },
     );
-    if (stop === 'refusal') throw new Error('Claude declined that request.');
+    if (stop === 'refusal') throw new Error(`${PROVIDERS[modelSpec(current.model).provider].name} declined that request.`);
     const applied = applyEdits(before, pending.reply, scope.section);
-    if (!applied.touched.length && applied.content === before) throw new Error(applied.note || 'Claude left the page as it was.');
+    if (!applied.touched.length && applied.content === before) throw new Error(applied.note || `${PROVIDERS[modelSpec(current.model).provider].name} left the page as it was.`);
     const revision: Revision = { request: pending.request, before, note: applied.note, touched: applied.touched, at: Date.now() };
     const next = update({
       content: applied.content,

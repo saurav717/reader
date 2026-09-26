@@ -3,7 +3,7 @@ import { cleanFigure } from '../lib/sanitize';
 import type { CSSProperties } from 'react';
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Screen } from '../lib/assistant';
-import { getState, MODELS, saveKey, subscribe } from '../lib/assistant';
+import { ASSISTANT_NAME, getState, looksLikeKey, MODELS, modelSpec, PROVIDERS, saveKey, setExplainModel, subscribe } from '../lib/assistant';
 import type { Block, Section } from '../lib/explain';
 import {
   applyEdits,
@@ -550,7 +550,14 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const explanation = useSyncExternalStore(store.subscribe, () => store.get(paperId));
   const driveState = useSyncExternalStore(store.subscribe, () => store.driveState(paperId));
   const [layout, setLayout] = useState<ExplainLayout>(readLayout);
-  const [model, setModel] = useState<string>(assistant.prefs.model);
+  // Kept with the chat's preferences, so Settings and this page pick the same one.
+  const model = assistant.prefs.explainModel ?? assistant.prefs.model;
+  const setModel = setExplainModel;
+  const chosen = modelSpec(model);
+  const provider = PROVIDERS[chosen.provider];
+  const hasKey = assistant.keys[chosen.provider];
+  // Who wrote the page on screen — or who is about to.
+  const writer = PROVIDERS[modelSpec(explanation?.model ?? model).provider].name;
   const [keyDraft, setKeyDraft] = useState('');
   const [active, setActive] = useState('');
   const [checked, setChecked] = useState(false);
@@ -631,7 +638,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const streaming = Boolean(explanation?.streaming);
   const thought = lastThought(explanation?.thinking);
   const busy = Boolean(streaming || (pending && !pending.error));
-  const canAsk = Boolean(explanation?.content && assistant.hasKey && !streaming);
+  const canAsk = Boolean(explanation?.content && explanation.model && assistant.keys[modelSpec(explanation.model).provider] && !streaming);
 
   // Ask Claude, while this is open, points at passages here: the explanation's
   // own words are marked on it; the paper's are left to the paper when it is
@@ -844,42 +851,58 @@ export default function Explain({ paperId, title, authors, published, screen, on
   // Which model, and the button — or the key, first. The same on both pages' empty states.
   const startControls = (
     <>
-              {assistant.hasKey ? (
-                <>
-                  <div className="explain-start">
-                    <div className="model-pick" role="radiogroup" aria-label="Model">
-                      {MODELS.map((m) => (
-                        <button key={m.id} type="button" role="radio" aria-checked={model === m.id} onClick={() => setModel(m.id)}>
-                          <b>{m.label}</b>
-                          <span>{m.note}</span>
-                        </button>
-                      ))}
-                    </div>
-                    <button type="button" className="btn primary cta" onClick={() => void start()}>
-                      <SparkleIcon size={17} /> {implementing ? 'Plan the implementation' : 'Explain this paper'}
+              <div className="explain-start">
+                <div className="model-pick" role="radiogroup" aria-label="Model">
+                  {MODELS.map((m) => (
+                    <button key={m.id} type="button" role="radio" aria-checked={model === m.id} onClick={() => setModel(m.id)}>
+                      <b>{m.label}</b>
+                      <span>
+                        {m.note}
+                        {assistant.keys[m.provider] ? '' : ' · needs a key'}
+                      </span>
                     </button>
-                  </div>
-                  <p className="hint">
-                    <b>Written once</b> and kept for this paper
-                    {driveState ? ', in this browser and in the paper’s folder in your Drive' : implementing ? ', in this browser' : ''}. A long paper costs about as much as a few long answers in Ask Claude.
-                  </p>
-                </>
+                  ))}
+                </div>
+                {hasKey ? (
+                  <button type="button" className="btn primary cta" onClick={() => void start()}>
+                    <SparkleIcon size={17} /> {implementing ? 'Plan the implementation' : 'Explain this paper'}
+                  </button>
+                ) : null}
+              </div>
+              {hasKey ? (
+                <p className="hint">
+                  <b>Written once</b> and kept for this paper
+                  {driveState ? ', in this browser and in the paper’s folder in your Drive' : implementing ? ', in this browser' : ''}. A long paper costs about as much as a few long answers in {ASSISTANT_NAME}.
+                  {chosen.maxOutput && chosen.maxOutput < 16000 ? (
+                    <>
+                      {' '}
+                      <b>{chosen.label} writes short answers</b> (about {Math.round(chosen.maxOutput / 1000)}K tokens), so a long paper’s page may be cut off — {MODELS.filter((m) => m.provider === chosen.provider && (m.maxOutput ?? Infinity) >= 16000)[0]?.label ?? 'a bigger model'} has room for all of it.
+                    </>
+                  ) : null}
+                </p>
               ) : (
                 <>
                   <form
                     className="explain-start"
                     onSubmit={(event) => {
                       event.preventDefault();
-                      saveKey(keyDraft);
+                      const key = keyDraft.trim();
+                      if (!looksLikeKey(key, provider.id) && !confirm(`That does not look like one of ${provider.company}’s API keys (they start with "${provider.keyPrefix}"). Save it anyway?`)) return;
+                      saveKey(key, provider.id);
+                      setKeyDraft('');
                     }}
                   >
-                    <input type="password" placeholder="sk-ant-…" value={keyDraft} onChange={(event) => setKeyDraft(event.target.value)} aria-label="Anthropic API key" />
+                    <input type="password" placeholder={provider.placeholder} value={keyDraft} onChange={(event) => setKeyDraft(event.target.value)} aria-label={`${provider.company} API key`} />
                     <button type="submit" className="btn primary cta" disabled={!keyDraft.trim()}>
-                      Use this key
+                      Use this {provider.company} key
                     </button>
                   </form>
                   <p className="hint">
-                    <b>The same key as Ask Claude.</b> It stays in this browser and goes only to api.anthropic.com.
+                    <b>The same {provider.company} key as {ASSISTANT_NAME}.</b> Get one at{' '}
+                    <a href={provider.consoleUrl} target="_blank" rel="noopener noreferrer">
+                      {provider.consoleUrl.replace(/^https:\/\//, '')}
+                    </a>
+                    . It stays in this browser and goes only to {provider.host}.
                   </p>
                 </>
               )}
@@ -899,7 +922,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
     >
       <header className="explain-bar">
         <span className="explain-brand">
-          <ExplainIcon size={17} /> <span>Explained by Claude</span>
+          <ExplainIcon size={17} /> <span>Explained by {writer}</span>
         </span>
         <span className="explain-bar-title" title={title}>
           {title}
@@ -930,7 +953,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           </button>
         ) : null}
         {explanation?.content && !streaming ? (
-          <button type="button" className="btn sm ghost rewrite" onClick={() => void start()} disabled={!assistant.hasKey} title={implementing ? 'Plan it again from scratch, for the machine picked now' : 'Write it again from scratch'}>
+          <button type="button" className="btn sm ghost rewrite" onClick={() => void start()} disabled={!hasKey} title={implementing ? 'Plan it again from scratch, for the machine picked now' : 'Write it again from scratch'}>
             Rewrite
           </button>
         ) : null}
@@ -1007,7 +1030,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
                     ? 'Ask about this, or say how to change it…'
                     : implementing
                       ? 'Ask about the plan, or change it — a different dataset, framework, scale…  ( / )'
-                      : 'Ask anything about this explanation, or tell Claude how to change it…  ( / )'
+                      : `Ask anything about this explanation, or tell ${writer} how to change it…  ( / )`
               }
               aria-label="Ask about the explanation, or ask for a change"
             />
@@ -1117,7 +1140,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           {implementing && explanation?.content ? <HardwareSummary sections={sections} /> : null}
           {explanation?.content ? (
             <div className="outline-meta">
-              {streaming ? (implementing ? 'Claude is planning…' : 'Claude is writing…') : `${implementing ? 'Planned' : 'Written'} by ${writtenWith} · ${new Date(explanation.created).toLocaleDateString()}`}
+              {streaming ? (implementing ? `${writer} is planning…` : `${writer} is writing…`) : `${implementing ? 'Planned' : 'Written'} by ${writtenWith} · ${new Date(explanation.created).toLocaleDateString()}`}
               <DriveLine state={driveState} />
             </div>
           ) : null}
@@ -1147,7 +1170,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
               <h1>{title}</h1>
               {byline ? <div className="byline">{byline}</div> : null}
               <p className="explain-lede">
-                Claude reads the paper <b>end to end</b> and writes you a walkthrough: <mark>the problem</mark>, <mark>how the method works</mark> and{' '}
+                {writer} reads the paper <b>end to end</b> and writes you a walkthrough: <mark>the problem</mark>, <mark>how the method works</mark> and{' '}
                 <mark>why it beats what came before</mark>. It adds diagrams, small Python cells you can run, and an honest account of{' '}
                 <b>what has changed since</b> it was published.
               </p>
@@ -1187,7 +1210,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
             <>
               <header className="explain-title">
                 <div className="explain-kicker">
-                  {implementing ? <PlanIcon size={16} /> : <ExplainIcon size={16} />} {implementing ? 'Implementation plan by Claude' : 'Explained by Claude'}
+                  {implementing ? <PlanIcon size={16} /> : <ExplainIcon size={16} />} {implementing ? `Implementation plan by ${writer}` : `Explained by ${writer}`}
                 </div>
                 <h1>{title}</h1>
                 {byline ? <div className="byline">{byline}</div> : null}
@@ -1210,17 +1233,17 @@ export default function Explain({ paperId, title, authors, published, screen, on
                   <span className="spinner" />
                   {thought ? (
                     <span>
-                      Claude is thinking — <em>{thought}</em>
+                      {writer} is thinking — <em>{thought}</em>
                     </span>
                   ) : explanation?.content ? (
-                    <span>Claude is writing{sections.length ? ` — ${sections[sections.length - 1].title || 'the opening'}` : ''}…</span>
+                    <span>{writer} is writing{sections.length ? ` — ${sections[sections.length - 1].title || 'the opening'}` : ''}…</span>
                   ) : (
-                    <span>Claude is reading the paper… a long one can take a minute or two before the first words{implementing ? ' of the plan' : ''}.</span>
+                    <span>{writer} is reading the paper… a long one can take a minute or two before the first words{implementing ? ' of the plan' : ''}.</span>
                   )}
                 </p>
               ) : null}
               {explanation?.error ? <p className="explain-error">{explanation.error}</p> : null}
-              {explanation?.truncated ? <p className="explain-error">It ran out of room before the end. Rewrite, or ask about the rest in Ask Claude.</p> : null}
+              {explanation?.truncated ? <p className="explain-error">It ran out of room before the end. Rewrite, or ask about the rest in {ASSISTANT_NAME}.</p> : null}
             </>
           )}
         </article>
@@ -1236,9 +1259,9 @@ export default function Explain({ paperId, title, authors, published, screen, on
               window.dispatchEvent(new CustomEvent('reader:ask-claude', { detail: { text: picked.text } }));
               setPicked(null);
             }}
-            title="Ask Claude about this passage of the explanation — it reads the paper too"
+            title={`${ASSISTANT_NAME} about this passage of the explanation — it reads the paper too`}
           >
-            <SparkleIcon size={15} /> Ask Claude
+            <SparkleIcon size={15} /> {ASSISTANT_NAME}
           </button>
           <span className="divider" />
           <button
