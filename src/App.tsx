@@ -135,6 +135,9 @@ export default function App() {
   // READER_OWNERS — gets a rail button for who uses it; nobody else sees one.
   const [usageOpen, setUsageOpen] = useState(false);
   const isOwner = useIsOwner(settings.proxyToken);
+  // Usage is a page of its own: it takes the main area, and the library and
+  // the side panel step aside while it is open.
+  const onUsage = usageOpen && isOwner;
   const [welcomed, setWelcomed] = useState(() => localStorage.getItem(WELCOME_KEY) === 'true');
   // Dismissing the opening screen is remembered for this page load only. A
   // sign-in is kept in this browser for the hour Google's token lasts, so a
@@ -389,6 +392,7 @@ export default function App() {
 
   /** `fromDiscover`: opened from Discover's pane, which stays — with its results and what it said about the save. */
   const openPaper = useCallback((id: string, fromDiscover = false) => {
+    setUsageOpen(false);
     setView({ kind: 'paper', id });
     setSelectedHighlightId(null);
     setOrphanIds([]);
@@ -686,7 +690,10 @@ export default function App() {
           aria-pressed={libraryOpen}
           aria-label="Library"
           title="Library — your collections and what you are reading"
-          onClick={() => setLibraryOpen(!libraryOpen)}
+          onClick={() => {
+            setUsageOpen(false);
+            setLibraryOpen(usageOpen ? true : !libraryOpen);
+          }}
         >
           <LibraryIcon size={19} />
         </button>
@@ -696,7 +703,10 @@ export default function App() {
           aria-pressed={dockPane === 'discover'}
           aria-label="Discover papers"
           title="Discover"
-          onClick={() => setDock(dockPane === 'discover' ? null : 'discover')}
+          onClick={() => {
+            setUsageOpen(false);
+            setDock(dockPane === 'discover' && !usageOpen ? null : 'discover');
+          }}
         >
           <SearchIcon size={19} />
         </button>
@@ -706,7 +716,10 @@ export default function App() {
           aria-pressed={notesShown}
           aria-label="Highlights and notes"
           title="Highlights and notes (H, or ⌘⇧\)"
-          onClick={toggleNotes}
+          onClick={() => {
+            setUsageOpen(false);
+            toggleNotes();
+          }}
         >
           <HighlighterIcon size={19} />
         </button>
@@ -763,7 +776,7 @@ export default function App() {
         </button>
       </nav>
 
-      {libraryOpen && !showWelcome ? (
+      {libraryOpen && !showWelcome && !onUsage ? (
         <Library
           view={view}
           activePaperId={reading}
@@ -776,7 +789,9 @@ export default function App() {
         />
       ) : null}
 
-      {showWelcome ? (
+      {onUsage ? (
+        <UsageView />
+      ) : showWelcome ? (
         <Welcome onDismiss={dismissWelcome} onOpenSettings={() => setSettingsOpen(true)} />
       ) : view.kind === 'paper' ? (
         <Reader
@@ -800,7 +815,7 @@ export default function App() {
         <CollectionView view={view} onOpenPaper={openPaper} onDiscover={addPapers} />
       )}
 
-      {shownDock && !showWelcome ? (
+      {shownDock && !showWelcome && !onUsage ? (
         <div className="dock">
           <div className="dock-tabs" role="tablist" aria-label="Side panel">
             <button
@@ -891,7 +906,6 @@ export default function App() {
       {assistantOpen && !showWelcome ? <Assistant onClose={closeAssistant} screen={readScreen} reading={Boolean(reading)} /> : null}
 
       {settingsOpen ? <Settings onClose={() => setSettingsOpen(false)} /> : null}
-      {usageOpen && isOwner ? <UsageView onClose={() => setUsageOpen(false)} /> : null}
     </div>
   );
 }
