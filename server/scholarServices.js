@@ -2,12 +2,18 @@
  * Which paid service asks Scholar, when the proxy has a key for more than
  * one — and what happens when one of them says no.
  *
- * Serply (server/serply.js) is the cheaper, and answers every ask; SerpApi
- * (server/serpapi.js) reads a profile page exactly, h-index and all, where
- * Serply rebuilds it from searches. So a profile, a person and an entry
- * opened are asked of SerpApi first, and everything else of Serply first —
- * and whichever is asked first, the other is asked when it refuses. With
- * one key, that one; with neither, nobody here, and the proxy asks Scholar
+ * SerpApi (server/serpapi.js) reads Scholar's pages exactly — a profile's
+ * every work, the citations, the h-index; Serply (server/serply.js) is the
+ * cheaper, and rebuilds a profile from searches, with less in it. Which is
+ * asked first is SCHOLAR_FIRST, on the proxy:
+ *
+ *   serpapi (the default)  SerpApi for everything, Serply when it refuses.
+ *   serply                 Serply for a search, people and versions, which
+ *                          it answers as fully; SerpApi still first for a
+ *                          profile, a person and an entry opened.
+ *
+ * Whichever is asked first, the other is asked when it refuses. With one
+ * key, that one; with neither, nobody here, and the proxy asks Scholar
  * itself.
  *
  * A service that says its allowance is spent, or that the key is wrong,
@@ -57,11 +63,20 @@ const services = {
     }),
 };
 
-/** The services to ask, in the order to ask them: the better one first, a rested one last. */
-export function serviceOrder(kind, keys) {
-  const preferred = SERPAPI_BETTER.has(kind) ? ['serpapi', 'serply'] : ['serply', 'serpapi'];
+/** SCHOLAR_FIRST as given, or the default: SerpApi, which answers everything exactly. */
+export const firstService = (value) => (String(value || '').trim().toLowerCase() === 'serply' ? 'serply' : 'serpapi');
+
+/** The services to ask, in the order to ask them: the one first, a rested one last. */
+export function serviceOrder(kind, keys, first = 'serpapi') {
+  const preferred = firstService(first) === 'serply' && !SERPAPI_BETTER.has(kind) ? ['serply', 'serpapi'] : ['serpapi', 'serply'];
   const have = preferred.filter((service) => keys[service]);
   return [...have.filter((service) => !isResting(service)), ...have.filter(isResting)];
+}
+
+/** How /health names the arrangement: the services with keys, the first one first. */
+export function servicesLabel(keys, first) {
+  const have = (firstService(first) === 'serply' ? ['serply', 'serpapi'] : ['serpapi', 'serply']).filter((service) => keys[service]);
+  return have.length ? have.join('+') : 'direct';
 }
 
 /**
@@ -71,8 +86,8 @@ export function serviceOrder(kind, keys) {
  * from one is the other's turn; when both refuse, the refusal of the last
  * asked is thrown, with `spent` on it too.
  */
-export async function askServices(kind, params, keys) {
-  const order = serviceOrder(kind, keys);
+export async function askServices(kind, params, keys, { first } = {}) {
+  const order = serviceOrder(kind, keys, first);
   if (!order.length) return null;
   const spent = { serply: 0, serpapi: 0 };
   let failure;

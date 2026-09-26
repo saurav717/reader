@@ -28,7 +28,7 @@ import {
   versionsUrl,
   workUrl,
 } from '../server/scholar.js';
-import { askServices } from '../server/scholarServices.js';
+import { askServices, servicesLabel } from '../server/scholarServices.js';
 import { emailAllowed, googleEmail, issuePass, readPass } from '../server/passes.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
@@ -219,7 +219,7 @@ export default {
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), browse: browse.availability(env).available, scholar: serplyKey && serpKey ? 'serply+serpapi' : serplyKey ? 'serply' : serpKey ? 'serpapi' : 'direct' },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), browse: browse.availability(env).available, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
           200,
           headers,
         );
@@ -541,7 +541,7 @@ export default {
             return json({ error: 'too many Scholar searches at once; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });
           }
           try {
-            const { results, via, spent } = await askServices(kind, params, { serply: serplyKey, serpapi: serpKey });
+            const { results, via, spent } = await askServices(kind, params, { serply: serplyKey, serpapi: serpKey }, { first: env.SCHOLAR_FIRST });
             tally(env, ctx, who, { scholar: 1, ...spent });
             return json({ results, source: 'scholar', via }, 200, { ...headers, 'Cache-Control': 'private, max-age=300' });
           } catch (error) {
