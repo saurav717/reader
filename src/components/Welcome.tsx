@@ -187,6 +187,8 @@ function Captcha({ siteKey, onSolved }: { siteKey: string; onSolved: (solved: bo
       setCaptchaAnswer(answer);
       onSolved(Boolean(answer));
     };
+    // A fresh box is an unticked one, whatever an earlier box said.
+    onSolved(false);
     loadTurnstile()
       .then(() => {
         if (!live || !box.current || !window.turnstile) return;
