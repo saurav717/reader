@@ -30,6 +30,9 @@
   --win-edge-a: 0.14;
   --win-shadow: 0 24px 60px -20px rgba(26, 26, 23, 0.38), 0 2px 8px rgba(26, 26, 23, 0.12);
   --accent-rgb: 31 94 82;
+  /* Chart series, in this order: checked for colour-blind separation on --surface. */
+  --viz-1: #0f8a70;
+  --viz-2: #b27414;
 }
 
 :root[data-theme='dark'] {
@@ -59,6 +62,8 @@
   --win-edge-a: 0.13;
   --win-shadow: 0 26px 70px -18px rgba(0, 0, 0, 0.8), 0 2px 10px rgba(0, 0, 0, 0.45);
   --accent-rgb: 87 169 143;
+  --viz-1: #2fa585;
+  --viz-2: #bd8226;
 }
 
 * { box-sizing: border-box; }

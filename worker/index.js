@@ -30,6 +30,7 @@ import {
 } from '../server/scholar.js';
 import { askServices, servicesLabel } from '../server/scholarServices.js';
 import { emailAllowed, googleEmail, issuePass, readPass } from '../server/passes.js';
+import { aiCounts } from './usage.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
 
@@ -212,7 +213,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google') {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/usage/ai') {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
@@ -256,6 +257,22 @@ export default {
         const days = Math.max(1, Math.min(90, Number(url.searchParams.get('days')) || 30));
         const answer = await env.USAGE.get(env.USAGE.idFromName('usage')).fetch(`https://usage/report?days=${days}`);
         return json(await answer.json(), 200, { ...headers, 'Cache-Control': 'no-store' });
+      }
+
+      // An answer from Ask AI or Explain, reported by the app once it is in:
+      // which provider, which model, and the tokens it took. The answer went
+      // from the browser to Anthropic or DeepSeek on the visitor's own key, so
+      // this is the only way the tally hears of it. POST, from this app, by
+      // someone signed in; nothing is asked of anyone, only counted.
+      if (path === '/usage/ai') {
+        if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+        if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'not from this app' }, 403, headers);
+        const who = await authorized(request, env);
+        if (!who) return needsToken(env, headers);
+        const counts = aiCounts(await request.json().catch(() => ({})));
+        if (!counts) return json({ error: 'an answer from claude or deepseek' }, 400, headers);
+        tally(env, ctx, who, counts);
+        return json({ ok: true }, 200, headers);
       }
 
       // A Worker has no disk and no GPU: the local workspace is the Node proxy's alone.

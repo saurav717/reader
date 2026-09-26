@@ -54,6 +54,16 @@ export interface DeepSeekParams {
   messages: DeepSeekMessage[];
   /** Think before answering, and how hard. Off answers straight away. */
   thinking: 'off' | 'low' | 'high' | 'max';
+  /** Called once with the tokens the answer took, when DeepSeek says. */
+  onUsage?: (usage: DeepSeekUsage) => void;
+}
+
+/** What DeepSeek reports an answer took, in the last chunk of the stream. */
+export interface DeepSeekUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
 }
 
 /** Anthropic-style content, in the shape DeepSeek takes: a string stays a string. */
@@ -67,11 +77,13 @@ export function toWire(content: string | Part[]): string | WirePart[] {
 }
 
 /** The request body, as sent. */
-export function requestBody(params: Omit<DeepSeekParams, 'apiKey'>) {
+export function requestBody(params: Omit<DeepSeekParams, 'apiKey' | 'onUsage'>) {
   return {
     model: params.model,
     max_tokens: params.maxTokens,
     stream: true,
+    // One last chunk with the tokens the answer took, for the usage tally.
+    stream_options: { include_usage: true },
     thinking: { type: params.thinking === 'off' ? ('disabled' as const) : ('enabled' as const) },
     ...(params.thinking === 'off' ? {} : { reasoning_effort: params.thinking }),
     messages: [
@@ -155,13 +167,24 @@ export class DeepSeekStream {
       if (!text.startsWith('data:')) return false;
       const data = text.slice(5).trim();
       if (data === '[DONE]') return true;
-      let chunk: { choices?: { delta?: { content?: string | null; reasoning_content?: string | null }; finish_reason?: string | null }[]; error?: { message?: string } };
+      let chunk: {
+        choices?: { delta?: { content?: string | null; reasoning_content?: string | null }; finish_reason?: string | null }[];
+        error?: { message?: string };
+        usage?: DeepSeekUsage | null;
+      };
       try {
         chunk = JSON.parse(data);
       } catch {
         return false;
       }
       if (chunk.error) throw new DeepSeekError(500, chunk.error.message || 'DeepSeek stopped with an error.');
+      if (chunk.usage && params.onUsage) {
+        try {
+          params.onUsage(chunk.usage);
+        } catch {
+          // counting never gets in the way of the answer
+        }
+      }
       const choice = chunk.choices?.[0];
       if (!choice) return false;
       if (choice.delta?.reasoning_content) this.emit('thinking', choice.delta.reasoning_content);

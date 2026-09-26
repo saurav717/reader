@@ -13,7 +13,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const { Usage, addTo, report } = await import('../worker/usage.js');
+const { Usage, addTo, aiCounts, report } = await import('../worker/usage.js');
 const { default: worker } = await import('../worker/index.js');
 const { forgetSerply } = await import('../server/serply.js');
 const { forgetResting } = await import('../server/scholarServices.js');
@@ -52,7 +52,22 @@ describe('the tally', () => {
     const days = {};
     addTo(days, 'a@gmail.com', { scholar: 1, serply: 2 }, 1000);
     addTo(days, 'a@gmail.com', { scholar: 1, serply: 1, nonsense: 5, pdf: -3 }, 2000);
-    assert.deepEqual(days['a@gmail.com'], { signin: 0, scholar: 2, serply: 3, serpapi: 0, browser: 0, pdf: 0, last: 2000 });
+    const zero = { claude: 0, claude_in: 0, claude_out: 0, claude_cost: 0, deepseek: 0, deepseek_in: 0, deepseek_out: 0, deepseek_cost: 0 };
+    assert.deepEqual(days['a@gmail.com'], { signin: 0, scholar: 2, serply: 3, serpapi: 0, browser: 0, pdf: 0, ...zero, last: 2000 });
+  });
+
+  it('prices an AI answer from its tokens, in millionths of a dollar', () => {
+    // Opus 5: 1,000 in at $5, 2,000 read from the cache at $0.50, 500 written at $6.25, 400 out at $25 per million.
+    assert.deepEqual(aiCounts({ provider: 'claude', model: 'claude-opus-5', input: 1000, cacheRead: 2000, cacheWrite: 500, output: 400 }), {
+      claude: 1,
+      claude_in: 3500,
+      claude_out: 400,
+      claude_cost: 5000 + 1000 + 3125 + 10000,
+    });
+    assert.equal(aiCounts({ provider: 'deepseek', model: 'deepseek-flash', input: 1_000_000, output: 0 }).deepseek_cost, 280_000);
+    assert.equal(aiCounts({ provider: 'deepseek', model: 'unknown', input: 1_000_000 }).deepseek_cost, 280_000, 'an unknown model at the provider’s first price');
+    assert.equal(aiCounts({ provider: 'deepseek', input: -5, output: 'x' }).deepseek_in, 0);
+    assert.equal(aiCounts({ provider: 'openai', input: 1 }), null);
   });
 
   it('reports the last N days, with today apart, the busiest first', () => {
@@ -166,5 +181,37 @@ describe('the Worker, tallying', () => {
     const { env } = setup();
     delete env.USAGE;
     assert.equal((await usage(env, 'owner-token')).status, 501);
+  });
+
+  it('tallies an AI answer the app reports, priced here — for someone signed in, from this app, and nobody else', async () => {
+    const { env } = setup();
+    const { pass } = await (await ask(env, '/auth/google', { method: 'POST', headers: { 'X-Google-Token': 'g' } })).json();
+    const report = (token, body, origin = SITE) =>
+      worker.fetch(
+        new Request('https://proxy.example/usage/ai', {
+          method: 'POST',
+          headers: { Origin: origin, 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify(body),
+        }),
+        env,
+        ctx,
+      );
+    const answer = { provider: 'deepseek', model: 'deepseek-flash', input: 1000, cacheRead: 9000, output: 500 };
+    assert.equal((await report(pass, answer)).status, 200);
+    assert.equal((await report(pass, { ...answer, provider: 'claude', model: 'claude-sonnet-5' })).status, 200);
+    assert.equal((await report(null, answer)).status, 401);
+    assert.equal((await report(pass, answer, 'https://elsewhere.example')).status, 403);
+    assert.equal((await report(pass, { provider: 'nobody' })).status, 400);
+    await settle();
+
+    const out = await (await usage(env, 'owner-token')).json();
+    const labmate = out.people.find((person) => person.email === 'labmate@gmail.com').total;
+    assert.equal(labmate.deepseek, 1);
+    assert.equal(labmate.deepseek_in, 10000);
+    assert.equal(labmate.deepseek_out, 500);
+    assert.equal(labmate.deepseek_cost, 280 + 252 + 210);
+    assert.equal(labmate.claude, 1);
+    assert.equal(labmate.claude_cost, 2000 + 1800 + 5000);
+    assert.equal(out.totals.deepseek, 1);
   });
 });

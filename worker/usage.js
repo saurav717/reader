@@ -13,6 +13,14 @@
  *   serpapi  requests SerpApi was charged for (a search each)
  *   browser  the browser inside the reader opened
  *   pdf      a file fetched with a pass — through a kept sign-in, or unlimited
+ *   claude, deepseek                 answers from Ask AI and Explain, per provider
+ *   claude_in, claude_out, …         the tokens they read and wrote
+ *   claude_cost, deepseek_cost       what they cost, in millionths of a dollar
+ *
+ * The AI answers are not the Worker's to make: the app sends them straight to
+ * Anthropic or DeepSeek with the visitor's own key, then tells the Worker how
+ * many tokens the answer took (`POST /usage/ai`). The cost is worked out here,
+ * from PRICES, so that the page and the tally agree on one price list.
  *
  * The owner, with READER_TOKEN itself, is tallied as "owner". Nobody
  * signed out is tallied: they use nothing that costs. Days older than
@@ -20,7 +28,58 @@
  * Worker, READER_TOKEN only — not a pass): `npm run usage` prints it.
  */
 
-export const COUNTS = ['signin', 'scholar', 'serply', 'serpapi', 'browser', 'pdf'];
+export const AI_PROVIDERS = ['claude', 'deepseek'];
+export const COUNTS = [
+  'signin',
+  'scholar',
+  'serply',
+  'serpapi',
+  'browser',
+  'pdf',
+  ...AI_PROVIDERS.flatMap((provider) => [provider, `${provider}_in`, `${provider}_out`, `${provider}_cost`]),
+];
+
+/**
+ * US dollars per million tokens: uncached input, output, input read from the
+ * cache, and input written to it. Anthropic's list prices; DeepSeek's are
+ * its platform's pricing page — change them here when theirs change. A model
+ * missing here is priced as its provider's first.
+ */
+export const PRICES = {
+  claude: {
+    'claude-opus-5': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+    'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+    'claude-haiku-4-5': { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+  },
+  deepseek: {
+    'deepseek-flash': { input: 0.28, output: 0.42, cacheRead: 0.028, cacheWrite: 0.28 },
+  },
+};
+
+/** The most one answer is believed to take — a report past this is clipped, not trusted. */
+const MAX_TOKENS = 5_000_000;
+const tokens = (value) => Math.min(MAX_TOKENS, Math.max(0, Math.floor(Number(value) || 0)));
+
+/**
+ * The counts one AI answer adds to the tally: `{ claude: 1, claude_in, claude_out,
+ * claude_cost }`, cost in millionths of a dollar. `input` is the input read at
+ * full price; `cacheRead` and `cacheWrite` are the rest. Null for a provider
+ * this tally does not know.
+ */
+export function aiCounts({ provider, model, input, output, cacheRead, cacheWrite } = {}) {
+  if (!AI_PROVIDERS.includes(provider)) return null;
+  const table = PRICES[provider];
+  const price = table[model] || Object.values(table)[0];
+  const used = { input: tokens(input), output: tokens(output), cacheRead: tokens(cacheRead), cacheWrite: tokens(cacheWrite) };
+  // Dollars per million tokens × tokens = millionths of a dollar.
+  const cost = used.input * price.input + used.output * price.output + used.cacheRead * price.cacheRead + used.cacheWrite * price.cacheWrite;
+  return {
+    [provider]: 1,
+    [`${provider}_in`]: used.input + used.cacheRead + used.cacheWrite,
+    [`${provider}_out`]: used.output,
+    [`${provider}_cost`]: Math.round(cost),
+  };
+}
 const KEEP_DAYS = 90;
 
 const dayOf = (at) => new Date(at).toISOString().slice(0, 10);
