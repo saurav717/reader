@@ -50,8 +50,8 @@ const PROVIDERS: { id: Provider; name: string }[] = [
 ];
 
 /** Rows the box shows before it scrolls. */
-const ROWS_IN_VIEW = 12;
-const ROW_HEIGHT = 37;
+export const ROWS_IN_VIEW = 12;
+export const ROW_HEIGHT = 37;
 
 const num = (value: unknown) => Number(value) || 0;
 const get = (counts: object | undefined, key: string) => num((counts as Record<string, unknown> | undefined)?.[key]);
@@ -91,13 +91,13 @@ const METRICS: { id: Metric; label: string }[] = [
   { id: 'balance', label: 'From balance' },
 ];
 
-const card = {
+export const card = {
   background: 'var(--surface)',
   border: '1px solid var(--border)',
   borderRadius: 12,
 } as const;
 
-const cardHead = {
+export const cardHead = {
   display: 'flex',
   alignItems: 'center',
   gap: 12,
@@ -106,7 +106,7 @@ const cardHead = {
   borderBottom: '1px solid var(--border-soft)',
 } as const;
 
-const cardTitle = { fontSize: 14, fontWeight: 600, margin: 0 } as const;
+export const cardTitle = { fontSize: 14, fontWeight: 600, margin: 0 } as const;
 const muted = { fontSize: 12.5, color: 'var(--muted)' } as const;
 
 /**
@@ -195,24 +195,7 @@ export default function AiUsage({ report }: { report: UsageReport }) {
             {shown.length === people.length ? `${people.length}` : `${shown.length} of ${people.length}`}
           </span>
           <span style={{ flexGrow: 1 }} />
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by email…"
-            aria-label="Search by email"
-            style={{
-              width: 260,
-              maxWidth: '100%',
-              boxSizing: 'border-box',
-              padding: '6px 10px',
-              fontSize: 13,
-              border: '1px solid var(--border)',
-              borderRadius: 8,
-              background: 'var(--paper)',
-              color: 'var(--ink)',
-            }}
-          />
+          <SearchBox value={query} onChange={setQuery} />
         </div>
         <div style={{ maxHeight: ROW_HEIGHT * (ROWS_IN_VIEW + 1) + 1, overflow: 'auto' }}>
           <table style={{ borderCollapse: 'collapse', fontSize: 13.5, width: '100%' }}>
@@ -317,6 +300,30 @@ export default function AiUsage({ report }: { report: UsageReport }) {
         </div>
       </div>
     </section>
+  );
+}
+
+/** The search box in a list card's header: filters its rows by email. */
+export function SearchBox({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <input
+      type="search"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder="Search by email…"
+      aria-label="Search by email"
+      style={{
+        width: 260,
+        maxWidth: '100%',
+        boxSizing: 'border-box',
+        padding: '6px 10px',
+        fontSize: 13,
+        border: '1px solid var(--border)',
+        borderRadius: 8,
+        background: 'var(--paper)',
+        color: 'var(--ink)',
+      }}
+    />
   );
 }
 
