@@ -107,7 +107,12 @@ async function authorized(request, env) {
   if (!given) return null;
   if (sameSecret(given, expected)) return { owner: true };
   const pass = await readPass(given, expected);
-  return pass && emailAllowed(pass.email, env.READER_EMAILS) ? { email: pass.email } : null;
+  if (!pass || !emailAllowed(pass.email, env.READER_EMAILS)) return null;
+  // Signed in as one of the owners named in READER_OWNERS: the owner, by
+  // their Google account, with no token to keep — the usage tally is theirs
+  // to read, and the per-person limit is not for them.
+  const owners = String(env.READER_OWNERS || '').trim();
+  return owners && emailAllowed(pass.email, owners) ? { email: pass.email, owner: true } : { email: pass.email };
 }
 
 /**
@@ -116,7 +121,7 @@ async function authorized(request, env) {
  * may use them. The owner is never limited; without the binding, nobody is.
  */
 async function personOverLimit(env, who) {
-  if (!who?.email || !env.PERSON_LIMIT) return false;
+  if (!who?.email || who.owner || !env.PERSON_LIMIT) return false;
   try {
     const { success } = await env.PERSON_LIMIT.limit({ key: who.email });
     return !success;
@@ -242,10 +247,11 @@ export default {
       }
 
       // Who uses this Worker's paid accounts, and how much: worker/usage.js.
-      // The owner's alone — READER_TOKEN itself, not a pass.
+      // The owner's alone — READER_TOKEN itself, or the pass of someone named
+      // in READER_OWNERS; not anyone else's pass.
       if (path === '/usage') {
         const who = await authorized(request, env);
-        if (!who?.owner) return json({ error: 'the tally is for whoever holds READER_TOKEN' }, 401, headers);
+        if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
         if (!env.USAGE) return json({ error: 'no USAGE object is bound here — see wrangler.toml' }, 501, headers);
         const days = Math.max(1, Math.min(90, Number(url.searchParams.get('days')) || 30));
         const answer = await env.USAGE.get(env.USAGE.idFromName('usage')).fetch(`https://usage/report?days=${days}`);

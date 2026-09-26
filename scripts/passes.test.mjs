@@ -192,6 +192,14 @@ describe('the Worker, with passes', () => {
     assert.equal((await worker.fetch(scholar(pass), env({ READER_EMAILS: 'me@gmail.com, someone@gmail.com' }))).status, 200);
   });
 
+  it('does not hold an owner named in READER_OWNERS to the per-person limit', async () => {
+    outside();
+    const { pass } = await (await worker.fetch(post(), env())).json();
+    const PERSON_LIMIT = { limit: async () => ({ success: false }) };
+    assert.equal((await worker.fetch(scholar(pass), env({ PERSON_LIMIT, READER_OWNERS: 'someone@gmail.com' }))).status, 200);
+    assert.equal((await worker.fetch(scholar(pass), env({ PERSON_LIMIT, READER_OWNERS: 'other@gmail.com' }))).status, 429);
+  });
+
   it('stops taking a pass once READER_TOKEN has changed', async () => {
     outside();
     const { pass } = await (await worker.fetch(post(), env())).json();

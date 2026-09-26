@@ -8,6 +8,7 @@ import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
 import { PAPER_LAYOUTS, setLayout, useLayout } from './paperCards';
+import UsagePanel from './UsagePanel';
 
 const ZEN_HAZES: { id: ZenHaze; label: string; note: string }[] = [
   { id: 'shadow', label: 'Shadow', note: 'casting a long soft shadow across the page.' },
@@ -353,6 +354,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           </div>
         </section>
 
+        <UsagePanel token={settings.proxyToken} />
 
         <section style={{ marginBottom: 22 }}>
           <div className="eyebrow" style={{ marginBottom: 10 }}>

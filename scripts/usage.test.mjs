@@ -144,6 +144,16 @@ describe('the Worker, tallying', () => {
     assert.equal((await usage(env, 'owner-token')).status, 200);
   });
 
+  it('lets an owner named in READER_OWNERS read it with their Google sign-in — no token to keep', async () => {
+    const { env } = setup();
+    const { pass } = await (await ask(env, '/auth/google', { method: 'POST', headers: { 'X-Google-Token': 'g' } })).json();
+    await settle();
+    assert.equal((await usage({ ...env, READER_OWNERS: 'someone-else@gmail.com' }, pass)).status, 401);
+    const answer = await usage({ ...env, READER_OWNERS: 'Labmate@gmail.com' }, pass);
+    assert.equal(answer.status, 200);
+    assert.equal((await answer.json()).people[0].email, 'labmate@gmail.com', 'an owner by sign-in is tallied by their email');
+  });
+
   it('says so when no USAGE object is bound', async () => {
     const { env } = setup();
     delete env.USAGE;
