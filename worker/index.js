@@ -29,6 +29,7 @@ import {
   workUrl,
 } from '../server/scholar.js';
 import { askServices } from '../server/scholarServices.js';
+import { emailAllowed, googleEmail, issuePass, readPass } from '../server/passes.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
 
@@ -53,7 +54,7 @@ function cors(origin) {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     // The browser session's input arrives as JSON; the app's token and its
     // client id come as headers (see `authorized` and `clientOf` below).
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client, X-Google-Token',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -80,7 +81,7 @@ const json = (body, status, headers) =>
  * directly — needs no token, so the site keeps working for a visitor who
  * has none.
  */
-const TOKEN_MESSAGE = 'this proxy needs its token — paste it under Settings → Paper proxy';
+const TOKEN_MESSAGE = 'sign in with Google to use this (Settings → Google), or paste this proxy’s token under Settings → Paper proxy';
 const NO_TOKEN_MESSAGE = 'this Worker has no READER_TOKEN secret, so what needs one is off — see wrangler.toml';
 
 function sameSecret(given, expected) {
@@ -93,16 +94,39 @@ function sameSecret(given, expected) {
   return differ === 0;
 }
 
-/** Whether the request carries this Worker's token. */
-function authorized(request, env) {
+/**
+ * Who the request is from, as far as the gated routes care: the owner, with
+ * READER_TOKEN itself; anyone signed in with Google, with the pass this
+ * Worker gave them (see server/passes.js); or nobody — null.
+ */
+async function authorized(request, env) {
   const expected = String(env.READER_TOKEN || '').trim();
-  if (!expected) return false;
+  if (!expected) return null;
   const given = (request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim();
-  return Boolean(given) && sameSecret(given, expected);
+  if (!given) return null;
+  if (sameSecret(given, expected)) return { owner: true };
+  const pass = await readPass(given, expected);
+  return pass && emailAllowed(pass.email, env.READER_EMAILS) ? { email: pass.email } : null;
+}
+
+/**
+ * Whether a signed-in person is asking faster than a person does — the one
+ * guard on the owner's paid accounts now that anyone with a Google account
+ * may use them. The owner is never limited; without the binding, nobody is.
+ */
+async function personOverLimit(env, who) {
+  if (!who?.email || !env.PERSON_LIMIT) return false;
+  try {
+    const { success } = await env.PERSON_LIMIT.limit({ key: who.email });
+    return !success;
+  } catch {
+    return false;
+  }
 }
 
 /** The refusal, worded for whether there is a token to give at all. */
-const needsToken = (env, headers) => json({ error: env.READER_TOKEN ? TOKEN_MESSAGE : NO_TOKEN_MESSAGE, token: true }, 401, headers);
+const needsToken = (env, headers) =>
+  json({ error: env.READER_TOKEN ? TOKEN_MESSAGE : NO_TOKEN_MESSAGE, token: true, google: Boolean(env.READER_TOKEN && env.GOOGLE_CLIENT_ID) }, 401, headers);
 
 /**
  * Which browser this is: an id the app makes up once and keeps, sent with
@@ -168,17 +192,37 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/')) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google') {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), browse: browse.availability(env).available, scholar: serplyKey && serpKey ? 'serply+serpapi' : serplyKey ? 'serply' : serpKey ? 'serpapi' : 'direct' },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), browse: browse.availability(env).available, scholar: serplyKey && serpKey ? 'serply+serpapi' : serplyKey ? 'serply' : serpKey ? 'serpapi' : 'direct' },
           200,
           headers,
         );
+      }
+
+      // A Google sign-in, swapped for a pass: see server/passes.js. POST, from
+      // this app only, with the signed-in person's Google access token.
+      if (path === '/auth/google') {
+        if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+        if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'not from this app' }, 403, headers);
+        const secret = String(env.READER_TOKEN || '').trim();
+        if (!secret || !env.GOOGLE_CLIENT_ID) {
+          return json({ error: 'this Worker does not take Google sign-ins: it needs READER_TOKEN and GOOGLE_CLIENT_ID — see wrangler.toml' }, 501, headers);
+        }
+        const email = await googleEmail(request.headers.get('X-Google-Token') || '', env.GOOGLE_CLIENT_ID);
+        if (!email) return json({ error: 'Google did not vouch for that sign-in; sign in again' }, 401, headers);
+        // Anyone signed in, unless the owner has named who in READER_EMAILS.
+        if (!emailAllowed(email, env.READER_EMAILS)) {
+          return json({ error: `${email} is not on this proxy's list; ask whoever runs it to add you` }, 403, headers);
+        }
+        const pass = await issuePass(email, secret);
+        const { expires } = await readPass(pass, secret);
+        return json({ pass, email, expires }, 200, { ...headers, 'Cache-Control': 'no-store' });
       }
 
       // A Worker has no disk and no GPU: the local workspace is the Node proxy's alone.
@@ -200,7 +244,7 @@ export default {
         // Driving a browser takes the token; looking at whether there is one
         // to drive does not. The session object's own `/note-check` is the
         // Worker's to call from `/pdf`, never the internet's.
-        const withToken = authorized(request, env);
+        const withToken = await authorized(request, env);
         if (changes && !withToken) return needsToken(env, headers);
         if (path === '/browse/note-check') return json({ error: 'not found' }, 404, headers);
         const client = clientOf(request, url);
@@ -353,10 +397,10 @@ export default {
         // cookies of a browser session were kept.
         const scoped = browse.forClient(env, clientOf(request, url));
         if (path === '/access/forget' && request.method === 'POST' && ALLOWED_ORIGINS.includes(origin)) {
-          if (!authorized(request, env)) return needsToken(env, headers);
+          if (!(await authorized(request, env))) return needsToken(env, headers);
           return json({ ok: true, forgotten: await browse.forgetCookies(scoped) }, 200, headers);
         }
-        const kept = env.SESSIONS && authorized(request, env) ? (await browse.storedCookies(scoped)).length > 0 : false;
+        const kept = env.SESSIONS && (await authorized(request, env)) ? (await browse.storedCookies(scoped)).length > 0 : false;
         return json(
           {
             available: false,
@@ -457,7 +501,11 @@ export default {
         // other when it refuses — see server/scholarServices.js.
         if (serplyKey || serpKey) {
           // Both are metered on the account whose key it is.
-          if (!authorized(request, env)) return needsToken(env, headers);
+          const who = await authorized(request, env);
+          if (!who) return needsToken(env, headers);
+          if (await personOverLimit(env, who)) {
+            return json({ error: 'too many Scholar searches at once; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });
+          }
           try {
             const { results, via } = await askServices(kind, params, { serply: serplyKey, serpapi: serpKey });
             return json({ results, source: 'scholar', via }, 200, { ...headers, 'Cache-Control': 'private, max-age=300' });
@@ -548,7 +596,7 @@ export default {
         // Whose request: with the token, the sign-in kept for this client is
         // tried on a login wall and a browser at Browserless on a check for
         // a person; without it the file is fetched plainly or not at all.
-        const withToken = authorized(request, env);
+        const withToken = await authorized(request, env);
         const scoped = browse.forClient(env, withToken ? clientOf(request, url) : '');
         if (!withToken && (await overLimit(env, request))) {
           return json({ error: 'too many files at once from this address; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });

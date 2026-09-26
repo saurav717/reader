@@ -508,9 +508,29 @@ is set:
 openssl rand -base64 32 | npx --yes wrangler@4 secret put READER_TOKEN   # then npm run deploy:worker
 ```
 
-Paste the same string into **Settings → Paper proxy → token**, once, in each
-browser you use the reader from. It goes to the Worker as a header and nowhere
-else. arXiv, open-access PDFs and Scholar asked directly need no token, so a
+**Nobody has to paste it.** Anyone who signs in with Google in the reader gets
+a pass instead (`server/passes.js`): the app sends the Worker that person's Google
+access token once, to `POST /auth/google`; the Worker asks Google whose it is and
+that it was made for this app (`GOOGLE_CLIENT_ID` in `wrangler.toml`), and answers
+with a pass — the email and an expiry, signed with `READER_TOKEN` — which the app
+keeps where a pasted token would go and fills in by itself. It lasts thirty days
+and is renewed on the next sign-in in its last week, so Google's one-hour tokens
+never show. Signing out drops it. The Google token goes to the proxy compiled
+into the site, or one on this machine, and never to an address typed into
+Settings. So a labmate opens the site, signs in with Google, and everything
+works, on your accounts:
+
+- **Anyone signed in** may use it, unless you name who: `READER_EMAILS` (a
+  secret) takes addresses and `@domain`s, comma-separated — `npx --yes
+  wrangler@4 secret put READER_EMAILS`, e.g. `me@gmail.com, @iith.ac.in`. It is
+  checked whenever a pass is used, so taking someone off ends their pass.
+- **One person** may ask Scholar at most thirty times a minute (`PERSON_LIMIT`
+  in `wrangler.toml`) — far past searching by hand, and a stop on a script.
+- **Changing `READER_TOKEN`** ends every pass at once. The token itself still
+  works as before, unlimited, for you and the scripts; paste it into
+  **Settings → Paper proxy → token** where you would rather not sign in.
+
+It goes to the Worker as a header and nowhere else. arXiv, open-access PDFs and Scholar asked directly need no token, so a
 visitor without one still gets a working reader. The browser session and the
 cookies of a sign-in are kept per browser (an id the site makes up and sends
 along), never in one jar for everyone, and a jar unused for thirty days is

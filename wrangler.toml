@@ -23,6 +23,12 @@ class_name = "BrowserSession"
 tag = "v1"
 new_sqlite_classes = ["BrowserSession"]
 
+# Anyone signed in with Google in the reader need paste nothing: the app
+# swaps the sign-in for a thirty-day pass signed with READER_TOKEN (see
+# server/passes.js and GOOGLE_CLIENT_ID below), so the token is the key the
+# passes are signed with as much as a password. READER_EMAILS, a secret,
+# limits who may have a pass: addresses and @domains, comma-separated.
+#
 # The token the reader pastes into Settings → Paper proxy. This Worker's
 # address is in the site's JavaScript for anyone to read, and an Origin
 # header is a browser's courtesy, not a credential — so what drives the
@@ -40,6 +46,17 @@ new_sqlite_classes = ["BrowserSession"]
 # How many files a minute one address may ask /pdf for without the token.
 # Rate limiting is on every plan; the namespace id is any number unique
 # within this account.
+# Anyone signed in with Google may use Scholar and the browser inside the
+# reader, on this Worker's accounts (see server/passes.js): the app swaps the
+# Google sign-in for a thirty-day pass signed with READER_TOKEN. This is how
+# many Scholar asks a minute one signed-in person may make — far above what
+# searching by hand comes to, and a stop on a script. The owner, with
+# READER_TOKEN itself, is not limited.
+[[ratelimits]]
+name = "PERSON_LIMIT"
+namespace_id = "1002"
+simple = { limit = 30, period = 60 }
+
 [[ratelimits]]
 name = "PDF_LIMIT"
 namespace_id = "1001"
@@ -71,6 +88,10 @@ simple = { limit = 60, period = 60 }
 # and the default; a paid plan allows more, and the last line raises it.
 #
 [vars]
+# The app's Google OAuth client ID — public, it is in the site's JavaScript.
+# A Google sign-in is only taken for a pass when Google says it was made for
+# this client; a sign-in some other site obtained is not one to this app.
+GOOGLE_CLIENT_ID = "308274983351-s52d0ustml5bneg91ju6of40tmitnaoa.apps.googleusercontent.com"
 # BROWSERLESS_URL = "wss://production-sfo.browserless.io"   # or -lon, -ams
 BROWSERLESS_PROXY = "residential"
 BROWSERLESS_COUNTRY = "us"

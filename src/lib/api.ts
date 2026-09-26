@@ -120,6 +120,54 @@ export function apiFetch(path: string, init: RequestInit = {}): Promise<Response
   return fetch(api(path), { ...init, headers: apiHeaders(init.headers) });
 }
 
+/**
+ * A pass from the proxy, in place of a pasted token, for anyone signed in
+ * with Google: the proxy asks Google whose sign-in it is, and answers with a
+ * pass of its own, good for thirty days (see server/passes.js). The Google
+ * token goes to this app's own proxy only — the one compiled in, or one on
+ * this machine — never to an address typed into Settings, which could be
+ * anyone's.
+ */
+export function mayAskForPass(): boolean {
+  const base = apiBase();
+  if (!base) return false;
+  if (base === BUILT_IN_BASE || base.startsWith('/')) return true;
+  try {
+    return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(new URL(base).hostname);
+  } catch {
+    return false;
+  }
+}
+
+const PASS_PREFIX = 'rp1.';
+
+/** Whether a token is a proxy pass rather than one pasted by hand. */
+export const isPass = (value: string) => value.startsWith(PASS_PREFIX);
+
+/** When a pass runs out, from the part of it that is only signed, not secret; 0 when unreadable. */
+export function passExpires(value: string): number {
+  if (!isPass(value)) return 0;
+  try {
+    const payload = value.slice(PASS_PREFIX.length).split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(atob(payload + '='.repeat((4 - (payload.length % 4)) % 4))) as { x?: number };
+    return typeof claims.x === 'number' ? claims.x * 1000 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** A Google sign-in, swapped for a proxy pass. Null when the proxy does not take them. */
+export async function passForGoogle(googleToken: string): Promise<string | null> {
+  if (!mayAskForPass()) return null;
+  const response = await fetch(api('/auth/google'), {
+    method: 'POST',
+    headers: { 'X-Google-Token': googleToken, 'X-Reader-Client': clientId() },
+  });
+  if (!response.ok) return null;
+  const payload = (await response.json().catch(() => ({}))) as { pass?: string };
+  return payload.pass && isPass(payload.pass) ? payload.pass : null;
+}
+
 /** The proxy in use, or null when this deployment has none. */
 export function apiBase(): string | null {
   return override ?? BUILT_IN_BASE;

@@ -17,7 +17,7 @@ import { ROOT_FOLDER, driveFolderUrl, isInDrive, junkPaperInDrive, restorePaperI
 import { FINISHED_AT, type ReadingStatus } from './status';
 import { pathFor, syncPapersToGitHub, targetFrom } from './github';
 import { setContactEmail } from './contact';
-import { setProxyBase, setProxyToken } from './api';
+import { isPass, passExpires, passForGoogle, setProxyBase, setProxyToken } from './api';
 import * as google from './google';
 
 const SETTINGS_KEY = 'reader.settings';
@@ -307,6 +307,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setProxyBase(settings.proxyBase);
     setProxyToken(settings.proxyToken);
   }, [settings]);
+
+  // Signed in with Google, the proxy is asked for a pass in place of a pasted
+  // token — nobody pastes anything. A pass nearing its end is renewed; a
+  // token pasted by hand is never replaced. See passForGoogle in api.ts.
+  useEffect(() => {
+    if (!user) return;
+    const current = settings.proxyToken.trim();
+    if (current && !isPass(current)) return;
+    if (current && passExpires(current) - Date.now() > 7 * 86_400_000) return;
+    const googleToken = google.liveAccessToken();
+    if (!googleToken) return;
+    let cancelled = false;
+    void passForGoogle(googleToken)
+      .then((pass) => {
+        if (!cancelled && pass) setSettings((latestSettings) => ({ ...latestSettings, proxyToken: pass }));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [user, settings.proxyToken, settings.proxyBase]);
 
   const githubConnected = Boolean(targetFrom(settings));
 
@@ -904,6 +925,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(() => {
     google.signOut();
     setUser(null);
+    // The proxy pass was this sign-in's; it goes with it. A pasted token stays.
+    setSettings((current) => (isPass(current.proxyToken.trim()) ? { ...current, proxyToken: '' } : current));
     setDriveConnected(false);
     localStorage.removeItem(DRIVE_KEY);
     setDriveRemembered(false);
