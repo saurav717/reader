@@ -526,6 +526,8 @@ export interface ScholarProfile extends AuthorRef {
   homepage?: string;
   citedBySince?: number;
   i10Index?: number;
+  /** How many papers the counts were added up from, where they were (see ScholarPerson). */
+  counted?: number;
   works: PaperRef[];
 }
 
@@ -563,6 +565,7 @@ async function opened(ref: AuthorRef): Promise<ScholarProfile> {
     citedBySince: person.citedBySince,
     hIndex: person.hIndex,
     i10Index: person.i10Index,
+    counted: person.counted,
     works: person.works.map(fromScholar),
   };
 }

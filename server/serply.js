@@ -24,7 +24,8 @@
  * - a person: who they are from Google's profile page, and their most
  *   cited works as above. The h-index and i10-index are printed nowhere
  *   but the profile page itself, which Scholar refuses Serply, so they are
- *   left out rather than guessed.
+ *   counted from Scholar's own count for each paper found (`countsOf`),
+ *   and marked with how many papers that was.
  * - an entry opened: not answerable — there is no title to search by, only
  *   an id. It is refused as Serply's, and the app then finds the paper by
  *   its title, which is what it does whenever that page is refused.
@@ -370,14 +371,47 @@ async function getJson(url, key, { fetchImpl, signal }) {
  * when it is known, and for the id itself when it is not. Undefined when
  * Google shows neither.
  */
-async function profileOf(userId, name, key, options) {
+async function profileOf(userId, name, key, options, { thorough = false } = {}) {
   const queries = name ? [profilesQuery(name), `"${userId}" site:scholar.google.com`] : [`"${userId}" site:scholar.google.com`];
+  let found;
   for (const query of queries) {
-    const found = fromSerplyProfiles(await getJson(serplySearchUrl(query), key, options)).find((person) => person.userId === userId);
-    if (found) return found;
+    const here = fromSerplyProfiles(await getJson(serplySearchUrl(query), key, options)).find((person) => person.userId === userId);
+    if (!here) continue;
+    if (!found) found = here;
+    else {
+      // A second snippet of the same page, for what the first did not show.
+      found.affiliation = found.affiliation || here.affiliation;
+      found.verifiedEmail = found.verifiedEmail || here.verifiedEmail;
+      found.citedBy = found.citedBy ?? here.citedBy;
+      if (!found.interests.length) found.interests = here.interests;
+      found.snippet = [found.snippet, here.snippet].filter(Boolean).join(' | ');
+    }
+    // For a hover card, the page's other snippet is asked for too — one more
+    // credit — when the first leaves out where they are or their citations.
+    if (!thorough || (found.affiliation && found.citedBy !== undefined)) break;
   }
-  return undefined;
+  return found;
 }
+
+/**
+ * A person's counts, added up from Scholar's own count for each of their
+ * papers — which is how Scholar reckons them on the profile page Serply
+ * cannot open. Taken over the papers Scholar's search found, so for a long
+ * career they are a floor: `counted` says how many papers they cover.
+ */
+export function countsOf(works) {
+  const cited = works.map((work) => work.citedBy || 0).sort((a, b) => b - a);
+  if (!cited.length) return {};
+  return {
+    citedBy: cited.reduce((sum, count) => sum + count, 0),
+    hIndex: cited.filter((count, index) => count >= index + 1).length,
+    i10Index: cited.filter((count) => count >= 10).length,
+    counted: cited.length,
+  };
+}
+
+/** Scholar's result pages read for a person's hover card: up to sixty papers, three credits. */
+const PERSON_PAGES = 3;
 
 /**
  * How many of Scholar's result pages stand for one page of a profile. A
@@ -451,20 +485,26 @@ export async function askSerplyScholar(kind, params, key, { fetchImpl = (...args
     }
 
     case 'person': {
-      const profile = await profileOf(params.user, params.name, key, options);
+      const profile = await profileOf(params.user, params.name, key, options, { thorough: true });
       const name = profile?.name || params.name;
       if (!name) throw notFound(params.user);
-      // A hover card's handful of most cited works: one results page is plenty.
-      const works = await worksFor(params.user, name, { sort: 'citations', pages: 1 }, key, options);
+      // Their papers, most cited first, each with Scholar's own count: the
+      // counts the profile page prints are added up from these.
+      const works = await worksFor(params.user, name, { sort: 'citations', pages: PERSON_PAGES }, key, options);
       if (profile) await readWhere([Object.assign(profile, { works })], readProfiles);
+      const counts = countsOf(works);
       return [
         {
           ...withoutSnippet(profile || { userId: params.user, name, profileUrl: profileLink(params.user), interests: [] }),
           homepage: undefined,
           citedBySince: undefined,
-          // Printed on the profile page alone, which Scholar does not give Serply.
-          hIndex: undefined,
-          i10Index: undefined,
+          // The total Google shows of the profile is the profile's own; the
+          // sum of the papers found is the floor of it.
+          citedBy: profile?.citedBy ?? counts.citedBy,
+          hIndex: counts.hIndex,
+          i10Index: counts.i10Index,
+          // How many papers the h-index and i10-index were counted over.
+          counted: counts.counted,
           works,
         },
       ];
