@@ -29,7 +29,7 @@ import {
   workUrl,
 } from '../server/scholar.js';
 import { askServices, servicesLabel } from '../server/scholarServices.js';
-import { emailAllowed, googleEmail, issuePass, readPass } from '../server/passes.js';
+import { captchaPassed, emailAllowed, googleEmail, issuePass, readPass } from '../server/passes.js';
 import { aiCounts } from './usage.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
@@ -56,7 +56,7 @@ function cors(origin) {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     // The browser session's input arrives as JSON; the app's token and its
     // client id come as headers (see `authorized` and `clientOf` below).
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client, X-Google-Token',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client, X-Google-Token, X-Captcha-Token',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -181,6 +181,29 @@ async function overLimit(env, request) {
 }
 
 /**
+ * How many Google sign-ins a minute one address may try (LOGIN_LIMIT in
+ * wrangler.toml, five). Asked before anything else is done with a sign-in —
+ * before Google or Turnstile is asked — so a script hammering /auth/google
+ * costs one counter and nothing more. Without the binding, nobody is held.
+ */
+async function loginOverLimit(env, request) {
+  if (!env.LOGIN_LIMIT) return false;
+  try {
+    const { success } = await env.LOGIN_LIMIT.limit({ key: addressOf(request) });
+    return !success;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether sign-ins must come with a Turnstile answer: when the Worker has
+ * both halves of a Turnstile widget, the public site key (a var, which
+ * /health hands the app so it can draw the widget) and the secret.
+ */
+const captchaSiteKey = (env) => (String(env.TURNSTILE_SITE_KEY || '').trim() && String(env.TURNSTILE_SECRET || '').trim() ? String(env.TURNSTILE_SITE_KEY).trim() : null);
+
+/**
  * The one session object, which holds the browser. It lives where its
  * first request came from, which is near the person and, when the browser
  * is at Browserless, far from the browser — and every frame and every
@@ -220,7 +243,7 @@ export default {
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), browse: browse.availability(env).available, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), captcha: captchaSiteKey(env), browse: browse.availability(env).available, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
           200,
           headers,
         );
@@ -235,8 +258,24 @@ export default {
         if (!secret || !env.GOOGLE_CLIENT_ID) {
           return json({ error: 'this Worker does not take Google sign-ins: it needs READER_TOKEN and GOOGLE_CLIENT_ID — see wrangler.toml' }, 501, headers);
         }
+        // A few tries a minute from one address, then a wait: a person signs
+        // in once, a bot over and over.
+        if (await loginOverLimit(env, request)) {
+          return json({ error: 'too many sign-ins from this address; wait a minute and try again', limited: true }, 429, { ...headers, 'Retry-After': '60' });
+        }
+        // Renewing a pass that is still good needs no captcha — it happens
+        // quietly, with no widget on the screen, and the pass already says a
+        // person solved one. Anything else does, when the Worker has Turnstile.
+        const held = await readPass((request.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '').trim(), secret);
+        const siteKey = captchaSiteKey(env);
+        if (siteKey && !held && !(await captchaPassed(request.headers.get('X-Captcha-Token') || '', String(env.TURNSTILE_SECRET).trim(), addressOf(request)))) {
+          return json({ error: 'the check that you are a person did not pass; tick it again, then sign in', captcha: siteKey }, 403, headers);
+        }
         const email = await googleEmail(request.headers.get('X-Google-Token') || '', env.GOOGLE_CLIENT_ID);
         if (!email) return json({ error: 'Google did not vouch for that sign-in; sign in again' }, 401, headers);
+        if (siteKey && held && held.email !== email) {
+          return json({ error: 'the check that you are a person did not pass; tick it again, then sign in', captcha: siteKey }, 403, headers);
+        }
         // Anyone signed in, unless the owner has named who in READER_EMAILS.
         if (!emailAllowed(email, env.READER_EMAILS)) {
           return json({ error: `${email} is not on this proxy's list; ask whoever runs it to add you` }, 403, headers);

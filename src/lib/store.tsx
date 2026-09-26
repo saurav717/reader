@@ -17,7 +17,7 @@ import { ROOT_FOLDER, driveFolderUrl, isInDrive, junkPaperInDrive, restorePaperI
 import { FINISHED_AT, type ReadingStatus } from './status';
 import { pathFor, syncPapersToGitHub, targetFrom } from './github';
 import { setContactEmail } from './contact';
-import { isPass, passExpires, passForGoogle, setProxyBase, setProxyToken } from './api';
+import { isPass, passExpires, passForGoogle, setProxyBase, setProxyToken, SignInRefused } from './api';
 import * as google from './google';
 
 const SETTINGS_KEY = 'reader.settings';
@@ -319,11 +319,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const googleToken = google.liveAccessToken();
     if (!googleToken) return;
     let cancelled = false;
-    void passForGoogle(googleToken)
+    void passForGoogle(googleToken, current || undefined)
       .then((pass) => {
         if (!cancelled && pass) setSettings((latestSettings) => ({ ...latestSettings, proxyToken: pass }));
       })
-      .catch(() => undefined);
+      .catch((error) => {
+        // The proxy turned the sign-in away — too many from this address, or
+        // the captcha unsolved — so it is not a sign-in: back to the sign-in
+        // screen, saying why. Drive's grant is kept, so trying again is one click.
+        if (cancelled || !(error instanceof SignInRefused)) return;
+        google.dropSignIn();
+        setUser(null);
+        setDriveConnected(false);
+        setAuthError(error.message);
+      });
     return () => {
       cancelled = true;
     };

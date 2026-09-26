@@ -1,7 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
-import { hasProxy } from '../lib/api';
-import { prepare as prepareGoogle } from '../lib/google';
+import { captchaSiteKey, hasProxy, setCaptchaAnswer } from '../lib/api';
+import { prepare as prepareGoogle, SIGN_IN_REQUIRED } from '../lib/google';
 import { CheckIcon, CloudCheckIcon, GoogleMark, HighlighterIcon, SearchIcon } from './icons';
 
 export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () => void; onOpenSettings: () => void }) {
@@ -9,6 +9,26 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
   const configured = Boolean(settings.googleClientId);
   // A visit that has connected before is reconnecting, not being introduced.
   const returning = driveRemembered && !driveConnected;
+  // On the site, signing in with Google is the one way in: no "Not now"
+  // until there is someone signed in. See SIGN_IN_REQUIRED.
+  const mustSignIn = SIGN_IN_REQUIRED && configured && !user;
+
+  // The proxy's captcha, when it wants one (see TURNSTILE_SITE_KEY in
+  // wrangler.toml): the sign-in button waits until it is solved.
+  const [siteKey, setSiteKey] = useState<string | null>(null);
+  const [solved, setSolved] = useState(false);
+  const signingIn = configured && !user;
+  useEffect(() => {
+    if (!signingIn) return;
+    let live = true;
+    void captchaSiteKey().then((key) => {
+      if (live) setSiteKey(key);
+    });
+    return () => {
+      live = false;
+    };
+  }, [signingIn]);
+  const waitingOnCaptcha = signingIn && Boolean(siteKey) && !solved;
 
   // The script Google's popup needs, fetched while this page is being read
   // rather than inside the click — a popup opened after an awaited download
@@ -69,6 +89,8 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
           </p>
         ) : null}
 
+        {signingIn && siteKey ? <Captcha siteKey={siteKey} onSolved={setSolved} /> : null}
+
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           {!driveConnected ? (
             // Identity and Drive are asked for together: signing in on its own
@@ -76,7 +98,8 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
             <button
               type="button"
               className="btn primary"
-              disabled={!configured}
+              disabled={!configured || waitingOnCaptcha}
+              title={waitingOnCaptcha ? 'Tick the box above first' : undefined}
               onClick={() => void connectDrive()}
               style={{ height: 42, padding: '0 16px', fontSize: 14 }}
             >
@@ -89,9 +112,11 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
             </span>
           )}
 
-          <button type="button" className="btn ghost" onClick={onDismiss} style={{ height: 42, fontSize: 14 }}>
-            {driveConnected ? 'Start reading' : 'Not now — keep everything in this browser'}
-          </button>
+          {mustSignIn ? null : (
+            <button type="button" className="btn ghost" onClick={onDismiss} style={{ height: 42, fontSize: 14 }}>
+              {driveConnected ? 'Start reading' : 'Not now — keep everything in this browser'}
+            </button>
+          )}
         </div>
 
         {configured && !driveConnected && !hasProxy() ? (
@@ -107,11 +132,89 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
 
         <p style={{ margin: '20px 0 0', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.6 }}>
           One consent covers both: your name and address, and the <code>drive.file</code> scope — which reaches
-          only the files this app creates, never the rest of your Drive. It is still optional; without it the app
-          works the same, with your library and highlights in this browser's storage alone, and this screen will
-          ask again next time. Nothing is ever sent anywhere else.
+          only the files this app creates, never the rest of your Drive.{' '}
+          {mustSignIn
+            ? 'Signing in with Google is the way in; once you are in, Drive can wait for later.'
+            : "Drive is still optional; without it the app works the same, with your library and highlights in this browser's storage alone, and this screen will ask again next time."}{' '}
+          Nothing is ever sent anywhere else.
         </p>
       </div>
+    </div>
+  );
+}
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (element: HTMLElement, options: Record<string, unknown>) => string;
+      remove: (id: string) => void;
+    };
+  }
+}
+
+const TURNSTILE_SCRIPT = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+let turnstileLoading: Promise<void> | null = null;
+
+function loadTurnstile(): Promise<void> {
+  if (window.turnstile) return Promise.resolve();
+  turnstileLoading ??= new Promise<void>((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = TURNSTILE_SCRIPT;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => {
+      turnstileLoading = null;
+      reject(new Error('The captcha could not load.'));
+    };
+    document.head.appendChild(script);
+  });
+  return turnstileLoading;
+}
+
+/**
+ * Cloudflare Turnstile's box — the check that whoever signs in is a person.
+ * Its answer goes to the proxy with the sign-in (setCaptchaAnswer) and is
+ * checked there; this only draws it and says when it has an answer.
+ */
+function Captcha({ siteKey, onSolved }: { siteKey: string; onSolved: (solved: boolean) => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  useEffect(() => {
+    let widget: string | null = null;
+    let live = true;
+    const answered = (answer: string | null) => {
+      setCaptchaAnswer(answer);
+      onSolved(Boolean(answer));
+    };
+    // A fresh box is an unticked one, whatever an earlier box said.
+    onSolved(false);
+    loadTurnstile()
+      .then(() => {
+        if (!live || !box.current || !window.turnstile) return;
+        widget = window.turnstile.render(box.current, {
+          sitekey: siteKey,
+          theme: document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
+          callback: (answer: string) => answered(answer),
+          'expired-callback': () => answered(null),
+          'error-callback': () => answered(null),
+        });
+      })
+      .catch((error: Error) => {
+        if (live) setProblem(error.message);
+      });
+    // The answer outlives the box: the box goes the moment the sign-in lands,
+    // and the answer is what that sign-in then hands the proxy.
+    return () => {
+      live = false;
+      if (widget && window.turnstile) window.turnstile.remove(widget);
+    };
+  }, [siteKey, onSolved]);
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div ref={box} />
+      {problem ? <p className="banner error">{problem} Reload the page to try again.</p> : null}
     </div>
   );
 }
