@@ -1,36 +1,33 @@
 /**
  * Google Scholar through Serply, for a proxy that has a key.
  *
- * Serply (serply.io) has a Scholar search endpoint, but only that: no
- * profiles, no entry of a profile opened, no cluster. What it also has is a
- * page fetch — `POST /v1/request` with a URL — which fetches any page on its
- * own machines and hands back the HTML. Scholar's pages asked for that way
- * are the same pages the proxy would have asked for directly, so they are
- * read by the same parsers in `server/scholar.js`, and every Scholar route
- * works through it: a search, the profile search, a profile's works, a
- * person, one of their works opened, and a paper's versions. The profile
- * search in particular is one SerpApi no longer offers, so a person is found
- * here in one request, with their affiliation and verified email, rather
- * than in the four SerpApi takes.
+ * Two of Serply's endpoints are used, because each gets through where the
+ * other does not:
+ *
+ * - Its Scholar endpoint (`GET /v1/scholar`) answers JSON for a search
+ *   results page, and Scholar answers it: a search, a search for a person's
+ *   papers (which is how people are found — every byline names the authors
+ *   with a profile, and their ids), and a paper's versions. Those three go
+ *   there, mapped onto the shapes the direct parsers produce.
+ * - Its page fetch (`POST /v1/request`) fetches any page on Serply's
+ *   machines. Scholar mostly answers those with its 403 "Sorry…" page, so it
+ *   is only the last resort for the pages the Scholar endpoint cannot give —
+ *   a profile, a person, an entry opened — when there is no SerpApi key to
+ *   ask instead.
  *
  * Opt-in, like SerpApi: set `SERPLY_KEY` on the proxy (an environment
- * variable for `npm start`, a secret for the Worker). With both keys set,
- * Serply is asked first and SerpApi is what a Serply refusal falls back to.
- * One credit per page actually fetched; the five-minute cache in
- * `getScholar` applies, so a page already fetched costs nothing more.
+ * variable for `npm start`, a secret for the Worker). With a SerpApi key as
+ * well, SerpApi takes the profile pages and whatever Serply refuses. One
+ * credit per request; answers are cached for five minutes.
  *
  * The key stays on the proxy. It goes only in the header of the request to
  * Serply — never in the page, never in an answer, never in a cache key.
  *
- * Scholar may still refuse whichever of Serply's machines asked. That is
- * told apart from a direct refusal: there is no captcha a person here could
- * solve for Serply's machine, so it is reported as Serply's, not as a
- * captcha to open in a window.
- *
  * Written against web APIs only (fetch, URL, JSON), so the Worker in
  * `worker/index.js` can import it exactly as `server/api.js` does.
  */
-import { getScholar, isScholarUrl } from './scholar.js';
+import { getScholar, isScholarUrl, parseByline, SCHOLAR_HOST } from './scholar.js';
+import { nameCouldBe } from './serpapi.js';
 
 export const SERPLY_HOST = 'https://api.serply.io';
 
@@ -162,4 +159,168 @@ export async function askSerply(url, parse, key, { fetchImpl, signal } = {}) {
     }
     throw error;
   }
+}
+
+// ------------------------------------------------ the Scholar endpoint ----
+
+/** The asks Serply's Scholar endpoint can answer: results pages, all of them. */
+export const SERPLY_KINDS = new Set(['search', 'authors', 'versions']);
+
+/** The request for each, with the key left for the header. */
+export function serplyScholarUrl(kind, params) {
+  const query = new URLSearchParams({ hl: 'en' });
+  switch (kind) {
+    case 'search':
+      query.set('q', params.query);
+      query.set('num', '10');
+      if (params.start) query.set('start', String(params.start));
+      break;
+    case 'authors':
+      // A search for the person's papers: each byline names the authors who
+      // have a profile, with their ids — what the profile search gave.
+      query.set('q', `author:"${params.name}"`);
+      query.set('num', '20');
+      break;
+    case 'versions':
+      // Scholar's own parameter, passed through as the endpoint passes the rest.
+      query.set('q', '');
+      query.set('cluster', params.cluster);
+      query.set('num', '20');
+      break;
+    default:
+      throw new Error(`no Serply Scholar request for ${kind}`);
+  }
+  return `${SERPLY_HOST}/v1/scholar?${query}`;
+}
+
+const str = (value) => (typeof value === 'string' ? value.trim() : '');
+const list = (value) => (Array.isArray(value) ? value : []);
+const count = (value) => {
+  const parsed = Number(String(value ?? '').replace(/[^\d]/g, ''));
+  return parsed > 0 ? parsed : undefined;
+};
+const absolute = (href) => (href && href.startsWith('/') ? `${SCHOLAR_HOST}${href}` : href || undefined);
+const userOf = (link) => (str(link).match(/[?&]user=([\w-]+)/) || [])[1];
+const clusterOf = (link) => (str(link).match(/[?&]cluster=(\d+)/) || [])[1];
+const hostOf = (link) => {
+  try {
+    return new URL(link).hostname.replace(/^www\./, '');
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * One page of Serply's Scholar results, as `parseResults` would have read
+ * the page: `articles[]`, each with `doc` (the file beside it), `author`
+ * (the byline, and the authors with a profile), and `extras` (cited by, and
+ * the versions with the cluster in their link).
+ */
+export function fromSerplyResults(json) {
+  return list(json?.articles)
+    .map((entry) => {
+      const byline = parseByline(str(entry?.author?.names) || str(entry?.description));
+      const profiled = list(entry?.author?.authors);
+      const file = /^https?:/i.test(str(entry?.doc?.link)) ? str(entry.doc.link) : '';
+      const versions = entry?.extras?.versions || {};
+      return {
+        id: str(entry?.id) || undefined,
+        title: str(entry?.title).replace(/^\[(?:PDF|HTML|BOOK|B|CITATION|C)\]\s*/i, ''),
+        url: absolute(str(entry?.link)),
+        pdfUrl: file || undefined,
+        pdfKind: file ? str(entry?.doc?.type).toUpperCase() || undefined : undefined,
+        pdfHost: file ? hostOf(file) : undefined,
+        authors: byline.authors.length ? byline.authors : profiled.map((author) => str(author?.name)).filter(Boolean),
+        authorIds: profiled
+          .map((author) => ({ name: str(author?.name), userId: userOf(author?.link) }))
+          .filter((author) => author.name && author.userId),
+        venue: byline.venue,
+        year: byline.year,
+        snippet: str(entry?.snippet) || str(entry?.abstract) || '',
+        citedBy: count(entry?.extras?.citations?.count),
+        clusterId: clusterOf(versions.link),
+        versionCount: count(versions.count),
+      };
+    })
+    .filter((result) => result.title);
+}
+
+/**
+ * The people a search for a name's papers turns up: every author in a
+ * byline with a profile whose name could be the one asked for, once each,
+ * most often seen first. No affiliation or email — those are on the
+ * profile, which this endpoint does not give.
+ */
+export function fromSerplyAuthors(json, name) {
+  const seen = new Map();
+  for (const entry of list(json?.articles)) {
+    for (const author of list(entry?.author?.authors)) {
+      const userId = userOf(author?.link);
+      if (!userId || !nameCouldBe(author?.name, name)) continue;
+      const found = seen.get(userId);
+      if (found) found.worksSeen += 1;
+      else {
+        seen.set(userId, {
+          userId,
+          name: str(author?.name),
+          profileUrl: `${SCHOLAR_HOST}/citations?hl=en&user=${encodeURIComponent(userId)}`,
+          affiliation: undefined,
+          verifiedEmail: undefined,
+          interests: [],
+          citedBy: undefined,
+          worksSeen: 1,
+        });
+      }
+    }
+  }
+  return Array.from(seen.values())
+    .sort((a, b) => b.worksSeen - a.worksSeen)
+    .map(({ worksSeen, ...person }) => person);
+}
+
+const CACHE_MS = 5 * 60 * 1000;
+const CACHE_MAX = 60;
+const cache = new Map();
+
+export function forgetSerply() {
+  cache.clear();
+}
+
+/**
+ * One ask of Serply's Scholar endpoint, mapped. `fetchImpl` is how the
+ * request is made, so a test can hand in saved answers. A 502 is tried once
+ * more, as for the page fetch.
+ */
+export async function askSerplyScholar(kind, params, key, { fetchImpl = (...args) => fetch(...args), signal } = {}) {
+  const url = serplyScholarUrl(kind, params);
+  const hit = cache.get(url);
+  let json = hit && Date.now() - hit.at < CACHE_MS ? hit.json : undefined;
+  if (!json) {
+    let problem;
+    for (let attempt = 0; attempt < 2 && !json; attempt += 1) {
+      const response = await fetchImpl(url, {
+        signal,
+        headers: {
+          'X-Api-Key': key,
+          Accept: 'application/json',
+          'User-Agent': 'reader-proxy/1.0',
+          'X-Proxy-Location': PROXY_LOCATION,
+        },
+      });
+      const text = await response.text();
+      problem = serplyProblem(response.status, text);
+      if (!problem) {
+        try {
+          json = JSON.parse(text);
+        } catch {
+          problem = { reason: 'serply', message: 'Serply answered with something that was not JSON' };
+          break;
+        }
+      } else if (problem.reason !== 'upstream') break;
+    }
+    if (!json) throw new SerplyFailed(problem);
+    cache.set(url, { json, at: Date.now() });
+    while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+  }
+  return kind === 'authors' ? fromSerplyAuthors(json, params.name) : fromSerplyResults(json);
 }

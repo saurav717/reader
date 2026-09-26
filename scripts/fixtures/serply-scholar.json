@@ -1,0 +1,65 @@
+{
+  "articles": [
+    {
+      "doc": {
+        "link": "https://proceedings.neurips.cc/paper_files/paper/2017/file/3f5ee243547dee91fbd053c1c4a845aa-Paper.pdf?src_trk=em66c5166b7bad47.12959706424423622",
+        "type": "PDF"
+      },
+      "title": "Attention is all you need",
+      "link": "https://proceedings.neurips.cc/paper_files/paper/7181-attention-is",
+      "id": "5Gohgn6QFikJ",
+      "cite": "https://scholar.google.com/scholar?q=info:5Gohgn6QFikJ:scholar.google.com/&output=cite&hl=en",
+      "author": {
+        "names": "A Vaswani, N Shazeer, N Parmar… - Advances in neural …, 2017 - proceedings.neurips.cc",
+        "authors": [
+          { "name": "A Vaswani", "link": "https://scholar.google.com/citations?user=oR9sCGYAAAAJ&hl=en&oi=sra" },
+          { "name": "N Shazeer", "link": "https://scholar.google.com/citations?user=wsGvgA8AAAAJ&hl=en&oi=sra" },
+          { "name": "N Parmar", "link": "https://scholar.google.com/citations?user=q2YXPSgAAAAJ&hl=en&oi=sra" }
+        ]
+      },
+      "description": "A Vaswani, N Shazeer, N Parmar… - Advances in neural …, 2017 - proceedings.neurips.cc",
+      "extras": {
+        "citations": {
+          "count": "Cited by 271700",
+          "link": "https://scholar.google.com/scholar?cites=2960712678066186980&as_sdt=5,38&sciodt=0,38&hl=en"
+        },
+        "related": {
+          "link": "https://scholar.google.com/scholar?q=related:5Gohgn6QFikJ:scholar.google.com/&scioq=attention+is+all+you+need&hl=en&as_sdt=0,38"
+        },
+        "versions": {
+          "count": "All 26 versions",
+          "link": "https://scholar.google.com/scholar?cluster=2960712678066186980&hl=en&as_sdt=0,38"
+        }
+      }
+    },
+    {
+      "title": "[HTML] Tensor2tensor for neural machine translation",
+      "link": "https://arxiv.org/abs/1803.07416",
+      "id": "abcDEF123456",
+      "author": {
+        "names": "A Vaswani, S Bengio, E Brevdo, F Chollet… - arXiv preprint arXiv …, 2018 - arxiv.org",
+        "authors": [
+          { "name": "A Vaswani", "link": "https://scholar.google.com/citations?user=oR9sCGYAAAAJ&hl=en&oi=sra" },
+          { "name": "S Bengio", "link": "https://scholar.google.com/citations?user=Vs-MdPcAAAAJ&hl=en&oi=sra" }
+        ]
+      },
+      "description": "A Vaswani, S Bengio, E Brevdo, F Chollet… - arXiv preprint arXiv …, 2018 - arxiv.org",
+      "extras": {
+        "citations": { "count": "Cited by 900" },
+        "versions": { "count": "All 7 versions", "link": "https://scholar.google.com/scholar?cluster=1111111111111111111&hl=en" }
+      }
+    }
+  ],
+  "ads": [],
+  "ads_count": 0,
+  "answers": [],
+  "results": [],
+  "shopping_ads": [],
+  "places": [],
+  "related_searches": {},
+  "image_results": [],
+  "ts": 1.2,
+  "device_region": "US",
+  "device_type": "desktop",
+  "query": "q=attention+is+all+you+need&num=10"
+}

@@ -319,32 +319,36 @@ mapping to saved answers in their documented shape.
 
 #### Through Serply instead
 
-[Serply](https://serply.io) is the cheaper way to the same thing. Its Scholar
-endpoint only searches — it has no profiles, no single entry opened and no
-clusters — so the proxy does not use it. It uses Serply's page fetch
-(`POST /v1/request`) instead: Serply fetches Scholar's own page on its machines
-and hands back the HTML, which the proxy reads with the same parsers as a page
-it fetched directly (`server/serply.js`). So every Scholar route works through
-it — a search, the profile search, a profile's works, a person, one of their
-works opened, a paper's versions — and a person is found in one request, with
-their affiliation and verified email, where SerpApi takes up to four. One credit
-per page fetched; the five-minute cache applies.
+[Serply](https://serply.io) is the cheaper way to the same thing, with a free
+allowance of 2,500 credits a month. Its Scholar endpoint (`GET /v1/scholar`)
+answers JSON for a results page, and Scholar answers it, so every results page
+goes there (`server/serply.js`): a search, people (found, as with SerpApi, in the
+bylines of a search for their papers — every author with a profile, and their
+id), and a paper's versions. Each result keeps what the reader uses: the file
+beside it, the byline, the authors' profiles, the citation count and the cluster.
+
+That endpoint gives no profile and no single entry opened. Those go to SerpApi
+when it has a key too — so the two together cover everything, with Serply taking
+the searches, which are most of the traffic. Without a SerpApi key they go to
+Serply's page fetch, which fetches Scholar's page on Serply's machines; Scholar
+mostly answers that with its 403 "Sorry…" page, so expect a person's profile to
+be refused then.
 
 ```bash
 SERPLY_KEY=… npm start                         # the Node proxy
 npx --yes wrangler@4 secret put SERPLY_KEY     # the Worker, then redeploy it
 ```
 
-`/health` then says `"scholar": "serply"`. With both keys set, Serply is asked
-first and SerpApi only when Serply refuses — a bad key, a spent allowance, or
-Scholar showing Serply's machine a captcha. Such a refusal is reported as
-Serply's, not as a captcha to open in a window here, since a captcha solved on
-this machine would not help Serply's. The key never leaves the proxy; it goes
-only in the header of the request to Serply.
+`/health` then says `"scholar": "serply"`. Whatever Serply refuses — a bad key, a
+spent allowance — SerpApi is asked instead where there is its key. A refusal is
+reported as Serply's, not as a captcha to open in a window here. The key never
+leaves the proxy; it goes only in the header of the request to Serply. One
+credit per request, and the five-minute cache applies.
 
-`SERPLY_KEY=… node scripts/scholar-live.mjs` fetches the real pages through
-Serply and says whether they parsed — the check to run once with a new key;
-`scripts/serply.test.mjs` pins the rest against the saved Scholar pages.
+`SERPLY_KEY=… node scripts/scholar-live.mjs` asks Serply for real and says
+whether each answer was read — the check to run once with a new key;
+`scripts/serply.test.mjs` pins the mapping to a saved answer
+(`scripts/fixtures/serply-scholar.json`).
 
 ### Getting a paper from a terminal
 
@@ -2431,7 +2435,7 @@ server/scholar.js       Scholar's pages, fetched and parsed; also the politeness
 server/scholarBrowser.js  the same, through a real Chromium (SCHOLAR_BROWSER=1), and
                         the window a captcha is shown in
 server/serpapi.js       Scholar through SerpApi instead, when SERPAPI_KEY is set
-server/serply.js        Scholar's pages fetched through Serply, when SERPLY_KEY is set
+server/serply.js        Scholar through Serply instead, when SERPLY_KEY is set
 src/lib/google.ts       Google Identity Services + Drive REST
 src/lib/driveSync.ts    what a synced paper looks like in Drive
 src/lib/store.tsx       app state, IndexedDB persistence, the sync queue

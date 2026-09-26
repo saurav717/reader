@@ -29,7 +29,7 @@ import {
   workUrl,
 } from '../server/scholar.js';
 import { askSerp } from '../server/serpapi.js';
-import { askSerply } from '../server/serply.js';
+import { askSerply, askSerplyScholar, SERPLY_KINDS } from '../server/serply.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
 
@@ -430,14 +430,43 @@ export default {
               : path === '/scholar/work'
                 ? parseCitationView
                 : parseResults;
+        const kind = path.replace('/scholar/', '');
+        const query = (url.searchParams.get('q') || '').trim();
+        const name = (url.searchParams.get('name') || '').trim();
+        const user = (url.searchParams.get('user') || '').trim();
+        const cluster = (url.searchParams.get('cluster') || '').trim();
+        const citation = (url.searchParams.get('citation') || '').trim();
+        const start = Math.max(0, Number(url.searchParams.get('start')) || 0);
+        const sort = profileSort(url.searchParams.get('sort'));
+        const params =
+          kind === 'search'
+            ? query && { query, start: Math.min(90, start) }
+            : kind === 'authors'
+              ? name && { name }
+              : kind === 'profile'
+                ? /^[\w-]{6,32}$/.test(user) && { user, start, sort }
+                : kind === 'person'
+                ? /^[\w-]{6,32}$/.test(user) && { user }
+                : kind === 'versions'
+                  ? /^\d{1,25}$/.test(cluster) && { cluster }
+                  : kind === 'work'
+                    ? /^[\w-]{6,32}$/.test(user) && /^[\w-]{6,32}:[\w-]{6,32}$/.test(citation) && { user, citation }
+                    : null;
         if (serplyKey) {
           // Serply is metered on the account whose key this is.
           if (!authorized(request, env)) return needsToken(env, headers);
           try {
-            return json({ results: await askSerply(scholarUrl, parse, serplyKey), source: 'scholar', via: 'serply' }, 200, {
-              ...headers,
-              'Cache-Control': 'private, max-age=300',
-            });
+            // The results pages from Serply's Scholar endpoint; a profile or an
+            // entry opened from its page fetch only when SerpApi cannot take it.
+            if (SERPLY_KINDS.has(kind) || !serpKey) {
+              const results = SERPLY_KINDS.has(kind)
+                ? await askSerplyScholar(kind, params, serplyKey)
+                : await askSerply(scholarUrl, parse, serplyKey);
+              return json({ results, source: 'scholar', via: 'serply' }, 200, {
+                ...headers,
+                'Cache-Control': 'private, max-age=300',
+              });
+            }
           } catch (error) {
             // With a SerpApi key as well, a refusal of Serply's is SerpApi's to try.
             if (!(error && error.serply && serpKey)) {
@@ -449,30 +478,6 @@ export default {
         if (serpKey) {
           // SerpApi is metered on the account whose key this is.
           if (!authorized(request, env)) return needsToken(env, headers);
-          const kind = path.replace('/scholar/', '');
-          const query = (url.searchParams.get('q') || '').trim();
-          const name = (url.searchParams.get('name') || '').trim();
-          const user = (url.searchParams.get('user') || '').trim();
-          const cluster = (url.searchParams.get('cluster') || '').trim();
-          const citation = (url.searchParams.get('citation') || '').trim();
-          const start = Math.max(0, Number(url.searchParams.get('start')) || 0);
-          const sort = profileSort(url.searchParams.get('sort'));
-          const params =
-            kind === 'search'
-              ? query && { query, start: Math.min(90, start) }
-              : kind === 'authors'
-                ? name && { name }
-                : kind === 'profile'
-                  ? /^[\w-]{6,32}$/.test(user) && { user, start, sort }
-                  : kind === 'person'
-                  ? /^[\w-]{6,32}$/.test(user) && { user }
-                  : kind === 'versions'
-                    ? /^\d{1,25}$/.test(cluster) && { cluster }
-                    : kind === 'work'
-                      ? /^[\w-]{6,32}$/.test(user) && /^[\w-]{6,32}:[\w-]{6,32}$/.test(citation) && { user, citation }
-                      : null;
-          if (params === null) return json({ error: 'not found' }, 404, headers);
-          if (!params) return json({ error: 'missing or bad parameter' }, 400, headers);
           try {
             return json({ results: await askSerp(kind, params, serpKey), source: 'scholar', via: 'serpapi' }, 200, {
               ...headers,

@@ -42,12 +42,13 @@ import {
 } from '../server/scholar.js';
 import { browserWanted, closeBrowser, scholarFetcher } from '../server/scholarBrowser.js';
 import { askSerp } from '../server/serpapi.js';
-import { serplyFetcher } from '../server/serply.js';
+import { askSerplyScholar, serplyFetcher, SERPLY_KINDS } from '../server/serply.js';
 
 /**
- * With a Serply key, every page below is fetched through Serply and parsed
- * here, as the proxy does — see server/serply.js. Otherwise, with a SerpApi
- * key, every ask goes through SerpApi — see server/serpapi.js.
+ * With a Serply key, each ask goes where the proxy sends it — a search,
+ * people and versions to Serply's Scholar endpoint, a profile and an entry
+ * opened through Serply's page fetch — see server/serply.js. Otherwise, with
+ * a SerpApi key, every ask goes through SerpApi — see server/serpapi.js.
  */
 const SERPLY_KEY = (process.env.SERPLY_KEY || '').trim();
 const SERPAPI_KEY = SERPLY_KEY ? '' : (process.env.SERPAPI_KEY || '').trim();
@@ -67,7 +68,7 @@ const AUTHOR = valueFor('--author') || 'Saurav Chennuri';
 const fetchPage = SERPLY_KEY ? serplyFetcher(SERPLY_KEY) : SERPAPI_KEY ? null : await scholarFetcher(plainFetch);
 console.log(
   SERPLY_KEY
-    ? "Asking Google Scholar through Serply's page fetch, with the key in SERPLY_KEY. Each page spends one credit.\n"
+    ? 'Asking Google Scholar through Serply, with the key in SERPLY_KEY. Each check spends one credit.\n'
     : SERPAPI_KEY
     ? 'Asking Google Scholar through SerpApi, with the key in SERPAPI_KEY. Each check spends one search of its allowance.\n'
     : `Asking Google Scholar ${browserWanted() ? 'through a real Chromium' : 'with plain HTTPS requests'}.\n` +
@@ -77,6 +78,20 @@ console.log(
 let problems = 0;
 
 async function step(label, url, parse, fixture, serp) {
+  if (SERPLY_KEY && SERPLY_KINDS.has(serp.kind)) {
+    process.stdout.write(`\n── ${label}\n   via Serply's Scholar endpoint: ${serp.kind} ${JSON.stringify(serp.params)}\n`);
+    try {
+      const parsed = await askSerplyScholar(serp.kind, serp.params, SERPLY_KEY);
+      console.log(`   OK       ${parsed.length} results`);
+      if (!parsed.length) console.log('   (nothing came back — an empty answer, or a field Serply renamed)');
+      return parsed;
+    } catch (error) {
+      problems += 1;
+      console.log(`   REFUSED  ${error.reason ? `(${error.reason}) ` : ''}${error.message}`);
+      return null;
+    }
+  }
+  if (SERPLY_KEY) process.stdout.write(`\n   (through Serply's page fetch, which Scholar often refuses — the proxy asks SerpApi for this page when it has that key)`);
   if (SERPAPI_KEY) {
     process.stdout.write(`\n── ${label}\n   via SerpApi: ${serp.kind} ${JSON.stringify(serp.params)}\n`);
     try {
@@ -142,6 +157,14 @@ if (cluster) {
   });
   for (const version of (versions || []).slice(0, 12)) {
     console.log(`     ${version.pdfUrl ? 'PDF ' : '    '} ${version.pdfHost || new URL(version.url || 'https://x/').hostname}`);
+  }
+  // A cluster ignored comes back as some other page of results, which parses fine: say so.
+  const titleOf = (text) => String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 24);
+  const wanted = titleOf(results.find((result) => result.clusterId === cluster)?.title);
+  const same = (versions || []).filter((version) => titleOf(version.title) === wanted).length;
+  if (versions && versions.length && same < versions.length / 2) {
+    problems += 1;
+    console.log(`   ⚠  only ${same} of ${versions.length} look like versions of that paper — the cluster may not have been passed through.`);
   }
   const withFile = (versions || []).filter((version) => version.pdfUrl);
   console.log(`\n   ${withFile.length} of ${(versions || []).length} versions carry a direct file link.`);

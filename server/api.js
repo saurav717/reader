@@ -27,7 +27,7 @@ import {
 import { captchaStatus, closeCaptcha, openCaptcha, scholarFetcher } from './scholarBrowser.js';
 import * as browse from './browse.js';
 import { askSerp } from './serpapi.js';
-import { askSerply } from './serply.js';
+import { askSerply, askSerplyScholar, SERPLY_KINDS } from './serply.js';
 import * as workspace from './workspace.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
@@ -465,9 +465,11 @@ export function setScholarFetcher(fetcher) {
 /**
  * With a Serply or a SerpApi key on this proxy, Scholar is asked through
  * them instead — see server/serply.js and server/serpapi.js: no captcha, and
- * it works from a server. Serply fetches Scholar's own pages, read by the
- * parsers here; SerpApi answers JSON. With both, Serply first and SerpApi
- * when Serply refuses. Without either, the page itself, as above.
+ * it works from a server. Serply's Scholar endpoint takes the results pages
+ * (a search, people, versions); a profile or an entry opened goes to SerpApi
+ * when there is its key too, and to Serply's page fetch when there is not.
+ * Whatever Serply refuses, SerpApi is asked instead where it can be. Without
+ * either key, the page itself, as above.
  */
 const serpKey = () => (process.env.SERPAPI_KEY || '').trim();
 const serplyKey = () => (process.env.SERPLY_KEY || '').trim();
@@ -479,7 +481,8 @@ export const scholarVia = () => (serplyKey() ? 'serply' : serpKey() ? 'serpapi' 
 async function askScholar({ kind, params, url, parse }) {
   if (serplyKey()) {
     try {
-      return { results: await askSerply(url, parse, serplyKey()), via: 'serply' };
+      if (SERPLY_KINDS.has(kind)) return { results: await askSerplyScholar(kind, params, serplyKey()), via: 'serply' };
+      if (!serpKey()) return { results: await askSerply(url, parse, serplyKey()), via: 'serply' };
     } catch (error) {
       if (!(error && error.serply && serpKey())) throw error;
     }
