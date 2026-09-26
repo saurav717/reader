@@ -22,8 +22,9 @@ import NotesBoard from './components/NotesBoard';
 import { CLOSE_EXPLAIN, OPEN_BOARD, OPEN_EXPLAIN, OPEN_NOTES } from './lib/notes';
 import Reader from './components/Reader';
 import Settings from './components/Settings';
+import UsageView, { useIsOwner } from './components/UsageView';
 import Welcome from './components/Welcome';
-import { GoogleMark, HighlighterIcon, LibraryIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
+import { ChartIcon, GoogleMark, HighlighterIcon, LibraryIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
 
 const WELCOME_KEY = 'reader.welcomed';
 const VIEW_KEY = 'reader.view';
@@ -130,6 +131,10 @@ export default function App() {
   const [orphanIds, setOrphanIds] = useState<string[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The owner of the proxy — READER_TOKEN, or a Google sign-in named in
+  // READER_OWNERS — gets a rail button for who uses it; nobody else sees one.
+  const [usageOpen, setUsageOpen] = useState(false);
+  const isOwner = useIsOwner(settings.proxyToken);
   const [welcomed, setWelcomed] = useState(() => localStorage.getItem(WELCOME_KEY) === 'true');
   // Dismissing the opening screen is remembered for this page load only. A
   // sign-in is kept in this browser for the hour Google's token lasts, so a
@@ -715,6 +720,18 @@ export default function App() {
         >
           <SparkleIcon size={19} />
         </button>
+        {isOwner ? (
+          <button
+            type="button"
+            className="icon-btn"
+            aria-pressed={usageOpen}
+            aria-label="Usage"
+            title="Usage — who has signed in, and what they used on your accounts"
+            onClick={() => setUsageOpen(!usageOpen)}
+          >
+            <ChartIcon size={19} />
+          </button>
+        ) : null}
         <div style={{ flexGrow: 1 }} />
         <button
           type="button"
@@ -874,6 +891,7 @@ export default function App() {
       {assistantOpen && !showWelcome ? <Assistant onClose={closeAssistant} screen={readScreen} reading={Boolean(reading)} /> : null}
 
       {settingsOpen ? <Settings onClose={() => setSettingsOpen(false)} /> : null}
+      {usageOpen && isOwner ? <UsageView onClose={() => setUsageOpen(false)} /> : null}
     </div>
   );
 }

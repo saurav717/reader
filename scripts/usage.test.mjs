@@ -72,6 +72,14 @@ describe('the tally', () => {
       ],
     );
     assert.equal(out.totals.scholar, 17);
+    assert.deepEqual(
+      out.people[0].daily.map((day) => [day.day, day.scholar]),
+      [
+        ['2026-09-26', 2],
+        ['2026-09-20', 10],
+      ],
+      'each day apart, newest first',
+    );
     assert.equal(out.totals.serply, 14);
   });
 

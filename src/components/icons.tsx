@@ -372,3 +372,10 @@ export const LocalIcon = (props: IconProps) => (
     <path d="M7.5 10.5l2 2-2 2M11.5 14.5h3" />
   </Icon>
 );
+
+export const ChartIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4.5 19.5h15" />
+    <path d="M7.5 16V11M12 16V6.5M16.5 16v-7" />
+  </Icon>
+);

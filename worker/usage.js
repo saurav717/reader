@@ -35,7 +35,8 @@ export function addTo(days, email, counts, at) {
 
 /**
  * The tallies of the last `days` days, per person: the totals, today's, and
- * when they were last seen — most active first.
+ * when they were last seen, and each day's own counts, newest first — the
+ * most active person first.
  */
 export function report(byDay, { days = 30, now = Date.now() } = {}) {
   const since = dayOf(now - (days - 1) * 86_400_000);
@@ -44,15 +45,17 @@ export function report(byDay, { days = 30, now = Date.now() } = {}) {
   for (const [day, rows] of Object.entries(byDay)) {
     if (day < since) continue;
     for (const [email, row] of Object.entries(rows)) {
-      const person = people[email] || (people[email] = { email, total: {}, today: {}, days: 0, last: 0 });
+      const person = people[email] || (people[email] = { email, total: {}, today: {}, daily: [], days: 0, last: 0 });
       person.days += 1;
       person.last = Math.max(person.last, row.last || 0);
+      person.daily.push({ day, ...Object.fromEntries(COUNTS.map((name) => [name, row[name] || 0])) });
       for (const name of COUNTS) {
         person.total[name] = (person.total[name] || 0) + (row[name] || 0);
         if (day === today) person.today[name] = (person.today[name] || 0) + (row[name] || 0);
       }
     }
   }
+  for (const person of Object.values(people)) person.daily.sort((a, b) => (a.day < b.day ? 1 : -1));
   const list = Object.values(people).sort((a, b) => b.total.scholar - a.total.scholar || b.last - a.last);
   const totals = Object.fromEntries(COUNTS.map((name) => [name, list.reduce((sum, person) => sum + (person.total[name] || 0), 0)]));
   return { days, since, until: today, people: list, totals };
