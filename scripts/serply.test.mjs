@@ -129,8 +129,18 @@ describe('reading Google’s profile pages', () => {
   it('keeps Scholar’s profiles only, once each', () => {
     assert.deepEqual(
       people.map((person) => person.userId),
-      ['oR9sCGYAAAAJ', 'ZZZZZZZZAAAJ'],
+      ['oR9sCGYAAAAJ', 'REALxxxxAAAJ', 'ZZZZZZZZAAAJ'],
     );
+  });
+
+  it('stops at the profile page’s own chrome, as Google really ran it together', () => {
+    // Serply's answer for `site:scholar.google.com/citations "Ashish Vaswani"`, 2026-09-26.
+    const real = people.find((person) => person.userId === 'REALxxxxAAAJ');
+    assert.equal(real.name, 'Ashish Vaswani');
+    assert.equal(real.affiliation, 'Startup');
+    assert.equal(real.verifiedEmail, 'fastmail.com');
+    assert.deepEqual(real.interests, ['Deep Learning']);
+    assert.equal(real.citedBy, undefined);
   });
 
   it('reads the full name, the affiliation, the citations and the interests, past Scholar’s direction marks', () => {
@@ -143,7 +153,7 @@ describe('reading Google’s profile pages', () => {
   });
 
   it('reads the other way Google shows a profile: the top of the page run together', () => {
-    const other = people[1];
+    const other = people.find((person) => person.userId === 'ZZZZZZZZAAAJ');
     assert.equal(other.name, 'Ashish Kumar');
     assert.equal(other.affiliation, 'IIT Delhi');
     assert.equal(other.verifiedEmail, 'iitd.ac.in');
@@ -155,7 +165,11 @@ describe('the asks that are rebuilt', () => {
   it('people: Google’s profiles of the name first, with who they are, then anyone else in the bylines', async () => {
     const { asked, fetchImpl } = recording();
     const people = await askSerplyScholar('authors', { name: 'Ashish Vaswani' }, 'k', { fetchImpl });
-    assert.equal(people.length, 1, 'the one person, not also their byline self, and not the other Ashish');
+    assert.deepEqual(
+      people.map((person) => person.userId),
+      ['oR9sCGYAAAAJ', 'REALxxxxAAAJ'],
+      'both people of the name, each once — not also their byline self, and not the other Ashish',
+    );
     assert.equal(people[0].name, 'Ashish Vaswani');
     assert.equal(people[0].affiliation, 'Essential AI');
     assert.deepEqual(asked.map((ask) => new URL(ask.url).pathname).sort(), ['/v1/scholar', '/v1/search']);

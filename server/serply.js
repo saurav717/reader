@@ -228,7 +228,11 @@ export function fromSerplyProfiles(json) {
       .trim();
     if (!name || /google scholar/i.test(name)) continue;
     seen.add(userId);
-    const text = unmark(entry?.description);
+    // Where Google ran the page together, the profile's own chrome follows
+    // the interests — "ArticlesCited byPublic access. Title. Sort…" — and is cut.
+    const text = unmark(entry?.description)
+      .replace(/\s*Articles\s*Cited by\s*Public access[\s\S]*$|\s*\bArticles\s*Cited by(?![\s\d]*[\d,]{2})[\s\S]*$/i, '')
+      .replace(/\s*(?:\.\.\.|…)\s*$/, '');
     const email = (text.match(/Verified email at ([\w.-]+\.[a-z]{2,})/i) || [])[1];
     const citedBy = count((text.match(/Cited by ([\d,.]+)/i) || [])[1]);
     // What is left, once the name, the counts and the email are out of it:
@@ -240,7 +244,7 @@ export function fromSerplyProfiles(json) {
         (piece) =>
           piece &&
           piece.toLowerCase() !== name.toLowerCase() &&
-          !/^Cited by\b|^Verified email\b|^Articles\b|^Homepage$|^No verified email$|^Google Scholar$/i.test(piece),
+          !/^Cited by\b|^Verified email\b|^Articles\b|^Homepage$|^No verified email$|^Google Scholar$|^Title$|^Sort\b|^Year$|^Public access$/i.test(piece),
       );
     const [affiliation, ...interests] = pieces;
     people.push({
