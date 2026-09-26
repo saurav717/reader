@@ -320,35 +320,41 @@ mapping to saved answers in their documented shape.
 #### Through Serply instead
 
 [Serply](https://serply.io) is the cheaper way to the same thing, with a free
-allowance of 2,500 credits a month. Its Scholar endpoint (`GET /v1/scholar`)
-answers JSON for a results page, and Scholar answers it, so every results page
-goes there (`server/serply.js`): a search, people (found, as with SerpApi, in the
-bylines of a search for their papers — every author with a profile, and their
-id), and a paper's versions. Each result keeps what the reader uses: the file
-beside it, the byline, the authors' profiles, the citation count and the cluster.
+allowance of 2,500 credits a month. Scholar answers two of its endpoints, and
+between them they stand in for every Scholar page the proxy asks for
+(`server/serply.js`):
 
-That endpoint gives no profile and no single entry opened. Those go to SerpApi
-when it has a key too — so the two together cover everything, with Serply taking
-the searches, which are most of the traffic. Without a SerpApi key they go to
-Serply's page fetch, which fetches Scholar's page on Serply's machines; Scholar
-mostly answers that with its 403 "Sorry…" page, so expect a person's profile to
-be refused then.
+| Scholar page | Through Serply |
+|---|---|
+| a search, a paper's versions | its Scholar endpoint (`/v1/scholar`), the results page as JSON: file, byline, authors' profile ids, citations, cluster |
+| people | its Google endpoint (`/v1/search`) for Scholar's profile pages of the name — full name, affiliation, citations, interests, as Google shows them — then anyone else in the bylines of a search for their papers |
+| a profile's works | a Scholar search for the person's papers, kept to those whose byline links this very profile, newest or most cited first; each with its file and cluster, which a profile's own list never had |
+| a person | who they are from Google's profile page, and their most cited works as above |
+| an entry opened | refused: there is only an id to go on. The app finds the paper by its title instead, as it does whenever that page is refused |
+
+What is not rebuilt: the h-index and i10-index, printed on the profile page
+alone, which Scholar refuses Serply (its page fetch gets the 403 "Sorry…" page) —
+the hover card leaves them out rather than guessing. A profile's list holds what
+Scholar's search finds by the person's name, which for a long career can be less
+than the profile itself. A profile's page costs up to two credits, a person up
+to three, people two; the app sends the person's name along, which saves one.
 
 ```bash
 SERPLY_KEY=… npm start                         # the Node proxy
 npx --yes wrangler@4 secret put SERPLY_KEY     # the Worker, then redeploy it
 ```
 
-`/health` then says `"scholar": "serply"`. Whatever Serply refuses — a bad key, a
-spent allowance — SerpApi is asked instead where there is its key. A refusal is
-reported as Serply's, not as a captcha to open in a window here. The key never
-leaves the proxy; it goes only in the header of the request to Serply. One
-credit per request, and the five-minute cache applies.
+`/health` then says `"scholar": "serply"`. With SerpApi's key as well, SerpApi
+takes a profile, a person and an entry opened, which it reads exactly from the
+profile page, and whatever Serply refuses; Serply takes the searches, which are
+most of the traffic. A refusal is reported as Serply's, not as a captcha to open
+in a window here. The key never leaves the proxy; it goes only in the header of
+the request to Serply. Answers are cached for five minutes.
 
-`SERPLY_KEY=… node scripts/scholar-live.mjs` asks Serply for real and says
-whether each answer was read — the check to run once with a new key;
-`scripts/serply.test.mjs` pins the mapping to a saved answer
-(`scripts/fixtures/serply-scholar.json`).
+`SERPLY_KEY=… node scripts/scholar-live.mjs --raw` asks Serply for real, shows
+its raw answers, and says whether each was read — the check to run once with a
+new key; `scripts/serply.test.mjs` pins the mapping to saved answers
+(`scripts/fixtures/serply-*.json`).
 
 ### Getting a paper from a terminal
 

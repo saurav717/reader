@@ -29,7 +29,7 @@ import {
   workUrl,
 } from '../server/scholar.js';
 import { askSerp } from '../server/serpapi.js';
-import { askSerply, askSerplyScholar, SERPLY_KINDS } from '../server/serply.js';
+import { askSerplyScholar, SERPAPI_BETTER } from '../server/serply.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
 
@@ -438,37 +438,33 @@ export default {
         const citation = (url.searchParams.get('citation') || '').trim();
         const start = Math.max(0, Number(url.searchParams.get('start')) || 0);
         const sort = profileSort(url.searchParams.get('sort'));
+        // The person's name, where the app knows it: Serply finds works by name.
+        const who = (url.searchParams.get('name') || '').trim().slice(0, 200) || undefined;
         const params =
           kind === 'search'
             ? query && { query, start: Math.min(90, start) }
             : kind === 'authors'
               ? name && { name }
               : kind === 'profile'
-                ? /^[\w-]{6,32}$/.test(user) && { user, start, sort }
+                ? /^[\w-]{6,32}$/.test(user) && { user, start, sort, name: who }
                 : kind === 'person'
-                ? /^[\w-]{6,32}$/.test(user) && { user }
+                ? /^[\w-]{6,32}$/.test(user) && { user, name: who }
                 : kind === 'versions'
                   ? /^\d{1,25}$/.test(cluster) && { cluster }
                   : kind === 'work'
                     ? /^[\w-]{6,32}$/.test(user) && /^[\w-]{6,32}:[\w-]{6,32}$/.test(citation) && { user, citation }
                     : null;
-        if (serplyKey) {
+        // Serply answers every ask; with SerpApi's key too, SerpApi takes the
+        // profile pages, which it reads exactly, and whatever Serply refuses.
+        if (serplyKey && !(serpKey && SERPAPI_BETTER.has(kind))) {
           // Serply is metered on the account whose key this is.
           if (!authorized(request, env)) return needsToken(env, headers);
           try {
-            // The results pages from Serply's Scholar endpoint; a profile or an
-            // entry opened from its page fetch only when SerpApi cannot take it.
-            if (SERPLY_KINDS.has(kind) || !serpKey) {
-              const results = SERPLY_KINDS.has(kind)
-                ? await askSerplyScholar(kind, params, serplyKey)
-                : await askSerply(scholarUrl, parse, serplyKey);
-              return json({ results, source: 'scholar', via: 'serply' }, 200, {
-                ...headers,
-                'Cache-Control': 'private, max-age=300',
-              });
-            }
+            return json({ results: await askSerplyScholar(kind, params, serplyKey), source: 'scholar', via: 'serply' }, 200, {
+              ...headers,
+              'Cache-Control': 'private, max-age=300',
+            });
           } catch (error) {
-            // With a SerpApi key as well, a refusal of Serply's is SerpApi's to try.
             if (!(error && error.serply && serpKey)) {
               if (error && error.serply) return json({ error: error.message, serply: true, reason: error.reason }, 503, headers);
               return json({ error: String(error?.message || error) }, 502, headers);

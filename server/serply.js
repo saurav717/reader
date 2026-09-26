@@ -1,46 +1,69 @@
 /**
  * Google Scholar through Serply, for a proxy that has a key.
  *
- * Two of Serply's endpoints are used, because each gets through where the
- * other does not:
+ * Serply (serply.io) has two endpoints Scholar answers, and between them
+ * they stand in for every Scholar page the proxy asks for:
  *
- * - Its Scholar endpoint (`GET /v1/scholar`) answers JSON for a search
- *   results page, and Scholar answers it: a search, a search for a person's
- *   papers (which is how people are found — every byline names the authors
- *   with a profile, and their ids), and a paper's versions. Those three go
- *   there, mapped onto the shapes the direct parsers produce.
- * - Its page fetch (`POST /v1/request`) fetches any page on Serply's
- *   machines. Scholar mostly answers those with its 403 "Sorry…" page, so it
- *   is only the last resort for the pages the Scholar endpoint cannot give —
- *   a profile, a person, an entry opened — when there is no SerpApi key to
- *   ask instead.
+ * - Its Scholar endpoint (`GET /v1/scholar`) answers a results page as JSON:
+ *   each result's file, byline, authors with a profile (and their ids),
+ *   citations, and cluster. A search and a paper's versions are that page.
+ * - Its Google endpoint (`GET /v1/search`) finds Scholar's profile pages the
+ *   way Google indexes them: the title is the person's full name, and the
+ *   line under it their affiliation, "Cited by N", and their interests.
+ *
+ * What Scholar's own profile pages gave is rebuilt from those:
+ *
+ * - people: Google's profile pages for the name, then every author with a
+ *   profile in the bylines of a search for their papers;
+ * - a profile's works: a Scholar search for the person's papers, kept to
+ *   those whose byline links this very profile — each with its file and
+ *   cluster, which the profile's own list never had — ordered newest or
+ *   most cited first;
+ * - a person: who they are from Google's profile page, and their most
+ *   cited works as above. The h-index and i10-index are printed nowhere
+ *   but the profile page itself, which Scholar refuses Serply, so they are
+ *   left out rather than guessed.
+ * - an entry opened: not answerable — there is no title to search by, only
+ *   an id. It is refused as Serply's, and the app then finds the paper by
+ *   its title, which is what it does whenever that page is refused.
+ *
+ * Serply's page fetch (`POST /v1/request`) is not used: tried live, Scholar
+ * answers it with its 403 "Sorry…" page, and each try costs a credit.
  *
  * Opt-in, like SerpApi: set `SERPLY_KEY` on the proxy (an environment
- * variable for `npm start`, a secret for the Worker). With a SerpApi key as
- * well, SerpApi takes the profile pages and whatever Serply refuses. One
- * credit per request; answers are cached for five minutes.
- *
- * The key stays on the proxy. It goes only in the header of the request to
- * Serply — never in the page, never in an answer, never in a cache key.
+ * variable for `npm start`, a secret for the Worker). One credit per
+ * request; answers are cached for five minutes. The key stays on the
+ * proxy — only in the header of the request to Serply, never in an
+ * address, an answer or a cache key.
  *
  * Written against web APIs only (fetch, URL, JSON), so the Worker in
  * `worker/index.js` can import it exactly as `server/api.js` does.
  */
-import { getScholar, isScholarUrl, parseByline, SCHOLAR_HOST } from './scholar.js';
+import { parseByline, SCHOLAR_HOST } from './scholar.js';
 import { nameCouldBe } from './serpapi.js';
 
 export const SERPLY_HOST = 'https://api.serply.io';
 
-/** Where the page is fetched from: an English-speaking region, past Google's consent wall. */
+/** Where Serply asks from: an English-speaking region, past Google's consent wall. */
 const PROXY_LOCATION = 'US';
+
+/** Every Scholar ask the proxy has; Serply answers each, one way or another. */
+export const SERPLY_KINDS = new Set(['search', 'authors', 'versions', 'profile', 'person', 'work']);
+
+/**
+ * The asks SerpApi answers better, when there is its key too: it reads the
+ * profile page itself — every work, the h-index, the entry opened — where
+ * Serply can only rebuild them from searches.
+ */
+export const SERPAPI_BETTER = new Set(['profile', 'person', 'work']);
 
 // ------------------------------------------------------------- refusals ----
 
 /**
- * What a Serply answer means when it is not a page. Its errors come as a
+ * What a Serply answer means when it is not an answer. Its errors come as a
  * status and, usually, `{ detail: '...' }`: a 401 for a missing or bad key,
  * a 402 or a message about credits for a spent allowance, a 429 for going
- * too fast, and a 502 when its own fetch of the page failed.
+ * too fast, and a 502 when its own fetch from Google failed.
  */
 export function serplyProblem(status, body) {
   if (status >= 200 && status < 300) return null;
@@ -61,13 +84,10 @@ export function serplyProblem(status, body) {
     };
   }
   if (status === 429) {
-    return {
-      reason: 'rate-limited',
-      message: 'Serply is rate-limiting this proxy. Wait a moment, or search the other sources meanwhile.',
-    };
+    return { reason: 'rate-limited', message: 'Serply is rate-limiting this proxy. Wait a moment, or search the other sources meanwhile.' };
   }
   if (status === 502 || status === 504) {
-    return { reason: 'upstream', message: 'Serply could not fetch the Scholar page this time. Try again in a moment.' };
+    return { reason: 'upstream', message: 'Serply could not get an answer from Google this time. Try again in a moment.' };
   }
   return { reason: 'serply', message: `Serply answered ${status}${detail ? `: ${detail}` : ''}` };
 }
@@ -82,116 +102,26 @@ export class SerplyFailed extends Error {
   }
 }
 
-// ------------------------------------------------------------- fetching ----
+// ------------------------------------------------------------- the asks ----
 
-/**
- * What Serply's page fetch hands back, as `{ status, html }` for
- * `getScholar`. Asked for `response_type: 'full'`, it answers a JSON object
- * with the page in `data` and Scholar's own status beside it, which is what
- * lets a refusal of Scholar's be told from one of Serply's. Anything else —
- * the plain HTML it gives by default — is taken as the page itself.
- */
-export function fromSerplyPage(text) {
-  try {
-    const json = JSON.parse(text);
-    if (json && typeof json.data === 'string') {
-      const status = Number(json.status ?? json.status_code);
-      return { status: Number.isInteger(status) && status > 0 ? status : 200, html: json.data };
-    }
-  } catch {
-    // Not JSON: the page, as it came.
-  }
-  return { status: 200, html: String(text || '') };
-}
-
-/**
- * A `fetchPage` for `getScholar` that goes through Serply. Only Scholar's
- * own pages: this is not a way for anything else to spend the key. A 502 —
- * Serply's fetch of the page failing — is tried once more before it is
- * reported, as Serply's own advice has it.
- */
-export function serplyFetcher(key, { fetchImpl = (...args) => fetch(...args) } = {}) {
-  return async (url, { signal } = {}) => {
-    if (!isScholarUrl(url)) throw new Error('only a scholar.google.com page is fetched through Serply');
-    let problem;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const response = await fetchImpl(`${SERPLY_HOST}/v1/request`, {
-        method: 'POST',
-        signal,
-        headers: {
-          'X-Api-Key': key,
-          'Content-Type': 'application/json',
-          Accept: 'application/json, text/html;q=0.9',
-          // Serply sits behind Cloudflare, which turns away requests with no
-          // or a library's User-Agent.
-          'User-Agent': 'reader-proxy/1.0',
-          'X-Proxy-Location': PROXY_LOCATION,
-        },
-        body: JSON.stringify({ url, response_type: 'full' }),
-      });
-      const text = await response.text();
-      problem = serplyProblem(response.status, text);
-      if (!problem) return fromSerplyPage(text);
-      if (problem.reason !== 'upstream') break;
-    }
-    throw new SerplyFailed(problem);
-  };
-}
-
-/**
- * One Scholar page through Serply, parsed. `parse` is the route's own
- * parser from `server/scholar.js`. Scholar refusing Serply's machine comes
- * back as a `SerplyFailed`, not a `ScholarBlocked`: the captcha window a
- * direct refusal offers would be solved on this machine, not on Serply's.
- */
-export async function askSerply(url, parse, key, { fetchImpl, signal } = {}) {
-  try {
-    return parse(await getScholar(url, { fetchPage: serplyFetcher(key, fetchImpl ? { fetchImpl } : {}), signal }));
-  } catch (error) {
-    if (error && error.blocked) {
-      throw new SerplyFailed({
-        reason: 'scholar-refused',
-        message:
-          error.reason === 'captcha'
-            ? 'Google Scholar served Serply a captcha instead of the page. Try again shortly — Serply asks from another machine each time.'
-            : `Google Scholar refused the page Serply asked for (${error.reason}). Try again shortly.`,
-      });
-    }
-    throw error;
-  }
-}
-
-// ------------------------------------------------ the Scholar endpoint ----
-
-/** The asks Serply's Scholar endpoint can answer: results pages, all of them. */
-export const SERPLY_KINDS = new Set(['search', 'authors', 'versions']);
-
-/** The request for each, with the key left for the header. */
-export function serplyScholarUrl(kind, params) {
-  const query = new URLSearchParams({ hl: 'en' });
-  switch (kind) {
-    case 'search':
-      query.set('q', params.query);
-      query.set('num', '10');
-      if (params.start) query.set('start', String(params.start));
-      break;
-    case 'authors':
-      // A search for the person's papers: each byline names the authors who
-      // have a profile, with their ids — what the profile search gave.
-      query.set('q', `author:"${params.name}"`);
-      query.set('num', '20');
-      break;
-    case 'versions':
-      // Scholar's own parameter, passed through as the endpoint passes the rest.
-      query.set('q', '');
-      query.set('cluster', params.cluster);
-      query.set('num', '20');
-      break;
-    default:
-      throw new Error(`no Serply Scholar request for ${kind}`);
-  }
+/** A Scholar results page: a search, a person's papers, or a cluster. */
+export function serplyScholarUrl({ q, start, cluster, num = 10 }) {
+  const query = new URLSearchParams({ hl: 'en', q: q || '' });
+  if (cluster) query.set('cluster', cluster);
+  query.set('num', String(num));
+  if (start) query.set('start', String(start));
   return `${SERPLY_HOST}/v1/scholar?${query}`;
 }
+
+/** A Google search, for Scholar's profile pages as Google has indexed them. */
+export function serplySearchUrl(q, num = 10) {
+  return `${SERPLY_HOST}/v1/search?${new URLSearchParams({ q, num: String(num) })}`;
+}
+
+/** Google's search for the profile pages of a name, or of an id when there is no name. */
+export const profilesQuery = (name) => `site:scholar.google.com/citations "${name}"`;
+
+// ---------------------------------------------------------- the mapping ----
 
 const str = (value) => (typeof value === 'string' ? value.trim() : '');
 const list = (value) => (Array.isArray(value) ? value : []);
@@ -209,6 +139,9 @@ const hostOf = (link) => {
     return undefined;
   }
 };
+const profileLink = (userId) => `${SCHOLAR_HOST}/citations?hl=en&user=${encodeURIComponent(userId)}`;
+/** Scholar wraps names and counts in direction marks (‪…‬); Google keeps them. */
+const unmark = (text) => str(text).replace(/[‎‏‪-‮]/g, '').replace(/\s+/g, ' ').trim();
 
 /**
  * One page of Serply's Scholar results, as `parseResults` would have read
@@ -236,7 +169,7 @@ export function fromSerplyResults(json) {
           .filter((author) => author.name && author.userId),
         venue: byline.venue,
         year: byline.year,
-        snippet: str(entry?.snippet) || str(entry?.abstract) || '',
+        snippet: str(entry?.snippet) || str(entry?.abstract) || str(entry?.text) || '',
         citedBy: count(entry?.extras?.citations?.count),
         clusterId: clusterOf(versions.link),
         versionCount: count(versions.count),
@@ -248,8 +181,7 @@ export function fromSerplyResults(json) {
 /**
  * The people a search for a name's papers turns up: every author in a
  * byline with a profile whose name could be the one asked for, once each,
- * most often seen first. No affiliation or email — those are on the
- * profile, which this endpoint does not give.
+ * most often seen first — with the name as the byline has it.
  */
 export function fromSerplyAuthors(json, name) {
   const seen = new Map();
@@ -258,28 +190,86 @@ export function fromSerplyAuthors(json, name) {
       const userId = userOf(author?.link);
       if (!userId || !nameCouldBe(author?.name, name)) continue;
       const found = seen.get(userId);
-      if (found) found.worksSeen += 1;
-      else {
-        seen.set(userId, {
-          userId,
-          name: str(author?.name),
-          profileUrl: `${SCHOLAR_HOST}/citations?hl=en&user=${encodeURIComponent(userId)}`,
-          affiliation: undefined,
-          verifiedEmail: undefined,
-          interests: [],
-          citedBy: undefined,
-          worksSeen: 1,
-        });
-      }
+      if (found) found.seen += 1;
+      else seen.set(userId, { userId, name: str(author?.name), seen: 1 });
     }
   }
   return Array.from(seen.values())
-    .sort((a, b) => b.worksSeen - a.worksSeen)
-    .map(({ worksSeen, ...person }) => person);
+    .sort((a, b) => b.seen - a.seen)
+    .map(({ userId, name: byline }) => ({
+      userId,
+      name: byline,
+      profileUrl: profileLink(userId),
+      affiliation: undefined,
+      verifiedEmail: undefined,
+      interests: [],
+      citedBy: undefined,
+    }));
 }
 
+/**
+ * Scholar's profile pages among Google's results, read for what Google
+ * shows of them: the title is `Ashish Vaswani - Google Scholar`, and the
+ * line under it `Essential AI - Cited by 231,507 - Machine Learning - Deep
+ * Learning` — or, as Google sometimes has it, the top of the page run
+ * together: `Ashish Vaswani. Essential AI. Verified email at essential.ai`.
+ * What is not there is left undefined.
+ */
+export function fromSerplyProfiles(json) {
+  const seen = new Set();
+  const people = [];
+  for (const entry of list(json?.results)) {
+    const link = str(entry?.link);
+    const userId = userOf(link);
+    if (!userId || !/scholar\.google\.[a-z.]+\/citations/i.test(link) || seen.has(userId)) continue;
+    const name = unmark(entry?.title)
+      .replace(/\s*[-–|]\s*(?:‪)?Google Scholar.*$/i, '')
+      .replace(/\s*\.\.\.$|…$/, '')
+      .trim();
+    if (!name || /google scholar/i.test(name)) continue;
+    seen.add(userId);
+    const text = unmark(entry?.description);
+    const email = (text.match(/Verified email at ([\w.-]+\.[a-z]{2,})/i) || [])[1];
+    const citedBy = count((text.match(/Cited by ([\d,.]+)/i) || [])[1]);
+    // What is left, once the name, the counts and the email are out of it:
+    // the affiliation first, then the interests.
+    const pieces = text
+      .split(/\s+[-–·]\s+|\.\s+/)
+      .map((piece) => piece.replace(/\.$/, '').trim())
+      .filter(
+        (piece) =>
+          piece &&
+          piece.toLowerCase() !== name.toLowerCase() &&
+          !/^Cited by\b|^Verified email\b|^Articles\b|^Homepage$|^No verified email$|^Google Scholar$/i.test(piece),
+      );
+    const [affiliation, ...interests] = pieces;
+    people.push({
+      userId,
+      name,
+      profileUrl: profileLink(userId),
+      affiliation: affiliation && affiliation.length <= 160 ? affiliation : undefined,
+      verifiedEmail: email,
+      interests: interests.filter((interest) => interest.length <= 60).slice(0, 8),
+      citedBy,
+    });
+  }
+  return people;
+}
+
+/** A person's works as a profile's list gives them, from the results that link their profile. */
+export function worksOf(results, userId) {
+  return results
+    .filter((result) => result.authorIds.some((author) => author.userId === userId))
+    .map(({ authorIds, id, ...work }) => work);
+}
+
+const byNewest = (a, b) => (b.year || 0) - (a.year || 0) || (b.citedBy || 0) - (a.citedBy || 0);
+const byCited = (a, b) => (b.citedBy || 0) - (a.citedBy || 0) || (b.year || 0) - (a.year || 0);
+
+// ------------------------------------------------------------- fetching ----
+
 const CACHE_MS = 5 * 60 * 1000;
-const CACHE_MAX = 60;
+const CACHE_MAX = 80;
 const cache = new Map();
 
 export function forgetSerply() {
@@ -287,40 +277,150 @@ export function forgetSerply() {
 }
 
 /**
- * One ask of Serply's Scholar endpoint, mapped. `fetchImpl` is how the
- * request is made, so a test can hand in saved answers. A 502 is tried once
- * more, as for the page fetch.
+ * One request of Serply, JSON back, cached by its address — which never
+ * holds the key. A 502 is tried once more, as Serply's own advice has it.
+ */
+async function getJson(url, key, { fetchImpl, signal }) {
+  const hit = cache.get(url);
+  if (hit && Date.now() - hit.at < CACHE_MS) return hit.json;
+  let problem;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await fetchImpl(url, {
+      signal,
+      headers: {
+        'X-Api-Key': key,
+        Accept: 'application/json',
+        // Serply sits behind Cloudflare, which turns away a library's User-Agent.
+        'User-Agent': 'reader-proxy/1.0',
+        'X-Proxy-Location': PROXY_LOCATION,
+      },
+    });
+    const text = await response.text();
+    problem = serplyProblem(response.status, text);
+    if (!problem) {
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        throw new SerplyFailed({ reason: 'serply', message: 'Serply answered with something that was not JSON' });
+      }
+      cache.set(url, { json, at: Date.now() });
+      while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+      return json;
+    }
+    if (problem.reason !== 'upstream') break;
+  }
+  throw new SerplyFailed(problem);
+}
+
+/**
+ * Who a profile id belongs to, from Google's profile pages: for the name
+ * when it is known, and for the id itself when it is not. Undefined when
+ * Google shows neither.
+ */
+async function profileOf(userId, name, key, options) {
+  const queries = name ? [profilesQuery(name), `"${userId}" site:scholar.google.com`] : [`"${userId}" site:scholar.google.com`];
+  for (const query of queries) {
+    const found = fromSerplyProfiles(await getJson(serplySearchUrl(query), key, options)).find((person) => person.userId === userId);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * How many of Scholar's result pages stand for one page of a profile. A
+ * search for a name's papers finds other people of the name too, and their
+ * papers are dropped, so one results page seldom leaves the twenty a
+ * profile's page has — and the app takes a short page for the last.
+ */
+const PAGES_PER_PROFILE_PAGE = 2;
+
+/**
+ * A person's works, from a Scholar search for their papers: page `start /
+ * 20` of the profile is results pages 2p and 2p+1, each of twenty, kept to
+ * the papers whose byline links this very profile. No results page is in
+ * two profile pages, so none is lost or shown twice; a short one is the
+ * end, and nothing after it is asked for.
+ */
+async function worksFor(userId, name, { start = 0, sort = 'pubdate', pages = PAGES_PER_PROFILE_PAGE }, key, options) {
+  const page = Math.floor(start / 20);
+  const works = [];
+  for (let i = 0; i < pages; i += 1) {
+    const offset = (page * pages + i) * 20;
+    const results = fromSerplyResults(await getJson(serplyScholarUrl({ q: `author:"${name}"`, start: offset, num: 20 }), key, options));
+    works.push(...worksOf(results, userId));
+    if (results.length < 20) break;
+  }
+  return works.sort(sort === 'citations' ? byCited : byNewest);
+}
+
+/**
+ * One ask of Serply, mapped onto the shapes the direct parsers produce, so
+ * nothing downstream knows which answered. `params` are the route's, with
+ * the person's `name` where the app knows it — a profile and a person are
+ * asked for by id, and a name saves finding out whose it is. `fetchImpl` is
+ * how requests are made, so a test can hand in saved answers.
  */
 export async function askSerplyScholar(kind, params, key, { fetchImpl = (...args) => fetch(...args), signal } = {}) {
-  const url = serplyScholarUrl(kind, params);
-  const hit = cache.get(url);
-  let json = hit && Date.now() - hit.at < CACHE_MS ? hit.json : undefined;
-  if (!json) {
-    let problem;
-    for (let attempt = 0; attempt < 2 && !json; attempt += 1) {
-      const response = await fetchImpl(url, {
-        signal,
-        headers: {
-          'X-Api-Key': key,
-          Accept: 'application/json',
-          'User-Agent': 'reader-proxy/1.0',
-          'X-Proxy-Location': PROXY_LOCATION,
-        },
-      });
-      const text = await response.text();
-      problem = serplyProblem(response.status, text);
-      if (!problem) {
-        try {
-          json = JSON.parse(text);
-        } catch {
-          problem = { reason: 'serply', message: 'Serply answered with something that was not JSON' };
-          break;
-        }
-      } else if (problem.reason !== 'upstream') break;
+  const options = { fetchImpl, signal };
+  switch (kind) {
+    case 'search':
+      return fromSerplyResults(await getJson(serplyScholarUrl({ q: params.query, start: params.start }), key, options));
+
+    case 'versions':
+      return fromSerplyResults(await getJson(serplyScholarUrl({ cluster: params.cluster, num: 20 }), key, options));
+
+    case 'authors': {
+      // Google's profile pages for the name: full names, and who they are.
+      // Then the bylines of their papers, for anyone Google did not show.
+      const [profiles, papers] = await Promise.all([
+        getJson(serplySearchUrl(profilesQuery(params.name)), key, options).then(
+          (json) => fromSerplyProfiles(json).filter((person) => nameCouldBe(person.name, params.name)),
+          () => [],
+        ),
+        getJson(serplyScholarUrl({ q: `author:"${params.name}"`, num: 20 }), key, options).then((json) => fromSerplyAuthors(json, params.name)),
+      ]);
+      const known = new Set(profiles.map((person) => person.userId));
+      return [...profiles, ...papers.filter((person) => !known.has(person.userId))];
     }
-    if (!json) throw new SerplyFailed(problem);
-    cache.set(url, { json, at: Date.now() });
-    while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+
+    case 'profile': {
+      const name = params.name || (await profileOf(params.user, undefined, key, options))?.name;
+      if (!name) throw notFound(params.user);
+      return worksFor(params.user, name, params, key, options);
+    }
+
+    case 'person': {
+      const profile = await profileOf(params.user, params.name, key, options);
+      const name = profile?.name || params.name;
+      if (!name) throw notFound(params.user);
+      // A hover card's handful of most cited works: one results page is plenty.
+      const works = await worksFor(params.user, name, { sort: 'citations', pages: 1 }, key, options);
+      return [
+        {
+          ...(profile || { userId: params.user, name, profileUrl: profileLink(params.user), interests: [] }),
+          homepage: undefined,
+          citedBySince: undefined,
+          // Printed on the profile page alone, which Scholar does not give Serply.
+          hIndex: undefined,
+          i10Index: undefined,
+          works,
+        },
+      ];
+    }
+
+    case 'work':
+      // An id and no title: nothing to search by. The app finds the paper by
+      // its title instead, as it does whenever this page is refused.
+      throw new SerplyFailed({
+        reason: 'unsupported',
+        message: 'Serply cannot open one entry of a profile by its id; the paper is looked up by its title instead.',
+      });
+
+    default:
+      throw new Error(`no Serply request for ${kind}`);
   }
-  return kind === 'authors' ? fromSerplyAuthors(json, params.name) : fromSerplyResults(json);
 }
+
+const notFound = (userId) =>
+  new SerplyFailed({ reason: 'not-found', message: `Google shows no Scholar profile with the id ${userId}, so its works could not be searched for.` });

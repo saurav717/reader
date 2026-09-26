@@ -1,11 +1,15 @@
-// Google Scholar through Serply: that its page fetch is asked for Scholar's
-// own pages and nothing else, that what it hands back is read by the same
-// parsers as a page fetched directly, that its refusals — and Scholar's
-// refusals of it — are told apart from a captcha a person here could solve,
-// and that a proxy with a key asks Serply, falls back to SerpApi when it has
-// that key too, and never lets either key out. Serply itself is not asked:
-// its answers wrap the saved Scholar pages in scripts/fixtures/scholar-*.html
-// in the shape its page fetch documents for `response_type: 'full'`.
+// Google Scholar through Serply: that each Scholar ask is answered from
+// Serply's two endpoints — its Scholar results and its Google search for
+// Scholar's profile pages — in the same shapes the direct parsers produce;
+// that a profile, a person and people are rebuilt from those; that Serply's
+// refusals are told apart from a captcha a person here could solve; and that
+// a proxy with a key asks Serply, hands the profile pages to SerpApi when it
+// has that key too, and never lets either key out.
+//
+// Serply itself is not asked. scripts/fixtures/serply-scholar.json is a real
+// answer of its Scholar endpoint, cut to two results; serply-profiles.json is
+// Google's results for Scholar's profile pages, in the shape Serply's search
+// endpoint documents (`results[]` of title, link, description).
 //
 //   node --test scripts/serply.test.mjs
 
@@ -25,44 +29,44 @@ delete process.env.SERPLY_KEY;
 
 const { default: apiRouter } = await import('../server/api.js');
 const {
-  askSerply,
   askSerplyScholar,
   forgetSerply,
   fromSerplyAuthors,
-  fromSerplyPage,
+  fromSerplyProfiles,
   fromSerplyResults,
-  serplyFetcher,
   serplyProblem,
   serplyScholarUrl,
+  serplySearchUrl,
   SERPLY_HOST,
 } = await import('../server/serply.js');
-const { forgetScholar, parseAuthors, parseCitationView, parseProfileWorks, parseResults, authorSearchUrl, profileUrl, searchUrl, workUrl } =
-  await import('../server/scholar.js');
+const { forgetScholar } = await import('../server/scholar.js');
 const { forgetSerp } = await import('../server/serpapi.js');
 
 const here = dirname(fileURLToPath(import.meta.url));
-const page = (name) => readFile(join(here, 'fixtures', `${name}.html`), 'utf8');
-const SEARCH = await page('scholar-search');
-const AUTHORS = await page('scholar-authors');
-const PROFILE = await page('scholar-profile');
-const WORK = await page('scholar-work');
-const CAPTCHA = await page('scholar-captcha');
-const SERP_SEARCH = JSON.parse(await readFile(join(here, 'fixtures', 'serpapi-search.json'), 'utf8'));
-const SERP_AUTHOR = JSON.parse(await readFile(join(here, 'fixtures', 'serpapi-author.json'), 'utf8'));
-// A real answer of Serply's Scholar endpoint, cut to two results.
-const SCHOLAR = JSON.parse(await readFile(join(here, 'fixtures', 'serply-scholar.json'), 'utf8'));
+const fixture = async (name) => JSON.parse(await readFile(join(here, 'fixtures', `${name}.json`), 'utf8'));
+const SCHOLAR = await fixture('serply-scholar');
+const PROFILES = await fixture('serply-profiles');
+const SERP_SEARCH = await fixture('serpapi-search');
+const SERP_AUTHOR = await fixture('serpapi-author');
 
-/** Serply's page fetch, answering with `html` for Scholar's `status`. */
-const full = (html, status = 200) => new Response(JSON.stringify({ status, headers: {}, data: html }), { status: 200 });
+const json = (body, status = 200) => new Response(JSON.stringify(body), { status });
 
-/** The Scholar page a request to Serply asked for. */
-const pageFor = (url) => {
-  const target = new URL(url);
-  const view = target.searchParams.get('view_op');
-  if (view === 'search_authors') return AUTHORS;
-  if (view === 'view_citation') return WORK;
-  if (target.pathname === '/citations') return PROFILE;
-  return SEARCH;
+/** Serply, answering from the fixtures: Scholar results, or Google's profile pages. */
+const serply = (url) => {
+  const path = new URL(url).pathname;
+  if (path === '/v1/scholar') return json(SCHOLAR);
+  if (path === '/v1/search') return json(PROFILES);
+  return json({ detail: 'Not Found' }, 404);
+};
+
+/** A fetch that answers as Serply and remembers what it was asked. */
+const recording = (answer = serply) => {
+  const asked = [];
+  const fetchImpl = async (url, init) => {
+    asked.push({ url: String(url), key: init?.headers?.['X-Api-Key'] });
+    return answer(String(url));
+  };
+  return { asked, fetchImpl };
 };
 
 beforeEach(() => {
@@ -71,18 +75,25 @@ beforeEach(() => {
   forgetSerply();
 });
 
-describe('asking Serply’s Scholar endpoint for a results page', () => {
-  it('asks for a search, a person’s papers and a cluster, in English, with no key in the address', () => {
-    const search = new URL(serplyScholarUrl('search', { query: 'attention', start: 10 }));
+describe('the asks', () => {
+  it('asks the Scholar endpoint for a search, a cluster, or a person’s papers — in English, with no key in the address', () => {
+    const search = new URL(serplyScholarUrl({ q: 'attention', start: 10 }));
     assert.equal(search.origin + search.pathname, `${SERPLY_HOST}/v1/scholar`);
     assert.equal(search.searchParams.get('q'), 'attention');
     assert.equal(search.searchParams.get('start'), '10');
     assert.equal(search.searchParams.get('hl'), 'en');
-    assert.equal(new URL(serplyScholarUrl('authors', { name: 'Ashish Vaswani' })).searchParams.get('q'), 'author:"Ashish Vaswani"');
-    assert.equal(new URL(serplyScholarUrl('versions', { cluster: '42' })).searchParams.get('cluster'), '42');
-    assert.doesNotMatch(serplyScholarUrl('search', { query: 'x' }), /key/i);
+    assert.equal(new URL(serplyScholarUrl({ cluster: '42' })).searchParams.get('cluster'), '42');
+    assert.doesNotMatch(serplyScholarUrl({ q: 'x' }), /key/i);
   });
 
+  it('asks Google for Scholar’s profile pages of a name', () => {
+    const url = new URL(serplySearchUrl('site:scholar.google.com/citations "Ashish Vaswani"'));
+    assert.equal(url.pathname, '/v1/search');
+    assert.equal(url.searchParams.get('q'), 'site:scholar.google.com/citations "Ashish Vaswani"');
+  });
+});
+
+describe('reading Scholar’s results', () => {
   it('reads each result as the direct parser would: file, byline, profiles, citations, cluster', () => {
     const [first, second] = fromSerplyResults(SCHOLAR);
     assert.equal(first.title, 'Attention is all you need');
@@ -100,20 +111,120 @@ describe('asking Serply’s Scholar endpoint for a results page', () => {
     assert.equal(second.pdfUrl, undefined);
   });
 
-  it('finds the people of a name in the bylines, once each, most often seen first', () => {
+  it('finds the people of a name in the bylines, once each', () => {
     const people = fromSerplyAuthors(SCHOLAR, 'Ashish Vaswani');
-    assert.equal(people.length, 1);
-    assert.equal(people[0].userId, 'oR9sCGYAAAAJ');
-    assert.match(people[0].profileUrl, /user=oR9sCGYAAAAJ/);
+    assert.deepEqual(
+      people.map((person) => person.userId),
+      ['oR9sCGYAAAAJ'],
+    );
     assert.deepEqual(fromSerplyAuthors(SCHOLAR, 'Nobody Here'), []);
   });
+});
 
-  it('sends the key in the header, and asks once for what it has been given', async () => {
-    const asked = [];
-    const fetchImpl = async (url, init) => {
-      asked.push({ url, key: init.headers['X-Api-Key'] });
-      return new Response(JSON.stringify(SCHOLAR), { status: 200 });
-    };
+describe('reading Google’s profile pages', () => {
+  const people = fromSerplyProfiles(PROFILES);
+
+  it('keeps Scholar’s profiles only, once each', () => {
+    assert.deepEqual(
+      people.map((person) => person.userId),
+      ['oR9sCGYAAAAJ', 'ZZZZZZZZAAAJ'],
+    );
+  });
+
+  it('reads the full name, the affiliation, the citations and the interests, past Scholar’s direction marks', () => {
+    const [ashish] = people;
+    assert.equal(ashish.name, 'Ashish Vaswani');
+    assert.equal(ashish.affiliation, 'Essential AI');
+    assert.equal(ashish.citedBy, 231507);
+    assert.deepEqual(ashish.interests, ['Machine Learning', 'Deep Learning']);
+    assert.match(ashish.profileUrl, /user=oR9sCGYAAAAJ/);
+  });
+
+  it('reads the other way Google shows a profile: the top of the page run together', () => {
+    const other = people[1];
+    assert.equal(other.name, 'Ashish Kumar');
+    assert.equal(other.affiliation, 'IIT Delhi');
+    assert.equal(other.verifiedEmail, 'iitd.ac.in');
+    assert.deepEqual(other.interests, ['Robotics']);
+  });
+});
+
+describe('the asks that are rebuilt', () => {
+  it('people: Google’s profiles of the name first, with who they are, then anyone else in the bylines', async () => {
+    const { asked, fetchImpl } = recording();
+    const people = await askSerplyScholar('authors', { name: 'Ashish Vaswani' }, 'k', { fetchImpl });
+    assert.equal(people.length, 1, 'the one person, not also their byline self, and not the other Ashish');
+    assert.equal(people[0].name, 'Ashish Vaswani');
+    assert.equal(people[0].affiliation, 'Essential AI');
+    assert.deepEqual(asked.map((ask) => new URL(ask.url).pathname).sort(), ['/v1/scholar', '/v1/search']);
+  });
+
+  it('a profile’s works: their papers only, newest first or most cited, with the file and the cluster', async () => {
+    const { asked, fetchImpl } = recording();
+    const newest = await askSerplyScholar('profile', { user: 'oR9sCGYAAAAJ', start: 0, sort: 'pubdate', name: 'Ashish Vaswani' }, 'k', { fetchImpl });
+    assert.deepEqual(
+      newest.map((work) => work.title),
+      ['Tensor2tensor for neural machine translation', 'Attention is all you need'],
+    );
+    assert.equal(newest[1].clusterId, '2960712678066186980');
+    assert.equal(newest[1].pdfHost, 'proceedings.neurips.cc');
+    assert.equal(new URL(asked[0].url).searchParams.get('q'), 'author:"Ashish Vaswani"');
+    assert.equal(asked.length, 1, 'a short results page is the end: nothing after it is asked for');
+
+    const cited = await askSerplyScholar('profile', { user: 'oR9sCGYAAAAJ', start: 0, sort: 'citations', name: 'Ashish Vaswani' }, 'k', { fetchImpl });
+    assert.equal(cited[0].title, 'Attention is all you need');
+
+    const theirs = await askSerplyScholar('profile', { user: 'wsGvgA8AAAAJ', start: 0, name: 'Noam Shazeer' }, 'k', { fetchImpl });
+    assert.deepEqual(
+      theirs.map((work) => work.title),
+      ['Attention is all you need'],
+      'only the papers whose byline links that profile',
+    );
+  });
+
+  it('a profile’s later pages ask Scholar’s later results, none twice', async () => {
+    const full = { articles: Array.from({ length: 20 }, () => SCHOLAR.articles[0]) };
+    const { asked, fetchImpl } = recording((url) => json(new URL(url).pathname === '/v1/scholar' ? full : PROFILES));
+    await askSerplyScholar('profile', { user: 'oR9sCGYAAAAJ', start: 0, name: 'A' }, 'k', { fetchImpl });
+    await askSerplyScholar('profile', { user: 'oR9sCGYAAAAJ', start: 20, name: 'A' }, 'k', { fetchImpl });
+    assert.deepEqual(
+      asked.map((ask) => new URL(ask.url).searchParams.get('start')),
+      [null, '20', '40', '60'],
+    );
+  });
+
+  it('a profile asked for by id alone finds whose it is first', async () => {
+    const { asked, fetchImpl } = recording();
+    const works = await askSerplyScholar('profile', { user: 'oR9sCGYAAAAJ', start: 0 }, 'k', { fetchImpl });
+    assert.equal(works.length, 2);
+    assert.equal(new URL(asked[0].url).pathname, '/v1/search');
+    assert.match(new URL(asked[0].url).searchParams.get('q'), /"oR9sCGYAAAAJ"/);
+    assert.equal(new URL(asked[1].url).searchParams.get('q'), 'author:"Ashish Vaswani"');
+  });
+
+  it('a person: who they are, and their most cited works — with no h-index rather than a guessed one', async () => {
+    const { fetchImpl } = recording();
+    const [person] = await askSerplyScholar('person', { user: 'oR9sCGYAAAAJ', name: 'A Vaswani' }, 'k', { fetchImpl });
+    assert.equal(person.name, 'Ashish Vaswani');
+    assert.equal(person.affiliation, 'Essential AI');
+    assert.equal(person.citedBy, 231507);
+    assert.equal(person.hIndex, undefined);
+    assert.equal(person.works[0].title, 'Attention is all you need');
+  });
+
+  it('an entry opened is refused as Serply’s, so the app looks the paper up by its title', async () => {
+    const { asked, fetchImpl } = recording();
+    await assert.rejects(
+      askSerplyScholar('work', { user: 'oR9sCGYAAAAJ', citation: 'oR9sCGYAAAAJ:u5HHmVD_uO8C' }, 'k', { fetchImpl }),
+      (error) => error.serply === true && error.blocked === false && error.reason === 'unsupported',
+    );
+    assert.equal(asked.length, 0, 'no credit spent on it');
+  });
+});
+
+describe('asking Serply', () => {
+  it('sends the key in the header only, and asks once for what it has been given', async () => {
+    const { asked, fetchImpl } = recording();
     await askSerplyScholar('search', { query: 'once' }, 'SECRET', { fetchImpl });
     const results = await askSerplyScholar('search', { query: 'once' }, 'SECRET', { fetchImpl });
     assert.equal(results[0].title, 'Attention is all you need');
@@ -122,72 +233,14 @@ describe('asking Serply’s Scholar endpoint for a results page', () => {
     assert.doesNotMatch(asked[0].url, /SECRET/);
   });
 
-  it('raises Serply’s refusal as its own, not as a captcha', async () => {
-    await assert.rejects(
-      askSerplyScholar('search', { query: 'x' }, 'k', { fetchImpl: async () => new Response('{"detail":"Invalid API key"}', { status: 401 }) }),
-      (error) => error.serply === true && error.blocked === false && error.reason === 'key',
-    );
-  });
-});
-
-describe('asking Serply for a Scholar page', () => {
-  it('posts the page to Serply’s fetch, with the key in the header only', async () => {
-    const asked = [];
-    const fetchImpl = async (url, init) => {
-      asked.push({ url, init });
-      return full(SEARCH);
-    };
-    const results = await askSerply(searchUrl('attention is all you need'), parseResults, 'SECRET', { fetchImpl });
-    assert.equal(results[0].title, 'Attention is all you need');
-    assert.equal(asked.length, 1);
-    assert.equal(asked[0].url, `${SERPLY_HOST}/v1/request`);
-    assert.equal(asked[0].init.method, 'POST');
-    assert.equal(asked[0].init.headers['X-Api-Key'], 'SECRET');
-    const body = JSON.parse(asked[0].init.body);
-    assert.equal(body.response_type, 'full');
-    assert.equal(new URL(body.url).hostname, 'scholar.google.com');
-    assert.doesNotMatch(asked[0].init.body, /SECRET/);
+  it('tries a failed answer of Serply’s once more before saying so', async () => {
+    let tries = 0;
+    const fetchImpl = async () => (++tries === 1 ? new Response('', { status: 502 }) : json(SCHOLAR));
+    const results = await askSerplyScholar('search', { query: 'retried' }, 'k', { fetchImpl });
+    assert.equal(tries, 2);
+    assert.equal(results.length, 2);
   });
 
-  it('fetches Scholar’s pages and nothing else', async () => {
-    const fetchPage = serplyFetcher('k', { fetchImpl: async () => full('') });
-    await assert.rejects(fetchPage('https://example.com/'), /only a scholar\.google\.com page/);
-  });
-
-  it('reads every kind of page the direct way can: people, a profile, one work opened', async () => {
-    const fetchImpl = async (_url, init) => full(pageFor(JSON.parse(init.body).url));
-    const people = await askSerply(authorSearchUrl('Ashish Vaswani'), parseAuthors, 'k', { fetchImpl });
-    assert.equal(people[0].userId, 'oR9sCGYAAAAJ');
-    assert.equal(people[0].affiliation, 'Essential AI');
-    assert.equal(people[0].verifiedEmail, 'essential.ai');
-
-    const works = await askSerply(profileUrl('oR9sCGYAAAAJ'), parseProfileWorks, 'k', { fetchImpl });
-    assert.equal(works[0].title, 'Attention is all you need');
-    assert.equal(works[0].citationId, 'oR9sCGYAAAAJ:u5HHmVD_uO8C');
-
-    const [work] = await askSerply(workUrl('abcdefgh', 'abcdefgh:u5HHmVD_uO8C'), parseCitationView, 'k', { fetchImpl });
-    assert.equal(work.pdfHost, 'bu.edu');
-    assert.equal(work.clusterId, '6188253286931533296');
-  });
-
-  it('takes a plain HTML answer as the page itself', () => {
-    assert.deepEqual(fromSerplyPage('<html>hi</html>'), { status: 200, html: '<html>hi</html>' });
-    assert.deepEqual(fromSerplyPage(JSON.stringify({ status: 429, data: '<html/>' })), { status: 429, html: '<html/>' });
-  });
-
-  it('asks once for a page it has already been given', async () => {
-    let asked = 0;
-    const fetchImpl = async () => {
-      asked += 1;
-      return full(SEARCH);
-    };
-    await askSerply(searchUrl('cached once'), parseResults, 'k', { fetchImpl });
-    await askSerply(searchUrl('cached once'), parseResults, 'k', { fetchImpl });
-    assert.equal(asked, 1);
-  });
-});
-
-describe('being refused', () => {
   it('knows a bad key, a spent allowance, going too fast, and its own fetch failing', () => {
     assert.equal(serplyProblem(401, '{"detail":"Invalid API key"}').reason, 'key');
     assert.equal(serplyProblem(402, '{"detail":"Out of credits"}').reason, 'rate-limited');
@@ -197,26 +250,10 @@ describe('being refused', () => {
     assert.equal(serplyProblem(200, '{}'), null);
   });
 
-  it('tries a failed fetch of Serply’s once more before saying so', async () => {
-    let asked = 0;
-    const fetchImpl = async () => {
-      asked += 1;
-      return asked === 1 ? new Response('', { status: 502 }) : full(SEARCH);
-    };
-    const results = await askSerply(searchUrl('retried'), parseResults, 'k', { fetchImpl });
-    assert.equal(asked, 2);
-    assert.equal(results[0].title, 'Attention is all you need');
-  });
-
-  it('says a captcha shown to Serply is Serply’s, not one to open in a window here', async () => {
+  it('raises a refusal as Serply’s, not as a captcha', async () => {
     await assert.rejects(
-      askSerply(searchUrl('refused'), parseResults, 'k', { fetchImpl: async () => full(CAPTCHA, 200) }),
-      (error) => {
-        assert.equal(error.serply, true);
-        assert.equal(error.blocked, false);
-        assert.equal(error.reason, 'scholar-refused');
-        return true;
-      },
+      askSerplyScholar('search', { query: 'x' }, 'k', { fetchImpl: async () => json({ detail: 'Invalid API key' }, 401) }),
+      (error) => error.serply === true && error.blocked === false && error.reason === 'key',
     );
   });
 });
@@ -236,23 +273,23 @@ describe('a proxy with a Serply key', () => {
     globalThis.fetch = realFetch;
     server.close();
   };
-
-  /** Serply: its Scholar endpoint answers JSON, its page fetch Scholar's pages. */
-  const serply = (url, init) =>
-    url.startsWith(`${SERPLY_HOST}/v1/scholar`)
-      ? new Response(JSON.stringify(SCHOLAR), { status: 200 })
-      : full(pageFor(JSON.parse(init.body).url));
-
-  it('asks Serply for every Scholar route, never Scholar, and never lets the key out', async () => {
-    await listen();
-    process.env.SERPLY_KEY = 'SERPLY-SECRET';
-    const asked = [];
+  /** The proxy's own fetch, answered as `answer` does for anything but the proxy. */
+  const intercept = (answer) => {
     globalThis.fetch = async (input, init) => {
       const url = String(input instanceof Request ? input.url : input);
       if (url.startsWith(base)) return realFetch(input, init);
-      asked.push({ url, key: init?.headers?.['X-Api-Key'] });
-      return serply(url, init);
+      return answer(url, init);
     };
+  };
+
+  it('answers every Scholar route from Serply, never Scholar, and never lets the key out', async () => {
+    await listen();
+    process.env.SERPLY_KEY = 'SERPLY-SECRET';
+    const asked = [];
+    intercept((url, init) => {
+      asked.push({ url, key: init?.headers?.['X-Api-Key'] });
+      return serply(url);
+    });
     try {
       const health = await (await realFetch(`${base}/health`)).json();
       assert.equal(health.scholar, 'serply');
@@ -263,23 +300,27 @@ describe('a proxy with a Serply key', () => {
       assert.doesNotMatch(text, /SERPLY-SECRET/);
       const people = JSON.parse(text);
       assert.equal(people.via, 'serply');
-      assert.equal(people.results[0].userId, 'oR9sCGYAAAAJ');
+      assert.equal(people.results[0].affiliation, 'Essential AI');
 
       const search = await (await realFetch(`${base}/scholar/search?q=attention`)).json();
       assert.equal(search.results[0].clusterId, '2960712678066186980');
       const versions = await (await realFetch(`${base}/scholar/versions?cluster=2960712678066186980`)).json();
       assert.equal(versions.via, 'serply');
 
-      // Without a SerpApi key, a profile and an entry opened are the page fetch's.
-      const works = await (await realFetch(`${base}/scholar/profile?user=oR9sCGYAAAAJ`)).json();
-      assert.equal(works.results[0].title, 'Attention is all you need');
-      const opened = await (
-        await realFetch(`${base}/scholar/work?user=oR9sCGYAAAAJ&citation=${encodeURIComponent(works.results[0].citationId)}`)
-      ).json();
-      assert.equal(opened.results[0].pdfHost, 'bu.edu');
+      const works = await (await realFetch(`${base}/scholar/profile?user=oR9sCGYAAAAJ&name=Ashish%20Vaswani`)).json();
+      assert.equal(works.via, 'serply');
+      assert.equal(works.results.length, 2);
 
-      const where = asked.map((ask) => new URL(ask.url).pathname);
-      assert.deepEqual(where, ['/v1/scholar', '/v1/scholar', '/v1/scholar', '/v1/request', '/v1/request']);
+      const person = await (await realFetch(`${base}/scholar/person?user=oR9sCGYAAAAJ&name=Ashish%20Vaswani`)).json();
+      assert.equal(person.results[0].name, 'Ashish Vaswani');
+      assert.equal(person.results[0].works[0].title, 'Attention is all you need');
+
+      const opened = await realFetch(`${base}/scholar/work?user=oR9sCGYAAAAJ&citation=oR9sCGYAAAAJ:u5HHmVD_uO8C`);
+      assert.equal(opened.status, 503);
+      assert.equal((await opened.json()).serply, true);
+
+      assert.ok(asked.length > 0);
+      assert.ok(asked.every((ask) => ask.url.startsWith(`${SERPLY_HOST}/v1/`)), asked.map((ask) => ask.url).join('\n'));
       assert.ok(asked.every((ask) => ask.key === 'SERPLY-SECRET'));
       assert.ok(asked.every((ask) => !ask.url.includes('SERPLY-SECRET')));
     } finally {
@@ -290,11 +331,7 @@ describe('a proxy with a Serply key', () => {
   it('says its refusal is Serply’s, so the app does not offer a captcha window for it', async () => {
     await listen();
     process.env.SERPLY_KEY = 'SERPLY-SECRET';
-    globalThis.fetch = async (input, init) => {
-      const url = String(input instanceof Request ? input.url : input);
-      if (url.startsWith(base)) return realFetch(input, init);
-      return new Response('{"detail":"Invalid API key"}', { status: 401 });
-    };
+    intercept(() => json({ detail: 'Invalid API key' }, 401));
     try {
       const response = await realFetch(`${base}/scholar/search?q=anything`);
       assert.equal(response.status, 503);
@@ -308,30 +345,32 @@ describe('a proxy with a Serply key', () => {
     }
   });
 
-  it('with a SerpApi key too: profiles go to SerpApi, and so does whatever Serply refuses', async () => {
+  it('with a SerpApi key too: the profile pages go to SerpApi, and so does whatever Serply refuses', async () => {
     await listen();
     process.env.SERPLY_KEY = 'SERPLY-SECRET';
     process.env.SERPAPI_KEY = 'SERPAPI-SECRET';
     const hosts = [];
     let serplyRefuses = false;
-    globalThis.fetch = async (input, init) => {
-      const url = String(input instanceof Request ? input.url : input);
-      if (url.startsWith(base)) return realFetch(input, init);
+    intercept((url) => {
       hosts.push(new URL(url).hostname);
-      if (url.startsWith(SERPLY_HOST)) return serplyRefuses ? new Response('', { status: 429 }) : serply(url, init);
+      if (url.startsWith(SERPLY_HOST)) return serplyRefuses ? new Response('', { status: 429 }) : serply(url);
       const engine = new URL(url).searchParams.get('engine');
-      return new Response(JSON.stringify(engine === 'google_scholar_author' ? SERP_AUTHOR : SERP_SEARCH), { status: 200 });
-    };
+      return json(engine === 'google_scholar_author' ? SERP_AUTHOR : SERP_SEARCH);
+    });
     try {
       const works = await (await realFetch(`${base}/scholar/profile?user=oR9sCGYAAAAJ`)).json();
       assert.equal(works.via, 'serpapi');
-      assert.deepEqual(hosts, ['serpapi.com'], 'a profile does not spend a Serply credit on a page Scholar refuses it');
+      assert.deepEqual(hosts, ['serpapi.com']);
+
+      hosts.length = 0;
+      const search = await (await realFetch(`${base}/scholar/search?q=serply`)).json();
+      assert.equal(search.via, 'serply');
+      assert.deepEqual(hosts, ['api.serply.io']);
 
       hosts.length = 0;
       serplyRefuses = true;
       const payload = await (await realFetch(`${base}/scholar/search?q=fallback`)).json();
       assert.equal(payload.via, 'serpapi');
-      assert.equal(payload.results[0].title, 'Attention is all you need');
       assert.deepEqual(hosts, ['api.serply.io', 'serpapi.com']);
     } finally {
       stop();

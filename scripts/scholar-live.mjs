@@ -10,7 +10,8 @@
  *   node scripts/scholar-live.mjs "attention is all you need"
  *   node scholar-live.mjs --author "Saurav Chennuri"
  *   SCHOLAR_BROWSER=1 node scripts/scholar-live.mjs    # drive real Chromium
- *   SERPLY_KEY=… node scripts/scholar-live.mjs         # through Serply's page fetch
+ *   SERPLY_KEY=… node scripts/scholar-live.mjs         # through Serply instead
+ *   SERPLY_KEY=… node scripts/scholar-live.mjs --raw   # and show Serply's raw answers
  *   SERPAPI_KEY=… node scripts/scholar-live.mjs        # through SerpApi instead
  *   node scripts/scholar-live.mjs --save               # refresh the fixtures
  *
@@ -32,6 +33,7 @@ import {
   getScholar,
   parseAuthors,
   parseCitationView,
+  parseProfile,
   parseProfileWorks,
   parseResults,
   plainFetch,
@@ -42,13 +44,12 @@ import {
 } from '../server/scholar.js';
 import { browserWanted, closeBrowser, scholarFetcher } from '../server/scholarBrowser.js';
 import { askSerp } from '../server/serpapi.js';
-import { askSerplyScholar, serplyFetcher, SERPLY_KINDS } from '../server/serply.js';
+import { askSerplyScholar, profilesQuery, serplyScholarUrl, serplySearchUrl } from '../server/serply.js';
 
 /**
- * With a Serply key, each ask goes where the proxy sends it — a search,
- * people and versions to Serply's Scholar endpoint, a profile and an entry
- * opened through Serply's page fetch — see server/serply.js. Otherwise, with
- * a SerpApi key, every ask goes through SerpApi — see server/serpapi.js.
+ * With a Serply key, every ask goes through Serply as the proxy's would —
+ * see server/serply.js. Otherwise, with a SerpApi key, every ask goes
+ * through SerpApi — see server/serpapi.js.
  */
 const SERPLY_KEY = (process.env.SERPLY_KEY || '').trim();
 const SERPAPI_KEY = SERPLY_KEY ? '' : (process.env.SERPAPI_KEY || '').trim();
@@ -65,7 +66,7 @@ const SAVE = flag('--save');
 const QUERY = args.find((arg) => !arg.startsWith('--') && arg !== valueFor('--author')) || 'attention is all you need';
 const AUTHOR = valueFor('--author') || 'Saurav Chennuri';
 
-const fetchPage = SERPLY_KEY ? serplyFetcher(SERPLY_KEY) : SERPAPI_KEY ? null : await scholarFetcher(plainFetch);
+const fetchPage = SERPLY_KEY || SERPAPI_KEY ? null : await scholarFetcher(plainFetch);
 console.log(
   SERPLY_KEY
     ? 'Asking Google Scholar through Serply, with the key in SERPLY_KEY. Each check spends one credit.\n'
@@ -78,12 +79,12 @@ console.log(
 let problems = 0;
 
 async function step(label, url, parse, fixture, serp) {
-  if (SERPLY_KEY && SERPLY_KINDS.has(serp.kind)) {
-    process.stdout.write(`\n── ${label}\n   via Serply's Scholar endpoint: ${serp.kind} ${JSON.stringify(serp.params)}\n`);
+  if (SERPLY_KEY) {
+    process.stdout.write(`\n── ${label}\n   via Serply: ${serp.kind} ${JSON.stringify(serp.params)}\n`);
     try {
       const parsed = await askSerplyScholar(serp.kind, serp.params, SERPLY_KEY);
       console.log(`   OK       ${parsed.length} results`);
-      if (!parsed.length) console.log('   (nothing came back — an empty answer, or a field Serply renamed)');
+      if (!parsed.length) console.log('   (nothing came back — an empty answer, or a field Serply renamed; --raw shows its answers)');
       return parsed;
     } catch (error) {
       problems += 1;
@@ -91,7 +92,6 @@ async function step(label, url, parse, fixture, serp) {
       return null;
     }
   }
-  if (SERPLY_KEY) process.stdout.write(`\n   (through Serply's page fetch, which Scholar often refuses — the proxy asks SerpApi for this page when it has that key)`);
   if (SERPAPI_KEY) {
     process.stdout.write(`\n── ${label}\n   via SerpApi: ${serp.kind} ${JSON.stringify(serp.params)}\n`);
     try {
@@ -131,6 +131,23 @@ async function step(label, url, parse, fixture, serp) {
     console.log(`   saved    scripts/fixtures/${fixture}.html`);
   }
   return parsed;
+}
+
+// ------------------------------------------------------------- raw peek ----
+
+// Serply's answers as they came, first entry of each: the field names are
+// Serply's and not a contract, and this is how a renamed one is spotted.
+if (SERPLY_KEY && flag('--raw')) {
+  for (const [label, url] of [
+    ['Scholar endpoint', serplyScholarUrl({ q: QUERY })],
+    ['Google search for profiles', serplySearchUrl(profilesQuery(AUTHOR))],
+  ]) {
+    const response = await fetch(url, { headers: { 'X-Api-Key': SERPLY_KEY, 'User-Agent': 'reader-proxy/1.0', 'X-Proxy-Location': 'US' } });
+    const body = await response.json().catch(() => ({}));
+    const first = (body.articles && body.articles[0]) || (body.results && body.results[0]);
+    console.log(`\n── Raw: ${label} (${response.status})\n   keys: ${Object.keys(body).join(', ')}`);
+    console.log(JSON.stringify(first ?? body, null, 2).split('\n').map((line) => `   ${line}`).join('\n'));
+  }
 }
 
 // ---------------------------------------------------------------- papers ----
@@ -197,15 +214,38 @@ if (first) {
     profileUrl(first.userId),
     parseProfileWorks,
     null,
-    { kind: 'profile', params: { user: first.userId, start: 0 } },
+    { kind: 'profile', params: { user: first.userId, start: 0, sort: 'pubdate', name: first.name } },
   );
   for (const work of (works || []).slice(0, 5)) {
     console.log(`     ${work.year ?? '    '}  ${work.title}${work.citedBy ? ` (cited by ${work.citedBy})` : ''}`);
   }
 
+  // The person, as the hover card over an author shows them.
+  const [person] =
+    (await step(`The person behind ${first.userId}`, profileUrl(first.userId, { sort: 'citations' }), (html) => [parseProfile(html, first.userId)].filter(Boolean), null, {
+      kind: 'person',
+      params: { user: first.userId, name: first.name },
+    })) || [];
+  if (person) {
+    console.log(`     ${person.name}${person.affiliation ? ` — ${person.affiliation}` : ''}`);
+    console.log(`     cited by: ${person.citedBy ?? '—'}  h-index: ${person.hIndex ?? '—'}  interests: ${(person.interests || []).join(', ') || '—'}`);
+    console.log(`     most cited: ${(person.works || [])[0]?.title || '—'}`);
+  }
+
   // One of them, opened: where the file Scholar found for it is shown — a
   // copy on the person's own site, as often as not — and the cluster.
   const entry = (works || []).find((work) => work.citationId);
+  // Through Serply a profile's works carry their file and cluster already, and
+  // an entry cannot be opened by id: the app finds a paper by its title instead.
+  const titled = SERPLY_KEY && (works || []).find((work) => !work.citationId);
+  if (titled) {
+    const found = await step(`The work "${titled.title}", found by its title`, searchUrl(`"${titled.title}"`), parseResults, null, {
+      kind: 'search',
+      params: { query: `"${titled.title}"` },
+    });
+    const same = (found || []).find((result) => result.title.toLowerCase() === titled.title.toLowerCase());
+    console.log(`     ${same ? `found — file: ${same.pdfUrl || '— none listed'}, cluster: ${same.clusterId || '—'}` : '⚠  not found by its title'}`);
+  }
   if (entry) {
     const [opened] = (await step(
       `The entry "${entry.title}", opened`,

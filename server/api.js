@@ -27,7 +27,7 @@ import {
 import { captchaStatus, closeCaptcha, openCaptcha, scholarFetcher } from './scholarBrowser.js';
 import * as browse from './browse.js';
 import { askSerp } from './serpapi.js';
-import { askSerply, askSerplyScholar, SERPLY_KINDS } from './serply.js';
+import { askSerplyScholar, SERPAPI_BETTER } from './serply.js';
 import * as workspace from './workspace.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
@@ -465,11 +465,10 @@ export function setScholarFetcher(fetcher) {
 /**
  * With a Serply or a SerpApi key on this proxy, Scholar is asked through
  * them instead — see server/serply.js and server/serpapi.js: no captcha, and
- * it works from a server. Serply's Scholar endpoint takes the results pages
- * (a search, people, versions); a profile or an entry opened goes to SerpApi
- * when there is its key too, and to Serply's page fetch when there is not.
- * Whatever Serply refuses, SerpApi is asked instead where it can be. Without
- * either key, the page itself, as above.
+ * it works from a server. Serply answers every ask, rebuilding a profile from
+ * searches; with SerpApi's key too, SerpApi takes the profile pages, which it
+ * reads exactly, and whatever Serply refuses. Without either key, the page
+ * itself, as above.
  */
 const serpKey = () => (process.env.SERPAPI_KEY || '').trim();
 const serplyKey = () => (process.env.SERPLY_KEY || '').trim();
@@ -479,10 +478,9 @@ export const scholarVia = () => (serplyKey() ? 'serply' : serpKey() ? 'serpapi' 
 
 /** One ask of Scholar, by whichever way this proxy has: the results and which answered. */
 async function askScholar({ kind, params, url, parse }) {
-  if (serplyKey()) {
+  if (serplyKey() && !(serpKey() && SERPAPI_BETTER.has(kind))) {
     try {
-      if (SERPLY_KINDS.has(kind)) return { results: await askSerplyScholar(kind, params, serplyKey()), via: 'serply' };
-      if (!serpKey()) return { results: await askSerply(url, parse, serplyKey()), via: 'serply' };
+      return { results: await askSerplyScholar(kind, params, serplyKey()), via: 'serply' };
     } catch (error) {
       if (!(error && error.serply && serpKey())) throw error;
     }
@@ -550,9 +548,11 @@ function scholarProfile(req, url, res) {
   if (!/^[\w-]{6,32}$/.test(user)) return send(res, 400, { error: 'bad Scholar profile id' });
   const start = Math.max(0, Number(url.searchParams.get('start')) || 0);
   const sort = profileSort(url.searchParams.get('sort'));
+  // The person's name, where the app knows it: Serply finds works by name.
+  const name = (url.searchParams.get('name') || '').trim().slice(0, 200) || undefined;
   return scholar(req, res, {
     kind: 'profile',
-    params: { user, start, sort },
+    params: { user, start, sort, name },
     url: profileUrl(user, { start, sort }),
     parse: parseProfileWorks,
   });
@@ -564,9 +564,10 @@ function scholarProfile(req, url, res) {
 function scholarPerson(req, url, res) {
   const user = (url.searchParams.get('user') || '').trim();
   if (!/^[\w-]{6,32}$/.test(user)) return send(res, 400, { error: 'bad Scholar profile id' });
+  const name = (url.searchParams.get('name') || '').trim().slice(0, 200) || undefined;
   return scholar(req, res, {
     kind: 'person',
-    params: { user },
+    params: { user, name },
     url: profileUrl(user, { sort: 'citations' }),
     parse: (html) => [parseProfile(html, user)].filter(Boolean),
   });
