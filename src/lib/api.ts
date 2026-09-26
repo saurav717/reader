@@ -76,13 +76,31 @@ let override: string | null = saved.base;
  */
 let token = saved.token;
 
+const proxyListeners = new Set<() => void>();
+
+/** Be told when the proxy or its token changes — a sign-in, or Settings. */
+export function onProxyChange(listener: () => void): () => void {
+  proxyListeners.add(listener);
+  return () => {
+    proxyListeners.delete(listener);
+  };
+}
+
+const proxyChanged = () => proxyListeners.forEach((listener) => listener());
+
 /** Called by the store whenever Settings changes, and once on load. */
 export function setProxyBase(value: string | null | undefined): void {
-  override = normaliseProxyBase(value);
+  const next = normaliseProxyBase(value);
+  if (next === override) return;
+  override = next;
+  proxyChanged();
 }
 
 export function setProxyToken(value: string | null | undefined): void {
-  token = (value || '').trim();
+  const next = (value || '').trim();
+  if (next === token) return;
+  token = next;
+  proxyChanged();
 }
 
 export function hasProxyToken(): boolean {
@@ -264,3 +282,32 @@ export const NO_PROXY_REASON =
 /** What to tell someone who could fix it, rather than only what is wrong. */
 export const NO_PROXY_FIX =
   'Deploy the Cloudflare Worker in worker/ and paste its URL into Settings → Paper proxy, and arXiv, the full text and the PDFs all come back.';
+
+/** What a proxy's /health says it can do, as far as the app needs to know before asking. */
+export interface ProxyHealth {
+  /** Whether its paid routes want the token (or a pass from a Google sign-in). */
+  auth: boolean;
+  /** Whether it has a Gemini key for Ask AI and Explain. */
+  gemini: boolean;
+}
+
+const healthOf = new Map<string, Promise<ProxyHealth | null>>();
+
+/** The proxy's /health, asked once per address; null with no proxy, or none that answers. */
+export function proxyHealth(): Promise<ProxyHealth | null> {
+  const base = apiBase();
+  if (!base) return Promise.resolve(null);
+  let asked = healthOf.get(base);
+  if (!asked) {
+    asked = fetch(`${base}/health`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body) => (body ? { auth: Boolean(body.auth), gemini: Boolean(body.gemini) } : null))
+      .catch(() => {
+        // Asked again next time: the proxy may just have been down.
+        healthOf.delete(base);
+        return null;
+      });
+    healthOf.set(base, asked);
+  }
+  return asked;
+}

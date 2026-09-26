@@ -28,6 +28,8 @@ import { captchaStatus, closeCaptcha, openCaptcha, scholarFetcher } from './scho
 import * as browse from './browse.js';
 import { askServices, servicesLabel } from './scholarServices.js';
 import * as workspace from './workspace.js';
+import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini } from './geminiRelay.js';
+import { Readable } from 'node:stream';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
 
@@ -678,6 +680,37 @@ async function workspaceRun(req, res) {
   }
 }
 
+// --------------------------------------------------------------- gemini ----
+//
+// Gemini for Ask AI and Explain, on this proxy's key (GEMINI_KEY), so it is
+// never typed into the site: see server/geminiRelay.js. A POST from this
+// app, with the token when this proxy wants one; Google's answer streams
+// back as it comes.
+
+const geminiKey = () => (process.env.GEMINI_KEY || '').trim();
+
+async function gemini(req, res) {
+  if (req.method !== 'POST') return send(res, 405, { error: 'POST' });
+  if (!fromThisApp(req)) return send(res, 403, { error: 'not from this app' });
+  const refused = gate(req, res);
+  if (refused) return refused;
+  if (!geminiKey()) return send(res, 501, { error: 'this proxy has no Gemini key: set GEMINI_KEY and start it again', setup: true });
+  let checked;
+  try {
+    checked = checkRequest(await readJson(req, MAX_REQUEST_BYTES));
+  } catch (error) {
+    return send(res, error instanceof GeminiRefused ? error.status : 400, { error: error instanceof GeminiRefused ? error.message : said(error, 'could not read that request') });
+  }
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+  const { response } = await relayGemini(checked, geminiKey(), { signal: controller.signal });
+  res.writeHead(response.status, { 'Content-Type': response.headers.get('Content-Type') || 'application/json', 'Cache-Control': 'no-store' });
+  if (!response.body) return res.end();
+  Readable.fromWeb(response.body)
+    .on('error', () => res.end())
+    .pipe(res);
+}
+
 /** Which rate-limit bucket a route draws from, if any. */
 function costOf(pathname) {
   if (pathname === '/pdf' || pathname === '/asset') return 'pdf';
@@ -758,6 +791,8 @@ export default async function apiRouter(req, res, next) {
         return browsePdf(url, res);
       case '/browse/close':
         return await accessAction(req, res, () => browse.close());
+      case '/ai/gemini':
+        return await gemini(req, res);
       case '/workspace/status':
         return send(res, 200, await workspace.status(), { 'Cache-Control': 'no-store' });
       case '/workspace/scaffold':
@@ -770,6 +805,8 @@ export default async function apiRouter(req, res, next) {
           access: (await access.availability()).available,
           browse: (await access.browseAvailability()).available,
           scholar: scholarVia(),
+          /** Whether Ask AI and Explain can use Gemini on this proxy's key. */
+          gemini: Boolean(geminiKey()),
           /** Whether the sign-in and browser routes want a token — so the app can ask for one. */
           auth: tokenRequired(),
           /** Whether READER_WORKSPACE names a directory the Implementation page can write into and run in. */

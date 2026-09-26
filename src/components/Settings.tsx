@@ -16,7 +16,7 @@ function ModelOptions({ keys }: { keys: Record<string, boolean> }) {
   return (
     <>
       {PROVIDER_IDS.map((id) => (
-        <optgroup key={id} label={`${PROVIDERS[id].company}${keys[id] ? '' : ' — no key yet'}`}>
+        <optgroup key={id} label={`${PROVIDERS[id].company}${keys[id] ? '' : PROVIDERS[id].viaProxy ? ' — not on your proxy yet' : ' — no key yet'}`}>
           {MODELS.filter((m) => m.provider === id).map((m) => (
             <option key={m.id} value={m.id}>
               {m.label} — {m.note}
@@ -613,7 +613,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           ))}
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
             Each key is kept in this browser only and sent straight to its provider — api.anthropic.com or
-            api.deepseek.com. Usage bills your own account there.
+            api.deepseek.com. Usage bills your own account there. Gemini is the exception: it runs on your paper
+            proxy’s own key (GEMINI_KEY), which never reaches this page.
           </p>
         </section>
 

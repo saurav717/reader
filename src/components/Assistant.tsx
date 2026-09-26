@@ -13,6 +13,7 @@ import {
   clearHistory,
   deleteChat,
   forgetKey,
+  geminiNote,
   getState,
   newChat,
   openChat,
@@ -568,6 +569,17 @@ function KeyInput({ provider, onSaved }: { provider: Provider; onSaved?: () => v
 /** A provider's key in the ⚙ menu: connected with a way to forget it, or a box to add one. */
 export function KeyRow({ provider, connected }: { provider: Provider; connected: boolean }) {
   const info = PROVIDERS[provider];
+  const readiness = useSyncExternalStore(subscribe, () => getState().gemini);
+  if (info.viaProxy) {
+    return (
+      <div className={connected ? 'set-key' : 'set-key-add'}>
+        {connected ? <span className="set-key-dot" aria-hidden="true" /> : null}
+        <span>
+          <b>{info.company}</b> · {info.name} · {geminiNote(readiness).short} — no key is kept in this browser
+        </span>
+      </div>
+    );
+  }
   return connected ? (
     <div className="set-key">
       <span className="set-key-dot" aria-hidden="true" />
@@ -593,6 +605,16 @@ export function KeyRow({ provider, connected }: { provider: Provider; connected:
 
 function KeyCard({ provider }: { provider: Provider }) {
   const info = PROVIDERS[provider];
+  const readiness = useSyncExternalStore(subscribe, () => getState().gemini);
+  if (info.viaProxy) {
+    return (
+      <div className="chat-card">
+        <h3>{info.name} runs on your paper proxy</h3>
+        <p>{geminiNote(readiness).long}</p>
+        <p className="chat-card-note">Or pick a Claude or DeepSeek model above.</p>
+      </div>
+    );
+  }
   return (
     <div className="chat-card">
       <h3>Connect your {info.company} account</h3>
@@ -884,11 +906,11 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           value={model.id}
           disabled={s.live}
           onChange={(event) => setModel(event.target.value)}
-          title="Which model answers — Claude or DeepSeek"
+          title="Which model answers — Claude, DeepSeek or Gemini"
           aria-label="Model"
         >
           {PROVIDER_IDS.map((id) => (
-            <optgroup key={id} label={`${PROVIDERS[id].company}${s.keys[id] ? '' : ' — no key yet'}`}>
+            <optgroup key={id} label={`${PROVIDERS[id].company}${s.keys[id] ? '' : PROVIDERS[id].viaProxy ? ` — ${geminiNote(s.gemini).short}` : ' — no key yet'}`}>
               {MODELS.filter((m) => m.provider === id).map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label} — {m.note}
@@ -1098,7 +1120,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           rows={1}
           value={input}
           disabled={!s.hasKey}
-          placeholder={s.hasKey ? (reading ? 'Ask about this paper…' : `Ask ${provider.name}…`) : `Add a ${provider.company} API key above to start`}
+          placeholder={s.hasKey ? (reading ? 'Ask about this paper…' : `Ask ${provider.name}…`) : provider.viaProxy ? `${provider.name} is not available yet — see above` : `Add a ${provider.company} API key above to start`}
           aria-label={ASSISTANT_NAME}
           onChange={(event) => {
             setInput(event.target.value);

@@ -85,7 +85,7 @@ await win.waitFor();
 check('the window is called Ask AI', (await win.locator('.win-name').textContent()) === 'Ask AI');
 const picker = page.getByLabel('Model');
 const groups = await picker.locator('optgroup').evaluateAll((els) => els.map((el) => el.label));
-check('the picker groups Claude and DeepSeek models', groups.length === 2 && /Anthropic/.test(groups[0]) && /DeepSeek/.test(groups[1]), groups.join(' | '));
+check('the picker groups Claude, DeepSeek and Gemini models', groups.length === 3 && /Anthropic/.test(groups[0]) && /DeepSeek/.test(groups[1]) && /Google/.test(groups[2]), groups.join(' | '));
 await picker.selectOption('deepseek-flash');
 check('a DeepSeek model asks for a DeepSeek key', await page.getByText('Connect your DeepSeek account').isVisible());
 await page.screenshot({ path: `${OUT}/deepseek-key.png` });
@@ -131,7 +131,7 @@ check('under the model’s name', ((await page.locator('.chat-claude .chat-who')
 check('with its reasoning folded away', await page.locator('.chat-thinking summary').isVisible());
 await page.screenshot({ path: `${OUT}/deepseek-answer.png` });
 await page.locator('.chat-toolbar').getByRole('button', { name: 'Settings' }).click();
-check('⚙ lists a key for each provider', (await page.locator('.chat-settings .set-key').count()) === 1 && (await page.locator('.chat-settings .set-key-add').count()) === 1);
+check('⚙ lists a key for each provider', (await page.locator('.chat-settings .set-key').count()) === 1 && (await page.locator('.chat-settings .set-key-add').count()) === 2);
 await page.screenshot({ path: `${OUT}/deepseek-chat-settings.png` });
 await page.keyboard.press('Control+Backslash');
 

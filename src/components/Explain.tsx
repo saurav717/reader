@@ -3,7 +3,7 @@ import { cleanFigure } from '../lib/sanitize';
 import type { CSSProperties } from 'react';
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Screen } from '../lib/assistant';
-import { ASSISTANT_NAME, getState, looksLikeKey, MODELS, modelSpec, PROVIDERS, saveKey, setExplainModel, subscribe } from '../lib/assistant';
+import { ASSISTANT_NAME, geminiNote, getState, looksLikeKey, MODELS, modelSpec, PROVIDERS, saveKey, setExplainModel, subscribe } from '../lib/assistant';
 import type { Block, Section } from '../lib/explain';
 import {
   applyEdits,
@@ -858,7 +858,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
                       <b>{m.label}</b>
                       <span>
                         {m.note}
-                        {assistant.keys[m.provider] ? '' : ' · needs a key'}
+                        {assistant.keys[m.provider] ? '' : PROVIDERS[m.provider].viaProxy ? ` · ${geminiNote(assistant.gemini).short}` : ' · needs a key'}
                       </span>
                     </button>
                   ))}
@@ -874,6 +874,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
                   <b>Written once</b> and kept for this paper
                   {driveState ? ', in this browser and in the paper’s folder in your Drive' : implementing ? ', in this browser' : ''}. A long paper costs about as much as a few long answers in {ASSISTANT_NAME}.
                 </p>
+              ) : provider.viaProxy ? (
+                <p className="hint">{geminiNote(assistant.gemini).long}</p>
               ) : (
                 <>
                   <form
