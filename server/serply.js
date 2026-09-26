@@ -248,19 +248,65 @@ export function fromSerplyProfiles(json) {
           piece.toLowerCase() !== name.toLowerCase() &&
           !/^Cited by\b|^Verified email\b|^Articles\b|^Homepage$|^No verified email$|^Google Scholar$|^Title$|^Sort\b|^Year$|^Public access$/i.test(piece),
       );
-    const [affiliation, ...interests] = pieces;
+    // Google shows the top of the profile only some of the time; as often it
+    // shows the list of works under it — "Fusion approaches to predict … . S
+    // Chennuri, S Lai, …" — and its first line is a paper's title, not where
+    // they are. The first piece is taken for the affiliation only where the
+    // snippet plainly is the profile's header: the "Affiliation - Cited by N -
+    // Interest" line, or the page's top run together, name first. Anything
+    // else is left for the reader (below, `readProfiles`) or left out.
+    const header = /\s[-–]\s/.test(text) && !/^[^.]{12,}\.\s/.test(text) ? 'dashes' : startsWithName(text, name) ? 'top' : null;
+    const works = pieces.some(isByline);
+    const [first, ...rest] = pieces;
+    const affiliation = header && !works && first && isPlace(first) ? first : undefined;
+    const interests = header && !works ? (affiliation ? rest : pieces) : [];
     people.push({
       userId,
       name,
       profileUrl: profileLink(userId),
-      affiliation: affiliation && affiliation.length <= 160 ? affiliation : undefined,
+      affiliation,
       verifiedEmail: email,
       interests: interests.filter((interest) => interest.length <= 60).slice(0, 8),
       citedBy,
+      // What Google showed, for the reader to go over; never sent to the app.
+      snippet: text,
     });
   }
   return people;
 }
+
+/** Whether a snippet begins with the person's name, as the top of their profile page does. */
+const startsWithName = (text, name) => text.toLowerCase().startsWith(name.toLowerCase());
+
+/** "S Chennuri, S Lai, A Billot" — a byline of initials, which only a list of works has. */
+const isByline = (piece) => /^(?:[A-Z]{1,3}\s+[\p{Lu}][\p{L}'’-]+(?:,\s*|…|\.\.\.|$)){2,}/u.test(piece);
+
+/** An affiliation, not "Unknown affiliation" and not a line too long to be one. */
+const isPlace = (piece) => piece.length <= 160 && !/^unknown affiliation$/i.test(piece);
+
+/** Titles compared as a reader would: case, punctuation and accents aside. */
+export const foldTitle = (value) =>
+  str(value)
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+/**
+ * Whether a line is one of the person's works — whole, or cut short by
+ * Google's ellipsis. A profile's affiliation is never one of its titles.
+ */
+export function isWorkTitle(line, titles) {
+  const folded = foldTitle(line);
+  if (folded.length < 12) return false;
+  return titles.some((title) => {
+    const whole = foldTitle(title);
+    return whole === folded || (whole.startsWith(folded) && folded.length >= 24);
+  });
+}
+
+/** A person as the app is sent them: the snippet the reader went over stays here. */
+const withoutSnippet = ({ snippet, ...person }) => person;
 
 /** A person's works as a profile's list gives them, from the results that link their profile. */
 export function worksOf(results, userId) {
@@ -367,7 +413,7 @@ async function worksFor(userId, name, { start = 0, sort = 'pubdate', pages = PAG
  * asked for by id, and a name saves finding out whose it is. `fetchImpl` is
  * how requests are made, so a test can hand in saved answers.
  */
-export async function askSerplyScholar(kind, params, key, { fetchImpl = (...args) => fetch(...args), signal } = {}) {
+export async function askSerplyScholar(kind, params, key, { fetchImpl = (...args) => fetch(...args), signal, readProfiles } = {}) {
   const options = { fetchImpl, signal };
   switch (kind) {
     case 'search':
@@ -394,7 +440,8 @@ export async function askSerplyScholar(kind, params, key, { fetchImpl = (...args
         getJson(serplyScholarUrl({ q: `author:"${params.name}"`, num: 20 }), key, options).then((json) => fromSerplyAuthors(json, params.name)),
       ]);
       const known = new Set(profiles.map((person) => person.userId));
-      return [...profiles, ...papers.filter((person) => !known.has(person.userId))];
+      await readWhere(profiles, readProfiles);
+      return [...profiles.map(withoutSnippet), ...papers.filter((person) => !known.has(person.userId))];
     }
 
     case 'profile': {
@@ -409,9 +456,10 @@ export async function askSerplyScholar(kind, params, key, { fetchImpl = (...args
       if (!name) throw notFound(params.user);
       // A hover card's handful of most cited works: one results page is plenty.
       const works = await worksFor(params.user, name, { sort: 'citations', pages: 1 }, key, options);
+      if (profile) await readWhere([Object.assign(profile, { works })], readProfiles);
       return [
         {
-          ...(profile || { userId: params.user, name, profileUrl: profileLink(params.user), interests: [] }),
+          ...withoutSnippet(profile || { userId: params.user, name, profileUrl: profileLink(params.user), interests: [] }),
           homepage: undefined,
           citedBySince: undefined,
           // Printed on the profile page alone, which Scholar does not give Serply.
@@ -432,6 +480,33 @@ export async function askSerplyScholar(kind, params, key, { fetchImpl = (...args
 
     default:
       throw new Error(`no Serply request for ${kind}`);
+  }
+}
+
+/**
+ * Where each person is now, as best it can be told from Google's snippet.
+ * An affiliation that is one of their works' titles is dropped whatever
+ * read it. With a reader (DeepSeek, server/profileReader.js), its reading
+ * of the snippet replaces the rule's; it may say there is none. In place.
+ */
+async function readWhere(people, readProfiles) {
+  for (const person of people) {
+    const titles = (person.works || []).map((work) => work.title);
+    if (person.affiliation && isWorkTitle(person.affiliation, titles)) person.affiliation = undefined;
+  }
+  if (!readProfiles || !people.length) return;
+  let readings;
+  try {
+    readings = await readProfiles(people);
+  } catch {
+    return;
+  }
+  for (const person of people) {
+    const reading = readings?.get?.(person.userId);
+    if (!reading) continue;
+    person.affiliation = reading.affiliation;
+    person.verifiedEmail = person.verifiedEmail || reading.verifiedEmail;
+    if (reading.interests?.length) person.interests = reading.interests;
   }
 }
 

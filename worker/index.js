@@ -633,8 +633,15 @@ export default {
             return json({ error: 'too many Scholar searches at once; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });
           }
           try {
-            const { results, via, spent } = await askServices(kind, params, { serply: serplyKey, serpapi: serpKey }, { first: env.SCHOLAR_FIRST });
+            const { results, via, spent, ai } = await askServices(
+              kind,
+              params,
+              // DeepSeek reads Serply's profile snippets for where a person is now.
+              { serply: serplyKey, serpapi: serpKey, deepseek: String(env.DEEPSEEK_KEY || '').trim() },
+              { first: env.SCHOLAR_FIRST },
+            );
             tally(env, ctx, who, { scholar: 1, ...spent });
+            if (ai) tally(env, ctx, who, aiCounts(ai));
             return json({ results, source: 'scholar', via }, 200, { ...headers, 'Cache-Control': 'private, max-age=300' });
           } catch (error) {
             tally(env, ctx, who, { scholar: 1, ...(error?.spent || {}) });
