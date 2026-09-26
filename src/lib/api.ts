@@ -156,15 +156,60 @@ export function passExpires(value: string): number {
   }
 }
 
-/** A Google sign-in, swapped for a proxy pass. Null when the proxy does not take them. */
-export async function passForGoogle(googleToken: string): Promise<string | null> {
+// The captcha on the sign-in screen: the proxy's Turnstile site key, asked
+// once per proxy address, and the answer the widget gave, kept until the
+// sign-in it was solved for uses it — each answer is good once.
+let captchaKey: { base: string | null; key: Promise<string | null> } | null = null;
+let captchaAnswer: string | null = null;
+
+/** The Turnstile site key the proxy wants sign-ins solved with, or null when it wants none. */
+export function captchaSiteKey(): Promise<string | null> {
+  const base = apiBase();
+  if (!captchaKey || captchaKey.base !== base) {
+    const key =
+      base && mayAskForPass()
+        ? fetch(`${base}/health`, { headers: { Accept: 'application/json' } })
+            .then((response) => (response.ok ? response.json() : {}))
+            .then((health: { captcha?: unknown }) => (typeof health.captcha === 'string' && health.captcha ? health.captcha : null))
+            .catch(() => null)
+        : Promise.resolve(null);
+    captchaKey = { base, key };
+  }
+  return captchaKey.key;
+}
+
+/** What the captcha widget answered, for the next sign-in; null when it expired. */
+export function setCaptchaAnswer(answer: string | null): void {
+  captchaAnswer = answer;
+}
+
+/** A sign-in the proxy turned away: too many from this address, or no captcha solved. */
+export class SignInRefused extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SignInRefused';
+  }
+}
+
+/**
+ * A Google sign-in, swapped for a proxy pass. Null when the proxy does not
+ * take them; throws SignInRefused when it does, but not this one — rate
+ * limited, or the captcha unsolved — which the caller treats as a failed
+ * sign-in.
+ */
+export async function passForGoogle(googleToken: string, held?: string): Promise<string | null> {
   if (!mayAskForPass()) return null;
-  const response = await fetch(api('/auth/google'), {
-    method: 'POST',
-    headers: { 'X-Google-Token': googleToken, 'X-Reader-Client': clientId() },
-  });
+  const headers: Record<string, string> = { 'X-Google-Token': googleToken, 'X-Reader-Client': clientId() };
+  // A pass still good renews without a captcha; the answer is spent either way.
+  if (held && isPass(held)) headers.Authorization = `Bearer ${held}`;
+  if (captchaAnswer) headers['X-Captcha-Token'] = captchaAnswer;
+  captchaAnswer = null;
+  const response = await fetch(api('/auth/google'), { method: 'POST', headers });
+  const payload = (await response.json().catch(() => ({}))) as { pass?: string; error?: string; captcha?: string; limited?: boolean };
+  if (response.status === 429 || (response.status === 403 && payload.captcha)) {
+    throw new SignInRefused(payload.error ? `Sign-in refused: ${payload.error}.` : 'Sign-in refused; wait a minute and try again.');
+  }
   if (!response.ok) return null;
-  const payload = (await response.json().catch(() => ({}))) as { pass?: string };
   return payload.pass && isPass(payload.pass) ? payload.pass : null;
 }
 

@@ -537,6 +537,36 @@ works, on your accounts:
 
 It goes to the Worker as a header and nowhere else.
 
+**The site is behind a Google sign-in, and bots are kept out of it.** The
+site's build (`npm run build:pages`, which sets `VITE_REQUIRE_SIGN_IN=true`)
+has no **Not now**: the opening screen stays until someone signs in with
+Google, and Google is the only way in. A local or dev build (`npm run dev`,
+`npm run build`) is not gated and can still be used signed out; set
+`VITE_REQUIRE_SIGN_IN=true` on it to gate it too, or `false` on `build:pages`
+to publish without the gate. The gate in the page is a courtesy; what stops
+a bot is at the Worker, where the sign-in is swapped for a pass:
+
+- **Five sign-ins a minute per IP address** (`LOGIN_LIMIT` in `wrangler.toml`).
+  The sixth gets a 429 with `Retry-After: 60` before Google is asked anything,
+  and the app goes back to the sign-in screen and says to wait a minute.
+- **A captcha, if you want one** — Cloudflare Turnstile, free. In the
+  Cloudflare dashboard, **Turnstile → Add widget**, with the hostnames
+  `saurav717.github.io` and `localhost`, mode *Managed*. Put its **site key** in
+  `wrangler.toml` as `TURNSTILE_SITE_KEY` (public; `/health` hands it to the
+  app) and its **secret key** in a secret, then deploy:
+
+  ```bash
+  npx --yes wrangler@4 secret put TURNSTILE_SECRET
+  npm run deploy:worker
+  ```
+
+  With both set, the sign-in screen draws Turnstile's box and the Google
+  button waits until it is ticked; the Worker checks the answer with
+  Turnstile, from the address that solved it, and gives no pass without one.
+  Renewing a pass that is still good needs no captcha, since that happens
+  quietly. With either unset there is no captcha, and the rate limit is the
+  only brake. The site needs no rebuild to turn it on or off.
+
 **Who is using it, and how much.** The Worker keeps a tally per person per day,
 for ninety days, in a small Durable Object (`worker/usage.js`, the `USAGE`
 binding): sign-ins, Scholar asks, the requests Serply and SerpApi were charged

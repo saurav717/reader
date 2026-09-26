@@ -25,6 +25,13 @@ import type { GoogleUser } from '../types';
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
 const IDENTITY_SCOPES = 'openid email profile';
+/**
+ * Whether this build is behind a Google sign-in: the site's build
+ * (`npm run build:pages`) is, so the opening screen has no way past it but
+ * Google; a local or dev build is not, and can still be used signed out.
+ */
+export const SIGN_IN_REQUIRED = (import.meta.env as ImportMetaEnv | undefined)?.VITE_REQUIRE_SIGN_IN === 'true';
+
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
 interface TokenResponse {
@@ -287,6 +294,15 @@ export async function ensureDriveToken(clientId: string): Promise<string> {
   const granted = await tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`, '');
   if (!granted.scopes.includes(DRIVE_SCOPE)) throw new Error('Drive access was not granted');
   return granted.accessToken;
+}
+
+/**
+ * Forget this browser's sign-in without revoking Google's grant — for a
+ * sign-in the proxy turned away, where the person is meant to try again
+ * with one click, not consent from the start.
+ */
+export function dropSignIn(): void {
+  forgetToken();
 }
 
 export function signOut(): void {

@@ -24,6 +24,7 @@ import Reader from './components/Reader';
 import Settings from './components/Settings';
 import UsageView, { useIsOwner } from './components/UsageView';
 import Welcome from './components/Welcome';
+import { SIGN_IN_REQUIRED } from './lib/google';
 import { ChartIcon, GoogleMark, HighlighterIcon, LibraryIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
 
 const WELCOME_KEY = 'reader.welcomed';
@@ -575,7 +576,10 @@ export default function App() {
   // it is. On a first visit, with nothing to connect to yet, it is still the
   // introduction it always was.
   const needsDrive = Boolean(settings.googleClientId.trim()) && !driveConnected;
-  const showWelcome = !skippedConnect && (needsDrive || (!welcomed && !papers.length));
+  // On the site (SIGN_IN_REQUIRED), the app is behind a Google sign-in:
+  // nobody gets past the opening screen without one, skipped or not.
+  const needsSignIn = SIGN_IN_REQUIRED && Boolean(settings.googleClientId.trim()) && !user;
+  const showWelcome = needsSignIn || (!skippedConnect && (needsDrive || (!welcomed && !papers.length)));
   const reading = view.kind === 'paper' ? view.id : null;
   // With no paper open the notes pane lists every paper's notes, a card to each.
   const dockPane: Dock = dock;
