@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, hasProxy } from '../lib/api';
-import AiUsage, { ROW_HEIGHT, ROWS_IN_VIEW, SearchBox, card, cardHead, cardTitle } from './AiUsage';
+import AiUsage, { ROW_HEIGHT, ROWS_IN_VIEW, SearchBox, SortControl, SortHeading, card, cardHead, cardTitle, useSort } from './AiUsage';
+import type { SortOption } from './AiUsage';
 import { ChartIcon, ChevronDownIcon, ChevronRightIcon, RestoreIcon } from './icons';
 
 /** One person's counts, as the Worker's `/usage` reports them (worker/usage.js). */
@@ -86,6 +87,14 @@ const COUNTED = [
   ['pdf', 'PDFs'],
 ] as const;
 
+/** What the services list can be sorted on: every column. */
+const SERVICE_SORTS: SortOption<Person>[] = [
+  ...COUNTED.map(([key, title]) => ({ id: key as string, label: title as string, value: (person: Person) => person.total[key] || 0 })),
+  { id: 'last', label: 'Last seen', value: (person) => person.last || 0 },
+  { id: 'days', label: 'Days active', value: (person) => person.days || 0 },
+  { id: 'email', label: 'Email', value: (person) => person.email },
+];
+
 /**
  * Who has used the proxy's paid accounts, and how much: everyone who has
  * signed in, their totals for the period, when they were last seen, and —
@@ -100,6 +109,8 @@ export default function UsageView() {
   const [report, setReport] = useState<UsageReport | null | undefined>(undefined);
   const [open, setOpen] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  // Most Scholar asks first, as the Worker orders it, until another order is picked.
+  const sorting = useSort(SERVICE_SORTS, { by: 'scholar', dir: 'desc' });
   const [updatedAt, setUpdatedAt] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   // The period of the answer being waited for, so an answer for a period
@@ -158,7 +169,7 @@ export default function UsageView() {
   const head = { ...cell, fontWeight: 500, fontSize: 12.5, position: 'sticky' as const, top: 0, background: 'var(--panel)', zIndex: 1, borderBottom: rule };
   const foot = { ...cell, position: 'sticky' as const, bottom: 0, background: 'var(--panel)', borderTop: rule };
   const needle = query.trim().toLowerCase();
-  const shown = report ? (needle ? report.people.filter((person) => person.email.toLowerCase().includes(needle)) : report.people) : [];
+  const shown = report ? sorting.sort(needle ? report.people.filter((person) => person.email.toLowerCase().includes(needle)) : report.people) : [];
 
   return (
     <div className="main library-main" aria-label="Usage">
@@ -219,19 +230,18 @@ export default function UsageView() {
                   {shown.length === report.people.length ? report.people.length : `${shown.length} of ${report.people.length}`}
                 </span>
                 <span style={{ flexGrow: 1 }} />
+                <SortControl options={SERVICE_SORTS} by={sorting.by} dir={sorting.dir} onPick={sorting.pick} onDir={sorting.setDir} />
                 <SearchBox value={query} onChange={setQuery} />
               </div>
               <div style={{ maxHeight: ROW_HEIGHT * (ROWS_IN_VIEW + 2) + 2, overflow: 'auto' }}>
                 <table style={{ borderCollapse: 'collapse', fontSize: 13.5, width: '100%' }}>
                   <thead>
                     <tr style={{ color: 'var(--muted)' }}>
-                      <th style={{ ...head, textAlign: 'left' }}>Who</th>
-                      <th style={head}>Last seen</th>
-                      <th style={head}>Days</th>
+                      <SortHeading id="email" label="Who" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={{ ...head, textAlign: 'left' }} />
+                      <SortHeading id="last" label="Last seen" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={head} />
+                      <SortHeading id="days" label="Days" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={head} />
                       {COUNTED.map(([key, title]) => (
-                        <th key={key} style={head}>
-                          {title}
-                        </th>
+                        <SortHeading key={key} id={key} label={title} by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={head} />
                       ))}
                     </tr>
                   </thead>

@@ -84,6 +84,22 @@ const shortDay = (day: string) => `${Number(day.slice(5, 7))}/${Number(day.slice
 
 type Metric = 'cost' | 'requests' | 'tokens' | 'balance';
 
+/** What the AI people list can be sorted on. */
+const AI_SORTS: SortOption<Person>[] = [
+  { id: 'total', label: 'Total cost', value: (person) => aiCost(person.total) },
+  ...PROVIDERS.flatMap(({ id, name }) => [
+    { id: `${id}_cost`, label: `${name} cost`, value: (person: Person) => get(person.total, `${id}_cost`) },
+    { id, label: `${name} requests`, value: (person: Person) => get(person.total, id) },
+    {
+      id: `${id}_tokens`,
+      label: `${name} tokens`,
+      value: (person: Person) => get(person.total, `${id}_in`) + get(person.total, `${id}_out`),
+    },
+  ]),
+  { id: 'last', label: 'Last seen', value: (person) => person.last || 0 },
+  { id: 'email', label: 'Email', value: (person) => person.email },
+];
+
 const METRICS: { id: Metric; label: string }[] = [
   { id: 'cost', label: 'Cost' },
   { id: 'requests', label: 'Requests' },
@@ -121,14 +137,10 @@ export default function AiUsage({ report }: { report: UsageReport }) {
   const [provider, setProvider] = useState<Provider>('claude');
   const [metric, setMetric] = useState<Metric>('cost');
 
-  const people = useMemo(
-    () => [...report.people].sort((a, b) => aiCost(b.total) - aiCost(a.total) || a.email.localeCompare(b.email)),
-    [report.people],
-  );
-  const shown = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return needle ? people.filter((person) => person.email.toLowerCase().includes(needle)) : people;
-  }, [people, query]);
+  const sorting = useSort(AI_SORTS, { by: 'total', dir: 'desc' });
+  const people = report.people;
+  const needle = query.trim().toLowerCase();
+  const shown = sorting.sort(needle ? people.filter((person) => person.email.toLowerCase().includes(needle)) : people);
 
   // Someone picked who has since dropped out of the period shows everyone again.
   useEffect(() => {
@@ -195,19 +207,27 @@ export default function AiUsage({ report }: { report: UsageReport }) {
             {shown.length === people.length ? `${people.length}` : `${shown.length} of ${people.length}`}
           </span>
           <span style={{ flexGrow: 1 }} />
+          <SortControl options={AI_SORTS} by={sorting.by} dir={sorting.dir} onPick={sorting.pick} onDir={sorting.setDir} />
           <SearchBox value={query} onChange={setQuery} />
         </div>
         <div style={{ maxHeight: ROW_HEIGHT * (ROWS_IN_VIEW + 1) + 1, overflow: 'auto' }}>
           <table style={{ borderCollapse: 'collapse', fontSize: 13.5, width: '100%' }}>
             <thead>
               <tr style={{ color: 'var(--muted)' }}>
-                <th style={{ ...head, textAlign: 'left' }}>Who</th>
+                <SortHeading id="email" label="Who" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={{ ...head, textAlign: 'left' }} />
                 {PROVIDERS.map(({ id, name }) => (
-                  <th key={id} style={head} title={`${name}: requests · cost`}>
-                    {name}
-                  </th>
+                  <SortHeading
+                    key={id}
+                    id={`${id}_cost`}
+                    label={name}
+                    by={sorting.by}
+                    dir={sorting.dir}
+                    onPick={sorting.pick}
+                    style={head}
+                    title={`${name}: requests · cost — sorts by cost`}
+                  />
                 ))}
-                <th style={head}>Total</th>
+                <SortHeading id="total" label="Total" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={head} />
               </tr>
             </thead>
             <tbody>
@@ -300,6 +320,141 @@ export default function AiUsage({ report }: { report: UsageReport }) {
         </div>
       </div>
     </section>
+  );
+}
+
+export type SortDir = 'asc' | 'desc';
+
+/** One way a list can be sorted: what it is called and the value each row is sorted on. */
+export interface SortOption<T> {
+  id: string;
+  label: string;
+  value: (row: T) => number | string;
+}
+
+/**
+ * A list's sort: which option, which way, and the rows in that order. Picking
+ * a new option starts it the way it reads best — names A to Z, numbers
+ * largest first; picking the same one again turns it round. Ties fall back to
+ * the email, A to Z, so the order never jumps about between refreshes.
+ */
+export function useSort<T extends { email: string }>(options: SortOption<T>[], initial: { by: string; dir: SortDir }) {
+  const [by, setBy] = useState(initial.by);
+  const [dir, setDir] = useState<SortDir>(initial.dir);
+  const option = options.find((entry) => entry.id === by) ?? options[0];
+  const pick = (id: string) => {
+    if (id === option.id) {
+      setDir((current) => (current === 'asc' ? 'desc' : 'asc'));
+      return;
+    }
+    const next = options.find((entry) => entry.id === id) ?? options[0];
+    setBy(next.id);
+    setDir(next.id === 'email' ? 'asc' : 'desc');
+  };
+  const sort = (rows: T[]) =>
+    [...rows].sort((a, b) => {
+      const x = option.value(a);
+      const y = option.value(b);
+      const order = typeof x === 'string' || typeof y === 'string' ? String(x).localeCompare(String(y)) : x - y;
+      return (dir === 'asc' ? order : -order) || a.email.localeCompare(b.email);
+    });
+  return { by: option.id, dir, pick, setDir, sort };
+}
+
+/** "Sort by" and which way, for a list card's header. */
+export function SortControl<T>({
+  options,
+  by,
+  dir,
+  onPick,
+  onDir,
+}: {
+  options: SortOption<T>[];
+  by: string;
+  dir: SortDir;
+  onPick: (id: string) => void;
+  onDir: (dir: SortDir) => void;
+}) {
+  const box = {
+    fontSize: 13,
+    border: '1px solid var(--border)',
+    background: 'var(--paper)',
+    color: 'var(--ink)',
+    height: 30,
+    boxSizing: 'border-box' as const,
+  };
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <label style={{ ...muted, whiteSpace: 'nowrap' }}>
+        Sort by
+      </label>
+      <select
+        value={by}
+        onChange={(event) => onPick(event.target.value)}
+        aria-label="Sort by"
+        style={{ ...box, borderRadius: 8, padding: '0 8px' }}
+      >
+        {options.map((entry) => (
+          <option key={entry.id} value={entry.id}>
+            {entry.label}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        onClick={() => onDir(dir === 'asc' ? 'desc' : 'asc')}
+        aria-label={dir === 'asc' ? 'Ascending — click for descending' : 'Descending — click for ascending'}
+        title={dir === 'asc' ? 'Ascending' : 'Descending'}
+        style={{ ...box, borderRadius: 8, width: 30, cursor: 'pointer', padding: 0, fontSize: 14 }}
+      >
+        {dir === 'asc' ? '↑' : '↓'}
+      </button>
+    </span>
+  );
+}
+
+/**
+ * A column heading that sorts its list: clicking it sorts on it, clicking it
+ * again turns the order round, and the one sorted on shows which way.
+ */
+export function SortHeading({
+  id,
+  label,
+  by,
+  dir,
+  onPick,
+  style,
+  title,
+}: {
+  id: string;
+  label: string;
+  by: string;
+  dir: SortDir;
+  onPick: (id: string) => void;
+  style: React.CSSProperties;
+  title?: string;
+}) {
+  const active = by === id;
+  return (
+    <th style={style} aria-sort={active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'} title={title}>
+      <button
+        type="button"
+        onClick={() => onPick(id)}
+        style={{
+          border: 0,
+          background: 'none',
+          padding: 0,
+          font: 'inherit',
+          color: active ? 'var(--ink)' : 'inherit',
+          fontWeight: active ? 600 : 'inherit',
+          cursor: 'pointer',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {label}
+        <span style={{ display: 'inline-block', width: 12, textAlign: 'center', opacity: active ? 1 : 0 }}>{dir === 'asc' ? '↑' : '↓'}</span>
+      </button>
+    </th>
   );
 }
 
