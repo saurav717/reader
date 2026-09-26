@@ -228,6 +228,24 @@ describe('the asks that are rebuilt', () => {
     assert.equal(person.works[0].title, 'Attention is all you need');
   });
 
+  it('versions: the cluster asked with the paper’s title beside it, the one way Serply opens one', async () => {
+    const { asked, fetchImpl } = recording();
+    const versions = await askSerplyScholar('versions', { cluster: '2960712678066186980', title: 'Attention is all you need' }, 'k', { fetchImpl });
+    assert.equal(versions.length, 2);
+    const url = new URL(asked[0].url);
+    assert.equal(url.searchParams.get('q'), 'Attention is all you need');
+    assert.equal(url.searchParams.get('cluster'), '2960712678066186980');
+  });
+
+  it('versions without a title are refused as Serply’s, with no credit spent', async () => {
+    const { asked, fetchImpl } = recording();
+    await assert.rejects(
+      askSerplyScholar('versions', { cluster: '2960712678066186980' }, 'k', { fetchImpl }),
+      (error) => error.serply === true && error.reason === 'unsupported',
+    );
+    assert.equal(asked.length, 0);
+  });
+
   it('an entry opened is refused as Serply’s, so the app looks the paper up by its title', async () => {
     const { asked, fetchImpl } = recording();
     await assert.rejects(
@@ -320,8 +338,9 @@ describe('a proxy with a Serply key', () => {
 
       const search = await (await realFetch(`${base}/scholar/search?q=attention`)).json();
       assert.equal(search.results[0].clusterId, '2960712678066186980');
-      const versions = await (await realFetch(`${base}/scholar/versions?cluster=2960712678066186980`)).json();
+      const versions = await (await realFetch(`${base}/scholar/versions?cluster=2960712678066186980&title=Attention%20is%20all%20you%20need`)).json();
       assert.equal(versions.via, 'serply');
+      assert.equal(versions.results[0].title, 'Attention is all you need');
 
       const works = await (await realFetch(`${base}/scholar/profile?user=oR9sCGYAAAAJ&name=Ashish%20Vaswani`)).json();
       assert.equal(works.via, 'serply');

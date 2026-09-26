@@ -131,7 +131,8 @@ describe('a paper from a Google Scholar profile', () => {
 
     const found = await findLocations(fromProfile());
     assert.equal(asked[0], '/scholar/work?user=abcdefgh&citation=abcdefgh%3Au5HHmVD_uO8C');
-    assert.equal(asked[1], '/scholar/versions?cluster=6188253286931533296');
+    assert.equal(asked[1].split('&')[0], '/scholar/versions?cluster=6188253286931533296');
+    assert.match(asked[1], /&title=Fusion\+approaches/, 'the title rides along, for a proxy that asks Serply');
 
     const bu = found.find((location) => location.host === 'bu.edu');
     assert.ok(bu, 'the copy on the university site is listed');

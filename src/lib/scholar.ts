@@ -341,10 +341,13 @@ export async function scholarPaperAuthors(
  * trouble. Each version is a result in its own right, carrying the host it
  * sits on and, where Scholar found one, a direct link to the file.
  */
-export async function scholarVersions(clusterId: string, signal?: AbortSignal): Promise<ScholarResult[]> {
+export async function scholarVersions(clusterId: string, signal?: AbortSignal, title?: string): Promise<ScholarResult[]> {
   if (!/^\d{1,25}$/.test(clusterId)) return [];
+  // The paper's title beside its cluster: a proxy that asks Serply cannot
+  // open a cluster by its id alone, and finds it by the title within it.
+  const titled = title?.trim() ? `&title=${encodeURIComponent(title.trim().slice(0, 300))}` : '';
   return ask<ScholarResult>(
-    `/scholar/versions?cluster=${encodeURIComponent(clusterId)}`,
+    `/scholar/versions?cluster=${encodeURIComponent(clusterId)}${titled}`,
     scholarPage('scholar', { hl: 'en', as_sdt: '0,5', cluster: clusterId }),
     signal,
   );

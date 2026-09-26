@@ -449,7 +449,7 @@ export default {
                 : kind === 'person'
                 ? /^[\w-]{6,32}$/.test(user) && { user, name: who }
                 : kind === 'versions'
-                  ? /^\d{1,25}$/.test(cluster) && { cluster }
+                  ? /^\d{1,25}$/.test(cluster) && { cluster, title: (url.searchParams.get('title') || '').trim().slice(0, 300) || undefined }
                   : kind === 'work'
                     ? /^[\w-]{6,32}$/.test(user) && /^[\w-]{6,32}:[\w-]{6,32}$/.test(citation) && { user, citation }
                     : null;

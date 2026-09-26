@@ -166,11 +166,12 @@ for (const result of (results || []).slice(0, 5)) {
 }
 
 // Every copy of the first result — the list this is all for.
-const cluster = (results || []).find((result) => result.clusterId && result.versionCount)?.clusterId;
+const clustered = (results || []).find((result) => result.clusterId && result.versionCount);
+const cluster = clustered?.clusterId;
 if (cluster) {
   const versions = await step(`Every version of the first result`, versionsUrl(cluster), parseResults, null, {
     kind: 'versions',
-    params: { cluster },
+    params: { cluster, title: clustered.title },
   });
   for (const version of (versions || []).slice(0, 12)) {
     console.log(`     ${version.pdfUrl ? 'PDF ' : '    '} ${version.pdfHost || new URL(version.url || 'https://x/').hostname}`);

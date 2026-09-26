@@ -6,7 +6,9 @@
  *
  * - Its Scholar endpoint (`GET /v1/scholar`) answers a results page as JSON:
  *   each result's file, byline, authors with a profile (and their ids),
- *   citations, and cluster. A search and a paper's versions are that page.
+ *   citations, and cluster. A search and a paper's versions are that page —
+ *   the versions asked with the paper's title beside the cluster, which is
+ *   the only way Serply opens one.
  * - Its Google endpoint (`GET /v1/search`) finds Scholar's profile pages the
  *   way Google indexes them: the title is the person's full name, and the
  *   line under it their affiliation, "Cited by N", and their interests.
@@ -372,7 +374,14 @@ export async function askSerplyScholar(kind, params, key, { fetchImpl = (...args
       return fromSerplyResults(await getJson(serplyScholarUrl({ q: params.query, start: params.start }), key, options));
 
     case 'versions':
-      return fromSerplyResults(await getJson(serplyScholarUrl({ cluster: params.cluster, num: 20 }), key, options));
+      // Tried live, Serply opens a cluster only beside a query: the paper's
+      // title with its cluster gives Scholar's "All N versions", and the
+      // cluster alone gives nothing. Without a title, it is refused — no
+      // credit spent — and SerpApi is asked instead where it can be.
+      if (!params.title) {
+        throw new SerplyFailed({ reason: 'unsupported', message: 'Serply opens a cluster only with the paper’s title beside it.' });
+      }
+      return fromSerplyResults(await getJson(serplyScholarUrl({ q: params.title, cluster: params.cluster, num: 20 }), key, options));
 
     case 'authors': {
       // Google's profile pages for the name: full names, and who they are.

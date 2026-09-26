@@ -326,13 +326,14 @@ between them they stand in for every Scholar page the proxy asks for
 
 | Scholar page | Through Serply |
 |---|---|
-| a search, a paper's versions | its Scholar endpoint (`/v1/scholar`), the results page as JSON: file, byline, authors' profile ids, citations, cluster |
+| a search | its Scholar endpoint (`/v1/scholar`), the results page as JSON: file, byline, authors' profile ids, citations, cluster |
+| a paper's versions | the same endpoint, asked for the paper's title with its cluster beside it — the one way Serply opens a cluster, so the app sends the title along |
 | people | its Google endpoint (`/v1/search`) for Scholar's profile pages of the name — full name, affiliation, citations, interests, as Google shows them — then anyone else in the bylines of a search for their papers |
 | a profile's works | a Scholar search for the person's papers, kept to those whose byline links this very profile, newest or most cited first; each with its file and cluster, which a profile's own list never had |
 | a person | who they are from Google's profile page, and their most cited works as above |
 | an entry opened | refused: there is only an id to go on. The app finds the paper by its title instead, as it does whenever that page is refused |
 
-What is not rebuilt: the h-index and i10-index, printed on the profile page
+What is not rebuilt: Scholar's two-line snippet under each result, which Serply's answer does not carry; and the h-index and i10-index, printed on the profile page
 alone, which Scholar refuses Serply (its page fetch gets the 403 "Sorry…" page) —
 the hover card leaves them out rather than guessing. A profile's list holds what
 Scholar's search finds by the person's name, which for a long career can be less

@@ -589,7 +589,9 @@ function scholarWork(req, url, res) {
 function scholarVersions(req, url, res) {
   const cluster = (url.searchParams.get('cluster') || '').trim();
   if (!/^\d{1,25}$/.test(cluster)) return send(res, 400, { error: 'bad cluster id' });
-  return scholar(req, res, { kind: 'versions', params: { cluster }, url: versionsUrl(cluster), parse: parseResults });
+  // The paper's title, where the app sends it: Serply opens a cluster by it.
+  const title = (url.searchParams.get('title') || '').trim().slice(0, 300) || undefined;
+  return scholar(req, res, { kind: 'versions', params: { cluster, title }, url: versionsUrl(cluster), parse: parseResults });
 }
 
 // Only the handful of hosts the app actually reads from; an open proxy here
