@@ -304,6 +304,7 @@ describe('a proxy with a Serply key', () => {
   const stop = () => {
     delete process.env.SERPLY_KEY;
     delete process.env.SERPAPI_KEY;
+    delete process.env.SCHOLAR_FIRST;
     globalThis.fetch = realFetch;
     server.close();
   };
@@ -394,11 +395,35 @@ describe('a proxy with a Serply key', () => {
       });
       return { hosts, state };
     };
-    const start = async () => {
+    // start() sets up SCHOLAR_FIRST=serply, as the tests after the first one
+    // want; the first is the default arrangement, SerpApi first.
+    const start = async (first = 'serply') => {
       await listen();
       process.env.SERPLY_KEY = 'SERPLY-SECRET';
       process.env.SERPAPI_KEY = 'SERPAPI-SECRET';
+      process.env.SCHOLAR_FIRST = first;
     };
+
+    it('by default asks SerpApi first for everything, and Serply when SerpApi refuses', async () => {
+      await start('');
+      const { hosts, state } = both();
+      try {
+        assert.equal((await (await realFetch(`${base}/health`)).json()).scholar, 'serpapi+serply');
+        const search = await (await realFetch(`${base}/scholar/search?q=serpapi-first`)).json();
+        assert.equal(search.via, 'serpapi');
+        const works = await (await realFetch(`${base}/scholar/profile?user=oR9sCGYAAAAJ`)).json();
+        assert.equal(works.via, 'serpapi');
+        assert.deepEqual(hosts, ['serpapi.com', 'serpapi.com']);
+
+        hosts.length = 0;
+        state.serpapiRefuses = true;
+        const fallback = await (await realFetch(`${base}/scholar/search?q=serpapi-out`)).json();
+        assert.equal(fallback.via, 'serply');
+        assert.deepEqual(hosts, ['serpapi.com', 'api.serply.io']);
+      } finally {
+        stop();
+      }
+    });
 
     it('asks Serply first for a search, and SerpApi first for a profile, which it reads exactly', async () => {
       await start();

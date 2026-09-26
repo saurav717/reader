@@ -26,7 +26,7 @@ import {
 } from './scholar.js';
 import { captchaStatus, closeCaptcha, openCaptcha, scholarFetcher } from './scholarBrowser.js';
 import * as browse from './browse.js';
-import { askServices } from './scholarServices.js';
+import { askServices, servicesLabel } from './scholarServices.js';
 import * as workspace from './workspace.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
@@ -472,12 +472,11 @@ const serpKey = () => (process.env.SERPAPI_KEY || '').trim();
 const serplyKey = () => (process.env.SERPLY_KEY || '').trim();
 
 /** How this proxy asks Scholar, for /health and for anyone wondering. */
-export const scholarVia = () =>
-  serplyKey() && serpKey() ? 'serply+serpapi' : serplyKey() ? 'serply' : serpKey() ? 'serpapi' : 'direct';
+export const scholarVia = () => servicesLabel({ serply: serplyKey(), serpapi: serpKey() }, process.env.SCHOLAR_FIRST);
 
 /** One ask of Scholar, by whichever way this proxy has: the results and which answered. */
 async function askScholar({ kind, params, url, parse }) {
-  const paid = await askServices(kind, params, { serply: serplyKey(), serpapi: serpKey() });
+  const paid = await askServices(kind, params, { serply: serplyKey(), serpapi: serpKey() }, { first: process.env.SCHOLAR_FIRST });
   if (paid) return paid;
   return { results: parse(await getScholar(url, { fetchPage: scholarPage })), via: 'direct' };
 }

@@ -349,14 +349,17 @@ npx --yes wrangler@4 secret put SERPLY_KEY     # the Worker, then redeploy it
 as a captcha to open in a window here. The key never leaves the proxy; it goes
 only in the header of the request to Serply. Answers are cached for five minutes.
 
-**Both keys.** Set both and `/health` says `"scholar": "serply+serpapi"`; each ask
-goes to the one that answers it better, and to the other when that one refuses
-(`server/scholarServices.js`). A search, people and versions go to Serply first —
-it is cheaper and answers them as fully. A profile, a person and an entry opened
-go to SerpApi first — it reads the profile page exactly, h-index and all — and to
-Serply when SerpApi refuses. A service whose allowance is spent, or whose key is
-wrong, is asked last for the next ten minutes, so an account out of credits does
-not stand in front of every ask; it is still asked when the other refuses too.
+**Both keys.** Set both and each ask goes to one first and to the other when it
+refuses (`server/scholarServices.js`); `/health` names them in that order.
+`SCHOLAR_FIRST` in `wrangler.toml` (an environment variable for `npm start`)
+says which: `serpapi`, the default, asks SerpApi first for everything — a
+profile exactly, every work, the citations, the h-index — and Serply only when
+SerpApi refuses; `serply` asks Serply first for a search, people and versions,
+which it answers as fully and more cheaply, and keeps SerpApi first for a
+profile, a person and an entry opened. A service whose allowance is spent, or
+whose key is wrong, is asked last for the next ten minutes, so an account out
+of credits does not stand in front of every ask; it is still asked when the
+other refuses too.
 
 `SERPLY_KEY=… node scripts/scholar-live.mjs --raw` asks Serply for real, shows
 its raw answers, and says whether each was read — the check to run once with a

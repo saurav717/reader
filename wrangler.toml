@@ -101,6 +101,11 @@ simple = { limit = 60, period = 60 }
 # and the default; a paid plan allows more, and the last line raises it.
 #
 [vars]
+# Which paid Scholar service is asked first when both keys are set; the other
+# is asked when it refuses (server/scholarServices.js). "serpapi" reads a
+# profile exactly — every work, citations, h-index; "serply" is cheaper, and
+# takes the searches, people and versions while SerpApi keeps the profiles.
+SCHOLAR_FIRST = "serpapi"
 # The app's Google OAuth client ID — public, it is in the site's JavaScript.
 # A Google sign-in is only taken for a pass when Google says it was made for
 # this client; a sign-in some other site obtained is not one to this app.
