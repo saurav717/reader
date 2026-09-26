@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, hasProxy } from '../lib/api';
+import AiUsage from './AiUsage';
 import { ChartIcon, ChevronDownIcon, ChevronRightIcon, RestoreIcon } from './icons';
 
 /** One person's counts, as the Worker's `/usage` reports them (worker/usage.js). */
@@ -10,6 +11,15 @@ interface Counts {
   serpapi?: number;
   browser?: number;
   pdf?: number;
+  /** Ask AI and Explain: answers, tokens in and out, and cost in millionths of a dollar. */
+  claude?: number;
+  claude_in?: number;
+  claude_out?: number;
+  claude_cost?: number;
+  deepseek?: number;
+  deepseek_in?: number;
+  deepseek_out?: number;
+  deepseek_cost?: number;
 }
 interface Person {
   email: string;
@@ -271,6 +281,7 @@ export default function UsageView() {
               from the proxy’s five-minute cache cost nothing. Counted by your Worker, kept ninety days; this page asks
               again every thirty seconds while it is open.
             </p>
+            <AiUsage report={report} />
           </>
         )}
       </div>

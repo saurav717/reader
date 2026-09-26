@@ -63,6 +63,15 @@ describe('the request', () => {
     assert.equal(deepseek.requestBody({ ...params, messages: [{ role: 'user', content: 'Hi' }] }).messages[1].content, 'Hi');
   });
 
+  it('asks for the tokens the answer took, and hands them on', async () => {
+    assert.deepEqual(deepseek.requestBody(params).stream_options, { include_usage: true });
+    const usage = { prompt_tokens: 120, completion_tokens: 30, prompt_cache_hit_tokens: 100, prompt_cache_miss_tokens: 20 };
+    const { fetcher } = fakeFetch([event({ content: 'ok' }, 'stop'), `data: ${JSON.stringify({ choices: [], usage })}\n\n`, 'data: [DONE]\n\n']);
+    const seen = [];
+    await new deepseek.DeepSeekStream({ ...params, onUsage: (u) => seen.push(u) }, fetcher).finalMessage();
+    assert.deepEqual(seen, [usage]);
+  });
+
   it('goes to api.deepseek.com with the key as a bearer token', async () => {
     const { fetcher, calls } = fakeFetch([event({ content: 'ok' }, 'stop'), 'data: [DONE]\n\n']);
     await new deepseek.DeepSeekStream(params, fetcher).finalMessage();

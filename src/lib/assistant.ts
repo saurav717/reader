@@ -23,6 +23,7 @@
 
 import type AnthropicClient from '@anthropic-ai/sdk';
 import { DeepSeekStream } from './deepseek';
+import { reportAiUsage } from './aiUsage';
 import type { DeepSeekError } from './deepseek';
 
 /** What the chat window is called — the models behind it are not all Claude. */
@@ -803,6 +804,11 @@ export async function streamModel(params: {
       thinking: !spec.thinks ? 'off' : params.effort === 'low' ? 'low' : 'high',
       system: params.system.map((block) => block.text).join('\n\n'),
       messages: params.messages as ConstructorParameters<typeof DeepSeekStream>[0]['messages'],
+      onUsage: (usage) => {
+        const hit = usage.prompt_cache_hit_tokens || 0;
+        const miss = usage.prompt_cache_miss_tokens ?? Math.max(0, (usage.prompt_tokens || 0) - hit);
+        reportAiUsage('deepseek', spec.apiModel ?? spec.id, { input: miss, cacheRead: hit, output: usage.completion_tokens || 0 });
+      },
     });
   }
   const api = await anthropic();
@@ -814,6 +820,16 @@ export async function streamModel(params: {
     ...(spec.adaptive
       ? { thinking: { type: 'adaptive' as const, display: 'summarized' as const }, output_config: { effort: params.effort ?? ('medium' as const) } }
       : {}),
+  });
+  // Once the answer is in, the tokens it took go on the owner's tally (aiUsage.ts).
+  sdkStream.on('finalMessage', (message) => {
+    const usage = message.usage;
+    reportAiUsage('claude', spec.apiModel ?? spec.id, {
+      input: usage.input_tokens || 0,
+      output: usage.output_tokens || 0,
+      cacheRead: usage.cache_read_input_tokens || 0,
+      cacheWrite: usage.cache_creation_input_tokens || 0,
+    });
   });
   return {
     on(event, listener) {
