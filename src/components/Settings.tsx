@@ -305,7 +305,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             />
             <small>
               What the proxy asks for before it drives the browser inside the reader, keeps a sign-in, or asks
-              Scholar on its SerpApi account — anyone can read the proxy's address out of this site, so those
+              Scholar on its Serply or SerpApi account — anyone can read the proxy's address out of this site, so those
               take a token. Set it on the proxy (<span className="mono">npx wrangler secret put READER_TOKEN</span>{' '}
               for the Worker, <span className="mono">READER_TOKEN=…</span> for <span className="mono">npm start</span>) and
               paste it here once. Sent only to the proxy. arXiv and open-access PDFs need none.

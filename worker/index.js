@@ -29,6 +29,7 @@ import {
   workUrl,
 } from '../server/scholar.js';
 import { askSerp } from '../server/serpapi.js';
+import { askSerply } from '../server/serply.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
 
@@ -159,6 +160,10 @@ export default {
     // it, Scholar is asked through SerpApi, which is the one way Scholar
     // answers a Worker at all. See server/serpapi.js.
     const serpKey = (env.SERPAPI_KEY || '').trim();
+    // A Serply key, the same way: `npx wrangler secret put SERPLY_KEY`. Serply
+    // fetches Scholar's own pages, read by the parsers the direct way uses,
+    // and is asked first when both are set. See server/serply.js.
+    const serplyKey = (env.SERPLY_KEY || '').trim();
     const origin = request.headers.get('Origin') || '';
     const headers = cors(origin);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
@@ -171,7 +176,7 @@ export default {
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), browse: browse.availability(env).available, scholar: serpKey ? 'serpapi' : 'direct' },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), browse: browse.availability(env).available, scholar: serplyKey ? 'serply' : serpKey ? 'serpapi' : 'direct' },
           200,
           headers,
         );
@@ -390,6 +395,57 @@ export default {
         );
       }
       if (path.startsWith('/scholar/')) {
+        const scholarUrl =
+          path === '/scholar/search'
+            ? (url.searchParams.get('q') || '').trim() &&
+              searchUrl((url.searchParams.get('q') || '').trim(), {
+                start: Math.max(0, Math.min(90, Number(url.searchParams.get('start')) || 0)),
+              })
+            : path === '/scholar/authors'
+              ? (url.searchParams.get('name') || '').trim() && authorSearchUrl((url.searchParams.get('name') || '').trim())
+              : path === '/scholar/profile'
+                ? /^[\w-]{6,32}$/.test(url.searchParams.get('user') || '') &&
+                  profileUrl(url.searchParams.get('user'), {
+                    start: Math.max(0, Number(url.searchParams.get('start')) || 0),
+                    sort: profileSort(url.searchParams.get('sort')),
+                  })
+                : path === '/scholar/person'
+                ? /^[\w-]{6,32}$/.test(url.searchParams.get('user') || '') && profileUrl(url.searchParams.get('user'), { sort: 'citations' })
+                : path === '/scholar/versions'
+                  ? /^\d{1,25}$/.test(url.searchParams.get('cluster') || '') && versionsUrl(url.searchParams.get('cluster'))
+                  : path === '/scholar/work'
+                    ? /^[\w-]{6,32}$/.test(url.searchParams.get('user') || '') &&
+                      /^[\w-]{6,32}:[\w-]{6,32}$/.test(url.searchParams.get('citation') || '') &&
+                      workUrl(url.searchParams.get('user'), url.searchParams.get('citation'))
+                    : null;
+        if (scholarUrl === null) return json({ error: 'not found' }, 404, headers);
+        if (!scholarUrl) return json({ error: 'missing or bad parameter' }, 400, headers);
+        const parse =
+          path === '/scholar/authors'
+            ? parseAuthors
+            : path === '/scholar/profile'
+              ? parseProfileWorks
+              : path === '/scholar/person'
+              ? (html) => [parseProfile(html, url.searchParams.get('user'))].filter(Boolean)
+              : path === '/scholar/work'
+                ? parseCitationView
+                : parseResults;
+        if (serplyKey) {
+          // Serply is metered on the account whose key this is.
+          if (!authorized(request, env)) return needsToken(env, headers);
+          try {
+            return json({ results: await askSerply(scholarUrl, parse, serplyKey), source: 'scholar', via: 'serply' }, 200, {
+              ...headers,
+              'Cache-Control': 'private, max-age=300',
+            });
+          } catch (error) {
+            // With a SerpApi key as well, a refusal of Serply's is SerpApi's to try.
+            if (!(error && error.serply && serpKey)) {
+              if (error && error.serply) return json({ error: error.message, serply: true, reason: error.reason }, 503, headers);
+              return json({ error: String(error?.message || error) }, 502, headers);
+            }
+          }
+        }
         if (serpKey) {
           // SerpApi is metered on the account whose key this is.
           if (!authorized(request, env)) return needsToken(env, headers);
@@ -427,41 +483,6 @@ export default {
             return json({ error: String(error?.message || error) }, 502, headers);
           }
         }
-        const scholarUrl =
-          path === '/scholar/search'
-            ? (url.searchParams.get('q') || '').trim() &&
-              searchUrl((url.searchParams.get('q') || '').trim(), {
-                start: Math.max(0, Math.min(90, Number(url.searchParams.get('start')) || 0)),
-              })
-            : path === '/scholar/authors'
-              ? (url.searchParams.get('name') || '').trim() && authorSearchUrl((url.searchParams.get('name') || '').trim())
-              : path === '/scholar/profile'
-                ? /^[\w-]{6,32}$/.test(url.searchParams.get('user') || '') &&
-                  profileUrl(url.searchParams.get('user'), {
-                    start: Math.max(0, Number(url.searchParams.get('start')) || 0),
-                    sort: profileSort(url.searchParams.get('sort')),
-                  })
-                : path === '/scholar/person'
-                ? /^[\w-]{6,32}$/.test(url.searchParams.get('user') || '') && profileUrl(url.searchParams.get('user'), { sort: 'citations' })
-                : path === '/scholar/versions'
-                  ? /^\d{1,25}$/.test(url.searchParams.get('cluster') || '') && versionsUrl(url.searchParams.get('cluster'))
-                  : path === '/scholar/work'
-                    ? /^[\w-]{6,32}$/.test(url.searchParams.get('user') || '') &&
-                      /^[\w-]{6,32}:[\w-]{6,32}$/.test(url.searchParams.get('citation') || '') &&
-                      workUrl(url.searchParams.get('user'), url.searchParams.get('citation'))
-                    : null;
-        if (scholarUrl === null) return json({ error: 'not found' }, 404, headers);
-        if (!scholarUrl) return json({ error: 'missing or bad parameter' }, 400, headers);
-        const parse =
-          path === '/scholar/authors'
-            ? parseAuthors
-            : path === '/scholar/profile'
-              ? parseProfileWorks
-              : path === '/scholar/person'
-              ? (html) => [parseProfile(html, url.searchParams.get('user'))].filter(Boolean)
-              : path === '/scholar/work'
-                ? parseCitationView
-                : parseResults;
         try {
           return json({ results: parse(await getScholar(scholarUrl)), source: 'scholar', via: 'direct' }, 200, {
             ...headers,

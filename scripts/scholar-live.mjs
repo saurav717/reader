@@ -10,6 +10,7 @@
  *   node scripts/scholar-live.mjs "attention is all you need"
  *   node scholar-live.mjs --author "Saurav Chennuri"
  *   SCHOLAR_BROWSER=1 node scripts/scholar-live.mjs    # drive real Chromium
+ *   SERPLY_KEY=… node scripts/scholar-live.mjs         # through Serply's page fetch
  *   SERPAPI_KEY=… node scripts/scholar-live.mjs        # through SerpApi instead
  *   node scripts/scholar-live.mjs --save               # refresh the fixtures
  *
@@ -41,9 +42,15 @@ import {
 } from '../server/scholar.js';
 import { browserWanted, closeBrowser, scholarFetcher } from '../server/scholarBrowser.js';
 import { askSerp } from '../server/serpapi.js';
+import { serplyFetcher } from '../server/serply.js';
 
-/** With a key, every ask below goes through SerpApi — see server/serpapi.js. */
-const SERPAPI_KEY = (process.env.SERPAPI_KEY || '').trim();
+/**
+ * With a Serply key, every page below is fetched through Serply and parsed
+ * here, as the proxy does — see server/serply.js. Otherwise, with a SerpApi
+ * key, every ask goes through SerpApi — see server/serpapi.js.
+ */
+const SERPLY_KEY = (process.env.SERPLY_KEY || '').trim();
+const SERPAPI_KEY = SERPLY_KEY ? '' : (process.env.SERPAPI_KEY || '').trim();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -57,9 +64,11 @@ const SAVE = flag('--save');
 const QUERY = args.find((arg) => !arg.startsWith('--') && arg !== valueFor('--author')) || 'attention is all you need';
 const AUTHOR = valueFor('--author') || 'Saurav Chennuri';
 
-const fetchPage = SERPAPI_KEY ? null : await scholarFetcher(plainFetch);
+const fetchPage = SERPLY_KEY ? serplyFetcher(SERPLY_KEY) : SERPAPI_KEY ? null : await scholarFetcher(plainFetch);
 console.log(
-  SERPAPI_KEY
+  SERPLY_KEY
+    ? "Asking Google Scholar through Serply's page fetch, with the key in SERPLY_KEY. Each page spends one credit.\n"
+    : SERPAPI_KEY
     ? 'Asking Google Scholar through SerpApi, with the key in SERPAPI_KEY. Each check spends one search of its allowance.\n'
     : `Asking Google Scholar ${browserWanted() ? 'through a real Chromium' : 'with plain HTTPS requests'}.\n` +
         'A captcha is the normal answer from a server; from a laptop it usually is not.\n',

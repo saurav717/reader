@@ -27,7 +27,7 @@ new_sqlite_classes = ["BrowserSession"]
 # address is in the site's JavaScript for anyone to read, and an Origin
 # header is a browser's courtesy, not a credential — so what drives the
 # browser inside the reader, keeps or uses a sign-in, fetches a file at
-# Browserless or asks Scholar through SerpApi takes this token, and is
+# Browserless or asks Scholar through Serply or SerpApi takes this token, and is
 # off until it is set. arXiv, open-access PDFs and Scholar asked directly
 # need none. Any long random string:
 #
