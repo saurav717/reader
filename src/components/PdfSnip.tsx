@@ -192,9 +192,12 @@ export default function PdfSnip({ paperId, doc, engine, pages, scale, holder, an
     let html: string;
     let text: string;
     if (region.kind === 'table' && region.rows?.length) {
-      const body = region.rows.map((row) => `<tr>${row.map((cell) => `<td${cell.colspan && cell.colspan > 1 ? ` colspan="${cell.colspan}"` : ''}>${engine.spansToHtml(cell.spans)}</td>`).join('')}</tr>`).join('');
+      const body = region.rows
+        .map((row) => `<tr>${row.map((cell) => `<td${cell.colspan && cell.colspan > 1 ? ` colspan="${cell.colspan}"` : ''}${cell.rowspan && cell.rowspan > 1 ? ` rowspan="${cell.rowspan}"` : ''}>${engine.spansToHtml(cell.spans)}</td>`).join('')}</tr>`)
+        .join('');
       html = `<figure class="pdf-table">${caption}<table>${body}</table></figure>`;
-      const rows = region.rows.map((row) => row.map((cell) => engine.plain(cell.spans).replace(/\|/g, '\\|')));
+      // Markdown has no spans: every cell a column's worth, as the grid lays them out.
+      const rows = engine.tableGrid(region.rows).map((row) => row.map((cell) => cell.replace(/\|/g, '\\|')));
       text = `${region.caption ? `${region.caption}\n\n` : ''}${rows.map((cells, index) => `| ${cells.join(' | ')} |${index === 0 ? `\n|${cells.map(() => ' --- |').join('')}` : ''}`).join('\n')}`;
     } else if (region.kind === 'equation') {
       html = `<div class="pdf-equation">${picture}</div>`;
@@ -272,7 +275,7 @@ export default function PdfSnip({ paperId, doc, engine, pages, scale, holder, an
               {isHot ? (
                 <span className="snip-region-label">
                   {region.label}
-                  {region.kind === 'table' && region.rows?.length ? ` · ${region.rows.length} rows × ${Math.max(...region.rows.map((row) => row.length))}` : ''} · click to add
+                  {region.kind === 'table' && region.rows?.length ? ` · ${region.rows.length} rows × ${Math.max(...engine.tableGrid(region.rows).map((row) => row.length))}` : ''} · click to add
                 </span>
               ) : null}
             </div>

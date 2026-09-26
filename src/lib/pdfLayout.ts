@@ -86,8 +86,12 @@ export interface Span {
 export interface TableCell {
   spans: Span[];
   colspan?: number;
+  /** Rows a label covers: "Complex", over its Success and Abnormal motion rows. */
+  rowspan?: number;
   /** A heading cell: the table's header row, or the title of one of its panels. */
   head?: boolean;
+  /** The title of one of the table's panels — "A. Component contributions" — which starts it. */
+  panel?: boolean;
 }
 
 export type Block =
@@ -296,6 +300,34 @@ export function linkRuns(runs: TextRun[], links: PageLink[]): TextRun[] {
   return out;
 }
 
+/**
+ * Accents set over the letter before them — mathematics' R̄, x̂, ẍ, drawn
+ * as a letter and then a bar placed back over it — put on the letter. TeX's
+ * accents in text come before their letter instead ("na¨ıve"), and
+ * `composeAccents` puts those back.
+ */
+function overstrike(runs: Run[]): Run[] {
+  const out: Run[] = [];
+  for (const run of runs) {
+    const mark = run.str.trim();
+    const previous = out[out.length - 1];
+    if (mark.length === 1 && ACCENTS[mark] && previous && /\p{L}$/u.test(previous.str)) {
+      // The width of one letter of the run before, and where its last one sits.
+      const letter = previous.width / Math.max(1, previous.str.length);
+      const last = previous.x + previous.width - letter;
+      const middle = run.x + run.width / 2;
+      // Drawn back over it: starting inside the letter, not after it, as a
+      // text accent waiting for the next letter would.
+      if (run.x < previous.x + previous.width - 0.15 * letter && middle > last - 0.3 * letter && middle < previous.x + previous.width + 0.5 * letter) {
+        out[out.length - 1] = { ...previous, str: (previous.str + ACCENTS[mark]).normalize('NFC') };
+        continue;
+      }
+    }
+    out.push(run);
+  }
+  return out;
+}
+
 /** A run with no letter or digit in it: an accent, an arrow, a bracket. */
 const bareRun = (run: TextRun): boolean => !/[\p{L}\p{N}]/u.test(run.str);
 
@@ -414,6 +446,7 @@ function buildLines(page: PageInput): Line[] {
 
   return lines.map((line) => {
     line.runs.sort((a, b) => a.x - b.x);
+    line.runs = overstrike(line.runs);
     // The line's size is the size most of its glyphs are set in, and its
     // baseline that of those glyphs — a line that is mostly a superscript
     // is a footnote mark, not a paragraph.
@@ -1160,7 +1193,17 @@ function keepsHyphen(left: string, right: string): boolean {
  * built from the narrowest runs up — a heading that spans two columns
  * overlaps both and is given a colspan rather than merging them.
  */
-export function tableFromLines(lines: Line[], caption?: Line): TableCell[][] | null {
+/** A rule drawn across part of a table: under a heading, or between groups of rows. */
+export interface TableRule {
+  x0: number;
+  x1: number;
+  y: number;
+}
+
+/** A cell that is a figure: "73.3 ± 2.5", "19/45", "0.029". */
+const FIGURE = /^[\d\s.,±%()+\-−–/×*]*\d[\d\s.,±%()+\-−–/×*]*$/;
+
+export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[] = []): TableCell[][] | null {
   const cells = lines.filter((line) => line !== caption && line.text.trim());
   if (cells.length < 4) return null;
   type Column = { x0: number; x1: number };
@@ -1211,26 +1254,136 @@ export function tableFromLines(lines: Line[], caption?: Line): TableCell[][] | n
   const filled = rows.filter((row) => row.length >= 2).length;
   if (filled / rows.length < 0.5) return null;
 
-  return rows.map((row) => {
-    const out: TableCell[] = [];
-    let at = 0;
-    const sorted = row.slice().sort((a, b) => a.x0 - b.x0);
-    for (const cell of sorted) {
+  // Each row as its cells, each cell with the columns it covers.
+  type Entry = { first: number; last: number; spans: Span[]; line: Line };
+  const grid: Entry[][] = rows.map((row) => {
+    const out: Entry[] = [];
+    for (const cell of row.slice().sort((a, b) => a.x0 - b.x0)) {
       const span = placement.get(cell)!;
       const first = columns.indexOf(span[0]);
       const last = columns.indexOf(span[span.length - 1]);
-      while (at < first) {
+      const previous = out[out.length - 1];
+      if (previous && first <= previous.last) {
+        // Two runs in one column on one row: the same cell, split by a gap.
+        previous.spans = [...previous.spans, { text: ' ' }, ...spansOf([cell], false, true)];
+        continue;
+      }
+      out.push({ first, last, spans: spansOf([cell], false, true), line: cell });
+    }
+    return out;
+  });
+  const tableLeft = Math.min(...columns.map((column) => column.x0));
+  const tableRight = Math.max(...columns.map((column) => column.x1));
+  const tableWidth = tableRight - tableLeft;
+  const figure = (entry: Entry) => FIGURE.test(plain(entry.spans));
+
+  // The heading rows: those before the first with a figure in it — and the
+  // first row always.
+  let head = grid.findIndex((row) => row.some(figure));
+  head = head < 0 ? 1 : Math.max(1, head);
+  // Where each column's own cells sit, below the headings: a heading
+  // widens the column it lands in, and would then seem centred over it.
+  const body = columns.map((column, index) => {
+    const own = grid.slice(head).flat().filter((entry) => entry.first === index && entry.last === index);
+    return own.length ? { x0: Math.min(...own.map((entry) => entry.line.x0)), x1: Math.max(...own.map((entry) => entry.line.x1)) } : column;
+  });
+  const middle = (first: number, last: number) => (body[first].x0 + body[last].x1) / 2;
+
+  // A heading over several columns — "Candidate selection" over CAD, R30
+  // and R̄30 — covers the columns the rule drawn under it spans, as
+  // booktabs draws one; where there is none, the blank columns beside it
+  // that it is set centred over.
+  for (const row of grid.slice(0, head)) {
+    const taken = (column: number, self: Entry) => row.some((other) => other !== self && column >= other.first && column <= other.last);
+    for (const entry of row) {
+      const line = entry.line;
+      const under = rules.find(
+        (rule) => rule.y > line.baseline && rule.y < line.baseline + 1.4 * line.size && rule.x1 - rule.x0 < tableWidth * 0.9 && rule.x0 <= (line.x0 + line.x1) / 2 && rule.x1 >= (line.x0 + line.x1) / 2,
+      );
+      let [first, last] = [entry.first, entry.last];
+      if (under) {
+        const covered = columns.map((column, index) => ({ index, share: overlapX(column, under) / Math.max(1, column.x1 - column.x0) })).filter((item) => item.share > 0.5).map((item) => item.index);
+        if (covered.length) {
+          first = Math.min(first, ...covered);
+          last = Math.max(last, ...covered);
+        }
+      } else {
+        // Among the ranges of blank columns about it that it is centred on,
+        // the narrowest as wide as its words; failing that, the one it is
+        // most nearly centred on.
+        const centre = (line.x0 + line.x1) / 2;
+        const words = line.x1 - line.x0;
+        const pitch = (index: number) => body[index].x1 - body[index].x0;
+        let best = Math.abs(centre - middle(first, last));
+        let fits = body[last].x1 - body[first].x0 >= words * 0.9;
+        for (let a = first; a >= 0 && (a === first || !taken(a, entry)); a -= 1) {
+          for (let b = last; b < columns.length && (b === last || !taken(b, entry)); b += 1) {
+            if (a === entry.first && b === entry.last) continue;
+            const off = Math.abs(centre - middle(a, b));
+            const tolerance = 0.25 * Math.max(pitch(a), pitch(b), 8);
+            const wide = body[b].x1 - body[a].x0 >= words * 0.9;
+            const narrower = body[b].x1 - body[a].x0 < body[last].x1 - body[first].x0;
+            if (wide && off <= tolerance && (!fits || narrower || best > tolerance)) {
+              [first, last, best, fits] = [a, b, off, true];
+            } else if (!fits && !wide && off < best - tolerance) {
+              [first, last, best] = [a, b, off];
+            }
+          }
+        }
+      }
+      while (first < entry.first && taken(first, entry)) first += 1;
+      while (last > entry.last && taken(last, entry)) last -= 1;
+      [entry.first, entry.last] = [first, last];
+    }
+  }
+
+  // A label naming a group of rows — "Complex" over Success and Abnormal
+  // motion — covers them all, rather than leaving blank cells that read as
+  // the next group's. The groups are what the rules drawn across the table
+  // divide it into; where there are none, a label covers the blank cells
+  // under it.
+  const across = rules.filter((rule) => rule.x1 - rule.x0 >= tableWidth * 0.6).map((rule) => rule.y);
+  const groupOf = (row: number) => across.filter((y) => y < grid[row][0]?.line.baseline).length;
+  const rowspan = new Map<Entry, number>();
+  const covered = new Set<number>();
+  if (grid.length - head >= 2 && columns.length >= 2) {
+    const labelled = (row: number) => grid[row].find((entry) => entry.first === 0);
+    for (let row = head; row < grid.length; row += 1) {
+      if (!labelled(row) || covered.has(row)) continue;
+      let end = row + 1;
+      while (end < grid.length && !labelled(end) && grid[end].length && (!across.length || groupOf(end) === groupOf(row))) end += 1;
+      // With rules, the label may sit anywhere in its group: the group's
+      // blank rows above it are its too.
+      let start = row;
+      while (across.length && start - 1 >= head && !labelled(start - 1) && !covered.has(start - 1) && grid[start - 1].length && groupOf(start - 1) === groupOf(row)) start -= 1;
+      if (end - start < 2) continue;
+      const label = labelled(row)!;
+      if (start < row) {
+        // Moved to the group's first row, which is where a row span starts.
+        grid[row].splice(grid[row].indexOf(label), 1);
+        grid[start].unshift(label);
+      }
+      rowspan.set(label, end - start);
+      for (let r = start + 1; r < end; r += 1) covered.add(r);
+    }
+  }
+
+  return grid.map((row, index) => {
+    const out: TableCell[] = [];
+    let at = covered.has(index) ? 1 : 0;
+    for (const entry of row) {
+      while (at < entry.first) {
         out.push({ spans: [] });
         at += 1;
       }
-      if (at > first) {
-        // Two runs in one column on one row: the same cell, split by a gap.
-        const previous = out[out.length - 1];
-        if (previous) previous.spans = [...previous.spans, { text: ' ' }, ...spansOf([cell], false, true)];
-        continue;
-      }
-      out.push({ spans: spansOf([cell], false, true), colspan: last > first ? last - first + 1 : undefined });
-      at = last + 1;
+      const span = rowspan.get(entry);
+      out.push({
+        spans: entry.spans,
+        colspan: entry.last > entry.first ? entry.last - entry.first + 1 : undefined,
+        ...(span ? { rowspan: span } : {}),
+        ...(index < head ? { head: true } : {}),
+      });
+      at = entry.last + 1;
     }
     while (at < columns.length) {
       out.push({ spans: [] });
@@ -1272,13 +1425,45 @@ function splitCells(line: Line): Line[] {
   });
 }
 
+/** How many columns each row fills, counting those a label from a row above covers. */
+export function columnsUsed(rows: TableCell[][]): number[] {
+  let carried: number[] = [];
+  return rows.map((row) => {
+    const held = carried.filter((left) => left > 0).length;
+    carried = carried.map((left) => left - 1).filter((left) => left > 0);
+    for (const cell of row) if (cell.rowspan && cell.rowspan > 1) carried.push(cell.rowspan - 1);
+    return held + row.reduce((sum, cell) => sum + (cell.colspan || 1), 0);
+  });
+}
+
+/**
+ * The grid a table's rows make, every cell a column's worth: a heading over
+ * two columns in both, a label over three rows in all three. For setting a
+ * table as text, where a cell cannot span.
+ */
+export function tableGrid(rows: TableCell[][]): string[][] {
+  const grid: string[][] = rows.map(() => []);
+  rows.forEach((row, index) => {
+    let at = 0;
+    for (const cell of row) {
+      while (grid[index][at] !== undefined) at += 1;
+      const text = plain(cell.spans);
+      for (let r = 0; r < (cell.rowspan || 1) && index + r < rows.length; r += 1) {
+        for (let c = 0; c < (cell.colspan || 1); c += 1) grid[index + r][at + c] = r === 0 && c === 0 ? text : '';
+      }
+      at += cell.colspan || 1;
+    }
+  });
+  return grid.map((row) => Array.from(row, (cell) => cell ?? ''));
+}
+
 /**
  * A table read whole: split into its panels where it has them — "A.
  * Component contributions", then its rows, "B. …", then its own — each
  * with columns of its own, and a panel's title a row across the table;
  * and the note set under the table, after its last row, kept as a note.
  */
-export function tableOf(lines: Line[], caption?: Line): { rows: TableCell[][]; notes?: Span[] } | null {
+export function tableOf(lines: Line[], caption?: Line, rules: TableRule[] = []): { rows: TableCell[][]; notes?: Span[] } | null {
   const cells = lines.filter((line) => line !== caption && line.text.trim()).flatMap(splitCells);
   if (!cells.length) return null;
   const byRow: Line[][] = [];
@@ -1309,7 +1494,7 @@ export function tableOf(lines: Line[], caption?: Line): { rows: TableCell[][]; n
     else if (!current) panels.push({ rows: [row] });
     else current.rows.push(row);
   }
-  const read = panels.map((panel) => tableFromLines(panel.rows.flat()));
+  const read = panels.map((panel) => tableFromLines(panel.rows.flat(), undefined, rules));
   // No panels, and no columns to be found: not a table to set as one.
   if (panels.length === 1 && !panels[0].title && !read[0]) return null;
   if (!read.some(Boolean)) return null;
@@ -1318,16 +1503,16 @@ export function tableOf(lines: Line[], caption?: Line): { rows: TableCell[][]; n
     title: panel.title,
     rows: read[index] ?? panel.rows.map((row) => row.slice().sort((a, b) => a.x0 - b.x0).map((line): TableCell => ({ spans: spansOf([line], false, true) }))),
   }));
-  const width = Math.max(1, ...tables.flatMap((table) => table.rows.map((row) => row.reduce((sum, cell) => sum + (cell.colspan || 1), 0))));
+  // Each panel keeps its own columns — three in one, seven in the next —
+  // and is set as a table of its own under its title.
   const rows: TableCell[][] = [];
   for (const table of tables) {
-    if (table.title) rows.push([{ spans: spansOf([table.title]), colspan: width > 1 ? width : undefined, head: true }]);
+    const width = Math.max(1, ...columnsUsed(table.rows));
+    if (table.title) rows.push([{ spans: spansOf([table.title]), colspan: width > 1 ? width : undefined, head: true, panel: true }]);
+    const marked = table.rows.some((row) => row.some((cell) => cell.head));
     table.rows.forEach((row, index) => {
       const cellsOut = row.map((cell) => ({ ...cell }));
-      const used = cellsOut.reduce((sum, cell) => sum + (cell.colspan || 1), 0);
-      // A panel with fewer columns than the widest: its last cell takes the rest.
-      if (used < width && cellsOut.length) cellsOut[cellsOut.length - 1].colspan = (cellsOut[cellsOut.length - 1].colspan || 1) + width - used;
-      if (index === 0) for (const cell of cellsOut) cell.head = true;
+      if (!marked && index === 0) for (const cell of cellsOut) cell.head = true;
       rows.push(cellsOut);
     });
   }
@@ -1562,7 +1747,11 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
         const caption = spansOf(paragraph.lines);
         characters += plain(caption).length;
         if (region.kind === 'table') {
-          const table = tableOf(region.lines, region.caption);
+          // The rules drawn in it: under a heading, between groups of rows.
+          const rules: TableRule[] = page.graphics
+            .filter((box) => box.y1 - box.y0 < 1.5 && box.x1 - box.x0 > 4 && box.y0 >= region.y0 - 4 && box.y1 <= region.y1 + 4 && box.x0 >= region.x0 - 4 && box.x1 <= region.x1 + 4)
+            .map((box) => ({ x0: box.x0, x1: box.x1, y: (box.y0 + box.y1) / 2 }));
+          const table = tableOf(region.lines, region.caption, rules);
           blocks.push({ kind: 'table', crop: crop(region, page), caption, label: region.label, rows: table?.rows ?? null, ...(table?.notes ? { notes: table.notes } : {}), page: page.index });
         } else {
           blocks.push({ kind: 'figure', crop: crop(region, page), caption, label: region.label, page: page.index });
@@ -2162,22 +2351,33 @@ export function renderHtml(layout: Layout, imageFor: (crop: Crop) => string | nu
         break;
       case 'table': {
         if (block.rows) {
-          const marked = block.rows.some((row) => row.some((cell) => cell.head));
-          const body = block.rows
-            .map((row, index) => {
-              const title = row.length === 1 && row[0].head && (row[0].colspan || 1) > 1;
-              return `<tr${title ? ' class="pdf-panel"' : ''}>${row
-                .map((cell) => {
-                  const tag = (marked ? cell.head : index === 0) ? 'th' : 'td';
-                  // A figure — "73.3 ± 2.5" — is kept on one line, and a wide table scrolls.
-                  const figure = /^[\d\s.,±%()+\-−–/×*]+$/.test(plain(cell.spans)) && /\d/.test(plain(cell.spans));
-                  return `<${tag}${cell.colspan ? ` colspan="${cell.colspan}"` : ''}${figure ? ' class="num"' : ''}>${spansToHtml(cell.spans)}</${tag}>`;
-                })
-                .join('')}</tr>`;
-            })
-            .join('');
+          // A table in panels is a table a panel: each with its own columns.
+          const panels: TableCell[][][] = [];
+          for (const row of block.rows) {
+            if (!panels.length || row.some((cell) => cell.panel)) panels.push([]);
+            panels[panels.length - 1].push(row);
+          }
+          const tables = panels.map((rows) => {
+            const marked = rows.some((row) => row.some((cell) => cell.head));
+            const body = rows
+              .map((row, index) => {
+                const title = row.some((cell) => cell.panel);
+                return `<tr${title ? ' class="pdf-panel"' : ''}>${row
+                  .map((cell) => {
+                    const tag = (marked ? cell.head : index === 0) ? 'th' : 'td';
+                    // A figure — "73.3 ± 2.5" — is kept on one line, and a wide table scrolls.
+                    // So is a short label — "Res + Inv", "Fast-LeWM [22]" — where a sentence may wrap.
+                    const text = plain(cell.spans);
+                    const kind = FIGURE.test(text) ? 'num' : text.length <= 18 && !cell.panel ? 'short' : '';
+                    return `<${tag}${cell.colspan ? ` colspan="${cell.colspan}"` : ''}${cell.rowspan ? ` rowspan="${cell.rowspan}"` : ''}${kind ? ` class="${kind}"` : ''}>${spansToHtml(cell.spans)}</${tag}>`;
+                  })
+                  .join('')}</tr>`;
+              })
+              .join('');
+            return `<table>${body}</table>`;
+          });
           const notes = block.notes?.length ? `<p class="pdf-table-notes">${spansToHtml(block.notes)}</p>` : '';
-          out.push(`<figure class="pdf-table"><figcaption>${spansToHtml(block.caption)}</figcaption><div class="pdf-table-scroll"><table>${body}</table></div>${notes}</figure>`);
+          out.push(`<figure class="pdf-table"><figcaption>${spansToHtml(block.caption)}</figcaption><div class="pdf-table-scroll">${tables.join('')}</div>${notes}</figure>`);
         } else {
           out.push(`<figure class="pdf-table"><figcaption>${spansToHtml(block.caption)}</figcaption>${image(block.crop, block.label, 'pdf-crop')}</figure>`);
         }

@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
 
-const { layoutPages, renderHtml, readingOrder, tableFromLines, composeAccents, faceOf, plain, entryStarts, linkRuns, linkAddresses, emailsIn, addressOf } = await load('src/lib/pdfLayout.ts');
+const { layoutPages, renderHtml, readingOrder, tableFromLines, composeAccents, faceOf, plain, entryStarts, linkRuns, linkAddresses, emailsIn, addressOf, tableGrid } = await load('src/lib/pdfLayout.ts');
 
 after(cleanup);
 
@@ -321,7 +321,7 @@ describe('figures, tables and equations', () => {
         ['UNet', '0.0212', '0.0338'],
       ],
     );
-    assert.match(renderHtml(layout, () => null), /<table><tr><th>Method<\/th><th>s = 85<\/th>/);
+    assert.match(renderHtml(layout, () => null), /<table><tr><th class="short">Method<\/th><th class="short">s = 85<\/th>/);
   });
 
   it('paints a numbered display equation rather than reading it', () => {
@@ -566,6 +566,92 @@ describe('what a real IEEE paper threw up', () => {
     ];
     const tables = layoutPages([page(runs)]).blocks.filter((block) => block.kind === 'table');
     assert.deepEqual(tables[1].rows.map((row) => row.map((cell) => plain(cell.spans))), [['Variant', 'HS'], ['LeWM', '3.7']]);
+  });
+});
+
+describe('tables whose cells span', () => {
+  const body = (x, top) => column(x, top, ['A paragraph of running text above the table, a full line wide here.', 'And a second full line of running text, so the body is measured.', 'Then a short last line.'], { size: 10 });
+  const grid = (layout) => tableGrid(layout.blocks.find((block) => block.kind === 'table').rows);
+
+  it('spreads a heading over the columns the rule under it spans', () => {
+    const runs = [
+      ...body(54, 100),
+      line('TABLE III: Metrics.', 54, 150, { size: 8 }),
+      line('Variant', 60, 166, { size: 8, width: 26 }),
+      line('Candidate selection', 150, 166, { size: 8, width: 70 }),
+      line('CAD', 110, 180, { size: 8, width: 16 }),
+      line('R30', 160, 180, { size: 8, width: 14 }),
+      line('R̄30', 210, 180, { size: 8, width: 14 }),
+      line('LeWM', 60, 194, { size: 8, width: 20 }),
+      line('0.460', 108, 194, { size: 8, width: 20 }),
+      line('0.074', 158, 194, { size: 8, width: 20 }),
+      line('0.298', 208, 194, { size: 8, width: 20 }),
+      ...column(54, 230, ['The text goes on under the table with another full body line here.', 'And one more.'], { size: 10 }),
+    ];
+    // Booktabs's \cmidrule under "Candidate selection", from CAD to R̄30.
+    const graphics = [{ x0: 106, y0: 169, x1: 232, y1: 169.4, kind: 'path' }];
+    const layout = layoutPages([page(runs, graphics)]);
+    assert.deepEqual(grid(layout), [
+      ['Variant', 'Candidate selection', '', ''],
+      ['', 'CAD', 'R30', 'R̄30'],
+      ['LeWM', '0.460', '0.074', '0.298'],
+    ]);
+  });
+
+  it('spreads a heading centred over blank columns over them, where no rule is drawn', () => {
+    const runs = [
+      ...body(54, 100),
+      line('TABLE III: Metrics.', 54, 150, { size: 8 }),
+      line('Variant', 60, 166, { size: 8, width: 26 }),
+      line('Candidate selection', 134, 166, { size: 8, width: 70 }),
+      line('CAD', 110, 180, { size: 8, width: 16 }),
+      line('R30', 160, 180, { size: 8, width: 14 }),
+      line('R̄30', 210, 180, { size: 8, width: 14 }),
+      line('LeWM', 60, 194, { size: 8, width: 20 }),
+      line('0.460', 108, 194, { size: 8, width: 20 }),
+      line('0.074', 158, 194, { size: 8, width: 20 }),
+      line('0.298', 208, 194, { size: 8, width: 20 }),
+      ...column(54, 230, ['The text goes on under the table with another full body line here.', 'And one more.'], { size: 10 }),
+    ];
+    const table = layoutPages([page(runs)]).blocks.find((block) => block.kind === 'table');
+    assert.equal(table.rows[0][1].colspan, 3);
+  });
+
+  it('gives a group\'s label all its rows, as far as the rule under the group', () => {
+    const runs = [
+      ...body(54, 100),
+      line('TABLE IV: Results.', 54, 150, { size: 8 }),
+      line('Protocol', 60, 166, { size: 8, width: 30 }),
+      line('Metric', 110, 166, { size: 8, width: 22 }),
+      line('Ours', 190, 166, { size: 8, width: 16 }),
+      line('Complex', 60, 180, { size: 8, width: 29 }),
+      line('Success', 110, 180, { size: 8, width: 27 }),
+      line('5/10', 190, 180, { size: 8, width: 14 }),
+      line('Abnormal motion', 110, 190, { size: 8, width: 58 }),
+      line('2/10', 190, 190, { size: 8, width: 14 }),
+      line('Target', 60, 204, { size: 8, width: 22 }),
+      line('Moved', 110, 204, { size: 8, width: 22 }),
+      line('21/27', 190, 204, { size: 8, width: 18 }),
+      ...column(54, 240, ['The text goes on under the table with another full body line here.', 'And one more.'], { size: 10 }),
+    ];
+    const graphics = [
+      { x0: 58, y0: 170, x1: 210, y1: 170.4, kind: 'path' },
+      { x0: 58, y0: 194, x1: 210, y1: 194.4, kind: 'path' },
+    ];
+    const table = layoutPages([page(runs, graphics)]).blocks.find((block) => block.kind === 'table');
+    assert.deepEqual(table.rows.map((row) => row.map((cell) => plain(cell.spans) + (cell.rowspan ? `×${cell.rowspan}` : ''))), [
+      ['Protocol', 'Metric', 'Ours'],
+      ['Complex×2', 'Success', '5/10'],
+      ['Abnormal motion', '2/10'],
+      ['Target', 'Moved', '21/27'],
+    ]);
+    assert.deepEqual(tableGrid(table.rows)[2], ['', 'Abnormal motion', '2/10']);
+  });
+
+  it('puts an accent drawn back over its letter on it', () => {
+    const runs = [...column(54, 100, ['Elite-mean regret is the second measure we report for every model.', 'A second full line of running text, so that the body is measured.', 'And a short one.'])];
+    runs.push(line('R', 54, 140, { width: 6, font: 'CMMI9' }), line('¯', 55.5, 138, { width: 4, font: 'CMR9' }), line('is its bar.', 64, 140, { width: 40 }));
+    assert.match(texts(layoutPages([page(runs)])).join(' '), /R̄ is its bar\./);
   });
 });
 

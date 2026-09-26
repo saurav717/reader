@@ -66,7 +66,7 @@ export async function loadPaperContentFromPdf(
   // its default does; "javascript:" and "data:" still fail it.
   const clean = DOMPurify.sanitize(reflowed.html, {
     USE_PROFILES: { html: true },
-    ADD_ATTR: ['loading', 'width', 'height', 'colspan', 'target'],
+    ADD_ATTR: ['loading', 'width', 'height', 'colspan', 'rowspan', 'target'],
     ALLOWED_URI_REGEXP: /^(?:blob:|https?:|mailto:|#|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
     FORBID_TAGS: ['style', 'link'],
   });
