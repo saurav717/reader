@@ -215,3 +215,106 @@ describe('the Worker, tallying', () => {
     assert.equal(out.totals.deepseek, 1);
   });
 });
+
+const balance = await import('../worker/deepseekBalance.js');
+
+describe('the DeepSeek balance', () => {
+  const answer = (total, extra = {}) =>
+    Response.json({
+      is_available: true,
+      balance_infos: [
+        { currency: 'CNY', total_balance: '99.00', granted_balance: '0.00', topped_up_balance: '99.00' },
+        { currency: 'USD', total_balance: total, granted_balance: '1.00', topped_up_balance: '9.00', ...extra },
+      ],
+    });
+
+  it('reads the USD balance, in millionths, with the key as a bearer token', async () => {
+    const calls = [];
+    const read = await balance.readBalance('sk-owner', async (url, init) => {
+      calls.push([url, init.headers.Authorization]);
+      return answer('10.25');
+    });
+    assert.deepEqual(calls, [['https://api.deepseek.com/user/balance', 'Bearer sk-owner']]);
+    assert.deepEqual(read, { available: true, currency: 'USD', total: 10_250_000, granted: 1_000_000, toppedUp: 9_000_000 });
+  });
+
+  it('says why when DeepSeek refuses the key', async () => {
+    await assert.rejects(
+      balance.readBalance('bad', async () => Response.json({ error: { message: 'Authentication Fails' } }, { status: 401 })),
+      /Authentication Fails/,
+    );
+  });
+
+  it('counts a fall as spent and a rise as added, on the day of the later snapshot', () => {
+    const at = (h) => Date.UTC(2026, 8, 26, h);
+    const snap = (total) => ({ available: true, currency: 'USD', total, granted: 0, toppedUp: total });
+    let stored = balance.addSnapshot(undefined, snap(10_000_000), at(1));
+    stored = balance.addSnapshot(stored, snap(9_700_000), at(2));
+    stored = balance.addSnapshot(stored, snap(9_650_000), at(3));
+    stored = balance.addSnapshot(stored, snap(19_650_000), at(4));
+    stored = balance.addSnapshot(stored, snap(19_600_000), at(30));
+    assert.deepEqual(stored.days, { '2026-09-26': { spent: 350_000, added: 10_000_000 }, '2026-09-27': { spent: 50_000, added: 0 } });
+    assert.equal(stored.last.total, 19_600_000);
+    const report = balance.balanceReport(stored, { days: 3, now: at(30) });
+    assert.deepEqual(report.days, [
+      { day: '2026-09-25', spent: 0, added: 0 },
+      { day: '2026-09-26', spent: 350_000, added: 10_000_000 },
+      { day: '2026-09-27', spent: 50_000, added: 0 },
+    ]);
+    // Another currency starts over rather than reading as spending.
+    const other = balance.addSnapshot(stored, { ...snap(1), currency: 'CNY' }, at(31));
+    assert.deepEqual(other.days, stored.days);
+  });
+});
+
+describe('the Worker, with DEEPSEEK_KEY', () => {
+  const realFetch = globalThis.fetch;
+  const SITE = 'https://saurav717.github.io';
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const setup = (totals) => {
+    const USAGE = usageBinding();
+    const env = { READER_TOKEN: 'owner-token', DEEPSEEK_KEY: 'sk-owner', USAGE };
+    const asked = [];
+    globalThis.fetch = async (input, init = {}) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url === 'https://api.deepseek.com/user/balance') {
+        asked.push(init.headers?.Authorization);
+        const total = totals.shift();
+        if (total === 'refuse') return Response.json({ error: { message: 'Authentication Fails' } }, { status: 401 });
+        return Response.json({ is_available: true, balance_infos: [{ currency: 'USD', total_balance: total, granted_balance: '0', topped_up_balance: total }] });
+      }
+      return Response.json({ error: 'unexpected' }, { status: 500 });
+    };
+    return { env, asked };
+  };
+  const account = (env, token = 'owner-token') =>
+    worker.fetch(new Request('https://proxy.example/usage/deepseek?days=7', { headers: { Origin: SITE, ...(token ? { Authorization: `Bearer ${token}` } : {}) } }), env);
+
+  it('shows the owner the balance, and what it fell by — from the cron and the page alike', async () => {
+    const { env, asked } = setup(['5.00', '4.40', '4.10']);
+    await worker.scheduled({}, env, { waitUntil() {} });
+    await worker.scheduled({}, env, { waitUntil() {} });
+    const out = await (await account(env)).json();
+    assert.deepEqual(asked, ['Bearer sk-owner', 'Bearer sk-owner', 'Bearer sk-owner']);
+    assert.equal(out.configured, true);
+    assert.equal(out.balance.total, 4_100_000);
+    assert.equal(out.days.length, 7);
+    assert.equal(out.days.at(-1).spent, 900_000);
+    assert.equal(out.error, undefined);
+  });
+
+  it('is the owner’s alone, says when there is no key, and passes on DeepSeek’s refusal', async () => {
+    const { env } = setup(['refuse']);
+    assert.equal((await account(env, null)).status, 401);
+    const refused = await (await account(env)).json();
+    assert.equal(refused.configured, true);
+    assert.match(refused.error, /Authentication Fails/);
+    assert.equal(refused.balance, null);
+    delete env.DEEPSEEK_KEY;
+    assert.deepEqual(await (await account(env)).json(), { configured: false });
+    await worker.scheduled({}, env, { waitUntil() {} }); // nothing to do, and no error
+  });
+});

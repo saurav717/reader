@@ -159,3 +159,9 @@ BROWSER_SESSION_LOCATION = "wnam"
 [[kv_namespaces]]
 binding = "SESSIONS"
 id = "4b383f85f5d041569dc04f04350b1c38"
+
+# Once an hour, a snapshot of the DeepSeek account's balance for the Usage
+# page (worker/deepseekBalance.js). Does nothing until DEEPSEEK_KEY is set:
+#   npx --yes wrangler@4 secret put DEEPSEEK_KEY
+[triggers]
+crons = ["17 * * * *"]

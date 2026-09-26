@@ -31,6 +31,7 @@ import {
 import { askServices, servicesLabel } from '../server/scholarServices.js';
 import { captchaPassed, emailAllowed, googleEmail, issuePass, readPass } from '../server/passes.js';
 import { aiCounts } from './usage.js';
+import { readBalance } from './deepseekBalance.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
 
@@ -143,6 +144,26 @@ function tally(env, ctx, who, counts) {
     .fetch('https://usage/record', { method: 'POST', body: JSON.stringify({ email, counts, at: Date.now() }) })
     .catch(() => undefined);
   if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(done);
+}
+
+/**
+ * Ask DeepSeek for the owner's balance and keep it as a snapshot in the Usage
+ * object. Nothing without DEEPSEEK_KEY; DeepSeek's refusal comes back as the
+ * reason, never thrown.
+ */
+async function snapshotDeepSeek(env) {
+  const key = String(env.DEEPSEEK_KEY || '').trim();
+  if (!key || !env.USAGE) return null;
+  try {
+    const snapshot = await readBalance(key);
+    await env.USAGE.get(env.USAGE.idFromName('usage')).fetch('https://usage/balance/record', {
+      method: 'POST',
+      body: JSON.stringify({ snapshot, at: Date.now() }),
+    });
+    return null;
+  } catch (error) {
+    return String(error?.message || error);
+  }
 }
 
 /** The refusal, worded for whether there is a token to give at all. */
@@ -296,6 +317,21 @@ export default {
         const days = Math.max(1, Math.min(90, Number(url.searchParams.get('days')) || 30));
         const answer = await env.USAGE.get(env.USAGE.idFromName('usage')).fetch(`https://usage/report?days=${days}`);
         return json(await answer.json(), 200, { ...headers, 'Cache-Control': 'no-store' });
+      }
+
+      // The owner's DeepSeek account as DeepSeek itself reports it — the
+      // balance now, and what it fell by each day — with DEEPSEEK_KEY set:
+      // worker/deepseekBalance.js. The owner's alone, like /usage.
+      if (path === '/usage/deepseek') {
+        const who = await authorized(request, env);
+        if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
+        const days = Math.max(1, Math.min(90, Number(url.searchParams.get('days')) || 30));
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        if (!String(env.DEEPSEEK_KEY || '').trim()) return json({ configured: false }, 200, noStore);
+        if (!env.USAGE) return json({ error: 'no USAGE object is bound here — see wrangler.toml' }, 501, headers);
+        const error = await snapshotDeepSeek(env);
+        const answer = await env.USAGE.get(env.USAGE.idFromName('usage')).fetch(`https://usage/balance/report?days=${days}`);
+        return json({ configured: true, ...(await answer.json()), ...(error ? { error } : {}) }, 200, noStore);
       }
 
       // An answer from Ask AI or Explain, reported by the app once it is in:
@@ -900,5 +936,13 @@ export default {
     } catch (error) {
       return json({ error: String(error?.message || error) }, 502, headers);
     }
+  },
+
+  // Once an hour (wrangler.toml's cron): a snapshot of the DeepSeek balance,
+  // so each day's spend is there even when nobody opens the Usage page.
+  async scheduled(event, env = {}, ctx = undefined) {
+    const done = snapshotDeepSeek(env);
+    if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(done);
+    await done;
   },
 };
