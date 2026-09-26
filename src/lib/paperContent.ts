@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify';
 import type { Paper } from '../types';
 import { api, hasProxy, NO_PROXY_REASON } from './api';
 import type { ReflowProgress } from './pdfReflow';
+import type { PaperByline } from './pdfLayout';
 import { pdfShape } from './pdfShape';
 import { withCitations } from './citations';
 
@@ -13,6 +14,12 @@ export interface PaperContent {
   notice?: string;
   /** The authors as the PDF's first page names them — every one, where a search result may have cut the list short. */
   authors?: string[];
+  /**
+   * What the first page says about its authors: the marks on their names —
+   * equal contribution, corresponding author — and the institutions named,
+   * which are where they were when they wrote it.
+   */
+  byline?: PaperByline;
   /** Hands back what the HTML refers to — the images painted from a PDF — once it is off the screen. */
   release?: () => void;
 }
@@ -69,6 +76,7 @@ export async function loadPaperContentFromPdf(
     mode: 'pdf',
     sourceLabel: `Reflowed from the PDF · ${reflowed.pages} ${reflowed.pages === 1 ? 'page' : 'pages'}`,
     authors: reflowed.authors,
+    byline: reflowed.byline,
     release: reflowed.release,
   };
 }

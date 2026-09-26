@@ -18,7 +18,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 // know `.mjs` is JavaScript serves it as something else, and a module
 // worker made from that never starts.
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?worker&url';
-import { layoutPages, renderHtml, type Crop, type Layout, type PageInput } from './pdfLayout';
+import { layoutPages, renderHtml, type Crop, type Layout, type PageInput, type PaperByline } from './pdfLayout';
 import { extractPage } from './pdfExtract';
 
 export { extractPage };
@@ -88,6 +88,8 @@ export interface ReflowedPdf {
   characters: number;
   /** The authors named on the first page, where they could be read. */
   authors?: string[];
+  /** The byline read whole: marks, notes, institutions. */
+  byline?: PaperByline;
   /** Hands back the images the HTML refers to. */
   release: () => void;
 }
@@ -177,6 +179,7 @@ export async function reflowPdf(
       pages: doc.numPages,
       characters: layout.characters,
       authors: layout.authors,
+      byline: layout.byline,
       release: () => {
         for (const url of urls.values()) URL.revokeObjectURL(url);
         urls.clear();

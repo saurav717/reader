@@ -1058,11 +1058,18 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   and the arXiv stamp are left out; and accents TeX sets apart from their
   letters ("na¨ıve") are put back. A subscript or a superscript stays on its
   own line, however near a baseline in the other column falls.
-- **The byline.** The title and the authors' names are left to the reader's
-  own heading, which already shows them. What else the first page says
-  about them — the affiliations, "∗Equal contribution", the corresponding
-  author's address — is kept, small, above the abstract, with the names too
-  where their marks ("Ada Lindqvist¹∗") point at it.
+- **The byline.** The title and the authors are the reader's own heading,
+  and the byline on the first page is read into it: the marks on each name
+  — "Jiabin Qiu∗, Zixuan Chen∗,†" — set by the names, and under them what
+  the marks stand for and the institutions named ("Nanjing University ·
+  ∗Equal contribution · †Corresponding authors"). An institution named
+  without a mark is every author's; one with a mark, "¹", is theirs whose
+  names carry it. Rest the pointer on a name and the card says it too — *On
+  this paper: Nanjing University*, where they were when they wrote it, and
+  *First author*, *Equal contribution*, *Corresponding author* — and the
+  institution helps it tell their Google Scholar profile from a namesake's.
+  Anything else set there, an address or a date, is kept above the
+  abstract as it is.
 - **Links.** The PDF's own links out — a project page, a repository, an
   email address — are links in the text, opening in a tab of their own; an
   address broken across two lines is one link. An address written out in
@@ -1082,8 +1089,10 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   a bold cell — the best result in its column — stays bold. A table in
   panels ("A. Component contributions", then "B. …") is read a panel at a
   time, each with columns of its own and its title a row across the table,
-  and the note set under a table is kept under it. A table whose cells
-  cannot be told apart is painted instead, like a figure.
+  and the note set under a table is kept under it. Cells set closer than
+  an em apart are still cells, a header centred over its figures is their
+  column, and a table ends where a figure's pictures begin. A table whose
+  cells cannot be told apart is painted instead, like a figure.
 - **Equations.** A line numbered *(3)* at the column's edge, or set mostly in
   a mathematics font, is display mathematics, and mathematics read glyph by
   glyph out of a PDF is not worth reading — so the equation and the lines a

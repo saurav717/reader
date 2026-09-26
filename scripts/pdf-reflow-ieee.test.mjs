@@ -47,11 +47,23 @@ describe('an IEEE two-column paper', () => {
     assert.equal(layout.blocks.filter((block) => /Planning models are usually/.test(text(block))).length, 1);
   });
 
-  it('keeps the affiliations and notes under the byline, with their marks', () => {
-    const front = layout.front.map(plain);
-    assert.ok(front.some((line) => /^1\s*Northfield University, Northfield, Canada$/.test(line)), front.join(' | '));
-    assert.ok(front.some((line) => /Equal contribution\. †\s*Corresponding author: haddad@northfield\.example\.org/.test(line)), front.join(' | '));
-    assert.match(html, /<div class="pdf-front">.*Ada Lindqvist<sup>1∗<\/sup>/);
+  it('reads the byline whole: each name\'s marks, what they stand for, and the institution', () => {
+    const { byline } = layout;
+    assert.deepEqual(
+      byline.authors.map((author) => [author.name, author.marks.join(','), author.affiliations.join('; '), author.notes.join('; ')]),
+      [
+        ['Ada Lindqvist', '1,∗', 'Northfield University, Northfield, Canada', 'Equal contribution'],
+        ['Tomas Okafor', '1,∗', 'Northfield University, Northfield, Canada', 'Equal contribution'],
+        ['Mira Castell', '1', 'Northfield University, Northfield, Canada', ''],
+        ['Ravi Anand', '1', 'Northfield University, Northfield, Canada', ''],
+        ['Lena Ferris', '1', 'Northfield University, Northfield, Canada', ''],
+        ['Omar Haddad', '1,†', 'Northfield University, Northfield, Canada', 'Corresponding author: haddad@northfield.example.org'],
+      ],
+    );
+    assert.deepEqual(byline.notes.map((note) => note.mark), ['∗', '†']);
+    // All of it is in the reader's heading now, and nothing is left over for the text.
+    assert.equal(layout.front, undefined);
+    assert.doesNotMatch(html, /pdf-front/);
     assert.deepEqual(layout.authors, ['Ada Lindqvist', 'Tomas Okafor', 'Mira Castell', 'Ravi Anand', 'Lena Ferris', 'Omar Haddad']);
   });
 
@@ -85,7 +97,7 @@ describe('an IEEE two-column paper', () => {
       ['Target', 'Target moved ↑', '14/27', '21/27'],
       ['', 'Lift-and-place ↑', '9/27', '17/27'],
     ]);
-    assert.match(html, /<td><strong>32\/45<\/strong><\/td>/);
+    assert.match(html, /<td class="num"><strong>32\/45<\/strong><\/td>/);
   });
 
   it('splits a table into its panels, and keeps the note under it', () => {
@@ -103,7 +115,6 @@ describe('an IEEE two-column paper', () => {
   it('makes the links links, an address broken across two lines included', () => {
     assert.match(html, /<a href="https:\/\/orb-net\.example\.org\/" target="_blank" rel="noreferrer noopener">https:\/\/orb-net\.example\.org\/<\/a>\./);
     assert.match(html, /<a href="https:\/\/github\.com\/orb-net\/orb-net" [^>]*>https:\/\/github\.com\/orb-net\/orb-net<\/a> for code/);
-    assert.match(html, /<a href="mailto:haddad@northfield\.example\.org"/);
   });
 
   it('puts the equation where it is set, between the lines around it', () => {

@@ -10,6 +10,7 @@
  * `2019•Springer`. `tidyByline` puts such a record right.
  */
 import type { PaperRef } from '../types';
+import type { BylineAuthor, PaperByline } from './pdfLayout';
 
 const YEAR = /\b(1[89]\d\d|20\d\d)\b/;
 const YEAR_ONLY = /^(1[89]\d\d|20\d\d)$/;
@@ -135,4 +136,37 @@ export function fullerAuthors(known: string[], found: string[] | undefined): str
   const longer = found.length > known.length;
   const fuller = found.join(' ').length > known.join(' ').length;
   return longer || fuller ? found : null;
+}
+
+/** What the paper's own byline says of one of its authors, found by name. */
+export function onPaper(byline: PaperByline | undefined, name: string): BylineAuthor | undefined {
+  return byline?.authors.find((author) => sameAuthor(name, author.name) || sameAuthor(author.name, name));
+}
+
+/**
+ * What the byline says of an author, in words: "First author", "Equal
+ * contribution", "Corresponding author" — the marks' own words, as the
+ * page gives them, after whether they come first.
+ */
+export function rolesOnPaper(author: BylineAuthor | undefined, position: number): string[] {
+  const roles = position === 0 ? ['First author'] : [];
+  // The note speaks of them all — "Corresponding authors" — the card of one.
+  for (const note of author?.notes ?? []) {
+    const own = note.replace(/\bauthors\b/i, (word) => word.slice(0, -1));
+    if (!roles.includes(own)) roles.push(own);
+  }
+  return roles;
+}
+
+/** A note cut into its words and its addresses — "Corresponding author: a@b.org" — the addresses to be links. */
+export function addressPieces(text: string): { text: string; href?: string }[] {
+  const out: { text: string; href?: string }[] = [];
+  let at = 0;
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"]+[^\s<>".,;:)]|[\w.+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}/gi)) {
+    if (match.index! > at) out.push({ text: text.slice(at, match.index) });
+    out.push({ text: match[0], href: match[0].includes('@') && !/^https?:/i.test(match[0]) ? `mailto:${match[0]}` : match[0] });
+    at = match.index! + match[0].length;
+  }
+  if (at < text.length) out.push({ text: text.slice(at) });
+  return out;
 }

@@ -119,6 +119,28 @@ export interface Layout {
    * — one entry a line, with the byline itself where its marks point there.
    */
   front?: Span[][];
+  /**
+   * The byline read whole: each author's marks, what each mark stands for,
+   * and the institutions named — where the authors were when they wrote it.
+   */
+  byline?: PaperByline;
+}
+
+export interface BylineAuthor {
+  name: string;
+  /** The marks set on the name, as printed: "∗", "†", "1". */
+  marks: string[];
+  /** The institutions the marks point at, or the one the whole byline shares. */
+  affiliations: string[];
+  /** What the name's other marks say: "Equal contribution", "Corresponding authors". */
+  notes: string[];
+}
+
+export interface PaperByline {
+  authors: BylineAuthor[];
+  /** Each mark and what it stands for, in the order the page gives them. */
+  notes: { mark: string; text: string }[];
+  affiliations: { mark?: string; text: string }[];
 }
 
 // ------------------------------------------------------------------ fonts --
@@ -267,6 +289,9 @@ export function linkRuns(runs: TextRun[], links: PageLink[]): TextRun[] {
   return out;
 }
 
+/** A run with no letter or digit in it: an accent, an arrow, a bracket. */
+const bareRun = (run: TextRun): boolean => !/[\p{L}\p{N}]/u.test(run.str);
+
 /**
  * Runs into lines: one baseline, read left to right, with a gap of more than
  * a line's own em between two runs starting a new line — which is what keeps
@@ -280,7 +305,12 @@ function buildLines(page: PageInput): Line[] {
   const runs: Run[] = linkRuns(page.runs, page.links || [])
     .filter((run) => run.str.trim().length && run.size > 0)
     .map((run) => ({ ...run, str: composeAccents(run.str), ...faceOf(run.font) }))
-    .sort((a, b) => a.y - b.y || a.x - b.x);
+    // The baselines are laid by the text's own size first, and the smaller
+    // runs — a superscript, a footnote mark — are placed on them after: a
+    // superscript met first would otherwise start a baseline of its own
+    // and pull half its line onto it. So would a bar set over a letter, and
+    // among runs of one size the words lay the baselines before the marks.
+    .sort((a, b) => round(b.size) - round(a.size) || Number(bareRun(a)) - Number(bareRun(b)) || a.y - b.y || a.x - b.x);
 
   const baselines: { runs: Run[]; baseline: number; size: number }[] = [];
   for (const run of runs) {
@@ -288,14 +318,19 @@ function buildLines(page: PageInput): Line[] {
     let best = Number.POSITIVE_INFINITY;
     for (let at = baselines.length - 1; at >= 0; at -= 1) {
       const candidate = baselines[at];
-      if (run.y - candidate.baseline > 2 * Math.max(candidate.size, run.size)) break;
       const drift = Math.abs(run.y - candidate.baseline);
       if (drift > 0.55 * Math.max(candidate.size, run.size)) continue;
       // Not a run set over or under one already there: that is the next
       // line of its column, drawn into this baseline by a line of larger
       // type in the column beside it, which sits between the two.
+      // (A subscript under a superscript — the ₂ under the ² of ‖x‖²₂ — is
+      // not that: two small runs stacked are one expression's scripts.)
+      const script = (item: Run) => item.size < 0.85 * candidate.size;
       const stacked = candidate.runs.some(
-        (other) => Math.abs(other.y - run.y) > 0.3 * Math.min(other.size, run.size) && Math.min(other.x + other.width, run.x + run.width) - Math.max(other.x, run.x) > 1,
+        (other) =>
+          !(script(run) && script(other)) &&
+          Math.abs(other.y - run.y) > 0.3 * Math.min(other.size, run.size) &&
+          Math.min(other.x + other.width, run.x + run.width) - Math.max(other.x, run.x) > 1,
       );
       if (stacked) continue;
       // A run off the baseline — a subscript, a superscript — belongs with
@@ -303,7 +338,9 @@ function buildLines(page: PageInput): Line[] {
       // baseline happens to fall nearer: only a run on the baseline itself
       // joins one across a gap, as a table's cells do.
       const em = Math.max(candidate.size, run.size);
-      const beside = candidate.runs.some((other) => run.x - (other.x + other.width) < 1.5 * em && other.x - (run.x + run.width) < 1.5 * em);
+      // Beside is touching, or nearly: a script is set against its letter,
+      // and the gap between two columns is wider than half an em.
+      const beside = candidate.runs.some((other) => run.x - (other.x + other.width) < 0.5 * em && other.x - (run.x + run.width) < 0.5 * em);
       if (!beside && drift > 0.15 * em) continue;
       const score = drift + (beside ? 0 : em);
       if (score < best) {
@@ -675,28 +712,35 @@ function captionTail(caption: Line, lines: Line[]): Line[] {
   return tail;
 }
 
-function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: Measures, page: PageInput): Region | null {
+function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: Measures, page: PageInput, found: Region[] = []): Region | null {
   const kind = caption.caption!.kind;
   const sides: ('above' | 'below')[] = kind === 'table' ? ['below', 'above'] : ['above', 'below'];
-  const tail = captionTail(caption, lines);
+  const tail = lines.filter((line) => line.captionOf === caption);
   const captionBottom = tail.length ? tail[tail.length - 1].bottom : caption.bottom;
-  const free = lines.filter((line) => line !== caption && !line.taken && !tail.includes(line));
+  // Another caption's lines are its own, and never running text to measure by.
+  const free = lines.filter((line) => line !== caption && !line.taken && !line.captionOf);
   const em = measures.bodySize;
 
   for (const side of sides) {
     let span = { x0: caption.x0, x1: caption.x1 };
     const inSpan = (box: { x0: number; x1: number }) => overlapX(box, span) > 0;
-    const body = free.filter((line) => bodyLike(line, measures) && inSpan(line));
+    const body = free.filter((line) => !line.caption && bodyLike(line, measures) && inSpan(line));
     const columnLeft = body.length ? Math.min(...body.map((line) => line.x0)) : caption.x0;
     // A line of running text: a full one, or a paragraph's short last
     // line, which is body-sized, starts at the column's edge and sits a
     // line under a full one.
     const wall = (line: Line) => {
-      if (line.caption || bodyLike(line, measures)) return true;
-      // A heading, by its shape or set large and bold: the text resuming.
-      if (headingLine(line, measures, columnLeft) || (line.allBold && line.size >= measures.bodySize * 1.1)) return true;
+      if (line.caption) return true;
+      // A line set wholly inside a drawn frame — a panel's title in a
+      // diagram, its subtitle as wide as a line of text — is the figure's.
+      const framed = clusters.some((cluster) => (cluster.images || cluster.bodies) && line.x0 >= cluster.x0 - 1 && line.x1 <= cluster.x1 + 1 && line.top >= cluster.y0 - 1 && line.bottom <= cluster.y1 + 1);
+      if (bodyLike(line, measures)) return !framed;
+      // A heading, by its shape or set large and bold, is the text resuming
+      // — unless it sits inside the drawings, as a panel's title does.
+      const drawnOver = clusters.some((cluster) => overlapX(cluster, line) > 0 && cluster.y0 <= line.bottom && cluster.y1 >= line.top);
+      if (!drawnOver && (headingLine(line, measures, columnLeft) || (line.allBold && line.size >= measures.bodySize * 1.1))) return true;
       // A title, or a heading set large: never part of a figure.
-      if (line.size >= measures.bodySize * 1.3 && !clusters.some((cluster) => overlapX(cluster, line) > 0 && cluster.y0 <= line.bottom && cluster.y1 >= line.top)) return true;
+      if (line.size >= measures.bodySize * 1.3 && !drawnOver) return true;
       if (Math.abs(line.size - measures.bodySize) > 0.6 || line.x0 > columnLeft + em * 0.3) return false;
       return body.some((other) => other.bottom <= line.top + 1 && line.top - other.bottom < line.size * 1.2);
     };
@@ -705,6 +749,16 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
       far = Math.max(0, ...free.filter((line) => inSpan(line) && line.bottom <= caption.top + 1 && wall(line)).map((line) => line.bottom));
     } else {
       far = Math.min(page.height, ...free.filter((line) => inSpan(line) && line.top >= captionBottom - 1 && wall(line)).map((line) => line.top));
+    }
+    // Nor does one reach into a figure or a table already found in its way.
+    const others = found.filter((region) => overlapX(region, span) > 0);
+    if (side === 'above') far = Math.max(far, ...others.filter((region) => region.y1 <= caption.top + 1).map((region) => region.y1));
+    else far = Math.min(far, ...others.filter((region) => region.y0 >= captionBottom - 1).map((region) => region.y0));
+    // A table ends where a figure's pictures begin, under it or over it.
+    if (kind === 'table') {
+      const pictures = clusters.filter((cluster) => cluster.images && inSpan(cluster));
+      if (side === 'below') far = Math.min(far, ...pictures.filter((cluster) => cluster.y0 >= captionBottom).map((cluster) => cluster.y0));
+      else far = Math.max(far, ...pictures.filter((cluster) => cluster.y1 <= caption.top).map((cluster) => cluster.y1));
     }
     const band = side === 'above' ? { y0: far, y1: caption.top } : { y0: captionBottom, y1: far };
     if (band.y1 - band.y0 < em * 0.5) continue;
@@ -744,7 +798,6 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
     if (!members.length && rows < 2 && small < 2) continue;
 
     const boxes = [...members, ...held.map((line) => ({ x0: line.x0, y0: line.top, x1: line.x1, y1: line.bottom }))];
-    for (const line of tail) line.captionOf = caption;
     return {
       kind,
       page: page.index,
@@ -1130,6 +1183,24 @@ export function tableFromLines(lines: Line[], caption?: Line): TableCell[][] | n
     else rows.push([cell]);
   }
   if (rows.length < 2) return null;
+
+  // A header centred over its numbers, but wider or narrower than them,
+  // makes a column of its own beside theirs: two columns side by side that
+  // no row fills both of, and that all but touch, are one.
+  const em = Math.max(...cells.map((cell) => cell.size));
+  for (let at = 0; at + 1 < columns.length; ) {
+    const [left, right] = [columns[at], columns[at + 1]];
+    const both = rows.some((row) => row.some((cell) => placement.get(cell)!.includes(left)) && row.some((cell) => placement.get(cell)!.includes(right)));
+    if (both || right.x0 - left.x1 > em) {
+      at += 1;
+      continue;
+    }
+    left.x0 = Math.min(left.x0, right.x0);
+    left.x1 = Math.max(left.x1, right.x1);
+    for (const [cell, spans] of placement) placement.set(cell, Array.from(new Set(spans.map((column) => (column === right ? left : column)))).sort((a, b) => a.x0 - b.x0));
+    columns.splice(at + 1, 1);
+  }
+  if (columns.length < 2) return null;
   const filled = rows.filter((row) => row.length >= 2).length;
   if (filled / rows.length < 0.5) return null;
 
@@ -1163,13 +1234,45 @@ export function tableFromLines(lines: Line[], caption?: Line): TableCell[][] | n
 }
 
 /**
+ * A line of a table cut into its cells. Running text is cut into lines at a
+ * gap of an em, but a table set small and tight puts its cells closer than
+ * that — "Complex   Success ↑" — while the words of one cell are a space
+ * apart, and pdf.js reports a space inside a run, not as a gap between two.
+ */
+function splitCells(line: Line): Line[] {
+  const runs = line.runs.filter((run) => run.str.trim());
+  const parts: Run[][] = [];
+  let end = Number.NEGATIVE_INFINITY;
+  for (const run of runs) {
+    // A subscript or a superscript stays with what it is set on.
+    const script = run.size < 0.85 * line.size;
+    if (!parts.length || (!script && run.x - end > 0.6 * line.size)) parts.push([]);
+    parts[parts.length - 1].push(run);
+    end = Math.max(end, run.x + run.width);
+  }
+  if (parts.length < 2) return [line];
+  return parts.map((part) => {
+    const worded = part.filter((run) => /[\p{L}\p{N}]/u.test(run.str));
+    return {
+      ...line,
+      runs: part,
+      x0: Math.min(...part.map((run) => run.x)),
+      x1: Math.max(...part.map((run) => run.x + run.width)),
+      text: joinRuns(part, line.size),
+      allBold: worded.length > 0 && worded.every((run) => run.bold),
+      allItalic: worded.length > 0 && worded.every((run) => run.italic),
+    };
+  });
+}
+
+/**
  * A table read whole: split into its panels where it has them — "A.
  * Component contributions", then its rows, "B. …", then its own — each
  * with columns of its own, and a panel's title a row across the table;
  * and the note set under the table, after its last row, kept as a note.
  */
 export function tableOf(lines: Line[], caption?: Line): { rows: TableCell[][]; notes?: Span[] } | null {
-  const cells = lines.filter((line) => line !== caption && line.text.trim());
+  const cells = lines.filter((line) => line !== caption && line.text.trim()).flatMap(splitCells);
   if (!cells.length) return null;
   const byRow: Line[][] = [];
   for (const cell of cells.slice().sort((a, b) => a.baseline - b.baseline || a.x0 - b.x0)) {
@@ -1320,6 +1423,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
   let characters = 0;
   let frontAuthors: string[] = [];
   let front: Span[][] = [];
+  let byline: PaperByline | undefined;
   let inReferences = false;
   const headings: { block: Extract<Block, { kind: 'heading' }>; size: number; numbered: number }[] = [];
   let carry: Extract<Block, { kind: 'paragraph' }> | null = null;
@@ -1328,6 +1432,9 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
   for (const [at, page] of inputs.entries()) {
     const lines = pages[at];
     findCaptions(lines, measures);
+    // Every caption's lines are known before any region is looked for: a
+    // caption's second line, as wide as the column, is not running text.
+    for (const line of lines) if (line.caption && !line.taken) for (const next of captionTail(line, lines)) next.captionOf = line;
     const clusters = clusterGraphics(page);
 
     // Figures and tables, by their captions; then the lines inside them —
@@ -1335,7 +1442,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
     const regions: Region[] = [];
     for (const line of lines) {
       if (!line.caption || line.taken) continue;
-      const region = regionFor(line, lines, clusters, measures, page);
+      const region = regionFor(line, lines, clusters, measures, page, regions);
       if (!region) continue;
       regions.push(region);
       for (const held of region.lines) held.taken = true;
@@ -1401,7 +1508,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
         // abstract, as a float would.
         const before = paras.slice(0, abstractAt);
         const floats = before.filter((paragraph) => paragraph.region || paragraph.lines[0].caption);
-        front = frontMatter(before.filter((paragraph) => !floats.includes(paragraph)).flatMap((paragraph) => paragraph.lines), measures, options.title);
+        ({ front, byline } = frontMatter(before.filter((paragraph) => !floats.includes(paragraph)).flatMap((paragraph) => paragraph.lines), measures, options.title));
         const after = paras.slice(abstractAt);
         // After the abstract's text, not between its heading and its text.
         const at = after.length > 1 && plain(spansOf(after[0].lines)).split(' ').length <= 2 ? 2 : 1;
@@ -1518,6 +1625,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
     bodySize: measures.bodySize,
     authors: frontAuthors.length ? frontAuthors : undefined,
     front: front.length ? front : undefined,
+    byline,
   };
 }
 
@@ -1573,14 +1681,95 @@ export function bylinePieces(text: string): string[] {
     .filter(Boolean);
 }
 
+/** A note about the authors rather than a place: "Equal contribution", "Work done at…". */
+const AUTHOR_NOTE = /contribut|correspond|equal|intern|work (?:was )?done|project lead|advis|lead author|first author|supervis|while at|now at|e-?mail|on leave/i;
+/** Words that make a line a place: a university, a lab, a company. */
+const INSTITUTION = /univ|institut|college|school|department|\bdept\b|faculty|laborator|\blabs?\b|cent(?:er|re)\b|research|\binc\b|\bltd\b|\bcorp|company|hospital|academy|foundation|google|microsoft|\bmeta\b|deepmind|openai|anthropic|amazon|apple|nvidia|\bibm\b|adobe|intel|samsung|polytechn|politecnico|hochschule|\bETH\b|\bEPFL\b|\bMIT\b|\bCNRS\b|\bINRIA\b/i;
+const MARK = /^[∗*†‡§¶♯♮⋆#]+$/;
+
+/** A mark's characters, one mark each: "1∗" is 1 and ∗, "∗,†" is ∗ and †. */
+const marksOf = (text: string): string[] => (text.replace(/\*/g, '∗').match(/\d+|[a-z](?![a-z])|[∗†‡§¶♯♮⋆#]/gi) || []).filter(Boolean);
+
 /**
- * The first page's lines above the abstract, less the title: the byline's
- * affiliations and notes, which the reader's own heading has no room for.
- * A line of names is kept only where its marks — "Jiabin Qiu¹∗" — point at
- * one of the lines kept, since the names alone are in the heading already.
- * A line that runs on to the next — a long address — is one entry with it.
+ * A line of names read as its authors and their marks — "Jiabin Qiu∗,
+ * Zixuan Chen∗,†" — the marks being the raised runs after each name, or
+ * the symbols and figures a PDF set in line with it.
  */
-function frontMatter(lines: Line[], measures: Measures, title?: string): Span[][] {
+function namesWithMarks(spans: Span[]): { name: string; marks: string[] }[] {
+  const out: { name: string; marks: string[] }[] = [];
+  let current = { name: '', marks: [] as string[] };
+  const finish = () => {
+    let name = current.name.replace(/\s+/g, ' ').trim();
+    // Marks set in line: "Jiabin Qiu*", "Ada Lindqvist1".
+    const inline = /([\d∗*†‡§¶⋆#,]+)$/.exec(name);
+    if (inline && /\p{L}/u.test(name.slice(0, inline.index))) {
+      current.marks.push(...marksOf(inline[1]));
+      name = name.slice(0, inline.index).trim();
+    }
+    if (name) out.push({ name, marks: Array.from(new Set(current.marks)) });
+    current = { name: '', marks: [] };
+  };
+  for (const span of spans) {
+    if (span.sup) {
+      current.marks.push(...marksOf(span.text));
+      continue;
+    }
+    const pieces = span.text.split(/\s*(?:,|;|·|\band\b|&)\s*/);
+    pieces.forEach((piece, index) => {
+      if (index > 0) finish();
+      current.name += piece;
+    });
+  }
+  finish();
+  return out;
+}
+
+/**
+ * A line of notes cut at its marks: "∗Equal contribution. †Corresponding
+ * authors." is ∗ and † with what each says; "1Nanjing University" is 1.
+ */
+function markedPieces(spans: Span[]): { marks: string[]; text: string }[] {
+  const out: { marks: string[]; text: string }[] = [];
+  let current: { marks: string[]; text: string } | null = null;
+  for (const span of spans) {
+    const text = span.text;
+    if (span.sup || (MARK.test(text.trim()) && text.trim())) {
+      if (!current || current.text.trim()) {
+        current = { marks: [], text: '' };
+        out.push(current);
+      }
+      current.marks.push(...marksOf(text));
+      continue;
+    }
+    // Symbols set in line at the head of a piece: "*Equal contribution".
+    const parts = text.split(/(?:^|\s)([∗*†‡§¶])(?=\S)/);
+    parts.forEach((part, index) => {
+      if (index % 2 === 1) {
+        current = { marks: marksOf(part), text: '' };
+        out.push(current);
+        return;
+      }
+      if (!current) {
+        current = { marks: [], text: '' };
+        out.push(current);
+      }
+      current.text += part;
+    });
+  }
+  return out
+    .map((piece) => ({ marks: piece.marks, text: piece.text.replace(/\s+/g, ' ').replace(/^[\s,;.]+|[\s,;]+$/g, '').trim() }))
+    .filter((piece) => piece.text);
+}
+
+/**
+ * The first page's lines above the abstract, less the title: the byline
+ * read whole where it can be — the names with their marks, what the marks
+ * stand for, the institutions named — and whatever else is there (an
+ * address, a date) kept to be shown as it is set. Where the byline cannot
+ * be read, the lines are kept as they are, the names only where their
+ * marks point at one of them.
+ */
+function frontMatter(lines: Line[], measures: Measures, title?: string): { front: Span[][]; byline?: PaperByline } {
   const wanted = title ? normalTitle(title) : '';
   const entries: { spans: Span[]; names: boolean; marked: boolean }[] = [];
   const largest = Math.max(0, ...lines.map((line) => line.size));
@@ -1603,10 +1792,48 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): Span[][
     }
     entries.push({ spans, names, marked });
   }
-  const notes = entries.filter((entry) => !entry.names);
-  if (!notes.length) return [];
-  const pointed = notes.some((entry) => entry.marked);
-  return entries.filter((entry) => !entry.names || (pointed && entry.marked)).map((entry) => entry.spans);
+
+  // The byline read whole.
+  const authors: BylineAuthor[] = [];
+  const notes: { mark: string; text: string }[] = [];
+  const affiliations: { mark?: string; text: string }[] = [];
+  const rest: Span[][] = [];
+  for (const entry of entries) {
+    if (entry.names) {
+      for (const { name, marks } of namesWithMarks(entry.spans)) authors.push({ name, marks, affiliations: [], notes: [] });
+      continue;
+    }
+    const pieces = markedPieces(entry.spans);
+    let used = false;
+    for (const piece of pieces) {
+      const mark = piece.marks.join(',') || undefined;
+      if (AUTHOR_NOTE.test(piece.text) && !(INSTITUTION.test(piece.text) && /^\d/.test(mark || ''))) {
+        if (mark) {
+          notes.push({ mark, text: piece.text.replace(/\.$/, '') });
+          used = true;
+        }
+      } else if (INSTITUTION.test(piece.text) || (mark && /^\d/.test(mark))) {
+        affiliations.push({ mark, text: piece.text.replace(/\.$/, '') });
+        used = true;
+      }
+    }
+    if (!used) rest.push(entry.spans);
+  }
+  if (authors.length && (notes.length || affiliations.length)) {
+    const unmarked = affiliations.filter((place) => !place.mark);
+    for (const author of authors) {
+      const own = affiliations.filter((place) => place.mark && place.mark.split(',').some((mark) => author.marks.includes(mark)));
+      // One institution named without a mark is everyone's.
+      author.affiliations = (own.length ? own : unmarked.length === 1 ? unmarked : []).map((place) => place.text);
+      author.notes = notes.filter((note) => note.mark.split(',').some((mark) => author.marks.includes(mark))).map((note) => note.text);
+    }
+    return { front: rest, byline: { authors, notes, affiliations } };
+  }
+
+  const kept = entries.filter((entry) => !entry.names);
+  if (!kept.length) return { front: [] };
+  const pointed = kept.some((entry) => entry.marked);
+  return { front: entries.filter((entry) => !entry.names || (pointed && entry.marked)).map((entry) => entry.spans) };
 }
 
 /** The names on the lines above a first page's abstract, in reading order. */
@@ -1868,7 +2095,9 @@ export function renderHtml(layout: Layout, imageFor: (crop: Crop) => string | nu
               return `<tr${title ? ' class="pdf-panel"' : ''}>${row
                 .map((cell) => {
                   const tag = (marked ? cell.head : index === 0) ? 'th' : 'td';
-                  return `<${tag}${cell.colspan ? ` colspan="${cell.colspan}"` : ''}>${spansToHtml(cell.spans)}</${tag}>`;
+                  // A figure — "73.3 ± 2.5" — is kept on one line, and a wide table scrolls.
+                  const figure = /^[\d\s.,±%()+\-−–/×*]+$/.test(plain(cell.spans)) && /\d/.test(plain(cell.spans));
+                  return `<${tag}${cell.colspan ? ` colspan="${cell.colspan}"` : ''}${figure ? ' class="num"' : ''}>${spansToHtml(cell.spans)}</${tag}>`;
                 })
                 .join('')}</tr>`;
             })

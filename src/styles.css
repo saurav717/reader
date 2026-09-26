@@ -443,6 +443,12 @@ kbd {
 }
 .paper-authors { margin: 0 0 22px; font-size: 13px; line-height: 1.6; color: var(--ink-2); text-wrap: pretty; }
 .paper-authors .author-name { white-space: nowrap; }
+/* The marks on a name — ∗ equal contribution, † corresponding — and, under
+   the names, what they stand for and where the authors were. */
+.paper-authors .author-marks { font-size: 0.72em; margin-left: 1px; color: var(--muted); line-height: 0; cursor: help; }
+.paper-byline { margin: -16px 0 22px; font-family: var(--sans); font-size: 12px; line-height: 1.55; color: var(--muted); text-wrap: pretty; }
+.paper-byline sup { font-size: 0.8em; margin-right: 1px; line-height: 0; }
+.paper-byline .sep { color: var(--border); }
 
 .paper-body { font-family: var(--serif); font-size: var(--reading-size, 18.5px); line-height: 1.68; color: var(--ink); }
 .paper-body p { margin: 0 0 18px; hyphens: auto; -webkit-hyphens: auto; overflow-wrap: break-word; }
@@ -1280,6 +1286,7 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 /* A wide table scrolls on its own rather than pushing the page sideways. */
 .paper-body .pdf-table-scroll { overflow-x: auto; }
 .paper-body .pdf-table-scroll table { margin: 0; font-variant-numeric: tabular-nums; }
+.paper-body .pdf-table td.num { white-space: nowrap; }
 /* A panel's title — "A. Component contributions" — is a row across the table. */
 .paper-body .pdf-table tr.pdf-panel th { text-align: left; background: none; border-left-color: transparent; border-right-color: transparent; padding-top: 10px; }
 .paper-body .pdf-table-notes { font-family: var(--sans); font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }
@@ -1505,6 +1512,9 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 @media (prefers-reduced-motion: reduce) { .hover-card { animation: none; } }
 .hover-card p { margin: 0; }
 .hover-card a { color: var(--accent); text-decoration: none; }
+/* What the paper's own byline says of them: first author, equal contribution, corresponding. */
+.hc-roles { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
+.hc-role { font-family: var(--sans); font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); }
 .hover-card a:hover { text-decoration: underline; }
 
 .hc-head { margin-bottom: 8px; }

@@ -419,7 +419,7 @@ describe('IEEE conference papers', () => {
       ['Basic', '19/45', '32/45'],
       ['Complex', '2/10', '5/10'],
     ]);
-    assert.match(renderHtml(layout, () => null), /<td><strong>32\/45<\/strong><\/td>/);
+    assert.match(renderHtml(layout, () => null), /<td class="num"><strong>32\/45<\/strong><\/td>/);
   });
 
   it('keeps the byline\'s affiliations and notes, and the names only where their marks point there', () => {
@@ -436,9 +436,45 @@ describe('IEEE conference papers', () => {
       ...column(54, 170, ['The introduction goes on under the abstract with a full body line.', 'A second full line of running text, so that the body is measured.', 'And a third.'], { size: 10 }),
     ];
     const layout = layoutPages([page(runs)], { title: 'A Paper With Notes Under Its Byline' });
-    assert.deepEqual(layout.front.map(plain), ['Ada Lindqvist1∗, Omar Haddad1†', '1Northfield University, Canada', '∗Equal contribution. †Corresponding author.']);
-    assert.match(renderHtml(layout, () => null), /^<div class="pdf-front"><p>Ada Lindqvist<sup>1∗<\/sup>, Omar Haddad<sup>1†<\/sup><\/p><p><sup>1<\/sup>Northfield University, Canada<\/p>/);
+    assert.deepEqual(layout.byline, {
+      authors: [
+        { name: 'Ada Lindqvist', marks: ['1', '∗'], affiliations: ['Northfield University, Canada'], notes: ['Equal contribution'] },
+        { name: 'Omar Haddad', marks: ['1', '†'], affiliations: ['Northfield University, Canada'], notes: ['Corresponding author'] },
+      ],
+      notes: [
+        { mark: '∗', text: 'Equal contribution' },
+        { mark: '†', text: 'Corresponding author' },
+      ],
+      affiliations: [{ mark: '1', text: 'Northfield University, Canada' }],
+    });
     assert.match(texts(layout)[0], /^Abstract—We study a thing/);
+  });
+
+  it('gives an institution named once, with no mark, to every author, and keeps what it cannot read', () => {
+    const runs = [
+      line('A Paper With One Institution', 150, 60, { size: 17, font: 'NimbusRomNo9L-Medi', width: 300 }),
+      line('Jiabin Qiu', 200, 90, { size: 11 }),
+      line('∗', 255, 86, { size: 7 }),
+      line(', Jing Huo', 258.5, 90, { size: 11 }),
+      line('†', 313.5, 86, { size: 7 }),
+      line('Nanjing University', 230, 104, { size: 11 }),
+      line('∗', 200, 114, { size: 7 }),
+      line('Equal contribution.', 204, 118, { size: 11 }),
+      line('†', 310, 114, { size: 7 }),
+      line('Corresponding authors.', 314, 118, { size: 11 }),
+      line('Preprint, September 2026', 220, 132, { size: 11 }),
+      line('Abstract—We study a thing, and the abstract goes on at some length.', 54, 160, { size: 9, font: 'NimbusRomNo9L-Medi', width: 240 }),
+      ...column(54, 180, ['The introduction goes on under the abstract with a full body line.', 'A second full line of running text, so that the body is measured.', 'And a third.'], { size: 10 }),
+    ];
+    const layout = layoutPages([page(runs)], { title: 'A Paper With One Institution' });
+    assert.deepEqual(
+      layout.byline.authors.map((author) => [author.name, author.affiliations, author.notes]),
+      [
+        ['Jiabin Qiu', ['Nanjing University'], ['Equal contribution']],
+        ['Jing Huo', ['Nanjing University'], ['Corresponding authors']],
+      ],
+    );
+    assert.deepEqual(layout.front.map(plain), ['Preprint, September 2026']);
   });
 
   it('leaves a subscript on its own line, not on the other column\'s line whose baseline falls nearer', () => {
@@ -454,6 +490,81 @@ describe('IEEE conference papers', () => {
     const text = texts(layout).join(' | ');
     assert.match(text, /C\. MI weight \(λinv = 0\.1\)/);
     assert.doesNotMatch(text, /0inv/);
+  });
+});
+
+describe('what a real IEEE paper threw up', () => {
+  const body = (x, top) => column(x, top, ['A paragraph of running text above the table, a full line wide here.', 'And a second full line of running text, so the body is measured.', 'Then a short last line.'], { size: 10 });
+
+  it('cuts a table set tight into its cells, a subscript kept with its letter', () => {
+    const runs = [
+      ...body(54, 100),
+      line('TABLE IV: Results.', 54, 150, { size: 8 }),
+      line('Protocol', 60, 166, { size: 8, width: 30 }),
+      line('Metric', 96, 166, { size: 8, width: 22 }),
+      line('R', 150, 166, { size: 8, width: 5, font: 'CMMI8' }),
+      line('30', 155.2, 167.2, { size: 6, width: 6, font: 'CMR6' }),
+      line('Ours', 180, 166, { size: 8, width: 16 }),
+      line('Complex', 60, 178, { size: 8, width: 29 }),
+      line('Success', 96, 178, { size: 8, width: 27 }),
+      line('2/10', 150, 178, { size: 8, width: 14 }),
+      line('5/10', 180, 178, { size: 8, width: 14 }),
+      ...column(54, 210, ['The text goes on under the table with another full body line here.', 'And one more.'], { size: 10 }),
+    ];
+    const table = layoutPages([page(runs)]).blocks.find((block) => block.kind === 'table');
+    assert.deepEqual(table.rows.map((row) => row.map((cell) => plain(cell.spans))), [
+      ['Protocol', 'Metric', 'R30', 'Ours'],
+      ['Complex', 'Success', '2/10', '5/10'],
+    ]);
+  });
+
+  it('keeps a norm\'s superscript and subscript, set one over the other, on their line', () => {
+    const runs = column(54, 100, ['The terminal cost is the squared distance to the goal, taken as', 'A second full line of running text, so that the body is measured.', 'And a short one.']);
+    runs.push(line('∥z − g∥', 54, 130, { width: 30, font: 'CMSY9' }), line('2', 84, 126.5, { size: 6, width: 3, font: 'CMR6' }), line('2', 84, 132, { size: 6, width: 3, font: 'CMR6' }), line(', which it replans with.', 88, 130, { width: 90 }));
+    const text = texts(layoutPages([page(runs)])).join(' | ');
+    assert.match(text, /∥z − g∥22 ?, which it replans with\./);
+    assert.doesNotMatch(text, /\| 2/);
+  });
+
+  it('ends a table where a figure\'s pictures begin under it', () => {
+    const runs = [
+      ...body(54, 100),
+      line('TABLE I: Results.', 54, 150, { size: 8 }),
+      line('Method', 60, 166, { size: 8 }),
+      line('Score', 150, 166, { size: 8 }),
+      line('Ours', 60, 178, { size: 8 }),
+      line('0.9', 150, 178, { size: 8 }),
+      line('Setup', 70, 200, { size: 7 }),
+      line('Camera', 150, 230, { size: 7 }),
+      line('Fig. 5: The robot.', 54, 260, { size: 8 }),
+      ...column(54, 280, ['The text goes on under the figure with another full body line here.', 'And one more.'], { size: 10 }),
+    ];
+    const layout = layoutPages([page(runs, [{ x0: 60, y0: 195, x1: 280, y1: 250, kind: 'image' }])]);
+    const table = layout.blocks.find((block) => block.kind === 'table');
+    assert.deepEqual(table.rows.map((row) => row.map((cell) => plain(cell.spans))), [['Method', 'Score'], ['Ours', '0.9']]);
+    const figure = layout.blocks.find((block) => block.kind === 'figure');
+    assert.ok(figure && figure.crop.y0 > 185, `the figure starts under the table: ${JSON.stringify(figure?.crop)}`);
+  });
+
+  it('does not measure a table beside a full-width caption by that caption', () => {
+    const wide = { size: 10, width: 504 };
+    const runs = [
+      line('TABLE I: A table across the page, whose caption runs on for a second', 54, 60, wide),
+      line('line as wide as the page, set in the size of the text.', 54, 72, { size: 10, width: 230 }),
+      line('Method', 60, 88, { size: 8 }),
+      line('Score', 400, 88, { size: 8 }),
+      line('Ours', 60, 100, { size: 8 }),
+      line('0.9', 400, 100, { size: 8 }),
+      ...column(54, 130, ['The left column reads on under the table with a full line of it.', 'A second full line of running text, so that the body is measured.', 'for Spearman rank correlation.'], { size: 10 }),
+      line('TABLE II: Ablations.', 318, 130, { size: 10, width: 240 }),
+      line('Variant', 324, 146, { size: 8 }),
+      line('HS', 500, 146, { size: 8 }),
+      line('LeWM', 324, 158, { size: 8 }),
+      line('3.7', 500, 158, { size: 8 }),
+      ...column(318, 190, ['The right column goes on under the second table with a full line.', 'And one more line.'], { size: 10 }),
+    ];
+    const tables = layoutPages([page(runs)]).blocks.filter((block) => block.kind === 'table');
+    assert.deepEqual(tables[1].rows.map((row) => row.map((cell) => plain(cell.spans))), [['Variant', 'HS'], ['LeWM', '3.7']]);
   });
 });
 
