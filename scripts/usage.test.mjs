@@ -63,11 +63,37 @@ describe('the tally', () => {
       claude_in: 3500,
       claude_out: 400,
       claude_cost: 5000 + 1000 + 3125 + 10000,
+      models: { 'claude-opus-5': { n: 1, in: 3500, out: 400, cost: 19125 } },
     });
     assert.equal(aiCounts({ provider: 'deepseek', model: 'deepseek-flash', input: 1_000_000, output: 0 }).deepseek_cost, 280_000);
     assert.equal(aiCounts({ provider: 'deepseek', model: 'unknown', input: 1_000_000 }).deepseek_cost, 280_000, 'an unknown model at the provider’s first price');
     assert.equal(aiCounts({ provider: 'deepseek', input: -5, output: 'x' }).deepseek_in, 0);
     assert.equal(aiCounts({ provider: 'openai', input: 1 }), null);
+  });
+
+  it('keeps each model apart — the variant picked, else the model, else the provider’s "other"', () => {
+    const models = (body) => Object.keys(aiCounts({ input: 10, output: 5, ...body }).models);
+    assert.deepEqual(models({ provider: 'deepseek', model: 'deepseek-flash', variant: 'deepseek-flash-fast' }), ['deepseek-flash-fast']);
+    assert.deepEqual(models({ provider: 'deepseek', model: 'deepseek-flash' }), ['deepseek-flash']);
+    assert.deepEqual(models({ provider: 'claude', model: 'claude-sonnet-5', variant: 'made-up' }), ['claude-sonnet-5']);
+    assert.deepEqual(models({ provider: 'claude', model: 'anything/at all' }), ['claude-other']);
+
+    const days = {};
+    addTo(days, 'a@gmail.com', aiCounts({ provider: 'claude', model: 'claude-haiku-4-5', input: 100, output: 10 }), 1);
+    addTo(days, 'a@gmail.com', aiCounts({ provider: 'claude', model: 'claude-haiku-4-5', input: 50, output: 20 }), 2);
+    addTo(days, 'a@gmail.com', aiCounts({ provider: 'claude', model: 'claude-opus-5', input: 10, output: 1 }), 3);
+    addTo(days, 'a@gmail.com', { scholar: 1, models: { 'bad key!': { n: 5 } } }, 4);
+    assert.deepEqual(days['a@gmail.com'].models, {
+      'claude-haiku-4-5': { n: 2, in: 150, out: 30, cost: 150 + 150 },
+      'claude-opus-5': { n: 1, in: 10, out: 1, cost: 50 + 25 },
+    });
+    assert.equal(days['a@gmail.com'].claude, 3);
+
+    const now = Date.UTC(2026, 8, 26, 12);
+    const out = report({ '2026-09-26': days, '2026-09-25': { 'b@gmail.com': { claude: 1, models: { 'claude-opus-5': { n: 1, in: 5, out: 5, cost: 7 } } } } }, { days: 7, now });
+    assert.deepEqual(out.models['claude-opus-5'], { n: 2, in: 15, out: 6, cost: 82 });
+    assert.deepEqual(out.people.find((p) => p.email === 'a@gmail.com').daily[0].models['claude-haiku-4-5'].n, 2);
+    assert.deepEqual(out.people.find((p) => p.email === 'b@gmail.com').models, { 'claude-opus-5': { n: 1, in: 5, out: 5, cost: 7 } });
   });
 
   it('reports the last N days, with today apart, the busiest first', () => {
@@ -213,6 +239,10 @@ describe('the Worker, tallying', () => {
     assert.equal(labmate.claude, 1);
     assert.equal(labmate.claude_cost, 2000 + 1800 + 5000);
     assert.equal(out.totals.deepseek, 1);
+    assert.deepEqual(Object.keys(labmate.models ?? {}), [], 'totals carry no models; the person does');
+    const person = out.people.find((p) => p.email === 'labmate@gmail.com');
+    assert.deepEqual(Object.keys(person.models).sort(), ['claude-sonnet-5', 'deepseek-flash']);
+    assert.equal(out.models['deepseek-flash'].n, 1);
   });
 });
 

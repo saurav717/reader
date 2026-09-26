@@ -4148,3 +4148,11 @@ input.board-link-label { cursor: text; outline: none; min-width: 150px; text-ali
   .run-console { left: 0; border-left: 0; border-radius: 0; max-height: 50vh; }
   .btn.local-open span, .btn.colab-open span { display: none; }
 }
+
+/* Usage → AI credits: the model list beside the chart, above it on a phone. */
+.ai-usage-split { display: grid; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); }
+.ai-usage-models { padding: 12px 8px 12px 12px; border-right: 1px solid var(--border-soft); min-width: 0; }
+@media (max-width: 760px) {
+  .ai-usage-split { grid-template-columns: minmax(0, 1fr); }
+  .ai-usage-models { border-right: 0; border-bottom: 1px solid var(--border-soft); padding-right: 12px; }
+}

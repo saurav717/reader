@@ -22,19 +22,29 @@ interface Counts {
   deepseek_out?: number;
   deepseek_cost?: number;
 }
+/** One model's answers: how many, the tokens in and out, and the cost in millionths of a dollar. */
+export interface ModelCounts {
+  n: number;
+  in: number;
+  out: number;
+  cost: number;
+}
+export type ByModel = Record<string, ModelCounts>;
 interface Person {
   email: string;
   total: Counts;
   today: Counts;
-  daily?: (Counts & { day: string })[];
+  daily?: (Counts & { day: string; models?: ByModel })[];
   days: number;
   last: number;
+  models?: ByModel;
 }
 export interface UsageReport {
   since: string;
   until: string;
   people: Person[];
   totals: Counts;
+  models?: ByModel;
 }
 
 /** The report for the last `days` days, or null — which is what anyone but the owner gets. */

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api';
-import type { UsageReport } from './UsageView';
+import { MODELS } from '../lib/assistant';
+import type { ByModel, UsageReport } from './UsageView';
 
 /** The owner's DeepSeek account, as DeepSeek reports it (worker/deepseekBalance.js). */
 export interface DeepSeekAccount {
@@ -42,7 +43,37 @@ function useDeepSeekAccount(days: number, refreshedAt: string): DeepSeekAccount 
 
 type Provider = 'claude' | 'deepseek';
 type Person = UsageReport['people'][number];
-type Day = NonNullable<Person['daily']>[number];
+
+/** Which provider each model the tally keeps apart belongs to (worker/usage.js MODELS). */
+const MODEL_PROVIDER: Record<string, Provider> = {
+  'claude-opus-5': 'claude',
+  'claude-sonnet-5': 'claude',
+  'claude-haiku-4-5': 'claude',
+  'claude-other': 'claude',
+  'deepseek-flash': 'deepseek',
+  'deepseek-flash-fast': 'deepseek',
+  'deepseek-other': 'deepseek',
+};
+
+/** A model's name as the model picker shows it. */
+export function modelLabel(id: string): string {
+  if (id.endsWith('-other')) return 'Other models';
+  return MODELS.find((model) => model.id === id)?.label ?? id;
+}
+
+const providerOf = (id: string): Provider | null => MODEL_PROVIDER[id] ?? (id.startsWith('claude') ? 'claude' : id.startsWith('deepseek') ? 'deepseek' : null);
+
+/** Sum per-model counts into `into`. */
+function addModels(into: ByModel, from: ByModel | undefined): ByModel {
+  for (const [id, counts] of Object.entries(from || {})) {
+    const row = into[id] || (into[id] = { n: 0, in: 0, out: 0, cost: 0 });
+    row.n += num(counts.n);
+    row.in += num(counts.in);
+    row.out += num(counts.out);
+    row.cost += num(counts.cost);
+  }
+  return into;
+}
 
 const PROVIDERS: { id: Provider; name: string }[] = [
   { id: 'claude', name: 'Claude' },
@@ -136,6 +167,12 @@ export default function AiUsage({ report }: { report: UsageReport }) {
   const [picked, setPicked] = useState<string | null>(null);
   const [provider, setProvider] = useState<Provider>('claude');
   const [metric, setMetric] = useState<Metric>('cost');
+  // One model of the charted provider, or all of them.
+  const [model, setModel] = useState<string | null>(null);
+  const pickProvider = (id: Provider) => {
+    setProvider(id);
+    setModel(null);
+  };
 
   const sorting = useSort(AI_SORTS, { by: 'total', dir: 'desc' });
   const people = report.people;
@@ -156,7 +193,11 @@ export default function AiUsage({ report }: { report: UsageReport }) {
   const metrics = METRICS.filter((entry) => entry.id !== 'balance' || hasBalance);
   const shownMetric: Metric = metrics.some((entry) => entry.id === metric) ? metric : 'cost';
 
-  /** Each day's counts, summed over everyone, or the one picked. */
+  /**
+   * Each day's counts, summed over everyone, or the one picked — and, with a
+   * model picked, that model's alone, in the provider's own keys, so the
+   * chart reads them the same way.
+   */
   const byDay = useMemo(() => {
     const sums = new Map<string, Record<string, number>>(days.map((day) => [day, {}]));
     for (const person of report.people) {
@@ -164,11 +205,30 @@ export default function AiUsage({ report }: { report: UsageReport }) {
       for (const day of person.daily || []) {
         const into = sums.get(day.day);
         if (!into) continue;
-        for (const [key, value] of Object.entries(day as Day)) if (key !== 'day') into[key] = (into[key] || 0) + num(value);
+        if (model) {
+          const counts = day.models?.[model];
+          if (!counts) continue;
+          into[provider] = (into[provider] || 0) + num(counts.n);
+          into[`${provider}_in`] = (into[`${provider}_in`] || 0) + num(counts.in);
+          into[`${provider}_out`] = (into[`${provider}_out`] || 0) + num(counts.out);
+          into[`${provider}_cost`] = (into[`${provider}_cost`] || 0) + num(counts.cost);
+          continue;
+        }
+        for (const [key, value] of Object.entries(day)) if (key !== 'day' && key !== 'models') into[key] = (into[key] || 0) + num(value);
       }
     }
     return days.map((day) => sums.get(day) || {});
-  }, [days, report.people, picked]);
+  }, [days, report.people, picked, model, provider]);
+
+  /** The charted provider's models, for everyone or the one picked, most spent first. */
+  const models = useMemo(() => {
+    const summed: ByModel = picked
+      ? addModels({}, report.people.find((person) => person.email === picked)?.models)
+      : report.models ?? report.people.reduce<ByModel>((sum, person) => addModels(sum, person.models), {});
+    return Object.entries(summed)
+      .filter(([id]) => providerOf(id) === provider)
+      .sort(([, a], [, b]) => b.cost - a.cost || b.n - a.n);
+  }, [report, picked, provider]);
 
   const cell = { padding: '0 14px', height: ROW_HEIGHT, textAlign: 'right' as const, whiteSpace: 'nowrap' as const };
   const rule = '1px solid var(--border-soft)';
@@ -193,7 +253,7 @@ export default function AiUsage({ report }: { report: UsageReport }) {
             totals={report.totals}
             provider={id}
             active={provider === id}
-            onPick={() => setProvider(id)}
+            onPick={() => pickProvider(id)}
             account={id === 'deepseek' ? account : null}
           />
         ))}
@@ -281,7 +341,7 @@ export default function AiUsage({ report }: { report: UsageReport }) {
       {/* 3 — one chart: the provider picked above, the measure picked here. */}
       <div style={card}>
         <div style={cardHead}>
-          <h3 style={cardTitle}>{providerName} per day</h3>
+          <h3 style={cardTitle}>{providerName} usage</h3>
           <span
             style={{
               display: 'inline-flex',
@@ -315,8 +375,25 @@ export default function AiUsage({ report }: { report: UsageReport }) {
             ))}
           </div>
         </div>
-        <div style={{ padding: '14px 16px 12px' }}>
-          <TrendChart provider={provider} metric={shownMetric} days={days} byDay={byDay} account={account} picked={picked} />
+        <div className="ai-usage-split">
+          <ModelList
+            models={models}
+            total={get(picked ? report.people.find((person) => person.email === picked)?.total : report.totals, `${provider}_cost`)}
+            requests={get(picked ? report.people.find((person) => person.email === picked)?.total : report.totals, provider)}
+            picked={model}
+            onPick={setModel}
+          />
+          <div style={{ padding: '14px 16px 12px', minWidth: 0 }}>
+            <TrendChart
+              provider={provider}
+              metric={shownMetric}
+              days={days}
+              byDay={byDay}
+              account={account}
+              picked={picked}
+              model={shownMetric === 'balance' ? null : model}
+            />
+          </div>
         </div>
       </div>
     </section>
@@ -554,6 +631,86 @@ function ProviderSummary({
   );
 }
 
+/**
+ * The charted provider's models: each one's share of the spend, its cost,
+ * requests and tokens. "All models" first; clicking a model narrows the
+ * chart beside it to that model, clicking it again widens it back.
+ */
+function ModelList({
+  models,
+  total,
+  requests,
+  picked,
+  onPick,
+}: {
+  models: [string, { n: number; in: number; out: number; cost: number }][];
+  total: number;
+  requests: number;
+  picked: string | null;
+  onPick: (id: string | null) => void;
+}) {
+  const counted = models.reduce((sum, [, counts]) => sum + counts.cost, 0);
+  const row = (active: boolean) =>
+    ({
+      display: 'grid',
+      gridTemplateColumns: '1fr auto',
+      gap: '4px 12px',
+      width: '100%',
+      textAlign: 'left',
+      font: 'inherit',
+      color: 'var(--ink)',
+      padding: '10px 12px',
+      border: 0,
+      borderRadius: 8,
+      background: active ? 'var(--accent-soft)' : 'transparent',
+      cursor: 'pointer',
+    }) as const;
+  return (
+    <div className="ai-usage-models" role="group" aria-label="Models">
+      <div style={{ ...muted, fontSize: 12, padding: '0 12px 6px' }}>By model</div>
+      <button type="button" aria-pressed={!picked} onClick={() => onPick(null)} style={row(!picked)}>
+        <span style={{ fontWeight: 600, fontSize: 13.5 }}>All models</span>
+        <span style={{ fontWeight: 600, fontSize: 13.5, fontVariantNumeric: 'tabular-nums' }}>{dollars(total)}</span>
+        <span style={{ ...muted, fontSize: 12, gridColumn: '1 / -1' }}>{requests.toLocaleString('en-US')} requests</span>
+      </button>
+      {models.length ? (
+        models.map(([id, counts]) => {
+          const active = picked === id;
+          const share = counted ? counts.cost / counted : 0;
+          return (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onPick(active ? null : id)}
+              title={active ? 'Chart all models' : `Chart only ${modelLabel(id)}`}
+              style={row(active)}
+            >
+              <span style={{ fontSize: 13.5, fontWeight: active ? 600 : 500 }}>{modelLabel(id)}</span>
+              <span style={{ fontSize: 13.5, fontVariantNumeric: 'tabular-nums' }}>
+                {dollars(counts.cost)}
+                <span style={{ ...muted, fontSize: 12, marginLeft: 6, display: 'inline-block', minWidth: 34, textAlign: 'right' }}>
+                  {Math.round(share * 100)}%
+                </span>
+              </span>
+              <span style={{ gridColumn: '1 / -1', height: 6, borderRadius: 3, background: 'var(--border-soft)', overflow: 'hidden' }}>
+                <span style={{ display: 'block', height: '100%', width: `${share * 100}%`, background: 'var(--viz-1)', borderRadius: 3 }} />
+              </span>
+              <span style={{ ...muted, fontSize: 12, gridColumn: '1 / -1', fontVariantNumeric: 'tabular-nums' }}>
+                {counts.n.toLocaleString('en-US')} req · {compact(counts.in)} in · {compact(counts.out)} out
+              </span>
+            </button>
+          );
+        })
+      ) : (
+        <p style={{ ...muted, fontSize: 12, margin: '8px 12px', lineHeight: 1.6 }}>
+          No answers split by model yet — they are counted per model from the Worker redeploy on.
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** The chart for one provider and one measure, with a line under it saying what it counts. */
 function TrendChart({
   provider,
@@ -562,6 +719,7 @@ function TrendChart({
   byDay,
   account,
   picked,
+  model,
 }: {
   provider: Provider;
   metric: Metric;
@@ -569,7 +727,9 @@ function TrendChart({
   byDay: Record<string, number>[];
   account: DeepSeekAccount | null;
   picked: string | null;
+  model: string | null;
 }) {
+  const of = model ? ` · ${modelLabel(model)}` : '';
   const series = (key: string) => byDay.map((counts) => num(counts[`${provider}${key}`]));
   const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
   const note = { ...muted, fontSize: 12, margin: '10px 0 0', lineHeight: 1.6 } as const;
@@ -599,7 +759,7 @@ function TrendChart({
     const output = series('_out');
     return (
       <BarChart
-        title={`Tokens ${tokens(sum(input) + sum(output))}`}
+        title={`Tokens${of} ${tokens(sum(input) + sum(output))}`}
         days={days}
         series={[
           { label: 'Input', color: 'var(--viz-1)', values: input },
@@ -615,7 +775,7 @@ function TrendChart({
     const requests = series('');
     return (
       <BarChart
-        title={`Requests ${sum(requests).toLocaleString('en-US')}`}
+        title={`Requests${of} ${sum(requests).toLocaleString('en-US')}`}
         days={days}
         series={[{ label: 'Requests', color: 'var(--viz-1)', values: requests }]}
         format={(value) => value.toLocaleString('en-US')}
@@ -628,7 +788,7 @@ function TrendChart({
   return (
     <>
       <BarChart
-        title={`Cost ${dollars(sum(cost))}`}
+        title={`Cost${of} ${dollars(sum(cost))}`}
         days={days}
         series={[{ label: 'Cost', color: 'var(--viz-1)', values: cost }]}
         format={dollars}

@@ -807,7 +807,7 @@ export async function streamModel(params: {
       onUsage: (usage) => {
         const hit = usage.prompt_cache_hit_tokens || 0;
         const miss = usage.prompt_cache_miss_tokens ?? Math.max(0, (usage.prompt_tokens || 0) - hit);
-        reportAiUsage('deepseek', spec.apiModel ?? spec.id, { input: miss, cacheRead: hit, output: usage.completion_tokens || 0 });
+        reportAiUsage('deepseek', spec.apiModel ?? spec.id, { input: miss, cacheRead: hit, output: usage.completion_tokens || 0 }, spec.id);
       },
     });
   }
@@ -829,7 +829,7 @@ export async function streamModel(params: {
       output: usage.output_tokens || 0,
       cacheRead: usage.cache_read_input_tokens || 0,
       cacheWrite: usage.cache_creation_input_tokens || 0,
-    });
+    }, spec.id);
   });
   return {
     on(event, listener) {
