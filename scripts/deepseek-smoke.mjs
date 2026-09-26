@@ -1,7 +1,8 @@
 // Ask AI and Explain on DeepSeek, in a real browser with api.deepseek.com
 // stubbed: the model picker offers DeepSeek beside Claude, a DeepSeek model
-// asks for a DeepSeek key, the question goes to DeepSeek as text only (no
-// pictures), the answer and its reasoning stream in under the model's name,
+// asks for a DeepSeek key, the question goes to deepseek-flash with thinking on
+// (pictures go as image_url parts — scripts/deepseek.test.mjs), the answer and its reasoning stream in
+// under the model's name,
 // and Settings and Explain let the model be picked for each.
 // Needs a server on BASE (`npm run build && npm start`). Writes screenshots to .smoke/.
 import { chromium } from 'playwright';
@@ -85,7 +86,7 @@ check('the window is called Ask AI', (await win.locator('.win-name').textContent
 const picker = page.getByLabel('Model');
 const groups = await picker.locator('optgroup').evaluateAll((els) => els.map((el) => el.label));
 check('the picker groups Claude and DeepSeek models', groups.length === 2 && /Anthropic/.test(groups[0]) && /DeepSeek/.test(groups[1]), groups.join(' | '));
-await picker.selectOption('deepseek-reasoner');
+await picker.selectOption('deepseek-flash');
 check('a DeepSeek model asks for a DeepSeek key', await page.getByText('Connect your DeepSeek account').isVisible());
 await page.screenshot({ path: `${OUT}/deepseek-key.png` });
 await page.getByLabel('DeepSeek API key').fill('sk-deepseek-test');
@@ -112,7 +113,7 @@ await page.getByRole('button', { name: 'Read the text instead' }).click({ timeou
 await page.waitForSelector('.paper-body .ltx_section', { timeout: 20000 });
 await page.keyboard.press('Control+Backslash');
 await win.waitFor();
-check('the screenshot button is off for a text-only model', await page.getByRole('button', { name: 'Attach a screenshot of this tab' }).isDisabled().catch(() => true));
+check('the screenshot button is on: DeepSeek Flash reads pictures', await page.getByRole('button', { name: 'Attach a screenshot of this tab' }).isEnabled().catch(() => false));
 await page.getByRole('textbox', { name: 'Ask AI' }).fill('What does the gate do?');
 await page.keyboard.press('Enter');
 await page.waitForSelector('.chat-claude li');
@@ -121,13 +122,12 @@ await page.waitForFunction(() => !document.querySelector('.chat-claude.is-stream
 const sent = requests[0]?.body;
 check('one request went to DeepSeek, none to Anthropic', requests.length === 1 && anthropicCalls === 0);
 check('with the key as a bearer token', requests[0]?.headers.authorization === 'Bearer sk-deepseek-test');
-check('on the chosen model, streaming', sent?.model === 'deepseek-reasoner' && sent?.stream === true);
+check('on deepseek-flash, streaming, thinking hard', sent?.model === 'deepseek-flash' && sent?.stream === true && sent?.thinking?.type === 'enabled' && sent?.reasoning_effort === 'high');
 check('the system prompt leads, with the paper in it', sent?.messages?.[0]?.role === 'system' && /<paper_text[\s\S]*Paragraph 6\.4/.test(sent.messages[0].content));
-check('and says the model reads text only', /reads text only/.test(sent?.messages?.[0]?.content ?? ''));
 const question = sent?.messages?.at(-1)?.content;
-check('the question is plain text, carrying the screen', typeof question === 'string' && /<screen>[\s\S]*Mixture-of-Experts/.test(question) && question.endsWith('What does the gate do?'));
+check('the question carries the screen', typeof question === 'string' && /<screen>[\s\S]*Mixture-of-Experts/.test(question) && question.endsWith('What does the gate do?'));
 check('the answer streams in as Markdown', (await page.locator('.chat-claude strong').first().textContent()) === 'gate' && (await page.locator('.chat-claude li').count()) === 2);
-check('under the model’s name', ((await page.locator('.chat-claude .chat-who').textContent()) || '').includes('DeepSeek Reasoner'));
+check('under the model’s name', ((await page.locator('.chat-claude .chat-who').textContent()) || '').includes('DeepSeek Flash'));
 check('with its reasoning folded away', await page.locator('.chat-thinking summary').isVisible());
 await page.screenshot({ path: `${OUT}/deepseek-answer.png` });
 await page.locator('.chat-toolbar').getByRole('button', { name: 'Settings' }).click();
@@ -139,15 +139,15 @@ console.log('\n== Explain ==');
 await page.keyboard.press('e');
 await page.waitForSelector('.model-pick');
 const tiles = await page.locator('.model-pick [role=radio] b').allTextContents();
-check('Explain offers every model', tiles.includes('DeepSeek Reasoner') && tiles.includes('Claude Opus 5'), tiles.join(', '));
+check('Explain offers every model', tiles.includes('DeepSeek Flash') && tiles.includes('Claude Opus 5'), tiles.join(', '));
 await page.locator('.model-pick [role=radio]', { hasText: 'Claude Opus 5' }).click();
 check('a Claude model with no key asks for an Anthropic key there', await page.getByLabel('Anthropic API key').isVisible());
-await page.locator('.model-pick [role=radio]', { hasText: 'DeepSeek Chat' }).click();
-check('DeepSeek Chat warns that its pages run short', await page.getByText(/writes short answers/).isVisible());
+await page.locator('.model-pick [role=radio]', { hasText: 'no thinking' }).click();
+check('with its key, DeepSeek can start', await page.getByRole('button', { name: 'Explain this paper' }).isVisible());
 await page.screenshot({ path: `${OUT}/deepseek-explain.png` });
 check('the choice is kept apart from the chat’s', await page.evaluate(() => {
   const prefs = JSON.parse(localStorage.getItem('reader.assistant.v1') || '{}');
-  return prefs.explainModel === 'deepseek-chat' && prefs.model === 'deepseek-reasoner';
+  return prefs.explainModel === 'deepseek-flash-fast' && prefs.model === 'deepseek-flash';
 }));
 await page.keyboard.press('Escape');
 
@@ -156,7 +156,7 @@ await page.getByRole('button', { name: 'Settings', exact: true }).first().click(
 const section = page.locator('section', { hasText: 'AI models' });
 await section.scrollIntoViewIfNeeded();
 check('Settings has an AI models section with both pickers', (await section.locator('select').count()) === 2);
-check('which show the current choices', (await section.locator('select').nth(0).inputValue()) === 'deepseek-reasoner' && (await section.locator('select').nth(1).inputValue()) === 'deepseek-chat');
+check('which show the current choices', (await section.locator('select').nth(0).inputValue()) === 'deepseek-flash' && (await section.locator('select').nth(1).inputValue()) === 'deepseek-flash-fast');
 await section.screenshot({ path: `${OUT}/deepseek-settings.png` });
 
 check('no page errors', errors.length === 0, errors.join(' | '));

@@ -7,10 +7,16 @@
 //  uses on Anthropic's MessageStream — on('text'), on('thinking'), abort()
 //  and finalMessage() — so the callers need not care which one they hold.
 //
-//  Two differences the app has to live with:
-//  - The models read text only. Pictures of the pages in view and screenshots
-//    are left out, and a line in their place says so.
-//  - There are no cache breakpoints. DeepSeek caches a repeated prefix on its
+//  Pictures — the pages in view in PDF mode, and screenshots — go as OpenAI's
+//  image_url parts holding a base64 data URL; deepseek-flash (V4.1 Flash) reads
+//  them. DeepSeek bills each picture at no more than 384 tokens, so it sees a
+//  page at a lower resolution than Claude does: small print in an equation can
+//  be lost where the paper's text is still there to fall back on.
+//
+//  Thinking is on by default on DeepSeek's models; `thinking` switches it on or
+//  off per request, and `reasoning_effort` sets how hard it thinks.
+//
+//  There are no cache breakpoints. DeepSeek caches a repeated prefix on its
 //    own, so the paper, which leads the system prompt, is still cheap the
 //    second time.
 // ===========================================================================
@@ -29,7 +35,10 @@ export class DeepSeekError extends Error {
 
 type Part =
   | { type: 'text'; text: string }
-  | { type: 'image'; source: unknown };
+  | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
+
+/** A part as DeepSeek takes it: OpenAI's shape, pictures as data URLs. */
+type WirePart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
 
 export interface DeepSeekMessage {
   role: 'user' | 'assistant';
@@ -43,17 +52,18 @@ export interface DeepSeekParams {
   /** The system prompt, as one text. */
   system: string;
   messages: DeepSeekMessage[];
+  /** Think before answering, and how hard. Off answers straight away. */
+  thinking: 'off' | 'low' | 'high' | 'max';
 }
 
-export const PICTURE_LEFT_OUT = '[A picture went here, but this model reads text only, so it was left out.]';
-
-/** Anthropic-style content, flattened to the plain text DeepSeek takes. */
-export function flatten(content: string | Part[]): string {
+/** Anthropic-style content, in the shape DeepSeek takes: a string stays a string. */
+export function toWire(content: string | Part[]): string | WirePart[] {
   if (typeof content === 'string') return content;
-  return content
-    .map((part) => (part.type === 'text' ? part.text : PICTURE_LEFT_OUT))
-    .filter(Boolean)
-    .join('\n\n');
+  return content.map((part) =>
+    part.type === 'text'
+      ? { type: 'text' as const, text: part.text }
+      : { type: 'image_url' as const, image_url: { url: `data:${part.source.media_type};base64,${part.source.data}` } },
+  );
 }
 
 /** The request body, as sent. */
@@ -62,9 +72,11 @@ export function requestBody(params: Omit<DeepSeekParams, 'apiKey'>) {
     model: params.model,
     max_tokens: params.maxTokens,
     stream: true,
+    thinking: { type: params.thinking === 'off' ? ('disabled' as const) : ('enabled' as const) },
+    ...(params.thinking === 'off' ? {} : { reasoning_effort: params.thinking }),
     messages: [
       ...(params.system ? [{ role: 'system' as const, content: params.system }] : []),
-      ...params.messages.map((message) => ({ role: message.role, content: flatten(message.content) })),
+      ...params.messages.map((message) => ({ role: message.role, content: toWire(message.content) })),
     ],
   };
 }

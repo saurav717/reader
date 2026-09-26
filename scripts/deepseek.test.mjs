@@ -33,20 +33,34 @@ function fakeFetch(chunks, { status = 200, body } = {}) {
 }
 
 const event = (delta, finish = null) => `data: ${JSON.stringify({ choices: [{ delta, finish_reason: finish }] })}\n\n`;
-const params = { apiKey: 'sk-test', model: 'deepseek-reasoner', maxTokens: 1000, system: 'Be brief.', messages: [{ role: 'user', content: 'Hi' }] };
+const params = { apiKey: 'sk-test', model: 'deepseek-flash', maxTokens: 1000, system: 'Be brief.', messages: [{ role: 'user', content: 'Hi' }], thinking: 'high' };
 
 describe('the request', () => {
-  it('sends the system prompt first, streams, and flattens pictures into a line of text', () => {
+  it('sends the system prompt first, streams, and pictures as image_url data URLs', () => {
     const body = deepseek.requestBody({
       ...params,
       messages: [
-        { role: 'user', content: [{ type: 'text', text: 'Page 3:' }, { type: 'image', source: {} }, { type: 'text', text: 'What is this?' }] },
+        { role: 'user', content: [{ type: 'text', text: 'Page 3:' }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } }, { type: 'text', text: 'What is this?' }] },
       ],
     });
     assert.equal(body.stream, true);
     assert.equal(body.max_tokens, 1000);
     assert.deepEqual(body.messages[0], { role: 'system', content: 'Be brief.' });
-    assert.equal(body.messages[1].content, `Page 3:\n\n${deepseek.PICTURE_LEFT_OUT}\n\nWhat is this?`);
+    assert.deepEqual(body.messages[1].content, [
+      { type: 'text', text: 'Page 3:' },
+      { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AAAA' } },
+      { type: 'text', text: 'What is this?' },
+    ]);
+  });
+
+  it('switches thinking on with an effort, or off', () => {
+    const on = deepseek.requestBody(params);
+    assert.deepEqual(on.thinking, { type: 'enabled' });
+    assert.equal(on.reasoning_effort, 'high');
+    const off = deepseek.requestBody({ ...params, thinking: 'off' });
+    assert.deepEqual(off.thinking, { type: 'disabled' });
+    assert.equal('reasoning_effort' in off, false);
+    assert.equal(deepseek.requestBody({ ...params, messages: [{ role: 'user', content: 'Hi' }] }).messages[1].content, 'Hi');
   });
 
   it('goes to api.deepseek.com with the key as a bearer token', async () => {
@@ -54,7 +68,7 @@ describe('the request', () => {
     await new deepseek.DeepSeekStream(params, fetcher).finalMessage();
     assert.equal(calls[0].url, 'https://api.deepseek.com/chat/completions');
     assert.equal(calls[0].init.headers.Authorization, 'Bearer sk-test');
-    assert.equal(calls[0].body.model, 'deepseek-reasoner');
+    assert.equal(calls[0].body.model, 'deepseek-flash');
   });
 });
 
@@ -116,10 +130,17 @@ describe('models and keys', () => {
   it('offers Claude and DeepSeek, and knows who runs each model', () => {
     const providers = new Set(assistant.MODELS.map((m) => m.provider));
     assert.deepEqual([...providers], ['anthropic', 'deepseek']);
-    assert.equal(assistant.providerOf('deepseek-chat').company, 'DeepSeek');
+    assert.equal(assistant.providerOf('deepseek-flash').company, 'DeepSeek');
     assert.equal(assistant.providerOf('claude-opus-5').name, 'Claude');
     assert.equal(assistant.modelSpec('no-such-model').id, assistant.MODELS[0].id);
-    assert.ok(assistant.MODELS.filter((m) => m.provider === 'deepseek').every((m) => !m.vision));
+    assert.ok(assistant.MODELS.filter((m) => m.provider === 'deepseek').every((m) => m.vision));
+  });
+
+  it('sends both DeepSeek entries to deepseek-flash, and reads the retired ids as them', () => {
+    assert.equal(assistant.modelSpec('deepseek-flash-fast').apiModel, 'deepseek-flash');
+    assert.equal(assistant.modelSpec('deepseek-reasoner').id, 'deepseek-flash');
+    assert.equal(assistant.modelSpec('deepseek-chat').id, 'deepseek-flash-fast');
+    assert.equal(assistant.providerOf('deepseek-chat').id, 'deepseek');
   });
 
   it('tells a Claude key from a DeepSeek one', () => {
@@ -131,9 +152,9 @@ describe('models and keys', () => {
 
   it('keeps which model wrote an answer in the history, and nothing for older chats', () => {
     const [chat] = assistant.normaliseHistory([
-      { id: 'c1', title: 'x', turns: [{ role: 'user', content: 'q' }, { role: 'assistant', content: 'a', model: 'deepseek-chat' }] },
+      { id: 'c1', title: 'x', turns: [{ role: 'user', content: 'q' }, { role: 'assistant', content: 'a', model: 'deepseek-flash' }] },
     ]);
-    assert.equal(chat.turns[1].model, 'deepseek-chat');
+    assert.equal(chat.turns[1].model, 'deepseek-flash');
     assert.equal(chat.turns[0].model, undefined);
   });
 });

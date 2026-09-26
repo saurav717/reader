@@ -91,6 +91,10 @@ export interface ModelSpec {
   vision: boolean;
   /** The most it will write in one answer; a bigger cap is cut to this. */
   maxOutput?: number;
+  /** The id the provider's API takes, when two entries in the picker share a model. */
+  apiModel?: string;
+  /** DeepSeek: think before answering. */
+  thinks?: boolean;
 }
 
 /** Models offered in the pickers, grouped by provider in this order. */
@@ -98,13 +102,19 @@ export const MODELS: readonly ModelSpec[] = [
   { id: 'claude-opus-5', provider: 'anthropic', label: 'Claude Opus 5', note: 'most capable', adaptive: true, vision: true },
   { id: 'claude-sonnet-5', provider: 'anthropic', label: 'Claude Sonnet 5', note: 'faster and cheaper', adaptive: true, vision: true },
   { id: 'claude-haiku-4-5', provider: 'anthropic', label: 'Claude Haiku 4.5', note: 'fastest and cheapest', adaptive: false, vision: true },
-  { id: 'deepseek-reasoner', provider: 'deepseek', label: 'DeepSeek Reasoner', note: 'thinks first · text only', adaptive: false, vision: false, maxOutput: 64000 },
-  { id: 'deepseek-chat', provider: 'deepseek', label: 'DeepSeek Chat', note: 'very cheap · text only · short answers', adaptive: false, vision: false, maxOutput: 8000 },
+  // V4.1 Flash, the one model DeepSeek serves (deepseek-chat and deepseek-reasoner were retired in July 2026), twice:
+  // thinking first, and answering straight away.
+  { id: 'deepseek-flash', provider: 'deepseek', label: 'DeepSeek Flash', note: 'thinks first · very cheap', adaptive: false, vision: true, thinks: true },
+  { id: 'deepseek-flash-fast', apiModel: 'deepseek-flash', provider: 'deepseek', label: 'DeepSeek Flash, no thinking', note: 'answers at once · cheapest', adaptive: false, vision: true, thinks: false },
 ];
 const DEFAULT_MODEL = 'claude-opus-5';
 
+/** Ids DeepSeek has retired, as they may still be in a browser's preferences or on a page written with them. */
+const RETIRED: Record<string, string> = { 'deepseek-reasoner': 'deepseek-flash', 'deepseek-chat': 'deepseek-flash-fast' };
+
 /** The model with this id, or the default one. */
-export const modelSpec = (id: string | undefined): ModelSpec => MODELS.find((m) => m.id === id) ?? MODELS[0];
+export const modelSpec = (id: string | undefined): ModelSpec =>
+  MODELS.find((m) => m.id === (id && RETIRED[id] ? RETIRED[id] : id)) ?? MODELS[0];
 /** The provider behind a model. */
 export const providerOf = (model: string | undefined): ProviderInfo => PROVIDERS[modelSpec(model).provider];
 
@@ -425,8 +435,9 @@ function loadPrefs(): Prefs {
   };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_STORE) || '{}') as Partial<Prefs>;
-    const model = MODELS.some((m) => m.id === saved.model) ? (saved.model as string) : base.model;
-    const explainModel = MODELS.some((m) => m.id === saved.explainModel) ? saved.explainModel : undefined;
+    const known = (id: string | undefined) => (id && (MODELS.some((m) => m.id === id) || RETIRED[id]) ? modelSpec(id).id : undefined);
+    const model = known(saved.model) ?? base.model;
+    const explainModel = known(saved.explainModel);
     return { model, ...(explainModel ? { explainModel } : {}), context: { ...base.context, ...(saved.context || {}) } };
   } catch {
     return base;
@@ -787,15 +798,16 @@ export async function streamModel(params: {
   if (spec.provider === 'deepseek') {
     return new DeepSeekStream({
       apiKey: keyFor('deepseek'),
-      model: spec.id,
+      model: spec.apiModel ?? spec.id,
       maxTokens,
+      thinking: !spec.thinks ? 'off' : params.effort === 'low' ? 'low' : 'high',
       system: params.system.map((block) => block.text).join('\n\n'),
       messages: params.messages as ConstructorParameters<typeof DeepSeekStream>[0]['messages'],
     });
   }
   const api = await anthropic();
   const sdkStream = api.messages.stream({
-    model: spec.id,
+    model: spec.apiModel ?? spec.id,
     max_tokens: maxTokens,
     system: params.system,
     messages: params.messages as Parameters<AnthropicClient['messages']['stream']>[0]['messages'],

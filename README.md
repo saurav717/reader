@@ -1739,11 +1739,11 @@ screen before it answers, so there is nothing to paste.
 ### Choosing a model: Claude or DeepSeek
 
 The picker at the top of the window lists every model, grouped by who runs it:
-**Claude** Opus 5, Sonnet 5 and Haiku 4.5 from Anthropic, and **DeepSeek
-Reasoner** and **DeepSeek Chat** from DeepSeek. Explain and Implementation have a
-picker of their own, on their start page, so the chat can run on one and the long
-pages on the other. **Settings → AI models** holds both choices and both keys in
-one place.
+**Claude** Opus 5, Sonnet 5 and Haiku 4.5 from Anthropic, and **DeepSeek Flash**
+from DeepSeek — twice, thinking first or answering at once. Explain and
+Implementation have a picker of their own, on their start page, so the chat can
+run on one and the long pages on the other. **Settings → AI models** holds both
+choices and both keys in one place.
 
 Each provider has its own API key — from
 [console.anthropic.com](https://console.anthropic.com/settings/keys) or
@@ -1753,22 +1753,26 @@ in this browser's localStorage under its own name (`reader.anthropic-key`,
 `reader.deepseek-key`) and sent only to its provider's API; the ⚙ menu and
 Settings can forget either. Usage bills your own account.
 
-What changes on DeepSeek:
+What to know about DeepSeek:
 
-- **Text only.** DeepSeek's models do not read images, so in PDF mode they get
-  the paper's text but not the pictures of the pages in view, and the screenshot
-  button is off. The system prompt tells the model so, and if an answer hangs on
-  a figure it says it cannot see it.
+- **One model.** Both entries call `deepseek-flash` (V4.1 Flash). DeepSeek
+  retired `deepseek-chat` and `deepseek-reasoner` in July 2026; a preference or
+  an Explain page saved with either is read as *DeepSeek Flash, no thinking* or
+  *DeepSeek Flash*.
+- **Thinking** is `thinking: {"type": "enabled"}` with `reasoning_effort` high
+  (low when Explain asks for low), or `{"type": "disabled"}` for the entry that
+  answers at once. The reasoning streams as `reasoning_content` and is folded
+  under *Reasoning*, the way Claude's thinking is.
+- **Pictures.** The pages in view in PDF mode and screenshots go as
+  `image_url` parts holding base64 data URLs. DeepSeek bills each picture at no
+  more than 384 tokens, so it sees a page at a lower resolution than Claude:
+  small print in an equation can be lost, though the paper's text still goes
+  along with every question.
 - **No SDK.** The API speaks the OpenAI chat-completions dialect, so
   `src/lib/deepseek.ts` is one `fetch` to `api.deepseek.com`, read as
   server-sent events, with the same `on('text')`, `on('thinking')`, `abort()`
   and `finalMessage()` the rest of the app uses on Anthropic's stream.
   `streamModel` in `src/lib/assistant.ts` picks between the two.
-- **Reasoning.** DeepSeek Reasoner streams its chain of thought, which is
-  folded under *Reasoning* the way Claude's thinking is.
-- **Length.** DeepSeek Chat writes at most about 8K tokens an answer — plenty
-  for the chat, short for a whole Explain page, which the start page says;
-  DeepSeek Reasoner has room for 64K.
 - **Caching** is DeepSeek's own and automatic: the paper leads the system
   prompt, so the second question about it is billed at the cached rate there
   too, without cache breakpoints.

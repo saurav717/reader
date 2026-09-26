@@ -604,8 +604,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             </select>
             <small>
               What writes a paper’s Explain and Implementation pages. A page already written keeps the model that wrote
-              it; Rewrite uses this one. DeepSeek models read text only, so in PDF mode they get the paper’s text but not
-              pictures of the pages, and they cannot take screenshots.
+              it; Rewrite uses this one. DeepSeek bills each picture of a page at no more than 384 tokens, so it sees
+              the pages in view, and screenshots, at a lower resolution than Claude does.
             </small>
           </label>
           {PROVIDER_IDS.map((provider) => (

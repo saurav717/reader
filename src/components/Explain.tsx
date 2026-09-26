@@ -873,12 +873,6 @@ export default function Explain({ paperId, title, authors, published, screen, on
                 <p className="hint">
                   <b>Written once</b> and kept for this paper
                   {driveState ? ', in this browser and in the paper’s folder in your Drive' : implementing ? ', in this browser' : ''}. A long paper costs about as much as a few long answers in {ASSISTANT_NAME}.
-                  {chosen.maxOutput && chosen.maxOutput < 16000 ? (
-                    <>
-                      {' '}
-                      <b>{chosen.label} writes short answers</b> (about {Math.round(chosen.maxOutput / 1000)}K tokens), so a long paper’s page may be cut off — {MODELS.filter((m) => m.provider === chosen.provider && (m.maxOutput ?? Infinity) >= 16000)[0]?.label ?? 'a bigger model'} has room for all of it.
-                    </>
-                  ) : null}
                 </p>
               ) : (
                 <>
