@@ -1,5 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { apiFetch } from '../lib/api';
 import type { UsageReport } from './UsageView';
+
+/** The owner's DeepSeek account, as DeepSeek reports it (worker/deepseekBalance.js). */
+export interface DeepSeekAccount {
+  configured: boolean;
+  error?: string;
+  balance?: { available: boolean; currency: string; total: number; granted: number; toppedUp: number; at: number } | null;
+  days?: { day: string; spent: number; added: number }[];
+}
+
+/** How long a balance is good for before the page asks DeepSeek again. */
+const BALANCE_MS = 60_000;
+
+function useDeepSeekAccount(days: number, refreshedAt: string): DeepSeekAccount | null {
+  const [account, setAccount] = useState<DeepSeekAccount | null>(null);
+  const asked = useRef({ at: 0, days: 0 });
+  useEffect(() => {
+    if (asked.current.days === days && Date.now() - asked.current.at < BALANCE_MS) return;
+    asked.current = { at: Date.now(), days };
+    let cancelled = false;
+    apiFetch(`/usage/deepseek?days=${days}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((answer) => !cancelled && answer && setAccount(answer as DeepSeekAccount))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [days, refreshedAt]);
+  return account;
+}
 
 /**
  * What Ask AI and Explain cost on Claude and DeepSeek, per person — the part
@@ -71,6 +101,8 @@ export default function AiUsage({ report }: { report: UsageReport }) {
   }, [picked, report.people]);
 
   const days = useMemo(() => daysBetween(report.since, report.until), [report.since, report.until]);
+  // Asked again as the report refreshes, at most once a minute.
+  const account = useDeepSeekAccount(days.length, `${report.until}:${report.people.length}:${aiCost(report.totals)}`);
   /** Each day's counts, summed over everyone, or the one picked. */
   const byDay = useMemo(() => {
     const sums = new Map<string, Record<string, number>>(days.map((day) => [day, {}]));
@@ -217,7 +249,7 @@ export default function AiUsage({ report }: { report: UsageReport }) {
       </div>
 
       {PROVIDERS.map(({ id, name }) => (
-        <ProviderCharts key={id} provider={id} name={name} byDay={byDay} />
+        <ProviderCharts key={id} provider={id} name={name} byDay={byDay} account={id === 'deepseek' ? account : null} />
       ))}
     </section>
   );
@@ -230,7 +262,17 @@ const card = {
   padding: '14px 18px 12px',
 } as const;
 
-function ProviderCharts({ provider, name, byDay }: { provider: Provider; name: string; byDay: { day: string; counts: Record<string, number> }[] }) {
+function ProviderCharts({
+  provider,
+  name,
+  byDay,
+  account,
+}: {
+  provider: Provider;
+  name: string;
+  byDay: { day: string; counts: Record<string, number> }[];
+  account: DeepSeekAccount | null;
+}) {
   const series = (key: string) => byDay.map(({ counts }) => num(counts[`${provider}${key}`]));
   const cost = series('_cost');
   const answers = series('');
@@ -247,6 +289,7 @@ function ProviderCharts({ provider, name, byDay }: { provider: Provider; name: s
         <Tile title="API requests" value={sum(answers).toLocaleString('en-US')} />
         <Tile title="Tokens" value={tokens(sum(input) + sum(output))} />
       </div>
+      {account ? <AccountPanel account={account} days={days} /> : null}
       <div style={{ ...card, marginBottom: 12 }}>
         <BarChart
           title={`Cost (USD) ${dollars(sum(cost))}`}
@@ -282,6 +325,69 @@ function ProviderCharts({ provider, name, byDay }: { provider: Provider; name: s
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The account as DeepSeek itself reports it: the balance now, and what it
+ * fell by each day. Only for the owner's key — everyone on a key of their own
+ * is in the tally above, not here.
+ */
+function AccountPanel({ account, days }: { account: DeepSeekAccount; days: string[] }) {
+  const note = { fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.6, margin: '0 0 12px' } as const;
+  if (!account.configured) {
+    return (
+      <p style={note}>
+        To see your DeepSeek account’s own balance and spend here, give the Worker your key:{' '}
+        <code>npx wrangler secret put DEEPSEEK_KEY</code>, then redeploy it.
+      </p>
+    );
+  }
+  const balance = account.balance;
+  const byDay = new Map((account.days || []).map((row) => [row.day, row]));
+  const spent = days.map((day) => byDay.get(day)?.spent || 0);
+  const total = spent.reduce((a, b) => a + b, 0);
+  const currency = balance?.currency || 'USD';
+  const money = (value: number) => (currency === 'USD' ? dollars(value) : `${(value / 1_000_000).toFixed(2)} ${currency}`);
+  return (
+    <div style={{ ...card, marginBottom: 12, background: 'var(--panel)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+        <span style={{ fontSize: 13.5, fontWeight: 600 }}>Your DeepSeek account</span>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+          from DeepSeek’s own balance{balance ? ` · checked ${new Date(balance.at).toLocaleTimeString()}` : ''}
+        </span>
+      </div>
+      {account.error ? (
+        <p className="banner error" style={{ margin: '0 0 10px' }}>
+          DeepSeek did not answer: {account.error}
+        </p>
+      ) : null}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 12 }}>
+        <Tile title="Balance" value={balance ? money(balance.total) : '—'} unit={balance && currency === 'USD' ? 'USD' : undefined} />
+        <Tile title="Topped up" value={balance ? money(balance.toppedUp) : '—'} />
+        <Tile title="Granted" value={balance ? money(balance.granted) : '—'} />
+        <Tile title="Spent in this period" value={money(total)} />
+      </div>
+      {balance && !balance.available ? (
+        <p className="banner error" style={{ margin: '0 0 10px' }}>
+          DeepSeek says this balance cannot pay for requests — top it up.
+        </p>
+      ) : null}
+      <div style={{ ...card }}>
+        <BarChart
+          title={`Spent per day, from the balance ${money(total)}`}
+          days={days}
+          series={[{ label: 'Spent', color: 'var(--viz-2)', values: spent }]}
+          format={money}
+          axis={(value) => money(value).replace(/\.?0+(?= |$)/, '')}
+          height={160}
+        />
+      </div>
+      <p style={{ ...note, margin: '8px 0 0' }}>
+        The fall in the balance between checks — every hour, and whenever this page is open. It starts from the first check after
+        DEEPSEEK_KEY was set; a top-up between two checks hides that much spending.
+      </p>
     </div>
   );
 }

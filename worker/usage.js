@@ -28,6 +28,8 @@
  * Worker, READER_TOKEN only — not a pass): `npm run usage` prints it.
  */
 
+import { addSnapshot, balanceReport, pruneDays } from './deepseekBalance.js';
+
 export const AI_PROVIDERS = ['claude', 'deepseek'];
 export const COUNTS = [
   'signin',
@@ -141,6 +143,18 @@ export class Usage {
       const stored = await this.state.storage.list({ prefix: 'day:' });
       const byDay = Object.fromEntries([...stored.entries()].map(([key, value]) => [key.slice(4), value]));
       return Response.json(report(byDay, { days }));
+    }
+    // The DeepSeek account's balance, a snapshot at a time: deepseekBalance.js.
+    if (url.pathname === '/balance/record' && request.method === 'POST') {
+      const { snapshot, at = Date.now() } = await request.json().catch(() => ({}));
+      if (!snapshot || typeof snapshot.total !== 'number') return new Response('no snapshot', { status: 400 });
+      const stored = await this.state.storage.get('balance:deepseek');
+      await this.state.storage.put('balance:deepseek', pruneDays(addSnapshot(stored, snapshot, at), KEEP_DAYS, at));
+      return new Response('ok');
+    }
+    if (url.pathname === '/balance/report') {
+      const days = Math.min(KEEP_DAYS, Math.max(1, Number(url.searchParams.get('days')) || 30));
+      return Response.json(balanceReport(await this.state.storage.get('balance:deepseek'), { days }));
     }
     return new Response('not found', { status: 404 });
   }
