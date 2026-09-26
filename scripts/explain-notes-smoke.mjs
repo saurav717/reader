@@ -213,7 +213,7 @@ await page.mouse.move(pbox.x + pbox.width * 0.8, pbox.y + pbox.height - 6, { ste
 await page.mouse.up();
 await settle(250);
 const addSel = page.locator('.selection-toolbar').getByRole('button', { name: /Add to notes/ });
-check('the selection toolbar has “Add to notes”, beside “Ask Claude”', (await addSel.count()) === 1 && (await page.locator('.selection-toolbar').getByRole('button', { name: /Ask Claude/ }).count()) === 1);
+check('the selection toolbar has “Add to notes”, beside “Ask Claude”', (await addSel.count()) === 1 && (await page.locator('.selection-toolbar').getByRole('button', { name: /Ask AI/ }).count()) === 1);
 const selected = await page.evaluate(() => window.getSelection().toString().trim());
 await shot('explain-notes-2-selection');
 await addSel.click();

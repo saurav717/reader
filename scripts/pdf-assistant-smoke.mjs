@@ -117,7 +117,7 @@ await page.screenshot({ path: `${OUT}/pdf-byline.png`, clip: { x: 0, y: 0, width
 async function ask(text) {
   const before = requests.length;
   if (!(await page.locator('.assistant-win').isVisible())) await page.keyboard.press('Control+Backslash');
-  await page.getByRole('textbox', { name: 'Ask Claude' }).fill(text);
+  await page.getByRole('textbox', { name: 'Ask AI' }).fill(text);
   await page.keyboard.press('Enter');
   for (let i = 0; i < 100 && requests.length === before; i++) await page.waitForTimeout(100);
   return requests[requests.length - 1];

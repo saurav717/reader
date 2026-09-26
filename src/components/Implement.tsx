@@ -475,7 +475,7 @@ export function ImplementEmpty({ title, byline, children }: { title: string; byl
       <h1>{title}</h1>
       {byline ? <div className="byline">{byline}</div> : null}
       <p className="explain-lede">
-        Claude reads the paper and plans how to <b>build it</b>: <mark>what to reproduce</mark> and what to leave out, <mark>which datasets</mark> and
+        The model reads the paper and plans how to <b>build it</b>: <mark>what to reproduce</mark> and what to leave out, <mark>which datasets</mark> and
         where to get them, how to <mark>lay the code out</mark>, the starter files, and <b>what it costs</b> — in hours and dollars on the machine you
         pick below.
       </p>
@@ -522,7 +522,7 @@ export function ImplementEmpty({ title, byline, children }: { title: string; byl
       <div className="impl-machine">
         <div className="impl-machine-head">
           <b>Your machine</b>
-          <span>Claude plans for it: the scale, the batch sizes, the substitutions.</span>
+          <span>The model plans for it: the scale, the batch sizes, the substitutions.</span>
         </div>
         <HardwarePanel />
       </div>

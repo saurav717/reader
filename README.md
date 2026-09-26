@@ -25,9 +25,11 @@ and a card says who they are — their Google Scholar profile, institution,
 counts and best-known papers — where the paper was published, and when and
 where the conference met, or what was cited — see [Who wrote it, and what it cites](#who-wrote-it-and-what-it-cites).
 
-Press **⌘\\** and a Claude window floats over the paper — see
-[Ask Claude](#ask-claude). Press **E** and Claude explains the whole paper, with
+Press **⌘\\** and a chat window floats over the paper — see
+[Ask AI](#ask-ai). Press **E** and the model explains the whole paper, with
 figures, runnable code and what has changed since — see [Explain](#explain).
+Both run on Claude or on DeepSeek, whichever you pick — see
+[Choosing a model](#choosing-a-model-claude-or-deepseek).
 
 ## Running it
 
@@ -1724,13 +1726,58 @@ None of it is a term-of-art oracle: the dictionaries have nothing to say about
 "attention head", and OpenAlex's oldest match for a phrase is the oldest thing it
 has indexed, which is not always the thing that coined it.
 
-## Ask Claude
+## Ask AI
+
+(It was called *Ask Claude* until DeepSeek joined Claude behind it.)
 
 A chat window that floats over whatever you are reading, in the manner of Cluely:
 glass rather than a panel, so the paper stays visible through it, and it reads your
 screen before it answers, so there is nothing to paste.
 
-![the Ask Claude window over a paper, answering a question about a selected sentence](docs/ask-claude.png)
+![the Ask AI window over a paper, answering a question about a selected sentence](docs/ask-claude.png)
+
+### Choosing a model: Claude or DeepSeek
+
+The picker at the top of the window lists every model, grouped by who runs it:
+**Claude** Opus 5, Sonnet 5 and Haiku 4.5 from Anthropic, and **DeepSeek Flash**
+from DeepSeek — twice, thinking first or answering at once. Explain and
+Implementation have a picker of their own, on their start page, so the chat can
+run on one and the long pages on the other. **Settings → AI models** holds both
+choices and both keys in one place.
+
+Each provider has its own API key — from
+[console.anthropic.com](https://console.anthropic.com/settings/keys) or
+[platform.deepseek.com](https://platform.deepseek.com/api_keys). Pick a model
+whose provider has no key yet and the window asks for that one. Each key is kept
+in this browser's localStorage under its own name (`reader.anthropic-key`,
+`reader.deepseek-key`) and sent only to its provider's API; the ⚙ menu and
+Settings can forget either. Usage bills your own account.
+
+What to know about DeepSeek:
+
+- **One model.** Both entries call `deepseek-flash` (V4.1 Flash). DeepSeek
+  retired `deepseek-chat` and `deepseek-reasoner` in July 2026; a preference or
+  an Explain page saved with either is read as *DeepSeek Flash, no thinking* or
+  *DeepSeek Flash*.
+- **Thinking** is `thinking: {"type": "enabled"}` with `reasoning_effort` high
+  (low when Explain asks for low), or `{"type": "disabled"}` for the entry that
+  answers at once. The reasoning streams as `reasoning_content` and is folded
+  under *Reasoning*, the way Claude's thinking is.
+- **Pictures.** The pages in view in PDF mode and screenshots go as
+  `image_url` parts holding base64 data URLs. DeepSeek bills each picture at no
+  more than 384 tokens, so it sees a page at a lower resolution than Claude:
+  small print in an equation can be lost, though the paper's text still goes
+  along with every question.
+- **No SDK.** The API speaks the OpenAI chat-completions dialect, so
+  `src/lib/deepseek.ts` is one `fetch` to `api.deepseek.com`, read as
+  server-sent events, with the same `on('text')`, `on('thinking')`, `abort()`
+  and `finalMessage()` the rest of the app uses on Anthropic's stream.
+  `streamModel` in `src/lib/assistant.ts` picks between the two.
+- **Caching** is DeepSeek's own and automatic: the paper leads the system
+  prompt, so the second question about it is billed at the cached rate there
+  too, without cache breakpoints.
+
+Each answer is labelled with the model that wrote it, and the History keeps that.
 
 - **Open it** with **⌘\\** (or ⌘J, or the ✦ on the rail), from anywhere. **Esc**
   from inside it, or ⌘\\ again, closes it.
@@ -1751,7 +1798,7 @@ screen before it answers, so there is nothing to paste.
   underlined and numbered, and the paper gets a compact card: who and when, the
   title, what it is for, **Find** and **+**. Where the card goes is switched
   right under the answer (**In place · Sections · On name**), in the window's ⚙,
-  or in **Settings → Papers Ask Claude names** — all three are the same choice:
+  or in **Settings → Papers Ask AI names** — all three are the same choice:
   - **In place** (the default): a list item about one paper *becomes* its card,
     keeping Claude's words about it; several papers in one line keep the line,
     with their cards under it.
@@ -1793,7 +1840,7 @@ screen before it answers, so there is nothing to paste.
 
   ![Ask Claude pointing at a passage: the paper scrolled to it, the passage marked, its caption above it, and the list of passages under the answer](docs/locate.png)
 
-  How the passage is marked is chosen under **Settings → Passages Ask Claude
+  How the passage is marked is chosen under **Settings → Passages Ask AI
   points at**:
   - **Marker** (the default): a highlighter swept over the words, line by line.
   - **Spotlight**: the passage lit, with the rest of the page dimmed for a
@@ -2330,7 +2377,10 @@ Claude.
 
 ### The key and the cost
 
-It uses the same API key and models as Ask Claude. The paper's full text goes
+It uses the same API keys and models as Ask AI — Claude or DeepSeek, picked on
+the start page or in **Settings → AI models** (see
+[Choosing a model](#choosing-a-model-claude-or-deepseek)). A page remembers the
+model that wrote it, and requests from the bar go to that one. The paper's full text goes
 in the system prompt behind a cache breakpoint. The explanation is written
 once, streamed onto the page as it arrives, and kept in IndexedDB for that
 paper; **Rewrite** asks again, and can be undone. On a phone it is one column.
@@ -2538,7 +2588,8 @@ npm run test:unit              # query building, merging, citations, the Git mir
 
 npm run build && npm start     # in one terminal
 node scripts/smoke.mjs         # in another
-node scripts/assistant-smoke.mjs  # Ask Claude, with Anthropic's API stubbed
+node scripts/assistant-smoke.mjs  # Ask AI on Claude, with Anthropic's API stubbed
+node scripts/deepseek-smoke.mjs   # Ask AI and Explain on DeepSeek, with DeepSeek's API stubbed
 node scripts/notes-smoke.mjs   # the notes beside the page, and in a window over the PDF
 node scripts/explain-notes-smoke.mjs # keeping diagrams, code, tables, maths and passages from Explain
 node scripts/paper-notes-smoke.mjs   # keeping figures, tables and passages from Reflow and the PDF, and snipping

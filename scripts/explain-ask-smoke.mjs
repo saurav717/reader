@@ -154,7 +154,7 @@ await page.screenshot({ path: `${OUT}/explain-maths.png` });
 
 console.log('\n== Ask Claude over the explanation ==');
 await page.keyboard.press('Control+Backslash');
-const box = page.getByRole('textbox', { name: 'Ask Claude' });
+const box = page.getByRole('textbox', { name: 'Ask AI' });
 await box.waitFor();
 await box.fill('Why divide by the square root?');
 await box.press('Enter');
@@ -188,7 +188,7 @@ await page.mouse.down();
 await page.mouse.move(rect.x + 300, rect.y + 8, { steps: 6 });
 await page.mouse.up();
 await page.waitForSelector('.selection-toolbar', { timeout: 5000 });
-await page.locator('.selection-toolbar button', { hasText: 'Ask Claude' }).click();
+await page.locator('.selection-toolbar button', { hasText: 'Ask AI' }).click();
 const quote = await page.locator('.chat-quote-text').textContent();
 check('the selection is attached to the next question', /Each position asks/.test(quote), quote);
 await box.fill('Say that more simply.');

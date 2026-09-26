@@ -105,7 +105,7 @@ const covers = () => page.evaluate(() => document.querySelector('.assistant-win'
 check('the window starts over Discover', await covers());
 await page.getByLabel('Anthropic API key').fill('sk-ant-test-key');
 await page.getByRole('button', { name: 'Save', exact: true }).click();
-await page.getByRole('textbox', { name: 'Ask Claude' }).fill('What other papers should I read to understand this one?');
+await page.getByRole('textbox', { name: 'Ask AI' }).fill('What other papers should I read to understand this one?');
 await page.keyboard.press('Enter');
 await page.waitForSelector('.chat-reading');
 await page.waitForFunction(() => !document.querySelector('.chat-wait'));

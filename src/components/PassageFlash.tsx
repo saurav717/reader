@@ -160,7 +160,7 @@ export default function PassageFlash({ flash, look = 'marker', onDone }: { flash
           </span>
           <span className="passage-text">
             <span className="passage-eyebrow">
-              <SparkleIcon size={11} /> Claude points here
+              <SparkleIcon size={11} /> Ask AI points here
             </span>
             <b>{flash.label}</b>
             {flash.where ? (

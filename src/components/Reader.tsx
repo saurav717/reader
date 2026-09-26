@@ -1574,7 +1574,7 @@ export default function Reader({
               type="button"
               className="btn sm explain-toggle"
               aria-pressed={Boolean(explaining)}
-              title="The whole paper explained by Claude — figures, runnable code and what has changed since (E)"
+              title="The whole paper explained by AI — figures, runnable code and what has changed since (E)"
               onClick={onToggleExplain}
             >
               <ExplainIcon size={15} /> Explain
@@ -1946,7 +1946,7 @@ export default function Reader({
               window.dispatchEvent(new CustomEvent('reader:ask-claude', { detail: { text: pending.selector.exact } }));
               setPending(null);
             }}
-            title="Ask Claude about this passage — ⌘\\ opens the window any time"
+            title="Ask AI about this passage — ⌘\\ opens the window any time"
           >
             <SparkleIcon size={15} /> Ask
           </button>
