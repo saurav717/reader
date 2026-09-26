@@ -476,7 +476,9 @@ export const scholarVia = () => servicesLabel({ serply: serplyKey(), serpapi: se
 
 /** One ask of Scholar, by whichever way this proxy has: the results and which answered. */
 async function askScholar({ kind, params, url, parse }) {
-  const paid = await askServices(kind, params, { serply: serplyKey(), serpapi: serpKey() }, { first: process.env.SCHOLAR_FIRST });
+  // DeepSeek, where there is a key, reads Serply's profile snippets for where a person is now.
+  const deepseek = (process.env.DEEPSEEK_KEY || '').trim();
+  const paid = await askServices(kind, params, { serply: serplyKey(), serpapi: serpKey(), deepseek }, { first: process.env.SCHOLAR_FIRST });
   if (paid) return paid;
   return { results: parse(await getScholar(url, { fetchPage: scholarPage })), via: 'direct' };
 }

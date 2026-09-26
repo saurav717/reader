@@ -22,9 +22,19 @@
  * front of every ask with a refusal. A rested service is still asked when
  * the other refuses too: resting is an order, never a ban.
  *
+ * Where a person is now. SerpApi reads it off the profile page; Serply
+ * only has Google's snippet of the page, which is as often the list of
+ * works as the top of it. So a person or people answered by Serply, with
+ * DEEPSEEK_KEY on the proxy too, have their snippets read by DeepSeek
+ * (server/profileReader.js) — one small request, about 700 tokens — and
+ * without it the snippet's affiliation is kept only where it is plainly the
+ * profile's header. That is why a person stays SerpApi's first: exact, one
+ * credit; Serply and DeepSeek are the stand-in when its credits run out.
+ *
  * Written against web APIs only, so the Worker can import it as the Node
  * proxy does.
  */
+import { PROFILE_MODEL, readProfiles } from './profileReader.js';
 import { askSerp, plainFetchJson } from './serpapi.js';
 import { askSerplyScholar, SERPAPI_BETTER } from './serply.js';
 
@@ -47,12 +57,19 @@ const isResting = (service) => (resting.get(service) || 0) > Date.now();
  * cache costs nothing and is not counted.
  */
 const services = {
-  serply: (kind, params, key, spent) =>
+  serply: (kind, params, key, spent, keys) =>
     askSerplyScholar(kind, params, key, {
       fetchImpl: (...args) => {
         spent.serply += 1;
         return fetch(...args);
       },
+      readProfiles: keys.deepseek
+        ? async (people) => {
+            const { readings, usage } = await readProfiles(people, keys.deepseek);
+            if (usage) spent.ai = { provider: 'deepseek', model: PROFILE_MODEL, variant: `${PROFILE_MODEL}-fast`, ...usage };
+            return readings;
+          }
+        : undefined,
     }),
   serpapi: (kind, params, key, spent) =>
     askSerp(kind, params, key, {
@@ -82,7 +99,9 @@ export function servicesLabel(keys, first) {
 /**
  * One ask of Scholar through whichever paid service answers: `{ results,
  * via, spent }`, or null when there is no key for either — `spent` being
- * the requests each service was charged for, refusals included. A refusal
+ * the requests each service was charged for, refusals included, and `ai`
+ * the tokens DeepSeek took reading profiles, where it was asked to.
+ * `keys.deepseek` is optional, and never a service of its own. A refusal
  * from one is the other's turn; when both refuse, the refusal of the last
  * asked is thrown, with `spent` on it too.
  */
@@ -93,14 +112,15 @@ export async function askServices(kind, params, keys, { first } = {}) {
   let failure;
   for (const service of order) {
     try {
-      const results = await services[service](kind, params, keys[service], spent);
+      const results = await services[service](kind, params, keys[service], spent, keys);
       resting.delete(service);
-      return { results, via: service, spent };
+      const { ai, ...paid } = spent;
+      return { results, via: service, spent: paid, ai };
     } catch (error) {
       failure = error;
       if (error && (error.serply || error.serpapi) && LASTING.has(error.reason)) resting.set(service, Date.now() + REST_MS);
     }
   }
-  if (failure && typeof failure === 'object') failure.spent = spent;
+  if (failure && typeof failure === 'object') failure.spent = { serply: spent.serply, serpapi: spent.serpapi };
   throw failure;
 }

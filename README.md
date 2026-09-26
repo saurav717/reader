@@ -363,6 +363,26 @@ whose key is wrong, is asked last for the next ten minutes, so an account out
 of credits does not stand in front of every ask; it is still asked when the
 other refuses too.
 
+**Where a person is now, when Serply stands in.** SerpApi reads a person's
+affiliation off their profile page. Serply cannot open that page, only Google's
+search result for it, whose line is as often the profile's list of works as its
+top — and a rule that took its first piece once showed a paper's title as where
+someone is now. So the rule now keeps an affiliation only where the snippet is
+plainly the profile's header (`Affiliation - Cited by N - …`, or the name then
+the affiliation) and never one of the person's own titles; anything else is left
+out, and the hover card falls back to OpenAlex. With `DEEPSEEK_KEY` on the proxy
+too (the same secret the usage page reads the balance with), DeepSeek reads the
+snippets Serply already fetched and says where the person is
+(`server/profileReader.js`): one request per person, or for the first three of
+people, thinking off, JSON back. DeepSeek does not browse — it is handed the
+snippet and the person's work titles — and its answer is kept only where the
+snippet bears it out: an affiliation or interest that is not in the snippet, or
+is one of their titles, is dropped. It takes about 500–800 tokens in and 50–150
+out, a few hundredths of a cent, and is tallied on the usage page as a
+`deepseek-flash-fast` answer. A person stays SerpApi's first whatever
+`SCHOLAR_FIRST` says; Serply and DeepSeek are the stand-in once its credits are
+spent.
+
 `SERPLY_KEY=… node scripts/scholar-live.mjs --raw` asks Serply for real, shows
 its raw answers, and says whether each was read — the check to run once with a
 new key; `scripts/serply.test.mjs` pins the mapping to saved answers
@@ -2629,6 +2649,7 @@ server/scholarBrowser.js  the same, through a real Chromium (SCHOLAR_BROWSER=1),
                         the window a captcha is shown in
 server/serpapi.js       Scholar through SerpApi instead, when SERPAPI_KEY is set
 server/serply.js        Scholar through Serply instead, when SERPLY_KEY is set
+server/profileReader.js DeepSeek reading Serply's profile snippets for a person's affiliation
 src/lib/google.ts       Google Identity Services + Drive REST
 src/lib/driveSync.ts    what a synced paper looks like in Drive
 src/lib/store.tsx       app state, IndexedDB persistence, the sync queue
