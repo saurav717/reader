@@ -95,11 +95,14 @@ describe('an IEEE two-column paper', () => {
     assert.deepEqual(cells(table), [
       ['Protocol', 'Metric', 'Baseline', 'ORB-NET'],
       ['Basic', 'Success ↑', '19/45', '32/45'],
+      // A group's label covers its rows: "Abnormal motion" is Complex's, not Target's.
       ['Complex', 'Success ↑', '2/10', '5/10'],
-      ['', 'Abnormal motion ↓', '6/10', '2/10'],
+      ['Abnormal motion ↓', '6/10', '2/10'],
       ['Target', 'Target moved ↑', '14/27', '21/27'],
-      ['', 'Lift-and-place ↑', '9/27', '17/27'],
+      ['Lift-and-place ↑', '9/27', '17/27'],
     ]);
+    assert.deepEqual(table.rows.map((row) => row[0].rowspan ?? 1), [1, 1, 2, 1, 2, 1]);
+    assert.match(html, /<td rowspan="2" class="short">Complex<\/td>/);
     assert.match(html, /<td class="num"><strong>32\/45<\/strong><\/td>/);
   });
 
@@ -111,7 +114,11 @@ describe('an IEEE two-column paper', () => {
     assert.deepEqual(rows[5], ['C. MI weight (λinv = 0.1)']);
     assert.deepEqual(rows[6], ['λMI', '0', '.005', '.01', '.015', '.03', '.05']);
     assert.deepEqual(rows[8], ['HS', '37.1', '50.9', '52.0', '60.4', '65.2', '61.5']);
-    assert.equal(table.rows[0][0].colspan, 7);
+    // Each panel keeps its own columns, and is a table of its own.
+    assert.equal(table.rows[0][0].colspan, 3);
+    assert.equal(table.rows[5][0].colspan, 7);
+    const figure = html.slice(html.indexOf('TABLE I:'), html.indexOf('</figure>', html.indexOf('TABLE I:')));
+    assert.equal(figure.match(/<table>/g).length, 2);
     assert.match(plain(table.notes), /^MI-enabled variants in A use λ\s*MI = 0\.01\. Encoded endpoints remove only the direct Inv gradient through the predicted successor\.$/);
   });
 

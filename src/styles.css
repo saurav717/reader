@@ -1282,11 +1282,15 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 .paper-body .pdf-table figcaption { margin: 0 0 8px; }
 .paper-body .pdf-table table { font-size: 13.5px; }
 .paper-body .pdf-table th { font-weight: 600; background: var(--rail); }
-.paper-body .pdf-table td:empty, .paper-body .pdf-table th:empty { border-color: transparent; }
+/* An empty heading cell — over the row labels — needs no box; an empty
+   cell in the body keeps its borders, so it is plain which row it is in. */
+.paper-body .pdf-table th:empty { border-color: transparent; }
+.paper-body .pdf-table td[rowspan] { vertical-align: top; }
 /* A wide table scrolls on its own rather than pushing the page sideways. */
 .paper-body .pdf-table-scroll { overflow-x: auto; }
 .paper-body .pdf-table-scroll table { margin: 0; font-variant-numeric: tabular-nums; }
-.paper-body .pdf-table td.num { white-space: nowrap; }
+.paper-body .pdf-table-scroll table + table { margin-top: 12px; }
+.paper-body .pdf-table td.num, .paper-body .pdf-table .short { white-space: nowrap; }
 /* A panel's title — "A. Component contributions" — is a row across the table. */
 .paper-body .pdf-table tr.pdf-panel th { text-align: left; background: none; border-left-color: transparent; border-right-color: transparent; padding-top: 10px; }
 .paper-body .pdf-table-notes { font-family: var(--sans); font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }

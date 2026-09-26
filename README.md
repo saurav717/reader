@@ -1104,8 +1104,16 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   time, each with columns of its own and its title a row across the table,
   and the note set under a table is kept under it. Cells set closer than
   an em apart are still cells, a header centred over its figures is their
-  column, and a table ends where a figure's pictures begin. A table whose
-  cells cannot be told apart is painted instead, like a figure.
+  column, and a table ends where a figure's pictures begin. Cells span as
+  the PDF draws them: a heading over several columns — *Candidate
+  selection* over CAD, R₃₀ and R̄₃₀ — covers the columns the rule under it
+  spans (booktabs's `\cmidrule`), or where none is drawn, the blank
+  columns it is set centred over; a label naming a group of rows —
+  *Complex* over its *Success* and *Abnormal motion* — covers the rows as
+  far as the next rule across the table, rather than leaving blank cells
+  that read as the next group's. A table in panels is a table a panel,
+  each with its own columns. A table whose cells cannot be told apart is
+  painted instead, like a figure.
 - **Equations.** A line numbered *(3)* at the column's edge, or set mostly in
   a mathematics font, is display mathematics, and mathematics read glyph by
   glyph out of a PDF is not worth reading — so the equation and the lines a
