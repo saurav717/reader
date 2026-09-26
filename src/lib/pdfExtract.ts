@@ -4,9 +4,9 @@
  * page's links point. Kept apart from `pdfReflow`, which starts pdf.js's
  * worker, so that the same reading runs under Node in the tests.
  */
-import { OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { AnnotationMode, OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { PDFPageProxy } from 'pdfjs-dist';
-import type { GraphicBox, PageInput, PageLink, TextRun } from './pdfLayout';
+import type { GraphicBox, PageInput, PageLink, SidewaysRun, TextRun } from './pdfLayout';
 
 type Matrix = [number, number, number, number, number, number];
 
@@ -40,44 +40,70 @@ function transformed(matrix: Matrix, x0: number, y0: number, x1: number, y1: num
  */
 function graphicsOf(page: PDFPageProxy, fnArray: number[], argsArray: unknown[], base: Matrix): GraphicBox[] {
   const boxes: GraphicBox[] = [];
-  let ctm: Matrix = base;
-  const stack: Matrix[] = [];
+  // The transform, and the region drawing is clipped to: what is drawn
+  // outside it is not seen — a figure's white background as big as the
+  // slide it was made on, cut down to the figure — and is not the figure.
+  type State = { ctm: Matrix; clip: GraphicBox | null };
+  let state: State = { ctm: base, clip: null };
+  const stack: State[] = [];
+  let clipping = false;
+  const narrow = (box: GraphicBox): GraphicBox | null => {
+    const clip = state.clip;
+    if (!clip) return box;
+    const cut = { x0: Math.max(box.x0, clip.x0), y0: Math.max(box.y0, clip.y0), x1: Math.min(box.x1, clip.x1), y1: Math.min(box.y1, clip.y1), kind: box.kind };
+    return cut.x1 >= cut.x0 && cut.y1 >= cut.y0 ? cut : null;
+  };
   const PAINT_OPS = new Set([OPS.stroke, OPS.closeStroke, OPS.fill, OPS.eoFill, OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke]);
   for (let at = 0; at < fnArray.length; at += 1) {
     const fn = fnArray[at];
     const args = argsArray[at] as unknown[] | null;
     switch (fn) {
       case OPS.save:
-        stack.push(ctm);
+        stack.push(state);
         break;
       case OPS.restore:
-        ctm = stack.pop() ?? base;
+        state = stack.pop() ?? { ctm: base, clip: null };
         break;
       case OPS.transform:
-        if (args && args.length >= 6) ctm = multiply(ctm, args as ArrayLike<number>);
+        if (args && args.length >= 6) state = { ...state, ctm: multiply(state.ctm, args as ArrayLike<number>) };
         break;
       case OPS.paintFormXObjectBegin: {
-        stack.push(ctm);
+        stack.push(state);
         const matrix = args?.[0] as Matrix | null | undefined;
-        if (matrix && matrix.length >= 6) ctm = multiply(ctm, matrix);
+        if (matrix && matrix.length >= 6) state = { ...state, ctm: multiply(state.ctm, matrix) };
+        // A form draws only inside its box.
+        const bbox = args?.[1] as ArrayLike<number> | null | undefined;
+        const box = bbox && bbox.length >= 4 ? transformed(state.ctm, bbox[0], bbox[1], bbox[2], bbox[3]) : null;
+        if (box) state = { ...state, clip: narrow(box) ?? { ...box, x1: box.x0, y1: box.y0 } };
         break;
       }
       case OPS.paintFormXObjectEnd:
-        ctm = stack.pop() ?? base;
+        state = stack.pop() ?? { ctm: base, clip: null };
+        break;
+      case OPS.clip:
+      case OPS.eoClip:
+        // The path that follows is the clip.
+        clipping = true;
         break;
       case OPS.paintImageXObject:
       case OPS.paintInlineImageXObject:
       case OPS.paintImageMaskXObject: {
-        const box = transformed(ctm, 0, 0, 1, 1);
-        if (box) boxes.push({ ...box, kind: 'image' });
+        const box = transformed(state.ctm, 0, 0, 1, 1);
+        const seen = box && narrow({ ...box, kind: 'image' });
+        if (seen) boxes.push(seen);
         break;
       }
       case OPS.constructPath: {
         const op = args?.[0] as number | undefined;
         const minMax = args?.[2] as ArrayLike<number> | null | undefined;
-        if (op === undefined || !PAINT_OPS.has(op) || !minMax || minMax.length < 4) break;
-        const box = transformed(ctm, minMax[0], minMax[1], minMax[2], minMax[3]);
-        if (box) boxes.push(box);
+        const box = minMax && minMax.length >= 4 ? transformed(state.ctm, minMax[0], minMax[1], minMax[2], minMax[3]) : null;
+        if (clipping) {
+          clipping = false;
+          if (box) state = { ...state, clip: narrow(box) ?? { ...box, x1: box.x0, y1: box.y0 } };
+        }
+        if (op === undefined || !PAINT_OPS.has(op) || !box) break;
+        const seen = narrow(box);
+        if (seen) boxes.push(seen);
         break;
       }
       default:
@@ -94,17 +120,38 @@ export async function extractPage(page: PDFPageProxy): Promise<PageInput> {
   const base = viewport.transform as Matrix;
   // The operator list first: it is what loads the fonts, and their names
   // — bold, italic, mathematics — are what the text is read by.
-  const operators = await page.getOperatorList();
+  // Without the annotations' own drawings: the boxes a PDF draws round its
+  // links, one on each line with a citation, would chain into one frame
+  // over a paragraph and make it part of the figure under it.
+  const operators = await page.getOperatorList({ annotationMode: AnnotationMode.DISABLE });
   const graphics = graphicsOf(page, operators.fnArray, operators.argsArray, base);
   const content = await page.getTextContent();
   const fontNames = new Map<string, string>();
   const runs: TextRun[] = [];
+  const sideways: SidewaysRun[] = [];
   for (const item of content.items) {
     if (!('str' in item) || !item.str) continue;
     const matrix = multiply(base, item.transform as ArrayLike<number>);
     const [a, b, c, d, e, f] = matrix;
-    // Text set sideways — the arXiv stamp down the margin — is not read.
-    if (Math.abs(b) > 0.05 * Math.abs(a) || Math.abs(c) > 0.05 * Math.abs(d)) continue;
+    // Text set sideways — the arXiv stamp down the margin, a table's label
+    // for a group of rows — is not read with the text, but kept aside by
+    // its box, for a table to take the labels beside it.
+    if (Math.abs(b) > 0.05 * Math.abs(a) || Math.abs(c) > 0.05 * Math.abs(d)) {
+      const size = Math.hypot(a, b);
+      const along = item.width * viewport.scale;
+      if (!(size > 0) || !item.str.trim()) continue;
+      const [ux, uy] = [a / size, b / size];
+      const corners = [
+        [e, f],
+        [e + ux * along, f + uy * along],
+        [e + c, f + d],
+        [e + ux * along + c, f + uy * along + d],
+      ];
+      const xs = corners.map((point) => point[0]);
+      const ys = corners.map((point) => point[1]);
+      sideways.push({ str: item.str, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys), size });
+      continue;
+    }
     if (a <= 0) continue;
     const size = Math.hypot(c, d);
     if (!(size > 0)) continue;
@@ -121,7 +168,7 @@ export async function extractPage(page: PDFPageProxy): Promise<PageInput> {
     }
     runs.push({ str: item.str, x: e, y: f, width: item.width * viewport.scale, size, font });
   }
-  return { index: page.pageNumber - 1, width: viewport.width, height: viewport.height, runs, graphics, links: await linksOf(page, base) };
+  return { index: page.pageNumber - 1, width: viewport.width, height: viewport.height, runs, graphics, links: await linksOf(page, base), sideways };
 }
 
 /**

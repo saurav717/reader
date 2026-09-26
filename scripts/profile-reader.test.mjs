@@ -11,7 +11,7 @@
 import { beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { askSerplyScholar, forgetSerply, fromSerplyProfiles } = await import('../server/serply.js');
+const { askSerplyScholar, countsOf, forgetSerply, fromSerplyProfiles } = await import('../server/serply.js');
 const { checkReading, readingRequest, readProfiles, DEEPSEEK_CHAT } = await import('../server/profileReader.js');
 const { askServices, forgetResting } = await import('../server/scholarServices.js');
 
@@ -85,6 +85,45 @@ describe('Serply’s own reading of the snippet', () => {
     assert.equal(person.affiliation, undefined);
     assert.equal(person.snippet, undefined);
     assert.equal(person.works[0].title, TITLE);
+  });
+});
+
+describe('a person through Serply, with no profile page to read', () => {
+  it('counts the h-index and i10-index from Scholar’s count for each paper, the way the profile page does', () => {
+    assert.deepEqual(countsOf([{ citedBy: 30 }, { citedBy: 12 }, { citedBy: 3 }, { citedBy: 1 }, {}]), {
+      citedBy: 46,
+      hIndex: 3,
+      i10Index: 2,
+      counted: 5,
+    });
+    assert.deepEqual(countsOf([]), {});
+  });
+
+  it('asks the page’s other snippet when the first leaves out where they are, and reads both', async () => {
+    const asked = [];
+    const fetchImpl = async (url) => {
+      const q = new URL(String(url)).searchParams.get('q') || '';
+      asked.push(q);
+      if (new URL(String(url)).pathname !== '/v1/search') return json(PAPERS);
+      return json(profiles(q.includes('SAURAVxxAAAJ') ? 'Saurav Chennuri. Boston University. Verified email at bu.edu. Medical Imaging' : WORKS_SNIPPET));
+    };
+    const [person] = await askSerplyScholar('person', { user: 'SAURAVxxAAAJ', name: 'Saurav Chennuri' }, 'k', { fetchImpl });
+    assert.equal(person.affiliation, 'Boston University');
+    assert.equal(person.verifiedEmail, 'bu.edu');
+    assert.equal(person.citedBy, 6, 'no total in either snippet: the sum of the papers found');
+    assert.equal(person.hIndex, 1);
+    assert.equal(person.counted, 1);
+    assert.equal(asked.filter((q) => q.includes('site:scholar.google.com')).length, 2);
+  });
+
+  it('does not spend the second credit when the first snippet has it all', async () => {
+    const asked = [];
+    const fetchImpl = async (url) => {
+      asked.push(new URL(String(url)).pathname);
+      return new URL(String(url)).pathname === '/v1/search' ? json(profiles('Boston University - Cited by 6 - Medical Imaging')) : json(PAPERS);
+    };
+    await askSerplyScholar('person', { user: 'SAURAVxxAAAJ', name: 'Saurav Chennuri' }, 'k', { fetchImpl });
+    assert.deepEqual(asked, ['/v1/search', '/v1/scholar']);
   });
 });
 

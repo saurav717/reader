@@ -335,9 +335,15 @@ between them they stand in for every Scholar page the proxy asks for
 | a person | who they are from Google's profile page, and their most cited works as above |
 | an entry opened | refused: there is only an id to go on. The app finds the paper by its title instead, as it does whenever that page is refused |
 
-What is not rebuilt: Scholar's two-line snippet under each result, which Serply's answer does not carry; and the h-index and i10-index, printed on the profile page
-alone, which Scholar refuses Serply (its page fetch gets the 403 "Sorry…" page) —
-the hover card leaves them out rather than guessing. A profile's list holds what
+What is not rebuilt: Scholar's two-line snippet under each result, which Serply's
+answer does not carry. The h-index and i10-index are printed on the profile page
+alone, which Scholar refuses Serply (its page fetch gets the 403 "Sorry…" page), so
+for a person they are counted the way the page counts them, from Scholar's own
+count for each of their papers — up to sixty, three credits — and the hover card
+says how many papers that was, since for a long career it is a floor. The total
+citations are the profile's own where Google shows them, the sum otherwise. When
+Google's first snippet of the profile leaves out where they are, its other
+snippet is asked for too (one more credit). A profile's list holds what
 Scholar's search finds by the person's name, which for a long career can be less
 than the profile itself. A profile's page costs up to two credits, a person up
 to three, people two; the app sends the person's name along, which saves one.
@@ -1077,7 +1083,9 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   lists; the references become one entry each; running heads, page numbers
   and the arXiv stamp are left out; and accents TeX sets apart from their
   letters ("na¨ıve") are put back. A subscript or a superscript stays on its
-  own line, however near a baseline in the other column falls.
+  own line, however near a baseline in the other column falls — and a
+  script on two levels, *W* ∈ ℝ<sup>d<sub>hidden</sub>×d<sub>model</sub></sup>,
+  stays in the line it is set in rather than breaking it into a display.
 - **The byline.** The title and the authors are the reader's own heading,
   and the byline on the first page is read into it: the marks on each name
   — "Jiabin Qiu∗, Zixuan Chen∗,†" — set by the names, and under them what
@@ -1086,7 +1094,12 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   without a mark is every author's; one with a mark, "¹", is theirs whose
   names carry it. Addresses on the first page — one by one, written once
   for a domain as `{jqiu, zchen}@nju.edu.cn`, or in a footnote — are put to
-  the author whose name is in them, or to the one a note's mark is on.
+  the author whose name is in them, or to the one a note's mark is on —
+  `sauravm@` is Saurav Muralidharan's, as `sharatht@` is Sharath Turuvekere
+  Sreenivas's. Names set apart by wide spaces rather than commas, as
+  NeurIPS sets them, are still one name each, and a note set as a footnote
+  on the first page — "∗Equal contribution" — is the byline's, not the
+  text's.
   Rest the pointer on a name and the card says it too: *First author*,
   *Equal contribution*, *Corresponding author*, and where they are, from
   each source that says, labelled with it —
@@ -1106,7 +1119,9 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
 - **Links.** The PDF's own links out — a project page, a repository, an
   email address — are links in the text, opening in a tab of their own; an
   address broken across two lines is one link. An address written out in
-  a PDF that never made it a link is made one too.
+  a PDF that never made it a link is made one too. The boxes a PDF draws
+  round its links are not drawings, and do not make a figure of the text
+  they frame.
 - **Figures.** A line that says *Figure 3.* is a caption, and the figure is
   everything between it and the running text on the far side of it — the
   drawings, the axis labels, the legend, the other panels — in the
@@ -1114,7 +1129,10 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   column, a bold abstract say, is never the figure's. That region is
   painted from the page itself, at twice its size, and shown as an image
   under its caption, so a plot looks exactly as it was typeset. The labels
-  inside it are in the picture, not the text.
+  inside it are in the picture, not the text. A figure is as large as what
+  is shown of it: a drawing clipped to a smaller box, or its background
+  drawn larger than the figure, reaches no further than the clip, and never
+  over the paragraph or the heading above it.
 - **Tables.** *Table 2.* is a caption too — and IEEE's *TABLE IV*, in Roman
   numerals — with the lines it runs on to, and the rows under it are read
   into a real table: cells that overlap horizontally are a column, cells on
@@ -1131,7 +1149,14 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   columns it is set centred over; a label naming a group of rows —
   *Complex* over its *Success* and *Abnormal motion* — covers the rows as
   far as the next rule across the table, rather than leaving blank cells
-  that read as the next group's. A table in panels is a table a panel,
+  that read as the next group's, and so does a label set sideways, turned
+  up the side of its rows (*Knowledge*, *Logic*, *Coding*). A caption is
+  the table's it is nearest: one set under its table, as NeurIPS sets
+  them, takes the table above, not the next one below; and two tables set
+  side by side, each over its own caption, are kept apart. A heading cell
+  set on two or three lines (*Non-Emb.* over *Params*) is one cell, and so
+  is a body cell wrapped under itself; a label running across four columns
+  — *Train from scratch (random init)* — spans them. A table in panels is a table a panel,
   each with its own columns. A table whose cells cannot be told apart is
   painted instead, like a figure.
 - **Equations.** A line numbered *(3)* at the column's edge, or set mostly in
@@ -1154,7 +1179,11 @@ pages; `scripts/pdf-reflow-ieee.test.mjs` reads a real IEEE conference paper
 (`scripts/fixtures/ieee-two-column.tex`, made up, and the PDF pdflatex made
 of it) with pdf.js as the app does — a figure beside the abstract, tables in
 Roman numerals and in panels, small-capital headings, links and the byline's
-notes; and `scripts/reflow-smoke.mjs` prints a two-column paper with Chromium
+notes; `scripts/pdf-reflow-neurips.test.mjs` does the same for a
+single-column paper set as NeurIPS sets them (`scripts/fixtures/neurips-single-column.tex`,
+after MINITRON, arXiv:2407.14679) — captions under their tables, labels set
+sideways, tables side by side, boxed links, a clipped figure and a byline
+parted by wide spaces; and `scripts/reflow-smoke.mjs` prints a two-column paper with Chromium
 and reads it back through the app — with the worker, and again without it. Inline mathematics stays as the glyphs it
 was set in, which is legible for *x* and *n* and not for much more; a scan,
 or a PDF whose fonts carry no mapping back to letters, has no text to read,

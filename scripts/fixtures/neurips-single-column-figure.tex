@@ -1,0 +1,9 @@
+% The drawing the paper's figure is clipped out of: a page far larger than the
+% figure, its white background with it, which the figure's clip cuts down.
+\documentclass{article}
+\usepackage[paperwidth=8in,paperheight=6in,margin=0pt]{geometry}
+\usepackage{xcolor}
+\pagestyle{empty}
+\begin{document}
+\setlength{\fboxsep}{0pt}\noindent\colorbox{white}{\begin{minipage}[t][5.5in]{7.9in}\vspace*{2in}\hspace*{2.5in}\fcolorbox{black}{gray!30}{\begin{minipage}{2.5in}\centering\vspace{0.4in}\textbf{1. Trained LLM}\\[0.2in]\textbf{2. Estimate importance}\vspace{0.4in}\end{minipage}}\end{minipage}}
+\end{document}

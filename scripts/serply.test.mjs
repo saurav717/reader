@@ -218,13 +218,15 @@ describe('the asks that are rebuilt', () => {
     assert.equal(new URL(asked[1].url).searchParams.get('q'), 'author:"Ashish Vaswani"');
   });
 
-  it('a person: who they are, and their most cited works — with no h-index rather than a guessed one', async () => {
+  it('a person: who they are, their most cited works, and counts added up from Scholar’s count for each', async () => {
     const { fetchImpl } = recording();
     const [person] = await askSerplyScholar('person', { user: 'oR9sCGYAAAAJ', name: 'A Vaswani' }, 'k', { fetchImpl });
     assert.equal(person.name, 'Ashish Vaswani');
     assert.equal(person.affiliation, 'Essential AI');
-    assert.equal(person.citedBy, 231507);
-    assert.equal(person.hIndex, undefined);
+    assert.equal(person.citedBy, 231507, 'the profile’s own total, as Google shows it, over the sum of the papers found');
+    assert.equal(person.hIndex, 2);
+    assert.equal(person.i10Index, 2);
+    assert.equal(person.counted, 2, 'marked with how many papers they were counted over');
     assert.equal(person.works[0].title, 'Attention is all you need');
   });
 
