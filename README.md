@@ -335,9 +335,15 @@ between them they stand in for every Scholar page the proxy asks for
 | a person | who they are from Google's profile page, and their most cited works as above |
 | an entry opened | refused: there is only an id to go on. The app finds the paper by its title instead, as it does whenever that page is refused |
 
-What is not rebuilt: Scholar's two-line snippet under each result, which Serply's answer does not carry; and the h-index and i10-index, printed on the profile page
-alone, which Scholar refuses Serply (its page fetch gets the 403 "Sorry…" page) —
-the hover card leaves them out rather than guessing. A profile's list holds what
+What is not rebuilt: Scholar's two-line snippet under each result, which Serply's
+answer does not carry. The h-index and i10-index are printed on the profile page
+alone, which Scholar refuses Serply (its page fetch gets the 403 "Sorry…" page), so
+for a person they are counted the way the page counts them, from Scholar's own
+count for each of their papers — up to sixty, three credits — and the hover card
+says how many papers that was, since for a long career it is a floor. The total
+citations are the profile's own where Google shows them, the sum otherwise. When
+Google's first snippet of the profile leaves out where they are, its other
+snippet is asked for too (one more credit). A profile's list holds what
 Scholar's search finds by the person's name, which for a long career can be less
 than the profile itself. A profile's page costs up to two credits, a person up
 to three, people two; the app sends the person's name along, which saves one.

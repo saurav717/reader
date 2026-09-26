@@ -338,6 +338,9 @@ function AuthorCard({ name, position, paper, onPaper }: { name: string; position
               </dl>
               <p className="hc-from">
                 Counts from {stats.from}
+                {scholarStats && profile?.counted !== undefined
+                  ? ` — added up from the ${profile.counted} ${profile.counted === 1 ? 'paper' : 'papers'} of theirs Scholar's search found, so their profile's own may be higher`
+                  : ''}
                 {!scholarStats && profile === null && !scholar?.error && hasProxy() ? ' — it can miss papers filed under another spelling of the name' : ''}
               </p>
             </>

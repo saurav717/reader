@@ -69,6 +69,12 @@ export interface ScholarPerson {
   citedBySince?: number;
   hIndex?: number;
   i10Index?: number;
+  /**
+   * Set where the counts were added up from this many of their papers, as
+   * Scholar counts each — Serply's way, which cannot open the profile page
+   * that prints them — so they are a floor, not the profile's own figures.
+   */
+  counted?: number;
   works: ScholarResult[];
 }
 
