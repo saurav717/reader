@@ -530,7 +530,21 @@ works, on your accounts:
   works as before, unlimited, for you and the scripts; paste it into
   **Settings → Paper proxy → token** where you would rather not sign in.
 
-It goes to the Worker as a header and nowhere else. arXiv, open-access PDFs and Scholar asked directly need no token, so a
+It goes to the Worker as a header and nowhere else.
+
+**Who is using it, and how much.** The Worker keeps a tally per person per day,
+for ninety days, in a small Durable Object (`worker/usage.js`, the `USAGE`
+binding): sign-ins, Scholar asks, the requests Serply and SerpApi were charged
+for (answers from the cache cost nothing), the browser opened, and files fetched
+with a pass. Someone signed in is tallied under their Google email; READER_TOKEN
+itself as `owner`; nobody signed out is tallied, since they use nothing that
+costs. Only READER_TOKEN reads it back:
+
+```bash
+READER_TOKEN=… npm run usage                  # the last 30 days, as a table
+READER_TOKEN=… npm run usage -- --days 7
+READER_TOKEN=… npm run usage -- --json
+``` arXiv, open-access PDFs and Scholar asked directly need no token, so a
 visitor without one still gets a working reader. The browser session and the
 cookies of a sign-in are kept per browser (an id the site makes up and sends
 along), never in one jar for everyone, and a jar unused for thirty days is

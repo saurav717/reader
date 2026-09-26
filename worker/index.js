@@ -36,6 +36,7 @@ import * as browserless from './browserless.js';
 // The Durable Object that holds the browser session open; the runtime needs
 // it exported from the entry. See worker/browserSession.js.
 export { BrowserSession } from './browserSession.js';
+export { Usage } from './usage.js';
 import { rateLimited, refusal } from './browserSession.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
@@ -124,6 +125,20 @@ async function personOverLimit(env, who) {
   }
 }
 
+/**
+ * Put `counts` on the tally of whoever `who` is (see worker/usage.js): their
+ * email for a pass, "owner" for READER_TOKEN itself. After the answer has
+ * gone, where the runtime lets it; never in the way of one.
+ */
+function tally(env, ctx, who, counts) {
+  if (!env.USAGE || !who) return;
+  const email = who.email || 'owner';
+  const done = env.USAGE.get(env.USAGE.idFromName('usage'))
+    .fetch('https://usage/record', { method: 'POST', body: JSON.stringify({ email, counts, at: Date.now() }) })
+    .catch(() => undefined);
+  if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(done);
+}
+
 /** The refusal, worded for whether there is a token to give at all. */
 const needsToken = (env, headers) =>
   json({ error: env.READER_TOKEN ? TOKEN_MESSAGE : NO_TOKEN_MESSAGE, token: true, google: Boolean(env.READER_TOKEN && env.GOOGLE_CLIENT_ID) }, 401, headers);
@@ -178,7 +193,7 @@ function sessionStub(env, client) {
 }
 
 export default {
-  async fetch(request, env = {}) {
+  async fetch(request, env = {}, ctx = undefined) {
     // A SerpApi key, as a secret: `npx wrangler secret put SERPAPI_KEY`. With
     // it, Scholar is asked through SerpApi, which is the one way Scholar
     // answers a Worker at all. See server/serpapi.js.
@@ -221,8 +236,20 @@ export default {
           return json({ error: `${email} is not on this proxy's list; ask whoever runs it to add you` }, 403, headers);
         }
         const pass = await issuePass(email, secret);
+        tally(env, ctx, { email }, { signin: 1 });
         const { expires } = await readPass(pass, secret);
         return json({ pass, email, expires }, 200, { ...headers, 'Cache-Control': 'no-store' });
+      }
+
+      // Who uses this Worker's paid accounts, and how much: worker/usage.js.
+      // The owner's alone — READER_TOKEN itself, not a pass.
+      if (path === '/usage') {
+        const who = await authorized(request, env);
+        if (!who?.owner) return json({ error: 'the tally is for whoever holds READER_TOKEN' }, 401, headers);
+        if (!env.USAGE) return json({ error: 'no USAGE object is bound here — see wrangler.toml' }, 501, headers);
+        const days = Math.max(1, Math.min(90, Number(url.searchParams.get('days')) || 30));
+        const answer = await env.USAGE.get(env.USAGE.idFromName('usage')).fetch(`https://usage/report?days=${days}`);
+        return json(await answer.json(), 200, { ...headers, 'Cache-Control': 'no-store' });
       }
 
       // A Worker has no disk and no GPU: the local workspace is the Node proxy's alone.
@@ -246,6 +273,7 @@ export default {
         // Worker's to call from `/pdf`, never the internet's.
         const withToken = await authorized(request, env);
         if (changes && !withToken) return needsToken(env, headers);
+        if (path === '/browse/open') tally(env, ctx, withToken, { browser: 1 });
         if (path === '/browse/note-check') return json({ error: 'not found' }, 404, headers);
         const client = clientOf(request, url);
         if (!client && path !== '/browse/status') return json({ error: 'no client id — this site is older than this Worker; reload it' }, 400, headers);
@@ -507,9 +535,11 @@ export default {
             return json({ error: 'too many Scholar searches at once; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });
           }
           try {
-            const { results, via } = await askServices(kind, params, { serply: serplyKey, serpapi: serpKey });
+            const { results, via, spent } = await askServices(kind, params, { serply: serplyKey, serpapi: serpKey });
+            tally(env, ctx, who, { scholar: 1, ...spent });
             return json({ results, source: 'scholar', via }, 200, { ...headers, 'Cache-Control': 'private, max-age=300' });
           } catch (error) {
+            tally(env, ctx, who, { scholar: 1, ...(error?.spent || {}) });
             if (error && error.serply) return json({ error: error.message, serply: true, reason: error.reason }, 503, headers);
             if (error && error.serpapi) return json({ error: error.message, serpapi: true, reason: error.reason }, 503, headers);
             return json({ error: String(error?.message || error) }, 502, headers);
@@ -597,6 +627,7 @@ export default {
         // tried on a login wall and a browser at Browserless on a check for
         // a person; without it the file is fetched plainly or not at all.
         const withToken = await authorized(request, env);
+        tally(env, ctx, withToken, { pdf: 1 });
         const scoped = browse.forClient(env, withToken ? clientOf(request, url) : '');
         if (!withToken && (await overLimit(env, request))) {
           return json({ error: 'too many files at once from this address; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });

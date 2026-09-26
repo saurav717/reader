@@ -19,7 +19,7 @@
  * Written against web APIs only, so the Worker can import it as the Node
  * proxy does.
  */
-import { askSerp } from './serpapi.js';
+import { askSerp, plainFetchJson } from './serpapi.js';
 import { askSerplyScholar, SERPAPI_BETTER } from './serply.js';
 
 const REST_MS = 10 * 60 * 1000;
@@ -35,9 +35,26 @@ export function forgetResting() {
 
 const isResting = (service) => (resting.get(service) || 0) > Date.now();
 
+/**
+ * Each service, with every request it makes to its paid API counted into
+ * `spent` — which is what the account is charged for; an answer from the
+ * cache costs nothing and is not counted.
+ */
 const services = {
-  serply: (kind, params, key) => askSerplyScholar(kind, params, key),
-  serpapi: (kind, params, key) => askSerp(kind, params, key),
+  serply: (kind, params, key, spent) =>
+    askSerplyScholar(kind, params, key, {
+      fetchImpl: (...args) => {
+        spent.serply += 1;
+        return fetch(...args);
+      },
+    }),
+  serpapi: (kind, params, key, spent) =>
+    askSerp(kind, params, key, {
+      fetchJson: (...args) => {
+        spent.serpapi += 1;
+        return plainFetchJson(...args);
+      },
+    }),
 };
 
 /** The services to ask, in the order to ask them: the better one first, a rested one last. */
@@ -49,23 +66,26 @@ export function serviceOrder(kind, keys) {
 
 /**
  * One ask of Scholar through whichever paid service answers: `{ results,
- * via }`, or null when there is no key for either. A refusal from one is
- * the other's turn; when both refuse, the refusal of the last asked is
- * thrown — it is the one that says what to do now.
+ * via, spent }`, or null when there is no key for either — `spent` being
+ * the requests each service was charged for, refusals included. A refusal
+ * from one is the other's turn; when both refuse, the refusal of the last
+ * asked is thrown, with `spent` on it too.
  */
 export async function askServices(kind, params, keys) {
   const order = serviceOrder(kind, keys);
   if (!order.length) return null;
+  const spent = { serply: 0, serpapi: 0 };
   let failure;
   for (const service of order) {
     try {
-      const results = await services[service](kind, params, keys[service]);
+      const results = await services[service](kind, params, keys[service], spent);
       resting.delete(service);
-      return { results, via: service };
+      return { results, via: service, spent };
     } catch (error) {
       failure = error;
       if (error && (error.serply || error.serpapi) && LASTING.has(error.reason)) resting.set(service, Date.now() + REST_MS);
     }
   }
+  if (failure && typeof failure === 'object') failure.spent = spent;
   throw failure;
 }

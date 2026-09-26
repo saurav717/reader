@@ -23,6 +23,16 @@ class_name = "BrowserSession"
 tag = "v1"
 new_sqlite_classes = ["BrowserSession"]
 
+# Who uses this Worker's paid accounts, and how much — a tally per person
+# per day, kept ninety days (worker/usage.js). `npm run usage` prints it.
+[[durable_objects.bindings]]
+name = "USAGE"
+class_name = "Usage"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Usage"]
+
 # Anyone signed in with Google in the reader need paste nothing: the app
 # swaps the sign-in for a thirty-day pass signed with READER_TOKEN (see
 # server/passes.js and GOOGLE_CLIENT_ID below), so the token is the key the
