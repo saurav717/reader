@@ -134,6 +134,11 @@ export interface BylineAuthor {
   affiliations: string[];
   /** What the name's other marks say: "Equal contribution", "Corresponding authors". */
   notes: string[];
+  /**
+   * Their addresses as the paper prints them — the only place a whole one
+   * is to be had: Google Scholar shows no more than the domain it verified.
+   */
+  emails: string[];
 }
 
 export interface PaperByline {
@@ -141,6 +146,8 @@ export interface PaperByline {
   /** Each mark and what it stands for, in the order the page gives them. */
   notes: { mark: string; text: string }[];
   affiliations: { mark?: string; text: string }[];
+  /** Every address the first page gives, whether or not it could be put to a name. */
+  emails: string[];
 }
 
 // ------------------------------------------------------------------ fonts --
@@ -1604,6 +1611,15 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
         const spans = spansOf(note.lines);
         if (plain(spans)) blocks.push({ kind: 'footnote', spans, page: page.index });
       }
+      // The first page's footnotes are where some styles put the authors'
+      // addresses — IEEE's \thanks — and they are the byline's too.
+      if (at === 0 && byline) {
+        const found = notes.flatMap((note) => emailsIn(plain(spansOf(note.lines))));
+        if (found.some((email) => !byline!.emails.includes(email))) {
+          byline.emails = Array.from(new Set([...byline.emails, ...found]));
+          assignEmails(byline);
+        }
+      }
     }
   }
 
@@ -1761,6 +1777,57 @@ function markedPieces(spans: Span[]): { marks: string[]; text: string }[] {
     .filter((piece) => piece.text);
 }
 
+const ADDRESS_ONE = /[\w.+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}/gi;
+/** Several people at one domain, as bylines set them: "{jqiu, zchen}@nju.edu.cn". */
+const ADDRESS_GROUP = /[{[(]\s*([\w.+-]+(?:\s*[,|;]\s*[\w.+-]+)+)\s*[}\])]\s*@\s*([a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})/gi;
+
+/** The addresses in a line, a group written once for its domain spelled out one by one. */
+export function emailsIn(text: string): string[] {
+  const out: string[] = [];
+  for (const group of text.matchAll(ADDRESS_GROUP)) for (const local of group[1].split(/\s*[,|;]\s*/)) out.push(`${local}@${group[2]}`.toLowerCase());
+  for (const one of text.replace(ADDRESS_GROUP, ' ').matchAll(ADDRESS_ONE)) out.push(one[0].replace(/\.$/, '').toLowerCase());
+  return Array.from(new Set(out));
+}
+
+/**
+ * Whether an address is plainly one person's, by its name: "gaoy@", "ygao@",
+ * "yang.gao@", "jqiu@" for Yang Gao and Jiabin Qiu — the surname, and of the
+ * rest no more than the given names or their initials.
+ */
+export function addressOf(name: string, email: string): boolean {
+  const local = email.split('@')[0].toLowerCase().replace(/[^a-z]/g, '');
+  const words = name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[\s-]+/)
+    .map((word) => word.replace(/[^a-z]/g, ''))
+    .filter(Boolean);
+  if (words.length < 2 || local.length < 3) return false;
+  const surname = words[words.length - 1];
+  const given = words.slice(0, -1);
+  if (!local.includes(surname)) return given.join('') === local || (given[0].length >= 4 && local === given[0]);
+  const restOf = local.replace(surname, '');
+  if (!restOf) return true;
+  const initials = given.map((word) => word[0]).join('');
+  return [given.join(''), given[0], initials, initials[0]].some((part) => part && part === restOf);
+}
+
+/**
+ * The addresses on the first page put to the authors they belong to: by
+ * the name in the address, or — where one address stands by a note, as in
+ * "†Corresponding author: haddad@…" — to the one author that note's mark
+ * is on.
+ */
+function assignEmails(byline: PaperByline): void {
+  for (const author of byline.authors) author.emails = byline.emails.filter((email) => addressOf(author.name, email));
+  for (const note of byline.notes) {
+    const found = emailsIn(note.text).filter((email) => !byline.authors.some((author) => author.emails.includes(email)));
+    const marked = byline.authors.filter((author) => note.mark.split(',').some((mark) => author.marks.includes(mark)));
+    if (found.length === 1 && marked.length === 1) marked[0].emails.push(found[0]);
+  }
+}
+
 /**
  * The first page's lines above the abstract, less the title: the byline
  * read whole where it can be — the names with their marks, what the marks
@@ -1800,7 +1867,7 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): { front
   const rest: Span[][] = [];
   for (const entry of entries) {
     if (entry.names) {
-      for (const { name, marks } of namesWithMarks(entry.spans)) authors.push({ name, marks, affiliations: [], notes: [] });
+      for (const { name, marks } of namesWithMarks(entry.spans)) authors.push({ name, marks, affiliations: [], notes: [], emails: [] });
       continue;
     }
     const pieces = markedPieces(entry.spans);
@@ -1817,9 +1884,14 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): { front
         used = true;
       }
     }
+    // A line of addresses and nothing else — "{jqiu, zchen}@nju.edu.cn" — is the byline's.
+    const text = plain(entry.spans);
+    const emails = emailsIn(text);
+    if (emails.length && !/\p{L}{3}/u.test(text.replace(ADDRESS_GROUP, ' ').replace(ADDRESS_ONE, ' ').replace(/e-?mails?|contact/gi, ' '))) used = true;
     if (!used) rest.push(entry.spans);
   }
-  if (authors.length && (notes.length || affiliations.length)) {
+  const emails = Array.from(new Set(entries.flatMap((entry) => emailsIn(plain(entry.spans)))));
+  if (authors.length && (notes.length || affiliations.length || emails.length)) {
     const unmarked = affiliations.filter((place) => !place.mark);
     for (const author of authors) {
       const own = affiliations.filter((place) => place.mark && place.mark.split(',').some((mark) => author.marks.includes(mark)));
@@ -1827,7 +1899,9 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): { front
       author.affiliations = (own.length ? own : unmarked.length === 1 ? unmarked : []).map((place) => place.text);
       author.notes = notes.filter((note) => note.mark.split(',').some((mark) => author.marks.includes(mark))).map((note) => note.text);
     }
-    return { front: rest, byline: { authors, notes, affiliations } };
+    const byline: PaperByline = { authors, notes, affiliations, emails };
+    assignEmails(byline);
+    return { front: rest, byline };
   }
 
   const kept = entries.filter((entry) => !entry.names);

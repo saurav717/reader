@@ -61,6 +61,9 @@ describe('an IEEE two-column paper', () => {
       ],
     );
     assert.deepEqual(byline.notes.map((note) => note.mark), ['∗', '†']);
+    // The one address given is put to the author it names.
+    assert.deepEqual(byline.emails, ['haddad@northfield.example.org']);
+    assert.deepEqual(byline.authors.map((author) => author.emails.join()), ['', '', '', '', '', 'haddad@northfield.example.org']);
     // All of it is in the reader's heading now, and nothing is left over for the text.
     assert.equal(layout.front, undefined);
     assert.doesNotMatch(html, /pdf-front/);

@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
 
-const { layoutPages, renderHtml, readingOrder, tableFromLines, composeAccents, faceOf, plain, entryStarts, linkRuns, linkAddresses } = await load('src/lib/pdfLayout.ts');
+const { layoutPages, renderHtml, readingOrder, tableFromLines, composeAccents, faceOf, plain, entryStarts, linkRuns, linkAddresses, emailsIn, addressOf } = await load('src/lib/pdfLayout.ts');
 
 after(cleanup);
 
@@ -438,14 +438,15 @@ describe('IEEE conference papers', () => {
     const layout = layoutPages([page(runs)], { title: 'A Paper With Notes Under Its Byline' });
     assert.deepEqual(layout.byline, {
       authors: [
-        { name: 'Ada Lindqvist', marks: ['1', '∗'], affiliations: ['Northfield University, Canada'], notes: ['Equal contribution'] },
-        { name: 'Omar Haddad', marks: ['1', '†'], affiliations: ['Northfield University, Canada'], notes: ['Corresponding author'] },
+        { name: 'Ada Lindqvist', marks: ['1', '∗'], affiliations: ['Northfield University, Canada'], notes: ['Equal contribution'], emails: [] },
+        { name: 'Omar Haddad', marks: ['1', '†'], affiliations: ['Northfield University, Canada'], notes: ['Corresponding author'], emails: [] },
       ],
       notes: [
         { mark: '∗', text: 'Equal contribution' },
         { mark: '†', text: 'Corresponding author' },
       ],
       affiliations: [{ mark: '1', text: 'Northfield University, Canada' }],
+      emails: [],
     });
     assert.match(texts(layout)[0], /^Abstract—We study a thing/);
   });
@@ -565,6 +566,35 @@ describe('what a real IEEE paper threw up', () => {
     ];
     const tables = layoutPages([page(runs)]).blocks.filter((block) => block.kind === 'table');
     assert.deepEqual(tables[1].rows.map((row) => row.map((cell) => plain(cell.spans))), [['Variant', 'HS'], ['LeWM', '3.7']]);
+  });
+});
+
+describe('addresses in the byline', () => {
+  it('spells out a group of addresses written once for their domain', () => {
+    assert.deepEqual(emailsIn('{jqiu, zchen}@nju.edu.cn and gaoy@nju.edu.cn.'), ['jqiu@nju.edu.cn', 'zchen@nju.edu.cn', 'gaoy@nju.edu.cn']);
+  });
+
+  it('knows an address by the name in it, and not by a namesake\'s', () => {
+    assert.ok(addressOf('Yang Gao', 'gaoy@nju.edu.cn'));
+    assert.ok(addressOf('Yang Gao', 'yang.gao@nju.edu.cn'));
+    assert.ok(addressOf('Jiabin Qiu', 'jqiu@nju.edu.cn'));
+    assert.ok(addressOf('Jing Huo', 'huojing@nju.edu.cn'));
+    assert.ok(!addressOf('Jing Huo', 'jiabin.qiu@nju.edu.cn'));
+    assert.ok(!addressOf('Yang Gao', 'gaoxiang@nju.edu.cn'));
+  });
+
+  it('puts a line of addresses to its authors, and leaves it out of the text', () => {
+    const runs = [
+      line('A Paper With Addresses', 150, 60, { size: 17, font: 'NimbusRomNo9L-Medi', width: 300 }),
+      line('Jiabin Qiu, Yang Gao', 230, 90, { size: 11 }),
+      line('Nanjing University', 230, 104, { size: 11 }),
+      line('{jqiu, gaoy}@nju.edu.cn', 225, 118, { size: 11 }),
+      line('Abstract—We study a thing, and the abstract goes on at some length.', 54, 150, { size: 9, font: 'NimbusRomNo9L-Medi', width: 240 }),
+      ...column(54, 170, ['The introduction goes on under the abstract with a full body line.', 'A second full line of running text, so that the body is measured.', 'And a third.'], { size: 10 }),
+    ];
+    const layout = layoutPages([page(runs)], { title: 'A Paper With Addresses' });
+    assert.deepEqual(layout.byline.authors.map((author) => [author.name, author.emails]), [['Jiabin Qiu', ['jqiu@nju.edu.cn']], ['Yang Gao', ['gaoy@nju.edu.cn']]]);
+    assert.equal(layout.front, undefined);
   });
 });
 

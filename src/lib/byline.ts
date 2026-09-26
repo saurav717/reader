@@ -152,7 +152,13 @@ export function rolesOnPaper(author: BylineAuthor | undefined, position: number)
   const roles = position === 0 ? ['First author'] : [];
   // The note speaks of them all — "Corresponding authors" — the card of one.
   for (const note of author?.notes ?? []) {
-    const own = note.replace(/\bauthors\b/i, (word) => word.slice(0, -1));
+    // The address in it has a row of its own on the card: "Corresponding author".
+    const own = note
+      .replace(/[\w.+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}/gi, '')
+      .replace(/[\s:;,(]+\)?$/, '')
+      .trim()
+      .replace(/\bauthors\b/i, (word) => word.slice(0, -1));
+    if (!own) continue;
     if (!roles.includes(own)) roles.push(own);
   }
   return roles;
@@ -168,5 +174,63 @@ export function addressPieces(text: string): { text: string; href?: string }[] {
     at = match.index! + match[0].length;
   }
   if (at < text.length) out.push({ text: text.slice(at) });
+  return out;
+}
+
+/**
+ * Where someone is, from each source that says, and which one said it.
+ * Google Scholar's profile is the one they keep themselves, so it is now:
+ * their position and department, and the domain of the address Scholar
+ * verified — never the address, which Scholar does not show. The paper is
+ * then: the institution it names, and the address it prints in full,
+ * the one thing a profile cannot give. OpenAlex fills either side where
+ * the others are silent.
+ */
+export interface Whereabouts {
+  now?: { place: string; from: 'Google Scholar' | 'OpenAlex'; verified?: string };
+  then?: { place?: string; from: 'the paper' | 'OpenAlex'; same: boolean; emails: string[] };
+}
+
+/** The distinctive words of an institution's name: "Nanjing University" is "nanjing". */
+const placeWords = (text: string): string[] =>
+  text
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .split(/[^a-z]+/)
+    .filter((word) => word.length > 2 && !/^(the|and|for|university|universit|institute|college|school|department|dept|faculty|lab|laboratory|center|centre|research|student|phd|professor|assistant|associate|postdoc|candidate|engineering|science|sciences|computer|technology|national|state|key)$/.test(word));
+
+export function whereTheyAre({
+  onPaper,
+  details,
+  profile,
+}: {
+  onPaper?: BylineAuthor;
+  /** What OpenAlex has: the institution it files this paper under, and their last known one. */
+  details?: { affiliationHere?: string; affiliation?: string };
+  /** Their Google Scholar profile, where one is plainly theirs. */
+  profile?: { affiliation?: string; verifiedEmail?: string } | null;
+}): Whereabouts {
+  const out: Whereabouts = {};
+  if (profile?.affiliation || profile?.verifiedEmail) {
+    out.now = { place: profile.affiliation || '', from: 'Google Scholar', verified: profile.verifiedEmail };
+  } else if (details?.affiliation) {
+    out.now = { place: details.affiliation, from: 'OpenAlex' };
+  }
+  const paperPlace = onPaper?.affiliations.length ? onPaper.affiliations.join('; ') : undefined;
+  const place = paperPlace ?? details?.affiliationHere;
+  const emails = onPaper?.emails ?? [];
+  if (place || emails.length) {
+    const nowWords = new Set(placeWords(`${out.now?.place ?? ''} ${out.now?.verified ?? ''}`));
+    const domains = emails.map((email) => email.split('@')[1]);
+    const verified = out.now?.verified?.toLowerCase();
+    // The same place: its name's words in the profile's, or the addresses at one domain.
+    const same = Boolean(
+      out.now &&
+        ((place && placeWords(place).some((word) => nowWords.has(word))) ||
+          (verified && domains.some((domain) => domain === verified || domain.endsWith(`.${verified}`) || verified.endsWith(`.${domain}`)))),
+    );
+    out.then = { place, from: paperPlace || !place ? 'the paper' : 'OpenAlex', same, emails };
+  }
   return out;
 }

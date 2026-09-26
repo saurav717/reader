@@ -1064,10 +1064,23 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   the marks stand for and the institutions named ("Nanjing University ·
   ∗Equal contribution · †Corresponding authors"). An institution named
   without a mark is every author's; one with a mark, "¹", is theirs whose
-  names carry it. Rest the pointer on a name and the card says it too — *On
-  this paper: Nanjing University*, where they were when they wrote it, and
-  *First author*, *Equal contribution*, *Corresponding author* — and the
-  institution helps it tell their Google Scholar profile from a namesake's.
+  names carry it. Addresses on the first page — one by one, written once
+  for a domain as `{jqiu, zchen}@nju.edu.cn`, or in a footnote — are put to
+  the author whose name is in them, or to the one a note's mark is on.
+  Rest the pointer on a name and the card says it too: *First author*,
+  *Equal contribution*, *Corresponding author*, and where they are, from
+  each source that says, labelled with it —
+
+  | | |
+  |---|---|
+  | **Now** | their position and department from their Google Scholar profile, and the domain Scholar verified their address at (*✓ Verified email at nju.edu.cn*); OpenAlex's last known institution where there is no profile |
+  | **On this paper** | the institution the paper names — *the same as now* where the profile's name or verified domain agrees — and the address the paper prints in full (*✉ jqiu@nju.edu.cn*) |
+
+  Scholar is put first because it is the one the author keeps up; the
+  paper, because it is what was true when they wrote it, and because
+  Scholar never shows an address, only its domain, so the paper's is the
+  one to write to. The paper's institution also helps the card tell their
+  Scholar profile from a namesake's.
   Anything else set there, an address or a date, is kept above the
   abstract as it is.
 - **Links.** The PDF's own links out — a project page, a repository, an
