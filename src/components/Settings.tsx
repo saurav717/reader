@@ -353,7 +353,6 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           </div>
         </section>
 
-
         <section style={{ marginBottom: 22 }}>
           <div className="eyebrow" style={{ marginBottom: 10 }}>
             Institutional access

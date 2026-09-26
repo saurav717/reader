@@ -538,7 +538,18 @@ binding): sign-ins, Scholar asks, the requests Serply and SerpApi were charged
 for (answers from the cache cost nothing), the browser opened, and files fetched
 with a pass. Someone signed in is tallied under their Google email; READER_TOKEN
 itself as `owner`; nobody signed out is tallied, since they use nothing that
-costs. Only READER_TOKEN reads it back:
+costs. The owner reads it back — in the reader itself, from the chart button on the
+left rail, which only an owner sees — once the Worker knows your Google email
+(one secret, no token to keep):
+
+```bash
+npx --yes wrangler@4 secret put READER_OWNERS   # your Google email(s), comma-separated
+```
+
+Signed in as one of them, you see everyone who has signed in, their totals and
+each day's — asked again every thirty seconds while the page is open and the
+tab in view, never while it is hidden, and at once with **Refresh** — and the
+per-person limit does not apply to you; nobody else sees it. READER_TOKEN reads it too, from a terminal:
 
 ```bash
 READER_TOKEN=… npm run usage                  # the last 30 days, as a table
