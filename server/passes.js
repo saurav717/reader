@@ -105,3 +105,26 @@ export async function googleEmail(accessToken, clientId, { fetchImpl = (...args)
   const live = Number(info.expires_in) > 0;
   return forThisApp && verified && live && typeof info.email === 'string' ? info.email.toLowerCase() : null;
 }
+
+const TURNSTILE_VERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+
+/**
+ * Whether a Cloudflare Turnstile answer is a real one: the token the widget
+ * on the sign-in screen handed the page, checked with Turnstile's secret, from
+ * the address that solved it. Each token is good once and for five minutes;
+ * Turnstile says so itself, so a replayed one fails here. False for anything
+ * but Turnstile's own yes.
+ */
+export async function captchaPassed(token, secret, remoteip, { fetchImpl = (...args) => fetch(...args) } = {}) {
+  if (!token || !secret) return false;
+  const body = new URLSearchParams({ secret, response: token });
+  if (remoteip && remoteip !== 'unknown') body.set('remoteip', remoteip);
+  try {
+    const response = await fetchImpl(TURNSTILE_VERIFY, { method: 'POST', body });
+    if (!response.ok) return false;
+    const answer = await response.json().catch(() => ({}));
+    return answer.success === true;
+  } catch {
+    return false;
+  }
+}

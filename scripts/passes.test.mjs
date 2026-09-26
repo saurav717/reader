@@ -200,6 +200,68 @@ describe('the Worker, with passes', () => {
     assert.equal((await worker.fetch(scholar(pass), env({ PERSON_LIMIT, READER_OWNERS: 'other@gmail.com' }))).status, 429);
   });
 
+  it('holds one address to LOGIN_LIMIT sign-ins, before Google is asked', async () => {
+    const asked = [];
+    outside(() => (asked.push('google'), tokeninfo()));
+    const keys = [];
+    let left = 2;
+    const LOGIN_LIMIT = { limit: async ({ key }) => (keys.push(key), { success: left-- > 0 }) };
+    const from = () => post({ 'CF-Connecting-IP': '203.0.113.9' });
+    assert.equal((await worker.fetch(from(), env({ LOGIN_LIMIT }))).status, 200);
+    assert.equal((await worker.fetch(from(), env({ LOGIN_LIMIT }))).status, 200);
+    const limited = await worker.fetch(from(), env({ LOGIN_LIMIT }));
+    assert.equal(limited.status, 429);
+    assert.equal(limited.headers.get('Retry-After'), '60');
+    assert.deepEqual(keys, ['203.0.113.9', '203.0.113.9', '203.0.113.9']);
+    assert.equal(asked.length, 2, 'the refused one never reaches Google');
+  });
+
+  describe('with Turnstile', () => {
+    const captcha = { TURNSTILE_SITE_KEY: 'site-key', TURNSTILE_SECRET: 'turnstile-secret' };
+    /** Google, and Turnstile saying yes to `good` alone. */
+    const withTurnstile = (good = 'solved') => {
+      const asked = [];
+      globalThis.fetch = async (input, init) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.startsWith('https://oauth2.googleapis.com/tokeninfo')) return tokeninfo();
+        if (url.startsWith('https://challenges.cloudflare.com/turnstile/v0/siteverify')) {
+          const body = new URLSearchParams(String(init.body));
+          asked.push(Object.fromEntries(body));
+          return json({ success: body.get('response') === good && body.get('secret') === 'turnstile-secret' });
+        }
+        return json({ error: 'not expected in this test' }, 500);
+      };
+      return asked;
+    };
+
+    it('hands the site key out on /health only when it has the secret too', async () => {
+      assert.equal((await (await worker.fetch(new Request('https://proxy.example/health'), env(captcha))).json()).captcha, 'site-key');
+      assert.equal((await (await worker.fetch(new Request('https://proxy.example/health'), env({ TURNSTILE_SITE_KEY: 'site-key' }))).json()).captcha, null);
+    });
+
+    it('refuses a sign-in without a solved captcha, and takes one with', async () => {
+      const asked = withTurnstile();
+      const none = await worker.fetch(post(), env(captcha));
+      assert.equal(none.status, 403);
+      assert.equal((await none.json()).captcha, 'site-key');
+      assert.equal((await worker.fetch(post({ 'X-Captcha-Token': 'wrong' }), env(captcha))).status, 403);
+      const solved = await worker.fetch(post({ 'X-Captcha-Token': 'solved', 'CF-Connecting-IP': '198.51.100.4' }), env(captcha));
+      assert.equal(solved.status, 200);
+      assert.ok(isPass((await solved.json()).pass));
+      assert.deepEqual(asked.at(-1), { secret: 'turnstile-secret', response: 'solved', remoteip: '198.51.100.4' });
+    });
+
+    it('renews a pass still good without one, for the same person only', async () => {
+      withTurnstile();
+      const pass = await issuePass('someone@gmail.com', SECRET);
+      assert.equal((await worker.fetch(post({ Authorization: `Bearer ${pass}` }), env(captcha))).status, 200);
+      const other = await issuePass('other@gmail.com', SECRET);
+      assert.equal((await worker.fetch(post({ Authorization: `Bearer ${other}` }), env(captcha))).status, 403);
+      const forged = await issuePass('someone@gmail.com', 'another-secret');
+      assert.equal((await worker.fetch(post({ Authorization: `Bearer ${forged}` }), env(captcha))).status, 403);
+    });
+  });
+
   it('stops taking a pass once READER_TOKEN has changed', async () => {
     outside();
     const { pass } = await (await worker.fetch(post(), env())).json();

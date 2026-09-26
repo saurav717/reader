@@ -70,6 +70,14 @@ name = "PERSON_LIMIT"
 namespace_id = "1002"
 simple = { limit = 30, period = 60 }
 
+# How many Google sign-ins a minute one address may try at /auth/google —
+# five, which a person never reaches and a bot does at once. Over it, the
+# Worker answers 429 and asks nothing of Google.
+[[ratelimits]]
+name = "LOGIN_LIMIT"
+namespace_id = "1003"
+simple = { limit = 5, period = 60 }
+
 [[ratelimits]]
 name = "PDF_LIMIT"
 namespace_id = "1001"
@@ -110,6 +118,18 @@ SCHOLAR_FIRST = "serpapi"
 # A Google sign-in is only taken for a pass when Google says it was made for
 # this client; a sign-in some other site obtained is not one to this app.
 GOOGLE_CLIENT_ID = "308274983351-s52d0ustml5bneg91ju6of40tmitnaoa.apps.googleusercontent.com"
+# A captcha in front of Google sign-in: Cloudflare Turnstile, free. Make a
+# widget in the Cloudflare dashboard (Turnstile → Add widget, hostname
+# saurav717.github.io and localhost), put its site key here — it is public,
+# /health hands it to the app, which draws the widget on the sign-in screen —
+# and its secret key as a secret:
+#
+#     npx wrangler secret put TURNSTILE_SECRET
+#
+# With both set, a sign-in is swapped for a pass only with a fresh Turnstile
+# answer; renewing a pass that is still good needs none. With either unset,
+# there is no captcha and LOGIN_LIMIT above is the only brake.
+# TURNSTILE_SITE_KEY = "0x4AAAAAAA…"
 # BROWSERLESS_URL = "wss://production-sfo.browserless.io"   # or -lon, -ams
 BROWSERLESS_PROXY = "residential"
 BROWSERLESS_COUNTRY = "us"
