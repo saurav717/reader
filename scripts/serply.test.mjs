@@ -41,6 +41,7 @@ const {
 } = await import('../server/serply.js');
 const { forgetScholar } = await import('../server/scholar.js');
 const { forgetSerp } = await import('../server/serpapi.js');
+const { forgetResting } = await import('../server/scholarServices.js');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = async (name) => JSON.parse(await readFile(join(here, 'fixtures', `${name}.json`), 'utf8'));
@@ -73,6 +74,7 @@ beforeEach(() => {
   forgetScholar();
   forgetSerp();
   forgetSerply();
+  forgetResting();
 });
 
 describe('the asks', () => {
@@ -345,36 +347,103 @@ describe('a proxy with a Serply key', () => {
     }
   });
 
-  it('with a SerpApi key too: the profile pages go to SerpApi, and so does whatever Serply refuses', async () => {
-    await listen();
-    process.env.SERPLY_KEY = 'SERPLY-SECRET';
-    process.env.SERPAPI_KEY = 'SERPAPI-SECRET';
-    const hosts = [];
-    let serplyRefuses = false;
-    intercept((url) => {
-      hosts.push(new URL(url).hostname);
-      if (url.startsWith(SERPLY_HOST)) return serplyRefuses ? new Response('', { status: 429 }) : serply(url);
-      const engine = new URL(url).searchParams.get('engine');
-      return json(engine === 'google_scholar_author' ? SERP_AUTHOR : SERP_SEARCH);
+  describe('with a SerpApi key too', () => {
+    /** Both services, each answering or refusing as the test says. */
+    const both = ({ serplyRefuses = false, serpapiRefuses = false } = {}) => {
+      const hosts = [];
+      const state = { serplyRefuses, serpapiRefuses };
+      intercept((url) => {
+        hosts.push(new URL(url).hostname);
+        if (url.startsWith(SERPLY_HOST)) return state.serplyRefuses ? json({ detail: 'Out of credits' }, 402) : serply(url);
+        if (state.serpapiRefuses) return json({ error: 'Your account has run out of searches.' }, 429);
+        const engine = new URL(url).searchParams.get('engine');
+        return json(engine === 'google_scholar_author' ? SERP_AUTHOR : SERP_SEARCH);
+      });
+      return { hosts, state };
+    };
+    const start = async () => {
+      await listen();
+      process.env.SERPLY_KEY = 'SERPLY-SECRET';
+      process.env.SERPAPI_KEY = 'SERPAPI-SECRET';
+    };
+
+    it('asks Serply first for a search, and SerpApi first for a profile, which it reads exactly', async () => {
+      await start();
+      const { hosts } = both();
+      try {
+        assert.equal((await (await realFetch(`${base}/health`)).json()).scholar, 'serply+serpapi');
+        const search = await (await realFetch(`${base}/scholar/search?q=serply`)).json();
+        assert.equal(search.via, 'serply');
+        const works = await (await realFetch(`${base}/scholar/profile?user=oR9sCGYAAAAJ`)).json();
+        assert.equal(works.via, 'serpapi');
+        assert.deepEqual(hosts, ['api.serply.io', 'serpapi.com']);
+      } finally {
+        stop();
+      }
     });
-    try {
-      const works = await (await realFetch(`${base}/scholar/profile?user=oR9sCGYAAAAJ`)).json();
-      assert.equal(works.via, 'serpapi');
-      assert.deepEqual(hosts, ['serpapi.com']);
 
-      hosts.length = 0;
-      const search = await (await realFetch(`${base}/scholar/search?q=serply`)).json();
-      assert.equal(search.via, 'serply');
-      assert.deepEqual(hosts, ['api.serply.io']);
+    it('asks SerpApi when Serply refuses', async () => {
+      await start();
+      const { hosts } = both({ serplyRefuses: true });
+      try {
+        const payload = await (await realFetch(`${base}/scholar/search?q=fallback`)).json();
+        assert.equal(payload.via, 'serpapi');
+        assert.equal(payload.results[0].title, 'Attention is all you need');
+        assert.deepEqual(hosts, ['api.serply.io', 'serpapi.com']);
+      } finally {
+        stop();
+      }
+    });
 
-      hosts.length = 0;
-      serplyRefuses = true;
-      const payload = await (await realFetch(`${base}/scholar/search?q=fallback`)).json();
-      assert.equal(payload.via, 'serpapi');
-      assert.deepEqual(hosts, ['api.serply.io', 'serpapi.com']);
-    } finally {
-      stop();
-    }
+    it('asks Serply when SerpApi is out of searches — and then stops asking SerpApi first', async () => {
+      await start();
+      const { hosts } = both({ serpapiRefuses: true });
+      try {
+        const first = await (await realFetch(`${base}/scholar/profile?user=oR9sCGYAAAAJ&name=Ashish%20Vaswani`)).json();
+        assert.equal(first.via, 'serply');
+        assert.equal(first.results.length, 2);
+        assert.deepEqual(hosts, ['serpapi.com', 'api.serply.io']);
+
+        hosts.length = 0;
+        const person = await (await realFetch(`${base}/scholar/person?user=oR9sCGYAAAAJ&name=Ashish%20Vaswani`)).json();
+        assert.equal(person.via, 'serply');
+        assert.ok(!hosts.includes('serpapi.com'), 'a service out of searches is rested, not asked first again');
+      } finally {
+        stop();
+      }
+    });
+
+    it('still asks a rested service when the other refuses too, and says what the last one said', async () => {
+      await start();
+      const { hosts, state } = both({ serpapiRefuses: true });
+      try {
+        await realFetch(`${base}/scholar/profile?user=oR9sCGYAAAAJ&name=A`);
+        state.serplyRefuses = true;
+        hosts.length = 0;
+        const response = await realFetch(`${base}/scholar/search?q=nobody`);
+        assert.equal(response.status, 503);
+        const payload = await response.json();
+        assert.equal(payload.serpapi, true);
+        assert.equal(payload.reason, 'rate-limited');
+        assert.deepEqual(hosts, ['api.serply.io', 'serpapi.com']);
+      } finally {
+        stop();
+      }
+    });
+
+    it('opens a profile entry through SerpApi, and says Serply’s refusal when SerpApi is out, so the app finds it by title', async () => {
+      await start();
+      both({ serpapiRefuses: true });
+      try {
+        const response = await realFetch(`${base}/scholar/work?user=oR9sCGYAAAAJ&citation=oR9sCGYAAAAJ:u5HHmVD_uO8C`);
+        assert.equal(response.status, 503);
+        const payload = await response.json();
+        assert.equal(payload.serply, true);
+        assert.equal(payload.reason, 'unsupported');
+      } finally {
+        stop();
+      }
+    });
   });
 
   after(() => {

@@ -308,7 +308,7 @@ export function serpProblem(json, status) {
   if (status === 401 || /invalid api key|api_key/i.test(error)) {
     return { reason: 'key', message: 'SerpApi did not accept the key in SERPAPI_KEY. Check it on serpapi.com/manage-api-key.' };
   }
-  if (status === 429 || /exceed|quota|rate limit|too many/i.test(error)) {
+  if (status === 429 || /exceed|quota|rate limit|too many|run out of searches/i.test(error)) {
     return {
       reason: 'rate-limited',
       message: `SerpApi is refusing for now: ${error || 'rate-limited'}. That is this account's allowance, not Scholar — wait, or search the other sources meanwhile.`,

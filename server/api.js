@@ -26,8 +26,7 @@ import {
 } from './scholar.js';
 import { captchaStatus, closeCaptcha, openCaptcha, scholarFetcher } from './scholarBrowser.js';
 import * as browse from './browse.js';
-import { askSerp } from './serpapi.js';
-import { askSerplyScholar, SERPAPI_BETTER } from './serply.js';
+import { askServices } from './scholarServices.js';
 import * as workspace from './workspace.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
@@ -464,28 +463,22 @@ export function setScholarFetcher(fetcher) {
 
 /**
  * With a Serply or a SerpApi key on this proxy, Scholar is asked through
- * them instead — see server/serply.js and server/serpapi.js: no captcha, and
- * it works from a server. Serply answers every ask, rebuilding a profile from
- * searches; with SerpApi's key too, SerpApi takes the profile pages, which it
- * reads exactly, and whatever Serply refuses. Without either key, the page
+ * them instead — no captcha, and it works from a server. With both, each
+ * ask goes to the one that answers it better and then to the other when it
+ * refuses: see server/scholarServices.js. Without either key, the page
  * itself, as above.
  */
 const serpKey = () => (process.env.SERPAPI_KEY || '').trim();
 const serplyKey = () => (process.env.SERPLY_KEY || '').trim();
 
 /** How this proxy asks Scholar, for /health and for anyone wondering. */
-export const scholarVia = () => (serplyKey() ? 'serply' : serpKey() ? 'serpapi' : 'direct');
+export const scholarVia = () =>
+  serplyKey() && serpKey() ? 'serply+serpapi' : serplyKey() ? 'serply' : serpKey() ? 'serpapi' : 'direct';
 
 /** One ask of Scholar, by whichever way this proxy has: the results and which answered. */
 async function askScholar({ kind, params, url, parse }) {
-  if (serplyKey() && !(serpKey() && SERPAPI_BETTER.has(kind))) {
-    try {
-      return { results: await askSerplyScholar(kind, params, serplyKey()), via: 'serply' };
-    } catch (error) {
-      if (!(error && error.serply && serpKey())) throw error;
-    }
-  }
-  if (serpKey()) return { results: await askSerp(kind, params, serpKey()), via: 'serpapi' };
+  const paid = await askServices(kind, params, { serply: serplyKey(), serpapi: serpKey() });
+  if (paid) return paid;
   return { results: parse(await getScholar(url, { fetchPage: scholarPage })), via: 'direct' };
 }
 

@@ -28,8 +28,7 @@ import {
   versionsUrl,
   workUrl,
 } from '../server/scholar.js';
-import { askSerp } from '../server/serpapi.js';
-import { askSerplyScholar, SERPAPI_BETTER } from '../server/serply.js';
+import { askServices } from '../server/scholarServices.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
 
@@ -176,7 +175,7 @@ export default {
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), browse: browse.availability(env).available, scholar: serplyKey ? 'serply' : serpKey ? 'serpapi' : 'direct' },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), browse: browse.availability(env).available, scholar: serplyKey && serpKey ? 'serply+serpapi' : serplyKey ? 'serply' : serpKey ? 'serpapi' : 'direct' },
           200,
           headers,
         );
@@ -454,32 +453,16 @@ export default {
                   : kind === 'work'
                     ? /^[\w-]{6,32}$/.test(user) && /^[\w-]{6,32}:[\w-]{6,32}$/.test(citation) && { user, citation }
                     : null;
-        // Serply answers every ask; with SerpApi's key too, SerpApi takes the
-        // profile pages, which it reads exactly, and whatever Serply refuses.
-        if (serplyKey && !(serpKey && SERPAPI_BETTER.has(kind))) {
-          // Serply is metered on the account whose key this is.
+        // Serply or SerpApi, whichever answers this ask better first and the
+        // other when it refuses — see server/scholarServices.js.
+        if (serplyKey || serpKey) {
+          // Both are metered on the account whose key it is.
           if (!authorized(request, env)) return needsToken(env, headers);
           try {
-            return json({ results: await askSerplyScholar(kind, params, serplyKey), source: 'scholar', via: 'serply' }, 200, {
-              ...headers,
-              'Cache-Control': 'private, max-age=300',
-            });
+            const { results, via } = await askServices(kind, params, { serply: serplyKey, serpapi: serpKey });
+            return json({ results, source: 'scholar', via }, 200, { ...headers, 'Cache-Control': 'private, max-age=300' });
           } catch (error) {
-            if (!(error && error.serply && serpKey)) {
-              if (error && error.serply) return json({ error: error.message, serply: true, reason: error.reason }, 503, headers);
-              return json({ error: String(error?.message || error) }, 502, headers);
-            }
-          }
-        }
-        if (serpKey) {
-          // SerpApi is metered on the account whose key this is.
-          if (!authorized(request, env)) return needsToken(env, headers);
-          try {
-            return json({ results: await askSerp(kind, params, serpKey), source: 'scholar', via: 'serpapi' }, 200, {
-              ...headers,
-              'Cache-Control': 'private, max-age=300',
-            });
-          } catch (error) {
+            if (error && error.serply) return json({ error: error.message, serply: true, reason: error.reason }, 503, headers);
             if (error && error.serpapi) return json({ error: error.message, serpapi: true, reason: error.reason }, 503, headers);
             return json({ error: String(error?.message || error) }, 502, headers);
           }
