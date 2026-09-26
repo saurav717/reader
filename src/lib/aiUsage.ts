@@ -21,14 +21,19 @@ export interface AiTokens {
   cacheWrite?: number;
 }
 
-export function reportAiUsage(provider: AiProvider, model: string, tokens: AiTokens): void {
+/**
+ * `model` is the model the provider was asked for, which prices the answer;
+ * `variant` is the one picked in the app, which the tally keeps apart — the
+ * same DeepSeek model with thinking on or off.
+ */
+export function reportAiUsage(provider: AiProvider, model: string, tokens: AiTokens, variant: string = model): void {
   if (!hasProxy() || !hasProxyToken()) return;
   if (!(tokens.input || tokens.output || tokens.cacheRead || tokens.cacheWrite)) return;
   try {
     void apiFetch('/usage/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, model, ...tokens }),
+      body: JSON.stringify({ provider, model, variant, ...tokens }),
       keepalive: true,
     }).catch(() => undefined);
   } catch {

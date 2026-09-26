@@ -16,6 +16,7 @@
  *   claude, deepseek                 answers from Ask AI and Explain, per provider
  *   claude_in, claude_out, …         the tokens they read and wrote
  *   claude_cost, deepseek_cost       what they cost, in millionths of a dollar
+ *   models   the same per model: { [model]: { n, in, out, cost } }
  *
  * The AI answers are not the Worker's to make: the app sends them straight to
  * Anthropic or DeepSeek with the visitor's own key, then tells the Worker how
@@ -58,6 +59,18 @@ export const PRICES = {
   },
 };
 
+/**
+ * The models the tally keeps apart, by the id the app picks them by — a
+ * DeepSeek model with thinking off is its own entry, though it is the same
+ * model to DeepSeek. Anything else is counted as its provider's "other", so a
+ * report can never grow the store with names of its own.
+ */
+export const MODELS = {
+  claude: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'],
+  deepseek: ['deepseek-flash', 'deepseek-flash-fast'],
+};
+export const MODEL_FIELDS = ['n', 'in', 'out', 'cost'];
+
 /** The most one answer is believed to take — a report past this is clipped, not trusted. */
 const MAX_TOKENS = 5_000_000;
 const tokens = (value) => Math.min(MAX_TOKENS, Math.max(0, Math.floor(Number(value) || 0)));
@@ -68,19 +81,33 @@ const tokens = (value) => Math.min(MAX_TOKENS, Math.max(0, Math.floor(Number(val
  * full price; `cacheRead` and `cacheWrite` are the rest. Null for a provider
  * this tally does not know.
  */
-export function aiCounts({ provider, model, input, output, cacheRead, cacheWrite } = {}) {
+export function aiCounts({ provider, model, variant, input, output, cacheRead, cacheWrite } = {}) {
   if (!AI_PROVIDERS.includes(provider)) return null;
   const table = PRICES[provider];
   const price = table[model] || Object.values(table)[0];
   const used = { input: tokens(input), output: tokens(output), cacheRead: tokens(cacheRead), cacheWrite: tokens(cacheWrite) };
   // Dollars per million tokens × tokens = millionths of a dollar.
   const cost = used.input * price.input + used.output * price.output + used.cacheRead * price.cacheRead + used.cacheWrite * price.cacheWrite;
-  return {
+  const known = MODELS[provider];
+  const key = known.includes(variant) ? variant : known.includes(model) ? model : `${provider}-other`;
+  const counts = {
     [provider]: 1,
     [`${provider}_in`]: used.input + used.cacheRead + used.cacheWrite,
     [`${provider}_out`]: used.output,
     [`${provider}_cost`]: Math.round(cost),
   };
+  counts.models = { [key]: { n: 1, in: counts[`${provider}_in`], out: used.output, cost: counts[`${provider}_cost`] } };
+  return counts;
+}
+
+/** Add one set of per-model counts into another, in place: `{ [model]: { n, in, out, cost } }`. */
+function addModels(into, from) {
+  for (const [key, counts] of Object.entries(from || {})) {
+    if (!/^[a-z0-9.-]{1,48}$/.test(key) || !counts || typeof counts !== 'object') continue;
+    const row = into[key] || (into[key] = Object.fromEntries(MODEL_FIELDS.map((name) => [name, 0])));
+    for (const name of MODEL_FIELDS) row[name] += Math.max(0, Math.floor(Number(counts[name]) || 0));
+  }
+  return into;
 }
 const KEEP_DAYS = 90;
 
@@ -90,6 +117,7 @@ const dayOf = (at) => new Date(at).toISOString().slice(0, 10);
 export function addTo(days, email, counts, at) {
   const row = days[email] || (days[email] = Object.fromEntries(COUNTS.map((name) => [name, 0])));
   for (const name of COUNTS) row[name] += Math.max(0, Math.floor(Number(counts?.[name]) || 0));
+  if (counts?.models) row.models = addModels(row.models || {}, counts.models);
   row.last = Math.max(row.last || 0, at);
   return days;
 }
@@ -106,10 +134,11 @@ export function report(byDay, { days = 30, now = Date.now() } = {}) {
   for (const [day, rows] of Object.entries(byDay)) {
     if (day < since) continue;
     for (const [email, row] of Object.entries(rows)) {
-      const person = people[email] || (people[email] = { email, total: {}, today: {}, daily: [], days: 0, last: 0 });
+      const person = people[email] || (people[email] = { email, total: {}, today: {}, daily: [], days: 0, last: 0, models: {} });
       person.days += 1;
       person.last = Math.max(person.last, row.last || 0);
-      person.daily.push({ day, ...Object.fromEntries(COUNTS.map((name) => [name, row[name] || 0])) });
+      person.daily.push({ day, ...Object.fromEntries(COUNTS.map((name) => [name, row[name] || 0])), models: addModels({}, row.models) });
+      addModels(person.models, row.models);
       for (const name of COUNTS) {
         person.total[name] = (person.total[name] || 0) + (row[name] || 0);
         if (day === today) person.today[name] = (person.today[name] || 0) + (row[name] || 0);
@@ -119,7 +148,8 @@ export function report(byDay, { days = 30, now = Date.now() } = {}) {
   for (const person of Object.values(people)) person.daily.sort((a, b) => (a.day < b.day ? 1 : -1));
   const list = Object.values(people).sort((a, b) => b.total.scholar - a.total.scholar || b.last - a.last);
   const totals = Object.fromEntries(COUNTS.map((name) => [name, list.reduce((sum, person) => sum + (person.total[name] || 0), 0)]));
-  return { days, since, until: today, people: list, totals };
+  const models = list.reduce((sum, person) => addModels(sum, person.models), {});
+  return { days, since, until: today, people: list, totals, models };
 }
 
 export class Usage {

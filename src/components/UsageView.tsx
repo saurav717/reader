@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, hasProxy } from '../lib/api';
-import AiUsage from './AiUsage';
+import AiUsage, { ROW_HEIGHT, ROWS_IN_VIEW, SearchBox, SortControl, SortHeading, card, cardHead, cardTitle, useSort } from './AiUsage';
+import type { SortOption } from './AiUsage';
 import { ChartIcon, ChevronDownIcon, ChevronRightIcon, RestoreIcon } from './icons';
 
 /** One person's counts, as the Worker's `/usage` reports them (worker/usage.js). */
@@ -21,19 +22,29 @@ interface Counts {
   deepseek_out?: number;
   deepseek_cost?: number;
 }
+/** One model's answers: how many, the tokens in and out, and the cost in millionths of a dollar. */
+export interface ModelCounts {
+  n: number;
+  in: number;
+  out: number;
+  cost: number;
+}
+export type ByModel = Record<string, ModelCounts>;
 interface Person {
   email: string;
   total: Counts;
   today: Counts;
-  daily?: (Counts & { day: string })[];
+  daily?: (Counts & { day: string; models?: ByModel })[];
   days: number;
   last: number;
+  models?: ByModel;
 }
 export interface UsageReport {
   since: string;
   until: string;
   people: Person[];
   totals: Counts;
+  models?: ByModel;
 }
 
 /** The report for the last `days` days, or null — which is what anyone but the owner gets. */
@@ -86,6 +97,14 @@ const COUNTED = [
   ['pdf', 'PDFs'],
 ] as const;
 
+/** What the services list can be sorted on: every column. */
+const SERVICE_SORTS: SortOption<Person>[] = [
+  ...COUNTED.map(([key, title]) => ({ id: key as string, label: title as string, value: (person: Person) => person.total[key] || 0 })),
+  { id: 'last', label: 'Last seen', value: (person) => person.last || 0 },
+  { id: 'days', label: 'Days active', value: (person) => person.days || 0 },
+  { id: 'email', label: 'Email', value: (person) => person.email },
+];
+
 /**
  * Who has used the proxy's paid accounts, and how much: everyone who has
  * signed in, their totals for the period, when they were last seen, and —
@@ -99,6 +118,9 @@ export default function UsageView() {
   const [days, setDays] = useState(30);
   const [report, setReport] = useState<UsageReport | null | undefined>(undefined);
   const [open, setOpen] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  // Most Scholar asks first, as the Worker orders it, until another order is picked.
+  const sorting = useSort(SERVICE_SORTS, { by: 'scholar', dir: 'desc' });
   const [updatedAt, setUpdatedAt] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   // The period of the answer being waited for, so an answer for a period
@@ -151,8 +173,13 @@ export default function UsageView() {
     };
   }, [days, load]);
 
-  const cell = { padding: '9px 12px', textAlign: 'right' as const, whiteSpace: 'nowrap' as const };
+  const cell = { padding: '0 12px', height: ROW_HEIGHT, textAlign: 'right' as const, whiteSpace: 'nowrap' as const };
   const rule = '1px solid var(--border-soft)';
+  // The header stays in view as the box scrolls, and the totals row at its foot.
+  const head = { ...cell, fontWeight: 500, fontSize: 12.5, position: 'sticky' as const, top: 0, background: 'var(--panel)', zIndex: 1, borderBottom: rule };
+  const foot = { ...cell, position: 'sticky' as const, bottom: 0, background: 'var(--panel)', borderTop: rule };
+  const needle = query.trim().toLowerCase();
+  const shown = report ? sorting.sort(needle ? report.people.filter((person) => person.email.toLowerCase().includes(needle)) : report.people) : [];
 
   return (
     <div className="main library-main" aria-label="Usage">
@@ -206,76 +233,94 @@ export default function UsageView() {
           <p style={{ fontSize: 14 }}>Nobody has used the paid features in this period.</p>
         ) : (
           <>
-            <table style={{ borderCollapse: 'collapse', fontSize: 13.5, width: '100%' }}>
-              <thead>
-                <tr style={{ color: 'var(--muted)', borderBottom: rule }}>
-                  <th style={{ ...cell, textAlign: 'left', fontWeight: 500 }}>Who</th>
-                  <th style={{ ...cell, fontWeight: 500 }}>Last seen</th>
-                  <th style={{ ...cell, fontWeight: 500 }}>Days</th>
-                  {COUNTED.map(([key, title]) => (
-                    <th key={key} style={{ ...cell, fontWeight: 500 }}>
-                      {title}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {report.people.map((person) => {
-                  const expanded = open === person.email;
-                  return (
-                    <Fragment key={person.email}>
-                      <tr
-                        onClick={() => setOpen(expanded ? null : person.email)}
-                        style={{ cursor: 'pointer', borderBottom: expanded ? undefined : rule }}
-                        aria-expanded={expanded}
-                        title={expanded ? 'Hide their days' : 'Show each day'}
-                      >
-                        <td style={{ ...cell, textAlign: 'left' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                            {expanded ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
-                            {person.email}
-                          </span>
+            <div style={card}>
+              <div style={cardHead}>
+                <h3 style={cardTitle}>Services</h3>
+                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+                  {shown.length === report.people.length ? report.people.length : `${shown.length} of ${report.people.length}`}
+                </span>
+                <span style={{ flexGrow: 1 }} />
+                <SortControl options={SERVICE_SORTS} by={sorting.by} dir={sorting.dir} onPick={sorting.pick} onDir={sorting.setDir} />
+                <SearchBox value={query} onChange={setQuery} />
+              </div>
+              <div style={{ maxHeight: ROW_HEIGHT * (ROWS_IN_VIEW + 2) + 2, overflow: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', fontSize: 13.5, width: '100%' }}>
+                  <thead>
+                    <tr style={{ color: 'var(--muted)' }}>
+                      <SortHeading id="email" label="Who" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={{ ...head, textAlign: 'left' }} />
+                      <SortHeading id="last" label="Last seen" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={head} />
+                      <SortHeading id="days" label="Days" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={head} />
+                      {COUNTED.map(([key, title]) => (
+                        <SortHeading key={key} id={key} label={title} by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={head} />
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!shown.length ? (
+                      <tr>
+                        <td colSpan={3 + COUNTED.length} style={{ ...cell, textAlign: 'left', color: 'var(--muted)' }}>
+                          No email matches “{query}”.
                         </td>
-                        <td style={cell}>{ago(person.last)}</td>
-                        <td style={cell}>{person.days}</td>
-                        {COUNTED.map(([key]) => (
-                          <td key={key} style={cell}>
-                            {person.total[key] || 0}
-                          </td>
-                        ))}
                       </tr>
-                      {expanded
-                        ? (person.daily || []).map((day, index, all) => (
-                            <tr
-                              key={day.day}
-                              style={{ color: 'var(--muted)', fontSize: 12.5, borderBottom: index === all.length - 1 ? rule : undefined }}
-                            >
-                              <td style={{ ...cell, textAlign: 'left', paddingLeft: 32 }}>{day.day}</td>
-                              <td style={cell} />
-                              <td style={cell} />
-                              {COUNTED.map(([key]) => (
-                                <td key={key} style={cell}>
-                                  {day[key] || 0}
-                                </td>
-                              ))}
-                            </tr>
-                          ))
-                        : null}
-                    </Fragment>
-                  );
-                })}
-                <tr style={{ fontWeight: 600 }}>
-                  <td style={{ ...cell, textAlign: 'left' }}>All</td>
-                  <td style={cell} />
-                  <td style={cell} />
-                  {COUNTED.map(([key]) => (
-                    <td key={key} style={cell}>
-                      {report.totals[key] || 0}
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
+                    ) : null}
+                    {shown.map((person) => {
+                      const expanded = open === person.email;
+                      return (
+                        <Fragment key={person.email}>
+                          <tr
+                            onClick={() => setOpen(expanded ? null : person.email)}
+                            style={{ cursor: 'pointer', borderBottom: expanded ? undefined : rule }}
+                            aria-expanded={expanded}
+                            title={expanded ? 'Hide their days' : 'Show each day'}
+                          >
+                            <td style={{ ...cell, textAlign: 'left' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                {expanded ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
+                                {person.email}
+                              </span>
+                            </td>
+                            <td style={cell}>{ago(person.last)}</td>
+                            <td style={cell}>{person.days}</td>
+                            {COUNTED.map(([key]) => (
+                              <td key={key} style={cell}>
+                                {person.total[key] || 0}
+                              </td>
+                            ))}
+                          </tr>
+                          {expanded
+                            ? (person.daily || []).map((day, index, all) => (
+                                <tr
+                                  key={day.day}
+                                  style={{ color: 'var(--muted)', fontSize: 12.5, borderBottom: index === all.length - 1 ? rule : undefined }}
+                                >
+                                  <td style={{ ...cell, textAlign: 'left', paddingLeft: 32 }}>{day.day}</td>
+                                  <td style={cell} />
+                                  <td style={cell} />
+                                  {COUNTED.map(([key]) => (
+                                    <td key={key} style={cell}>
+                                      {day[key] || 0}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))
+                            : null}
+                        </Fragment>
+                      );
+                    })}
+                    <tr style={{ fontWeight: 600 }}>
+                      <td style={{ ...foot, textAlign: 'left' }}>{needle ? `All ${report.people.length} people` : 'All'}</td>
+                      <td style={foot} />
+                      <td style={foot} />
+                      {COUNTED.map(([key]) => (
+                        <td key={key} style={foot}>
+                          {report.totals[key] || 0}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
             <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 14, lineHeight: 1.6 }}>
               Click a person for each day. Serply credits and SerpApi searches are what each service charged; answers
               from the proxy’s five-minute cache cost nothing. Counted by your Worker, kept ninety days; this page asks
