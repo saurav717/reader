@@ -1,9 +1,10 @@
-// Ask AI and Explain on Gemini, in a real browser with Google's API stubbed:
-// the model picker offers Gemini beside Claude and DeepSeek, a Gemini model
-// asks for a Google AI Studio key, the question goes to gemini-3.8-flash with
-// the key in a header and the paper in the system instruction, the answer and
-// its thought summary stream in under the model's name, the tokens go on the
-// owner's tally, and Explain can be written by it.
+// Ask AI and Explain on Gemini, in a real browser with the proxy's Gemini
+// route stubbed: the model picker offers Gemini beside Claude and DeepSeek;
+// with no Gemini key on the proxy it says so and asks for no key here; with
+// one, the question goes to the proxy's /ai/gemini as the model and Google's
+// request — the paper in the system instruction, no key anywhere in the page
+// — and the answer and its thought summary stream in under the model's name;
+// and Explain can be written by it.
 // Needs a server on BASE (`npm run build && npm start`). Writes screenshots to .smoke/.
 import { chromium } from 'playwright';
 
@@ -57,15 +58,19 @@ for (const pattern of ['**/api/arxiv/pdf*', '**/api/pdf*', '**/api/locate*', '**
   await context.route(pattern, (route) => route.fulfill({ status: 404, body: '' }));
 }
 const requests = [];
-const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST' };
-await context.route('https://generativelanguage.googleapis.com/**', (route) => {
+// Whether the proxy has a Gemini key, as its /health says.
+let proxyHasGemini = false;
+await context.route('**/api/health', async (route) => {
+  const answer = await route.fetch();
+  return route.fulfill({ response: answer, json: { ...(await answer.json()), gemini: proxyHasGemini } });
+});
+await context.route('**/api/ai/gemini', (route) => {
   const request = route.request();
-  if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
   requests.push({ url: request.url(), headers: request.headers(), body: JSON.parse(request.postData() || '{}') });
-  return route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream', ...cors }, body: STREAM });
+  return route.fulfill({ status: 200, headers: { 'content-type': 'text/event-stream' }, body: STREAM });
 });
 let others = 0;
-for (const host of ['https://api.anthropic.com/**', 'https://api.deepseek.com/**']) {
+for (const host of ['https://api.anthropic.com/**', 'https://api.deepseek.com/**', 'https://generativelanguage.googleapis.com/**']) {
   await context.route(host, (route) => {
     others += 1;
     return route.fulfill({ status: 500, body: '' });
@@ -88,13 +93,17 @@ check('the picker has a Google group', groups.some((label) => /^Google/.test(lab
 const options = await picker.locator('optgroup[label^="Google"] option').allTextContents();
 check('with Google’s three models', options.length === 3 && /Gemini 3\.1 Pro/.test(options[0]) && /3\.8 Flash/.test(options[1]) && /Flash-Lite/.test(options[2]), options.join(' | '));
 await picker.selectOption('gemini-3.8-flash');
-check('a Gemini model asks for a Google key', await page.getByText('Connect your Google account').isVisible());
-await page.screenshot({ path: `${OUT}/gemini-key.png` });
-await page.getByLabel('Google API key').fill('AIzaSy-gemini-test');
-await page.getByRole('button', { name: 'Save', exact: true }).click();
-check('the key is kept under its own name', (await page.evaluate(() => localStorage.getItem('reader.gemini-key'))) === 'AIzaSy-gemini-test');
-check('the compose box opens', await page.getByRole('textbox', { name: 'Ask AI' }).isEnabled());
+check('with no Gemini key on the proxy, it says so', await page.getByRole('heading', { name: 'Gemini runs on your paper proxy' }).isVisible() && (await page.getByText(/has none yet/).isVisible()));
+check('and asks for no key here', (await page.getByLabel('Google API key').count()) === 0);
+check('the compose box stays shut', !(await page.getByRole('textbox', { name: 'Ask AI' }).isEnabled()));
+await page.screenshot({ path: `${OUT}/gemini-no-key.png` });
 await page.keyboard.press('Control+Backslash');
+
+// The proxy gets its key; the page is loaded again and asks /health again.
+proxyHasGemini = true;
+await page.reload({ waitUntil: 'networkidle' });
+const notNow = page.getByRole('button', { name: /Not now — keep everything in this browser/i });
+if (await notNow.isVisible().catch(() => false)) await notNow.click();
 
 console.log('\n== asking ==');
 if (!(await page.getByLabel('Search papers').isVisible())) await page.getByRole('button', { name: 'Discover papers' }).click();
@@ -113,18 +122,23 @@ await page.getByRole('button', { name: 'Read the text instead' }).click({ timeou
 await page.waitForSelector('.paper-body .ltx_section', { timeout: 20000 });
 await page.keyboard.press('Control+Backslash');
 await win.waitFor();
+// The proxy's /health is asked as the page loads; the box opens once it has answered.
+const opened = await page.getByRole('textbox', { name: 'Ask AI' }).isEnabled({ timeout: 5000 }).then(async (now) => now || (await page.waitForFunction(() => !document.querySelector('[aria-label="Ask AI"]')?.hasAttribute('disabled'), null, { timeout: 5000 }).then(() => true, () => false)));
+check('with a key on the proxy, the compose box opens with nothing pasted', opened);
+check('and no Gemini key is kept in this browser', (await page.evaluate(() => Object.keys(localStorage).filter((key) => /gemini/i.test(key)))).length === 0);
 await page.getByRole('textbox', { name: 'Ask AI' }).fill('What does the gate do?');
 await page.keyboard.press('Enter');
 await page.waitForSelector('.chat-claude li');
 await page.waitForFunction(() => !document.querySelector('.chat-claude.is-streaming'));
 
 const sent = requests[0];
-check('one request went to Google, none elsewhere', requests.length === 1 && others === 0);
-check('to the model’s streaming address', /\/v1beta\/models\/gemini-3\.8-flash:streamGenerateContent\?alt=sse$/.test(sent?.url || ''), sent?.url);
-check('with the key in a header, not the address', sent?.headers['x-goog-api-key'] === 'AIzaSy-gemini-test' && !sent.url.includes('AIza'));
-check('thinking at medium for a chat, with its summary asked for', sent?.body.generationConfig?.thinkingConfig?.thinkingLevel === 'medium' && sent.body.generationConfig.thinkingConfig.includeThoughts === true);
-check('the paper is in the system instruction', /<paper_text[\s\S]*Paragraph 6\.4/.test(sent?.body.systemInstruction?.parts?.[0]?.text || ''));
-const last = sent?.body.contents?.at(-1);
+const google = sent?.body.request;
+check('one request went to the proxy, none to any provider', requests.length === 1 && others === 0);
+check('as the model and Google’s request', sent?.body.model === 'gemini-3.8-flash' && Array.isArray(google?.contents));
+check('with no Google key anywhere in it', !JSON.stringify(sent).includes('AIza') && !sent?.headers['x-goog-api-key']);
+check('thinking at medium for a chat, with its summary asked for', google?.generationConfig?.thinkingConfig?.thinkingLevel === 'medium' && google.generationConfig.thinkingConfig.includeThoughts === true);
+check('the paper is in the system instruction', /<paper_text[\s\S]*Paragraph 6\.4/.test(google?.systemInstruction?.parts?.[0]?.text || ''));
+const last = google?.contents?.at(-1);
 check('the question is the last user turn, with the screen', last?.role === 'user' && /<screen>[\s\S]*What does the gate do\?$/.test(last.parts.map((p) => p.text || '').join('')));
 check('the answer streams in as Markdown', (await page.locator('.chat-claude strong').first().textContent()) === 'gate' && (await page.locator('.chat-claude li').count()) === 2);
 check('under the model’s name', ((await page.locator('.chat-claude .chat-who').textContent()) || '').includes('Gemini 3.8 Flash'));

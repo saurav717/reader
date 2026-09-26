@@ -247,6 +247,98 @@ describe('the Worker, tallying', () => {
     assert.deepEqual(Object.keys(person.models).sort(), ['claude-sonnet-5', 'deepseek-flash']);
     assert.equal(out.models['deepseek-flash'].n, 1);
   });
+
+  describe('Gemini, on the Worker’s own key', () => {
+    const SSE =
+      `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Thinking…', thought: true }] } }] })}\r\n\r\n` +
+      `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: 'Hello' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 11000, cachedContentTokenCount: 10000, candidatesTokenCount: 200, thoughtsTokenCount: 300 } })}\r\n\r\n`;
+    const QUESTION = {
+      model: 'gemini-3.8-flash',
+      request: {
+        systemInstruction: { parts: [{ text: 'Be brief.' }] },
+        contents: [{ role: 'user', parts: [{ text: 'Hi' }] }],
+        generationConfig: { maxOutputTokens: 999999, thinkingConfig: { thinkingLevel: 'high', includeThoughts: true } },
+        tools: [{ googleSearch: {} }],
+      },
+    };
+    /** Google, answering with SSE, remembering what the Worker sent it. */
+    const withGoogle = (env) => {
+      const sent = [];
+      const before = globalThis.fetch;
+      globalThis.fetch = async (input, init) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url.startsWith('https://generativelanguage.googleapis.com/')) {
+          sent.push({ url, key: init.headers['x-goog-api-key'], body: JSON.parse(init.body) });
+          return new Response(SSE, { headers: { 'Content-Type': 'text/event-stream' } });
+        }
+        return before(input, init);
+      };
+      return { env: { ...env, GEMINI_KEY: 'AIza-worker-secret' }, sent };
+    };
+    const askGemini = (env, token, body = QUESTION, origin = SITE) =>
+      worker.fetch(
+        new Request('https://proxy.example/ai/gemini', {
+          method: 'POST',
+          headers: { Origin: origin, 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify(body),
+        }),
+        env,
+        ctx,
+      );
+
+    it('streams Google’s answer back to the owner, the key only in the header to Google — and tallies the tokens itself', async () => {
+      const { env, sent } = withGoogle(setup().env);
+      const answer = await askGemini(env, 'owner-token');
+      assert.equal(answer.status, 200);
+      assert.match(answer.headers.get('Content-Type'), /text\/event-stream/);
+      const text = await answer.text();
+      assert.match(text, /Hello/);
+      assert.ok(!text.includes('AIza-worker-secret'));
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].url, /\/v1beta\/models\/gemini-3\.8-flash:streamGenerateContent\?alt=sse$/);
+      assert.ok(!sent[0].url.includes('AIza'), 'never in the address');
+      assert.equal(sent[0].key, 'AIza-worker-secret');
+      assert.equal(sent[0].body.tools, undefined, 'no tool slipped in to spend the key on something else');
+      assert.equal(sent[0].body.generationConfig.maxOutputTokens, 64000, 'the cap is the models’ own');
+      await settle();
+      const owner = (await (await usage(env, 'owner-token')).json()).people.find((person) => person.email === 'owner').total;
+      assert.equal(owner.gemini, 1);
+      assert.equal(owner.gemini_in, 11000);
+      assert.equal(owner.gemini_out, 500);
+      assert.equal(owner.gemini_cost, Math.round(1000 * 0.75 + 10000 * 0.075 + 500 * 3.75));
+    });
+
+    it('says what is missing: no key on the Worker, nobody signed in, another site', async () => {
+      const { env } = withGoogle(setup().env);
+      assert.equal((await askGemini({ ...env, GEMINI_KEY: '' }, 'owner-token')).status, 501);
+      assert.equal((await askGemini(env, null)).status, 401);
+      assert.equal((await askGemini(env, 'owner-token', QUESTION, 'https://elsewhere.example')).status, 403);
+    });
+
+    it('is the owner’s alone unless GEMINI_FOR says everyone', async () => {
+      const { env, sent } = withGoogle(setup().env);
+      const { pass } = await (await ask(env, '/auth/google', { method: 'POST', headers: { 'X-Google-Token': 'g' } })).json();
+      const refused = await askGemini(env, pass);
+      assert.equal(refused.status, 403);
+      assert.equal((await refused.json()).owners, true);
+      assert.equal(sent.length, 0);
+      assert.equal((await askGemini({ ...env, GEMINI_FOR: 'everyone' }, pass)).status, 200);
+      assert.equal((await askGemini({ ...env, READER_OWNERS: 'labmate@gmail.com' }, pass)).status, 200);
+    });
+
+    it('relays only the models the app offers, and only a question', async () => {
+      const { env, sent } = withGoogle(setup().env);
+      assert.equal((await askGemini(env, 'owner-token', { ...QUESTION, model: 'gemini-ultra-9' })).status, 400);
+      assert.equal((await askGemini(env, 'owner-token', { model: 'gemini-3.8-flash', request: { contents: [] } })).status, 400);
+      assert.equal(sent.length, 0);
+    });
+
+    it('/health says whether the Worker has Gemini', async () => {
+      const { env } = setup();
+      assert.equal((await (await ask(env, '/health')).json()).gemini, false);
+      assert.equal((await (await ask({ ...env, GEMINI_KEY: 'k' }, '/health')).json()).gemini, true);
+    });
+  });
 });
 
 const balance = await import('../worker/deepseekBalance.js');

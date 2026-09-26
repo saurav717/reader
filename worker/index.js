@@ -31,6 +31,7 @@ import {
 import { askServices, servicesLabel } from '../server/scholarServices.js';
 import { captchaPassed, emailAllowed, googleEmail, issuePass, readPass } from '../server/passes.js';
 import { aiCounts } from './usage.js';
+import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini, tokensOf as geminiTokens } from '../server/geminiRelay.js';
 import { readBalance } from './deepseekBalance.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
@@ -257,14 +258,14 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/usage/ai') {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/usage/ai' && path !== '/ai/gemini') {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), captcha: captchaSiteKey(env), browse: browse.availability(env).available, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(String(env.GEMINI_KEY || '').trim()), scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
           200,
           headers,
         );
@@ -345,9 +346,45 @@ export default {
         const who = await authorized(request, env);
         if (!who) return needsToken(env, headers);
         const counts = aiCounts(await request.json().catch(() => ({})));
-        if (!counts) return json({ error: 'an answer from claude or deepseek' }, 400, headers);
+        if (!counts) return json({ error: 'an answer from claude, deepseek or gemini' }, 400, headers);
         tally(env, ctx, who, counts);
         return json({ ok: true }, 200, headers);
+      }
+
+      // Gemini for Ask AI and Explain, on this Worker's key — GEMINI_KEY, a
+      // secret — so it is never typed into the site: server/geminiRelay.js.
+      // POST, from this app, by someone signed in; the owner alone unless
+      // GEMINI_FOR is "everyone". The tokens go on the tally from here.
+      if (path === '/ai/gemini') {
+        if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+        if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'not from this app' }, 403, headers);
+        const who = await authorized(request, env);
+        if (!who) return needsToken(env, headers);
+        const key = String(env.GEMINI_KEY || '').trim();
+        if (!key) return json({ error: 'this proxy has no Gemini key: npx wrangler secret put GEMINI_KEY, then redeploy', setup: true }, 501, headers);
+        if (!who.owner && String(env.GEMINI_FOR || '').trim().toLowerCase() !== 'everyone') {
+          return json({ error: 'Gemini on this proxy is for its owner; pick another model, or ask the owner to set GEMINI_FOR to everyone', owners: true }, 403, headers);
+        }
+        if (await personOverLimit(env, who)) {
+          return json({ error: 'too many questions at once; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });
+        }
+        if (Number(request.headers.get('Content-Length') || 0) > MAX_REQUEST_BYTES) return json({ error: 'that request is too large' }, 413, headers);
+        let checked;
+        try {
+          checked = checkRequest(await request.json().catch(() => null));
+        } catch (error) {
+          if (error instanceof GeminiRefused) return json({ error: error.message }, error.status, headers);
+          throw error;
+        }
+        const { response, usage } = await relayGemini(checked, key);
+        const counted = usage.then((used) => {
+          if (used) tally(env, ctx, who, aiCounts({ provider: 'gemini', model: checked.model, ...geminiTokens(used) }));
+        });
+        if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(counted);
+        return new Response(response.body, {
+          status: response.status,
+          headers: { ...headers, 'Content-Type': response.headers.get('Content-Type') || 'application/json', 'Cache-Control': 'no-store' },
+        });
       }
 
       // A Worker has no disk and no GPU: the local workspace is the Node proxy's alone.

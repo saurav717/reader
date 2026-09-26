@@ -8,11 +8,15 @@
 //  ON SIGNING IN. Neither publishes a "sign in with …" for third-party
 //  websites: a Claude.ai or Claude Code subscription cannot be spent from a
 //  page like this one, and there is no OAuth flow to offer. So the window asks
-//  for an API key — from console.anthropic.com, platform.deepseek.com, or
-//  aistudio.google.com. Each is kept in this browser's localStorage and sent
-//  straight to its provider's API (api.anthropic.com, api.deepseek.com —
-//  deepseek.ts — or generativelanguage.googleapis.com — gemini.ts). Usage bills the
+//  for an API key — from console.anthropic.com or platform.deepseek.com. Each
+//  is kept in this browser's localStorage and sent straight to its provider's
+//  API (api.anthropic.com, or api.deepseek.com — deepseek.ts). Usage bills the
 //  visitor's own account, and nothing about a key reaches anyone else.
+//
+//  Gemini is the exception: its key is the proxy's (GEMINI_KEY), never typed
+//  into the site, and the proxy asks Google for whoever is signed in to it —
+//  gemini.ts and server/geminiRelay.js. Its models are ready when the proxy
+//  says it has the key and this browser holds the proxy's token or pass.
 //
 //  The SDK is imported on first use, not at boot: Vite splits it into a chunk
 //  of its own, and a visitor who never opens the window never downloads it.
@@ -25,8 +29,9 @@
 
 import type AnthropicClient from '@anthropic-ai/sdk';
 import { DeepSeekStream } from './deepseek';
-import { GeminiStream, tokensOf as geminiTokens } from './gemini';
+import { GeminiStream } from './gemini';
 import { reportAiUsage } from './aiUsage';
+import { api as proxyUrl, apiHeaders, hasProxy, hasProxyToken, onProxyChange, proxyHealth } from './api';
 import type { DeepSeekError } from './deepseek';
 import type { GeminiError } from './gemini';
 
@@ -47,6 +52,8 @@ export interface ProviderInfo {
   placeholder: string;
   consoleUrl: string;
   host: string;
+  /** Asked through the proxy, on the proxy's key: nothing to paste here. */
+  viaProxy?: boolean;
 }
 
 export const PROVIDERS: Record<Provider, ProviderInfo> = {
@@ -74,12 +81,13 @@ export const PROVIDERS: Record<Provider, ProviderInfo> = {
     id: 'gemini',
     name: 'Gemini',
     company: 'Google',
+    // Never used: the key is the proxy's. Kept so a key saved by an earlier build is found and forgotten.
     keyStore: 'reader.gemini-key',
-    // Google AI Studio's keys, which are Google Cloud API keys.
     keyPrefix: 'AIza',
-    placeholder: 'AIza…',
+    placeholder: '',
     consoleUrl: 'https://aistudio.google.com/apikey',
-    host: 'generativelanguage.googleapis.com',
+    host: 'your paper proxy',
+    viaProxy: true,
   },
 };
 
@@ -483,8 +491,55 @@ const storedKey = (provider: Provider) => {
   }
 };
 const keyFor = (provider: Provider) => memKeys[provider] || storedKey(provider);
+/** Whether each provider can answer from here: a key in this browser, or — for Gemini — a proxy ready to ask for it. */
 const storedKeys = () =>
-  Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, Boolean(keyFor(provider))])) as Record<Provider, boolean>;
+  Object.fromEntries(
+    PROVIDER_IDS.map((provider) => [provider, PROVIDERS[provider].viaProxy ? state.gemini === 'ready' : Boolean(keyFor(provider))]),
+  ) as Record<Provider, boolean>;
+
+/**
+ * Where Gemini stands on this proxy: ready; no proxy at all; a proxy with no
+ * GEMINI_KEY; one that wants its token or a sign-in first; or not yet known.
+ */
+export type GeminiReadiness = 'ready' | 'no-proxy' | 'no-key' | 'sign-in' | 'checking';
+
+/** Ask the proxy's /health whether it has Gemini, and whether this browser may use it. */
+async function checkGemini() {
+  if (!hasProxy()) return setGemini('no-proxy');
+  const health = await proxyHealth();
+  if (!health) return setGemini('no-proxy');
+  if (!health.gemini) return setGemini('no-key');
+  setGemini(health.auth && !hasProxyToken() ? 'sign-in' : 'ready');
+}
+
+/** Where Gemini stands, in a few words for a picker and in a sentence for a card. */
+export function geminiNote(readiness: GeminiReadiness): { short: string; long: string } {
+  switch (readiness) {
+    case 'ready':
+      return { short: 'ready, on your paper proxy', long: 'Gemini runs on your paper proxy’s own key, so there is nothing to paste here.' };
+    case 'no-key':
+      return {
+        short: 'the proxy has no Gemini key',
+        long: 'Gemini runs on your paper proxy’s own key, and it has none yet. Its owner sets it once with “npx wrangler secret put GEMINI_KEY” (or GEMINI_KEY for npm start) and redeploys.',
+      };
+    case 'sign-in':
+      return {
+        short: 'sign in to the proxy first',
+        long: 'Gemini runs on your paper proxy’s own key, for whoever is signed in to it. Sign in with Google, or paste the proxy’s token under Settings → Paper proxy.',
+      };
+    case 'no-proxy':
+      return { short: 'needs a paper proxy', long: 'Gemini runs on a paper proxy’s own key, and this site has no proxy set. Add one under Settings → Paper proxy.' };
+    default:
+      return { short: 'checking the proxy…', long: 'Asking your paper proxy whether it has Gemini…' };
+  }
+}
+
+function setGemini(gemini: GeminiReadiness) {
+  if (gemini === state.gemini) return;
+  state = { ...state, gemini };
+  const keys = storedKeys();
+  set({ keys, hasKey: keys[modelSpec(state.prefs.model).provider] });
+}
 
 // ---------------------------------------------------------------------------
 // The store
@@ -523,6 +578,8 @@ export interface AssistantState {
   keys: Record<Provider, boolean>;
   /** Whether the chat's model has a key — whether the window can send. */
   hasKey: boolean;
+  /** Whether Gemini can be asked through the proxy, and if not, why not. */
+  gemini: GeminiReadiness;
   /** A passage attached to the next question with "Ask Claude" on a selection. */
   quote: string;
   /** A screenshot of the tab (base64 JPEG) attached to the next question. */
@@ -537,6 +594,7 @@ let state: AssistantState = {
   prefs: { model: DEFAULT_MODEL, context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true } },
   keys: { anthropic: false, deepseek: false, gemini: false },
   hasKey: false,
+  gemini: 'checking',
   quote: '',
   shot: '',
 };
@@ -550,6 +608,16 @@ function ensureLoaded() {
   const prefs = loadPrefs();
   const keys = storedKeys();
   state = { ...state, prefs, history: loadHistory(), keys, hasKey: keys[modelSpec(prefs.model).provider] };
+  // A Gemini key an earlier build kept in this browser is not needed any more.
+  try {
+    localStorage.removeItem(PROVIDERS.gemini.keyStore);
+  } catch {
+    // no storage: nothing kept
+  }
+  if (typeof window !== 'undefined') {
+    void checkGemini();
+    onProxyChange(() => void checkGemini());
+  }
 }
 
 function set(patch: Partial<AssistantState>) {
@@ -606,6 +674,8 @@ export function setContext(key: ContextKey, on: boolean) {
 
 /** Keep a key for a provider — by default, the one behind the chat's model. */
 export function saveKey(key: string, provider: Provider = modelSpec(state.prefs.model).provider) {
+  // The proxy's key, not one of this browser's.
+  if (PROVIDERS[provider].viaProxy) return;
   const value = key.trim();
   memKeys[provider] = value;
   try {
@@ -836,13 +906,14 @@ export async function streamModel(params: {
   if (spec.provider === 'gemini') {
     const level = spec.thinking ?? 'high';
     return new GeminiStream({
-      apiKey: keyFor('gemini'),
+      url: proxyUrl('/ai/gemini'),
+      headers: apiHeaders(),
       model: spec.apiModel ?? spec.id,
       maxTokens,
       thinking: params.effort === 'low' ? 'low' : params.effort === 'medium' && level === 'high' ? 'medium' : level,
       system: params.system.map((block) => block.text).join('\n\n'),
       messages: params.messages as ConstructorParameters<typeof GeminiStream>[0]['messages'],
-      onUsage: (usage) => reportAiUsage('gemini', spec.apiModel ?? spec.id, geminiTokens(usage), spec.id),
+      // The proxy counts Gemini's tokens itself, as they pass through it.
     });
   }
   const api = await anthropic();
@@ -1042,15 +1113,22 @@ export function explainError(err: unknown, SDK: SDK | null): string {
     return `DeepSeek returned ${status}: ${message}`;
   }
   if ((err as Error)?.name === 'GeminiError') {
-    const { status, message, reason } = err as GeminiError;
-    if (status === 0) return 'Could not reach generativelanguage.googleapis.com. Check your connection, or whether something is blocking the request.';
+    const { status, message, reason, fromProxy } = err as GeminiError;
+    if (status === 0) return 'Could not reach the paper proxy that asks Gemini. Check your connection, or Settings → Paper proxy.';
+    if (fromProxy) {
+      if (reason === 'NO_KEY') return 'The paper proxy has no Gemini key yet. Its owner sets it with “npx wrangler secret put GEMINI_KEY” and redeploys.';
+      if (reason === 'SIGN_IN' || status === 401) return 'Sign in to the paper proxy to use Gemini — with Google, or its token under Settings → Paper proxy.';
+      if (reason === 'OWNERS_ONLY') return 'Gemini on this paper proxy is for its owner. Pick a Claude or DeepSeek model instead.';
+      if (status === 429) return 'Too many questions at once. Wait a minute and ask again.';
+      return `The paper proxy would not ask Gemini: ${message}`;
+    }
     // Google answers a bad key with a 400 of its own wording, not a 401.
     if (status === 401 || /API key not valid|API_KEY_INVALID/i.test(message)) {
-      return 'Google rejected that API key. Check it on aistudio.google.com, then enter it again under ⚙.';
+      return 'Google rejected the paper proxy’s Gemini key. Its owner checks GEMINI_KEY on aistudio.google.com and sets it again.';
     }
     if (status === 403) return `Google would not let that key use this model: ${message}`;
     if (status === 404) return `Google does not serve that model to this key: ${message}. Try another Gemini model.`;
-    if (status === 429 || reason === 'RESOURCE_EXHAUSTED') return 'Rate limited by Google, or this key’s quota is spent. Wait a moment and ask again, or check it on aistudio.google.com.';
+    if (status === 429 || reason === 'RESOURCE_EXHAUSTED') return 'Rate limited by Google, or the proxy’s Gemini quota is spent. Wait a moment and ask again.';
     if (status >= 500) return `Gemini is having trouble (${status}): ${message}. Try again in a moment.`;
     return `Gemini returned ${status}: ${message}`;
   }

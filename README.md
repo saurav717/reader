@@ -1877,15 +1877,36 @@ picker of their own, on their start page, so the chat can run on one and the
 long pages on the other. **Settings → AI models** holds both choices and every
 key in one place.
 
-Each provider has its own API key — from
-[console.anthropic.com](https://console.anthropic.com/settings/keys),
-[platform.deepseek.com](https://platform.deepseek.com/api_keys) or
-[aistudio.google.com](https://aistudio.google.com/apikey). Pick a model whose
-provider has no key yet and the window asks for that one. Each key is kept in
-this browser's localStorage under its own name (`reader.anthropic-key`,
-`reader.deepseek-key`, `reader.gemini-key`) and sent only to its provider's
-API; the ⚙ menu and Settings can forget any of them. Usage bills your own
-account.
+Claude and DeepSeek each take your own API key — from
+[console.anthropic.com](https://console.anthropic.com/settings/keys) or
+[platform.deepseek.com](https://platform.deepseek.com/api_keys). Pick a model
+whose provider has no key yet and the window asks for that one. Each key is
+kept in this browser's localStorage under its own name (`reader.anthropic-key`,
+`reader.deepseek-key`) and sent only to its provider's API; the ⚙ menu and
+Settings can forget either. Usage bills your own account.
+
+Gemini takes no key in the page. It runs on the paper proxy's own key,
+`GEMINI_KEY`, which never reaches the site:
+
+```bash
+npx --yes wrangler@4 secret put GEMINI_KEY    # the Worker: paste a key from aistudio.google.com/apikey, then
+npm run deploy:worker
+GEMINI_KEY=… npm start                        # or the Node proxy
+```
+
+The app sends what it would have sent Google to the proxy's `POST /ai/gemini`,
+with the proxy's token or the pass from a Google sign-in; the proxy checks who
+is asking, sends it on with the key in a header, and streams Google's answer
+back (`server/geminiRelay.js`). Only the turns, the system instruction and the
+generation settings are relayed, for the three models the app offers — no
+tool can be slipped in to spend the key on something else. The proxy reads
+the tokens off the stream as it passes and puts them on the usage tally
+itself. On the Worker, `GEMINI_FOR` in `wrangler.toml` says who may use it:
+`owners` (the default — `READER_TOKEN` and the accounts in `READER_OWNERS`) or
+`everyone` signed in, which spends your Google account on each of them, up to
+the per-person limit. `/health` says `"gemini": true` once the key is set, and
+the picker says what is missing until then — no key on the proxy, or no
+sign-in.
 
 What to know about DeepSeek:
 
@@ -1923,10 +1944,12 @@ What to know about Gemini:
   as parts marked `thought` and is folded under *Reasoning*. Thinking tokens
   are billed as output.
 - **Pictures** go as `inlineData` parts, base64, as Claude gets them.
-- **No SDK.** `src/lib/gemini.ts` is one `fetch` to
-  `generativelanguage.googleapis.com/v1beta/models/<model>:streamGenerateContent?alt=sse`,
-  the key in the `x-goog-api-key` header (never in the address), read as
-  server-sent events with the same four methods as the other two.
+- **No SDK.** `src/lib/gemini.ts` is one `fetch` to the proxy's
+  `/ai/gemini`, which asks
+  `generativelanguage.googleapis.com/v1beta/models/<model>:streamGenerateContent?alt=sse`
+  with the key in the `x-goog-api-key` header (never in the address); the
+  answer is read as server-sent events with the same four methods as the
+  other two.
 - **Caching** is Google's own and implicit: a repeated prefix — the paper, at
   the head of the system instruction — is read from the cache at a tenth of the
   price, and the usage tally counts it as a cached read.

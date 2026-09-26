@@ -3,12 +3,16 @@
 //
 //  Google's Gemini API takes its own shape rather than OpenAI's: a system
 //  instruction beside the conversation, turns of `user` and `model`, and each
-//  turn a list of parts — text, or a picture as inline base64 data. There is
-//  no SDK to load: one fetch to generativelanguage.googleapis.com with the
-//  visitor's own key (an AI Studio key, "AIza…", in the x-goog-api-key
-//  header), streamed back as server-sent events with `alt=sse`. The stream it
-//  returns has the few methods the app uses on Anthropic's MessageStream —
-//  on('text'), on('thinking'), abort() and finalMessage() — as DeepSeek's does.
+//  turn a list of parts — text, or a picture as inline base64 data.
+//
+//  Unlike Claude and DeepSeek, Gemini is not called from the browser: the key
+//  is the proxy's (GEMINI_KEY), never typed into the site. The request goes
+//  to the proxy's `POST /ai/gemini` as `{ model, request }`, with the proxy's
+//  token or pass, and the proxy sends it on to Google and streams Google's
+//  server-sent events back as they come (server/geminiRelay.js) — and counts
+//  the tokens itself. The stream here has the few methods the app uses on
+//  Anthropic's MessageStream — on('text'), on('thinking'), abort() and
+//  finalMessage() — as DeepSeek's does.
 //
 //  Thinking. Gemini 3 models think before answering at a level — low, medium
 //  or high — and `includeThoughts` streams a summary of it as parts marked
@@ -19,21 +23,22 @@
 //  how much of the prompt it read from the cache in `cachedContentTokenCount`.
 // ===========================================================================
 
-export const GEMINI_HOST = 'https://generativelanguage.googleapis.com';
-
-/** Where one model's answer streams from. */
-export const geminiUrl = (model: string) => `${GEMINI_HOST}/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
-
-/** A failure Gemini (or the way to it) reported. `status` is 0 when the request never got an answer. */
+/**
+ * A failure Gemini, or the proxy on the way to it, reported. `status` is 0
+ * when the request never got an answer; `fromProxy` when it was the proxy
+ * that said no (not signed in, no key there) rather than Google.
+ */
 export class GeminiError extends Error {
   status: number;
   /** Google's own word for it: INVALID_ARGUMENT, PERMISSION_DENIED, RESOURCE_EXHAUSTED… */
   reason: string;
-  constructor(status: number, message: string, reason = '') {
+  fromProxy: boolean;
+  constructor(status: number, message: string, reason = '', fromProxy = false) {
     super(message);
     this.name = 'GeminiError';
     this.status = status;
     this.reason = reason;
+    this.fromProxy = fromProxy;
   }
 }
 
@@ -50,7 +55,9 @@ export interface GeminiMessage {
 }
 
 export interface GeminiParams {
-  apiKey: string;
+  /** The proxy's route, and its headers: the token or pass, and the client id. */
+  url: string;
+  headers: Record<string, string>;
   model: string;
   maxTokens: number;
   /** The system prompt, as one text. */
@@ -84,7 +91,7 @@ export function toParts(content: string | Part[]): WirePart[] {
 }
 
 /** The request body, as sent. */
-export function requestBody(params: Omit<GeminiParams, 'apiKey' | 'onUsage' | 'model'>) {
+export function requestBody(params: Omit<GeminiParams, 'url' | 'headers' | 'onUsage' | 'model'>) {
   return {
     ...(params.system ? { systemInstruction: { parts: [{ text: params.system }] } } : {}),
     // Gemini calls the assistant's turns the model's.
@@ -156,10 +163,10 @@ export class GeminiStream {
   private async run(params: GeminiParams, fetcher: typeof fetch): Promise<{ stop_reason: string | null }> {
     let response: Response;
     try {
-      response = await fetcher(geminiUrl(params.model), {
+      response = await fetcher(params.url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': params.apiKey },
-        body: JSON.stringify(requestBody(params)),
+        headers: { ...params.headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: params.model, request: requestBody(params) }),
         signal: this.controller.signal,
       });
     } catch (error) {
@@ -169,15 +176,23 @@ export class GeminiStream {
     if (!response.ok) {
       let message = response.statusText;
       let reason = '';
+      let fromProxy = false;
       try {
         const body = await response.json();
         const error = (Array.isArray(body) ? body[0] : body)?.error;
-        message = error?.message || message;
-        reason = error?.status || '';
+        // The proxy words its own refusals as a string; Google's is an object.
+        if (typeof error === 'string') {
+          message = error;
+          fromProxy = true;
+          reason = body.setup ? 'NO_KEY' : body.owners ? 'OWNERS_ONLY' : body.token ? 'SIGN_IN' : '';
+        } else {
+          message = error?.message || message;
+          reason = error?.status || '';
+        }
       } catch {
         // not JSON: the status line will do
       }
-      throw new GeminiError(response.status, message || `HTTP ${response.status}`, reason);
+      throw new GeminiError(response.status, message || `HTTP ${response.status}`, reason, fromProxy);
     }
     if (!response.body) throw new GeminiError(response.status, 'The answer came back empty.');
 

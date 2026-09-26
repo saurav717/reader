@@ -1,6 +1,7 @@
-// Gemini, without a network or a key: the request the client sends, how it
-// reads the streamed answer back — thinking apart from the answer, the tokens
-// it took — and what its failures say, plus how assistant.ts picks it.
+// Gemini, without a network or a key: the request the app sends the proxy,
+// how it reads the streamed answer back — thinking apart from the answer, the
+// tokens it took — and what its failures say, the proxy's and Google's, plus
+// how assistant.ts picks it. The proxy's side is scripts/usage.test.mjs.
 //
 //   node --test scripts/gemini.test.mjs
 
@@ -34,7 +35,7 @@ function fakeFetch(chunks, { status = 200, body } = {}) {
 
 const event = (parts, finishReason, usageMetadata) =>
   `data: ${JSON.stringify({ candidates: [{ content: { role: 'model', parts }, ...(finishReason ? { finishReason } : {}) }], ...(usageMetadata ? { usageMetadata } : {}) })}\r\n\r\n`;
-const params = { apiKey: 'AIza-test', model: 'gemini-3.8-flash', maxTokens: 1000, system: 'Be brief.', messages: [{ role: 'user', content: 'Hi' }], thinking: 'high' };
+const params = { url: 'https://proxy.example/ai/gemini', headers: { Authorization: 'Bearer pass', 'X-Reader-Client': 'c' }, model: 'gemini-3.8-flash', maxTokens: 1000, system: 'Be brief.', messages: [{ role: 'user', content: 'Hi' }], thinking: 'high' };
 
 describe('the request', () => {
   it('puts the system prompt beside the turns, calls the assistant the model, and sends pictures inline', () => {
@@ -52,12 +53,14 @@ describe('the request', () => {
     assert.deepEqual(body.generationConfig, { maxOutputTokens: 1000, thinkingConfig: { thinkingLevel: 'high', includeThoughts: true } });
   });
 
-  it('streams from the model’s own address, with the key in a header and never in the address', async () => {
+  it('goes to the proxy, with its pass, as the model and the request — no Google key anywhere', async () => {
     const { fetcher, calls } = fakeFetch([event([{ text: 'Hello' }], 'STOP')]);
     await new gemini.GeminiStream(params, fetcher).finalMessage();
-    assert.equal(calls[0].url, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse');
-    assert.equal(calls[0].init.headers['x-goog-api-key'], 'AIza-test');
-    assert.ok(!calls[0].url.includes('AIza'));
+    assert.equal(calls[0].url, 'https://proxy.example/ai/gemini');
+    assert.equal(calls[0].init.headers.Authorization, 'Bearer pass');
+    assert.equal(calls[0].body.model, 'gemini-3.8-flash');
+    assert.equal(calls[0].body.request.contents[0].parts[0].text, 'Hi');
+    assert.ok(!JSON.stringify(calls[0]).includes('AIza'));
   });
 });
 
@@ -94,18 +97,29 @@ describe('the answer', () => {
 });
 
 describe('failures', () => {
-  it('a bad key: Google’s 400, said as a bad key', async () => {
+  it('a bad key on the proxy: Google’s 400, passed through, said as the proxy’s key', async () => {
     const { fetcher } = fakeFetch([], { status: 400, body: { error: { code: 400, message: 'API key not valid. Please pass a valid API key.', status: 'INVALID_ARGUMENT' } } });
     const error = await new gemini.GeminiStream(params, fetcher).finalMessage().catch((e) => e);
     assert.equal(error.name, 'GeminiError');
-    assert.match(assistant.explainError(error, null), /Google rejected that API key/);
+    assert.equal(error.fromProxy, false);
+    assert.match(assistant.explainError(error, null), /proxy’s Gemini key.*GEMINI_KEY/);
+  });
+
+  it('the proxy’s own refusals: no key there, not signed in, the owner’s alone', async () => {
+    const said = async (status, body) => {
+      const { fetcher } = fakeFetch([], { status, body });
+      return assistant.explainError(await new gemini.GeminiStream(params, fetcher).finalMessage().catch((e) => e), null);
+    };
+    assert.match(await said(501, { error: 'this proxy has no Gemini key', setup: true }), /no Gemini key yet[\s\S]*GEMINI_KEY/);
+    assert.match(await said(401, { error: 'this proxy needs its token', token: true }), /Sign in to the paper proxy/);
+    assert.match(await said(403, { error: 'for its owner', owners: true }), /for its owner/);
   });
 
   it('a spent quota, and a model the key cannot use', async () => {
     const quota = new gemini.GeminiError(429, 'Quota exceeded', 'RESOURCE_EXHAUSTED');
     assert.match(assistant.explainError(quota, null), /quota/);
     assert.match(assistant.explainError(new gemini.GeminiError(404, 'models/x is not found'), null), /does not serve that model/);
-    assert.match(assistant.explainError(new gemini.GeminiError(0, 'fetch failed'), null), /generativelanguage\.googleapis\.com/);
+    assert.match(assistant.explainError(new gemini.GeminiError(0, 'fetch failed'), null), /paper proxy/);
   });
 
   it('stopping is an abort, not a failure', async () => {
@@ -126,9 +140,11 @@ describe('in the pickers', () => {
     assert.equal(assistant.providerOf('gemini-3.8-flash').company, 'Google');
   });
 
-  it('takes an AI Studio key, and no one else’s', () => {
-    assert.equal(assistant.looksLikeKey('AIzaSyExample123', 'gemini'), true);
-    assert.equal(assistant.looksLikeKey('sk-ant-api03-x', 'gemini'), false);
-    assert.equal(assistant.looksLikeKey('AIzaSyExample123', 'deepseek'), false);
+  it('asks for no key: it runs on the proxy’s, and says why it cannot when it cannot', () => {
+    assert.equal(assistant.PROVIDERS.gemini.viaProxy, true);
+    assert.equal(assistant.PROVIDERS.anthropic.viaProxy, undefined);
+    assert.match(assistant.geminiNote('no-key').long, /GEMINI_KEY/);
+    assert.match(assistant.geminiNote('sign-in').short, /sign in/);
+    assert.match(assistant.geminiNote('ready').long, /nothing to paste/);
   });
 });
