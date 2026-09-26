@@ -1,0 +1,102 @@
+% The layout of an IEEE conference paper that Reflow once read badly: a figure
+% at the head of the right column beside a bold abstract, tables numbered in
+% Roman numerals with panels and a note under them, small-capital section
+% headings, links, and the byline's affiliations and notes. The paper is made
+% up. Rebuilt with: pdflatex ieee-two-column.tex (IEEEtran, from texlive-publishers).
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{amsmath,amssymb,booktabs,graphicx,xcolor,colortbl}
+\usepackage{hyperref}
+\makeatletter\long\def\@makecaption#1#2{\vskip 4pt\footnotesize #1: #2\par\vskip 4pt}\makeatother
+\title{\LARGE \bf ORB-NET: Orbit-Aware Planning Models\\for Sample-Efficient Robot Control}
+\author{Ada Lindqvist$^{1*}$, Tomas Okafor$^{1*}$, Mira Castell$^{1}$,\\ Ravi Anand$^{1}$, Lena Ferris$^{1}$, Omar Haddad$^{1\dagger}$\\
+$^{1}$Northfield University, Northfield, Canada\\
+$^{*}$Equal contribution. $^{\dagger}$Corresponding author: \texttt{haddad@northfield.example.org}}
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+\pagestyle{empty}
+\begin{abstract}
+Planning models are usually trained to predict what happens next, whereas a planner has to compare several actions taken from one state. A model can therefore predict well and still tell candidate actions apart poorly. We present ORB-NET, a planning model trained so that the effect of each action survives in its predictions. Two auxiliary objectives keep the action recoverable from the predicted transition; their heads are dropped at test time, so planning itself is unchanged. On CubeSuite, ORB-NET raises hard-start success from $3.7\%$ to $52.0\%$ over a matched baseline and improves mean success in four of five simulated tasks. Diagnostics show that prediction error and whole-bank ranking do not follow closed-loop success, whereas the regret of the elite set does. On a real UR5 arm, ORB-NET raises pick-and-place success from $42.2\%$ to $71.1\%$ without adaptation. Models meant for planning should keep the differences between actions rather than chase prediction accuracy alone. Videos and code are at \url{https://orb-net.example.org/}.
+\end{abstract}
+\section{Introduction}
+
+
+World models learn to predict how an environment evolves under actions, and planners such as MPC use them to choose actions by imagining outcomes~\cite{a,b}. A model trained on factual transitions is judged by how well it predicts the next state, but a planner compares many candidate actions from the same state. We argue these two needs differ, and a model can satisfy the first while failing the second. This paragraph continues for a while so that the column is filled with running text and the layout looks like a real paper with several lines of body text in it.
+
+\begin{figure}[t]
+\centering
+\setlength{\unitlength}{1pt}
+\begin{picture}(240,190)
+\put(0,0){\framebox(110,110){}}
+\put(125,0){\framebox(110,110){}}
+\put(10,60){\line(1,0){90}}\put(10,20){\line(2,1){90}}
+\put(20,95){\footnotesize Factual}
+\put(140,95){\footnotesize Counterfactual}
+\put(130,60){\vector(1,0){90}}
+\put(40,5){\scriptsize $z_t$}\put(165,5){\scriptsize $a_t$}
+\end{picture}
+\caption{Factual prediction versus counterfactual selection. A model with low factual error can still rank candidate actions poorly.}
+\label{fig:teaser}
+\end{figure}
+
+Our contributions are threefold. First, we identify the gap between factual accuracy and counterfactual discrimination. Second, we propose ORB-NET, which regularizes the predictor so that action information survives. Third, we evaluate on simulation and on a real UR5 arm, see \url{https://github.com/orb-net/orb-net} for code.
+\subsection{Residual latent dynamics}
+The predictor outputs an increment added to the current latent, so that
+\begin{equation}
+\hat z_{t+1} = z_t + f_\theta(z_t, a_t),
+\end{equation}
+where $f_\theta$ is a transformer. This keeps small actions from being washed out by the identity part of the map, which otherwise dominates the prediction and hides the effect of the action entirely from the planner that has to compare them.
+\section{Experiments}
+We evaluate on CubeSuite and four more environments with three seeds each. Table~\ref{tab:abl} shows the ablations and Table~\ref{tab:franka} the zero-shot results on the UR5 arm, which are reported as counts over the number of trials in each protocol.
+\begin{table}[t]
+\caption{\textbf{Cube ablations (\%, three seeds).} A/B show mean$\pm$population SD, C/D show means. HS averages P00--P04.}
+\label{tab:abl}
+\centering\footnotesize
+\begin{tabular}{lrrrrrr}
+\toprule
+\multicolumn{7}{l}{\textbf{A. Component contributions}}\\
+Variant & \multicolumn{3}{r}{Original $\uparrow$} & \multicolumn{3}{r}{HS $\uparrow$}\\
+\midrule
+Base & \multicolumn{3}{r}{$73.3\pm2.5$} & \multicolumn{3}{r}{$3.7\pm1.4$}\\
+Res + MI & \multicolumn{3}{r}{$89.3\pm3.8$} & \multicolumn{3}{r}{$\mathbf{54.7\pm3.0}$}\\
+\rowcolor{blue!10}\textbf{ORB-NET} & \multicolumn{3}{r}{$\mathbf{90.7\pm3.4}$} & \multicolumn{3}{r}{$52.0\pm3.1$}\\
+\midrule
+\multicolumn{7}{l}{\textbf{C. MI weight} ($\lambda_{\mathrm{inv}}=0.1$)}\\
+$\lambda_{\mathrm{MI}}$ & 0 & .005 & .01 & .015 & .03 & .05\\
+\midrule
+Original & 83.3 & 89.3 & 90.7 & 90.7 & \textbf{91.3} & 88.0\\
+HS & 37.1 & 50.9 & 52.0 & 60.4 & \textbf{65.2} & 61.5\\
+\bottomrule
+\end{tabular}
+
+\vspace{2pt}
+\parbox{\linewidth}{\scriptsize MI-enabled variants in A use $\lambda_{\mathrm{MI}}=0.01$. Encoded endpoints remove only the direct Inv gradient through the predicted successor.}
+\end{table}
+
+\begin{table}[t]
+\caption{\textbf{Zero-shot UR5 results (count/total).} Abnormal motion counts adverse events. Bold marks better results.}
+\label{tab:franka}
+\centering\footnotesize
+\begin{tabular}{llrr}
+\toprule
+\rowcolor{gray!15}Protocol & Metric & Baseline & \textbf{ORB-NET}\\
+\midrule
+Basic & Success $\uparrow$ & 19/45 & \textbf{32/45}\\
+\midrule
+Complex & Success $\uparrow$ & 2/10 & \textbf{5/10}\\
+ & Abnormal motion $\downarrow$ & 6/10 & \textbf{2/10}\\
+\midrule
+Target & Target moved $\uparrow$ & 14/27 & \textbf{21/27}\\
+ & Lift-and-place $\uparrow$ & 9/27 & \textbf{17/27}\\
+\bottomrule
+\end{tabular}
+\end{table}
+ORB-NET improves on the baseline across the board. The gains are largest in the hard-start setting, where the baseline almost never succeeds, and where distinguishing between candidate actions matters most for the planner to recover.
+\section{Conclusion and Limitations}
+We present ORB-NET, an action-discriminative world model for counterfactual MPC. Its auxiliary heads are discarded at test time. Limitations include the reliance on a frozen encoder and the small number of real-robot trials that we could run.
+\begin{thebibliography}{1}
+\bibitem{a} A. Author, ``A path towards planning with learned models,'' \emph{OpenReview}, 2022.
+\bibitem{b} B. Writer \emph{et al.}, ``Self-supervised video models enable understanding, prediction and planning,'' \emph{arXiv preprint arXiv:2501.00001}, 2025.
+\end{thebibliography}
+\end{document}

@@ -326,7 +326,7 @@ describe('their Google Scholar profile', () => {
   });
 });
 
-const { fullerAuthors, sameAuthor } = await load('src/lib/byline.ts');
+const { fullerAuthors, sameAuthor, whereTheyAre, rolesOnPaper } = await load('src/lib/byline.ts');
 
 describe('the byline off the PDF', () => {
   const scholar = ['S Chennuri', 'S Lai', 'A Billot', 'M Varkanitsa', 'EJ Braun', 'S Kiran'];
@@ -350,5 +350,43 @@ describe('the byline off the PDF', () => {
   it('keeps the record where the PDF adds nothing', () => {
     assert.equal(fullerAuthors(pdf, pdf), null);
     assert.equal(fullerAuthors(pdf, undefined), null);
+  });
+});
+
+describe('where they are, and who says so', () => {
+  const onPaper = { name: 'Zixuan Chen', marks: ['∗', '†'], affiliations: ['Nanjing University'], notes: ['Equal contribution', 'Corresponding authors'], emails: ['zchen@nju.edu.cn'] };
+
+  it('puts Google Scholar first, as now, and the paper after it, with the address only the paper gives', () => {
+    const where = whereTheyAre({ onPaper, profile: { affiliation: 'PhD student, Nanjing University', verifiedEmail: 'nju.edu.cn' } });
+    assert.deepEqual(where, {
+      now: { place: 'PhD student, Nanjing University', from: 'Google Scholar', verified: 'nju.edu.cn' },
+      then: { place: 'Nanjing University', from: 'the paper', same: true, emails: ['zchen@nju.edu.cn'] },
+    });
+  });
+
+  it('says so when they have moved on since', () => {
+    const where = whereTheyAre({ onPaper, profile: { affiliation: 'Research Scientist, Google DeepMind', verifiedEmail: 'google.com' } });
+    assert.equal(where.now.place, 'Research Scientist, Google DeepMind');
+    assert.equal(where.then.same, false);
+  });
+
+  it('knows one place by its domain, where the names differ', () => {
+    const where = whereTheyAre({ onPaper: { ...onPaper, affiliations: ['NJU'] }, profile: { affiliation: 'PhD student', verifiedEmail: 'nju.edu.cn' } });
+    assert.equal(where.then.same, true);
+  });
+
+  it('falls back on OpenAlex for either side, and says it is OpenAlex', () => {
+    assert.deepEqual(whereTheyAre({ details: { affiliationHere: 'Nanjing University', affiliation: 'Nanjing University' } }), {
+      now: { place: 'Nanjing University', from: 'OpenAlex' },
+      then: { place: 'Nanjing University', from: 'OpenAlex', same: true, emails: [] },
+    });
+    assert.deepEqual(whereTheyAre({}), {});
+  });
+
+  it('names a corresponding author in the singular on their own card, and the first author first', () => {
+    assert.deepEqual(rolesOnPaper(onPaper, 1), ['Equal contribution', 'Corresponding author']);
+    assert.deepEqual(rolesOnPaper({ ...onPaper, notes: ['Equal contribution'] }, 0), ['First author', 'Equal contribution']);
+    // The address a note carries has its own row, not a place in the tag.
+    assert.deepEqual(rolesOnPaper({ ...onPaper, notes: ['Corresponding author: haddad@northfield.example.org'] }, 5), ['Corresponding author']);
   });
 });

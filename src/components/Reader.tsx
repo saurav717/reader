@@ -43,7 +43,7 @@ import PassageFlash, { type Flash } from './PassageFlash';
 import { addClip, captioned, copyOf } from '../lib/notes';
 import { tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
-import { fullerAuthors } from '../lib/byline';
+import { addressPieces, fullerAuthors, onPaper } from '../lib/byline';
 import { CITE_CLASS, REF_CLASS, citationHead, citationText, entryText, parseReference } from '../lib/citations';
 import {
   ArrowLeftIcon,
@@ -488,6 +488,10 @@ export default function Reader({
   // or any of the places the paper is published. Only when every one of those
   // has come back empty is there nothing to show.
   const pdfLookup = pdfAvailability({ pdfUrl, resolved: pdfResolved, driveCopy, locations });
+
+  // What the byline says of the authors — the marks on their names, the
+  // institutions they were at — as the reflowed first page reads it.
+  const byline = content?.byline;
 
   // The reflowed text is only made once it is being looked at: for a paper
   // read as a PDF, reading the file out is work nobody asked for.
@@ -1329,8 +1333,9 @@ export default function Reader({
       <h1 className="paper-title">{paper.title}</h1>
       <p className="paper-authors">
         {paper.authors.map((name, position) => {
+          const here = onPaper(byline, name);
           const show = (element: HTMLElement, delay?: number) =>
-            openHover(element, () => ({ kind: 'author', name, position, anchor: element.getBoundingClientRect() }), delay);
+            openHover(element, () => ({ kind: 'author', name, position, anchor: element.getBoundingClientRect(), onPaper: here }), delay);
           return (
             <Fragment key={`${position}-${name}`}>
               {position ? ' · ' : null}
@@ -1353,10 +1358,40 @@ export default function Reader({
               >
                 {name}
               </span>
+              {here?.marks.length ? (
+                <sup className="author-marks" title={here.notes.concat(here.affiliations).join(' · ') || undefined}>
+                  {here.marks.join(',')}
+                </sup>
+              ) : null}
             </Fragment>
           );
         })}
       </p>
+      {byline && (byline.notes.length || byline.affiliations.length) ? (
+        // What the marks stand for, and where the authors were, as the first page says.
+        <p className="paper-byline">
+          {[
+            ...byline.affiliations.map((place) => ({ mark: place.mark, text: place.text })),
+            ...byline.notes.map((note) => ({ mark: note.mark, text: note.text })),
+          ].map((item, index) => (
+            <Fragment key={`${index}-${item.mark ?? ''}-${item.text}`}>
+              {index ? <span className="sep"> · </span> : null}
+              <span>
+                {item.mark ? <sup>{item.mark}</sup> : null}
+                {addressPieces(item.text).map((piece, at) =>
+                  piece.href ? (
+                    <a key={at} href={piece.href} target="_blank" rel="noreferrer noopener">
+                      {piece.text}
+                    </a>
+                  ) : (
+                    piece.text
+                  ),
+                )}
+              </span>
+            </Fragment>
+          ))}
+        </p>
+      ) : null}
 
       {content?.notice ? (
         <p className="banner warn" style={{ marginBottom: 20 }}>

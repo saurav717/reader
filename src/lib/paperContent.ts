@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify';
 import type { Paper } from '../types';
 import { api, hasProxy, NO_PROXY_REASON } from './api';
 import type { ReflowProgress } from './pdfReflow';
+import type { PaperByline } from './pdfLayout';
 import { pdfShape } from './pdfShape';
 import { withCitations } from './citations';
 
@@ -13,6 +14,12 @@ export interface PaperContent {
   notice?: string;
   /** The authors as the PDF's first page names them — every one, where a search result may have cut the list short. */
   authors?: string[];
+  /**
+   * What the first page says about its authors: the marks on their names —
+   * equal contribution, corresponding author — and the institutions named,
+   * which are where they were when they wrote it.
+   */
+  byline?: PaperByline;
   /** Hands back what the HTML refers to — the images painted from a PDF — once it is off the screen. */
   release?: () => void;
 }
@@ -50,11 +57,17 @@ export async function loadPaperContentFromPdf(
   const reflowed = await reflowPdf(pdf, { title: paper.title, signal: options.signal, onProgress: options.onProgress });
   if (!reflowed) return null;
   // The HTML is our own, but it went through a PDF's strings on the way,
-  // and the images are blob: URLs, which the default policy strips.
+  // and the images are blob: URLs, which the default policy strips. The
+  // paper's links open in a tab of their own, away from the reader.
+  //
+  // DOMPurify tests every attribute's value against this pattern, not only
+  // the URLs — a table's colspan="3", a link's target="_blank" — so besides
+  // the schemes allowed it lets through a value with no scheme at all, as
+  // its default does; "javascript:" and "data:" still fail it.
   const clean = DOMPurify.sanitize(reflowed.html, {
     USE_PROFILES: { html: true },
-    ADD_ATTR: ['loading', 'width', 'height', 'colspan'],
-    ALLOWED_URI_REGEXP: /^(?:blob:|https?:|#)/i,
+    ADD_ATTR: ['loading', 'width', 'height', 'colspan', 'target'],
+    ALLOWED_URI_REGEXP: /^(?:blob:|https?:|mailto:|#|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
     FORBID_TAGS: ['style', 'link'],
   });
   return {
@@ -63,6 +76,7 @@ export async function loadPaperContentFromPdf(
     mode: 'pdf',
     sourceLabel: `Reflowed from the PDF · ${reflowed.pages} ${reflowed.pages === 1 ? 'page' : 'pages'}`,
     authors: reflowed.authors,
+    byline: reflowed.byline,
     release: reflowed.release,
   };
 }

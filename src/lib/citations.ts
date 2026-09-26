@@ -384,7 +384,8 @@ export function annotateCitations(root: Element): number {
   // footnote's mark, so only a paper with several of them is read this way.
   if (count < 3) {
     const raised = Array.from(root.querySelectorAll('sup')).flatMap((sup) => {
-      if (sup.closest('h1, h2, h3, h4, h5, h6, a, code, pre, .cite') || entries.some((entry) => entry.contains(sup))) return [];
+      // The byline's marks, "Ada Lindqvist¹", point at an affiliation, not a reference.
+      if (sup.closest('h1, h2, h3, h4, h5, h6, a, code, pre, .cite, .pdf-front') || entries.some((entry) => entry.contains(sup))) return [];
       const numbers = /^\s*\d{1,3}(?:\s*[,–—-]\s*\d{1,3})*\s*$/.test(sup.textContent || '') ? citationNumbers(sup.textContent!.trim()) : null;
       if (!numbers || numbers.some((n) => n < 1 || n > index.largest)) return [];
       const refs = numbers.map((n) => index.byNumber(n)).filter((ref): ref is string => ref !== null);

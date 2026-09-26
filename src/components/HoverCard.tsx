@@ -15,6 +15,8 @@ import { venueDetails, type VenueDetails } from '../lib/venueInfo';
 import { scholarAuthorUrl, scholarPaperUrl } from '../lib/locations';
 import { parseReference } from '../lib/citations';
 import { hasProxy } from '../lib/api';
+import { rolesOnPaper, whereTheyAre, type Whereabouts } from '../lib/byline';
+import type { BylineAuthor } from '../lib/pdfLayout';
 import { ExternalIcon, SearchIcon } from './icons';
 
 /** A bibliography entry a citation names: its id in the paper, its number or label, its text. */
@@ -26,7 +28,7 @@ export interface CitedEntry {
 
 /** Where the card points, and at what. `anchor` is in the window's coordinates. */
 export type HoverTarget =
-  | { kind: 'author'; name: string; position: number; anchor: DOMRect }
+  | { kind: 'author'; name: string; position: number; anchor: DOMRect; onPaper?: BylineAuthor }
   | { kind: 'cite'; entries: CitedEntry[]; anchor: DOMRect }
   | { kind: 'venue'; venue: string; anchor: DOMRect };
 
@@ -122,7 +124,7 @@ export default function HoverCard({ target, paper, onEnter, onLeave, onClose, on
       onMouseLeave={onLeave}
     >
       {target.kind === 'author' ? (
-        <AuthorCard name={target.name} position={target.position} paper={paper} />
+        <AuthorCard name={target.name} position={target.position} paper={paper} onPaper={target.onPaper} />
       ) : target.kind === 'venue' ? (
         <VenueCard venue={target.venue} paper={paper} />
       ) : (
@@ -151,7 +153,44 @@ function useAnswer<T>(ask: () => Promise<T>, key: string): T | undefined | null 
 
 // --------------------------------------------------------------- author ---
 
-function AuthorCard({ name, position, paper }: { name: string; position: number; paper: PaperKey }) {
+function WhereTheyAre({ where, asking }: { where: Whereabouts; asking: boolean }) {
+  const { now, then } = where;
+  if (!now && !then && !asking) return null;
+  return (
+    <dl className="hc-where" aria-label="Where they are">
+      {now || asking ? (
+        <div>
+          <dt>Now</dt>
+          <dd>
+            {now?.place ? <span>{now.place}</span> : asking && !now ? <span className="muted">Asking Google Scholar…</span> : null}
+            {now?.verified ? (
+              <span className="hc-verified" title="Google Scholar verified an address at this domain; it does not show the address itself">
+                ✓ Verified email at {now.verified}
+              </span>
+            ) : null}
+            {now ? <span className="hc-src">{now.from}</span> : null}
+          </dd>
+        </div>
+      ) : null}
+      {then ? (
+        <div>
+          <dt>On this paper</dt>
+          <dd>
+            {then.place ? <span>{then.same ? `${then.place} — the same as now` : then.place}</span> : null}
+            {then.emails.map((email) => (
+              <a key={email} className="hc-email" href={`mailto:${email}`} title="The address the paper gives for them">
+                ✉ {email}
+              </a>
+            ))}
+            <span className="hc-src">{then.from === 'the paper' ? 'as printed on the paper' : 'OpenAlex, for this paper'}</span>
+          </dd>
+        </div>
+      ) : null}
+    </dl>
+  );
+}
+
+function AuthorCard({ name, position, paper, onPaper }: { name: string; position: number; paper: PaperKey; onPaper?: BylineAuthor }) {
   const answer = useAnswer<AuthorDetails>(() => authorDetails(name, position, paper), `${paper.id}|${position}|${name}`);
   // A lookup that failed outright reads as one that found nobody.
   const details = useMemo<AuthorDetails | undefined>(
@@ -165,7 +204,9 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
     if (details === undefined) return;
     let live = true;
     setScholar(undefined);
-    const places = [details?.affiliationHere, details?.affiliation].filter((place): place is string => Boolean(place));
+    // Where the paper itself says they were comes first: it is the surest
+    // way of telling their profile from a namesake's.
+    const places = [...(onPaper?.affiliations ?? []), details?.affiliationHere, details?.affiliation].filter((place): place is string => Boolean(place));
     // A lone profile with the name is theirs only when OpenAlex tied this very person to the paper.
     const tied = details.via === 'paper' && !details.mistaken;
     const fullNames = details.fullName && !details.mistaken ? [details.fullName] : [];
@@ -202,7 +243,8 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
     `${paper.id}|${name}|${nowhere}`,
   );
 
-  const now = details?.affiliation && details.affiliation !== details.affiliationHere ? details.affiliation : undefined;
+  const roles = rolesOnPaper(onPaper, position);
+  const where = whereTheyAre({ onPaper, details, profile });
   const interests = profile?.interests?.length ? profile.interests : details?.topics ?? [];
   const who = [elsewhere?.fullName, elsewhere?.lived].filter(Boolean).join(', ');
   // Their books from Open Library stand in for OpenAlex's list when OpenAlex has none that are theirs.
@@ -234,9 +276,16 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
         <p className="hc-name">{name}</p>
         {who ? <p className="hc-sub">{who}</p> : null}
         {elsewhere?.description ? <p className="hc-sub">{elsewhere.description}</p> : null}
-        {details?.affiliationHere ? <p className="hc-sub">{details.affiliationHere}</p> : null}
-        {now ? <p className="hc-sub">Now at {now}</p> : null}
-        {!details?.affiliationHere && !now && profile?.affiliation ? <p className="hc-sub">{profile.affiliation}</p> : null}
+        {roles.length ? (
+          <p className="hc-roles" aria-label="On this paper">
+            {roles.map((role) => (
+              <span key={role} className="hc-role">
+                {role}
+              </span>
+            ))}
+          </p>
+        ) : null}
+        <WhereTheyAre where={where} asking={scholarAsking} />
         {profileLinks.length || scholarAsking || elsewhere === undefined ? (
           <div className="hc-profiles" aria-label="Their profiles">
             {profileLinks.map((link) => (
@@ -297,7 +346,8 @@ function AuthorCard({ name, position, paper }: { name: string; position: number;
           {elsewhere?.about ? <p className="hc-about">{elsewhere.about}</p> : null}
 
           {profile ? (
-            profile.verifiedEmail ? <p className="hc-scholar muted">Google Scholar: verified email at {profile.verifiedEmail}</p> : null
+            // Its affiliation and verified email are shown with the paper's, above.
+            null
           ) : scholarAsking ? (
             <p className="hc-scholar muted">
               <span className="spinner" /> Asking Google Scholar…

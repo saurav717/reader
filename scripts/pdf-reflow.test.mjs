@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
 
-const { layoutPages, renderHtml, readingOrder, tableFromLines, composeAccents, faceOf, plain, entryStarts } = await load('src/lib/pdfLayout.ts');
+const { layoutPages, renderHtml, readingOrder, tableFromLines, composeAccents, faceOf, plain, entryStarts, linkRuns, linkAddresses, emailsIn, addressOf } = await load('src/lib/pdfLayout.ts');
 
 after(cleanup);
 
@@ -341,6 +341,311 @@ describe('figures, tables and equations', () => {
     // In its place in the flow: after the text above it, before "where".
     const kinds = layout.blocks.map((block) => block.kind);
     assert.deepEqual(kinds, ['paragraph', 'equation', 'paragraph']);
+  });
+});
+
+describe('two columns, side by side', () => {
+  // An abstract in 9pt bold down the left column, the body in 10pt, and a
+  // figure at the head of the right column beside the abstract: the figure's
+  // region once widened over the title to the whole page, and took the
+  // abstract's first dozen lines with it.
+  const abstract = [
+    'Abstract—Latent models are trained to predict transitions, whereas',
+    'a planner compares alternative actions from the same state, so a',
+    'model can predict well and still rank actions poorly. We add two',
+    'objectives that keep actions recoverable from its predictions and',
+    'drop their heads at test time, leaving the planner unchanged.',
+  ];
+  const runs = () => [
+    line('A Title Set Large Across the Whole Page', 150, 60, { size: 17, font: 'NimbusRomNo9L-Medi', width: 320 }),
+    line('Ada Lindqvist, Tomas Okafor', 240, 90, { size: 11, width: 140 }),
+    ...abstract.map((text, index) => line(text, 54, 130 + index * 10, { size: 9, font: 'NimbusRomNo9L-Medi', width: 240 })),
+    line('Fig. 1: A teaser, beside the abstract, with its caption under it.', 318, 190, { size: 8, width: 240 }),
+    ...column(318, 210, ['The introduction goes on under the figure with a full body line.', 'And a second full line of running text so the body is measured.', 'Then a short one.'], { size: 10 }),
+    ...column(54, 200, ['The left column goes on under the abstract with a full body line.', 'And a second full line of running text so the body is measured.', 'A third full line of running text to settle the column width.', 'Then a short one.'], { size: 10 }),
+  ];
+  const graphics = [{ x0: 330, y0: 110, x1: 540, y1: 180, kind: 'image' }];
+
+  it('keeps every line of an abstract beside a figure', () => {
+    const layout = layoutPages([page(runs(), graphics)]);
+    const text = texts(layout).join(' | ');
+    for (const sentence of abstract) assert.ok(text.includes(sentence.replace(/—/, '—').slice(0, 30)), `"${sentence}" is in the text: ${text}`);
+    const figure = layout.blocks.find((block) => block.kind === 'figure');
+    assert.ok(figure && figure.crop.x0 >= 300, `the figure stays in its column: ${JSON.stringify(figure?.crop)}`);
+  });
+});
+
+describe('IEEE conference papers', () => {
+  const smallCaps = (numeral, first, rest, x, y) => [
+    line(`${numeral} ${first}`, x, y, { size: 10, width: (numeral.length + 2) * 5 }),
+    { ...line(rest, x + (numeral.length + 2) * 5, y, { size: 8 }) },
+  ];
+
+  it('reads "I. INTRODUCTION" in small capitals, and "A. Name" in italics, as headings', () => {
+    const runs = [
+      ...smallCaps('I.', 'I', 'NTRODUCTION', 130, 100),
+      ...column(54, 116, ['World models learn to predict how an environment evolves under its actions.', 'A second full line of the introduction, so that the body is measured.', 'And a short one.'], { size: 10 }),
+      line('A. Residual latent dynamics', 54, 160, { size: 10, font: 'NimbusRomNo9L-ReguItal' }),
+      ...column(54, 174, ['The predictor outputs an increment that is added to the current latent.', 'A second full line of the subsection, so that the body is measured.', 'And a short one.'], { size: 10 }),
+    ];
+    const layout = layoutPages([page(runs)]);
+    const headings = layout.blocks.filter((block) => block.kind === 'heading').map((block) => [block.level, plain(block.spans)]);
+    assert.deepEqual(headings, [[2, 'I. INTRODUCTION'], [3, 'A. Residual latent dynamics']]);
+  });
+
+  it('takes "TABLE IV:" for a caption, and its second line for the caption, not a row', () => {
+    const runs = [
+      ...column(54, 100, ['A paragraph of running text above the table, a full line wide here.', 'And a second full line of running text, so the body is measured.', 'Then a short last line.'], { size: 10 }),
+      line('TABLE IV: Zero-shot results (count/total). Abnormal motion counts', 54, 150, { size: 8, width: 240 }),
+      line('adverse events. Bold marks better results.', 54, 159, { size: 8 }),
+      line('Protocol', 60, 175, { size: 8 }),
+      line('Baseline', 150, 175, { size: 8 }),
+      line('Ours', 220, 175, { size: 8, font: 'NimbusRomNo9L-Medi' }),
+      line('Basic', 60, 187, { size: 8 }),
+      line('19/45', 150, 187, { size: 8 }),
+      line('32/45', 220, 187, { size: 8, font: 'NimbusRomNo9L-Medi' }),
+      line('Complex', 60, 199, { size: 8 }),
+      line('2/10', 150, 199, { size: 8 }),
+      line('5/10', 220, 199, { size: 8, font: 'NimbusRomNo9L-Medi' }),
+      ...column(54, 230, ['The text goes on under the table with another full body line here.', 'And one more.'], { size: 10 }),
+    ];
+    const layout = layoutPages([page(runs)]);
+    const table = layout.blocks.find((block) => block.kind === 'table');
+    assert.ok(table, 'a table block');
+    assert.equal(table.label, 'TABLE IV');
+    assert.equal(plain(table.caption), 'TABLE IV: Zero-shot results (count/total). Abnormal motion counts adverse events. Bold marks better results.');
+    assert.deepEqual(table.rows.map((row) => row.map((cell) => plain(cell.spans))), [
+      ['Protocol', 'Baseline', 'Ours'],
+      ['Basic', '19/45', '32/45'],
+      ['Complex', '2/10', '5/10'],
+    ]);
+    assert.match(renderHtml(layout, () => null), /<td class="num"><strong>32\/45<\/strong><\/td>/);
+  });
+
+  it('keeps the byline\'s affiliations and notes, and the names only where their marks point there', () => {
+    const runs = [
+      line('A Paper With Notes Under Its Byline', 150, 60, { size: 17, font: 'NimbusRomNo9L-Medi', width: 300 }),
+      line('Ada Lindqvist', 200, 90, { size: 11 }),
+      line('1∗', 272, 86, { size: 7 }),
+      line(', Omar Haddad', 279, 90, { size: 11 }),
+      line('1†', 350.5, 86, { size: 7 }),
+      line('1', 220, 101, { size: 7 }),
+      line('Northfield University, Canada', 223.5, 104, { size: 11 }),
+      line('∗Equal contribution. †Corresponding author.', 200, 118, { size: 11 }),
+      line('Abstract—We study a thing, and the abstract goes on at some length.', 54, 150, { size: 9, font: 'NimbusRomNo9L-Medi', width: 240 }),
+      ...column(54, 170, ['The introduction goes on under the abstract with a full body line.', 'A second full line of running text, so that the body is measured.', 'And a third.'], { size: 10 }),
+    ];
+    const layout = layoutPages([page(runs)], { title: 'A Paper With Notes Under Its Byline' });
+    assert.deepEqual(layout.byline, {
+      authors: [
+        { name: 'Ada Lindqvist', marks: ['1', '∗'], affiliations: ['Northfield University, Canada'], notes: ['Equal contribution'], emails: [] },
+        { name: 'Omar Haddad', marks: ['1', '†'], affiliations: ['Northfield University, Canada'], notes: ['Corresponding author'], emails: [] },
+      ],
+      notes: [
+        { mark: '∗', text: 'Equal contribution' },
+        { mark: '†', text: 'Corresponding author' },
+      ],
+      affiliations: [{ mark: '1', text: 'Northfield University, Canada' }],
+      emails: [],
+    });
+    assert.match(texts(layout)[0], /^Abstract—We study a thing/);
+  });
+
+  it('gives an institution named once, with no mark, to every author, and keeps what it cannot read', () => {
+    const runs = [
+      line('A Paper With One Institution', 150, 60, { size: 17, font: 'NimbusRomNo9L-Medi', width: 300 }),
+      line('Jiabin Qiu', 200, 90, { size: 11 }),
+      line('∗', 255, 86, { size: 7 }),
+      line(', Jing Huo', 258.5, 90, { size: 11 }),
+      line('†', 313.5, 86, { size: 7 }),
+      line('Nanjing University', 230, 104, { size: 11 }),
+      line('∗', 200, 114, { size: 7 }),
+      line('Equal contribution.', 204, 118, { size: 11 }),
+      line('†', 310, 114, { size: 7 }),
+      line('Corresponding authors.', 314, 118, { size: 11 }),
+      line('Preprint, September 2026', 220, 132, { size: 11 }),
+      line('Abstract—We study a thing, and the abstract goes on at some length.', 54, 160, { size: 9, font: 'NimbusRomNo9L-Medi', width: 240 }),
+      ...column(54, 180, ['The introduction goes on under the abstract with a full body line.', 'A second full line of running text, so that the body is measured.', 'And a third.'], { size: 10 }),
+    ];
+    const layout = layoutPages([page(runs)], { title: 'A Paper With One Institution' });
+    assert.deepEqual(
+      layout.byline.authors.map((author) => [author.name, author.affiliations, author.notes]),
+      [
+        ['Jiabin Qiu', ['Nanjing University'], ['Equal contribution']],
+        ['Jing Huo', ['Nanjing University'], ['Corresponding authors']],
+      ],
+    );
+    assert.deepEqual(layout.front.map(plain), ['Preprint, September 2026']);
+  });
+
+  it('leaves a subscript on its own line, not on the other column\'s line whose baseline falls nearer', () => {
+    const runs = [
+      line('The left column carries a line at a baseline between two rows here.', 54, 104.5, { size: 9, width: 240 }),
+      line('C. MI weight (λ', 330, 100, { size: 8 }),
+      line('inv', 385, 101.5, { size: 6 }),
+      line('= 0.1)', 397, 100, { size: 8 }),
+      line('0', 330, 109, { size: 8 }),
+      line('.005', 360, 109, { size: 8 }),
+    ];
+    const layout = layoutPages([page(runs)]);
+    const text = texts(layout).join(' | ');
+    assert.match(text, /C\. MI weight \(λinv = 0\.1\)/);
+    assert.doesNotMatch(text, /0inv/);
+  });
+});
+
+describe('what a real IEEE paper threw up', () => {
+  const body = (x, top) => column(x, top, ['A paragraph of running text above the table, a full line wide here.', 'And a second full line of running text, so the body is measured.', 'Then a short last line.'], { size: 10 });
+
+  it('cuts a table set tight into its cells, a subscript kept with its letter', () => {
+    const runs = [
+      ...body(54, 100),
+      line('TABLE IV: Results.', 54, 150, { size: 8 }),
+      line('Protocol', 60, 166, { size: 8, width: 30 }),
+      line('Metric', 96, 166, { size: 8, width: 22 }),
+      line('R', 150, 166, { size: 8, width: 5, font: 'CMMI8' }),
+      line('30', 155.2, 167.2, { size: 6, width: 6, font: 'CMR6' }),
+      line('Ours', 180, 166, { size: 8, width: 16 }),
+      line('Complex', 60, 178, { size: 8, width: 29 }),
+      line('Success', 96, 178, { size: 8, width: 27 }),
+      line('2/10', 150, 178, { size: 8, width: 14 }),
+      line('5/10', 180, 178, { size: 8, width: 14 }),
+      ...column(54, 210, ['The text goes on under the table with another full body line here.', 'And one more.'], { size: 10 }),
+    ];
+    const table = layoutPages([page(runs)]).blocks.find((block) => block.kind === 'table');
+    assert.deepEqual(table.rows.map((row) => row.map((cell) => plain(cell.spans))), [
+      ['Protocol', 'Metric', 'R30', 'Ours'],
+      ['Complex', 'Success', '2/10', '5/10'],
+    ]);
+  });
+
+  it('keeps a norm\'s superscript and subscript, set one over the other, on their line', () => {
+    const runs = column(54, 100, ['The terminal cost is the squared distance to the goal, taken as', 'A second full line of running text, so that the body is measured.', 'And a short one.']);
+    runs.push(line('∥z − g∥', 54, 130, { width: 30, font: 'CMSY9' }), line('2', 84, 126.5, { size: 6, width: 3, font: 'CMR6' }), line('2', 84, 132, { size: 6, width: 3, font: 'CMR6' }), line(', which it replans with.', 88, 130, { width: 90 }));
+    const text = texts(layoutPages([page(runs)])).join(' | ');
+    assert.match(text, /∥z − g∥22 ?, which it replans with\./);
+    assert.doesNotMatch(text, /\| 2/);
+  });
+
+  it('ends a table where a figure\'s pictures begin under it', () => {
+    const runs = [
+      ...body(54, 100),
+      line('TABLE I: Results.', 54, 150, { size: 8 }),
+      line('Method', 60, 166, { size: 8 }),
+      line('Score', 150, 166, { size: 8 }),
+      line('Ours', 60, 178, { size: 8 }),
+      line('0.9', 150, 178, { size: 8 }),
+      line('Setup', 70, 200, { size: 7 }),
+      line('Camera', 150, 230, { size: 7 }),
+      line('Fig. 5: The robot.', 54, 260, { size: 8 }),
+      ...column(54, 280, ['The text goes on under the figure with another full body line here.', 'And one more.'], { size: 10 }),
+    ];
+    const layout = layoutPages([page(runs, [{ x0: 60, y0: 195, x1: 280, y1: 250, kind: 'image' }])]);
+    const table = layout.blocks.find((block) => block.kind === 'table');
+    assert.deepEqual(table.rows.map((row) => row.map((cell) => plain(cell.spans))), [['Method', 'Score'], ['Ours', '0.9']]);
+    const figure = layout.blocks.find((block) => block.kind === 'figure');
+    assert.ok(figure && figure.crop.y0 > 185, `the figure starts under the table: ${JSON.stringify(figure?.crop)}`);
+  });
+
+  it('does not measure a table beside a full-width caption by that caption', () => {
+    const wide = { size: 10, width: 504 };
+    const runs = [
+      line('TABLE I: A table across the page, whose caption runs on for a second', 54, 60, wide),
+      line('line as wide as the page, set in the size of the text.', 54, 72, { size: 10, width: 230 }),
+      line('Method', 60, 88, { size: 8 }),
+      line('Score', 400, 88, { size: 8 }),
+      line('Ours', 60, 100, { size: 8 }),
+      line('0.9', 400, 100, { size: 8 }),
+      ...column(54, 130, ['The left column reads on under the table with a full line of it.', 'A second full line of running text, so that the body is measured.', 'for Spearman rank correlation.'], { size: 10 }),
+      line('TABLE II: Ablations.', 318, 130, { size: 10, width: 240 }),
+      line('Variant', 324, 146, { size: 8 }),
+      line('HS', 500, 146, { size: 8 }),
+      line('LeWM', 324, 158, { size: 8 }),
+      line('3.7', 500, 158, { size: 8 }),
+      ...column(318, 190, ['The right column goes on under the second table with a full line.', 'And one more line.'], { size: 10 }),
+    ];
+    const tables = layoutPages([page(runs)]).blocks.filter((block) => block.kind === 'table');
+    assert.deepEqual(tables[1].rows.map((row) => row.map((cell) => plain(cell.spans))), [['Variant', 'HS'], ['LeWM', '3.7']]);
+  });
+});
+
+describe('addresses in the byline', () => {
+  it('spells out a group of addresses written once for their domain', () => {
+    assert.deepEqual(emailsIn('{jqiu, zchen}@nju.edu.cn and gaoy@nju.edu.cn.'), ['jqiu@nju.edu.cn', 'zchen@nju.edu.cn', 'gaoy@nju.edu.cn']);
+  });
+
+  it('knows an address by the name in it, and not by a namesake\'s', () => {
+    assert.ok(addressOf('Yang Gao', 'gaoy@nju.edu.cn'));
+    assert.ok(addressOf('Yang Gao', 'yang.gao@nju.edu.cn'));
+    assert.ok(addressOf('Jiabin Qiu', 'jqiu@nju.edu.cn'));
+    assert.ok(addressOf('Jing Huo', 'huojing@nju.edu.cn'));
+    assert.ok(!addressOf('Jing Huo', 'jiabin.qiu@nju.edu.cn'));
+    assert.ok(!addressOf('Yang Gao', 'gaoxiang@nju.edu.cn'));
+  });
+
+  it('puts a line of addresses to its authors, and leaves it out of the text', () => {
+    const runs = [
+      line('A Paper With Addresses', 150, 60, { size: 17, font: 'NimbusRomNo9L-Medi', width: 300 }),
+      line('Jiabin Qiu, Yang Gao', 230, 90, { size: 11 }),
+      line('Nanjing University', 230, 104, { size: 11 }),
+      line('{jqiu, gaoy}@nju.edu.cn', 225, 118, { size: 11 }),
+      line('Abstract—We study a thing, and the abstract goes on at some length.', 54, 150, { size: 9, font: 'NimbusRomNo9L-Medi', width: 240 }),
+      ...column(54, 170, ['The introduction goes on under the abstract with a full body line.', 'A second full line of running text, so that the body is measured.', 'And a third.'], { size: 10 }),
+    ];
+    const layout = layoutPages([page(runs)], { title: 'A Paper With Addresses' });
+    assert.deepEqual(layout.byline.authors.map((author) => [author.name, author.emails]), [['Jiabin Qiu', ['jqiu@nju.edu.cn']], ['Yang Gao', ['gaoy@nju.edu.cn']]]);
+    assert.equal(layout.front, undefined);
+  });
+});
+
+describe('links', () => {
+  it('cuts a run where a link on the page starts and ends, by whole words', () => {
+    const run = line('code is at https://ad-wm.github.io/. More soon', 54, 100, { width: 230 });
+    const per = 230 / run.str.length;
+    const from = run.str.indexOf('https');
+    const to = from + 'https://ad-wm.github.io/'.length;
+    const pieces = linkRuns([run], [{ x0: 54 + from * per + 3, y0: 92, x1: 54 + to * per - 2, y1: 102, url: 'https://ad-wm.github.io/' }]);
+    const linked = pieces.filter((piece) => piece.href);
+    assert.deepEqual(linked.map((piece) => piece.str), ['https://ad-wm.github.io/']);
+    // Nothing lost or doubled on either side of it.
+    assert.equal(pieces.slice().sort((a, b) => a.x - b.x).map((piece) => piece.str).join(''), run.str);
+  });
+
+  it('keeps a stop that is the address\'s own, where it breaks across two lines', () => {
+    const run = line('Code is at https://example.', 54, 100, { width: 130 });
+    const pieces = linkRuns([run], [{ x0: 54 + 11 * (130 / run.str.length), y0: 92, x1: 184, y1: 102, url: 'https://example.org/sparse' }]);
+    assert.deepEqual(pieces.filter((piece) => piece.href).map((piece) => piece.str), ['https://example.']);
+  });
+
+  it('makes addresses written out in the text links', () => {
+    const spans = linkAddresses([{ text: 'See https://example.org/a_b. Mail me at ada@example.org, or www.example.com.' }]);
+    assert.deepEqual(
+      spans.filter((span) => span.href).map((span) => [span.text, span.href]),
+      [
+        ['https://example.org/a_b', 'https://example.org/a_b'],
+        ['ada@example.org', 'mailto:ada@example.org'],
+        ['www.example.com', 'https://www.example.com'],
+      ],
+    );
+    assert.equal(plain(spans), 'See https://example.org/a_b. Mail me at ada@example.org, or www.example.com.');
+  });
+
+  it('sets a linked span as a link that opens apart from the reader', () => {
+    const layout = layoutPages([
+      page(
+        column(54, 100, ['Code and videos for the paper are at https://ad-wm.github.io/ for all.', 'A second full line of running text, so that the body is measured.', 'And a short one.']),
+        [],
+      ),
+    ]);
+    assert.match(renderHtml(layout, () => null), /<a href="https:\/\/ad-wm\.github\.io\/" target="_blank" rel="noreferrer noopener">https:\/\/ad-wm\.github\.io\/<\/a> for all/);
+  });
+});
+
+describe('page furniture', () => {
+  it('drops a page number set clear under the text, though above the bottom tenth of the page', () => {
+    const runs = [...column(54, 100, ['A paragraph of running text on the page, a full line wide here.', 'And a second full line of running text, so the body is measured.', 'Then a short last line.']), line('7', 300, 699)];
+    const layout = layoutPages([page(runs)]);
+    assert.ok(!texts(layout).includes('7'), texts(layout).join(' | '));
   });
 });
 
