@@ -634,6 +634,8 @@ export default function CollectionView({ view, onOpenPaper, onDiscover }: Props)
         ))}
       </div>
 
+      {/* The papers under the bar fade into a haze, so its actions read clearly over them. */}
+      {selecting ? <div className="selection-haze" aria-hidden="true" /> : null}
       {selecting ? (
         <div className="selection-bar" role="toolbar" aria-label="What to do with the selected papers">
           <span className="selection-count">

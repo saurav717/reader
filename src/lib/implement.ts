@@ -274,6 +274,9 @@ export function stopImplementing() {
 
 export const isImplementing = (paperId: string) => running?.paperId === paperId;
 
+/** Every plan being written or revised right now: what the progress pill outside Explain follows. */
+export const implementationsAtWork = () => Array.from(cache.values()).filter((entry) => entry.streaming || (entry.pending && !entry.pending.error));
+
 /** The system prompt: the instructions, then the paper behind a cache breakpoint, then the reader's machine. */
 function systemFor(screen: Screen) {
   const paper = screen.paper!;
@@ -418,7 +421,7 @@ export async function reviseImplementation(screen: Screen, request: string, scop
   const current = paper && cache.get(paper.id);
   if (!paper || !current?.content || running || current.streaming || !request.trim()) return;
   const before = current.content;
-  const pending = { request: request.trim(), scope, reply: '' };
+  const pending = { request: request.trim(), scope, reply: '', started: Date.now() };
   const update = (patch: Partial<Explanation>) => {
     const next = { ...cache.get(paper.id)!, ...patch };
     cache.set(paper.id, next);

@@ -449,7 +449,7 @@ export interface Explanation {
   /** Requests made from the bar, oldest first; each keeps the page as it was, for Undo. */
   revisions?: Revision[];
   /** A request being answered: the reply so far, shown applied to the page as it streams. */
-  pending?: { request: string; scope: RevisionScope; reply: string; error?: string };
+  pending?: { request: string; scope: RevisionScope; reply: string; error?: string; started?: number };
   /** When the page last changed (ms); what decides between this browser's copy and Drive's. */
   updated?: number;
   /** Every request made of it since it was written, oldest first — kept in Drive with the page. */
@@ -770,7 +770,7 @@ export async function reviseExplanation(screen: Screen, request: string, scope: 
   const current = paper && cache.get(paper.id);
   if (!paper || !current?.content || running || current.streaming || !request.trim()) return;
   const before = current.content;
-  const pending = { request: request.trim(), scope, reply: '' };
+  const pending = { request: request.trim(), scope, reply: '', started: Date.now() };
   const update = (patch: Partial<Explanation>) => {
     const next = { ...cache.get(paper.id)!, ...patch };
     cache.set(paper.id, next);
@@ -848,3 +848,6 @@ export function dismissPending(paperId: string) {
 }
 
 export const isExplaining = (paperId: string) => running?.paperId === paperId;
+
+/** Every page being written or revised right now: what the progress pill outside Explain follows. */
+export const explanationsAtWork = () => Array.from(cache.values()).filter((entry) => entry.streaming || (entry.pending && !entry.pending.error));
