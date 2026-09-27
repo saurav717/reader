@@ -142,6 +142,7 @@ export function toMarkdown(paper: Paper, highlights: Highlight[], collectionName
       for (const highlight of group) {
         if (highlight.section) lines.push(`*${highlight.section}*`, '');
         lines.push(`> ${highlight.exact.replace(/\n+/g, ' ')}`, '');
+        if (highlight.style === 'underline') lines.push('`underlined`', '');
         if (highlight.note) lines.push(highlight.note, '');
         if (highlight.orphaned) lines.push('`could no longer be located in the text`', '');
       }

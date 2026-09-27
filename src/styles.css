@@ -20,6 +20,10 @@
   --hl-green: #cfe6d8;
   --hl-blue: #c9ddf2;
   --hl-pink: #f6d8dc;
+  --ul-yellow: #c9a400;
+  --ul-green: #3c9160;
+  --ul-blue: #3a78bd;
+  --ul-pink: #c9566c;
   --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
   --serif: 'Newsreader', Georgia, 'Times New Roman', serif;
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
@@ -57,6 +61,10 @@
   --hl-green: rgba(169, 214, 184, 0.26);
   --hl-blue: rgba(156, 194, 230, 0.26);
   --hl-pink: rgba(235, 178, 184, 0.26);
+  --ul-yellow: #e8cc4a;
+  --ul-green: #7cc79a;
+  --ul-blue: #7fb2e6;
+  --ul-pink: #e88a9c;
   --win-rgb: 29 31 37;
   --win-edge: 255 255 255;
   --win-edge-a: 0.13;
@@ -480,6 +488,16 @@ mark.hl-blue { background: var(--hl-blue); }
 mark.hl-pink { background: var(--hl-pink); }
 mark.hl[data-has-note='true'] { box-shadow: 0 1.5px 0 var(--muted); }
 mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
+/* Underlined rather than painted over: the colour goes into the line. */
+mark.hl.hl-underline {
+  background: transparent; padding: 0; border-radius: 0;
+  text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; text-decoration-skip-ink: none;
+}
+mark.hl-underline.hl-yellow { text-decoration-color: var(--ul-yellow); }
+mark.hl-underline.hl-green { text-decoration-color: var(--ul-green); }
+mark.hl-underline.hl-blue { text-decoration-color: var(--ul-blue); }
+mark.hl-underline.hl-pink { text-decoration-color: var(--ul-pink); }
+mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-style: double; }
 
 .selection-toolbar {
   position: fixed;
@@ -1718,6 +1736,28 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 .pdf-text br::selection { background: transparent; }
 .pdf-text .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; user-select: none; }
 .pdf-text.selecting .endOfContent { top: 0; }
+/* Highlights on the PDF's own pages: boxes laid between the picture and its
+   text layer, multiplied into the page so the print shows through. The page
+   is white in either theme, so the colours are the light theme's. */
+/* The layer is what multiplies: a blend set on each box would only blend
+   inside the layer's own stacking context, over nothing. */
+.pdf-marks { position: absolute; inset: 0; pointer-events: none; z-index: 0; mix-blend-mode: multiply; }
+.pdf-mark { position: absolute; border-radius: 2px; }
+.pdf-mark.hl-yellow { background: #f7e27a; }
+.pdf-mark.hl-green { background: #b5e0c3; }
+.pdf-mark.hl-blue { background: #b3d2f0; }
+.pdf-mark.hl-pink { background: #f2bcc4; }
+.pdf-mark.hl-underline { background: none; border-radius: 0; border-bottom: 2px solid; }
+.pdf-mark.hl-underline.hl-yellow { border-color: #c9a400; }
+.pdf-mark.hl-underline.hl-green { border-color: #3c9160; }
+.pdf-mark.hl-underline.hl-blue { border-color: #3a78bd; }
+.pdf-mark.hl-underline.hl-pink { border-color: #c9566c; }
+.pdf-mark.is-selected { box-shadow: 0 0 0 2px var(--accent); }
+
+/* The style a selection is marked in: painted over, or underlined. */
+.selection-toolbar .mark-style { font-family: var(--serif); font-size: 15px; text-decoration: underline; text-underline-offset: 3px; }
+.selection-toolbar .mark-style[aria-pressed='true'] { background: rgba(255, 255, 255, 0.24); }
+.selection-toolbar .swatch.is-underline { height: 0; border-radius: 0; border-bottom: 3px solid; margin-top: 8px; background: none !important; }
 
 /* ------------------------------------------------------------ ask claude -- */
 /* A window over the reader rather than a column beside it: dragged by its

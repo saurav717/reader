@@ -11,26 +11,9 @@
  * A quote that is not there whole — Claude tidied a word, or it runs across
  * a figure — is found by its longest run of words that is.
  */
-import { buildIndex, rangeFromOffsets } from './anchor';
+import { buildIndex, rangeFromOffsets, squash } from './anchor';
 
-const LIGATURES: Record<string, string> = { 'ﬀ': 'ff', 'ﬁ': 'fi', 'ﬂ': 'fl', 'ﬃ': 'ffi', 'ﬄ': 'ffl', 'ﬅ': 'st', 'ﬆ': 'st' };
-const KEEP = /[\p{L}\p{N}]/u;
-
-/** Letters and digits only, lower-cased, with where each came from. */
-export function squash(text: string): { text: string; at: number[] } {
-  let out = '';
-  const at: number[] = [];
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    const expanded = LIGATURES[char] ?? char;
-    for (const piece of expanded.normalize('NFKD')) {
-      if (!KEEP.test(piece)) continue;
-      out += piece.toLowerCase();
-      at.push(i);
-    }
-  }
-  return { text: out, at };
-}
+export { squash };
 
 const words = (quote: string) => quote.split(/\s+/).map((word) => squash(word).text).filter(Boolean);
 

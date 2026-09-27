@@ -1758,8 +1758,18 @@ between the HTML and abstract views, and a new arXiv version of the same paper. 
 numeric offset is kept only to break ties between several identical quotes. When a
 quote genuinely cannot be found, the note is kept and flagged rather than dropped.
 
-In the reader: select text, then click a colour or press `1`–`4`; `N` highlights and
-opens a note. `H` — or `⌘⇧\`, which works while typing too — opens and
+The same highlights are drawn on the PDF's own pages. There the quote is looked
+for in the text of the whole PDF, as letters and digits only — the PDF's text
+layer runs lines together, keeps a word's line-break hyphen and writes ligatures
+as one character — and a passage running onto the next page is marked on both
+(`src/lib/pdfMarks.ts`). A highlight made on the PDF is found in Reflow mode the
+same way, so either mode shows what was marked in the other, and both are saved
+with the paper to Drive (and GitHub) as one annotation list.
+
+In the reader, in Reflow or PDF mode: select text, then click a colour or press
+`1`–`4`; `U` (or the **U** button) switches the colours to underlining and back;
+`N` highlights and opens a note. A mark's **U** in the highlights pane turns a
+highlight into an underline and back. `H` — or `⌘⇧\`, which works while typing too — opens and
 closes the highlights and notes; see
 [Notes beside the page, or in a window](#notes-beside-the-page-or-in-a-window).
 `⌘K` / `Ctrl-K` opens the palette, which searches your library and arXiv together.
@@ -2217,6 +2227,11 @@ back onto the page, press Escape, or tap anywhere off them, and they slide away
 again. A pointer resting at the edge that brought a pane out keeps it out, even
 in the glass theme, where the panes stand a little in from the edge. A pane with the cursor in its search box stays out until you leave the
 box. **Z** again leaves zen mode. It is remembered, so a reload comes back to it.
+
+**F** (or the four-corners button beside zen's) goes further: the paper takes
+the whole screen, the browser's own tabs and bars gone as they are for a film,
+in Reflow or PDF mode. It turns zen mode on with it, and **F** or Escape
+leaves both, putting zen back as it was.
 
 ![zen mode over a PDF read as a book: the dock out at the right edge, its shadow falling across the page](docs/zen.png)
 

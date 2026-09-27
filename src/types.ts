@@ -151,6 +151,9 @@ export interface Collection {
 
 export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink';
 
+/** A passage painted over, or a line drawn under it. */
+export type HighlightStyle = 'highlight' | 'underline';
+
 /**
  * A W3C-Web-Annotation-shaped text quote selector. `hint` is only used to
  * break ties between identical quotes — never as the primary anchor.
@@ -159,6 +162,8 @@ export interface Highlight {
   id: string;
   paperId: string;
   color: HighlightColor;
+  /** Absent on highlights made before underlining was offered: they are highlights. */
+  style?: HighlightStyle;
   exact: string;
   prefix: string;
   suffix: string;

@@ -6,6 +6,12 @@
  * switch between the HTML and abstract views, and a new arXiv version of the
  * same paper. The numeric offset is kept only to break ties between several
  * identical quotes.
+ *
+ * The same highlight is shown in Reflow mode and on the PDF's own pages, and
+ * the two texts differ in everything but the words: the PDF's text layer runs
+ * lines together with no space, keeps a word's line-break hyphen, and spells
+ * ligatures as one character. So a quote not found as it was written is found
+ * again as letters and digits only (see `squash`).
  */
 import type { Highlight } from '../types';
 
@@ -37,7 +43,7 @@ export function buildIndex(root: HTMLElement): TextIndex {
   return { text, nodes };
 }
 
-function offsetOf(index: TextIndex, node: Node, offset: number): number | null {
+export function offsetOf(index: TextIndex, node: Node, offset: number): number | null {
   for (const entry of index.nodes) {
     if (entry.node === node) return entry.start + offset;
   }
@@ -84,8 +90,67 @@ function commonPrefixLength(a: string, b: string): number {
   return count;
 }
 
+const LIGATURES: Record<string, string> = { 'ﬀ': 'ff', 'ﬁ': 'fi', 'ﬂ': 'fl', 'ﬃ': 'ffi', 'ﬄ': 'ffl', 'ﬅ': 'st', 'ﬆ': 'st' };
+const KEEP = /[\p{L}\p{N}]/u;
+
+/** Letters and digits only, lower-cased, with where each came from. */
+export function squash(text: string): { text: string; at: number[] } {
+  let out = '';
+  const at: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const expanded = LIGATURES[char] ?? char;
+    for (const piece of expanded.normalize('NFKD')) {
+      if (!KEEP.test(piece)) continue;
+      out += piece.toLowerCase();
+      at.push(i);
+    }
+  }
+  return { text: out, at };
+}
+
+/** The text last squashed, kept: every highlight of a paper is looked for in the same text. */
+let squashed: { source: string; flat: ReturnType<typeof squash> } | null = null;
+function squashOnce(text: string) {
+  if (squashed?.source !== text) squashed = { source: text, flat: squash(text) };
+  return squashed.flat;
+}
+
+/**
+ * The quote found as letters and digits only — in the other mode's text, or
+ * a new rendering of the same one — with its neighbours compared the same
+ * way to choose between repeats.
+ */
+function resolveLoosely(text: string, selector: Selector): { start: number; end: number } | null {
+  const exact = squash(selector.exact).text;
+  if (!exact) return null;
+  const flat = squashOnce(text);
+  const candidates: number[] = [];
+  let at = flat.text.indexOf(exact);
+  while (at !== -1 && candidates.length < 5000) {
+    candidates.push(at);
+    at = flat.text.indexOf(exact, at + 1);
+  }
+  if (!candidates.length) return null;
+  const prefix = squash(selector.prefix).text;
+  const suffix = squash(selector.suffix).text;
+  let best = candidates[0];
+  let bestScore = -Infinity;
+  for (const candidate of candidates) {
+    const before = flat.text.slice(Math.max(0, candidate - prefix.length), candidate);
+    const after = flat.text.slice(candidate + exact.length, candidate + exact.length + suffix.length);
+    const start = flat.at[candidate];
+    const score = (commonSuffixLength(before, prefix) + commonPrefixLength(after, suffix)) * 1000 - Math.min(1000, Math.abs(start - selector.hint)) / 1000;
+    if (score > bestScore) {
+      bestScore = score;
+      best = candidate;
+    }
+  }
+  return { start: flat.at[best], end: flat.at[best + exact.length - 1] + 1 };
+}
+
 /** Best match for a selector, or null when the quote is gone from the text. */
-export function resolveSelector(index: TextIndex, selector: Selector): { start: number; end: number } | null {
+export function resolveSelector(index: Pick<TextIndex, 'text'>, selector: Selector): { start: number; end: number } | null {
   const { text } = index;
   if (!selector.exact) return null;
 
@@ -95,7 +160,7 @@ export function resolveSelector(index: TextIndex, selector: Selector): { start: 
     candidates.push(at);
     at = text.indexOf(selector.exact, at + 1);
   }
-  if (!candidates.length) return null;
+  if (!candidates.length) return resolveLoosely(text, selector);
   if (candidates.length === 1) {
     return { start: candidates[0], end: candidates[0] + selector.exact.length };
   }
@@ -161,7 +226,7 @@ export function paint(index: TextIndex, start: number, end: number, highlight: H
     if (slice.from > 0) target = target.splitText(slice.from);
     if (!target.data) continue;
     const mark = document.createElement('mark');
-    mark.className = `hl hl-${highlight.color}`;
+    mark.className = `hl hl-${highlight.color}${highlight.style === 'underline' ? ' hl-underline' : ''}`;
     mark.dataset.highlightId = highlight.id;
     if (highlight.note) mark.dataset.hasNote = 'true';
     target.parentNode?.replaceChild(mark, target);

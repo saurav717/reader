@@ -306,12 +306,31 @@ export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, on
                             style={isSelected ? { borderColor: 'var(--accent)', boxShadow: '0 0 0 1px var(--accent)' } : undefined}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
-                              <span className="dot" style={{ background: colour?.swatch }} />
+                              <span
+                                className="dot"
+                                style={
+                                  highlight.style === 'underline'
+                                    ? { background: 'none', borderRadius: 0, height: 0, borderBottom: `3px solid ${colour?.swatch}` }
+                                    : { background: colour?.swatch }
+                                }
+                              />
                               <span style={{ fontSize: 10.5, color: 'var(--muted)' }}>
                                 {new Date(highlight.createdAt).toLocaleDateString()}
+                                {highlight.style === 'underline' ? ' · underlined' : ''}
                                 {orphaned ? ' · not found in text' : ''}
                               </span>
                               <span style={{ flexGrow: 1 }} />
+                              <button
+                                type="button"
+                                className="icon-btn sm"
+                                style={{ width: 24, height: 24, fontFamily: 'var(--serif)', fontSize: 13, textDecoration: 'underline', textUnderlineOffset: 3 }}
+                                aria-pressed={highlight.style === 'underline'}
+                                aria-label={highlight.style === 'underline' ? 'Highlight this instead of underlining it' : 'Underline this instead of highlighting it'}
+                                title={highlight.style === 'underline' ? 'Highlight instead' : 'Underline instead'}
+                                onClick={() => void updateHighlight(highlight.id, { style: highlight.style === 'underline' ? 'highlight' : 'underline' })}
+                              >
+                                U
+                              </button>
                               <button
                                 type="button"
                                 className="icon-btn sm"
