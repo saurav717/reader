@@ -1,8 +1,10 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch, hasProxy } from '../lib/api';
 import AiUsage, { ROW_HEIGHT, ROWS_IN_VIEW, SearchBox, SortControl, SortHeading, card, cardHead, cardTitle, useSort } from './AiUsage';
 import type { SortOption } from './AiUsage';
 import { ChartIcon, ChevronDownIcon, ChevronRightIcon, RestoreIcon } from './icons';
+import { KEEP_DAYS, addDays, dayOf, daysSpanned, resolvePeriod, sliceReport } from '../lib/usagePeriod';
+import type { AiPeriod } from '../lib/usagePeriod';
 
 /** One person's counts, as the Worker's `/usage` reports them (worker/usage.js). */
 interface Counts {
@@ -120,7 +122,15 @@ export const REFRESH_MS = 30_000;
 
 export default function UsageView() {
   const [days, setDays] = useState(30);
-  const [report, setReport] = useState<UsageReport | null | undefined>(undefined);
+  // The AI credits' own period; the page's until another is picked there.
+  const [aiPeriod, setAiPeriod] = useState<AiPeriod>({ preset: 'page', from: '', to: null });
+  const today = dayOf(Date.now());
+  const aiRange = resolvePeriod(aiPeriod, days, today);
+  // One ask covers both: back far enough for the page's period and the AI credits'.
+  const asked = Math.min(KEEP_DAYS, Math.max(days, daysSpanned(aiRange.since, today)));
+  const [full, setReport] = useState<UsageReport | null | undefined>(undefined);
+  const report = useMemo(() => (full ? sliceReport(full, addDays(full.until, -(days - 1)), full.until) : full), [full, days]);
+  const aiReport = useMemo(() => (full ? sliceReport(full, aiRange.since, aiRange.until) : full), [full, aiRange.since, aiRange.until]);
   const [open, setOpen] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   // Most Scholar asks first, as the Worker orders it, until another order is picked.
@@ -129,11 +139,12 @@ export default function UsageView() {
   const [refreshing, setRefreshing] = useState(false);
   // The period of the answer being waited for, so an answer for a period
   // since changed is dropped rather than shown under the new one.
-  const asking = useRef(days);
+  const asking = useRef(asked);
 
   /**
    * Ask the proxy again. A refresh keeps the table on screen while it waits;
-   * only a new period starts from "Asking…". A refresh that fails keeps the
+   * only the first ask starts from "Asking…" — a new period is cut from the
+   * last answer until the next one is in. A refresh that fails keeps the
    * last numbers rather than blanking them.
    */
   const load = useCallback(async (period: number, fresh: boolean) => {
@@ -152,9 +163,11 @@ export default function UsageView() {
     }
   }, []);
 
+  const first = useRef(true);
   useEffect(() => {
-    void load(days, true);
-  }, [days, load]);
+    void load(asked, first.current);
+    first.current = false;
+  }, [asked, load]);
 
   // Every thirty seconds while the page is open and the tab is in view — a
   // hidden tab asks nothing — and at once on coming back to it, if the
@@ -165,17 +178,17 @@ export default function UsageView() {
   useEffect(() => {
     const visible = () => typeof document === 'undefined' || document.visibilityState === 'visible';
     const timer = setInterval(() => {
-      if (visible()) void load(days, false);
+      if (visible()) void load(asked, false);
     }, REFRESH_MS);
     const onVisibility = () => {
-      if (visible() && Date.now() - lastAsked.current >= REFRESH_MS) void load(days, false);
+      if (visible() && Date.now() - lastAsked.current >= REFRESH_MS) void load(asked, false);
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [days, load]);
+  }, [asked, load]);
 
   const cell = { padding: '0 12px', height: ROW_HEIGHT, textAlign: 'right' as const, whiteSpace: 'nowrap' as const };
   const rule = '1px solid var(--border-soft)';
@@ -202,7 +215,7 @@ export default function UsageView() {
           <button
             type="button"
             className="btn sm"
-            onClick={() => void load(days, false)}
+            onClick={() => void load(asked, false)}
             disabled={refreshing}
             aria-label="Refresh"
             title="Refresh now"
@@ -233,104 +246,108 @@ export default function UsageView() {
           <p style={{ fontSize: 13, color: 'var(--muted)' }}>Asking the proxy…</p>
         ) : report === null ? (
           <p className="banner error">The proxy did not answer with the tally. Sign in again, or check that your email is in READER_OWNERS.</p>
-        ) : !report.people.length ? (
-          <p style={{ fontSize: 14 }}>Nobody has used the paid features in this period.</p>
         ) : (
           <>
-            <div style={card}>
-              <div style={cardHead}>
-                <h3 style={cardTitle}>Services</h3>
-                <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
-                  {shown.length === report.people.length ? report.people.length : `${shown.length} of ${report.people.length}`}
-                </span>
-                <span style={{ flexGrow: 1 }} />
-                <SortControl options={SERVICE_SORTS} by={sorting.by} dir={sorting.dir} onPick={sorting.pick} onDir={sorting.setDir} />
-                <SearchBox value={query} onChange={setQuery} />
-              </div>
-              <div style={{ maxHeight: ROW_HEIGHT * (ROWS_IN_VIEW + 2) + 2, overflow: 'auto' }}>
-                <table style={{ borderCollapse: 'collapse', fontSize: 13.5, width: '100%' }}>
-                  <thead>
-                    <tr style={{ color: 'var(--muted)' }}>
-                      <SortHeading id="email" label="Who" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={{ ...head, textAlign: 'left' }} />
-                      <SortHeading id="last" label="Last seen" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={head} />
-                      <SortHeading id="days" label="Days" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={head} />
-                      {COUNTED.map(([key, title]) => (
-                        <SortHeading key={key} id={key} label={title} by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={head} />
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {!shown.length ? (
-                      <tr>
-                        <td colSpan={3 + COUNTED.length} style={{ ...cell, textAlign: 'left', color: 'var(--muted)' }}>
-                          No email matches “{query}”.
-                        </td>
-                      </tr>
-                    ) : null}
-                    {shown.map((person) => {
-                      const expanded = open === person.email;
-                      return (
-                        <Fragment key={person.email}>
-                          <tr
-                            onClick={() => setOpen(expanded ? null : person.email)}
-                            style={{ cursor: 'pointer', borderBottom: expanded ? undefined : rule }}
-                            aria-expanded={expanded}
-                            title={expanded ? 'Hide their days' : 'Show each day'}
-                          >
-                            <td style={{ ...cell, textAlign: 'left' }}>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                                {expanded ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
-                                {person.email}
-                              </span>
+            {!report.people.length ? (
+              <p style={{ fontSize: 14 }}>Nobody has used the paid features in this period.</p>
+            ) : (
+              <>
+                <div style={card}>
+                  <div style={cardHead}>
+                    <h3 style={cardTitle}>Services</h3>
+                    <span style={{ fontSize: 12.5, color: 'var(--muted)' }}>
+                      {shown.length === report.people.length ? report.people.length : `${shown.length} of ${report.people.length}`}
+                    </span>
+                    <span style={{ flexGrow: 1 }} />
+                    <SortControl options={SERVICE_SORTS} by={sorting.by} dir={sorting.dir} onPick={sorting.pick} onDir={sorting.setDir} />
+                    <SearchBox value={query} onChange={setQuery} />
+                  </div>
+                  <div style={{ maxHeight: ROW_HEIGHT * (ROWS_IN_VIEW + 2) + 2, overflow: 'auto' }}>
+                    <table style={{ borderCollapse: 'collapse', fontSize: 13.5, width: '100%' }}>
+                      <thead>
+                        <tr style={{ color: 'var(--muted)' }}>
+                          <SortHeading id="email" label="Who" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={{ ...head, textAlign: 'left' }} />
+                          <SortHeading id="last" label="Last seen" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={head} />
+                          <SortHeading id="days" label="Days" by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={head} />
+                          {COUNTED.map(([key, title]) => (
+                            <SortHeading key={key} id={key} label={title} by={sorting.by} dir={sorting.dir} onPick={sorting.pick} style={head} />
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {!shown.length ? (
+                          <tr>
+                            <td colSpan={3 + COUNTED.length} style={{ ...cell, textAlign: 'left', color: 'var(--muted)' }}>
+                              No email matches “{query}”.
                             </td>
-                            <td style={cell}>{ago(person.last)}</td>
-                            <td style={cell}>{person.days}</td>
-                            {COUNTED.map(([key]) => (
-                              <td key={key} style={cell}>
-                                {person.total[key] || 0}
-                              </td>
-                            ))}
                           </tr>
-                          {expanded
-                            ? (person.daily || []).map((day, index, all) => (
-                                <tr
-                                  key={day.day}
-                                  style={{ color: 'var(--muted)', fontSize: 12.5, borderBottom: index === all.length - 1 ? rule : undefined }}
-                                >
-                                  <td style={{ ...cell, textAlign: 'left', paddingLeft: 32 }}>{day.day}</td>
-                                  <td style={cell} />
-                                  <td style={cell} />
-                                  {COUNTED.map(([key]) => (
-                                    <td key={key} style={cell}>
-                                      {day[key] || 0}
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))
-                            : null}
-                        </Fragment>
-                      );
-                    })}
-                    <tr style={{ fontWeight: 600 }}>
-                      <td style={{ ...foot, textAlign: 'left' }}>{needle ? `All ${report.people.length} people` : 'All'}</td>
-                      <td style={foot} />
-                      <td style={foot} />
-                      {COUNTED.map(([key]) => (
-                        <td key={key} style={foot}>
-                          {report.totals[key] || 0}
-                        </td>
-                      ))}
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 14, lineHeight: 1.6 }}>
-              Click a person for each day. Serply credits and SerpApi searches are what each service charged; answers
-              from the proxy’s five-minute cache cost nothing. Counted by your Worker, kept ninety days; this page asks
-              again every thirty seconds while it is open.
-            </p>
-            <AiUsage report={report} />
+                        ) : null}
+                        {shown.map((person) => {
+                          const expanded = open === person.email;
+                          return (
+                            <Fragment key={person.email}>
+                              <tr
+                                onClick={() => setOpen(expanded ? null : person.email)}
+                                style={{ cursor: 'pointer', borderBottom: expanded ? undefined : rule }}
+                                aria-expanded={expanded}
+                                title={expanded ? 'Hide their days' : 'Show each day'}
+                              >
+                                <td style={{ ...cell, textAlign: 'left' }}>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                    {expanded ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
+                                    {person.email}
+                                  </span>
+                                </td>
+                                <td style={cell}>{ago(person.last)}</td>
+                                <td style={cell}>{person.days}</td>
+                                {COUNTED.map(([key]) => (
+                                  <td key={key} style={cell}>
+                                    {person.total[key] || 0}
+                                  </td>
+                                ))}
+                              </tr>
+                              {expanded
+                                ? (person.daily || []).map((day, index, all) => (
+                                    <tr
+                                      key={day.day}
+                                      style={{ color: 'var(--muted)', fontSize: 12.5, borderBottom: index === all.length - 1 ? rule : undefined }}
+                                    >
+                                      <td style={{ ...cell, textAlign: 'left', paddingLeft: 32 }}>{day.day}</td>
+                                      <td style={cell} />
+                                      <td style={cell} />
+                                      {COUNTED.map(([key]) => (
+                                        <td key={key} style={cell}>
+                                          {day[key] || 0}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))
+                                : null}
+                            </Fragment>
+                          );
+                        })}
+                        <tr style={{ fontWeight: 600 }}>
+                          <td style={{ ...foot, textAlign: 'left' }}>{needle ? `All ${report.people.length} people` : 'All'}</td>
+                          <td style={foot} />
+                          <td style={foot} />
+                          {COUNTED.map(([key]) => (
+                            <td key={key} style={foot}>
+                              {report.totals[key] || 0}
+                            </td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 14, lineHeight: 1.6 }}>
+                  Click a person for each day. Serply credits and SerpApi searches are what each service charged; answers
+                  from the proxy’s five-minute cache cost nothing. Counted by your Worker, kept ninety days; this page asks
+                  again every thirty seconds while it is open.
+                </p>
+              </>
+            )}
+            {aiReport ? <AiUsage report={aiReport} period={aiPeriod} range={aiRange} onPeriod={setAiPeriod} /> : null}
           </>
         )}
       </div>
