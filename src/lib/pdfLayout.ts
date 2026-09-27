@@ -61,6 +61,8 @@ export interface PageInput {
   links?: PageLink[];
   /** Text set sideways, by its box: a table's labels for groups of rows, the arXiv stamp. */
   sideways?: SidewaysRun[];
+  /** How far the page was turned, clockwise, to be read: a table set sideways on it. */
+  turned?: 90 | 270;
 }
 
 /** A run of text set sideways, and the box it fills on the page. */
@@ -79,6 +81,8 @@ export interface SidewaysRun {
 export interface Crop {
   id: number;
   page: number;
+  /** The page turned so, clockwise, as it was read: the box is on the page turned. */
+  turned?: 90 | 270;
   x0: number;
   y0: number;
   x1: number;
@@ -230,6 +234,8 @@ interface Line {
   caption?: { kind: 'figure' | 'table'; label: string };
   /** The caption's first line, on the lines that carry it on. */
   captionOf?: Line;
+  /** A heading set in the text's own type, on a line of its own with space over it: "Early fusion". */
+  subheading?: boolean;
 }
 
 const norm = (text: string): string => text.replace(/\s+/g, ' ').trim();
@@ -587,6 +593,8 @@ function buildLines(page: PageInput): Line[] {
     const width = box.x1 - box.x0;
     const height = box.y1 - box.y0;
     if (width < 1 || height < 1 || width > 6 || height > 6) continue;
+    // Alone, as a bullet is: not one piece of a badge drawn of many — a licence's logo.
+    if (page.graphics.some((other) => other !== box && other.x0 < box.x1 + 3 && other.x1 > box.x0 - 3 && other.y0 < box.y1 + 3 && other.y1 > box.y0 - 3)) continue;
     const item = lines.find(
       (line) => line.x0 - box.x1 >= 0 && line.x0 - box.x1 < 3 * line.size && box.y1 > line.baseline - 0.8 * line.size && box.y0 < line.baseline,
     );
@@ -1349,7 +1357,8 @@ function paragraphs(ordered: Line[], measures: Measures, columns: Map<Line, numb
       const em = Math.max(line.size, previous.size);
       const listItem = BULLET.test(current.lines[0].text) || NUMBERED.test(current.lines[0].text);
       const headed = [headingLine(previous, measures, current.columnLeft), headingLine(line, measures, columnLeft)];
-      if (line.captionOf && current.lines.includes(line.captionOf)) fresh = false;
+      if (line.subheading || previous.subheading) fresh = true;
+      else if (line.captionOf && current.lines.includes(line.captionOf)) fresh = false;
       // A caption starts a paragraph of its own, even beside another on its
       // baseline: "Table 8: …" and "Table 9: …" set side by side.
       else if (line.caption) fresh = true;
@@ -1631,6 +1640,13 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
   // heading, "Qwen2-1.5B- / Instruct" in the body — is one cell: a row set
   // tight under the one before, with words only under that row's cells.
   const words = (entry: Entry) => !VALUE(plain(entry.spans));
+  // A table whose records are parted by space, and whose cells run on to
+  // lines of their own set tight under them — a review's table of studies
+  // — has two pitches: a line's, and a record's.
+  const baselineOf = (row: Entry[]) => Math.min(...row.map((entry) => entry.line.baseline));
+  const pitches = grid.slice(1).map((row, index) => (row.length && grid[index].length ? baselineOf(row) - Math.max(...grid[index].map((entry) => entry.bottom)) : 0)).filter((pitch) => pitch > 0);
+  const step = pitches.length ? Math.min(...pitches) : 0;
+  const recordGapped = step > 0 && pitches.filter((pitch) => pitch > 1.25 * step).length >= 2 && pitches.filter((pitch) => pitch <= 1.1 * step).length >= 2;
   for (let at = 1; at < grid.length; at += 1) {
     const firstFigures = grid.findIndex((row) => row.some((entry) => !words(entry)));
     const row = grid[at];
@@ -1651,15 +1667,41 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
         continue;
       }
     }
+    // Where no row holds a figure — "O(n² · d)" is not one — the heading ends
+    // at the rule under it, or with its second line.
+    const headRule = rules.map((rule) => rule.y).filter((y) => y > grid[0][0].line.baseline).sort((a, b) => a - b)[0];
+    const heading = firstFigures >= 0 ? at <= firstFigures : headRule !== undefined ? row[0].line.baseline < headRule : at === 1;
+    // In a table of records parted by space, a row set a line's pitch under
+    // the one before, sparser than a record and mostly words, is its cells' turnovers.
+    const turnover =
+      recordGapped &&
+      !heading &&
+      row.length > 0 &&
+      above.length > 0 &&
+      baselineOf(row) - Math.max(...above.map((entry) => entry.bottom)) <= 1.15 * step &&
+      row.length <= Math.max(1, 0.8 * columns.length) &&
+      row.filter(words).length >= Math.max(1, row.length / 2);
+    if (turnover) {
+      for (const entry of row) {
+        const cell = above.find((other) => other.first <= entry.last && other.last >= entry.first);
+        if (cell) {
+          const broken = /\p{L}-$/u.test(plain(cell.spans));
+          cell.spans = [...cell.spans, ...(broken ? [] : [{ text: ' ' }]), ...entry.spans];
+          cell.bottom = Math.max(cell.bottom, entry.line.baseline);
+        } else {
+          above.push({ ...entry });
+          above.sort((a, b) => a.first - b.first);
+        }
+      }
+      grid.splice(at, 1);
+      at -= 1;
+      continue;
+    }
     if (!row.length || !above.length || !row.every(words)) continue;
     const under = row.map((entry) => above.find((other) => other.first === entry.first && other.last === entry.last));
     if (under.some((other) => !other)) continue;
     // Set tight under the last line of the cell above: a line's pitch, not a row's.
     if (row.some((entry, index) => entry.line.baseline - under[index]!.bottom > 1.3 * entry.line.size)) continue;
-    // Where no row holds a figure — "O(n² · d)" is not one — the heading ends
-    // at the rule under it, or with its second line.
-    const headRule = rules.map((rule) => rule.y).filter((y) => y > grid[0][0].line.baseline).sort((a, b) => a - b)[0];
-    const heading = firstFigures >= 0 ? at <= firstFigures : headRule !== undefined ? row[0].line.baseline < headRule : at === 1;
     const runsOn = row.every((entry, index) => /-$/.test(plain(under[index]!.spans)) || /^\p{Ll}/u.test(plain(entry.spans)));
     if (!heading && !(runsOn && row.length <= Math.max(1, columns.length / 2))) continue;
     row.forEach((entry, index) => {
@@ -1995,6 +2037,7 @@ export function tableOf(lines: Line[], caption?: Line, rules: TableRule[] = []):
  */
 function headingLine(line: Line, measures: Measures, columnLeft: number): boolean {
   if (line.caption || line.captionOf || line.mathShare > 0.2) return false;
+  if (line.subheading) return true;
   if (Math.abs(line.size - measures.bodySize) > 1.2) return false;
   const text = line.text;
   if (text.length > 90 || /[.,;:]$/.test(text)) return false;
@@ -2009,6 +2052,35 @@ function headingLine(line: Line, measures: Measures, columnLeft: number): boolea
   // An italic "A. Name" at the column's edge: a subsection.
   if (line.allItalic && /^[A-Z]\.\s+\p{Lu}/u.test(text) && words.length <= 10 && line.x0 - columnLeft < line.size * 0.5 && line.x1 - line.x0 < measures.columnWidth * 0.85) return true;
   return false;
+}
+
+/**
+ * Headings set in the text's own type — neither larger nor bolder, as
+ * Nature's journals set their subsections: "Early fusion", "Limitations".
+ * A short line, starting with a capital and not ending a sentence, with
+ * space over it, and a full line of text under it at its own left edge.
+ */
+function markSubheadings(ordered: Line[], columns: Map<Line, number>, measures: Measures): void {
+  const em = measures.bodySize;
+  for (const line of ordered) {
+    if (line.caption || line.captionOf || line.taken || line.mathShare > 0.1 || Math.abs(line.size - em) > 0.6) continue;
+    const text = line.text.trim();
+    const words = text.split(/\s+/).length;
+    if (!/^\p{Lu}/u.test(text) || /[.,;:!?)\]]$/.test(text) || words > 10 || line.x1 - line.x0 > 0.7 * measures.columnWidth) continue;
+    // In the text's own type: not bold, not in capitals — those are headings of their own kind.
+    const letters = text.replace(/[^\p{L}]/gu, '');
+    if (line.allBold || (letters.length >= 3 && letters === letters.toUpperCase())) continue;
+    const left = columns.get(line) ?? line.x0;
+    if (line.x0 - left > 0.5 * em) continue;
+    const beside = (other: Line) => other !== line && overlapX(other, line) > 0;
+    const below = ordered.filter((other) => beside(other) && other.baseline > line.baseline + 0.5 * em).sort((a, b) => a.baseline - b.baseline)[0];
+    const above = ordered.filter((other) => beside(other) && other.baseline < line.baseline - 0.5 * em).sort((a, b) => b.baseline - a.baseline)[0];
+    if (!below || below.baseline - line.baseline > 1.8 * em || Math.abs(below.x0 - line.x0) > 0.5 * em || !bodyLike(below, measures)) continue;
+    if (above && line.baseline - above.baseline < 2 * em) continue;
+    // On a line of its own: not a run-in heading, its text going on beside it.
+    if (ordered.some((other) => other !== line && Math.abs(other.baseline - line.baseline) < 0.3 * em && other.x0 >= line.x1 && other.x0 - line.x1 < 3 * em)) continue;
+    line.subheading = true;
+  }
 }
 
 function looksLikeHeading(paragraph: Paragraph, measures: Measures): boolean {
@@ -2078,6 +2150,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
       y0: Math.max(0, region.y0 - pad),
       x1: Math.min(page.width, region.x1 + pad),
       y1: Math.min(page.height, region.y1 + pad),
+      ...(page.turned ? { turned: page.turned } : {}),
     };
     crops.push(found);
     return found;
@@ -2089,7 +2162,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
   let front: Span[][] = [];
   let byline: PaperByline | undefined;
   let inReferences = false;
-  const headings: { block: Extract<Block, { kind: 'heading' }>; size: number; numbered: number }[] = [];
+  const headings: { block: Extract<Block, { kind: 'heading' }>; size: number; numbered: number; sub?: boolean }[] = [];
   let carry: Extract<Block, { kind: 'paragraph' }> | null = null;
   let carryLast: Line | null = null;
 
@@ -2186,6 +2259,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
       columns.set(line, round(Math.min(line.x0, ...peers.map((other) => other.x0)), 2));
     }
 
+    markSubheadings(ordered, columns, measures);
     let paras = paragraphs(ordered, measures, columns, inReferences);
     // A caption's lines are its own, wherever the reading order put them:
     // one set in a margin beside its table can be read after the table's
@@ -2213,7 +2287,16 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
     // The first page's front matter — title, authors, addresses — is the
     // reader's own heading; the text starts at the abstract.
     if (at === 0) {
-      const abstractAt = paras.findIndex((paragraph, index) => index < 40 && /^abstract\b/i.test(plain(spansOf(paragraph.lines))));
+      let abstractAt = paras.findIndex((paragraph, index) => index < 40 && /^abstract\b/i.test(plain(spansOf(paragraph.lines))));
+      // No "Abstract" over it, as Nature's journals set it: the abstract is
+      // the first paragraph of some length under the authors' names.
+      if (abstractAt < 0) {
+        const named = authorsOnFront(ordered.filter((line) => line.baseline < page.height * 0.5), options.title);
+        const bylineAt = named.length
+          ? paras.findIndex((paragraph, index) => index < 20 && named.some((name) => plain(spansOf(paragraph.lines)).includes(name)))
+          : -1;
+        if (bylineAt >= 0) abstractAt = paras.findIndex((paragraph, index) => index > bylineAt && !paragraph.region && paragraph.lines.length >= 3);
+      }
       frontAuthors = authorsOnFront(
         ordered.filter((line) => line.baseline < (abstractAt > 0 ? paras[abstractAt].lines[0].top : page.height * 0.4)),
         options.title,
@@ -2291,7 +2374,8 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
       if (looksLikeHeading(paragraph, measures)) {
         carry = null;
         const block: Extract<Block, { kind: 'heading' }> = { kind: 'heading', level: 2, spans, page: page.index };
-        headings.push({ block, size: round(paragraph.lines[0].size), numbered: headingDepth(text) });
+        // A heading in the text's own type ranks under those set otherwise, capitals included.
+        headings.push({ block, size: round(paragraph.lines[0].size), numbered: headingDepth(text), sub: paragraph.lines[0].subheading });
         blocks.push(block);
         inReferences = /^(\d+(\.\d+)*\.?\s+)?(references|bibliography)\b/i.test(text);
         continue;
@@ -2403,12 +2487,22 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
 
   // Heading levels: by the numbering's depth where there is one, else by
   // size — the largest headings are sections.
-  const sizes = Array.from(new Set(headings.map((entry) => entry.size))).sort((a, b) => b - a);
+  // A heading set in the text's own type is one level under the section
+  // heading before it, whatever size that one is set in.
+  const sizes = Array.from(new Set(headings.filter((entry) => !entry.sub).map((entry) => entry.size))).sort((a, b) => b - a);
+  let section: 2 | 3 | 4 = 2;
+  let seen = false;
   for (const entry of headings) {
-    const rank = sizes.indexOf(entry.size);
+    if (entry.sub && !entry.numbered) {
+      entry.block.level = (seen ? Math.min(4, section + 1) : 2) as 2 | 3 | 4;
+      continue;
+    }
+    const rank = Math.max(0, sizes.indexOf(entry.size));
     const byNumber = entry.numbered ? Math.min(4, entry.numbered + 1) : 0;
     const bySize = Math.min(4, 2 + rank);
     entry.block.level = (byNumber || bySize) as 2 | 3 | 4;
+    section = entry.block.level;
+    seen = true;
   }
 
   if (byline) contributionsSection(byline, blocks);
@@ -2493,10 +2587,10 @@ export function bylinePieces(text: string): string[] {
 const AUTHOR_NOTE = /contribut|correspond|equal|intern|work (?:was )?done|project lead|advis|lead author|first author|supervis|while at|now at|e-?mail|on leave/i;
 /** Words that make a line a place: a university, a lab, a company. */
 const INSTITUTION = /univ|institut|college|school|department|\bdept\b|faculty|laborator|\blabs?\b|cent(?:er|re)\b|research|\binc\b|\bltd\b|\bcorp|company|hospital|academy|foundation|google|microsoft|\bmeta\b|deepmind|openai|anthropic|amazon|apple|nvidia|\bibm\b|adobe|intel|samsung|polytechn|politecnico|hochschule|\bETH\b|\bEPFL\b|\bMIT\b|\bCNRS\b|\bINRIA\b/i;
-const MARK = /^[∗*†‡§¶♯♮⋆#]+$/;
+const MARK = /^[∗*†‡§¶♯♮⋆#✉]+$/;
 
 /** A mark's characters, one mark each: "1∗" is 1 and ∗, "∗,†" is ∗ and †. */
-const marksOf = (text: string): string[] => (text.replace(/\*/g, '∗').match(/\d+|[a-z](?![a-z])|[∗†‡§¶♯♮⋆#]/gi) || []).filter(Boolean);
+const marksOf = (text: string): string[] => (text.replace(/\*/g, '∗').match(/\d+|[a-z](?![a-z])|[∗†‡§¶♯♮⋆#✉]/gi) || []).filter(Boolean);
 
 /**
  * A line of names read as its authors and their marks — "Jiabin Qiu∗,
@@ -2509,12 +2603,13 @@ function namesWithMarks(spans: Span[]): { name: string; marks: string[] }[] {
   const finish = () => {
     let name = current.name.replace(/\s+/g, ' ').trim();
     // Marks set in line: "Jiabin Qiu*", "Ada Lindqvist1".
-    const inline = /([\d∗*†‡§¶⋆#,]+)$/.exec(name);
+    const inline = /([\d∗*†‡§¶⋆#✉,\s]+)$/.exec(name);
     if (inline && /\p{L}/u.test(name.slice(0, inline.index))) {
       current.marks.push(...marksOf(inline[1]));
       name = name.slice(0, inline.index).trim();
     }
-    if (name) out.push({ name, marks: Array.from(new Set(current.marks)) });
+    // Marks with no name before them are the previous name's: kept for the caller to put there.
+    if (name || current.marks.length) out.push({ name, marks: Array.from(new Set(current.marks)) });
     current = { name: '', marks: [] };
   };
   for (const span of spans) {
@@ -2550,7 +2645,7 @@ function markedPieces(spans: Span[]): { marks: string[]; text: string }[] {
       continue;
     }
     // Symbols set in line at the head of a piece: "*Equal contribution".
-    const parts = text.split(/(?:^|\s)([∗*†‡§¶])(?=\S)/);
+    const parts = text.split(/(?:^|\s)([∗*†‡§¶✉])(?=\S)/);
     parts.forEach((part, index) => {
       if (index % 2 === 1) {
         current = { marks: marksOf(part), text: '' };
@@ -2621,12 +2716,18 @@ const foldName = (text: string): string =>
 /** A note cut into its sentences, not at an initial's stop: "Aidan N. Gomez" is one. */
 const sentencesOf = (text: string): string[] =>
   text
-    .split(/(?<=[\p{Ll}\p{N})\]]{2}[.!?])\s+(?=[\p{Lu}\p{N}])/u)
+    .split(/(?<=[\p{Ll}\p{N})\]]{2}[.!?])\s+(?=[\p{Lu}\p{N}])|(?<=\p{Lu}\.)\s+(?=\p{Lu}[\p{Ll}\s,-]{2,100}:)/u)
     .map((sentence) => sentence.trim())
     .filter(Boolean);
 
 /** The authors a sentence names, by their full name, their first name or their surname. */
 function namedIn(sentence: string, authors: BylineAuthor[]): BylineAuthor[] {
+  // Initials, as contributions statements write them: "S.-C.H.", "A.P.", "M.P.L.".
+  const initials = new Set(Array.from(sentence.matchAll(/(?<![\p{L}.])((?:\p{Lu}\.[\s-]*){2,4})(?![\p{L}])/gu), (match) => match[1].replace(/[^\p{Lu}]/gu, '')));
+  const initialsOf = (name: string) => name.split(/[\s-]+/).filter((part) => /^\p{Lu}/u.test(part)).map((part) => part[0]).join('');
+  const byInitials = authors.filter((author) => initials.has(initialsOf(author.name)));
+  const unique = byInitials.filter((author) => authors.filter((other) => initialsOf(other.name) === initialsOf(author.name)).length === 1);
+  if (unique.length) return unique;
   const words = new Set(foldName(sentence).split(/[^a-z]+/).filter(Boolean));
   const flat = ` ${foldName(sentence).replace(/[^a-z]+/g, ' ')} `;
   return authors.filter((author) => {
@@ -2673,7 +2774,9 @@ function bylineNote(byline: PaperByline, spans: Span[]): boolean {
     const aboutThem = AUTHOR_NOTE.test(general[0] ?? '') || named.length > 0;
     if (mark && !/^\d/.test(mark) && piece.marks.every(carried) && aboutThem && said.length < 200) {
       if (!byline.notes.some((note) => note.mark === mark)) {
-        byline.notes.push({ mark, text: said, ...(named.length ? { contributions: named } : {}) });
+        // "✉email: …" is the author to write to.
+        const text = mark === '✉' ? said.replace(/^(?:e-?mail|correspondence)\s*:?\s*/i, 'Corresponding author: ') : said;
+        byline.notes.push({ mark, text, ...(named.length ? { contributions: named } : {}) });
         if (sentences.length > 2) byline.statement = [byline.statement, `${mark}${piece.text}`].filter(Boolean).join('\n\n');
       }
     } else all = false;
@@ -2738,10 +2841,17 @@ function bylineFootnote(byline: PaperByline, spans: Span[]): boolean {
   }
   const pieces = markedPieces(spans);
   const carried = (mark: string) => byline.authors.some((author) => author.marks.includes(mark));
-  if (!pieces.length || !pieces.every((piece) => piece.marks.length && piece.marks.every((mark) => /^\d+$/.test(mark) && carried(mark)))) return false;
+  if (!pieces.length || !pieces.every((piece) => piece.marks.length && piece.marks.every((mark) => (/^\d+$/.test(mark) || mark === '✉') && carried(mark)))) return false;
   for (const piece of pieces) {
     const mark = piece.marks.join(',');
     const said = piece.text.replace(/\.$/, '');
+    // "✉email: mschuang@stanford.edu": the author to write to, and where.
+    if (mark === '✉') {
+      const found = emailsIn(said);
+      if (!byline.notes.some((note) => note.mark === '✉')) byline.notes.push({ mark, text: found.length ? `Corresponding author: ${found.join(', ')}` : 'Corresponding author' });
+      byline.emails = Array.from(new Set([...byline.emails, ...found]));
+      continue;
+    }
     if (/^(?:present|current|permanent|new) address\b/i.test(said) || AUTHOR_NOTE.test(said) && !INSTITUTION.test(said)) {
       if (!byline.notes.some((note) => note.mark === mark)) byline.notes.push({ mark, text: said });
     } else if (!byline.affiliations.some((place) => place.mark === mark)) {
@@ -2753,6 +2863,7 @@ function bylineFootnote(byline: PaperByline, spans: Span[]): boolean {
     if (own.length) author.affiliations = own;
   }
   notesToAuthors(byline);
+  assignEmails(byline);
   return true;
 }
 
@@ -2797,6 +2908,16 @@ function bylineParts(line: Line): { spans: Span[]; x0: number; x1: number }[] {
     end = Math.max(end, run.x + run.width);
   }
   // A bullet set apart between two names, as Springer sets them, parts them and is no piece.
+  // Marks set apart from their name — an ORCID badge between them, "Shih-Cheng
+  // Huang [iD] 1,2,6 ✉" — are the name's, not a piece of their own.
+  const markRun = (run: Run) => /^[\s\d,∗*†‡§¶⋆#✉]*$/.test(run.str);
+  for (let at = parts.length - 1; at > 0; at -= 1) {
+    let lead = 0;
+    while (lead < parts[at].length && markRun(parts[at][lead])) lead += 1;
+    if (!lead || !parts[at].slice(0, lead).some((run) => /[\d∗*†‡§¶⋆#✉]/.test(run.str))) continue;
+    parts[at - 1].push(...parts[at].splice(0, lead));
+    if (!parts[at].length) parts.splice(at, 1);
+  }
   const pieces = parts.filter((part) => part.some((run) => /[\p{L}\p{N}@]/u.test(run.str)));
   if (pieces.length < 2) return [{ spans: spansOf([line]), x0: line.x0, x1: line.x1 }];
   return pieces.map((part) => {
@@ -2874,6 +2995,13 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): { front
       const oneEach = entry.parts.length > 0 && each.every((names) => names.length === 1);
       for (const [index, names] of (entry.parts.length ? each : [namesWithMarks(entry.spans)]).entries()) {
         for (const { name, marks } of names) {
+          // Marks with no name — set apart from theirs by a badge, on a line
+          // of their own — are the marks of the name before them.
+          const previous = authors[authors.length - 1];
+          if (!/\p{L}{2}/u.test(name) && previous) {
+            previous.marks = Array.from(new Set([...previous.marks, ...marks, ...marksOf(name)]));
+            continue;
+          }
           const author: BylineAuthor = { name, marks, affiliations: [], notes: [], emails: [] };
           authors.push(author);
           if (oneEach) row.push({ author, center: (entry.parts[index].x0 + entry.parts[index].x1) / 2, width: entry.parts[index].x1 - entry.parts[index].x0 });

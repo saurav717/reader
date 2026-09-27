@@ -1094,7 +1094,9 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   then the other (a recursive XY-cut, which also puts a full-width title
   before the columns under it), and a paragraph that runs from the foot of
   one column to the top of the next, or across a page, is one paragraph.
-  Headings are the lines set larger or bolder than the body, with levels from
+  Headings are the lines set larger or bolder than the body — or in its own
+  type, short, with space over them and the text under them, as Nature's
+  journals set a subsection, one level under the section it is in — with levels from
   their numbering — and, as IEEE sets them, "I. INTRODUCTION" in small
   capitals and "A. Name" in italics, which are neither — so a Roman numeral
   starting a heading is never mistaken for a numbered list; bullets become
@@ -1148,7 +1150,15 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   (on the card as *then moved to …*, not a role), and "✉ Erin L. Meier"
   with the address under it marks her as the author to write to. The card
   and the byline show an institution without the street, room and postcode
-  a footnote prints with it.
+  a footnote prints with it. Nature's journals do the same with raised
+  numbers — "¹Department of …. ²Center for …. ⁶These authors contributed
+  equally: …. ✉email: …" in one footnote — and set no "Abstract" over the
+  abstract, which is then the first paragraph of some length under the
+  names; the numbers on the names, set apart from them by an ORCID badge,
+  are theirs, and never citations. An Author Contributions statement that
+  names the authors by their initials — "Concept and design: S.-C.H.,
+  A.P., M.P.L., and I.B." — is read clause by clause, each author given
+  the clauses whose initials are theirs.
   Rest the pointer on a name and the card says it too: *First author*,
   *Equal contribution*, *Corresponding author*, and where they are, from
   each source that says, labelled with it —
@@ -1188,6 +1198,9 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   margin beside it is the drawings that start level with the caption's top
   and go on down, panel under panel; one whose caption says, with a "▶",
   that it is over the page is the drawing no caption claimed on the next.
+- **Pages set sideways.** A page whose text runs up or down it — a table
+  too wide for the page, turned to fit — is read turned the right way, and
+  its tables and figures painted from the page turned so.
 - **Tables.** *Table 2.* is a caption too — and IEEE's *TABLE IV*, in Roman
   numerals — with the lines it runs on to, and the rows under it are read
   into a real table: cells that overlap horizontally are a column, cells on
@@ -1217,7 +1230,9 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   the margin beside it is what its rules enclose, with the note set close
   under the last of them; one as wide as the page under a caption as short
   as a column reaches as far as the rules drawn across it; and a line set
-  under a table's last rule is its note, not a row. A table whose cells cannot be told apart is
+  under a table's last rule is its note, not a row. A table of records
+  parted by space — a review's table of studies — whose cells run on to
+  lines of their own set tight under them keeps each record one row. A table whose cells cannot be told apart is
   painted instead, like a figure.
 - **Equations.** A line numbered *(3)* at the column's edge, or set mostly in
   a mathematics font, is display mathematics, and mathematics read glyph by
@@ -1245,7 +1260,9 @@ of it) with pdf.js as the app does — a figure beside the abstract, tables in
 Roman numerals and in panels, small-capital headings, links and the byline's
 notes; `scripts/pdf-reflow-nips-grid.test.mjs` a byline set as a grid with
 a contributions footnote under it, after "Attention Is All You Need"
-(`scripts/fixtures/nips-grid-byline.tex`); `scripts/pdf-reflow-springer.test.mjs` a two-column paper set as a Springer
+(`scripts/fixtures/nips-grid-byline.tex`); `scripts/pdf-reflow-nature.test.mjs` a review set as Nature's npj journals
+set one (`scripts/fixtures/nature-review.tex`) — no "Abstract", the byline's
+places in a footnote, a table set sideways; `scripts/pdf-reflow-springer.test.mjs` a two-column paper set as a Springer
 journal sets one (`scripts/fixtures/springer-two-column.tex`) — the byline's
 places in a footnote block, captions in the margin, a table across both
 columns, a fraction in a line; `scripts/pdf-reflow-neurips.test.mjs` does the same for a

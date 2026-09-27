@@ -101,13 +101,15 @@ const MAX_CROP_PIXELS = 4000;
 async function paintCrops(doc: PDFDocumentProxy, crops: Crop[], signal?: AbortSignal, onProgress?: (progress: ReflowProgress) => void): Promise<Map<number, string>> {
   const urls = new Map<number, string>();
   if (typeof document === 'undefined') return urls;
-  const byPage = new Map<number, Crop[]>();
-  for (const crop of crops) byPage.set(crop.page, [...(byPage.get(crop.page) || []), crop]);
+  const byPage = new Map<string, Crop[]>();
+  // A page read turned is painted turned: the crops are boxes on it so.
+  const key = (crop: Crop) => `${crop.page}:${crop.turned ?? 0}`;
+  for (const crop of crops) byPage.set(key(crop), [...(byPage.get(key(crop)) || []), crop]);
   let done = 0;
-  for (const [pageIndex, wanted] of byPage) {
+  for (const wanted of byPage.values()) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const page = await doc.getPage(pageIndex + 1);
-    const viewport = page.getViewport({ scale: SCALE });
+    const page = await doc.getPage(wanted[0].page + 1);
+    const viewport = page.getViewport({ scale: SCALE, rotation: (page.rotate + (wanted[0].turned ?? 0)) % 360 });
     const canvas = document.createElement('canvas');
     canvas.width = Math.ceil(viewport.width);
     canvas.height = Math.ceil(viewport.height);
