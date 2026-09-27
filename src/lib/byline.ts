@@ -102,6 +102,11 @@ const fold = (text: string) =>
   text
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
+    // Letters with a stroke have no accent to strip: "Łukasz" is "Lukasz".
+    .replace(/[Łł]/g, 'l')
+    .replace(/[Øø]/g, 'o')
+    .replace(/[Đđ]/g, 'd')
+    .replace(/ß/g, 'ss')
     .toLowerCase()
     .replace(/[^a-z\s-]/g, '')
     .trim();
@@ -149,9 +154,13 @@ export function onPaper(byline: PaperByline | undefined, name: string): BylineAu
  * page gives them, after whether they come first.
  */
 export function rolesOnPaper(author: BylineAuthor | undefined, position: number): string[] {
-  const roles = position === 0 ? ['First author'] : [];
-  // The note speaks of them all — "Corresponding authors" — the card of one.
-  for (const note of author?.notes ?? []) {
+  // A note that says the order means nothing — "Listing order is random" — leaves no first author.
+  const unordered = (author?.notes ?? []).some((note) => ORDER_MEANS_NOTHING.test(note));
+  const roles = position === 0 && !unordered ? ['First author'] : [];
+  // The note speaks of them all — "Corresponding authors" — the card of one,
+  // a chip a sentence: "Equal contribution", "Listing order is random".
+  const sentences = (author?.notes ?? []).flatMap((note) => note.split(/(?<=[\p{Ll}\p{N})]{2}[.!?])\s+(?=\p{Lu})/u)).map((sentence) => sentence.replace(/\.$/, ''));
+  for (const note of sentences) {
     // The address in it has a row of its own on the card: "Corresponding author".
     const own = note
       .replace(/[\w.+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}/gi, '')
@@ -163,6 +172,9 @@ export function rolesOnPaper(author: BylineAuthor | undefined, position: number)
   }
   return roles;
 }
+
+/** A note saying the authors' order carries nothing: random, alphabetical, by a coin's toss. */
+const ORDER_MEANS_NOTHING = /\b(?:listing|author|name)s?\s+order\b[^.]*\b(?:random|alphabetical|arbitrary|coin)|\b(?:random(?:ly)?|alphabetical(?:ly)?|arbitrar(?:y|ily))\s+(?:order|ordered|listed)\b|\border(?:ed)?\s+(?:at\s+random|randomly|alphabetically|by\s+(?:a\s+)?coin)/i;
 
 /** A note cut into its words and its addresses — "Corresponding author: a@b.org" — the addresses to be links. */
 export function addressPieces(text: string): { text: string; href?: string }[] {

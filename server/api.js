@@ -27,6 +27,7 @@ import {
 import { captchaStatus, closeCaptcha, openCaptcha, scholarFetcher } from './scholarBrowser.js';
 import * as browse from './browse.js';
 import { askServices, servicesLabel } from './scholarServices.js';
+import { contributionsAsked, readContributions } from './contributionReader.js';
 import * as workspace from './workspace.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini } from './geminiRelay.js';
 import { Readable } from 'node:stream';
@@ -711,10 +712,28 @@ async function gemini(req, res) {
     .pipe(res);
 }
 
+// --------------------------------------------------------- contributions ---
+//
+// A paper's statement of who did what, read by DeepSeek for each author's
+// part — server/contributionReader.js. On this proxy's DEEPSEEK_KEY, so
+// with a token set only the token may spend it.
+
+async function contributions(req, url, res) {
+  const key = (process.env.DEEPSEEK_KEY || '').trim();
+  if (!key) return send(res, 200, { configured: false }, { 'Cache-Control': 'no-store' });
+  const refused = gate(req, res);
+  if (refused) return refused;
+  const asked = contributionsAsked(url.searchParams);
+  if (!asked) return send(res, 400, { error: 'authors (a JSON list) and statement are required' });
+  const { people } = await readContributions(asked, key);
+  return send(res, 200, { configured: true, people, via: 'deepseek' }, { 'Cache-Control': 'private, max-age=86400' });
+}
+
 /** Which rate-limit bucket a route draws from, if any. */
 function costOf(pathname) {
   if (pathname === '/pdf' || pathname === '/asset') return 'pdf';
   if (pathname.startsWith('/scholar/') && !pathname.startsWith('/scholar/captcha')) return 'scholar';
+  if (pathname === '/contributions') return 'scholar';
   if (pathname === '/browse/open') return 'browse';
   return null;
 }
@@ -767,6 +786,8 @@ export default async function apiRouter(req, res, next) {
         return send(res, 200, await captchaStatus(), { 'Cache-Control': 'no-store' });
       case '/scholar/captcha/close':
         return await accessAction(req, res, () => closeCaptcha());
+      case '/contributions':
+        return await contributions(req, url, res);
       case '/asset':
         return await asset(url, res);
       case '/access/status':

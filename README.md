@@ -389,6 +389,22 @@ out, a few hundredths of a cent, and is tallied on the usage page as a
 `SCHOLAR_FIRST` says; Serply and DeepSeek are the stand-in once its credits are
 spent.
 
+**Who did what, read by DeepSeek.** A paper's statement of each author's part —
+the footnote on the byline of "Attention Is All You Need", an "Author
+Contributions" section — names them as it pleases: "Jakob proposed…", "A.V. and
+N.S. designed…", "the first two authors". Reflow puts a sentence to an author
+itself where it names them in full, or by a first name or surname nobody else on
+the byline has; with `DEEPSEEK_KEY` on the proxy, the author card also asks
+`/api/contributions` (`server/contributionReader.js`), which hands DeepSeek the
+authors in the byline's order and the statement as printed, and asks for each
+author's part in the statement's own words. Only words that are in the statement
+are kept — what it says someone did that the paper does not is dropped — so the
+card shows the paper's words either way, with *picked out for them by DeepSeek*
+on the ones it chose. One request a paper, remembered while the page is open;
+some 800 tokens in and 300 out, thinking off, tallied like the profile reader's.
+Without the key the route answers `{ configured: false }` and the card keeps
+Reflow's own reading.
+
 `SERPLY_KEY=… node scripts/scholar-live.mjs --raw` asks Serply for real, shows
 its raw answers, and says whether each was read — the check to run once with a
 new key; `scripts/serply.test.mjs` pins the mapping to saved answers
@@ -1070,7 +1086,9 @@ whole file is opened in the browser with [pdf.js](https://mozilla.github.io/pdf.
 drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
 
 - **Text.** Glyph runs on one baseline are a line; lines a line-height apart
-  are a paragraph; a word broken at the line's end is mended; a run in a
+  are a paragraph — and a paragraph ends where its last line stops short
+  with its sentence, as a style that parts paragraphs with space rather
+  than an indent sets them; a word broken at the line's end is mended; a run in a
   bold, italic or monospaced face keeps it, and a run raised or lowered on
   the line is a superscript or subscript. Two columns are read down one and
   then the other (a recursive XY-cut, which also puts a full-width title
@@ -1085,7 +1103,11 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   letters ("na¨ıve") are put back. A subscript or a superscript stays on its
   own line, however near a baseline in the other column falls — and a
   script on two levels, *W* ∈ ℝ<sup>d<sub>hidden</sub>×d<sub>model</sub></sup>,
-  stays in the line it is set in rather than breaking it into a display.
+  stays in the line it is set in rather than breaking it into a display,
+  as does a radical or a sum set in a line, √d_model, TeX's large
+  operators read as the ∑ and ∏ they are. Text a PDF draws outside its
+  clip — a plot's title left over the top of the box it was cut to — is
+  not on the page, and is not read.
 - **The byline.** The title and the authors are the reader's own heading,
   and the byline on the first page is read into it: the marks on each name
   — "Jiabin Qiu∗, Zixuan Chen∗,†" — set by the names, and under them what
@@ -1099,7 +1121,19 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   Sreenivas's. Names set apart by wide spaces rather than commas, as
   NeurIPS sets them, are still one name each, and a note set as a footnote
   on the first page — "∗Equal contribution" — is the byline's, not the
-  text's.
+  text's, however many lines it runs to. A byline set as a grid, as NIPS
+  set "Attention Is All You Need" — each name over its institution and its
+  address, a column each — is read a column at a time, so each author has
+  the institution and the address under their name; a notice set over the
+  title (a licence, "Google hereby grants permission…") is kept as it is
+  and is nobody's institution. A note that says who did what, sentence by
+  sentence, is cut into its sentences: what it says of them all ("Equal
+  contribution. Listing order is random") is every marked author's, and
+  each sentence naming someone ("Ashish, with Illia, designed…") is theirs
+  and theirs alone, on their card as *their part in this paper* and whole
+  under *Who did what* by the byline — with an "Author Contributions"
+  section's sentences too, and DeepSeek's reading of the rest (below). A
+  note that the order means nothing takes away *First author*.
   Rest the pointer on a name and the card says it too: *First author*,
   *Equal contribution*, *Corresponding author*, and where they are, from
   each source that says, labelled with it —
@@ -1157,7 +1191,8 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   set on two or three lines (*Non-Emb.* over *Params*) is one cell, and so
   is a body cell wrapped under itself; a label running across four columns
   — *Train from scratch (random init)* — spans them. A table in panels is a table a panel,
-  each with its own columns. A table whose cells cannot be told apart is
+  each with its own columns. A table with no figures in it — cells of
+  O(n · d) — ends its heading at the rule under it. A table whose cells cannot be told apart is
   painted instead, like a figure.
 - **Equations.** A line numbered *(3)* at the column's edge, or set mostly in
   a mathematics font, is display mathematics, and mathematics read glyph by
@@ -1165,7 +1200,8 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   fraction or a sum spreads over, in its own column, are painted from the
   page and shown in their place.
 - **Footnotes** are the small text at the foot of each page, kept small and
-  set after the text of that page.
+  set after the text of that page, one note a mark, a note's own
+  mathematics — "q · k = ∑ qᵢkᵢ" — kept in it.
 
 pdf.js parses in a web worker — the worker script is bundled into a `.js`
 file of its own, since a static host that does not know `.mjs` is JavaScript
@@ -1179,7 +1215,9 @@ pages; `scripts/pdf-reflow-ieee.test.mjs` reads a real IEEE conference paper
 (`scripts/fixtures/ieee-two-column.tex`, made up, and the PDF pdflatex made
 of it) with pdf.js as the app does — a figure beside the abstract, tables in
 Roman numerals and in panels, small-capital headings, links and the byline's
-notes; `scripts/pdf-reflow-neurips.test.mjs` does the same for a
+notes; `scripts/pdf-reflow-nips-grid.test.mjs` a byline set as a grid with
+a contributions footnote under it, after "Attention Is All You Need"
+(`scripts/fixtures/nips-grid-byline.tex`); `scripts/pdf-reflow-neurips.test.mjs` does the same for a
 single-column paper set as NeurIPS sets them (`scripts/fixtures/neurips-single-column.tex`,
 after MINITRON, arXiv:2407.14679) — captions under their tables, labels set
 sideways, tables side by side, boxed links, a clipped figure and a byline
@@ -2727,6 +2765,7 @@ server/scholarBrowser.js  the same, through a real Chromium (SCHOLAR_BROWSER=1),
 server/serpapi.js       Scholar through SerpApi instead, when SERPAPI_KEY is set
 server/serply.js        Scholar through Serply instead, when SERPLY_KEY is set
 server/profileReader.js DeepSeek reading Serply's profile snippets for a person's affiliation
+server/contributionReader.js  DeepSeek putting a paper's contributions statement to its authors
 src/lib/google.ts       Google Identity Services + Drive REST
 src/lib/driveSync.ts    what a synced paper looks like in Drive
 src/lib/store.tsx       app state, IndexedDB persistence, the sync queue

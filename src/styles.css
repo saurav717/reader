@@ -449,6 +449,10 @@ kbd {
 .paper-byline { margin: -16px 0 22px; font-family: var(--sans); font-size: 12px; line-height: 1.55; color: var(--muted); text-wrap: pretty; }
 .paper-byline sup { font-size: 0.8em; margin-right: 1px; line-height: 0; }
 .paper-byline .sep { color: var(--border); }
+.paper-contrib { margin: -14px 0 22px; font-family: var(--sans); font-size: 12px; line-height: 1.55; color: var(--muted); }
+.paper-contrib summary { cursor: pointer; width: fit-content; }
+.paper-contrib p { margin: 6px 0 0; text-wrap: pretty; }
+.paper-contrib sup { font-size: 0.8em; margin-right: 1px; line-height: 0; }
 
 .paper-body { font-family: var(--serif); font-size: var(--reading-size, 18.5px); line-height: 1.68; color: var(--ink); }
 .paper-body p { margin: 0 0 18px; hyphens: auto; -webkit-hyphens: auto; overflow-wrap: break-word; }
@@ -1519,6 +1523,7 @@ mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 /* What the paper's own byline says of them: first author, equal contribution, corresponding. */
 .hc-roles { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
 .hc-role { font-family: var(--sans); font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); }
+.hc-contrib { font-family: var(--sans); font-size: 12px; line-height: 1.45; color: var(--muted); margin: 4px 0 2px; }
 /* Where they are, from each source that says, and which one said it:
    Google Scholar for now, the paper for then. */
 .hc-where { margin: 6px 0 4px; display: grid; gap: 5px; font-size: 12px; }

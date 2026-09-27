@@ -151,6 +151,12 @@ export interface BylineAuthor {
   /** What the name's other marks say: "Equal contribution", "Corresponding authors". */
   notes: string[];
   /**
+   * What the paper says they did, in its own sentences, where a note on
+   * the byline — a contributions statement — names them: "Ashish, with
+   * Illia, designed and implemented the first Transformer models…".
+   */
+  contributions?: string[];
+  /**
    * Their addresses as the paper prints them — the only place a whole one
    * is to be had: Google Scholar shows no more than the domain it verified.
    */
@@ -159,11 +165,21 @@ export interface BylineAuthor {
 
 export interface PaperByline {
   authors: BylineAuthor[];
-  /** Each mark and what it stands for, in the order the page gives them. */
-  notes: { mark: string; text: string }[];
+  /**
+   * Each mark and what it stands for, in the order the page gives them —
+   * what it says of them all; the sentences of it that name one of them are
+   * `contributions`, and theirs.
+   */
+  notes: { mark: string; text: string; contributions?: string[] }[];
   affiliations: { mark?: string; text: string }[];
   /** Every address the first page gives, whether or not it could be put to a name. */
   emails: string[];
+  /**
+   * What the paper says of who did what, in its own words — a footnote to
+   * the byline, an "Author Contributions" section — for a reader to put to
+   * each author where the names in it are initials or roles.
+   */
+  statement?: string;
 }
 
 // ------------------------------------------------------------------ fonts --
@@ -352,10 +368,13 @@ const bareRun = (run: TextRun): boolean => !/[\p{L}\p{N}]/u.test(run.str);
  * belongs to the line, so the baselines are gathered first and each one is
  * cut at its gaps afterwards, once every run on it is known.
  */
+/** TeX's large operators, which its extension font sets at letters' codes: its "P" is a Σ. */
+const CMEX: Record<string, string> = { P: '∑', X: '∑', Q: '∏', Y: '∏', R: '∫', Z: '∫', S: '∮' };
+
 function buildLines(page: PageInput): Line[] {
   const runs: Run[] = linkRuns(page.runs, page.links || [])
     .filter((run) => run.str.trim().length && run.size > 0)
-    .map((run) => ({ ...run, str: composeAccents(run.str), ...faceOf(run.font) }))
+    .map((run) => ({ ...run, str: composeAccents(/cmex/i.test(run.font) ? run.str.replace(/[PQRSXYZ]/g, (glyph) => CMEX[glyph]) : run.str), ...faceOf(run.font) }))
     // The baselines are laid by the text's own size first, and the smaller
     // runs — a superscript, a footnote mark — are placed on them after: a
     // superscript met first would otherwise start a baseline of its own
@@ -410,6 +429,31 @@ function buildLines(page: PageInput): Line[] {
     } else {
       baselines.push({ runs: [run], baseline: run.y, size: run.size });
     }
+  }
+
+  // A radical or a large operator set in the line — the √ of √d_model —
+  // sits higher than its letters, on a baseline of its own; it is the
+  // line's it touches, and the scripts after it with it.
+  for (const lone of baselines.slice()) {
+    if (!lone.runs.every((run) => bareRun(run) || run.math) || lone.runs.reduce((width, run) => width + run.width, 0) > 2.5 * lone.size) continue;
+    // TeX raises these over the baseline, never lowers them: the line is
+    // the one level with it or under it, with a word set against it —
+    // the radicand, the summand — not the line over it.
+    const x0 = Math.min(...lone.runs.map((run) => run.x));
+    const x1 = Math.max(...lone.runs.map((run) => run.x + run.width));
+    const home = baselines
+      .filter(
+        (group) =>
+          group !== lone &&
+          group.runs.some((run) => !bareRun(run)) &&
+          group.baseline >= lone.baseline - 0.1 * group.size &&
+          group.baseline - lone.baseline <= 0.9 * group.size &&
+          group.runs.some((other) => (other.x - x1 > -0.3 * group.size && other.x - x1 < 0.6 * group.size && other.x >= x0) || (x0 - (other.x + other.width) > -0.3 * group.size && x0 - (other.x + other.width) < 0.6 * group.size)),
+      )
+      .sort((a, b) => Math.abs(a.baseline - lone.baseline) - Math.abs(b.baseline - lone.baseline))[0];
+    if (!home) continue;
+    home.runs.push(...lone.runs);
+    baselines.splice(baselines.indexOf(lone), 1);
   }
 
   // A script's own scripts — ℝ^(d_hidden×d_model) — can gather on a
@@ -1121,7 +1165,16 @@ function paragraphs(ordered: Line[], measures: Measures, columns: Map<Line, numb
         else if (indented && !previousIndented && current.lines.length > 1) fresh = false;
       } else if (BULLET.test(line.text) || (NUMBERED.test(line.text) && line.x0 - columnLeft > em * 0.3)) fresh = true;
       else if (line.x0 - Math.min(columnLeft, current.lines[0].x0) > em * 0.7 && !(previous.x0 - columnLeft > em * 0.7)) fresh = true;
-      else if (measures.justified && previous.x1 < columnLeft + measures.columnWidth - em * 0.6 && line.x0 <= columnLeft + em * 0.3 && bodyLike(previous, measures)) fresh = true;
+      // Justified text: only a paragraph's last line stops short — one of
+      // body text, or a shorter one ending its sentence ("…on the values.").
+      else if (
+        measures.justified &&
+        previous.x1 < columnLeft + measures.columnWidth - em * 0.6 &&
+        line.x0 <= columnLeft + em * 0.3 &&
+        (bodyLike(previous, measures) ||
+          (Math.abs(previous.size - measures.bodySize) <= 0.6 && previous.mathShare < 0.3 && current.lines.length > 1 && /[\p{Ll}\d)\]][.!?]["'”’)]?$/u.test(previous.text) && /^[\p{Lu}“"(]/u.test(line.text)))
+      )
+        fresh = true;
     }
     if (fresh) {
       current = { lines: [line], page: line.page, columnLeft };
@@ -1390,7 +1443,10 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
     if (under.some((other) => !other)) continue;
     // Set tight under the last line of the cell above: a line's pitch, not a row's.
     if (row.some((entry, index) => entry.line.baseline - under[index]!.bottom > 1.3 * entry.line.size)) continue;
-    const heading = firstFigures < 0 || at <= firstFigures;
+    // Where no row holds a figure — "O(n² · d)" is not one — the heading ends
+    // at the rule under it, or with its second line.
+    const headRule = rules.map((rule) => rule.y).filter((y) => y > grid[0][0].line.baseline).sort((a, b) => a - b)[0];
+    const heading = firstFigures >= 0 ? at <= firstFigures : headRule !== undefined ? row[0].line.baseline < headRule : at === 1;
     const runsOn = row.every((entry, index) => /-$/.test(plain(under[index]!.spans)) || /^\p{Ll}/u.test(plain(entry.spans)));
     if (!heading && !(runsOn && row.length <= Math.max(1, columns.length / 2))) continue;
     row.forEach((entry, index) => {
@@ -1833,7 +1889,17 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
       regions.push(region);
       for (const held of region.lines) held.taken = true;
     }
-    regions.push(...equationRegions(lines, clusters, measures, page));
+    // Mathematics in a footnote — "q · k = Σ qᵢkᵢ" — is the footnote's: an
+    // equation all in small type at the foot of the page, under the body, is not one.
+    const lowest = Math.max(0, ...lines.filter((line) => !line.taken && bodyLike(line, measures)).map((line) => line.baseline));
+    for (const region of equationRegions(lines, clusters, measures, page)) {
+      const small = region.lines.every((line) => line.size <= measures.bodySize - 0.8 && line.baseline > lowest && line.baseline > page.height * 0.6);
+      if (small) {
+        for (const line of region.lines) line.taken = false;
+        continue;
+      }
+      regions.push(region);
+    }
 
     // Footnotes: small text at the foot of the page, below the body.
     const flow = lines.filter((line) => !line.taken);
@@ -1991,7 +2057,28 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
 
     if (feet.size) {
       const footLines = readingOrder(Array.from(feet).map((line) => ({ x0: line.x0, y0: line.top, x1: line.x1, y1: line.bottom, line }))).map((box) => box.line);
-      const notes = paragraphs(footLines, measures, columns, false);
+      // A note's lines are measured from its column's left edge, not the
+      // first line's, which is indented under its mark: "∗Equal contribution…"
+      // runs on flush left under it.
+      const footColumns = new Map(columns);
+      for (const line of footLines) {
+        if (columns.has(line)) continue;
+        const beside = footLines.filter((other) => other.x0 < line.x1 && other.x1 > line.x0);
+        footColumns.set(line, Math.min(...beside.map((other) => columns.get(other) ?? other.x0)));
+      }
+      // A line that opens with a mark — "∗", a raised "2" — starts a note of its own.
+      const opensNote = (line: Line) => {
+        const run = line.runs.find((item) => item.str.trim());
+        return Boolean(run && (/^[∗*†‡§¶]/.test(run.str.trim()) || (run.size < line.size * 0.85 && line.baseline - run.y > line.size * 0.15)));
+      };
+      const notes = paragraphs(footLines, measures, footColumns, false).flatMap((note) => {
+        const out: Paragraph[] = [];
+        for (const [index, line] of note.lines.entries()) {
+          if (!out.length || (index > 0 && opensNote(line))) out.push({ ...note, lines: [line] });
+          else out[out.length - 1].lines.push(line);
+        }
+        return out;
+      });
       for (const note of notes) {
         const spans = spansOf(note.lines);
         if (!plain(spans)) continue;
@@ -2021,6 +2108,8 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
     const bySize = Math.min(4, 2 + rank);
     entry.block.level = (byNumber || bySize) as 2 | 3 | 4;
   }
+
+  if (byline) contributionsSection(byline, blocks);
 
   return {
     blocks: splitReferences(blocks),
@@ -2185,10 +2274,7 @@ export function emailsIn(text: string): string[] {
  */
 export function addressOf(name: string, email: string): boolean {
   const local = email.split('@')[0].toLowerCase().replace(/[^a-z]/g, '');
-  const words = name
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
+  const words = foldName(name)
     .split(/[\s-]+/)
     .map((word) => word.replace(/[^a-z]/g, ''))
     .filter(Boolean);
@@ -2207,10 +2293,57 @@ export function addressOf(name: string, email: string): boolean {
   return [given.join(''), given[0], initials, initials[0]].some((part) => part && part === restOf);
 }
 
+/** Letters folded to plain Latin, as addresses and first names are compared: "Łukasz" is "lukasz". */
+const foldName = (text: string): string =>
+  text
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[Łł]/g, 'l')
+    .replace(/[Øø]/g, 'o')
+    .replace(/[Đđ]/g, 'd')
+    .replace(/ß/g, 'ss')
+    .toLowerCase();
+
+/** A note cut into its sentences, not at an initial's stop: "Aidan N. Gomez" is one. */
+const sentencesOf = (text: string): string[] =>
+  text
+    .split(/(?<=[\p{Ll}\p{N})\]]{2}[.!?])\s+(?=[\p{Lu}\p{N}])/u)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+
+/** The authors a sentence names, by their full name, their first name or their surname. */
+function namedIn(sentence: string, authors: BylineAuthor[]): BylineAuthor[] {
+  const words = new Set(foldName(sentence).split(/[^a-z]+/).filter(Boolean));
+  const flat = ` ${foldName(sentence).replace(/[^a-z]+/g, ' ')} `;
+  return authors.filter((author) => {
+    const parts = foldName(author.name).split(/[^a-z]+/).filter((part) => part.length > 1);
+    if (parts.length < 2) return false;
+    if (flat.includes(` ${parts.join(' ')} `)) return true;
+    // A first or a last name alone, where no one else on the byline has it.
+    return [parts[0], parts[parts.length - 1]].some(
+      (part) => part.length > 2 && words.has(part) && !authors.some((other) => other !== author && foldName(other.name).split(/[^a-z]+/).includes(part)),
+    );
+  });
+}
+
+/** Each author's notes and contributions, from the notes on the marks they carry. */
+function notesToAuthors(byline: PaperByline): void {
+  for (const author of byline.authors) {
+    const mine = byline.notes.filter((note) => note.mark.split(',').some((mark) => author.marks.includes(mark)));
+    author.notes = mine.map((note) => note.text).filter(Boolean);
+    const contributions = mine.flatMap((note) => (note.contributions ?? []).filter((sentence) => namedIn(sentence, byline.authors).includes(author)));
+    if (contributions.length) author.contributions = contributions;
+    else delete author.contributions;
+  }
+}
+
 /**
  * A footnote of the first page read into the byline where it is one: each
  * piece of it under a mark that is on an author's name, and says something
  * of them. True where the whole footnote was that, and has no other place.
+ * A long one — "∗Equal contribution. Listing order is random. Jakob
+ * proposed…" — is a contributions statement: its sentences that name an
+ * author are theirs, and the rest is what it says of them all.
  */
 function bylineNote(byline: PaperByline, spans: Span[]): boolean {
   const pieces = markedPieces(spans);
@@ -2219,12 +2352,54 @@ function bylineNote(byline: PaperByline, spans: Span[]): boolean {
   for (const piece of pieces) {
     const mark = piece.marks.join(',');
     const text = piece.text.replace(/\.$/, '');
-    if (mark && !/^\d/.test(mark) && piece.marks.every(carried) && AUTHOR_NOTE.test(text) && text.length < 160) {
-      if (!byline.notes.some((note) => note.mark === mark)) byline.notes.push({ mark, text });
+    const sentences = sentencesOf(text);
+    const general = sentences.filter((sentence) => namedIn(sentence, byline.authors).length === 0);
+    const named = sentences.filter((sentence) => !general.includes(sentence)).map((sentence) => (/[.!?]$/.test(sentence) ? sentence : `${sentence}.`));
+    const said = general.join(' ').replace(/\.$/, '');
+    const aboutThem = AUTHOR_NOTE.test(general[0] ?? '') || named.length > 0;
+    if (mark && !/^\d/.test(mark) && piece.marks.every(carried) && aboutThem && said.length < 200) {
+      if (!byline.notes.some((note) => note.mark === mark)) {
+        byline.notes.push({ mark, text: said, ...(named.length ? { contributions: named } : {}) });
+        if (sentences.length > 2) byline.statement = [byline.statement, `${mark}${piece.text}`].filter(Boolean).join('\n\n');
+      }
     } else all = false;
   }
-  for (const author of byline.authors) author.notes = byline.notes.filter((note) => note.mark.split(',').some((mark) => author.marks.includes(mark))).map((note) => note.text);
+  notesToAuthors(byline);
   return all;
+}
+
+/** The addresses a byline set as a grid prints under each name: theirs, whatever they spell. */
+const placed = new WeakMap<BylineAuthor, string[]>();
+
+const CONTRIBUTIONS = /^(?:\d+(?:\.\d+)*\.?\s+|[A-Z]\.?\s+)?(?:authors?['’]?s?['’]?\s+)?contributions?(?:\s+statement)?\b/i;
+
+/**
+ * An "Author Contributions" section, or a paragraph that starts so, read
+ * into the byline's statement; its sentences that name an author are
+ * theirs, as a footnote's are.
+ */
+function contributionsSection(byline: PaperByline, blocks: Block[]): void {
+  const found: string[] = [];
+  for (const [at, block] of blocks.entries()) {
+    if (!('spans' in block)) continue;
+    const text = plain(block.spans);
+    if (block.kind === 'heading' && CONTRIBUTIONS.test(text) && text.split(' ').length <= 5) {
+      for (const next of blocks.slice(at + 1)) {
+        if (next.kind === 'heading') break;
+        if (next.kind === 'paragraph') found.push(plain(next.spans));
+      }
+    } else if (block.kind === 'paragraph' && CONTRIBUTIONS.test(text) && /^[^.:]{0,40}[.:]/.test(text)) {
+      found.push(text);
+    }
+  }
+  const text = found.join('\n\n').trim();
+  if (!text) return;
+  byline.statement = [byline.statement, text].filter(Boolean).join('\n\n').slice(0, 6000);
+  for (const sentence of sentencesOf(text)) {
+    for (const author of namedIn(sentence, byline.authors)) {
+      author.contributions = Array.from(new Set([...(author.contributions ?? []), sentence]));
+    }
+  }
 }
 
 /**
@@ -2234,7 +2409,11 @@ function bylineNote(byline: PaperByline, spans: Span[]): boolean {
  * is on.
  */
 function assignEmails(byline: PaperByline): void {
-  for (const author of byline.authors) author.emails = byline.emails.filter((email) => addressOf(author.name, email));
+  const placedAll = byline.authors.flatMap((author) => placed.get(author) ?? []);
+  for (const author of byline.authors) {
+    const own = placed.get(author) ?? [];
+    author.emails = Array.from(new Set([...own, ...byline.emails.filter((email) => !placedAll.includes(email) && addressOf(author.name, email))]));
+  }
   for (const note of byline.notes) {
     const found = emailsIn(note.text).filter((email) => !byline.authors.some((author) => author.emails.includes(email)));
     const marked = byline.authors.filter((author) => note.mark.split(',').some((mark) => author.marks.includes(mark)));
@@ -2248,6 +2427,13 @@ function assignEmails(byline: PaperByline): void {
  * Muralidharan∗    Sharath Turuvekere Sreenivas∗".
  */
 function bylineSpans(line: Line): Span[] {
+  const parts = bylineParts(line);
+  if (parts.length < 2) return spansOf([line]);
+  return parts.flatMap((part, index) => [...(index ? [{ text: ', ' }] : []), ...part.spans]);
+}
+
+/** A line of the byline cut at its wide gaps, each piece with where it is set. */
+function bylineParts(line: Line): { spans: Span[]; x0: number; x1: number }[] {
   const parts: Run[][] = [];
   let end = Number.NEGATIVE_INFINITY;
   for (const run of line.runs.filter((item) => item.str.trim())) {
@@ -2256,8 +2442,11 @@ function bylineSpans(line: Line): Span[] {
     parts[parts.length - 1].push(run);
     end = Math.max(end, run.x + run.width);
   }
-  if (parts.length < 2) return spansOf([line]);
-  return parts.flatMap((part, index) => [...(index ? [{ text: ', ' }] : []), ...spansOf([{ ...line, runs: part, x0: part[0].x, x1: end }])]);
+  if (parts.length < 2) return [{ spans: spansOf([line]), x0: line.x0, x1: line.x1 }];
+  return parts.map((part) => {
+    const x1 = Math.max(...part.map((run) => run.x + run.width));
+    return { spans: spansOf([{ ...line, runs: part, x0: part[0].x, x1 }]), x0: part[0].x, x1 };
+  });
 }
 
 /**
@@ -2270,14 +2459,22 @@ function bylineSpans(line: Line): Span[] {
  */
 function frontMatter(lines: Line[], measures: Measures, title?: string): { front: Span[][]; byline?: PaperByline } {
   const wanted = title ? normalTitle(title) : '';
-  const entries: { spans: Span[]; names: boolean; marked: boolean }[] = [];
+  type Entry = { spans: Span[]; names: boolean; marked: boolean; parts: { spans: Span[]; x0: number; x1: number }[]; size: number; baseline: number };
+  const entries: Entry[] = [];
+  // What is set over the title — a licence, a venue's notice — is no part of the byline.
+  const over: Span[][] = [];
   const largest = Math.max(0, ...lines.map((line) => line.size));
   for (const line of lines) {
     const flat = normalTitle(line.text);
     if (!flat) continue;
     // The title: the paper's own, or the largest type on the page.
-    if (wanted && flat.length > 3 && wanted.includes(flat)) continue;
-    if (line.size >= measures.bodySize * 1.3 && line.size >= largest - 0.5) continue;
+    const titled = (wanted && flat.length > 3 && wanted.includes(flat)) || (line.size >= measures.bodySize * 1.3 && line.size >= largest - 0.5);
+    if (titled) {
+      if (!over.length) over.push(...entries.map((entry) => entry.spans));
+      if (over.length && entries.length) entries.length = 0;
+      continue;
+    }
+    const parts = bylineParts(line);
     const spans = bylineSpans(line);
     const text = plain(spans);
     if (!text || /^arxiv:/i.test(text)) continue;
@@ -2285,21 +2482,61 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): { front
     const pieces = bylinePieces(text.replace(/\d+/g, ' '));
     const names = pieces.length > 0 && pieces.every(looksLikeName);
     const previous = entries[entries.length - 1];
-    if (previous && !previous.names && !names && /[\p{Ll},-]$/u.test(plain(previous.spans)) && /^\p{Ll}/u.test(text)) {
+    // A line running on from the one before — but not an address under an
+    // institution, unless it closes a group the line before opened.
+    if (previous && !previous.names && !names && /[\p{Ll},-]$/u.test(plain(previous.spans)) && /^\p{Ll}/u.test(text) && !(/^[{[(]?[\w.+-]+(?:\s*,\s*[\w.+-]+)*[}\])]?\s*@/.test(text) && !/[{[(][^}\])]*$/.test(plain(previous.spans)))) {
       previous.spans = mergeSpans(previous.spans, spans, /\p{Ll}-$/u.test(plain(previous.spans)));
+      previous.parts = [];
       continue;
     }
-    entries.push({ spans, names, marked });
+    entries.push({ spans, names, marked, parts, size: line.size, baseline: line.baseline });
   }
 
   // The byline read whole.
   const authors: BylineAuthor[] = [];
   const notes: { mark: string; text: string }[] = [];
   const affiliations: { mark?: string; text: string }[] = [];
-  const rest: Span[][] = [];
+  const rest: Span[][] = [...over];
+  // A byline set as a grid — each name over its institution and address,
+  // in a column of its own — is read a column at a time.
+  let row: { author: BylineAuthor; center: number; width: number }[] = [];
+  const places = new Map<BylineAuthor, string[]>();
+  const shared: string[] = [];
+  // Lines on one baseline: a row of the grid, set a column at a time.
+  const siblings = (entry: Entry) => entries.filter((other) => other !== entry && Math.abs(other.baseline - entry.baseline) < 1).length > 0;
+  let previous: Entry | undefined;
   for (const entry of entries) {
+    const after = previous;
+    previous = entry;
+    // What reads as a name under a name in the grid, with none of the marks
+    // every name there carries — "Northfield Brain" — is where they are.
+    if (entry.names && row.length && !entry.marked && row.every((cell) => cell.author.marks.length) && gridColumns(entry, row, siblings(entry))) entry.names = false;
     if (entry.names) {
-      for (const { name, marks } of namesWithMarks(entry.spans)) authors.push({ name, marks, affiliations: [], notes: [], emails: [] });
+      // Names set a column at a time are one row: each a line of its own.
+      if (!after?.names) row = [];
+        const each = entry.parts.map((part) => namesWithMarks(part.spans));
+      const oneEach = entry.parts.length > 0 && each.every((names) => names.length === 1);
+      for (const [index, names] of (entry.parts.length ? each : [namesWithMarks(entry.spans)]).entries()) {
+        for (const { name, marks } of names) {
+          const author: BylineAuthor = { name, marks, affiliations: [], notes: [], emails: [] };
+          authors.push(author);
+          if (oneEach) row.push({ author, center: (entry.parts[index].x0 + entry.parts[index].x1) / 2, width: entry.parts[index].x1 - entry.parts[index].x0 });
+        }
+      }
+      continue;
+    }
+    const column = gridColumns(entry, row, siblings(entry));
+    if (column) {
+      for (const { part, under } of column) {
+        const text = plain(part.spans);
+        const found = emailsIn(text);
+        const words = text.replace(ADDRESS_GROUP, ' ').replace(ADDRESS_ONE, ' ').replace(/[∗*†‡§¶]/g, ' ').replace(/\s+/g, ' ').trim();
+        for (const author of under) {
+          // One address under one name is theirs; several, written once for a domain, are the byline's to share out.
+          if (found.length === 1 && under.length === 1) placed.set(author, [...(placed.get(author) ?? []), ...found]);
+          if (/\p{L}{2}/u.test(words)) places.set(author, [...(places.get(author) ?? []), words]);
+        }
+      }
       continue;
     }
     const pieces = markedPieces(entry.spans);
@@ -2326,15 +2563,22 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): { front
     if (!used) rest.push(entry.spans);
   }
   const emails = Array.from(new Set(entries.flatMap((entry) => emailsIn(plain(entry.spans)))));
+  // The places set under names, each once, as the institutions named.
+  for (const lines of places.values()) {
+    const place = lines.join(', ');
+    if (!shared.includes(place)) shared.push(place);
+  }
+  for (const place of shared) if (!affiliations.some((known) => known.text === place)) affiliations.push({ text: place });
   if (authors.length && (notes.length || affiliations.length || emails.length)) {
-    const unmarked = affiliations.filter((place) => !place.mark);
+    const unmarked = affiliations.filter((place) => !place.mark && !shared.includes(place.text));
     for (const author of authors) {
       const own = affiliations.filter((place) => place.mark && place.mark.split(',').some((mark) => author.marks.includes(mark)));
+      const under = places.get(author);
       // One institution named without a mark is everyone's.
-      author.affiliations = (own.length ? own : unmarked.length === 1 ? unmarked : []).map((place) => place.text);
-      author.notes = notes.filter((note) => note.mark.split(',').some((mark) => author.marks.includes(mark))).map((note) => note.text);
+      author.affiliations = own.length ? own.map((place) => place.text) : under ? [under.join(', ')] : unmarked.length === 1 ? [unmarked[0].text] : [];
     }
     const byline: PaperByline = { authors, notes, affiliations, emails };
+    notesToAuthors(byline);
     assignEmails(byline);
     return { front: rest, byline };
   }
@@ -2343,6 +2587,49 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): { front
   if (!kept.length) return { front: [] };
   const pointed = kept.some((entry) => entry.marked);
   return { front: entries.filter((entry) => !entry.names || (pointed && entry.marked)).map((entry) => entry.spans) };
+}
+
+/**
+ * A line of a byline set as a grid, cut into the pieces under each name of
+ * the row of names over it — "Google Brain", "Google Research", … — each
+ * with the authors it is set under; null where the line is not set so: one
+ * piece across a row of several names is everyone's, and read as that.
+ */
+function gridColumns(
+  entry: { parts: { spans: Span[]; x0: number; x1: number }[]; size: number },
+  row: { author: BylineAuthor; center: number; width: number }[],
+  siblings = false,
+): { part: { spans: Span[]; x0: number; x1: number }; under: BylineAuthor[] }[] | null {
+  if (!row.length || !entry.parts.length) return null;
+  const centers = row.map((cell) => cell.center).sort((a, b) => a - b);
+  const gap = centers.length > 1 ? Math.min(...centers.slice(1).map((center, index) => center - centers[index])) : Number.POSITIVE_INFINITY;
+  if (row.length > 1 && entry.parts.length < 2) {
+    // One piece under a row of names is one column's only where it is set
+    // square under that name, and not centred on them all, which would make
+    // it everyone's — unless others share its baseline, as a grid's cells do.
+    const part = entry.parts[0];
+    const middle = (part.x0 + part.x1) / 2;
+    const nearest = Math.min(...centers.map((center) => Math.abs(center - middle)));
+    const whole = (centers[0] + centers[centers.length - 1]) / 2;
+    if (nearest > 0.2 * gap || part.x1 - part.x0 > 1.2 * gap) return null;
+    if (!siblings && Math.abs(middle - whole) < 0.2 * gap) return null;
+  }
+  const out: { part: { spans: Span[]; x0: number; x1: number }; under: BylineAuthor[] }[] = [];
+  for (const part of entry.parts) {
+    const middle = (part.x0 + part.x1) / 2;
+    // A line far wider than the one name over it is not in its column: it is everyone's.
+    if (row.length === 1 && (part.x1 - part.x0 > 2.5 * row[0].width + 2 * entry.size || Math.abs(middle - row[0].center) > 0.3 * Math.max(row[0].width, part.x1 - part.x0))) return null;
+    // A piece set across two names' columns is both theirs.
+    let under = row.filter((cell) => cell.center > part.x0 - entry.size && cell.center < part.x1 + entry.size).map((cell) => cell.author);
+    if (under.length !== 1 || row.length === 1) {
+      const nearest = row.reduce((best, cell) => (Math.abs(cell.center - middle) < Math.abs(best.center - middle) ? cell : best));
+      const width = Math.max(part.x1 - part.x0, 4 * entry.size);
+      if (under.length < 2) under = Math.abs(nearest.center - middle) < Math.min(0.45 * gap, width) ? [nearest.author] : [];
+    }
+    if (!under.length) return null;
+    out.push({ part, under });
+  }
+  return out;
 }
 
 /** The names on the lines above a first page's abstract, in reading order. */

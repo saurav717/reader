@@ -16,7 +16,8 @@ import { scholarAuthorUrl, scholarPaperUrl } from '../lib/locations';
 import { parseReference } from '../lib/citations';
 import { hasProxy } from '../lib/api';
 import { rolesOnPaper, whereTheyAre, type Whereabouts } from '../lib/byline';
-import type { BylineAuthor } from '../lib/pdfLayout';
+import type { BylineAuthor, PaperByline } from '../lib/pdfLayout';
+import { readContributions } from '../lib/contributions';
 import { ExternalIcon, SearchIcon } from './icons';
 
 /** A bibliography entry a citation names: its id in the paper, its number or label, its text. */
@@ -28,7 +29,7 @@ export interface CitedEntry {
 
 /** Where the card points, and at what. `anchor` is in the window's coordinates. */
 export type HoverTarget =
-  | { kind: 'author'; name: string; position: number; anchor: DOMRect; onPaper?: BylineAuthor }
+  | { kind: 'author'; name: string; position: number; anchor: DOMRect; onPaper?: BylineAuthor; byline?: PaperByline }
   | { kind: 'cite'; entries: CitedEntry[]; anchor: DOMRect }
   | { kind: 'venue'; venue: string; anchor: DOMRect };
 
@@ -124,7 +125,7 @@ export default function HoverCard({ target, paper, onEnter, onLeave, onClose, on
       onMouseLeave={onLeave}
     >
       {target.kind === 'author' ? (
-        <AuthorCard name={target.name} position={target.position} paper={paper} onPaper={target.onPaper} />
+        <AuthorCard name={target.name} position={target.position} paper={paper} onPaper={target.onPaper} byline={target.byline} />
       ) : target.kind === 'venue' ? (
         <VenueCard venue={target.venue} paper={paper} />
       ) : (
@@ -190,7 +191,7 @@ function WhereTheyAre({ where, asking }: { where: Whereabouts; asking: boolean }
   );
 }
 
-function AuthorCard({ name, position, paper, onPaper }: { name: string; position: number; paper: PaperKey; onPaper?: BylineAuthor }) {
+function AuthorCard({ name, position, paper, onPaper, byline }: { name: string; position: number; paper: PaperKey; onPaper?: BylineAuthor; byline?: PaperByline }) {
   const answer = useAnswer<AuthorDetails>(() => authorDetails(name, position, paper), `${paper.id}|${position}|${name}`);
   // A lookup that failed outright reads as one that found nobody.
   const details = useMemo<AuthorDetails | undefined>(
@@ -243,7 +244,13 @@ function AuthorCard({ name, position, paper, onPaper }: { name: string; position
     `${paper.id}|${name}|${nowhere}`,
   );
 
+  // What the paper's contributions statement says they did: DeepSeek's
+  // reading of it where the proxy has one, the layout's own until then.
+  const readings = useAnswer(() => readContributions(onPaper ? byline : undefined), `${paper.id}|${byline?.statement ?? ''}`);
+  const read = onPaper && readings ? readings[byline!.authors.indexOf(onPaper)] : undefined;
+  const did = read?.did.length ? read.did : onPaper?.contributions ?? [];
   const roles = rolesOnPaper(onPaper, position);
+  for (const role of read?.roles ?? []) if (!roles.some((known) => known.toLowerCase() === role.replace(/\.$/, '').toLowerCase())) roles.push(role.replace(/\.$/, ''));
   const where = whereTheyAre({ onPaper, details, profile });
   const interests = profile?.interests?.length ? profile.interests : details?.topics ?? [];
   const who = [elsewhere?.fullName, elsewhere?.lived].filter(Boolean).join(', ');
@@ -283,6 +290,12 @@ function AuthorCard({ name, position, paper, onPaper }: { name: string; position
                 {role}
               </span>
             ))}
+          </p>
+        ) : null}
+        {did.length ? (
+          // What the paper's contributions statement says they did, in its words.
+          <p className="hc-contrib" aria-label="Their part in this paper" title={read?.did.length ? "The paper's own words, picked out for them by DeepSeek" : "The paper's own words"}>
+            {did.join(' ')}
           </p>
         ) : null}
         <WhereTheyAre where={where} asking={scholarAsking} />

@@ -1,0 +1,10 @@
+% The drawing the paper's appendix figure is cut from: a label over the top
+% of it that the figure's clip leaves out, as a plotting tool's title can be.
+\documentclass{article}
+\usepackage[paperwidth=6in,paperheight=4in,margin=0pt]{geometry}
+\usepackage{xcolor}
+\pagestyle{empty}
+\begin{document}
+\noindent\vspace*{0.3in}\hspace*{0.3in}{\Large Hidden-Layer Title}\par
+\vspace{0.6in}\hspace*{1.5in}\fcolorbox{black}{gray!30}{\begin{minipage}{2.5in}\centering\vspace{0.5in}\textbf{attends}\vspace{0.5in}\end{minipage}}
+\end{document}
