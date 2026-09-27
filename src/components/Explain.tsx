@@ -550,6 +550,17 @@ function OpacityControl({ value, fallback, onChange }: { value: number | null; f
   );
 }
 
+/** How the Rewrite menu lays out the models: boxes in a grid, or a list by maker. Remembered. */
+type RewriteView = 'grid' | 'list';
+const REWRITE_VIEW_KEY = 'reader.rewrite.view';
+const readRewriteView = (): RewriteView => {
+  try {
+    return localStorage.getItem(REWRITE_VIEW_KEY) === 'list' ? 'list' : 'grid';
+  } catch {
+    return 'grid';
+  }
+};
+
 /**
  * Rewrite, in the bar: the page written again from scratch, by the model
  * chosen here — the same one as before, or any other with a key.
@@ -568,7 +579,27 @@ function RewriteMenu({
   onRewrite: (model: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<RewriteView>(readRewriteView);
   const box = useRef<HTMLDivElement>(null);
+  const pickView = (next: RewriteView) => {
+    setView(next);
+    try {
+      localStorage.setItem(REWRITE_VIEW_KEY, next);
+    } catch {
+      // private mode
+    }
+  };
+  const choose = (id: string) => {
+    setOpen(false);
+    onRewrite(id);
+  };
+  const shortName = (label: string) => label.replace(/^(Claude|Gemini|DeepSeek) /, '');
+  const tagsOf = (note: string) =>
+    note.split(' · ').map((tag) => (
+      <span key={tag} className="rw-tag">
+        {tag}
+      </span>
+    ));
   useEffect(() => {
     if (!open) return;
     const away = (event: MouseEvent) => {
@@ -605,31 +636,110 @@ function RewriteMenu({
         Rewrite <span className="caret" aria-hidden="true">▾</span>
       </button>
       {open ? (
-        <div className="menu right rewrite-menu" role="menu" aria-label="Rewrite with">
-          <div className="menu-label">Rewrite with</div>
-          {MODELS.map((m) => {
-            const ready = Boolean(keys[m.provider]);
-            return (
-              <button
-                key={m.id}
-                type="button"
-                role="menuitem"
-                className={m.id === current ? 'is-checked' : undefined}
-                disabled={!ready}
-                onClick={() => {
-                  setOpen(false);
-                  onRewrite(m.id);
-                }}
-                title={ready ? undefined : `Add a ${PROVIDERS[m.provider].company} key in Settings to use ${m.label}`}
-              >
-                <span className="menu-tick">{m.id === current ? '✓' : ''}</span>
-                <span className="rewrite-model">
-                  <b>{m.label}</b>
-                  <span>{ready ? m.note : `${m.note} · needs a key`}</span>
-                </span>
+        <div className={`menu right rewrite-menu is-${view}`} role="menu" aria-label="Rewrite with">
+          <div className="rw-head">
+            <span className="rw-head-text">
+              <b>Rewrite with</b>
+              <span>Written again from scratch · Undo brings it back</span>
+            </span>
+            <span className="rw-views" role="group" aria-label="Show the models as">
+              <button type="button" aria-pressed={view === 'grid'} onClick={() => pickView('grid')} title="Boxes in a grid">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                  <rect x="2" y="2" width="5" height="5" rx="1.2" />
+                  <rect x="9" y="2" width="5" height="5" rx="1.2" />
+                  <rect x="2" y="9" width="5" height="5" rx="1.2" />
+                  <rect x="9" y="9" width="5" height="5" rx="1.2" />
+                </svg>
               </button>
-            );
-          })}
+              <button type="button" aria-pressed={view === 'list'} onClick={() => pickView('list')} title="A list, by maker">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+                  <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
+                </svg>
+              </button>
+            </span>
+          </div>
+          {view === 'grid' ? (
+            <div className="rw-grid">
+              {MODELS.map((m) => {
+                const isCurrent = m.id === current;
+                const ready = Boolean(keys[m.provider]);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={isCurrent}
+                    className={`rw-card p-${m.provider}${isCurrent ? ' is-current' : ''}`}
+                    disabled={!ready}
+                    onClick={() => choose(m.id)}
+                    title={ready ? `Write it again with ${m.label}` : `Add a ${PROVIDERS[m.provider].company} key in Settings to use ${m.label}`}
+                  >
+                    <span className="rw-card-top">
+                      <span className="rw-mark" aria-hidden="true">
+                        {PROVIDERS[m.provider].name.slice(0, 1)}
+                      </span>
+                      <span className="rw-maker">{PROVIDERS[m.provider].company}</span>
+                      {isCurrent ? (
+                        <span className="rw-current" title="Current: the page on screen was written with this one" aria-label="Current">
+                          ✓
+                        </span>
+                      ) : ready ? (
+                        <span className="rw-go" aria-hidden="true">
+                          ↻
+                        </span>
+                      ) : null}
+                    </span>
+                    <b className="rw-name">{shortName(m.label)}</b>
+                    <span className="rw-tags">{ready ? tagsOf(m.note) : <span className="rw-tag rw-need">Needs a key</span>}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            (Object.keys(PROVIDERS) as (keyof typeof PROVIDERS)[]).map((provider) => {
+              const models = MODELS.filter((m) => m.provider === provider);
+              if (!models.length) return null;
+              const ready = Boolean(keys[provider]);
+              return (
+                <div key={provider} className={`rw-group p-${provider}`} role="group" aria-label={PROVIDERS[provider].company}>
+                  <div className="rw-provider">
+                    <span className="rw-mark" aria-hidden="true">
+                      {PROVIDERS[provider].name.slice(0, 1)}
+                    </span>
+                    {PROVIDERS[provider].company}
+                    {ready ? null : <span className="rw-need">Needs a key</span>}
+                  </div>
+                  {models.map((m) => {
+                    const isCurrent = m.id === current;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={isCurrent}
+                        className={`rw-model${isCurrent ? ' is-current' : ''}`}
+                        disabled={!ready}
+                        onClick={() => choose(m.id)}
+                        title={ready ? `Write it again with ${m.label}` : `Add a ${PROVIDERS[m.provider].company} key in Settings to use ${m.label}`}
+                      >
+                        <b className="rw-name">{shortName(m.label)}</b>
+                        <span className="rw-tags">{tagsOf(m.note)}</span>
+                        {isCurrent ? (
+                          <span className="rw-current" title="The page on screen was written with this one">
+                            Current
+                          </span>
+                        ) : (
+                          <span className="rw-go" aria-hidden="true">
+                            ↻
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })
+          )}
         </div>
       ) : null}
     </div>
@@ -1066,7 +1176,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           </button>
         ) : (
           <RewriteMenu
-            current={model}
+            current={explanation?.model ?? model}
             keys={assistant.keys}
             disabled={!explanation?.content || busy}
             implementing={implementing}
