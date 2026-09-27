@@ -76,6 +76,7 @@ export function sidecar(paper: Paper, highlights: Highlight[], collectionNames: 
       bodyValue: highlight.note ?? undefined,
       tags: highlight.tags,
       colour: highlight.color,
+      style: highlight.style ?? 'highlight',
       section: highlight.section,
       target: {
         source: paper.landingUrl || paper.id,

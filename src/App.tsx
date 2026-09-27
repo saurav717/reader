@@ -25,6 +25,7 @@ import Settings from './components/Settings';
 import UsageView, { useIsOwner } from './components/UsageView';
 import Welcome from './components/Welcome';
 import { SIGN_IN_REQUIRED } from './lib/google';
+import { canFullscreen, enterFullscreen, fullscreenElement, leaveFullscreen } from './lib/fullscreen';
 import { ChartIcon, GoogleMark, HighlighterIcon, LibraryIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
 
 const WELCOME_KEY = 'reader.welcomed';
@@ -214,6 +215,48 @@ export default function App() {
     localStorage.setItem(ZEN_KEY, String(zen));
   }, [zen]);
 
+  // Full screen: the whole display is the paper, as a film is — the browser's
+  // own bars gone, and zen mode putting the app's away. Leaving it (Esc, F,
+  // or the button) puts zen back the way it was.
+  const [fullscreen, setFullscreen] = useState(() => Boolean(fullscreenElement()));
+  const zenBeforeFullscreen = useRef<boolean | null>(null);
+  const zenNow = useRef(zen);
+  zenNow.current = zen;
+  useEffect(() => {
+    const onChange = () => {
+      const on = Boolean(fullscreenElement());
+      setFullscreen(on);
+      if (!on && zenBeforeFullscreen.current !== null) {
+        if (!zenBeforeFullscreen.current) setZen(false);
+        zenBeforeFullscreen.current = null;
+        setPeek(null);
+      }
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
+  }, []);
+  const toggleFullscreen = useCallback(() => {
+    if (fullscreenElement()) {
+      void leaveFullscreen();
+      return;
+    }
+    zenBeforeFullscreen.current = zenNow.current;
+    if (!zenNow.current) {
+      setZen(true);
+      setPeek(null);
+      setNotesBeside(false);
+    }
+    enterFullscreen().catch(() => {
+      // Refused — not from a click, or not allowed in this frame: zen as it was.
+      if (zenBeforeFullscreen.current === false) setZen(false);
+      zenBeforeFullscreen.current = null;
+    });
+  }, []);
+
   const peekIn = useCallback((side: Exclude<Peek, null>) => {
     window.clearTimeout(peekTimer.current);
     setPeek(side);
@@ -352,6 +395,13 @@ export default function App() {
         toggleZen();
         return;
       }
+      // F, the same way, takes the paper to the whole screen and back.
+      if (readingNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'f' && !isTyping(event.target)) {
+        if (document.querySelector('.scrim, .sheet, .palette') || !canFullscreen()) return;
+        event.preventDefault();
+        toggleFullscreen();
+        return;
+      }
       // E, the same way, opens and closes the explanation of the paper.
       if (readingNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'e' && !isTyping(event.target)) {
         if (document.querySelector('.scrim, .sheet, .palette')) return;
@@ -389,7 +439,12 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toggleZen, toggleExplain, readingNow]);
+  }, [toggleZen, toggleExplain, toggleFullscreen, readingNow]);
+
+  // Full screen is for reading: leaving the paper leaves it too.
+  useEffect(() => {
+    if (!readingNow && fullscreenElement()) void leaveFullscreen();
+  }, [readingNow]);
 
   /** `fromDiscover`: opened from Discover's pane, which stays — with its results and what it said about the save. */
   const openPaper = useCallback((id: string, fromDiscover = false) => {
@@ -808,6 +863,8 @@ export default function App() {
           onToggleSidebar={() => setLibraryOpen(!libraryOpen)}
           zen={inZen}
           onToggleZen={toggleZen}
+          fullscreen={fullscreen}
+          onToggleFullscreen={canFullscreen() ? toggleFullscreen : undefined}
           explaining={explainOpen}
           onToggleExplain={toggleExplain}
           onSelectHighlight={setSelectedHighlightId}

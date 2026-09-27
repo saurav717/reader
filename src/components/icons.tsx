@@ -379,3 +379,17 @@ export const ChartIcon = (props: IconProps) => (
     <path d="M7.5 16V11M12 16V6.5M16.5 16v-7" />
   </Icon>
 );
+
+/** The four corners of the screen, pointing out: the paper fills the whole screen. */
+export const FullscreenIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />
+  </Icon>
+);
+
+/** The corners pointing in: back from the whole screen. */
+export const ExitFullscreenIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5" />
+  </Icon>
+);

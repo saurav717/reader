@@ -34,7 +34,8 @@ import {
   unpaint,
   type Selector,
 } from '../lib/anchor';
-import { HIGHLIGHT_COLORS, type HighlightColor, type ReadingMode } from '../types';
+import { type Highlight, type HighlightColor, type ReadingMode } from '../types';
+import MarkPicker, { markKey, useMarkStyle } from './MarkPicker';
 import LookupPopover, { type LookupTarget } from './LookupPopover';
 import HoverCard, { type CitedEntry, type HoverTarget } from './HoverCard';
 import { pdfPageTexts, showPdf } from '../lib/screen';
@@ -64,6 +65,8 @@ import {
   SparkleIcon,
   ZenIcon,
   ExplainIcon,
+  FullscreenIcon,
+  ExitFullscreenIcon,
 } from './icons';
 
 interface Props {
@@ -78,6 +81,9 @@ interface Props {
   /** Zen mode: the side panes and the top bar are hidden and come out from the edges on hover. */
   zen: boolean;
   onToggleZen: () => void;
+  /** The paper filling the whole screen, the browser's bars and all put away; absent where the browser has no full screen. */
+  fullscreen?: boolean;
+  onToggleFullscreen?: () => void;
   explaining?: boolean;
   onToggleExplain?: () => void;
   onSelectHighlight: (id: string | null) => void;
@@ -134,6 +140,8 @@ export default function Reader({
   onToggleSidebar,
   zen,
   onToggleZen,
+  fullscreen,
+  onToggleFullscreen,
   explaining,
   onToggleExplain,
   onSelectHighlight,
@@ -1150,12 +1158,29 @@ export default function Reader({
     return true;
   }, [selectionTarget]);
 
+  const [markStyle, setMarkStyle] = useMarkStyle();
+
+  /** After a passage is marked, in either mode: its note opened, or the highlights pane following along. */
+  const marked = useCallback(
+    (created: Highlight, withNote: boolean) => {
+      if (withNote) {
+        onSelectHighlight(created.id);
+        onNotes(true);
+      } else {
+        // Follow along if the dock is open, but do not reopen one you shut.
+        onNotes(false);
+      }
+    },
+    [onNotes, onSelectHighlight],
+  );
+
   const applyHighlight = useCallback(
     async (color: HighlightColor, withNote: boolean) => {
       if (!pending || !paper) return;
       const created = await addHighlight({
         paperId: paper.id,
         color,
+        style: markStyle,
         exact: pending.selector.exact,
         prefix: pending.selector.prefix,
         suffix: pending.selector.suffix,
@@ -1166,36 +1191,25 @@ export default function Reader({
       });
       window.getSelection()?.removeAllRanges();
       setPending(null);
-      if (withNote) {
-        onSelectHighlight(created.id);
-        onNotes(true);
-      } else {
-        // Follow along if the dock is open, but do not reopen one you shut.
-        onNotes(false);
-      }
+      marked(created, withNote);
     },
-    [addHighlight, onNotes, onSelectHighlight, paper, pending],
+    [addHighlight, marked, markStyle, paper, pending],
   );
 
-  // Number keys apply a colour to the live selection without the mouse.
+  // Number keys apply a colour to the live selection without the mouse, and U
+  // switches between highlighting and underlining.
   useEffect(() => {
     if (!pending) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-      const position = Number(event.key);
-      if (position >= 1 && position <= HIGHLIGHT_COLORS.length) {
+      if (markKey(event, markStyle, setMarkStyle, (color, withNote) => void applyHighlight(color, withNote))) {
         event.preventDefault();
-        void applyHighlight(HIGHLIGHT_COLORS[position - 1].id, false);
-      } else if (event.key.toLowerCase() === 'n') {
-        event.preventDefault();
-        void applyHighlight(HIGHLIGHT_COLORS[0].id, true);
       } else if (event.key === 'Escape') {
         setPending(null);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [applyHighlight, pending]);
+  }, [applyHighlight, pending, markStyle, setMarkStyle]);
 
   // A passage Ask Claude points at: scrolled to, and marked with its caption
   // for a few seconds (PassageFlash). In the browser's own PDF viewer only the
@@ -1625,6 +1639,18 @@ export default function Reader({
           >
             <ZenIcon size={17} />
           </button>
+          {onToggleFullscreen ? (
+            <button
+              type="button"
+              className="icon-btn sm"
+              aria-pressed={Boolean(fullscreen)}
+              aria-label={fullscreen ? 'Leave full screen' : 'Full screen — the paper fills the whole screen'}
+              title={fullscreen ? 'Leave full screen (F or Esc)' : 'Full screen — the paper fills the whole screen, in PDF or Reflow mode (F)'}
+              onClick={onToggleFullscreen}
+            >
+              {fullscreen ? <ExitFullscreenIcon size={17} /> : <FullscreenIcon size={17} />}
+            </button>
+          ) : null}
           <button
             type="button"
             className="icon-btn sm"
@@ -1851,6 +1877,13 @@ export default function Reader({
               onSnipping={setSnipping}
               blob={pdfBlob}
               title={paper.title}
+              highlights={mine}
+              selectedHighlightId={selectedHighlightId}
+              onSelectHighlight={(id) => {
+                onSelectHighlight(id);
+                if (id) onNotes(true);
+              }}
+              onMarked={marked}
               initialProgress={paper.progress}
               onProgress={(fraction) => setProgress(paper.id, fraction)}
             />
@@ -1921,7 +1954,7 @@ export default function Reader({
         <p style={{ margin: 0, padding: '8px 16px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)' }}>
           {pdfBlob ? (
             <>
-              Highlighting works in Reflow mode — here the text can be selected, copied and added to your notes, anything snipped into them with ✂ Snip (or S), a sticky pinned with a double-click, and the pages {layout === 'book' ? 'turned' : 'stepped through'} with the arrow keys.
+              Select text to highlight or underline it (keys 1–4, U to switch) — the same marks show in Reflow mode and are saved with the paper. Anything can be snipped into your notes with ✂ Snip (or S), a sticky pinned with a double-click, and the pages {layout === 'book' ? 'turned' : 'stepped through'} with the arrow keys.
               {pdfObjectUrl ? (
                 <>
                   {' '}
@@ -1951,17 +1984,7 @@ export default function Reader({
 
       {pending && !lookup ? (
         <div className="selection-toolbar" style={{ top: pending.top, left: pending.left }} role="toolbar" aria-label="Highlight the selection">
-          {HIGHLIGHT_COLORS.map((colour, position) => (
-            <button
-              key={colour.id}
-              type="button"
-              onClick={() => void applyHighlight(colour.id, false)}
-              aria-label={`${colour.label} (key ${position + 1})`}
-              title={`${colour.label} — ${position + 1}`}
-            >
-              <span className="swatch" style={{ background: colour.swatch }} />
-            </button>
-          ))}
+          <MarkPicker style={markStyle} onStyle={setMarkStyle} onPick={(color) => void applyHighlight(color, false)} />
           <span className="divider" />
           <button
             type="button"
