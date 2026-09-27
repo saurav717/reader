@@ -9,7 +9,7 @@ import { followLight } from './lib/glassLight';
 import { clearSelection, currentSelection, currentSelectionIn, explanationOnScreen, paperText, pdfPageImages, pdfPagesInView, pdfPageTexts, trackSelection, visiblePassage } from './lib/screen';
 import Assistant from './components/Assistant';
 import Explain from './components/Explain';
-import ExplainProgress from './components/ExplainProgress';
+import { RailProgress } from './components/ExplainProgress';
 import { explanationFor, setExplainDrive } from './lib/explain';
 import { explainDrive } from './lib/explainDrive';
 import CollectionView from './components/CollectionView';
@@ -468,6 +468,15 @@ export default function App() {
   }, []);
 
   const openFromDiscover = useCallback((id: string) => openPaper(id, true), [openPaper]);
+  // From the progress in the rail: the paper, with its Explain page open on the page being written.
+  const openFromProgress = useCallback(
+    (id: string) => {
+      openPaper(id);
+      setBoardOpen(false);
+      setExplainOpen(true);
+    },
+    [openPaper],
+  );
 
   // The highlights pane comes forward when you write a note; a plain highlight
   // only moves a dock that is already open.
@@ -806,6 +815,8 @@ export default function App() {
           </button>
         ) : null}
         <div style={{ flexGrow: 1 }} />
+        {/* A page goes on being written with Explain closed: how far it has got, from anywhere. */}
+        {!showWelcome ? <RailProgress showing={explainOpen && explained ? explained.id : null} onOpen={openFromProgress} /> : null}
         <button
           type="button"
           className="icon-btn"
@@ -964,17 +975,6 @@ export default function App() {
           onClose={() => setExplainOpen(false)}
         />
       ) : null}
-
-      {/* The page goes on being written with Explain closed; this shows how far, from anywhere. */}
-      <ExplainProgress
-        hidden={showWelcome}
-        showing={explainOpen && explained ? explained.id : null}
-        onOpen={(id) => {
-          openPaper(id);
-          setBoardOpen(false);
-          setExplainOpen(true);
-        }}
-      />
 
       {assistantOpen && !showWelcome ? <Assistant onClose={closeAssistant} screen={readScreen} reading={Boolean(reading)} /> : null}
 

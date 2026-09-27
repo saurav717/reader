@@ -606,28 +606,60 @@ function RewriteMenu({
       </button>
       {open ? (
         <div className="menu right rewrite-menu" role="menu" aria-label="Rewrite with">
-          <div className="menu-label">Rewrite with</div>
-          {MODELS.map((m) => {
-            const ready = Boolean(keys[m.provider]);
+          <div className="rw-head">
+            <b>Rewrite with</b>
+            <span>Written again from scratch · Undo brings it back</span>
+          </div>
+          {(Object.keys(PROVIDERS) as (keyof typeof PROVIDERS)[]).map((provider) => {
+            const models = MODELS.filter((m) => m.provider === provider);
+            if (!models.length) return null;
+            const ready = Boolean(keys[provider]);
             return (
-              <button
-                key={m.id}
-                type="button"
-                role="menuitem"
-                className={m.id === current ? 'is-checked' : undefined}
-                disabled={!ready}
-                onClick={() => {
-                  setOpen(false);
-                  onRewrite(m.id);
-                }}
-                title={ready ? undefined : `Add a ${PROVIDERS[m.provider].company} key in Settings to use ${m.label}`}
-              >
-                <span className="menu-tick">{m.id === current ? '✓' : ''}</span>
-                <span className="rewrite-model">
-                  <b>{m.label}</b>
-                  <span>{ready ? m.note : `${m.note} · needs a key`}</span>
-                </span>
-              </button>
+              <div key={provider} className={`rw-group p-${provider}`} role="group" aria-label={PROVIDERS[provider].company}>
+                <div className="rw-provider">
+                  <span className="rw-mark" aria-hidden="true">
+                    {PROVIDERS[provider].name.slice(0, 1)}
+                  </span>
+                  {PROVIDERS[provider].company}
+                  {ready ? null : <span className="rw-need">Needs a key</span>}
+                </div>
+                {models.map((m) => {
+                  const isCurrent = m.id === current;
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={isCurrent}
+                      className={`rw-model${isCurrent ? ' is-current' : ''}`}
+                      disabled={!ready}
+                      onClick={() => {
+                        setOpen(false);
+                        onRewrite(m.id);
+                      }}
+                      title={ready ? `Write it again with ${m.label}` : `Add a ${PROVIDERS[m.provider].company} key in Settings to use ${m.label}`}
+                    >
+                      <b className="rw-name">{m.label.replace(/^(Claude|Gemini|DeepSeek) /, '')}</b>
+                      <span className="rw-tags">
+                        {m.note.split(' · ').map((tag) => (
+                          <span key={tag} className="rw-tag">
+                            {tag}
+                          </span>
+                        ))}
+                      </span>
+                      {isCurrent ? (
+                        <span className="rw-current" title="The page on screen was written with this one">
+                          Current
+                        </span>
+                      ) : (
+                        <span className="rw-go" aria-hidden="true">
+                          ↻
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             );
           })}
         </div>
@@ -1066,7 +1098,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           </button>
         ) : (
           <RewriteMenu
-            current={model}
+            current={explanation?.model ?? model}
             keys={assistant.keys}
             disabled={!explanation?.content || busy}
             implementing={implementing}

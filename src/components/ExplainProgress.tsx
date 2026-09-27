@@ -35,22 +35,8 @@ const clock = (ms: number) => {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 };
 
-/**
- * A pill in the corner while Explain is closed and a page is still being
- * written or revised: the paper, what it is on, a clock, and how far along it
- * is. The writing goes on without the page open; the pill opens it again.
- */
-export default function ExplainProgress({
-  hidden,
-  showing,
-  onOpen,
-}: {
-  hidden: boolean;
-  /** The paper whose Explain is open: its own page shows how it is going. */
-  showing: string | null;
-  onOpen: (paperId: string) => void;
-}) {
-  const { papers } = useStore();
+/** Every page being written or revised, less the one whose Explain is open; re-rendered each second while there are any. */
+function useJobs(showing: string | null): Job[] {
   const [, setTick] = useState(0);
   const jobs: Job[] = [
     ...explanationsAtWork().map((entry) => ({ page: 'explain' as const, entry })),
@@ -72,78 +58,117 @@ export default function ExplainProgress({
     const timer = window.setInterval(() => setTick((n) => n + 1), 1000);
     return () => window.clearInterval(timer);
   }, [working]);
-  if (hidden || !working) return null;
+  return jobs;
+}
 
+/** What a job says about itself: the paper, how far, how long, what it is on. */
+function describeJob({ page, entry }: Job, titleOf: (id: string) => string | undefined) {
+  const progress = progressOf(page, entry);
+  const writer = PROVIDERS[modelSpec(entry.model).provider].name;
+  const heads = entry.content.match(/^## +(.+)$/gm) ?? [];
+  const now = heads.length ? heads[heads.length - 1].replace(/^## +/, '') : '';
+  const thought = lastThought(entry.thinking);
+  return {
+    label: page === 'implement' ? 'Implementation' : 'Explanation',
+    title: titleOf(entry.paperId) ?? 'A paper',
+    model: MODELS.find((m) => m.id === entry.model)?.label ?? writer,
+    percent: progress === null ? null : Math.round(progress * 100),
+    elapsed: clock(Date.now() - (entry.pending?.started ?? entry.created)),
+    doing: entry.pending
+      ? `Revising — ${entry.pending.request}`
+      : thought
+        ? `Thinking — ${thought}`
+        : entry.content
+          ? `Writing — ${now || 'the opening'}`
+          : 'Reading the paper',
+  };
+}
+
+/** A ring round the page's icon: filled as far as it has got, or turning when there is no telling. */
+function Ring({ page, percent, size = 36 }: { page: ExplainPage; percent: number | null; size?: number }) {
+  const R = 15;
+  const C = 2 * Math.PI * R;
   return (
-    <div className="explain-progress-stack" aria-live="polite">
-      {jobs.map(({ page, entry }) => {
-        const paper = papers.find((p) => p.id === entry.paperId);
-        const progress = progressOf(page, entry);
-        const started = entry.pending?.started ?? entry.created;
-        const writer = PROVIDERS[modelSpec(entry.model).provider].name;
-        const model = MODELS.find((m) => m.id === entry.model)?.label ?? writer;
-        const heads = entry.content.match(/^## +(.+)$/gm) ?? [];
-        const now = heads.length ? heads[heads.length - 1].replace(/^## +/, '') : '';
-        const thought = lastThought(entry.thinking);
-        const doing = entry.pending
-          ? `Revising — ${entry.pending.request}`
-          : !entry.content
-            ? thought
-              ? `Thinking — ${thought}`
-              : 'Reading the paper'
-            : thought
-              ? `Thinking — ${thought}`
-              : `Writing — ${now || 'the opening'}`;
-        const label = page === 'implement' ? 'Implementation' : 'Explanation';
-        const percent = progress === null ? null : Math.round(progress * 100);
-        const R = 15;
-        const C = 2 * Math.PI * R;
+    <span className={`ep-ring${percent === null ? ' is-open' : ''}`} style={{ width: size, height: size }} aria-hidden="true">
+      <svg viewBox="0 0 36 36" width={size} height={size}>
+        <circle className="ep-track" cx="18" cy="18" r={R} />
+        <circle className="ep-fill" cx="18" cy="18" r={R} strokeDasharray={C} strokeDashoffset={percent === null ? C * 0.72 : C * (1 - percent / 100)} />
+      </svg>
+      <span className="ep-icon">{page === 'implement' ? <PlanIcon size={size > 30 ? 13 : 12} /> : <ExplainIcon size={size > 30 ? 13 : 12} />}</span>
+    </span>
+  );
+}
+
+function Bar({ percent }: { percent: number | null }) {
+  return (
+    <span className={`ep-bar${percent === null ? ' is-open' : ''}`} aria-hidden="true">
+      <i style={percent === null ? undefined : { width: `${percent}%` }} />
+    </span>
+  );
+}
+
+/** The whole story of one job: the card in the rail's popover. */
+function Card({ job, titleOf }: { job: Job; titleOf: (id: string) => string | undefined }) {
+  const d = describeJob(job, titleOf);
+  return (
+    <>
+      <span className="ep-top">
+        <b>{d.label}</b>
+        <span className="ep-meta">
+          {d.percent === null ? '' : `${d.percent}% · `}
+          <span className="ep-clock">{d.elapsed}</span>
+        </span>
+      </span>
+      <span className="ep-paper">{d.title}</span>
+      <span className="ep-doing">{d.doing}</span>
+      <Bar percent={d.percent} />
+      <span className="ep-foot">
+        {d.model} · <u>Open</u>
+      </span>
+    </>
+  );
+}
+
+type Props = {
+  /** The paper whose Explain is open: its own page shows how it is going. */
+  showing: string | null;
+  onOpen: (paperId: string) => void;
+};
+
+/**
+ * In the left rail, under Ask AI, while Explain is closed and a page is still
+ * being written or revised: a ring for each, filled as far as it has got, with
+ * the percentage under it. Pointing at it shows the paper, a clock and what it
+ * is on; clicking opens it. It takes no room from what is being read.
+ */
+export function RailProgress({ showing, onOpen }: Props) {
+  const { papers } = useStore();
+  const jobs = useJobs(showing);
+  if (!jobs.length) return null;
+  const titleOf = (id: string) => papers.find((p) => p.id === id)?.title;
+  const open = (job: Job) => {
+    openExplainOn(job.page);
+    onOpen(job.entry.paperId);
+  };
+  return (
+    <div className="rail-progress" aria-live="polite">
+      {jobs.map((job) => {
+        const d = describeJob(job, titleOf);
         return (
-          <button
-            key={`${page}:${entry.paperId}`}
-            type="button"
-            className="explain-progress"
-            onClick={() => {
-              openExplainOn(page);
-              onOpen(entry.paperId);
-            }}
-            title={`${label} of “${paper?.title ?? 'this paper'}” by ${model} — click to open it`}
-          >
-            <span className={`ep-ring${percent === null ? ' is-open' : ''}`} aria-hidden="true">
-              <svg viewBox="0 0 36 36" width="36" height="36">
-                <circle className="ep-track" cx="18" cy="18" r={R} />
-                <circle
-                  className="ep-fill"
-                  cx="18"
-                  cy="18"
-                  r={R}
-                  strokeDasharray={C}
-                  strokeDashoffset={percent === null ? C * 0.72 : C * (1 - percent / 100)}
-                />
-              </svg>
-              <span className="ep-icon">{page === 'implement' ? <PlanIcon size={13} /> : <ExplainIcon size={13} />}</span>
-            </span>
-            <span className="ep-text">
-              <span className="ep-top">
-                <b>{label}</b>
-                <span className="ep-meta">
-                  {percent === null ? '' : `${percent}% · `}
-                  <span className="ep-clock">{clock(Date.now() - started)}</span>
-                </span>
-              </span>
-              <span className="ep-paper">{paper?.title ?? 'A paper'}</span>
-              <span className="ep-doing">{doing}</span>
-              {percent !== null ? (
-                <span className="ep-bar" aria-hidden="true">
-                  <i style={{ width: `${percent}%` }} />
-                </span>
-              ) : (
-                <span className="ep-bar is-open" aria-hidden="true">
-                  <i />
-                </span>
-              )}
-            </span>
-          </button>
+          <div key={`${job.page}:${job.entry.paperId}`} className="rail-progress-item">
+            <button
+              type="button"
+              className="rail-progress-btn"
+              onClick={() => open(job)}
+              aria-label={`${d.label} of “${d.title}”: ${d.percent === null ? 'revising' : `${d.percent}%`}, ${d.elapsed} — open it`}
+            >
+              <Ring page={job.page} percent={d.percent} size={34} />
+              <span className="rail-progress-pct">{d.percent === null ? d.elapsed : `${d.percent}%`}</span>
+            </button>
+            <div className="rail-progress-pop" role="tooltip">
+              <Card job={job} titleOf={titleOf} />
+            </div>
+          </div>
         );
       })}
     </div>
