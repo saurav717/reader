@@ -44,7 +44,7 @@ import PassageFlash, { type Flash } from './PassageFlash';
 import { addClip, captioned, copyOf } from '../lib/notes';
 import { tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
-import { addressPieces, fullerAuthors, onPaper } from '../lib/byline';
+import { addressPieces, fullerAuthors, onPaper, placeOnly } from '../lib/byline';
 import { CITE_CLASS, REF_CLASS, citationHead, citationText, entryText, parseReference } from '../lib/citations';
 import {
   ArrowLeftIcon,
@@ -1385,8 +1385,9 @@ export default function Reader({
         // What the marks stand for, and where the authors were, as the first page says.
         <p className="paper-byline">
           {[
-            ...byline.affiliations.map((place) => ({ mark: place.mark, text: place.text })),
-            ...byline.notes.map((note) => ({ mark: note.mark, text: note.text })),
+            // Institutions without the street and postcode a footnote prints with them.
+            ...byline.affiliations.map((place) => ({ mark: place.mark, text: placeOnly(place.text) })),
+            ...byline.notes.map((note) => ({ mark: note.mark, text: /^(?:present|current|permanent|new) address\b/i.test(note.text) ? placeOnly(note.text) : note.text })),
           ].map((item, index) => (
             <Fragment key={`${index}-${item.mark ?? ''}-${item.text}`}>
               {index ? <span className="sep"> · </span> : null}

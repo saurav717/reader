@@ -1541,6 +1541,7 @@ mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-s
 /* What the paper's own byline says of them: first author, equal contribution, corresponding. */
 .hc-roles { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px; }
 .hc-role { font-family: var(--sans); font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); }
+.hc-moved { display: block; font-size: 12px; color: var(--muted); }
 .hc-contrib { font-family: var(--sans); font-size: 12px; line-height: 1.45; color: var(--muted); margin: 4px 0 2px; }
 /* Where they are, from each source that says, and which one said it:
    Google Scholar for now, the paper for then. */

@@ -1098,14 +1098,19 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   their numbering — and, as IEEE sets them, "I. INTRODUCTION" in small
   capitals and "A. Name" in italics, which are neither — so a Roman numeral
   starting a heading is never mistaken for a numbered list; bullets become
-  lists; the references become one entry each; running heads, page numbers
+  lists; the references become one entry each, numbered or set with a
+  hanging indent (APA's), across a column or a page; running heads, page numbers
   and the arXiv stamp are left out; and accents TeX sets apart from their
   letters ("na¨ıve") are put back. A subscript or a superscript stays on its
   own line, however near a baseline in the other column falls — and a
   script on two levels, *W* ∈ ℝ<sup>d<sub>hidden</sub>×d<sub>model</sub></sup>,
   stays in the line it is set in rather than breaking it into a display,
   as does a radical or a sum set in a line, √d_model, TeX's large
-  operators read as the ∑ and ∏ they are. Text a PDF draws outside its
+  operators read as the ∑ and ∏ they are, and Springer's symbol fonts,
+  which set "•", "©" and parentheses at the codes of other characters,
+  read as what they show. A fraction set in a line, its numerator over its
+  denominator either side of the baseline, is read in the line as
+  "(a)/(b)". Text a PDF draws outside its
   clip — a plot's title left over the top of the box it was cut to — is
   not on the page, and is not read.
 - **The byline.** The title and the authors are the reader's own heading,
@@ -1133,7 +1138,17 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   and theirs alone, on their card as *their part in this paper* and whole
   under *Who did what* by the byline — with an "Author Contributions"
   section's sentences too, and DeepSeek's reading of the rest (below). A
-  note that the order means nothing takes away *First author*.
+  note that the order means nothing takes away *First author*. A byline
+  set as Springer sets one — "Erin L. Meier¹˒² • Jeffrey P. Johnson¹˒³",
+  the numbers said nowhere near the names — is read from the first page's
+  footnote block, where each number hangs in the margin apart from its
+  text: "1 Aphasia Research Laboratory, …, Boston University" is the
+  institution of those whose names carry a 1, "2 Present address: …" says
+  where the author with a 2 had moved to by the time the paper came out
+  (on the card as *then moved to …*, not a role), and "✉ Erin L. Meier"
+  with the address under it marks her as the author to write to. The card
+  and the byline show an institution without the street, room and postcode
+  a footnote prints with it.
   Rest the pointer on a name and the card says it too: *First author*,
   *Equal contribution*, *Corresponding author*, and where they are, from
   each source that says, labelled with it —
@@ -1156,7 +1171,10 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   a PDF that never made it a link is made one too. The boxes a PDF draws
   round its links are not drawings, and do not make a figure of the text
   they frame.
-- **Figures.** A line that says *Figure 3.* is a caption, and the figure is
+- **Figures.** A line that says *Figure 3.* is a caption — or *Fig. 3*
+  with the caption straight after it and no stop, where the label is set
+  in a face of its own, as Springer sets it in a bold sans (whose font
+  names say nothing of weight, so the change of font is what tells), and the figure is
   everything between it and the running text on the far side of it — the
   drawings, the axis labels, the legend, the other panels — in the
   caption's column, and near the drawings: text beside it in the other
@@ -1166,7 +1184,10 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   inside it are in the picture, not the text. A figure is as large as what
   is shown of it: a drawing clipped to a smaller box, or its background
   drawn larger than the figure, reaches no further than the clip, and never
-  over the paragraph or the heading above it.
+  over the paragraph or the heading above it. A figure captioned in the
+  margin beside it is the drawings that start level with the caption's top
+  and go on down, panel under panel; one whose caption says, with a "▶",
+  that it is over the page is the drawing no caption claimed on the next.
 - **Tables.** *Table 2.* is a caption too — and IEEE's *TABLE IV*, in Roman
   numerals — with the lines it runs on to, and the rows under it are read
   into a real table: cells that overlap horizontally are a column, cells on
@@ -1192,7 +1213,11 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   is a body cell wrapped under itself; a label running across four columns
   — *Train from scratch (random init)* — spans them. A table in panels is a table a panel,
   each with its own columns. A table with no figures in it — cells of
-  O(n · d) — ends its heading at the rule under it. A table whose cells cannot be told apart is
+  O(n · d) — ends its heading at the rule under it. A table captioned in
+  the margin beside it is what its rules enclose, with the note set close
+  under the last of them; one as wide as the page under a caption as short
+  as a column reaches as far as the rules drawn across it; and a line set
+  under a table's last rule is its note, not a row. A table whose cells cannot be told apart is
   painted instead, like a figure.
 - **Equations.** A line numbered *(3)* at the column's edge, or set mostly in
   a mathematics font, is display mathematics, and mathematics read glyph by
@@ -1201,7 +1226,10 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   page and shown in their place.
 - **Footnotes** are the small text at the foot of each page, kept small and
   set after the text of that page, one note a mark, a note's own
-  mathematics — "q · k = ∑ qᵢkᵢ" — kept in it.
+  mathematics — "q · k = ∑ qᵢkᵢ" — kept in it. Small type at the foot of
+  a column under a heading, or with a heading under it — Acknowledgments,
+  "Compliance with ethical standards" — is a section set small, and stays
+  in the text.
 
 pdf.js parses in a web worker — the worker script is bundled into a `.js`
 file of its own, since a static host that does not know `.mjs` is JavaScript
@@ -1217,7 +1245,10 @@ of it) with pdf.js as the app does — a figure beside the abstract, tables in
 Roman numerals and in panels, small-capital headings, links and the byline's
 notes; `scripts/pdf-reflow-nips-grid.test.mjs` a byline set as a grid with
 a contributions footnote under it, after "Attention Is All You Need"
-(`scripts/fixtures/nips-grid-byline.tex`); `scripts/pdf-reflow-neurips.test.mjs` does the same for a
+(`scripts/fixtures/nips-grid-byline.tex`); `scripts/pdf-reflow-springer.test.mjs` a two-column paper set as a Springer
+journal sets one (`scripts/fixtures/springer-two-column.tex`) — the byline's
+places in a footnote block, captions in the margin, a table across both
+columns, a fraction in a line; `scripts/pdf-reflow-neurips.test.mjs` does the same for a
 single-column paper set as NeurIPS sets them (`scripts/fixtures/neurips-single-column.tex`,
 after MINITRON, arXiv:2407.14679) — captions under their tables, labels set
 sideways, tables side by side, boxed links, a clipped figure and a byline

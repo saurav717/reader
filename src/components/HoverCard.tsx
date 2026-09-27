@@ -178,6 +178,11 @@ function WhereTheyAre({ where, asking }: { where: Whereabouts; asking: boolean }
           <dt>On this paper</dt>
           <dd>
             {then.place ? <span>{then.same ? `${then.place} — the same as now` : then.place}</span> : null}
+            {then.moved ? (
+              <span className="hc-moved" title="The paper's note of where they had moved to by the time it came out">
+                then moved to {then.moved}
+              </span>
+            ) : null}
             {then.emails.map((email) => (
               <a key={email} className="hc-email" href={`mailto:${email}`} title="The address the paper gives for them">
                 ✉ {email}

@@ -1,0 +1,99 @@
+% A two-column paper in the layout of a Springer journal — made up, after
+% "The utility of lesion classification…" (Brain Imaging and Behavior,
+% 2019) — with what Reflow once read badly in one: names parted by bullets
+% and marked with numbers, the institutions they stand for in a footnote
+% block of the first page, each number hung in the margin, and the author
+% to write to under an envelope; captions whose label is set in a sans
+% bold with the caption straight after it, no stop; a table captioned in
+% the margin beside it; a table across both columns under a caption as
+% short as a column; a fraction set in a line of text; small type under a
+% heading at the foot of a column; and references with hanging indents.
+% Rebuilt with: pdflatex springer-two-column.tex (texlive-latex-recommended, -extra).
+\documentclass[twocolumn,10pt]{article}
+\usepackage[T1]{fontenc}
+\usepackage[margin=0.75in,columnsep=0.3in]{geometry}
+\usepackage{amsmath,booktabs,pifont,graphicx,xcolor}
+\usepackage[hidelinks]{hyperref}
+\pagestyle{empty}
+\setlength{\parindent}{1em}
+\newcommand{\lab}[1]{{\sffamily\bfseries #1}\hspace{0.6em}}
+\makeatletter
+\renewcommand{\@maketitle}{%
+  {\raggedright\sffamily\bfseries\LARGE Lesion classes predict aphasia outcomes\par}
+  \vspace{1em}
+  {\raggedright\sffamily\bfseries\normalsize Ada Lindqvist$^{1,2}$ $\cdot$ Tomas Okafor$^{1,3}$ $\cdot$ Mira Castell$^{1}$\par}
+  \vspace{1em}
+  {\small Published online: 15 May 2019\par}
+  \vspace{1.5em}}
+\makeatother
+\begin{document}
+\twocolumn[{\maketitle
+\noindent{\sffamily\bfseries Abstract}\par
+\noindent Stroke recovery models can improve prognosis of therapy response in patients with chronic aphasia, yet quantifying the effect of lesion on recovery is challenging. This study evaluates lesion classification by gray matter alone and together with white matter, and which structural measures go with aphasia severity and naming.\par
+\vspace{1.5em}}]
+\begingroup
+\renewcommand{\thefootnote}{}
+\footnotetext{\small\hspace*{-1.5em}\parbox[t]{\linewidth}{\hangindent=1.5em\hangafter=0\ding{41}\hspace{0.8em}Ada Lindqvist\\\hspace*{1.5em}adal@northfield.example.edu}}
+\footnotetext{\small\hspace*{-1.5em}\parbox[t]{\linewidth}{\makebox[1.5em][l]{\raisebox{0.4ex}{\tiny 1}}Aphasia Research Laboratory, Department of Speech,\\\hspace*{1.5em}Northfield University, 635 Commonwealth Avenue,\\\hspace*{1.5em}Northfield, MA 02215, USA}}
+\footnotetext{\small\hspace*{-1.5em}\parbox[t]{\linewidth}{\makebox[1.5em][l]{\raisebox{0.4ex}{\tiny 2}}Present address: Neurology Department, Eastmoor\\\hspace*{1.5em}University, 600 N. Wolfe Street, Eastmoor, USA}}
+\footnotetext{\small\hspace*{-1.5em}\parbox[t]{\linewidth}{\makebox[1.5em][l]{\raisebox{0.4ex}{\tiny 3}}Present address: Heart and Lung Research Institute,\\\hspace*{1.5em}Westfield University, Westfield, USA}}
+\endgroup
+{\sffamily\bfseries\large Introduction}\par\medskip
+\noindent Aphasia is one of the most common and long-lasting sequelae of stroke, affecting approximately 30\% of acute stroke survivors and persisting into the chronic stage in many of them. Treatment success was determined by calculating the proportion of potential maximal gain (PMG) for each trained category using the following formula: $\frac{(\mathit{AVG\ Post}-\mathit{AVG\ Pre})}{(\mathit{n\ items}-\mathit{AVG\ Pre})}$, where AVG Pre and AVG Post denote the averaged accuracy on trained items before and after treatment. Aphasia typically results in a constellation of language deficits that greatly impair communication abilities and decrease functional independence. Despite the chronicity of aphasia, patients can continue to regain lost language skills in the years beyond stroke onset with targeted treatment.
+
+Variability in language recovery and response to treatment are hallmarks of the disorder. As such, predictive models that provide prescriptive treatment recommendations for patients according to demographic, stroke and deficit profiles are critical for chronic aphasia care, yet such models do not yet exist, and this paragraph runs on so that the page has enough running text in it to be measured.
+
+\begin{table*}[t]
+\noindent\begin{minipage}[t]{0.2\textwidth}\vspace{0pt}\raggedright\small\lab{Table 1}Regions of interest included in large gray matter masks\end{minipage}\hfill
+\begin{minipage}[t]{0.76\textwidth}\vspace{0pt}\small
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lll}
+\toprule
+Number & ROI mask & Atlas ROI\\
+\midrule
+1 & DLPFC & Superior frontal gyrus\\
+2 & DLPFC & Middle frontal gyrus\\
+3 & iFrontal & Inferior frontal gyrus\\
+4 & iFrontal & Insula\\
+\bottomrule
+\end{tabular*}\par\smallskip
+{\footnotesize\itshape DLPFC} {\footnotesize dorsolateral prefrontal cortex}
+\end{minipage}
+\end{table*}
+
+\begin{table*}[t]
+\noindent{\small\lab{Table 2}Demographic and lesion data for all patients}\par\smallskip
+\small
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lllllllll}
+\toprule
+ID & Sex & Hand & Age & MPO & Education & Lesion Volume (cc) & WAB-R AQ (/100) & PMG\\
+\midrule
+P1 & M & R & 55 & 12 & 16 & 57.25 & 87.2 & 0.89\\
+P2 & F & L & 50 & 29 & 16 & 249.93 & 25.2 & 0.00\\
+P3 & F & R & 63 & 62 & 16 & 175.38 & 52.0 & 0.36\\
+\bottomrule
+\end{tabular*}
+\end{table*}
+
+{\sffamily\bfseries\large Methods}\par\medskip
+\noindent Thirty-four individuals with chronic stroke-induced aphasia participated in the study. The primary eligibility requirement was presence of anomia. Exclusionary criteria included contraindications for MRI and active medical conditions that precluded study participation.
+
+\newpage
+\begin{figure}[t]
+\centering\fcolorbox{black}{gray!30}{\rule{0pt}{0.8in}\rule{0.8\linewidth}{0pt}}\par\smallskip
+\raggedright\small\lab{Fig. 1}Anatomical masks. Gray matter regions of interest, including DLPFC and iFrontal
+\end{figure}
+
+Large gray matter masks were generated by combining regions from an atlas that aligned with major anatomical boundaries of the lateral surface of the brain. The rationale for using large regions was three-fold, which the reader can take on trust here.
+
+\vfill
+{\footnotesize\noindent{\sffamily\bfseries Acknowledgments}\hspace{0.5em}This work was supported by the National Institutes of Health. We would like to thank the individuals with aphasia who participated in this study for their time and effort.\par}
+\medskip
+{\sffamily\bfseries\large Compliance with ethical standards}\par\smallskip
+{\footnotesize\noindent{\sffamily\bfseries Conflicts of interest}\hspace{0.5em}This study was funded by the National Institutes of Health. The authors have no other financial conflicts of interest.\par}
+\newpage
+{\sffamily\bfseries\large References}\par\medskip
+{\footnotesize\raggedright
+\hangindent=1em\hangafter=1\noindent Basilakos, A., Fillmore, P. T., Rorden, C., Guo, D., Bonilha, L., \& Fridriksson, J. (2014). Regional white matter damage predicts speech fluency in chronic post-stroke aphasia. \emph{Frontiers in Human Neuroscience, 8}.\par
+\hangindent=1em\hangafter=1\noindent Beeson, P. M., \& Robey, R. R. (2006). Evaluating single-subject treatment research: Lessons learned from the aphasia literature. \emph{Neuropsychology Review, 16}(4), 161--169.\par
+\hangindent=1em\hangafter=1\noindent Boehme, A. K., Martin-Schild, S., Marshall, R. S., \& Lazar, R. M. (2016). Effect of aphasia on acute stroke outcomes. \emph{Neurology, 87}(22), 2348--2354.\par}
+\end{document}
