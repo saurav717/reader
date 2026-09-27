@@ -842,8 +842,11 @@ function dropContents(pages: Line[][], inputs: PageInput[]): void {
       const key = round(line.x1, 2);
       byRight.set(key, [...(byRight.get(key) ?? []), line]);
     }
-    const best = Array.from(byRight.entries()).sort((a, b) => b[1].length - a[1].length)[0];
-    return best && best[1].length >= 3 ? { right: best[0], numbers: best[1] } : null;
+    // The page numbers are the column furthest right: the entries' own
+    // numbers, "1", "2.1", may line up at their left as many times.
+    const most = Math.max(0, ...Array.from(byRight.values()).map((column) => column.length));
+    const best = Array.from(byRight.entries()).filter(([, column]) => column.length >= 3 && column.length >= 0.6 * most).sort((a, b) => b[0] - a[0])[0];
+    return best ? { right: best[0], numbers: best[1] } : null;
   };
   for (let at = 0; at < pages.length; at += 1) {
     const lines = pages[at];
@@ -1143,9 +1146,18 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
     }
   }
 
+  // Where the caption is short, set at its column's edge, its table or
+  // figure may sit anywhere across the column — centred, clear of the
+  // caption's words: where nothing is found from the caption's own width —
+  // the measure for tables set side by side, and for one wider than the
+  // text — the search starts again from the column the body text about it fills.
+  const around = free.filter((line) => bodyLike(line, measures) && overlapX(line, caption) > 0);
+  const column = around.length ? { x0: Math.min(...around.map((line) => line.x0)), x1: Math.max(...around.map((line) => line.x1)) } : null;
+  const wide = column && caption.x0 >= column.x0 - em && caption.x1 <= column.x1 + em ? { x0: Math.min(caption.x0, column.x0), x1: Math.max(caption.x1, column.x1) } : null;
   const candidates: { region: Region; gap: number }[] = [];
-  for (const side of sides) {
-    let span = { x0: caption.x0, x1: caption.x1 };
+  for (const [start, side] of [...sides.map((one) => [{ x0: caption.x0, x1: caption.x1 }, one] as const), ...(wide ? sides.map((one) => [wide, one] as const) : [])]) {
+    if (start === wide && candidates.length) break;
+    let span = start;
     const inSpan = (box: { x0: number; x1: number }) => overlapX(box, span) > 0;
     const body = free.filter((line) => !line.caption && bodyLike(line, measures) && inSpan(line));
     const columnLeft = body.length ? Math.min(...body.map((line) => line.x0)) : caption.x0;
@@ -1174,6 +1186,10 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
       // A title, or a heading set large: never part of a figure.
       if (line.size >= measures.bodySize * 1.3 && !drawnOver) return true;
       if (Math.abs(line.size - measures.bodySize) > 0.6 || line.x0 > columnLeft + em * 0.3) return false;
+      // A paragraph's last line carried over to the head of the page — the
+      // page's first line, ending its sentence, alone on its baseline — is
+      // the text's, with no full line over it on this page to say so.
+      if (/[.!?]["'”’)]?$/.test(line.text) && !free.some((other) => other !== line && (other.bottom <= line.top + 1 || Math.abs(other.baseline - line.baseline) < 0.5 * line.size))) return true;
       return body.some((other) => other.bottom <= line.top + 1 && line.top - other.bottom < line.size * 1.2);
     };
     let far: number;
@@ -1190,13 +1206,20 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
       // plot drawn, not pasted in, is paths as a table's rules are, and its
       // tick labels rows of numbers. From the figure's caption up, through
       // its panels, one over another.
+      // (Its tick labels may sit between the drawing and the caption: the
+      // drawing nearest over the caption is the figure's, however far up.)
       if (kind === 'table' && next?.caption?.kind === 'figure') {
-        for (let grew = true; grew; ) {
-          grew = false;
-          for (const cluster of clusters) {
-            if (!(cluster.images || cluster.bodies) || !inSpan(cluster) || cluster.y0 >= far || cluster.y0 < captionBottom || cluster.y1 < far - 2 * em) continue;
-            far = cluster.y0;
-            grew = true;
+        const drawn = clusters.filter((cluster) => (cluster.images || cluster.bodies) && inSpan(cluster) && cluster.y0 >= captionBottom && cluster.y1 <= far + 1);
+        const lowest = drawn.reduce<Cluster | null>((low, cluster) => (!low || cluster.y1 > low.y1 ? cluster : low), null);
+        if (lowest) {
+          far = lowest.y0;
+          for (let grew = true; grew; ) {
+            grew = false;
+            for (const cluster of drawn) {
+              if (cluster.y0 >= far || cluster.y1 < far - 2 * em) continue;
+              far = cluster.y0;
+              grew = true;
+            }
           }
         }
       }

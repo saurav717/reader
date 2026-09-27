@@ -207,6 +207,70 @@ describe('a report\'s tables', () => {
   });
 });
 
+describe('documents set otherwise', () => {
+  const table = (x, top, names) => [
+    run('Method', x, top, { size: 9.5, width: 32 }),
+    run('Dev', x + 60, top, { size: 9.5, width: 16 }),
+    run('Test', x + 110, top, { size: 9.5, width: 18 }),
+    ...names.flatMap((name, index) => [run(name, x, top + 17 * (index + 1), { size: 9.5, width: 38 }), run(`${60 + index}.1`, x + 60, top + 17 * (index + 1), { size: 9.5, width: 17 }), run('-', x + 110, top + 17 * (index + 1), { size: 9.5, width: 3 })]),
+  ];
+
+  it('finds a narrow table set centred under a short caption at the column\'s edge', () => {
+    const runs = [...paragraph(90, 5, 'Body line'), run('Table 1. Results on the first benchmark.', LEFT, 170, { size: 9.5, width: 152 }), ...table(240, 195, ['Method A', 'Method B', 'Method C']), ...paragraph(290, 5, 'After line')];
+    const graphics = [rule(235, 380, 183), rule(235, 380, 199), rule(235, 380, 250)];
+    const found = later(runs, graphics).blocks.find((block) => block.kind === 'table');
+    assert.deepEqual(cells(found), [['Method', 'Dev', 'Test'], ['Method A', '60.1', '-'], ['Method B', '61.1', '-'], ['Method C', '62.1', '-']]);
+  });
+
+  it('ends a table over a plot where the plot begins, though its tick labels sit between the plot and its caption', () => {
+    // The table is captioned under; the vote of the page's captions must not
+    // be swayed by the plot being read as a table under "Table 4".
+    const runs = [
+      ...paragraph(90, 5, 'Body line'),
+      ...table(240, 165, ['Method A', 'Method B']),
+      run('Table 4. Ablations.', LEFT, 225, { size: 9.5, width: 80 }),
+      run('0', 160, 360, { size: 6, width: 3 }),
+      run('2000', 240, 360, { size: 6, width: 12 }),
+      run('4000', 320, 360, { size: 6, width: 12 }),
+      run('Figure 1. Loss over training steps.', LEFT, 385, { size: 9.5, width: 140 }),
+      ...paragraph(410, 5, 'After line'),
+    ];
+    const graphics = [rule(235, 380, 153), rule(235, 380, 169), rule(235, 380, 204), { x0: 150, y0: 245, x1: 470, y1: 352, kind: 'path' }, { x0: 155, y0: 255, x1: 465, y1: 345, kind: 'path' }];
+    const blocks = later(runs, graphics).blocks;
+    assert.deepEqual(cells(blocks.find((block) => block.kind === 'table')), [['Method', 'Dev', 'Test'], ['Method A', '60.1', '-'], ['Method B', '61.1', '-']]);
+    assert.equal(blocks.find((block) => block.kind === 'figure')?.label, 'Figure 1');
+  });
+
+  it('keeps the last line of a paragraph carried to the head of the page with its paragraph, not in the table under it', () => {
+    const first = paragraph(100, 45, 'Opening line', { last: 1 }).map((one, index, all) => (index === all.length - 1 ? { ...one, str: one.str.replace(/\.$/, '') } : one));
+    const second = [
+      run('and closes here.', LEFT, 88, { width: 70 }),
+      ...table(90, 110, ['Model 0', 'Model 1', 'Model 2']),
+      run('Table 1: Accuracy of each model.', LEFT, 185, { size: 9.5, width: 140 }),
+      ...paragraph(210, 5, 'After line'),
+    ];
+    const graphics = [rule(85, 530, 100), rule(85, 530, 114), rule(85, 530, 168)];
+    const blocks = layoutPages([page(first), page(second, graphics, 1)]).blocks;
+    assert.deepEqual(cells(blocks.find((block) => block.kind === 'table'))[0], ['Method', 'Dev', 'Test']);
+    assert.ok(blocks.some((block) => block.kind === 'paragraph' && /here Opening|full here and closes here\.$/.test(text(block))), JSON.stringify(blocks.map(text)));
+  });
+
+  it('leaves out a contents page whose entries are numbered at their left, and keeps a section called "Contents" that is a list of parts', () => {
+    const entry = (n, y) => [run(`${n}`, LEFT, y, { width: 6 }), run(`Section title number ${n} ` + '. '.repeat(40), 95, y, { width: 380 }), run(`${n * 3}`, 530 - 5.5 * String(n * 3).length, y, { width: 5.5 * String(n * 3).length })];
+    const contents = [run('Table of Contents', LEFT, 90, { size: 15, font: BOLD, width: 120 }), ...[1, 2, 3, 4, 5, 6].flatMap((n) => entry(n, 120 + 18 * n))];
+    const parts = [
+      run('2 Contents', LEFT, 90, { size: 12.5, font: BOLD, width: 70 }),
+      ...[['Screws', '12'], ['Washers', '24'], ['Brackets', '4'], ['Hinges', '2']].flatMap(([name, count], index) => [run(name, 100, 112 + 16 * index, { width: 50 }), run(count, 530 - 5.5 * count.length, 112 + 16 * index, { width: 5.5 * count.length })]),
+      ...paragraph(190, 30, 'Body line'),
+    ];
+    const blocks = layoutPages([page(contents), page(parts, [], 1)]).blocks.map(text);
+    assert.ok(!blocks.some((block) => /Section title|Table of Contents/.test(block)), JSON.stringify(blocks));
+    assert.ok(blocks.includes('2 Contents'));
+    // Every part, and its count, is kept.
+    for (const part of ['Screws 12', 'Washers 24', 'Brackets 4', 'Hinges 2']) assert.ok(blocks.some((block) => block.includes(part)), part);
+  });
+});
+
 describe('a report\'s front matter and text', () => {
   it('leaves the contents page out, entries, dots and page numbers', () => {
     const entry = (label, title, y, number, bold) => [
