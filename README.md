@@ -1115,7 +1115,10 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   paper does not have — is left out; running heads, page numbers
   and the arXiv stamp are left out (the article's number Springer boxes
   beside "Page 2 of 11" with them); and accents TeX sets apart from their
-  letters ("na¨ıve") are put back. A subscript or a superscript stays on its
+  letters ("na¨ıve") are put back, as are the spaces pdf.js reports as runs
+  of their own, the lines of justified text stretched so wide their spaces
+  part them as columns are parted, and an address set a letter at a time
+  ("h t t p : / / c r e …"). A subscript or a superscript stays on its
   own line, however near a baseline in the other column falls — and a
   script on two levels, *W* ∈ ℝ<sup>d<sub>hidden</sub>×d<sub>model</sub></sup>,
   stays in the line it is set in rather than breaking it into a display,
@@ -1142,7 +1145,10 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   on the first page — "∗Equal contribution" — is the byline's, not the
   text's, however many lines it runs to — set however low on the page —
   and a marked institution centred under the last line of names is every
-  name's that carries the mark, as is the corresponding author
+  name's that carries the mark — the only one named, everyone's — and a
+  note that the names are in alphabetical order, however large it is set,
+  every name's; a byline of scores of names, a collaboration's, is read
+  whole; as is the corresponding author
   under an envelope drawn rather than set: a name and an address at the
   foot of the page. A byline set as a grid, as NIPS
   set "Attention Is All You Need" — each name over its institution and its
@@ -1255,13 +1261,23 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   columns, and its broken words mended; and a "-" in a table of words does
   not end its heading. Two tables set one over the other, a caption
   between them, are told apart by the side the paper sets its tables
-  on; and a table over a plot drawn in paths ends where the plot begins. A table whose cells cannot be told apart is
+  on; and a table over a plot drawn in paths ends where the plot begins.
+  A heading set centred on two lines beside headings of one ("Context /
+  Length" by "Params") is one row, the models' sizes over the rule under it
+  included, and a row of the heading with a cell in every column is its
+  own. A table that is a box of text between rules — an example prompt,
+  "PROMPT", its options under "OPTIONS" — is read as one column, its labels
+  heading rows and its lines broken where the box breaks them. A table whose cells cannot be told apart is
   painted instead, like a figure.
 - **Equations.** A line numbered *(3)* at the column's edge, or set mostly in
   a mathematics font, is display mathematics, and mathematics read glyph by
   glyph out of a PDF is not worth reading — so the equation and the lines a
   fraction or a sum spreads over, in its own column, are painted from the
-  page and shown in their place.
+  page and shown in their place — every line of a display, however much of
+  it is set in its scripts ("𝑀 = 72 𝑛layer 𝑑²model").
+- **Footnotes** also include a line at the very foot of the page led by a
+  note's mark, however large it is set; and the bibliography ends at the
+  heading after it, so the footnotes of an appendix's first page are its own.
 - **Footnotes** are the small text at the foot of each page, kept small and
   set after the text of that page, one note a mark, a note's own
   mathematics — "q · k = ∑ qᵢkᵢ" — kept in it. Small type at the foot of

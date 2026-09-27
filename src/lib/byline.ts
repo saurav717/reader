@@ -190,7 +190,7 @@ export function placeOnly(text: string): string {
 }
 
 /** A note saying the authors' order carries nothing: random, alphabetical, by a coin's toss. */
-const ORDER_MEANS_NOTHING = /\b(?:listing|author|name)s?\s+order\b[^.]*\b(?:random|alphabetical|arbitrary|coin)|\b(?:random(?:ly)?|alphabetical(?:ly)?|arbitrar(?:y|ily))\s+(?:order|ordered|listed)\b|\border(?:ed)?\s+(?:at\s+random|randomly|alphabetically|by\s+(?:a\s+)?coin)/i;
+export const ORDER_MEANS_NOTHING = /\b(?:listing|author|name)s?\s+order\b[^.]*\b(?:random|alphabetical|arbitrary|coin)|\b(?:random(?:ly)?|alphabetical(?:ly)?|arbitrar(?:y|ily))\s+(?:order|ordered|listed)\b|\border(?:ed)?\s+(?:at\s+random|randomly|alphabetically|by\s+(?:a\s+)?coin)/i;
 
 /** A note cut into its words and its addresses — "Corresponding author: a@b.org" — the addresses to be links. */
 export function addressPieces(text: string): { text: string; href?: string }[] {
