@@ -1,0 +1,35 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.top{height:54px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;padding:0 20px;background:var(--surface)}
+.doc{max-width:720px;margin:0 auto;padding:30px 40px;font-family:var(--serif);font-size:18px;line-height:1.7;opacity:.55}
+.doc h2{font-family:var(--sans);font-size:19px;margin:22px 0 8px}
+.peek{position:fixed;left:70px;top:10px;width:430px;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-md),0 0 0 1px rgba(0,0,0,.02);overflow:hidden}
+.peek::before{content:'';position:absolute;left:-7px;top:22px;width:12px;height:12px;background:var(--surface);border-left:1px solid var(--border);border-bottom:1px solid var(--border);transform:rotate(45deg)}
+.ph{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border-soft);background:var(--panel)}
+.pi{display:flex;align-items:center;gap:11px;padding:9px 16px}
+.pi.sel{background:var(--accent-soft)}
+.pi .k{margin-left:auto}
+.sec{padding:10px 16px 4px}
+.ft{display:flex;gap:14px;padding:10px 16px;border-top:1px solid var(--border-soft);font-size:11.5px;color:var(--muted)}
+</style></head><body><div class="app"><!--RAIL:away-->
+<main class="main">
+ <div class="top"><span class="ink2">←</span><div><div style="font-size:13px">Fourier Neural Operator for Parametric Partial Differential Equations</div><div class="mono muted">arXiv:2010.08895v3 · 42%</div></div><span style="flex:1"></span><span class="chip">Reflow</span><span class="chip">PDF</span></div>
+ <div class="doc">
+  <h2>3 Neural Operator</h2>
+  <p>The neural operator is formulated as an iterative architecture v₀ ↦ v₁ ↦ … ↦ v_T where each v_j takes values in ℝ^{d_v}. The input a ∈ 𝒜 is first lifted to a higher-dimensional representation by a local transformation P.</p>
+  <p>We then apply several iterations of updates, where each update composes a non-local integral operator with a local, nonlinear activation function…</p>
+  <h2>4 Fourier Neural Operator</h2>
+  <p>We propose replacing the kernel integral operator by a convolution operator defined in Fourier space…</p>
+ </div>
+</main></div>
+<div class="peek">
+ <div class="ph"><div class="brand" style="width:26px;height:26px;font-size:15px;margin:0;border-radius:7px">R</div><div style="flex:1"><b>Home</b><div class="muted" style="font-size:11.5px">Click R to open · hover for this</div></div><kbd>G</kbd><kbd>H</kbd></div>
+ <div class="sec eyebrow">Switch to</div>
+ <div class="pi sel"><div class="ring" style="--p:.63;width:26px;height:26px"></div><div><div class="ptitle" style="font-size:14px">Survey of mixture-of-experts</div><div class="muted" style="font-size:11.5px">63% · §2.1 · 2 days ago</div></div><span class="k"><kbd>1</kbd></span></div>
+ <div class="pi"><div class="ring" style="--p:.18;width:26px;height:26px"></div><div><div class="ptitle" style="font-size:14px">Neural Operator: Learning Maps Between Function Spaces</div><div class="muted" style="font-size:11.5px">18% · §2 · 4 days ago</div></div><span class="k"><kbd>2</kbd></span></div>
+ <div class="pi"><div class="cover" style="width:26px;height:34px;padding:4px"><i></i><i></i></div><div><div class="ptitle" style="font-size:14px">Physics-informed neural networks</div><div class="muted" style="font-size:11.5px">next in queue · ~35 min</div></div><span class="k"><kbd>N</kbd></span></div>
+ <div class="sec eyebrow">Waiting at Home</div>
+ <div class="pi"><span class="chip acc">6 new papers</span><span class="chip">2 open questions</span><span class="chip">5 to review</span></div>
+ <div class="ft"><span><kbd>⌘K</kbd> search</span><span><kbd>⌘[</kbd> back to last paper</span><span style="margin-left:auto">Esc</span></div>
+</div>
+<div class="label">Idea 6 · R is Home — hover it for a quick switcher</div></body></html>

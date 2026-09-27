@@ -6,8 +6,10 @@ is a good place to *manage* papers, but it's a poor place to *start a session*.
 To get back into what you were reading you have to find the paper, open it,
 then scroll to where you stopped.
 
-Below are five directions for a **Home** view: a new first icon on the rail
-that the app lands on after sign-in. They aren't exclusive. The recommendation
+Below are directions for a **Home** view that the app lands on after
+sign-in. **The R at the top of the rail is the Home button.** It has a ring
+and a bar beside it while Home is showing, and it's plain everywhere else
+(see [idea 6](#6-r-is-home--hover-it-for-a-quick-switcher)). They aren't exclusive. The recommendation
 at the end combines them. All of them are static mock-ups built in the app's
 own colours and type. The sources are in [`mockups/landing-src/`](mockups/landing-src/)
 and are re-rendered with `node docs/mockups/landing-src/render.mjs`.
@@ -37,7 +39,7 @@ time", which the PDF outline and word count can give.
 
 Dark mode, for reference:
 
-![The same page in the dark theme](mockups/landing-6-continue-dark.png)
+![The same page in the dark theme](mockups/landing-1b-continue-dark.png)
 
 ## 2. Search-first launchpad
 
@@ -129,6 +131,122 @@ show **5** in place of it until the library has a few papers. Then add the
 side panels from **3** (the inbox) and **4** (open questions and review) as
 they become possible. Home then stays the same page, and the inbox and
 review appear in it as more data comes in.
+
+---
+
+# More workflow ideas
+
+The five pages above are all *Home*. The ideas below are about the rest of the
+journey: how you get from Home into a paper and back, and how a paper ends up
+as something you've written.
+
+## The loop
+
+![A loop of six stages (Find, Triage, Plan, Read, Wrap up, Review & write) around R/Home, each tagged with the idea numbers that serve it](mockups/landing-0-loop.png)
+
+Every stage is one step from **R**, and each one hands you to the next
+instead of dropping you back in a list. The numbers on the diagram are the
+ideas that serve each stage.
+
+## 6. R is Home — hover it for a quick switcher
+
+![The reader with a popover from the R button listing papers in progress with 1/2/N keys, what's waiting at Home, and shortcuts](mockups/landing-6-r-peek.png)
+
+**Click R** to go Home, from anywhere. **Hover R** (or press <kbd>G</kbd>
+<kbd>H</kbd>) inside a paper and you get a quick switcher instead:
+
+- the other papers in progress, one number key each
+- the next paper in the queue, on <kbd>N</kbd>
+- counts of what's waiting at Home (new papers, open questions, reviews)
+- <kbd>⌘[</kbd> to jump back to the previous paper
+
+You can hop between two papers without losing your place in either.
+**Cost:** low. It reuses Home's data.
+
+## 7. Projects — Home opens on a research question
+
+![A project page: the research question as a title, papers in To find / To read / Reading / Read & summarised lanes, and "what you know so far" built from highlights with citations](mockups/landing-7-projects.png)
+
+A project is a **question you're reading toward**. Papers, highlights, notes
+and chats are filed under it. Its page has:
+
+- the question as its title
+- papers in lanes: *to find → to read → reading → summarised*. "To find"
+  holds placeholders for papers you know you need but haven't found yet.
+- **What you know so far**: your highlights, turned into claims with their
+  citations, with open questions marked *no source yet*
+
+Home opens on your active project. Each project could map to a folder in the
+GitHub notes repo.
+**Cost:** medium. Collections are most of the way there already. The new
+parts are the question, the lanes and the claims list.
+
+## 8. Today's plan & focus session
+
+![A timed reading plan (finish FNO §3–4, skim a paper, a stalled paper with a deadline, review, triage) with a 25-minute focus timer and weekly goals](mockups/landing-8-today.png)
+
+Pick how much time you have (30 min, 90 min or half a day) and Home proposes
+a plan. It's built from the queue, deadlines, stalled papers, reviews that
+are due and the inbox, and you can drag the steps to reorder them.
+
+**Start focus** runs a timer. While it runs, the library and the dock are
+hidden, the inbox is quiet, and it logs what you read, which feeds the weekly
+goals and reading time.
+**Cost:** low to medium. Zen mode already exists. The planner is ordering
+work that the other ideas have already gathered.
+
+## 9. End-of-paper wrap-up
+
+![A dialog at 100%: three takeaways drafted from highlights, a star rating, file-under project, a reminder of an open question, and next papers picked from references and citers](mockups/landing-9-finish.png)
+
+When you reach the end of a paper, a dialog opens (you can dismiss it). It:
+
+- drafts **three takeaways** from your highlights for you to edit
+- asks for a rating and where to file the paper
+- reminds you of any open question that still has no answer
+- suggests the **next paper** from its references and the papers citing it,
+  with ticks to pick which
+
+**Save & open next** (<kbd>⌘↵</kbd>) writes the takeaways to your notes and
+GitHub, marks the paper finished, and opens the next one. This is the
+hand-off that keeps the loop going.
+**Cost:** low to medium. Highlights, notes, Explain/Ask and citation lookups
+already exist.
+
+## 10. Library map — see the gaps
+
+![A citation graph of a project's papers: finished, reading and unread nodes, plus dashed pink nodes for papers cited by several of yours that aren't in the library](mockups/landing-10-map.png)
+
+Your library (or one project) drawn as a citation graph, coloured by
+finished, reading or unread. The useful part is the **dashed nodes**: papers
+that three or more of yours cite, but which you don't have. They're listed
+beside the graph under "Gaps worth filling", each with an **Add** button.
+**Cost:** medium. The reference data comes from Semantic Scholar or OpenAlex,
+which are already wired up, plus a force-directed layout.
+
+## 11. From highlights to a draft
+
+![A writing view: highlights grouped by colour-meaning on the left, one being dragged into a draft on the right, which turns it into a citation; a bibliography in sync with bibliography.bib](mockups/landing-11-write.png)
+
+On the left are your highlights, grouped by what each colour means (key
+results, limitations, open questions), plus the takeaways from idea 9. On the
+right is a draft. **Drag a highlight in and it becomes a citation.** The
+reference list keeps itself in sync with the `bibliography.bib` in the Git
+repo. **Draft ✦** writes a first pass from the highlights. You can export as
+`.tex` and `.bib`.
+**Cost:** medium. The Markdown notes and the Git bibliography exist already.
+The new parts are the editor and drag-to-cite.
+
+## Recommendation, updated
+
+1. **R → Home** (idea 1 with the search box from idea 2), plus the
+   **R hover switcher** (idea 6). Cheap, and it changes every session.
+2. The **end-of-paper wrap-up** (idea 9). It closes the loop and feeds
+   everything after it.
+3. **Projects** (idea 7) as the way Home is organised, with **Today's plan**
+   (idea 8) on top of it.
+4. Then the inbox (3), review (4), map (10) and writing view (11), as the data
+   for each becomes available.
 
 ## Smaller workflow ideas (any of the above)
 

@@ -1,0 +1,57 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+body{display:flex;align-items:center;justify-content:center}
+.wrap{width:1380px;display:grid;grid-template-columns:900px 1fr;gap:40px;align-items:center}
+svg{width:900px;height:760px}
+.st{font:600 15px var(--sans);fill:var(--ink)}
+.ss{font:400 11.5px var(--sans);fill:var(--muted)}
+.id{font:500 10.5px var(--mono);fill:var(--accent)}
+.row{display:grid;grid-template-columns:120px 1fr;gap:10px;padding:10px 0;border-top:1px solid var(--border-soft);font-size:13px;line-height:1.45}
+.row b{font-weight:600}
+</style></head><body>
+<div class="wrap">
+<svg viewBox="-70 0 900 760">
+ <defs><marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--accent)"/></marker></defs>
+ <circle cx="380" cy="380" r="255" fill="none" stroke="var(--border)" stroke-width="2"/>
+ <g fill="none" stroke="var(--accent)" stroke-width="2" marker-end="url(#a)">
+  <path d="M430 130 A255 255 0 0 1 553 200"/>
+  <path d="M628 330 A255 255 0 0 1 612 480"/>
+  <path d="M540 590 A255 255 0 0 1 430 632"/>
+  <path d="M330 632 A255 255 0 0 1 220 590"/>
+  <path d="M148 480 A255 255 0 0 1 132 330"/>
+  <path d="M177 228 A255 255 0 0 1 330 130"/>
+ </g>
+ <g stroke="var(--border)" stroke-dasharray="3 5" stroke-width="1.5">
+  <path d="M380 312 L380 170"/><path d="M438 346 L560 270"/><path d="M438 414 L560 490"/><path d="M380 448 L380 590"/><path d="M322 414 L200 490"/><path d="M322 346 L200 270"/>
+ </g>
+ <circle cx="380" cy="380" r="70" fill="var(--accent)"/>
+ <text x="380" y="378" text-anchor="middle" style="font:700 44px var(--serif);fill:var(--accent-on)">R</text>
+ <text x="380" y="408" text-anchor="middle" style="font:600 12px var(--sans);fill:var(--accent-on);letter-spacing:.1em">HOME</text>
+ <g>
+  <circle cx="380" cy="125" r="46" fill="var(--surface)" stroke="var(--border)" stroke-width="1.5"/><text class="st" x="380" y="122" text-anchor="middle">Find</text><text class="id" x="380" y="140" text-anchor="middle">#2 #10</text>
+  <text class="ss" x="380" y="60" text-anchor="middle">search · paste · drop · map gaps</text>
+  <circle cx="601" cy="252" r="46" fill="var(--surface)" stroke="var(--border)" stroke-width="1.5"/><text class="st" x="601" y="249" text-anchor="middle">Triage</text><text class="id" x="601" y="267" text-anchor="middle">#3</text>
+  <text class="ss" x="656" y="196" text-anchor="start">inbox: add · later · no</text>
+  <circle cx="601" cy="508" r="46" fill="var(--surface)" stroke="var(--border)" stroke-width="1.5"/><text class="st" x="601" y="505" text-anchor="middle">Plan</text><text class="id" x="601" y="523" text-anchor="middle">#8 #7</text>
+  <text class="ss" x="656" y="570" text-anchor="start">today · projects · queue</text>
+  <circle cx="380" cy="635" r="46" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/><text class="st" x="380" y="632" text-anchor="middle">Read</text><text class="id" x="380" y="650" text-anchor="middle">#1 #6</text>
+  <text class="ss" x="380" y="705" text-anchor="middle">resume · switch with R · focus</text>
+  <circle cx="159" cy="508" r="46" fill="var(--surface)" stroke="var(--border)" stroke-width="1.5"/><text class="st" x="159" y="505" text-anchor="middle">Wrap up</text><text class="id" x="159" y="523" text-anchor="middle">#9</text>
+  <text class="ss" x="104" y="570" text-anchor="end">takeaways · next paper</text>
+  <circle cx="159" cy="252" r="46" fill="var(--surface)" stroke="var(--border)" stroke-width="1.5"/><text class="st" x="159" y="244" text-anchor="middle">Review</text><text class="st" x="159" y="262" text-anchor="middle">&amp; write</text><text class="id" x="159" y="278" text-anchor="middle">#4 #11</text>
+  <text class="ss" x="104" y="196" text-anchor="end">resurface · draft · cite</text>
+ </g>
+</svg>
+<div>
+ <div class="eyebrow">The workflow, end to end</div>
+ <h1 class="serif" style="font-size:32px;font-weight:600;margin:8px 0 10px;line-height:1.15">Every step starts from R, and comes back to it</h1>
+ <p class="ink2" style="font-size:14px;line-height:1.6;margin:0 0 16px">Home is the hub; each stage is one keystroke or one click from it, and each stage hands you on to the next instead of dropping you back in a list.</p>
+ <div class="row"><b>Find</b><span>One box for search, links and PDFs; the map shows what's missing.</span></div>
+ <div class="row"><b>Triage</b><span>New papers arrive with a reason and get sorted from the keyboard.</span></div>
+ <div class="row"><b>Plan</b><span>A project or today's plan picks what's next, so you don't have to.</span></div>
+ <div class="row"><b>Read</b><span>Resume at the exact spot; hover R to hop between papers.</span></div>
+ <div class="row"><b>Wrap up</b><span>At 100%: three takeaways, file it, open the next paper.</span></div>
+ <div class="row"><b>Review &amp; write</b><span>Old highlights resurface; highlights become cited paragraphs.</span></div>
+</div>
+</div>
+<div class="label">The loop · numbers are the ideas in docs/landing-ideas.md</div></body></html>

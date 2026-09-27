@@ -1,0 +1,54 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.wrap{display:grid;grid-template-columns:220px 1fr;gap:28px;height:100%}
+.pj{display:flex;flex-direction:column;gap:3px;margin-top:10px}
+.pj a{padding:9px 11px;border-radius:9px;display:block}
+.pj a.on{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm)}
+.pj a small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.lanes{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:14px}
+.lane{background:var(--panel);border-radius:11px;padding:10px;display:flex;flex-direction:column;gap:8px}
+.lane .h{display:flex;justify-content:space-between;padding:2px 4px}
+.pc{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:9px 10px}
+.pc .ptitle{font-size:13.5px}
+.claim{display:flex;gap:10px;padding:10px 14px;border-top:1px solid var(--border-soft);align-items:flex-start}
+.claim:first-of-type{border-top:0}
+.cite{font-family:var(--mono);font-size:10.5px;color:var(--accent);background:var(--accent-soft);padding:1px 5px;border-radius:4px;margin-left:4px}
+</style></head><body><div class="app"><!--RAIL-->
+<main class="main"><div class="scroll">
+<div class="wrap">
+ <aside>
+  <div class="eyebrow">Projects</div>
+  <div class="pj">
+   <a class="on"><b>Operator learning for shocks</b><small>11 papers · 3 reading</small></a>
+   <a>Aphasia recovery prediction<small>14 papers · deadline Oct 15</small></a>
+   <a>MoE reading group<small>5 papers · meets Thursday</small></a>
+   <a class="muted">+ New project</a>
+  </div>
+  <div class="card" style="padding:12px;margin-top:22px;font-size:12px" class="ink2"><div class="eyebrow">What a project is</div><p class="ink2" style="margin:8px 0 0;line-height:1.5">A question you're reading toward. Papers, highlights, notes and chats are filed under it, so Home opens on the <i>work</i>, not a list.</p></div>
+ </aside>
+ <section>
+  <div class="eyebrow" style="color:var(--accent)">Research question</div>
+  <h1 class="serif" style="font-size:28px;font-weight:600;margin:6px 0 4px">Can neural operators resolve shocks without Gibbs ringing?</h1>
+  <div style="display:flex;gap:8px;align-items:center;margin-top:10px"><span class="btn primary">Resume FNO · §3</span><span class="btn">Find more papers ✦</span><span class="btn">Ask across this project</span><span style="flex:1"></span><span class="muted" style="font-size:12px">Notes synced to <span class="mono">github.com/…/shocks</span></span></div>
+  <div class="lanes">
+   <div class="lane"><div class="h"><span class="eyebrow">To find</span><span class="mono muted">2</span></div>
+    <div class="pc" style="border-style:dashed"><div style="font-size:12.5px">A paper on spectral filtering for FNO</div><div class="muted" style="font-size:11px;margin-top:3px">from your note · search suggested</div></div>
+    <div class="pc" style="border-style:dashed"><div style="font-size:12.5px">Benchmarks on Burgers with shocks</div></div></div>
+   <div class="lane"><div class="h"><span class="eyebrow">To read</span><span class="mono muted">4</span></div>
+    <div class="pc"><div class="ptitle">Spectral Shock Capturing for Operator Learning</div><div class="muted" style="font-size:11px">added from Inbox · ~30 min</div></div>
+    <div class="pc"><div class="ptitle">DeepONet</div><div class="muted" style="font-size:11px">~40 min</div></div></div>
+   <div class="lane"><div class="h"><span class="eyebrow">Reading</span><span class="mono muted">3</span></div>
+    <div class="pc" style="border-color:var(--accent)"><div class="ptitle">Fourier Neural Operator</div><div class="bar" style="margin-top:7px"><i style="width:42%"></i></div></div>
+    <div class="pc"><div class="ptitle">Neural Operator (JMLR)</div><div class="bar" style="margin-top:7px"><i style="width:18%"></i></div></div></div>
+   <div class="lane"><div class="h"><span class="eyebrow">Read &amp; summarised</span><span class="mono muted">2</span></div>
+    <div class="pc"><div class="ptitle">Gibbs phenomenon, revisited</div><div class="muted" style="font-size:11px">3 takeaways</div></div></div>
+  </div>
+  <div class="card" style="margin-top:18px">
+   <div style="display:flex;justify-content:space-between;padding:12px 14px 4px"><span class="eyebrow">What you know so far — built from your highlights</span><span class="btn ghost" style="height:auto;padding:0">Export as related-work draft →</span></div>
+   <div class="claim"><span class="dot dg" style="margin-top:6px"></span><div>FNO is discretisation-invariant and can super-resolve zero-shot<span class="cite">Li 2021 §5.4</span><span class="cite">Kovachki 2023</span></div></div>
+   <div class="claim"><span class="dot dy" style="margin-top:6px"></span><div>Mode truncation smears discontinuities; local kernels help<span class="cite">Liu-Schiaffini 2024</span></div></div>
+   <div class="claim"><span class="dot dp" style="margin-top:6px"></span><div><b>Open:</b> is the error near shocks bounded as resolution grows? <span class="muted">— no source yet</span></div></div>
+  </div>
+ </section>
+</div>
+</div></main></div><div class="label">Idea 7 · Projects — Home opens on a research question</div></body></html>

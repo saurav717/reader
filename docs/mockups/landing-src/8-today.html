@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.cols{display:grid;grid-template-columns:1fr 360px;gap:26px;margin-top:22px}
+.blk{display:flex;gap:14px;padding:14px 16px;border-top:1px solid var(--border-soft);align-items:center}
+.blk:first-of-type{border-top:0}
+.time{width:62px;font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.grip{color:var(--border);letter-spacing:-2px}
+.slot{height:9px;border-radius:5px;background:var(--accent-soft)}
+.timer{padding:22px;text-align:center}
+.timer .t{font-family:var(--serif);font-size:54px;font-weight:600;letter-spacing:-.02em;margin:6px 0}
+.goal{display:flex;gap:9px;align-items:center;padding:6px 0;font-size:12.5px}
+.box{width:15px;height:15px;border:1.5px solid var(--border);border-radius:4px;flex-shrink:0}
+.box.on{background:var(--accent);border-color:var(--accent)}
+</style></head><body><div class="app"><!--RAIL-->
+<main class="main"><div class="scroll">
+<div style="display:flex;align-items:flex-end;justify-content:space-between">
+ <div><div class="eyebrow">Today · 90 minutes planned</div><h1 class="serif" style="font-size:32px;font-weight:600;margin-top:6px">Your reading plan</h1>
+ <p class="ink2" style="margin:6px 0 0;font-size:14px">Built from your queue, deadlines and what stalled. Drag to reorder; it's a suggestion, not a rule.</p></div>
+ <div style="display:flex;gap:8px"><span class="btn">30 min</span><span class="btn" style="border-color:var(--accent);color:var(--accent)">90 min</span><span class="btn">Half day</span></div>
+</div>
+<div class="cols">
+ <section class="card">
+  <div class="blk" style="background:var(--accent-soft)"><span class="grip">⋮⋮</span><span class="time">now</span><div class="ring" style="--p:.42"></div><div style="flex:1"><div class="ptitle">Finish §3–4 of Fourier Neural Operator</div><div class="muted" style="font-size:11.5px">~25 min · project: Operator learning for shocks · <span style="color:var(--accent-ink)">goal: answer “where does the kernel come from?”</span></div></div><span class="btn primary">Start</span></div>
+  <div class="blk"><span class="grip">⋮⋮</span><span class="time">+25 min</span><div class="cover" style="width:34px;height:44px"><i></i><i></i><i></i></div><div style="flex:1"><div class="ptitle">Skim: Spectral Shock Capturing for Operator Learning</div><div class="muted" style="font-size:11.5px">~15 min · abstract, figures, conclusion · <span class="chip" style="height:20px">Explain first ✦</span></div></div></div>
+  <div class="blk"><span class="grip">⋮⋮</span><span class="time">+40 min</span><div class="cover" style="width:34px;height:44px"><i></i><i></i><i></i></div><div style="flex:1"><div class="ptitle">Aphasia: read results of Chennuri et al.</div><div class="muted" style="font-size:11.5px">~30 min · stalled 6 days · <span style="color:var(--ul-pink)">deadline Oct 15</span></div></div></div>
+  <div class="blk"><span class="grip">⋮⋮</span><span class="time">+70 min</span><div class="ico" style="width:34px;height:34px;border-radius:8px;background:var(--panel);display:grid;place-items:center;color:var(--accent)">↻</div><div style="flex:1"><div class="ptitle">Review 5 highlights · write 3 takeaways for DeepONet</div><div class="muted" style="font-size:11.5px">~10 min</div></div></div>
+  <div class="blk"><span class="grip">⋮⋮</span><span class="time">+80 min</span><div class="ico" style="width:34px;height:34px;border-radius:8px;background:var(--panel);display:grid;place-items:center;color:var(--accent)">✉</div><div style="flex:1"><div class="ptitle">Triage 6 new papers in the inbox</div><div class="muted" style="font-size:11.5px">~10 min</div></div></div>
+ </section>
+ <aside style="display:flex;flex-direction:column;gap:18px">
+  <section class="card timer">
+   <div class="eyebrow">Focus session</div>
+   <div class="t">25:00</div>
+   <div class="muted" style="font-size:12px">Hides the library and dock, silences the inbox, and keeps a log of what you read.</div>
+   <div style="display:flex;gap:8px;justify-content:center;margin-top:14px"><span class="btn primary">Start focus <kbd style="background:transparent;color:var(--accent-on);border-color:rgba(255,255,255,.35)">F</kbd></span><span class="btn">Zen mode</span></div>
+  </section>
+  <section class="card" style="padding:14px 16px">
+   <div class="eyebrow">This week's goals</div>
+   <div class="goal"><span class="box on"></span>Finish FNO<span class="muted" style="margin-left:auto">42%</span></div>
+   <div class="goal"><span class="box"></span>Read 3 papers for the MoE group (Thu)</div>
+   <div class="goal"><span class="box"></span>Draft related-work paragraph on shocks</div>
+   <div style="margin-top:10px"><div class="bar"><i style="width:35%"></i></div><div class="muted" style="font-size:11px;margin-top:5px">2 h 10 min read this week</div></div>
+  </section>
+ </aside>
+</div>
+</div></main></div><div class="label">Idea 8 · Today's plan &amp; focus session</div></body></html>
