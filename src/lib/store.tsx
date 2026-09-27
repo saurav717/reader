@@ -882,9 +882,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       await db.deleteHighlight(id);
       setHighlights((current) => current.filter((item) => item.id !== id));
       latest.current.highlights = latest.current.highlights.filter((item) => item.id !== id);
-      if (highlight) queueGitHub(highlight.paperId);
+      if (!highlight) return;
+      // Drive's copy loses it too, as it gained it: the sidecar is written afresh.
+      if (settings.autoSync && driveConnected) syncPaper(highlight.paperId);
+      queueGitHub(highlight.paperId);
     },
-    [queueGitHub],
+    [driveConnected, queueGitHub, settings.autoSync, syncPaper],
   );
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {

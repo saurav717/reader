@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { TWO_PAGE_MIN_WIDTH, usePageTurns } from './BookView';
@@ -7,6 +7,12 @@ import { useKept } from './Keep';
 import PdfSnip from './PdfSnip';
 import { addClip, addText, useNotes } from '../lib/notes';
 import PagePins, { stickiesOf } from './PdfPins';
+import MarkPicker, { markKey, useMarkStyle } from './MarkPicker';
+import { NoteIcon } from './icons';
+import { useStore } from '../lib/store';
+import { buildIndex, offsetOf, rangeFromOffsets, resolveSelector, type Selector } from '../lib/anchor';
+import { mergeBoxes, pdfText, placeMarks, readable, selectorIn, type Box, type PageMark, type PdfText } from '../lib/pdfMarks';
+import type { Highlight, HighlightColor } from '../types';
 
 type Engine = typeof import('../lib/pdfReflow');
 
@@ -20,6 +26,12 @@ interface Props {
   onSnipping: (on: boolean) => void;
   blob: Blob;
   title: string;
+  /** The paper's highlights and underlines, made in either mode, drawn on its pages. */
+  highlights: Highlight[];
+  selectedHighlightId: string | null;
+  onSelectHighlight: (id: string | null) => void;
+  /** A passage marked here, and whether a note is to be written on it. */
+  onMarked: (highlight: Highlight, withNote: boolean) => void;
   /** Where the paper was left, 0–1, to open on the same page. */
   initialProgress: number;
   onProgress: (fraction: number) => void;
@@ -48,7 +60,20 @@ const esc = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').
  * turned. The text of each page is laid over its picture, so it can be
  * selected and copied as in the browser's own viewer.
  */
-export default function PdfBookView({ flow = 'book', paperId, snipping, onSnipping, blob, title, initialProgress, onProgress }: Props) {
+export default function PdfBookView({
+  flow = 'book',
+  paperId,
+  snipping,
+  onSnipping,
+  blob,
+  title,
+  highlights,
+  selectedHighlightId,
+  onSelectHighlight,
+  onMarked,
+  initialProgress,
+  onProgress,
+}: Props) {
   const scrolling = flow === 'scroll';
   const frameRef = useRef<HTMLDivElement>(null);
   /** In the scrolled column, what the pages are laid in — what snipping measures them against. */
@@ -93,6 +118,33 @@ export default function PdfBookView({ flow = 'book', paperId, snipping, onSnippi
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
+
+  // The whole PDF's text, page by page as the text layers hold it, which every
+  // highlight is looked for in — read once, a page at a time, after opening.
+  const [text, setText] = useState<PdfText | null>(null);
+  useEffect(() => {
+    setText(null);
+    if (!opened) return;
+    let live = true;
+    (async () => {
+      const texts: string[] = [];
+      for (let number = 1; number <= opened.doc.numPages && live; number++) {
+        const page = await opened.doc.getPage(number);
+        const content = await page.getTextContent();
+        texts.push(content.items.map((item) => ('str' in item ? item.str : '')).join(''));
+      }
+      if (live) setText(pdfText(texts));
+    })().catch((reason) => console.warn('Could not read the PDF’s text for its highlights', reason));
+    return () => {
+      live = false;
+    };
+  }, [opened]);
+  const marks = useMemo(() => (text ? placeMarks(text, highlights) : new Map<number, PageMark[]>()), [text, highlights]);
+  const marksOn = (number: number) => ({
+    marks: marks.get(number),
+    pageText: text?.pages[number - 1],
+    selectedId: selectedHighlightId,
+  });
 
   const pages = opened?.doc.numPages ?? 0;
   // Two pages side by side where they fit — or one, or two, as picked.
@@ -231,7 +283,7 @@ export default function PdfBookView({ flow = 'book', paperId, snipping, onSnippi
   // and equations on the pages in view: click one to keep it, or drag a box.
   // Text selected on a page has "Add to notes" under it.
   const { announce, toast } = useKept();
-  const [picked, setPicked] = useState<{ text: string; page?: number; top: number; left: number } | null>(null);
+  const [picked, setPicked] = useState<{ text: string; page?: number; top: number; left: number; selector: Selector } | null>(null);
   useEffect(() => {
     if (!picked) return;
     const drop = () => {
@@ -251,8 +303,75 @@ export default function PdfBookView({ flow = 'book', paperId, snipping, onSnippi
       setPicked(null);
       return;
     }
-    const rect = selection.getRangeAt(0).getBoundingClientRect();
-    setPicked({ text, page: Number(page.dataset.page) || undefined, top: rect.bottom + 8, left: Math.max(12, Math.min(window.innerWidth - 180, rect.left)) });
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    setPicked({
+      text,
+      page: Number(page.dataset.page) || undefined,
+      top: rect.bottom + 8,
+      left: Math.max(12, Math.min(window.innerWidth - 420, rect.left)),
+      selector: selectorOf(range, selection.toString()),
+    });
+  };
+  /** Where a selection on the pages is in the whole PDF's text, as the selector a highlight keeps. */
+  const selectorOf = (range: Range, shown: string): Selector => {
+    const at = (node: Node, offset: number) => {
+      const element = node instanceof Element ? node : node.parentElement;
+      const page = element?.closest<HTMLElement>('.pdf-book-page');
+      const layer = page?.querySelector<HTMLElement>('.pdf-text');
+      const number = Number(page?.dataset.page);
+      if (!text || !layer || !number) return null;
+      const index = buildIndex(layer);
+      // A page whose text layer is not the text read out of the file cannot be placed in it.
+      if (index.text !== text.pages[number - 1]) return null;
+      const local = offsetOf(index, node, offset);
+      return local === null ? null : text.starts[number - 1] + local;
+    };
+    const start = at(range.startContainer, range.startOffset);
+    const end = at(range.endContainer, range.endOffset);
+    if (text && start !== null && end !== null && end > start) return selectorIn(text, start, end, shown);
+    // Placed by its words alone, the way a quote from elsewhere is.
+    return { exact: readable(shown), prefix: '', suffix: '', hint: 0 };
+  };
+  const { addHighlight } = useStore();
+  const [markStyle, setMarkStyle] = useMarkStyle();
+  const markSelection = useCallback(
+    async (color: HighlightColor, withNote: boolean) => {
+      if (!picked?.selector.exact) return;
+      const created = await addHighlight({
+        paperId,
+        color,
+        style: markStyle,
+        ...picked.selector,
+        tags: [],
+        note: withNote ? '' : undefined,
+      });
+      window.getSelection()?.removeAllRanges();
+      setPicked(null);
+      onMarked(created, withNote);
+    },
+    [addHighlight, markStyle, onMarked, paperId, picked],
+  );
+  // With text selected, 1–4 mark it, U switches to underlining and back, N marks it with a note.
+  useEffect(() => {
+    if (!picked) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (markKey(event, markStyle, setMarkStyle, (color, withNote) => void markSelection(color, withNote))) event.preventDefault();
+      else if (event.key === 'Escape') setPicked(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [picked, markStyle, setMarkStyle, markSelection]);
+  /** A click on a marked passage brings its card up among the highlights. */
+  const pickMark = (clientX: number, clientY: number) => {
+    if (window.getSelection()?.isCollapsed === false) return false;
+    const hit = Array.from(frameRef.current?.querySelectorAll<HTMLElement>('.pdf-mark') ?? []).find((mark) => {
+      const box = mark.getBoundingClientRect();
+      return clientX >= box.left && clientX <= box.right && clientY >= box.top - 2 && clientY <= box.bottom + 2;
+    });
+    if (!hit?.dataset.highlightId) return false;
+    onSelectHighlight(hit.dataset.highlightId);
+    return true;
   };
   const keepSelection = () => {
     if (!picked) return;
@@ -339,6 +458,7 @@ export default function PdfBookView({ flow = 'book', paperId, snipping, onSnippi
     onMouseUp: () => !snipping && !pinning && takeSelection(),
     onClick: (event: ReactMouseEvent) => {
       if (pinning) pinAt(event.target, event.clientX, event.clientY);
+      else if (!snipping) pickMark(event.clientX, event.clientY);
     },
     onDoubleClick: (event: ReactMouseEvent) => {
       if (!snipping && !pinning) pinAt(event.target, event.clientX, event.clientY);
@@ -372,7 +492,7 @@ export default function PdfBookView({ flow = 'book', paperId, snipping, onSnippi
                   ? Array.from({ length: pages }, (_, index) => index + 1).map((number) => (
                       <div key={number} className="pdf-scroll-slot" data-slot={number} style={{ width: Math.floor(pageSize.width * scale), minHeight: Math.floor(pageSize.height * scale) }}>
                         {near.has(number) ? (
-                          <PdfPage doc={opened.doc} engine={opened.engine} number={number} scale={scale} side="single" overlay={(width, height) => pinsOn(number, width, height)} />
+                          <PdfPage doc={opened.doc} engine={opened.engine} number={number} scale={scale} side="single" {...marksOn(number)} overlay={(width, height) => pinsOn(number, width, height)} />
                         ) : null}
                       </div>
                     ))
@@ -405,6 +525,7 @@ export default function PdfBookView({ flow = 'book', paperId, snipping, onSnippi
                   number={number}
                   scale={scale}
                   side={columns === 2 ? (index === 0 ? 'left' : 'right') : 'single'}
+                  {...marksOn(number)}
                   overlay={(width, height) => pinsOn(number, width, height)}
                 />
               ))}
@@ -478,6 +599,11 @@ export default function PdfBookView({ flow = 'book', paperId, snipping, onSnippi
       </div>
       {picked ? (
         <div className="selection-toolbar" style={{ top: picked.top, left: picked.left }} role="toolbar" aria-label="The selection">
+          <MarkPicker style={markStyle} onStyle={setMarkStyle} onPick={(color) => void markSelection(color, false)} />
+          <span className="divider" />
+          <button type="button" className="wide" onMouseDown={(event) => event.preventDefault()} onClick={() => void markSelection('yellow', true)} title="Highlight and write a note — N">
+            <NoteIcon size={15} /> Note
+          </button>
           <button type="button" className="wide" onMouseDown={(event) => event.preventDefault()} onClick={keepSelection} title="Keep this passage in your notes">
             <PlusIcon size={15} /> Add to notes
           </button>
@@ -499,6 +625,9 @@ function PdfPage({
   number,
   scale,
   side,
+  marks,
+  pageText,
+  selectedId,
   overlay,
 }: {
   doc: PDFDocumentProxy;
@@ -506,6 +635,10 @@ function PdfPage({
   number: number;
   scale: number;
   side: 'left' | 'right' | 'single';
+  /** The highlights on this page, in offsets into its text as read out of the file. */
+  marks?: PageMark[];
+  pageText?: string;
+  selectedId: string | null;
   /** What is laid over the page once its size is known: its stickies. */
   overlay?: (width: number, height: number) => ReactNode;
 }) {
@@ -560,8 +693,51 @@ function PdfPage({
     };
   }, [doc, engine, number, scale]);
 
+  // The marks, measured off the words in the text layer once it is laid out:
+  // a box a line, in the page's own pixels.
+  const pageRef = useRef<HTMLDivElement>(null);
+  const [boxes, setBoxes] = useState<{ highlight: Highlight; boxes: Box[] }[]>([]);
+  useLayoutEffect(() => {
+    const page = pageRef.current;
+    const layer = textRef.current;
+    if (!textReady || !page || !layer || !marks?.length) {
+      setBoxes([]);
+      return;
+    }
+    const index = buildIndex(layer);
+    // The text layer not what was read out of the file — it should be — each
+    // mark is looked for again in the page's own text.
+    const placed =
+      pageText === undefined || index.text === pageText
+        ? marks
+        : marks.flatMap((mark) => {
+            const at = resolveSelector(index, mark.highlight);
+            return at ? [{ ...mark, ...at }] : [];
+          });
+    const frame = page.getBoundingClientRect();
+    // The page may be drawn scaled — mid-turn — and the boxes go in its own units.
+    const ratio = page.offsetWidth ? frame.width / page.offsetWidth : 1;
+    setBoxes(
+      placed.map((mark) => {
+        const found: Box[] = [];
+        // Word by word, text node by text node: a range over whole spans
+        // would give each span's box as well as its text's.
+        for (const entry of index.nodes) {
+          if (entry.end <= mark.start || entry.start >= mark.end) continue;
+          const range = rangeFromOffsets(index, Math.max(mark.start, entry.start), Math.min(mark.end, entry.end));
+          if (!range) continue;
+          for (const rect of Array.from(range.getClientRects())) {
+            found.push({ left: (rect.left - frame.left) / ratio, top: (rect.top - frame.top) / ratio, width: rect.width / ratio, height: rect.height / ratio });
+          }
+        }
+        return { highlight: mark.highlight, boxes: mergeBoxes(found) };
+      }),
+    );
+  }, [textReady, marks, pageText, size]);
+
   return (
     <div
+      ref={pageRef}
       className={`pdf-book-page ${side}${drawn ? '' : ' drawing'}`}
       style={size ? { width: size.width, height: size.height } : undefined}
       aria-label={`Page ${number}`}
@@ -569,6 +745,21 @@ function PdfPage({
       data-text={textReady ? 'ready' : undefined}
     >
       <canvas ref={canvasRef} style={size ? { width: size.width, height: size.height } : undefined} />
+      {boxes.length ? (
+        <div className="pdf-marks" aria-hidden="true">
+          {boxes.flatMap(({ highlight, boxes: lines }) =>
+            lines.map((box, line) => (
+              <div
+                key={`${highlight.id}-${line}`}
+                className={`pdf-mark hl-${highlight.color}${highlight.style === 'underline' ? ' hl-underline' : ''}${highlight.id === selectedId ? ' is-selected' : ''}`}
+                data-highlight-id={highlight.id}
+                title={highlight.note || undefined}
+                style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
+              />
+            )),
+          )}
+        </div>
+      ) : null}
       <div ref={textRef} className="pdf-text" />
       {size && overlay ? overlay(size.width, size.height) : null}
     </div>
