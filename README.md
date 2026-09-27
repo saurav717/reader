@@ -1093,7 +1093,11 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   the line is a superscript or subscript. Two columns are read down one and
   then the other (a recursive XY-cut, which also puts a full-width title
   before the columns under it), and a paragraph that runs from the foot of
-  one column to the top of the next, or across a page, is one paragraph.
+  one column to the top of the next, or across a page, is one paragraph —
+  a list item too, where what runs on is set at its text's indent. A
+  structured abstract's parts, each led by a heading run into its text
+  ("Recent findings", "Summary"), are a paragraph each, even where the
+  abstract is set across both columns of a two-column paper.
   Headings are the lines set larger or bolder than the body — or in its own
   type, short, with space over them and the text under them, as Nature's
   journals set a subsection, one level under the section it is in — with levels from
@@ -1102,7 +1106,8 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   starting a heading is never mistaken for a numbered list; bullets become
   lists; the references become one entry each, numbered or set with a
   hanging indent (APA's), across a column or a page; running heads, page numbers
-  and the arXiv stamp are left out; and accents TeX sets apart from their
+  and the arXiv stamp are left out (the article's number Springer boxes
+  beside "Page 2 of 11" with them); and accents TeX sets apart from their
   letters ("na¨ıve") are put back. A subscript or a superscript stays on its
   own line, however near a baseline in the other column falls — and a
   script on two levels, *W* ∈ ℝ<sup>d<sub>hidden</sub>×d<sub>model</sub></sup>,
@@ -1128,7 +1133,9 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   Sreenivas's. Names set apart by wide spaces rather than commas, as
   NeurIPS sets them, are still one name each, and a note set as a footnote
   on the first page — "∗Equal contribution" — is the byline's, not the
-  text's, however many lines it runs to. A byline set as a grid, as NIPS
+  text's, however many lines it runs to, as is the corresponding author
+  under an envelope drawn rather than set: a name and an address at the
+  foot of the page. A byline set as a grid, as NIPS
   set "Attention Is All You Need" — each name over its institution and its
   address, a column each — is read a column at a time, so each author has
   the institution and the address under their name; a notice set over the
