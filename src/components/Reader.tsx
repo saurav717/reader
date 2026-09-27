@@ -1349,7 +1349,7 @@ export default function Reader({
         {paper.authors.map((name, position) => {
           const here = onPaper(byline, name);
           const show = (element: HTMLElement, delay?: number) =>
-            openHover(element, () => ({ kind: 'author', name, position, anchor: element.getBoundingClientRect(), onPaper: here }), delay);
+            openHover(element, () => ({ kind: 'author', name, position, anchor: element.getBoundingClientRect(), onPaper: here, byline }), delay);
           return (
             <Fragment key={`${position}-${name}`}>
               {position ? ' · ' : null}
@@ -1405,6 +1405,20 @@ export default function Reader({
             </Fragment>
           ))}
         </p>
+      ) : null}
+      {byline?.notes.some((note) => note.contributions?.length) ? (
+        // A contributions statement, said of each author by name: on their cards, and whole here.
+        <details className="paper-contrib">
+          <summary>Who did what</summary>
+          {byline.notes
+            .filter((note) => note.contributions?.length)
+            .map((note) => (
+              <p key={note.mark}>
+                <sup>{note.mark}</sup>
+                {note.contributions!.join(' ')}
+              </p>
+            ))}
+        </details>
       ) : null}
 
       {content?.notice ? (

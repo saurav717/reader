@@ -30,6 +30,8 @@ import {
 } from '../server/scholar.js';
 import { askServices, servicesLabel } from '../server/scholarServices.js';
 import { captchaPassed, emailAllowed, googleEmail, issuePass, readPass } from '../server/passes.js';
+import { contributionsAsked, readContributions } from '../server/contributionReader.js';
+import { PROFILE_MODEL } from '../server/profileReader.js';
 import { aiCounts } from './usage.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini, tokensOf as geminiTokens } from '../server/geminiRelay.js';
 import { readBalance } from './deepseekBalance.js';
@@ -698,6 +700,25 @@ export default {
           }
           return json({ error: String(error?.message || error) }, 502, headers);
         }
+      }
+
+      // A paper's statement of who did what, read by DeepSeek for each
+      // author's part: server/contributionReader.js. On DEEPSEEK_KEY, which
+      // is metered, so for whoever may use this Worker's paid accounts.
+      if (path === '/contributions') {
+        const key = String(env.DEEPSEEK_KEY || '').trim();
+        if (!key) return json({ configured: false }, 200, { ...headers, 'Cache-Control': 'no-store' });
+        const who = await authorized(request, env);
+        if (!who) return needsToken(env, headers);
+        if (await personOverLimit(env, who)) {
+          return json({ error: 'too many requests at once; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });
+        }
+        const asked = contributionsAsked(url.searchParams);
+        if (!asked) return json({ error: 'authors (a JSON list) and statement are required' }, 400, headers);
+        const { people, usage } = await readContributions(asked, key);
+        const spent = usage && aiCounts({ provider: 'deepseek', model: PROFILE_MODEL, variant: `${PROFILE_MODEL}-fast`, ...usage });
+        if (spent) tally(env, ctx, who, spent);
+        return json({ configured: true, people, via: 'deepseek' }, 200, { ...headers, 'Cache-Control': 'private, max-age=86400' });
       }
 
       if (path === '/arxiv/query') {

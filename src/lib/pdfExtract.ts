@@ -38,8 +38,13 @@ function transformed(matrix: Matrix, x0: number, y0: number, x1: number, y1: num
  * The operator list is replayed with only the transformation stack kept,
  * which is enough to know where each image and path lands.
  */
-function graphicsOf(page: PDFPageProxy, fnArray: number[], argsArray: unknown[], base: Matrix): GraphicBox[] {
+function graphicsOf(page: PDFPageProxy, fnArray: number[], argsArray: unknown[], base: Matrix): { boxes: GraphicBox[]; hidden: [number, number][] } {
   const boxes: GraphicBox[] = [];
+  // Where text is set outside its clip — a plot's title left over the top
+  // of the box it was cut to — and so never seen.
+  const hidden: [number, number][] = [];
+  let line: Matrix = [1, 0, 0, 1, 0, 0];
+  let text: Matrix = line;
   // The transform, and the region drawing is clipped to: what is drawn
   // outside it is not seen — a figure's white background as big as the
   // slide it was made on, cut down to the figure — and is not the figure.
@@ -80,6 +85,27 @@ function graphicsOf(page: PDFPageProxy, fnArray: number[], argsArray: unknown[],
       case OPS.paintFormXObjectEnd:
         state = stack.pop() ?? { ctm: base, clip: null };
         break;
+      case OPS.beginText:
+        line = text = [1, 0, 0, 1, 0, 0];
+        break;
+      case OPS.setTextMatrix:
+        if (args && args.length >= 6) line = text = Array.from(args as ArrayLike<number>).slice(0, 6) as unknown as Matrix;
+        else if (args?.[0] && (args[0] as ArrayLike<number>).length >= 6) line = text = Array.from(args[0] as ArrayLike<number>).slice(0, 6) as unknown as Matrix;
+        break;
+      case OPS.moveText:
+      case OPS.setLeadingMoveText:
+        if (args && args.length >= 2) line = text = multiply(line, [1, 0, 0, 1, Number(args[0]), Number(args[1])]);
+        break;
+      case OPS.showText:
+      case OPS.showSpacedText:
+      case OPS.nextLineShowText:
+      case OPS.nextLineSetSpacingShowText: {
+        const clip = state.clip;
+        if (!clip) break;
+        const [, , , , x, y] = multiply(state.ctm, text);
+        if (x < clip.x0 - 1 || x > clip.x1 + 1 || y < clip.y0 - 1 || y > clip.y1 + 1) hidden.push([x, y]);
+        break;
+      }
       case OPS.clip:
       case OPS.eoClip:
         // The path that follows is the clip.
@@ -111,7 +137,7 @@ function graphicsOf(page: PDFPageProxy, fnArray: number[], argsArray: unknown[],
     }
   }
   void page;
-  return boxes;
+  return { boxes, hidden };
 }
 
 /** Everything on one page that the layout needs. */
@@ -124,7 +150,7 @@ export async function extractPage(page: PDFPageProxy): Promise<PageInput> {
   // links, one on each line with a citation, would chain into one frame
   // over a paragraph and make it part of the figure under it.
   const operators = await page.getOperatorList({ annotationMode: AnnotationMode.DISABLE });
-  const graphics = graphicsOf(page, operators.fnArray, operators.argsArray, base);
+  const { boxes: graphics, hidden } = graphicsOf(page, operators.fnArray, operators.argsArray, base);
   const content = await page.getTextContent();
   const fontNames = new Map<string, string>();
   const runs: TextRun[] = [];
@@ -133,6 +159,8 @@ export async function extractPage(page: PDFPageProxy): Promise<PageInput> {
     if (!('str' in item) || !item.str) continue;
     const matrix = multiply(base, item.transform as ArrayLike<number>);
     const [a, b, c, d, e, f] = matrix;
+    // Text drawn outside its clip is not on the page to read.
+    if (hidden.some(([x, y]) => Math.abs(x - e) < 1.5 && Math.abs(y - f) < 1.5)) continue;
     // Text set sideways — the arXiv stamp down the margin, a table's label
     // for a group of rows — is not read with the text, but kept aside by
     // its box, for a table to take the labels beside it.

@@ -338,6 +338,11 @@ describe('the byline off the PDF', () => {
     assert.ok(!sameAuthor('S Chennuri', 'Saurav Lai'));
   });
 
+  it('reads a letter with a stroke as the letter: arXiv\'s "Lukasz" is the PDF\'s "Łukasz"', () => {
+    assert.ok(sameAuthor('Lukasz Kaiser', 'Łukasz Kaiser'));
+    assert.ok(sameAuthor('Ł Kaiser', 'Lukasz Kaiser'));
+  });
+
   it('takes the whole list where Scholar cut it at six', () => {
     assert.deepEqual(fullerAuthors(scholar, pdf), pdf);
   });
