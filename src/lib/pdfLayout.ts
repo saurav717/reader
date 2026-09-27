@@ -634,8 +634,13 @@ function buildLines(page: PageInput): Line[] {
       /\p{Lu}/u.test(run.str) &&
       !/\p{Ll}/u.test(run.str);
     const weight = new Map<number, number>();
+    // A typewriter face is set larger than the text about it to look its
+    // size — an address in a reference, LMMono at 12pt in 10.9pt text — and
+    // is counted at the text's size where the line has any.
+    const text = line.runs.filter((run) => !run.mono && /[\p{L}\p{N}.,;:]/u.test(run.str));
+    const textSize = text.length ? text.reduce((best, run) => (run.str.length > best.str.length ? run : best), text[0]).size : 0;
     for (const run of line.runs) {
-      const counted = smallCaps(run) || run.fraction ? largest.size : run.size;
+      const counted = smallCaps(run) || run.fraction ? largest.size : run.mono && textSize && run.size > textSize && run.size <= 1.25 * textSize ? textSize : run.size;
       weight.set(counted, (weight.get(counted) || 0) + run.str.length);
     }
     let size = line.size;
@@ -685,6 +690,8 @@ interface Measures {
   columnWidth: number;
   /** Whether body text is justified: most full lines end at the same edge. */
   justified: boolean;
+  /** The distance from one line of body text to the next, most often. */
+  pitch: number;
 }
 
 const round = (value: number, step = 0.5): number => Math.round(value / step) * step;
@@ -728,7 +735,20 @@ function measure(pages: Line[][]): Measures {
   const aligned = Math.max(0, ...byRight.values());
   const justified = full.length >= 8 && aligned / full.length >= 0.5;
 
-  return { bodySize, columnWidth, justified };
+  // From each line of body text to the next one under it in its column.
+  const byPitch = new Map<number, number>();
+  for (const lines of pages) {
+    const column = lines.filter((line) => Math.abs(line.size - bodySize) <= 0.6).sort((a, b) => a.baseline - b.baseline);
+    for (const [index, line] of column.entries()) {
+      const next = column.slice(index + 1).find((other) => other.baseline - line.baseline > 0.5 * bodySize && Math.min(other.x1, line.x1) - Math.max(other.x0, line.x0) > 0);
+      if (!next) continue;
+      const pitch = round(next.baseline - line.baseline, 0.25);
+      if (pitch < 2.5 * bodySize) byPitch.set(pitch, (byPitch.get(pitch) || 0) + 1);
+    }
+  }
+  const pitch = Array.from(byPitch.entries()).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 1.2 * bodySize;
+
+  return { bodySize, columnWidth, justified, pitch };
 }
 
 // -------------------------------------------------------- headers, feet --
@@ -737,6 +757,17 @@ function measure(pages: Line[][]): Measures {
  * Running heads, page numbers and the arXiv stamp: lines in the top or
  * bottom margin that are short, numeric, or the same on page after page.
  */
+/**
+ * A line that opens with a note's mark: "∗", "†", or a small raised number
+ * — a footnote, however low on the page it is set.
+ */
+function noteMark(line: Line): boolean {
+  const run = line.runs.find((item) => item.str.trim());
+  if (!run) return false;
+  if (/^[∗*†‡§¶]/.test(run.str.trim())) return true;
+  return /^\d{1,2}$/.test(run.str.trim()) && run.size < 0.85 * line.size && line.baseline - run.y > 0.15 * line.size && line.runs.some((other) => other !== run && /\p{L}{2}/u.test(other.str));
+}
+
 function dropFurniture(pages: Line[][], inputs: PageInput[], measures: Measures): void {
   const seen = new Map<string, Set<number>>();
   const marginal = (line: Line, page: PageInput) => line.baseline < page.height * 0.1 || line.baseline > page.height * 0.9;
@@ -771,7 +802,7 @@ function dropFurniture(pages: Line[][], inputs: PageInput[], measures: Measures)
         /^\d+$/.test(text) ||
         /^(page\s+)?\d+\s*(of|\/)\s*\d+$/i.test(text) ||
         (repeats >= Math.min(3, Math.max(2, pageCount - 1)) && pageCount > 1) ||
-        (short && line.size < measures.bodySize - 0.4 && line.baseline > page.height * 0.92) ||
+        (short && line.size < measures.bodySize - 0.4 && line.baseline > page.height * 0.92 && !noteMark(line)) ||
         (short && line.baseline < page.height * 0.06)
       ) {
         line.taken = true;
@@ -786,6 +817,51 @@ function dropFurniture(pages: Line[][], inputs: PageInput[], measures: Measures)
     if (last && /^(page\s+)?\d{1,4}$/i.test(last.text) && last.baseline > page.height * 0.75) {
       const above = Math.max(0, ...kept.filter((line) => line !== last).map((line) => line.baseline));
       if (last.baseline - above > 1.8 * last.size) last.taken = true;
+    }
+  }
+}
+
+// -------------------------------------------------------------- contents --
+
+const CONTENTS = /^(?:table\s+of\s+)?contents$/i;
+
+/**
+ * A table of contents: "Contents", then its entries — a title, dots led
+ * to a page number set at the right edge. The reflowed paper has no pages
+ * for it to point at, and its entries are no headings of the text: it is
+ * left out, and so is its run on to the page after.
+ */
+function dropContents(pages: Line[][], inputs: PageInput[]): void {
+  const numeral = (line: Line) => /^(?:\d{1,4}|[ivxlc]{1,6})$/i.test(line.text);
+  const leaders = (line: Line) => /(?:\.\s?){4,}\s*(?:\d{1,4}|[ivxlc]{1,6})?$/i.test(line.text);
+  // The page numbers set against one right edge, most of them.
+  const edgeOf = (lines: Line[]): { right: number; numbers: Line[] } | null => {
+    const numbers = lines.filter((line) => !line.taken && numeral(line));
+    const byRight = new Map<number, Line[]>();
+    for (const line of numbers) {
+      const key = round(line.x1, 2);
+      byRight.set(key, [...(byRight.get(key) ?? []), line]);
+    }
+    const best = Array.from(byRight.entries()).sort((a, b) => b[1].length - a[1].length)[0];
+    return best && best[1].length >= 3 ? { right: best[0], numbers: best[1] } : null;
+  };
+  for (let at = 0; at < pages.length; at += 1) {
+    const lines = pages[at];
+    const heading = lines.find((line) => !line.taken && CONTENTS.test(line.text.trim()) && line.baseline < inputs[at].height * 0.5);
+    if (!heading) continue;
+    const edge = edgeOf(lines.filter((line) => line.baseline > heading.baseline));
+    if (!edge) continue;
+    const take = (from: number, to: number, page: Line[]) => {
+      for (const line of page) if (!line.taken && line.baseline >= from && line.baseline <= to + 1 && line.x1 <= edge.right + 2) line.taken = true;
+    };
+    take(heading.baseline, Math.max(...edge.numbers.map((line) => line.baseline)), lines);
+    // The contents running on to the next page: its lines mostly entries, numbered at the same edge.
+    for (let next = at + 1; next < pages.length; next += 1) {
+      const page = pages[next].filter((line) => !line.taken);
+      const numbers = page.filter((line) => numeral(line) && Math.abs(line.x1 - edge.right) < 2);
+      const entries = page.filter((line) => leaders(line) || numbers.some((number) => Math.abs(number.baseline - line.baseline) < 0.5 * line.size));
+      if (numbers.length < 3 || entries.length < 0.6 * page.length) break;
+      take(Math.min(...entries.map((line) => line.baseline)), Math.max(...numbers.map((line) => line.baseline)), pages[next]);
     }
   }
 }
@@ -958,9 +1034,19 @@ function captionTail(caption: Line, lines: Line[]): Line[] {
   return tail;
 }
 
-function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: Measures, page: PageInput, found: Region[] = []): Region | null {
+/**
+ * Where a paper sets its tables, over their captions or under them: `placed`
+ * says, where the paper's own captions with a table on one side only have
+ * shown it, and `only` looks on one side alone.
+ */
+interface TableSide {
+  placed?: 'above' | 'below';
+  only?: 'above' | 'below';
+}
+
+function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: Measures, page: PageInput, found: Region[] = [], { placed, only }: TableSide = {}): Region | null {
   const kind = caption.caption!.kind;
-  const sides: ('above' | 'below')[] = kind === 'table' ? ['below', 'above'] : ['above', 'below'];
+  const sides: ('above' | 'below')[] = only ? [only] : kind === 'table' ? [placed === 'above' ? 'above' : 'below', placed === 'above' ? 'below' : 'above'] : ['above', 'below'];
   const tail = lines.filter((line) => line.captionOf === caption);
   const captionBottom = tail.length ? tail[tail.length - 1].bottom : caption.bottom;
   // Another caption's lines are its own, and never running text to measure by.
@@ -979,7 +1065,7 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
   // rule over the table starts a little right of the caption, level with
   // its top, and the table is what the rules of that width enclose — and
   // the note set close under the last of them.
-  if (kind === 'table') {
+  if (kind === 'table' && !only) {
     const top = rules
       .filter((rule) => rule.x0 >= caption.x1 - 2 && rule.x0 - caption.x1 < 6 * em && Math.abs(rule.y0 - caption.top) < 1.5 * em && rule.x1 - rule.x0 > 8 * em)
       .sort((a, b) => a.x0 - b.x0)[0];
@@ -1100,6 +1186,20 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
       // whose own caption is the next thing down.
       const next = walls.find((line) => line.top === far);
       if (kind === 'figure' && next?.caption) continue;
+      // A table over a figure ends where the figure's drawings begin: a
+      // plot drawn, not pasted in, is paths as a table's rules are, and its
+      // tick labels rows of numbers. From the figure's caption up, through
+      // its panels, one over another.
+      if (kind === 'table' && next?.caption?.kind === 'figure') {
+        for (let grew = true; grew; ) {
+          grew = false;
+          for (const cluster of clusters) {
+            if (!(cluster.images || cluster.bodies) || !inSpan(cluster) || cluster.y0 >= far || cluster.y0 < captionBottom || cluster.y1 < far - 2 * em) continue;
+            far = cluster.y0;
+            grew = true;
+          }
+        }
+      }
     }
     // Nor does one reach into a figure or a table already found in its way.
     const others = found.filter((region) => overlapX(region, span) > 0);
@@ -1179,8 +1279,57 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
   if (!candidates.length) return null;
   candidates.sort((a, b) => a.gap - b.gap);
   const [first, second] = candidates;
+  // Two tables set one over the other, a caption between them: it is the
+  // one on the side the paper sets its tables, unless that is much further off.
+  if (second && placed) {
+    const wanted = candidates.find((candidate) => (candidate.region.y0 >= captionBottom - 1 ? 'below' : 'above') === placed);
+    if (wanted && wanted.gap - Math.min(first.gap, second.gap) < 2 * em) return wanted.region;
+  }
   if (second && sides[0] === (second.region.y0 >= captionBottom - 1 ? 'below' : 'above') && second.gap - first.gap < 0.5 * em) return second.region;
   return first.region;
+}
+
+/** The figures and tables on a page, by their captions, the lines inside them taken from the flow. */
+function captionRegions(lines: Line[], clusters: Cluster[], measures: Measures, page: PageInput, placed?: 'above' | 'below', probe?: (caption: Line) => void): Region[] {
+  const regions: Region[] = [];
+  for (const line of lines) {
+    if (!line.caption || line.taken) continue;
+    if (probe && line.caption!.kind === 'table') {
+      probe(line);
+      continue;
+    }
+    const region = regionFor(line, lines, clusters, measures, page, regions, { placed });
+    if (!region) continue;
+    regions.push(region);
+    for (const held of region.lines) held.taken = true;
+  }
+  return regions;
+}
+
+/**
+ * Whether the paper sets its tables over their captions or under them, by
+ * the captions that have a table on one side only. Where two tables are
+ * set one over the other, the caption between them is the one that side's.
+ */
+function tablesPlaced(pages: Line[][], inputs: PageInput[], measures: Measures): 'above' | 'below' | undefined {
+  const votes = { above: 0, below: 0 };
+  for (const [at, lines] of pages.entries()) {
+    if (!lines.some((line) => line.caption?.kind === 'table' && !line.taken)) continue;
+    const page = inputs[at];
+    const clusters = clusterGraphics(page);
+    const was = new Set(lines.filter((line) => line.taken));
+    const found: Region[] = [];
+    captionRegions(lines, clusters, measures, page, undefined, (caption) => {
+      const above = regionFor(caption, lines, clusters, measures, page, found, { only: 'above' });
+      const below = regionFor(caption, lines, clusters, measures, page, found, { only: 'below' });
+      if (above && !below) votes.above += 1;
+      else if (below && !above) votes.below += 1;
+    });
+    for (const line of lines) line.taken = was.has(line);
+  }
+  if (votes.above > votes.below) return 'above';
+  if (votes.below > votes.above) return 'below';
+  return undefined;
 }
 
 /**
@@ -1377,12 +1526,23 @@ function paragraphs(ordered: Line[], measures: Measures, columns: Map<Line, numb
       // (A reference's lines hang an indent from its first: one column still.)
       else if (current.columnLeft !== columnLeft && !(references && Math.abs(current.columnLeft - columnLeft) < 3 * em)) fresh = true;
       else if (pitch < 0 || pitch > em * 1.9) fresh = true;
+      // Space between paragraphs rather than an indent: a line set further
+      // under one that stopped short than the text's lines are set apart.
+      else if (Math.abs(line.size - measures.bodySize) <= 0.6 && Math.abs(previous.size - measures.bodySize) <= 0.6 && pitch > 1.3 * measures.pitch && previous.x1 < Math.max(columnLeft + measures.columnWidth, ...current.lines.map((one) => one.x1)) - 0.6 * em) fresh = true;
       else if (line.caption || previous.caption) fresh = Boolean(line.caption);
       else if (Math.abs(line.size - previous.size) > 0.6) fresh = true;
       // A change of face starts a paragraph — not a run-in heading, bold to
       // the end of a full line, whose sentence carries on in roman.
       else if (line.allBold !== previous.allBold && /\w{3}/.test(line.text) && /\w{3}/.test(previous.text) && !(previous.allBold && previous.x1 >= columnLeft + measures.columnWidth - em && !/[.:!?]$/.test(previous.text))) fresh = true;
-      else if (listItem) fresh = BULLET.test(line.text) || NUMBERED.test(line.text) || line.x0 - columnLeft < em * 0.3;
+      else if (listItem) {
+        // An item set as a paragraph — its bullet indented, its lines turning
+        // over to the column's edge — runs on while the line before it runs
+        // to the edge; one set with a hanging indent, at that indent.
+        const edge = Math.max(columnLeft + measures.columnWidth, ...current.lines.map((one) => one.x1));
+        const flush = current.lines.slice(1).every((one) => one.x0 - columnLeft < em * 0.3);
+        const turned = flush && current.lines[0].x0 - columnLeft >= em * 0.3 && previous.x1 >= edge - em;
+        fresh = BULLET.test(line.text) || NUMBERED.test(line.text) || (line.x0 - columnLeft < em * 0.3 && !turned);
+      }
       else if (references) {
         // Hanging indents: an entry starts at the left, its turnover lines
         // are indented; or entries are numbered "[12]".
@@ -1549,6 +1709,23 @@ function keepsHyphen(left: string, right: string): boolean {
 // ---------------------------------------------------------------- tables --
 
 /**
+ * A cell's text run on to its next line: a word broken at the line's end
+ * mended — "Analy-" / "sis" — unless the hyphen is the word's own ("Non-" /
+ * "Emb.", "self-" / "attention" where the paper writes it so); else a space.
+ */
+function cellTurnover(head: Span[], tail: Span[], lineBreak = false): Span[] {
+  const out = head.map((span) => ({ ...span }));
+  const last = out[out.length - 1];
+  const next = plain(tail);
+  const left = /(\p{L}+)-$/u.exec(last?.text ?? '')?.[1];
+  const right = /^(\p{Ll}+)/u.exec(next)?.[1];
+  if (left && right && !keepsHyphen(left, right)) last.text = last.text.slice(0, -1);
+  else if (lineBreak) out.push({ text: '\n' });
+  else if (last && !/[-\s]$/.test(last.text)) out.push({ text: ' ' });
+  return [...out, ...tail.map((span) => ({ ...span }))];
+}
+
+/**
  * The rows and columns of a table, from where its cells sit. Cells in a
  * column overlap horizontally, so columns are the groups of runs that do,
  * built from the narrowest runs up — a heading that spans two columns
@@ -1596,13 +1773,28 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
   columns.sort((a, b) => a.x0 - b.x0);
   if (columns.length < 2) return null;
 
-  const rows: Line[][] = [];
+  let rows: Line[][] = [];
   for (const cell of cells.slice().sort((a, b) => a.baseline - b.baseline || a.x0 - b.x0)) {
     const row = rows[rows.length - 1];
     if (row && Math.abs(row[0].baseline - cell.baseline) <= 0.5 * Math.max(row[0].size, cell.size)) row.push(cell);
     else rows.push([cell]);
   }
   if (rows.length < 2) return null;
+  // A table of records whose cells run to several lines each — a category,
+  // the datasets in it one a line, and its share — parted by rules drawn
+  // across the table: each record between two rules is a row, its lines in
+  // each column one cell.
+  const spread = Math.max(...cells.map((cell) => cell.x1)) - Math.min(...cells.map((cell) => cell.x0));
+  const dividers = rules.filter((rule) => rule.x1 - rule.x0 >= 0.6 * spread).map((rule) => rule.y);
+  if (rows.filter((row) => row.length >= 2).length / rows.length < 0.5 && dividers.length >= 3) {
+    const records = new Map<number, Line[]>();
+    for (const row of rows) {
+      const group = dividers.filter((y) => y < row[0].baseline).length;
+      records.set(group, [...(records.get(group) ?? []), ...row]);
+    }
+    const grouped = Array.from(records.values());
+    if (grouped.length >= 3 && grouped.filter((record) => new Set(record.flatMap((cell) => placement.get(cell)!)).size >= 2).length / grouped.length >= 0.5) rows = grouped;
+  }
 
   // A header centred over its numbers, but wider or narrower than them,
   // makes a column of its own beside theirs: two columns side by side that
@@ -1627,10 +1819,12 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
 
   // Each row as its cells, each cell with the columns it covers.
   /** A cell, the columns it covers, and the baseline of its last line. */
-  type Entry = { first: number; last: number; spans: Span[]; line: Line; bottom: number };
+  type Entry = { first: number; last: number; spans: Span[]; line: Line; bottom: number; end?: Line };
   const grid: Entry[][] = rows.map((row) => {
     const out: Entry[] = [];
-    for (const cell of row.slice().sort((a, b) => a.x0 - b.x0)) {
+    // Across, then down: a record's lines in one column read in order.
+    const leftmost = (cell: Line) => Math.min(...placement.get(cell)!.map((column) => column.x0));
+    for (const cell of row.slice().sort((a, b) => leftmost(a) - leftmost(b) || a.baseline - b.baseline || a.x0 - b.x0)) {
       // The columns it covers, left to right: the list was made in the
       // order the columns were found, not their order across the page.
       const indexes = placement.get(cell)!.map((column) => columns.indexOf(column));
@@ -1642,7 +1836,18 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
       if (previous && first <= previous.last && last > previous.last) first = previous.last + 1;
       if (previous && first <= previous.last) {
         // Two runs in one column on one row: the same cell, split by a gap.
-        previous.spans = [...previous.spans, { text: ' ' }, ...spansOf([cell], false, true)];
+        const end = previous.end ?? previous.line;
+        // A line stopping well short of its column, the next an item of its
+        // own — "MMC4 (Zhu et al., 2024)" over "Wikipedia EN& CN" — is a list
+        // set a line an item, and keeps its lines; text run on wraps.
+        const right = columns[previous.last].x1;
+        const short = end.x1 < right - 0.2 * (right - columns[previous.first].x0);
+        const closed = /[)\]]$/.test(end.text);
+        const opens = /^[\p{Lu}\d(]/u.test(cell.text);
+        const listed = !/[-,;:]$/.test(end.text) && ((short && (opens || closed)) || (closed && opens));
+        previous.spans = end.baseline === cell.baseline ? [...previous.spans, { text: ' ' }, ...spansOf([cell], false, true)] : cellTurnover(previous.spans, spansOf([cell], false, true), listed);
+        previous.bottom = Math.max(previous.bottom, cell.baseline);
+        previous.end = cell;
         continue;
       }
       out.push({ first, last, spans: spansOf([cell], false, true), line: cell, bottom: cell.baseline });
@@ -1660,8 +1865,20 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
   const pitches = grid.slice(1).map((row, index) => (row.length && grid[index].length ? baselineOf(row) - Math.max(...grid[index].map((entry) => entry.bottom)) : 0)).filter((pitch) => pitch > 0);
   const step = pitches.length ? Math.min(...pitches) : 0;
   const recordGapped = step > 0 && pitches.filter((pitch) => pitch > 1.25 * step).length >= 2 && pitches.filter((pitch) => pitch <= 1.1 * step).length >= 2;
+  // A table of words has no figure to end its heading at: the rule drawn
+  // across the whole table under the heading — booktabs' midrule — ends it.
+  const across0 = Math.min(...columns.map((column) => column.x0));
+  const across1 = Math.max(...columns.map((column) => column.x1));
+  const midrule = rules.filter((rule) => rule.y > (grid[0][0]?.line.baseline ?? 0) && rule.x1 - rule.x0 >= 0.9 * (across1 - across0)).sort((a, b) => a.y - b.y)[0];
+  const headRows = () => (midrule ? grid.filter((row) => row.length && Math.min(...row.map((entry) => entry.line.baseline)) < midrule.y).length : 0);
+  // A cell left blank with a mark — "-", "N/A" — is no figure to end the heading at.
+  const placeholder = (entry: Entry) => /^(?:[-–—]+|N\/?A|n\/a|\?)$/.test(plain(entry.spans).trim());
+  const capped = (index: number) => {
+    const rows = headRows();
+    return index < 0 && rows >= 1 && rows < grid.length ? rows : index;
+  };
   for (let at = 1; at < grid.length; at += 1) {
-    const firstFigures = grid.findIndex((row) => row.some((entry) => !words(entry)));
+    const firstFigures = capped(grid.findIndex((row) => row.some((entry) => !words(entry) && !placeholder(entry))));
     const row = grid[at];
     const above = grid[at - 1];
     // Or the other way up: a heading set bottom-aligned — "Non- / Emb." over
@@ -1672,8 +1889,7 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
       if (over.every(Boolean) && above.every((entry, index) => over[index]!.line.baseline - entry.bottom <= 1.3 * entry.line.size)) {
         above.forEach((entry, index) => {
           const cell = over[index]!;
-          const broken = /-$/.test(plain(entry.spans));
-          cell.spans = [...entry.spans, ...(broken ? [] : [{ text: ' ' }]), ...cell.spans];
+          cell.spans = cellTurnover(entry.spans, cell.spans);
         });
         grid.splice(at - 1, 1);
         at -= 1;
@@ -1686,9 +1902,13 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
     const heading = firstFigures >= 0 ? at <= firstFigures : headRule !== undefined ? row[0].line.baseline < headRule : at === 1;
     // In a table of records parted by space, a row set a line's pitch under
     // the one before, sparser than a record and mostly words, is its cells' turnovers.
+    // (Not a row with a cell set across several of those above it: "AdamW(…)"
+    // over three stages is a row of its own.)
+    const spansAbove = row.some((entry) => above.filter((other) => other.first <= entry.last && other.last >= entry.first).length > 1);
     const turnover =
       recordGapped &&
       !heading &&
+      !spansAbove &&
       row.length > 0 &&
       above.length > 0 &&
       baselineOf(row) - Math.max(...above.map((entry) => entry.bottom)) <= 1.15 * step &&
@@ -1698,8 +1918,7 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
       for (const entry of row) {
         const cell = above.find((other) => other.first <= entry.last && other.last >= entry.first);
         if (cell) {
-          const broken = /\p{L}-$/u.test(plain(cell.spans));
-          cell.spans = [...cell.spans, ...(broken ? [] : [{ text: ' ' }]), ...entry.spans];
+          cell.spans = cellTurnover(cell.spans, entry.spans);
           cell.bottom = Math.max(cell.bottom, entry.line.baseline);
         } else {
           above.push({ ...entry });
@@ -1719,8 +1938,7 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
     if (!heading && !(runsOn && row.length <= Math.max(1, columns.length / 2))) continue;
     row.forEach((entry, index) => {
       const cell = under[index]!;
-      const broken = /-$/.test(plain(cell.spans));
-      cell.spans = [...cell.spans, ...(broken ? [] : [{ text: ' ' }]), ...entry.spans];
+      cell.spans = cellTurnover(cell.spans, entry.spans);
       cell.bottom = entry.line.baseline;
     });
     grid.splice(at, 1);
@@ -1733,7 +1951,7 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
 
   // The heading rows: those before the first with a figure in it — and the
   // first row always.
-  let head = grid.findIndex((row) => row.some(figure));
+  let head = capped(grid.findIndex((row) => row.some((entry) => figure(entry) && !placeholder(entry))));
   head = head < 0 ? 1 : Math.max(1, head);
   // Where each column's own cells sit, below the headings: a heading
   // widens the column it lands in, and would then seem centred over it.
@@ -1812,7 +2030,8 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
   const across = rules.filter((rule) => rule.x1 - rule.x0 >= tableWidth * 0.6 && rule.x0 <= columns[0].x1 + 2).map((rule) => rule.y);
   const groupOf = (row: number) => across.filter((y) => y < grid[row][0]?.line.baseline).length;
   const rowspan = new Map<Entry, number>();
-  const covered = new Set<number>();
+  /** How many of each row's first columns are the cells spanning down from rows above it. */
+  const covered = new Map<number, number>();
   // A label on a line of its own between rows — centred on the rows it
   // names, or set sideways down them — is the label of the rows of its
   // group, as the rules divide them, that have none: it goes on the first
@@ -1847,13 +2066,23 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
         grid[start].unshift(label);
       }
       rowspan.set(label, end - start);
-      for (let r = start + 1; r < end; r += 1) covered.add(r);
+      for (let r = start + 1; r < end; r += 1) covered.set(r, 1);
+      // So do the cells beside it, column by column, blank under them in
+      // every row of the group — a category's description by its name.
+      for (let column = 1; column < columns.length - 1; column += 1) {
+        const cell = grid[start].find((entry) => entry.first === column && entry.last === column);
+        if (!cell) break;
+        const blank = Array.from({ length: end - start - 1 }, (_, index) => start + 1 + index).every((r) => covered.get(r) === column && !grid[r].some((entry) => entry.first <= column));
+        if (!blank) break;
+        rowspan.set(cell, end - start);
+        for (let r = start + 1; r < end; r += 1) covered.set(r, column + 1);
+      }
     }
   }
 
   return grid.map((row, index) => {
     const out: TableCell[] = [];
-    let at = covered.has(index) ? 1 : 0;
+    let at = covered.get(index) ?? 0;
     for (const entry of row) {
       while (at < entry.first) {
         out.push({ spans: [] });
@@ -1882,30 +2111,64 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
  * that — "Complex   Success ↑" — while the words of one cell are a space
  * apart, and pdf.js reports a space inside a run, not as a gap between two.
  */
-function splitCells(line: Line): Line[] {
+function splitCells(line: Line, table: Line[] = []): Line[] {
   const runs = line.runs.filter((run) => run.str.trim());
-  const parts: Run[][] = [];
+  // Pieces parted by a gap wider than a space, a script kept with what it is set on.
+  let parts: Run[][] = [];
   let end = Number.NEGATIVE_INFINITY;
   for (const run of runs) {
-    // A subscript or a superscript stays with what it is set on.
     const script = run.size < 0.85 * line.size;
     if (!parts.length || (!script && run.x - end > 0.6 * line.size)) parts.push([]);
     parts[parts.length - 1].push(run);
     end = Math.max(end, run.x + run.width);
   }
+  if (!table.length) return parts.length < 2 ? [line] : parts.map((part) => cellOf(line, part));
+  // A cell's text set justified, run on to its next line — "Commonsense
+  // Rea-" over "soning" — is one cell from where that line starts to the
+  // piece its word is broken at, however wide its spaces.
+  const below = table.filter((next) => next.baseline > line.baseline && next.baseline - line.baseline < 1.6 * line.size && /^\p{Ll}/u.test(next.text));
+  for (let at = 0; at < parts.length; at += 1) {
+    if (!/\p{L}-$/u.test(joinRuns(parts[at], line.size))) continue;
+    let from = -1;
+    for (let index = at; index >= 0 && from < 0; index -= 1) if (below.some((next) => Math.abs(next.x0 - parts[index][0].x) < 0.5 * line.size)) from = index;
+    if (from < 0 || from === at) continue;
+    parts = [...parts.slice(0, from), parts.slice(from, at + 1).flat(), ...parts.slice(at + 1)];
+    at = from;
+  }
+  // A gap between two cells runs down the table: the words of the lines
+  // above and below it, that reach across it, stop short of it. A wide
+  // space in a cell's text set justified — "Pointing   Description,   Position"
+  // — has the words of that cell's other lines across it.
+  const gutter = (from: number, to: number) => {
+    const middle = (from + to) / 2;
+    const across = table.filter((other) => other !== line && Math.abs(other.baseline - line.baseline) > 0.5 * line.size && other.x0 < middle && other.x1 > middle);
+    if (across.length < 2) return true;
+    const crossed = across.filter((other) => other.runs.some((run) => run.str.trim() && run.x < middle && run.x + run.width > middle));
+    return crossed.length < 0.5 * across.length;
+  };
+  const merged: Run[][] = [];
+  for (const part of parts) {
+    const last = merged[merged.length - 1];
+    if (last && !gutter(Math.max(...last.map((run) => run.x + run.width)), part[0].x)) last.push(...part);
+    else merged.push(part.slice());
+  }
+  parts = merged;
   if (parts.length < 2) return [line];
-  return parts.map((part) => {
-    const worded = part.filter((run) => /[\p{L}\p{N}]/u.test(run.str));
-    return {
-      ...line,
-      runs: part,
-      x0: Math.min(...part.map((run) => run.x)),
-      x1: Math.max(...part.map((run) => run.x + run.width)),
-      text: joinRuns(part, line.size),
-      allBold: worded.length > 0 && worded.every((run) => run.bold),
-      allItalic: worded.length > 0 && worded.every((run) => run.italic),
-    };
-  });
+  return parts.map((part) => cellOf(line, part));
+}
+
+/** A piece of a line of a table, as a line of its own: one cell. */
+function cellOf(line: Line, part: Run[]): Line {
+  const worded = part.filter((run) => /[\p{L}\p{N}]/u.test(run.str));
+  return {
+    ...line,
+    runs: part,
+    x0: Math.min(...part.map((run) => run.x)),
+    x1: Math.max(...part.map((run) => run.x + run.width)),
+    text: joinRuns(part, line.size),
+    allBold: worded.length > 0 && worded.every((run) => run.bold),
+    allItalic: worded.length > 0 && worded.every((run) => run.italic),
+  };
 }
 
 /**
@@ -1979,7 +2242,8 @@ export function tableGrid(rows: TableCell[][]): string[][] {
  * and the note set under the table, after its last row, kept as a note.
  */
 export function tableOf(lines: Line[], caption?: Line, rules: TableRule[] = []): { rows: TableCell[][]; notes?: Span[] } | null {
-  const cells = lines.filter((line) => line !== caption && line.text.trim()).flatMap(splitCells);
+  const texts = lines.filter((line) => line !== caption && line.text.trim());
+  const cells = texts.flatMap((line) => splitCells(line, texts));
   if (!cells.length) return null;
   const byRow: Line[][] = [];
   for (const cell of cells.slice().sort((a, b) => a.baseline - b.baseline || a.x0 - b.x0)) {
@@ -2165,6 +2429,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
   const measures = measure(pages);
   compounds = findCompounds(pages);
   dropFurniture(pages, inputs, measures);
+  dropContents(pages, inputs);
 
   const crops: Crop[] = [];
   // The drawings on each page no caption claimed: where a figure captioned
@@ -2199,24 +2464,21 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
   let carryIndent: number | null = null;
   let carryColumn = 0;
 
-  for (const [at, page] of inputs.entries()) {
-    const lines = pages[at];
+  for (const lines of pages) {
     findCaptions(lines, measures);
     // Every caption's lines are known before any region is looked for: a
     // caption's second line, as wide as the column, is not running text.
     for (const line of lines) if (line.caption && !line.taken) for (const next of captionTail(line, lines)) next.captionOf = line;
+  }
+  const tableSide = tablesPlaced(pages, inputs, measures);
+
+  for (const [at, page] of inputs.entries()) {
+    const lines = pages[at];
     const clusters = clusterGraphics(page);
 
     // Figures and tables, by their captions; then the lines inside them —
     // axis labels, legend entries, the cells of a table — leave the flow.
-    const regions: Region[] = [];
-    for (const line of lines) {
-      if (!line.caption || line.taken) continue;
-      const region = regionFor(line, lines, clusters, measures, page, regions);
-      if (!region) continue;
-      regions.push(region);
-      for (const held of region.lines) held.taken = true;
-    }
+    const regions = captionRegions(lines, clusters, measures, page, tableSide);
     // Mathematics in a footnote — "q · k = Σ qᵢkᵢ" — is the footnote's: an
     // equation all in small type at the foot of the page, under the body, is not one.
     const lowest = Math.max(0, ...lines.filter((line) => !line.taken && bodyLike(line, measures)).map((line) => line.baseline));
@@ -2537,14 +2799,19 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
   const sizes = Array.from(new Set(headings.filter((entry) => !entry.sub).map((entry) => entry.size))).sort((a, b) => b - a);
   let section: 2 | 3 | 4 = 2;
   let seen = false;
+  // The level each size is set at, where headings numbered "3" or "3.2" show
+  // it: "References", or an appendix lettered "A.", set as a section is, is one.
+  const digits = (entry: (typeof headings)[number]) => /^\d/.test(plain(entry.block.spans));
+  const levelOf = new Map<number, number>();
+  for (const entry of headings) if (entry.numbered && digits(entry) && !levelOf.has(entry.size)) levelOf.set(entry.size, Math.min(4, entry.numbered + 1));
   for (const entry of headings) {
     if (entry.sub && !entry.numbered) {
       entry.block.level = (seen ? Math.min(4, section + 1) : 2) as 2 | 3 | 4;
       continue;
     }
     const rank = Math.max(0, sizes.indexOf(entry.size));
-    const byNumber = entry.numbered ? Math.min(4, entry.numbered + 1) : 0;
-    const bySize = Math.min(4, 2 + rank);
+    const byNumber = entry.numbered && (digits(entry) || !levelOf.has(entry.size)) ? Math.min(4, entry.numbered + 1) : 0;
+    const bySize = levelOf.get(entry.size) ?? Math.min(4, 2 + rank);
     entry.block.level = (byNumber || bySize) as 2 | 3 | 4;
     section = entry.block.level;
     seen = true;
@@ -3056,7 +3323,11 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): { front
       }
       continue;
     }
-    const column = gridColumns(entry, row, siblings(entry));
+    // A line whose pieces carry the names' marks — "¹DeepSeek-AI", centred
+    // under the last line of names — says what the marks stand for; it is
+    // no institution set under the one name over it.
+    const marked = markedPieces(entry.spans).some((piece) => piece.marks.some((mark) => /^\d+$/.test(mark) && authors.some((author) => author.marks.includes(mark))));
+    const column = marked ? null : gridColumns(entry, row, siblings(entry));
     if (column) {
       for (const { part, under } of column) {
         const text = plain(part.spans);
@@ -3364,7 +3635,9 @@ export function linkAddresses(spans: Span[]): Span[] {
 export function spansToHtml(spans: Span[]): string {
   return linkAddresses(spans)
     .map((span) => {
-      let html = escapeHtml(span.text);
+      // A line broken where the paper breaks it — the items of a table's
+      // cell, a line each — the break kept, and the character with it.
+      let html = escapeHtml(span.text).replace(/\n/g, '\n<br>');
       if (span.mono) html = `<code>${html}</code>`;
       if (span.italic) html = `<em>${html}</em>`;
       if (span.bold) html = `<strong>${html}</strong>`;

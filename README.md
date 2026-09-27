@@ -1088,24 +1088,31 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
 - **Text.** Glyph runs on one baseline are a line; lines a line-height apart
   are a paragraph — and a paragraph ends where its last line stops short
   with its sentence, as a style that parts paragraphs with space rather
-  than an indent sets them; a word broken at the line's end is mended; a run in a
+  than an indent sets them, or where the next line is set further under it
+  than the text's lines are set apart; a word broken at the line's end is mended; a run in a
   bold, italic or monospaced face keeps it, and a run raised or lowered on
   the line is a superscript or subscript. Two columns are read down one and
   then the other (a recursive XY-cut, which also puts a full-width title
   before the columns under it), and a paragraph that runs from the foot of
   one column to the top of the next, or across a page, is one paragraph —
-  a list item too, where what runs on is set at its text's indent. A
+  a list item too, where what runs on is set at its text's indent. An
+  item set as a paragraph — its bullet indented, its lines turning over
+  to the column's edge — is one item, not a line and a paragraph. A
   structured abstract's parts, each led by a heading run into its text
   ("Recent findings", "Summary"), are a paragraph each, even where the
   abstract is set across both columns of a two-column paper.
   Headings are the lines set larger or bolder than the body — or in its own
   type, short, with space over them and the text under them, as Nature's
   journals set a subsection, one level under the section it is in — with levels from
-  their numbering — and, as IEEE sets them, "I. INTRODUCTION" in small
+  their numbering, and "References" or an appendix lettered "A." set as
+  the numbered sections are ranked with them — and, as IEEE sets them, "I. INTRODUCTION" in small
   capitals and "A. Name" in italics, which are neither — so a Roman numeral
   starting a heading is never mistaken for a numbered list; bullets become
   lists; the references become one entry each, numbered or set with a
-  hanging indent (APA's), across a column or a page; running heads, page numbers
+  hanging indent (APA's), across a column or a page, an address in one
+  set in a typewriter face a size larger than the text included; a
+  contents page — its entries led by dots to page numbers the reflowed
+  paper does not have — is left out; running heads, page numbers
   and the arXiv stamp are left out (the article's number Springer boxes
   beside "Page 2 of 11" with them); and accents TeX sets apart from their
   letters ("na¨ıve") are put back. A subscript or a superscript stays on its
@@ -1133,7 +1140,9 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   Sreenivas's. Names set apart by wide spaces rather than commas, as
   NeurIPS sets them, are still one name each, and a note set as a footnote
   on the first page — "∗Equal contribution" — is the byline's, not the
-  text's, however many lines it runs to, as is the corresponding author
+  text's, however many lines it runs to — set however low on the page —
+  and a marked institution centred under the last line of names is every
+  name's that carries the mark, as is the corresponding author
   under an envelope drawn rather than set: a name and an address at the
   foot of the page. A byline set as a grid, as NIPS
   set "Attention Is All You Need" — each name over its institution and its
@@ -1239,7 +1248,14 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   as a column reaches as far as the rules drawn across it; and a line set
   under a table's last rule is its note, not a row. A table of records
   parted by space — a review's table of studies — whose cells run on to
-  lines of their own set tight under them keeps each record one row. A table whose cells cannot be told apart is
+  lines of their own set tight under them keeps each record one row, and
+  so does one whose records are parted by rules, a category over a dozen
+  datasets a line — kept a line each; a category and its description cover the rows under
+  them. A cell set justified keeps its wide spaces in the cell, not as
+  columns, and its broken words mended; and a "-" in a table of words does
+  not end its heading. Two tables set one over the other, a caption
+  between them, are told apart by the side the paper sets its tables
+  on; and a table over a plot drawn in paths ends where the plot begins. A table whose cells cannot be told apart is
   painted instead, like a figure.
 - **Equations.** A line numbered *(3)* at the column's edge, or set mostly in
   a mathematics font, is display mathematics, and mathematics read glyph by
