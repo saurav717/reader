@@ -16,6 +16,8 @@
  * the page and y growing downwards, as on screen.
  */
 
+import { ORDER_MEANS_NOTHING } from './byline';
+
 // ---------------------------------------------------------------- inputs ---
 
 /** One run of glyphs in one font, as pdf.js reports it. */
@@ -192,7 +194,7 @@ const BOLD = /bold|black|heavy|semibold|demibold|extrab|ultrab|-medi|medium(?!it
 const ITALIC = /italic|oblique|ital\b|-it\b|cmti|cmmi|cmsl|slanted|,italic|\.i$|-i$|\bit$/i;
 const MONO = /mono|cmtt|courier|typewriter|consolas|menlo|inconsolata|nimbusmon|luximono|lmtt|beramono|dejavusansmono|sourcecodepro|firamono/i;
 /** Fonts that only ever set mathematics. */
-const MATH = /cmmi|cmsy|cmex|cmmib|cmbsy|msam|msbm|rsfs|eufm|eufb|eurm|eusm|txsy|txmi|txex|pxsy|pxmi|pxex|stixmath|cambriamath|mathematica|symbol\b|standardsym|esint|wasy|stmary|mtsy|mtmi|mtex|lmmi|lmsy|lmex|xits-?math|latinmodernmath/i;
+const MATH = /xcharter-?math|newtxmath|newpxmath|zmath|cmmi|cmsy|cmex|cmmib|cmbsy|msam|msbm|rsfs|eufm|eufb|eurm|eusm|txsy|txmi|txex|pxsy|pxmi|pxex|stixmath|cambriamath|mathematica|symbol\b|standardsym|esint|wasy|stmary|mtsy|mtmi|mtex|lmmi|lmsy|lmex|xits-?math|latinmodernmath/i;
 
 /** The face a run is set in, from its font's name. Subset prefixes ("ABCDEF+") are ignored. */
 export function faceOf(font: string): { bold: boolean; italic: boolean; mono: boolean; math: boolean } {
@@ -205,6 +207,8 @@ export function faceOf(font: string): { bold: boolean; italic: boolean; mono: bo
 interface Run extends TextRun {
   /** Part of a fraction set in the line, in smaller type: it counts at the line's size. */
   fraction?: boolean;
+  /** Set after a space of its own — a run pdf.js reports as a blank — which the gap alone may not show. */
+  spaced?: boolean;
   bold: boolean;
   italic: boolean;
   mono: boolean;
@@ -257,6 +261,13 @@ export function composeAccents(text: string): string {
     .normalize('NFC');
 }
 
+/**
+ * Punctuation that closes what is before it: pdf.js reports a blank after a
+ * script's shift of the pen as well as a space — "d_k ." — and no space
+ * comes before these.
+ */
+const CLOSING = /^[.,;:!?)\]}’”%]/;
+
 /** Runs on one baseline, left to right, with the spaces between them restored. */
 function joinRuns(runs: Run[], size: number): string {
   let text = '';
@@ -264,7 +275,7 @@ function joinRuns(runs: Run[], size: number): string {
   for (const run of runs) {
     const piece = run.str;
     if (!piece) continue;
-    if (text && run.x - end > 0.08 * size && !text.endsWith(' ') && !piece.startsWith(' ')) text += ' ';
+    if (text && (run.x - end > 0.08 * size || (run.spaced && !CLOSING.test(piece))) && !text.endsWith(' ') && !piece.startsWith(' ')) text += ' ';
     text += piece;
     end = run.x + run.width;
   }
@@ -397,7 +408,26 @@ function glyphsOf(run: TextRun): string {
 }
 
 function buildLines(page: PageInput): Line[] {
-  const runs: Run[] = linkRuns(page.runs, page.links || [])
+  // A blank run between two words is their space, though the word before
+  // it is measured as reaching the next — "budget" then "𝐶", the space its own run.
+  // Text set a letter at a time — a licence's address, "h t t p : / / c r e …",
+  // each letter its own run, set flush against the one before — which pdf.js
+  // reports with a space leading many of the letters that has no width: the
+  // letter without it, before a link's words are cut out by their widths.
+  const letters = page.runs.map((run, index) => {
+    const previous = page.runs[index - 1];
+    if (!previous || !/^\s+\S$/.test(run.str) || previous.str.trim().length !== 1) return run;
+    if (Math.abs(run.y - previous.y) > 0.3 * run.size || Math.abs(run.x - (previous.x + previous.width)) > 0.15 * run.size) return run;
+    return { ...run, str: run.str.trimStart() };
+  });
+  const linked = linkRuns(letters, page.links || []);
+  const spaced = new Set<TextRun>();
+  linked.forEach((run, index) => {
+    const next = linked[index + 1];
+    if (!run.str.trim() && run.str.length && next?.str.trim() && Math.abs(next.y - run.y) < 0.3 * Math.max(run.size, next.size) && Math.abs(next.x - (run.x + run.width)) < 0.5 * next.size) spaced.add(next);
+  });
+  const runs: Run[] = linked
+    .map((run) => (spaced.has(run) ? { ...run, spaced: true } : run))
     .filter((run) => run.str.trim().length && run.size > 0)
     .map((run) => ({ ...run, str: composeAccents(glyphsOf(run)), ...faceOf(run.font) }))
     // A glyph drawn twice where it stands — a bold faked by overprinting — once.
@@ -751,6 +781,48 @@ function measure(pages: Line[][]): Measures {
   return { bodySize, columnWidth, justified, pitch };
 }
 
+/**
+ * A line of justified text stretched so wide that its spaces are wider
+ * than an em — "I. Loshchilov and F. Hutter.   Decoupled weight decay
+ * regularization.   arXiv preprint" — was cut into pieces at them, as the
+ * columns of a page are: one line again where the pieces together are a
+ * column's full line, set in the text's size, and spaced evenly as
+ * justification spaces them. Two columns' lines together are twice as wide.
+ */
+function mendJustified(lines: Line[], measures: Measures): void {
+  const em = measures.bodySize;
+  const text = lines.filter((line) => Math.abs(line.size - em) <= 0.6 && line.mathShare < 0.3 && /\p{L}{2}/u.test(line.text)).sort((a, b) => a.baseline - b.baseline || a.x0 - b.x0);
+  const rows: Line[][] = [];
+  for (const line of text) {
+    const row = rows[rows.length - 1];
+    if (row && Math.abs(row[0].baseline - line.baseline) < 0.3 * em) row.push(line);
+    else rows.push([line]);
+  }
+  for (const row of rows) {
+    if (row.length < 2) continue;
+    row.sort((a, b) => a.x0 - b.x0);
+    const gaps = row.slice(1).map((line, index) => line.x0 - row[index].x1);
+    const span = row[row.length - 1].x1 - row[0].x0;
+    if (Math.abs(span - measures.columnWidth) > 0.6 * em || gaps.some((gap) => gap <= 0 || gap > 2.5 * em)) continue;
+    if (gaps.length === 1 ? gaps[0] > 1.6 * em : Math.max(...gaps) - Math.min(...gaps) > 1) continue;
+    const runs = row.flatMap((line) => line.runs).sort((a, b) => a.x - b.x);
+    const letters = (line: Line) => line.text.length || 1;
+    const total = row.reduce((sum, line) => sum + letters(line), 0);
+    const merged: Line = {
+      ...row[0],
+      runs,
+      x1: row[row.length - 1].x1,
+      text: joinRuns(runs, row[0].size),
+      allBold: row.every((line) => line.allBold),
+      allItalic: row.every((line) => line.allItalic),
+      mathShare: row.reduce((sum, line) => sum + line.mathShare * letters(line), 0) / total,
+      monoShare: row.reduce((sum, line) => sum + line.monoShare * letters(line), 0) / total,
+    };
+    lines.splice(lines.indexOf(row[0]), 1, merged);
+    for (const line of row.slice(1)) lines.splice(lines.indexOf(line), 1);
+  }
+}
+
 // -------------------------------------------------------- headers, feet --
 
 /**
@@ -988,6 +1060,8 @@ interface Region {
   caption?: Line;
   label: string;
   lines: Line[];
+  /** A box of text between rules — a prompt, an example — rather than a grid of cells. */
+  box?: boolean;
 }
 
 const overlapX = (a: { x0: number; x1: number }, b: { x0: number; x1: number }) => Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
@@ -1299,7 +1373,8 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
   // tables set one over the other put a caption between them either way.
   // It is the table set nearer it — a table is set close under its caption
   // or close over it, with the space before the next thing.
-  if (!candidates.length) return null;
+  // (Not for a side looked at alone, to tell which side a paper sets its tables on.)
+  if (!candidates.length) return kind === 'table' && !only ? ruledBox(caption, captionBottom, free, rules, measures, page) : null;
   candidates.sort((a, b) => a.gap - b.gap);
   const [first, second] = candidates;
   // Two tables set one over the other, a caption between them: it is the
@@ -1310,6 +1385,92 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
   }
   if (second && sides[0] === (second.region.y0 >= captionBottom - 1 ? 'below' : 'above') && second.gap - first.gap < 0.5 * em) return second.region;
   return first.region;
+}
+
+/**
+ * A table that is a box of text between rules — an example prompt, its
+ * options under a rule of their own, captioned "Table 18 | An example of
+ * AGIEval" — whose lines, as wide as the text's, were taken for running
+ * text: from the rule set close by the caption, through the rules drawn
+ * as wide as it, as far as a caption, a heading, or a line wider than the
+ * box. Not the rules of the page's head or foot.
+ */
+function ruledBox(caption: Line, captionBottom: number, free: Line[], rules: GraphicBox[], measures: Measures, page: PageInput): Region | null {
+  const em = measures.bodySize;
+  const wide = rules.filter((rule) => rule.x1 - rule.x0 > 8 * em && rule.x0 <= caption.x1 && rule.x1 >= caption.x0 && rule.y0 > page.height * 0.08 && rule.y1 < page.height * 0.92);
+  const over = wide.filter((rule) => rule.y1 <= caption.top + 1 && caption.top - rule.y1 < 2.5 * em).sort((a, b) => b.y0 - a.y0)[0];
+  const under = wide.filter((rule) => rule.y0 >= captionBottom - 1 && rule.y0 - captionBottom < 2.5 * em).sort((a, b) => a.y0 - b.y0)[0];
+  const heading = (line: Line) => (line.allBold && line.size >= em * 1.1) || headingLine(line, measures, line.x0);
+  for (const [edge, away] of [[over, -1], [under, 1]] as const) {
+    if (!edge) continue;
+    const inside = (line: Line) => line.x0 >= edge.x0 - 2 && line.x1 <= edge.x1 + 2;
+    const stack = wide
+      .filter((rule) => rule !== edge && Math.abs(rule.x0 - edge.x0) < 3 && Math.abs(rule.x1 - edge.x1) < 3 && (away < 0 ? rule.y1 < edge.y0 : rule.y0 > edge.y1))
+      .sort((a, b) => (away < 0 ? b.y0 - a.y0 : a.y0 - b.y0));
+    let far = edge;
+    for (const rule of stack) {
+      const [y0, y1] = away < 0 ? [rule.y1, far.y0] : [far.y1, rule.y0];
+      const between = free.filter((line) => line !== caption && line.bottom > y0 && line.top < y1 && overlapX(line, edge) > 0);
+      if (between.some((line) => line.caption || line.captionOf || heading(line) || !inside(line))) break;
+      far = rule;
+    }
+    if (far === edge) continue;
+    const y0 = Math.min(far.y0, edge.y0);
+    const y1 = Math.max(far.y1, edge.y1);
+    if (y1 - y0 > page.height * 0.85) continue;
+    const held = free.filter((line) => line !== caption && !line.caption && line.top >= y0 - 1 && line.bottom <= y1 + 1 && inside(line));
+    if (!held.length) continue;
+    return { kind: 'table', page: page.index, x0: edge.x0, y0, x1: edge.x1, y1, caption, label: caption.caption!.label, lines: held, box: true };
+  }
+  return null;
+}
+
+/**
+ * A box of text as a table of one column: each part between two rules a
+ * row, a label over it set bold — "PROMPT", "OPTIONS" — a heading row of its
+ * own, and its lines broken where the box breaks them: an option a line,
+ * "Q:" and "A:" each on theirs; text run on runs on.
+ */
+function boxRows(lines: Line[], rules: TableRule[]): TableCell[][] {
+  const ordered = lines.slice().sort((a, b) => a.baseline - b.baseline || a.x0 - b.x0);
+  const parts: Line[][] = [];
+  for (const line of ordered) {
+    const last = parts[parts.length - 1];
+    const previous = last?.[last.length - 1];
+    const ruled = previous && rules.some((rule) => rule.y > previous.baseline && rule.y < line.top);
+    if (!last || ruled) parts.push([line]);
+    else last.push(line);
+  }
+  const right = Math.max(...lines.map((line) => line.x1));
+  const left = Math.min(...lines.map((line) => line.x0));
+  const rows: TableCell[][] = [];
+  for (const part of parts) {
+    let body = part;
+    const label = part[0].allBold && part[0].text.split(' ').length <= 4 && part.length > 1 ? part[0] : null;
+    if (label) {
+      rows.push([{ spans: spansOf([label], true), head: true }]);
+      body = part.slice(1);
+    }
+    let spans: Span[] = [];
+    body.forEach((line, index) => {
+      const next = spansOf([line], false, true);
+      if (!index) {
+        spans = next;
+        return;
+      }
+      const before = body[index - 1];
+      // A line stopping short of the box, a blank line's space over the next,
+      // or the next set as an item of its own: the line is broken there.
+      const short = before.x1 < right - 0.15 * (right - left);
+      const gap = line.baseline - before.baseline > 1.6 * line.size;
+      // (Not "- 3 girls = 7": a sum run on to the line.)
+      const item = /^(?:[-•–]\s(?!\d)|[A-Z]\s*[:.)]\s|Q:|A:|\(?[a-z0-9]\)\s)/.test(line.text);
+      // (A blank line's space kept as one: the examples of a prompt set apart.)
+      spans = cellTurnover(spans, gap ? [{ text: '\n' }, ...next] : next, short || gap || item);
+    });
+    if (spans.length) rows.push([{ spans }]);
+  }
+  return rows;
 }
 
 /** The figures and tables on a page, by their captions, the lines inside them taken from the flow. */
@@ -1399,6 +1560,13 @@ function equationRegions(lines: Line[], clusters: Cluster[], measures: Measures,
     const columnLeft = Math.min(box.x0, home) - measures.bodySize;
     const columnRight = Math.max(box.x1, home + measures.columnWidth) + measures.bodySize;
     const members = new Set<Line>([seed]);
+    // A line of a display is as tall as its largest glyphs, however many of
+    // its letters are scripts — "𝑀 = 72 𝑛layer 𝑑²model", set mostly in the
+    // size of "layer" and "model".
+    const reach = (line: Line) => {
+      const tall = Math.max(line.size, ...line.runs.filter((run) => !run.fraction).map((run) => run.size));
+      return { top: Math.min(line.top, line.baseline - 0.8 * tall), bottom: Math.max(line.bottom, line.baseline + 0.22 * tall) };
+    };
     let grew = true;
     while (grew) {
       grew = false;
@@ -1407,7 +1575,8 @@ function equationRegions(lines: Line[], clusters: Cluster[], measures: Measures,
         if (line.x0 < columnLeft || line.x1 > columnRight) continue;
         if (bodyLike(line, measures)) continue;
         if (overlapX(line, { x0: box.x0 - 30, x1: box.x1 + 30 }) <= 0) continue;
-        const gap = line.top > box.y1 ? line.top - box.y1 : line.bottom < box.y0 ? box.y0 - line.bottom : 0;
+        const { top, bottom } = reach(line);
+        const gap = top > box.y1 ? top - box.y1 : bottom < box.y0 ? box.y0 - bottom : 0;
         if (gap > seed.size * 0.9) continue;
         // A line that is words rather than symbols, sitting just under the
         // formula, is the paragraph carrying on ("where x is ...").
@@ -1423,7 +1592,7 @@ function equationRegions(lines: Line[], clusters: Cluster[], measures: Measures,
         // as no display does.
         if (wordy >= 2 && Math.abs(line.x0 - home) < line.size * 0.3 && line.x1 - line.x0 > 0.9 * measures.columnWidth) continue;
         members.add(line);
-        box = { x0: Math.min(box.x0, line.x0), y0: Math.min(box.y0, line.top), x1: Math.max(box.x1, line.x1), y1: Math.max(box.y1, line.bottom) };
+        box = { x0: Math.min(box.x0, line.x0), y0: Math.min(box.y0, top), x1: Math.max(box.x1, line.x1), y1: Math.max(box.y1, bottom) };
         grew = true;
       }
     }
@@ -1657,7 +1826,7 @@ function spansOf(lines: Line[], heading = false, keepFace = false): Span[] {
         continue;
       }
       const bare = !/[\p{L}\p{N}]/u.test(piece);
-      if (end > Number.NEGATIVE_INFINITY && run.x - end > 0.08 * line.size) {
+      if (end > Number.NEGATIVE_INFINITY && (run.x - end > 0.08 * line.size || (run.spaced && !CLOSING.test(piece)))) {
         const prior = spans[spans.length - 1];
         push(bare && prior ? { text: ' ', bold: prior.bold, italic: prior.italic } : { text: ' ' });
       }
@@ -1976,6 +2145,15 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
   // first row always.
   let head = capped(grid.findIndex((row) => row.some((entry) => figure(entry) && !placeholder(entry))));
   head = head < 0 ? 1 : Math.max(1, head);
+  // A row of figures set right over the rule drawn across the table under
+  // its heading — the models' sizes, "7B 7B 70B 67B", under their names —
+  // is the heading's last row, not the first of the body.
+  {
+    const lowest = (row: Entry[]) => Math.max(...row.map((entry) => entry.bottom));
+    const highest = (row: Entry[]) => Math.min(...row.map((entry) => entry.line.baseline));
+    const acrossAll = (from: number, to: number) => rules.some((rule) => rule.y > from && rule.y < to && rule.x1 - rule.x0 >= 0.9 * tableWidth);
+    if (head + 1 < grid.length && grid[head].length && grid[head + 1].length && grid[head - 1].length && acrossAll(lowest(grid[head]), highest(grid[head + 1])) && !acrossAll(lowest(grid[head - 1]), highest(grid[head]))) head += 1;
+  }
   // Where each column's own cells sit, below the headings: a heading
   // widens the column it lands in, and would then seem centred over it.
   const body = columns.map((column, index) => {
@@ -2041,6 +2219,36 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
       [entry.first, entry.last] = [first, last];
     }
   });
+
+  // A heading set centred on its rows — "Params" level with the middle of
+  // "Context / Length" beside it — is read as rows of halves: one row, each
+  // column's pieces read down, under the headings spread over several
+  // columns ("HumanEval" over Python and Multilingual), which keep theirs.
+  {
+    let top = 0;
+    while (top < head && grid[top].some((entry) => entry.last > entry.first)) top += 1;
+    let end = top;
+    while (end < head && grid[end].every((entry) => entry.first === entry.last)) end += 1;
+    // Only rows of halves, each leaving columns the others fill: a row with
+    // a cell in every one — "Encoder | SigLIP | SigLIP+SAM | None" under the
+    // models' names — is a row of the heading of its own, and ends them.
+    const union = new Set(grid.slice(top, end).flatMap((row) => row.map((entry) => entry.first)));
+    const complete = grid.slice(top, end).findIndex((row) => new Set(row.map((entry) => entry.first)).size === union.size);
+    if (complete >= 0) end = top + complete;
+    const rows = grid.slice(top, end);
+    const filled = rows.map((row) => new Set(row.map((entry) => entry.first)));
+    const all = new Set(filled.flatMap((set) => Array.from(set)));
+    const halves = rows.length >= 2 && filled.some((set) => set.size < all.size);
+    if (halves) {
+      const merged: Entry[] = [];
+      for (const column of Array.from(all).sort((x, y) => x - y)) {
+        const parts = rows.flatMap((row) => row.filter((entry) => entry.first === column));
+        merged.push({ ...parts[0], spans: parts.slice(1).reduce((spans, part) => cellTurnover(spans, part.spans), parts[0].spans), bottom: Math.max(...parts.map((part) => part.bottom)) });
+      }
+      grid.splice(top, end - top, merged);
+      head -= end - top - 1;
+    }
+  }
 
   // A label naming a group of rows — "Complex" over Success and Abnormal
   // motion — covers them all, rather than leaving blank cells that read as
@@ -2451,6 +2659,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
   const pages = inputs.map(buildLines);
   const measures = measure(pages);
   compounds = findCompounds(pages);
+  for (const lines of pages) mendJustified(lines, measures);
   dropFurniture(pages, inputs, measures);
   dropContents(pages, inputs);
 
@@ -2533,10 +2742,16 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
     // it is a footnote: the lines read after its heading are left in the text.
     const read = readingOrder(flow.map((line) => ({ x0: line.x0, y0: line.top, x1: line.x1, y1: line.bottom, line }))).map((box) => box.line);
     const heading = read.findIndex((line) => REFERENCES_HEADING.test(line.text));
-    const listed = new Set(inReferences ? read : heading >= 0 ? read.slice(heading) : []);
+    // …until a heading of the section after it: "A. Appendix" on the page
+    // the bibliography ends on, and the footnotes under it the page's own.
+    const listing = inReferences ? read : heading >= 0 ? read.slice(heading) : [];
+    const after = listing.findIndex((line) => !REFERENCES_HEADING.test(line.text) && line.allBold && line.size >= measures.bodySize * 1.1 && line.text.split(' ').length <= 12);
+    const listed = new Set(after >= 0 ? listing.slice(0, after) : listing);
     for (const line of flow) {
       if (line.caption || line.captionOf || line.allBold || listed.has(line)) continue;
-      if (line.size > measures.bodySize - 1 || line.baseline < page.height * 0.6) continue;
+      // Small type, or a note's mark leading it at the very foot of the
+      // page: "*Authors are ordered alphabetically…", set as large as the text.
+      if ((line.size > measures.bodySize - 1 && !(noteMark(line) && line.baseline > page.height * 0.8)) || line.baseline < page.height * 0.6) continue;
       // Below the last body text of its own column: the other column may
       // run lower.
       const column = bodyLines.filter((other) => overlapX(other, line) > 0 && other.baseline > line.baseline + measures.bodySize);
@@ -2678,7 +2893,10 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
             // sideways — so it need only lie mostly over the table.
             .filter((box) => box.y1 - box.y0 < 1.5 && box.x1 - box.x0 > 4 && box.y0 >= region.y0 - 4 && box.y1 <= region.y1 + 4 && overlapX(box, region) > 0.5 * Math.min(box.x1 - box.x0, region.x1 - region.x0))
             .map((box) => ({ x0: box.x0, x1: box.x1, y: (box.y0 + box.y1) / 2 }));
-          const table = tableOf([...region.lines, ...sidewaysBeside(region, page, measures)], region.caption, rules);
+          // A region of lines each alone on its row, that no columns could be
+          // found in, is a box of text: read as one, not painted.
+          const alone = region.lines.every((line) => !region.lines.some((other) => other !== line && Math.abs(other.baseline - line.baseline) < 0.5 * line.size));
+          const table = region.box ? { rows: boxRows(region.lines, rules) } : (tableOf([...region.lines, ...sidewaysBeside(region, page, measures)], region.caption, rules) ?? (alone && region.lines.length >= 2 ? { rows: boxRows(region.lines, rules) } : null));
           blocks.push({ kind: 'table', crop: crop(region, page), caption, label: region.label, rows: table?.rows ?? null, ...(table?.notes ? { notes: table.notes } : {}), page: page.index });
         } else {
           blocks.push({ kind: 'figure', crop: crop(region, page), caption, label: region.label, page: page.index });
@@ -3079,7 +3297,9 @@ function namedIn(sentence: string, authors: BylineAuthor[]): BylineAuthor[] {
 /** Each author's notes and contributions, from the notes on the marks they carry. */
 function notesToAuthors(byline: PaperByline): void {
   for (const author of byline.authors) {
-    const mine = byline.notes.filter((note) => note.mark.split(',').some((mark) => author.marks.includes(mark)));
+    // A note that the order means nothing — "Authors are ordered
+    // alphabetically", its mark on the last name — speaks of every name.
+    const mine = byline.notes.filter((note) => note.mark.split(',').some((mark) => author.marks.includes(mark)) || ORDER_MEANS_NOTHING.test(note.text));
     author.notes = mine.map((note) => note.text).filter(Boolean);
     const contributions = mine.flatMap((note) => (note.contributions ?? []).filter((sentence) => namedIn(sentence, byline.authors).includes(author)));
     if (contributions.length) author.contributions = contributions;
@@ -3106,7 +3326,7 @@ function bylineNote(byline: PaperByline, spans: Span[]): boolean {
     const general = sentences.filter((sentence) => namedIn(sentence, byline.authors).length === 0);
     const named = sentences.filter((sentence) => !general.includes(sentence)).map((sentence) => (/[.!?]$/.test(sentence) ? sentence : `${sentence}.`));
     const said = general.join(' ').replace(/\.$/, '');
-    const aboutThem = AUTHOR_NOTE.test(general[0] ?? '') || named.length > 0;
+    const aboutThem = AUTHOR_NOTE.test(general[0] ?? '') || ORDER_MEANS_NOTHING.test(said) || named.length > 0;
     if (mark && !/^\d/.test(mark) && piece.marks.every(carried) && aboutThem && said.length < 200) {
       if (!byline.notes.some((note) => note.mark === mark)) {
         // "✉email: …" is the author to write to.
@@ -3371,12 +3591,15 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): { front
       // Its words, less any addresses: "nvidia.com" is not an institution named.
       const words = piece.text.replace(ADDRESS_GROUP, ' ').replace(ADDRESS_ONE, ' ').replace(/\s+/g, ' ').trim();
       if (!/\p{L}{2}/u.test(words)) continue;
-      if (AUTHOR_NOTE.test(piece.text) && !(INSTITUTION.test(words) && /^\d/.test(mark || ''))) {
+      // A short name under a mark the names carry — "∗DeepSeek-AI" — is an
+      // institution, whatever words it is spelt in.
+      const named = Boolean(mark) && piece.marks.every((one) => authors.some((author) => author.marks.includes(one))) && words.split(' ').length <= 6 && /^\p{Lu}/u.test(words) && !/[;:!?]|\.\s/.test(words);
+      if ((AUTHOR_NOTE.test(piece.text) || ORDER_MEANS_NOTHING.test(piece.text)) && !(INSTITUTION.test(words) && /^\d/.test(mark || ''))) {
         if (mark) {
           notes.push({ mark, text: piece.text.replace(/\.$/, '') });
           used = true;
         }
-      } else if (INSTITUTION.test(words) || (mark && /^\d/.test(mark))) {
+      } else if (INSTITUTION.test(words) || (mark && /^\d/.test(mark)) || named) {
         affiliations.push({ mark, text: piece.text.replace(/\.$/, '') });
         used = true;
       }
@@ -3402,7 +3625,8 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): { front
       const own = affiliations.filter((place) => place.mark && place.mark.split(',').some((mark) => author.marks.includes(mark)));
       const under = places.get(author);
       // One institution named without a mark is everyone's.
-      author.affiliations = own.length ? own.map((place) => place.text) : under ? [under.join(', ')] : unmarked.length === 1 ? [unmarked[0].text] : [];
+      // …and so is the only one named, whoever its mark was set on.
+      author.affiliations = own.length ? own.map((place) => place.text) : under ? [under.join(', ')] : unmarked.length === 1 ? [unmarked[0].text] : affiliations.length === 1 ? [affiliations[0].text] : [];
     }
     const byline: PaperByline = { authors, notes, affiliations, emails };
     notesToAuthors(byline);
@@ -3491,7 +3715,9 @@ function authorsOnFront(lines: Line[], title?: string): string[] {
       for (const name of pieces) if (!names.includes(name)) names.push(name);
     }
   }
-  return names.length <= 60 ? names : [];
+  // A collaboration's byline runs to scores of names, DeepSeek's to 86;
+  // hundreds of "names" are something else read as names.
+  return names.length <= 400 ? names : [];
 }
 
 // ------------------------------------------------------------ references --
