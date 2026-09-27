@@ -69,7 +69,8 @@ export default function PdfSnip({ paperId, doc, engine, pages, scale, holder, an
       if (regions[number]) continue;
       void (async () => {
         try {
-          const input = await engine.extractPage(await doc.getPage(number));
+          // Read as the page stands: the boxes are laid over it so.
+          const input = await engine.extractPage(await doc.getPage(number), { turn: false });
           const layout = engine.layoutPages([input]);
           const found: Region[] = [];
           for (const block of layout.blocks) {

@@ -64,10 +64,15 @@ describe('a paper whose byline is a grid', () => {
   it('reads the footnote on the names whole, and gives each author the sentences about them', () => {
     const note = layout.byline.notes.find((one) => one.mark === '∗');
     assert.equal(note.text, 'Equal contribution. Listing order is random');
-    assert.deepEqual(author('Ada Lindqvist').contributions, ['Ada, with Ravi, designed and implemented the first models and has been crucially involved in every aspect of this work.']);
+    // And the Author Contributions section's sentences, by initials: "A.L." is Ada Lindqvist.
+    assert.deepEqual(author('Ada Lindqvist').contributions, [
+      'Ada, with Ravi, designed and implemented the first models and has been crucially involved in every aspect of this work.',
+      'A.L. and R.A. wrote the first implementation.',
+    ]);
     assert.deepEqual(author('Mira Castell').contributions, [
       'Mira proposed replacing recurrence with attention and started the effort to evaluate this idea.',
       'Lukasz and Mira spent countless long days designing various parts of the codebase.',
+      'M.C. wrote the paper with help from all authors.',
     ]);
     // "Lukasz" in the note is Łukasz on the byline.
     assert.deepEqual(author('Łukasz Borowski').contributions, ['Lukasz and Mira spent countless long days designing various parts of the codebase.']);

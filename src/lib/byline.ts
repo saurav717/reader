@@ -161,6 +161,8 @@ export function rolesOnPaper(author: BylineAuthor | undefined, position: number)
   // a chip a sentence: "Equal contribution", "Listing order is random".
   const sentences = (author?.notes ?? []).flatMap((note) => note.split(/(?<=[\p{Ll}\p{N})]{2}[.!?])\s+(?=\p{Lu})/u)).map((sentence) => sentence.replace(/\.$/, ''));
   for (const note of sentences) {
+    // Where they had moved to is where they are, not a role: the card says it there.
+    if (MOVED.test(note)) continue;
     // The address in it has a row of its own on the card: "Corresponding author".
     const own = note
       .replace(/[\w.+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}/gi, '')
@@ -171,6 +173,20 @@ export function rolesOnPaper(author: BylineAuthor | undefined, position: number)
     if (!roles.includes(own)) roles.push(own);
   }
   return roles;
+}
+
+/** A note of where an author had moved to by the time the paper came out: "Present address: …". */
+const MOVED = /^(?:present|current|permanent|new) address\b\s*:?\s*/i;
+
+/**
+ * An institution as a card shows it: the street, the room and the postcode
+ * a Springer footnote prints with it left out — "Aphasia Research
+ * Laboratory, …, Boston University, 635 Commonwealth Avenue, room 326,
+ * Boston, MA 02215, USA" is "…, Boston University, USA".
+ */
+export function placeOnly(text: string): string {
+  const pieces = text.split(/\s*,\s*/).filter((piece) => piece && !/\d/.test(piece));
+  return pieces.join(', ') || text;
 }
 
 /** A note saying the authors' order carries nothing: random, alphabetical, by a coin's toss. */
@@ -200,7 +216,7 @@ export function addressPieces(text: string): { text: string; href?: string }[] {
  */
 export interface Whereabouts {
   now?: { place: string; from: 'Google Scholar' | 'OpenAlex'; verified?: string };
-  then?: { place?: string; from: 'the paper' | 'OpenAlex'; same: boolean; emails: string[] };
+  then?: { place?: string; from: 'the paper' | 'OpenAlex'; same: boolean; emails: string[]; moved?: string };
 }
 
 /** The distinctive words of an institution's name: "Nanjing University" is "nanjing". */
@@ -229,10 +245,13 @@ export function whereTheyAre({
   } else if (details?.affiliation) {
     out.now = { place: details.affiliation, from: 'OpenAlex' };
   }
-  const paperPlace = onPaper?.affiliations.length ? onPaper.affiliations.join('; ') : undefined;
+  const paperPlace = onPaper?.affiliations.length ? onPaper.affiliations.map(placeOnly).join('; ') : undefined;
+  // "Present address: …" — where the paper says they had gone by the time it came out.
+  const movedNote = onPaper?.notes.find((note) => MOVED.test(note));
+  const moved = movedNote ? placeOnly(movedNote.replace(MOVED, '')) : undefined;
   const place = paperPlace ?? details?.affiliationHere;
   const emails = onPaper?.emails ?? [];
-  if (place || emails.length) {
+  if (place || emails.length || moved) {
     const nowWords = new Set(placeWords(`${out.now?.place ?? ''} ${out.now?.verified ?? ''}`));
     const domains = emails.map((email) => email.split('@')[1]);
     const verified = out.now?.verified?.toLowerCase();
@@ -242,7 +261,7 @@ export function whereTheyAre({
         ((place && placeWords(place).some((word) => nowWords.has(word))) ||
           (verified && domains.some((domain) => domain === verified || domain.endsWith(`.${verified}`) || verified.endsWith(`.${domain}`)))),
     );
-    out.then = { place, from: paperPlace || !place ? 'the paper' : 'OpenAlex', same, emails };
+    out.then = { place, from: paperPlace || !place ? 'the paper' : 'OpenAlex', same, emails, ...(moved ? { moved } : {}) };
   }
   return out;
 }

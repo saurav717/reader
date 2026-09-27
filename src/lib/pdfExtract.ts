@@ -140,18 +140,57 @@ function graphicsOf(page: PDFPageProxy, fnArray: number[], argsArray: unknown[],
   return { boxes, hidden };
 }
 
-/** Everything on one page that the layout needs. */
-export async function extractPage(page: PDFPageProxy): Promise<PageInput> {
-  const viewport = page.getViewport({ scale: 1 });
-  const base = viewport.transform as Matrix;
+/**
+ * Everything on one page that the layout needs. A page whose text runs up
+ * or down it — a table too wide for the page, set sideways — is read as it
+ * would be turned to be read, `turned` saying by how much, so that the
+ * pictures cut from it are cut from the page turned the same way. Where
+ * the page's boxes are laid over the page as it is shown (`turn: false`),
+ * it is read as it stands.
+ */
+export async function extractPage(page: PDFPageProxy, { turn = true }: { turn?: boolean } = {}): Promise<PageInput> {
   // The operator list first: it is what loads the fonts, and their names
   // — bold, italic, mathematics — are what the text is read by.
   // Without the annotations' own drawings: the boxes a PDF draws round its
   // links, one on each line with a citation, would chain into one frame
   // over a paragraph and make it part of the figure under it.
   const operators = await page.getOperatorList({ annotationMode: AnnotationMode.DISABLE });
-  const { boxes: graphics, hidden } = graphicsOf(page, operators.fnArray, operators.argsArray, base);
   const content = await page.getTextContent();
+  const turned = turn ? turnOf(page, content) : 0;
+  return readPage(page, operators, content, turned);
+}
+
+type TextContent = Awaited<ReturnType<PDFPageProxy['getTextContent']>>;
+type OperatorList = Awaited<ReturnType<PDFPageProxy['getOperatorList']>>;
+
+/**
+ * How far to turn a page, clockwise, for its text to read across: 90 where
+ * most of it runs up the page, 270 where it runs down, 0 otherwise.
+ */
+function turnOf(page: PDFPageProxy, content: TextContent): 0 | 90 | 270 {
+  const base = page.getViewport({ scale: 1 }).transform as Matrix;
+  let across = 0;
+  let up = 0;
+  let down = 0;
+  for (const item of content.items) {
+    if (!('str' in item) || !item.str.trim()) continue;
+    const [a, b] = multiply(base, item.transform as ArrayLike<number>);
+    const count = item.str.trim().length;
+    if (Math.abs(b) <= Math.abs(a)) across += count;
+    else if (b < 0) up += count;
+    else down += count;
+  }
+  const total = across + up + down;
+  if (total < 200) return 0;
+  if (up > 0.6 * total) return 90;
+  if (down > 0.6 * total) return 270;
+  return 0;
+}
+
+async function readPage(page: PDFPageProxy, operators: OperatorList, content: TextContent, turned: 0 | 90 | 270): Promise<PageInput> {
+  const viewport = page.getViewport({ scale: 1, rotation: (page.rotate + turned) % 360 });
+  const base = viewport.transform as Matrix;
+  const { boxes: graphics, hidden } = graphicsOf(page, operators.fnArray, operators.argsArray, base);
   const fontNames = new Map<string, string>();
   const runs: TextRun[] = [];
   const sideways: SidewaysRun[] = [];
@@ -165,6 +204,9 @@ export async function extractPage(page: PDFPageProxy): Promise<PageInput> {
     // for a group of rows — is not read with the text, but kept aside by
     // its box, for a table to take the labels beside it.
     if (Math.abs(b) > 0.05 * Math.abs(a) || Math.abs(c) > 0.05 * Math.abs(d)) {
+      // On a page turned to be read, what is still at right angles is the
+      // page's own running head and foot, which the page was turned from.
+      if (turned) continue;
       const size = Math.hypot(a, b);
       const along = item.width * viewport.scale;
       if (!(size > 0) || !item.str.trim()) continue;
@@ -196,7 +238,7 @@ export async function extractPage(page: PDFPageProxy): Promise<PageInput> {
     }
     runs.push({ str: item.str, x: e, y: f, width: item.width * viewport.scale, size, font });
   }
-  return { index: page.pageNumber - 1, width: viewport.width, height: viewport.height, runs, graphics, links: await linksOf(page, base), sideways };
+  return { index: page.pageNumber - 1, width: viewport.width, height: viewport.height, runs, graphics, links: await linksOf(page, base), sideways, ...(turned ? { turned } : {}) };
 }
 
 /**
