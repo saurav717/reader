@@ -1,0 +1,79 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.wrap{display:grid;grid-template-columns:230px 1fr;gap:28px;height:100%}
+.src{display:flex;flex-direction:column;gap:2px}
+.src a{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:8px;color:var(--ink);text-decoration:none}
+.src a.on{background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm)}
+.src a span:last-child{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.item{display:flex;gap:16px;padding:16px 18px;border-top:1px solid var(--border-soft)}
+.item:first-child{border-top:0}
+.item.focus{background:var(--accent-soft);border-radius:0}
+.why{font-size:11.5px;color:var(--accent-ink);display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.abs{font-size:12.5px;color:var(--ink-2);line-height:1.5;margin-top:6px;max-width:720px}
+.tri{display:flex;flex-direction:column;gap:6px;flex-shrink:0;width:150px}
+.tri .btn{justify-content:space-between;height:28px}
+</style></head><body><div class="app"><!--RAIL-->
+<main class="main"><div class="scroll">
+<div class="wrap">
+ <aside>
+  <div class="eyebrow">Since you were last here</div>
+  <h1 class="serif" style="font-size:28px;font-weight:600;margin:6px 0 4px">14 new</h1>
+  <p class="muted" style="margin:0 0 18px">Last visit Thursday, 18:40</p>
+  <div class="src">
+   <a class="on"><span class="dot" style="background:var(--accent)"></span>Everything<span>14</span></a>
+   <a><span class="dot db"></span>Authors you follow<span>4</span></a>
+   <a><span class="dot dg"></span>Cite your papers<span>5</span></a>
+   <a><span class="dot dy"></span>arXiv · cs.LG, math.NA<span>3</span></a>
+   <a><span class="dot dp"></span>Saved searches<span>2</span></a>
+  </div>
+  <div class="card" style="margin-top:22px;padding:14px">
+   <div class="eyebrow">Triage keys</div>
+   <div style="display:grid;grid-template-columns:auto 1fr;gap:7px 10px;margin-top:10px;font-size:12px" class="ink2">
+    <kbd>J</kbd><span>next · <kbd>K</kbd> previous</span>
+    <kbd>A</kbd><span>add to Reading list</span>
+    <kbd>↵</kbd><span>open now</span>
+    <kbd>L</kbd><span>later (snooze a week)</span>
+    <kbd>X</kbd><span>not for me</span>
+   </div>
+  </div>
+ </aside>
+ <section>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+   <h2 class="serif" style="font-size:22px;font-weight:600">Your inbox</h2>
+   <span class="chip acc">Today 6</span><span class="chip">This week 8</span>
+   <span style="flex:1"></span><span class="btn">Mark all seen</span><span class="btn primary">Add 3 selected</span>
+  </div>
+  <div class="card">
+   <div class="item focus">
+    <div class="cover"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div style="flex:1">
+     <div class="why"><span class="dot db"></span>New from <b>Zongyi Li</b> · you've read 3 of their papers</div>
+     <div class="ptitle" style="font-size:17px">Neural Operators with Localized Integral and Differential Kernels</div>
+     <div class="muted" style="font-size:11.5px;margin-top:2px">Liu-Schiaffini, Berner, … Z Li, A Anandkumar · ICML 2024 · <span class="mono">arXiv:2402.16845</span></div>
+     <div class="abs">We extend the FNO with local convolution kernels that recover the differential operator as a limit, closing the gap on problems with sharp local features…</div>
+    </div>
+    <div class="tri"><span class="btn primary">Add <kbd style="background:transparent;color:var(--accent-on);border-color:rgba(255,255,255,.35)">A</kbd></span><span class="btn">Open <kbd>↵</kbd></span><span class="btn">Later <kbd>L</kbd></span><span class="btn">Not for me <kbd>X</kbd></span></div>
+   </div>
+   <div class="item">
+    <div class="cover"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div style="flex:1">
+     <div class="why"><span class="dot dg"></span>Cites <b>Fourier Neural Operator</b> — which you're reading now</div>
+     <div class="ptitle" style="font-size:17px">Spectral Shock Capturing for Operator Learning</div>
+     <div class="muted" style="font-size:11.5px;margin-top:2px">M Chen, R Patel · 2026 · Semantic Scholar</div>
+     <div class="abs">Addresses the Gibbs phenomenon that mode truncation causes near discontinuities… <span class="hl-p" style="color:var(--ink)">matches your open question “Does truncation lose shock fronts?”</span></div>
+    </div>
+    <div class="tri"><span class="btn">Add <kbd>A</kbd></span><span class="btn">Open <kbd>↵</kbd></span></div>
+   </div>
+   <div class="item">
+    <div class="cover"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <div style="flex:1">
+     <div class="why"><span class="dot dy"></span>arXiv cs.LG · matches “mixture of experts”</div>
+     <div class="ptitle" style="font-size:17px">Expert Choice Routing Revisited at Trillion-Parameter Scale</div>
+     <div class="muted" style="font-size:11.5px;margin-top:2px">Okafor, Tanaka, et al. · 2026 · <span class="mono">arXiv:2609.11420</span></div>
+    </div>
+    <div class="tri"><span class="btn">Add <kbd>A</kbd></span><span class="btn">Open <kbd>↵</kbd></span></div>
+   </div>
+  </div>
+ </section>
+</div>
+</div></main></div><div class="label">Idea 3 · “Since you were last here” inbox</div></body></html>

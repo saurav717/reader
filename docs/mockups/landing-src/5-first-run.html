@@ -1,0 +1,49 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.wrap{max-width:1080px;margin:0 auto;display:grid;grid-template-columns:1fr 380px;gap:28px;padding-top:10px}
+.step{display:flex;gap:14px;padding:15px 18px;border-top:1px solid var(--border-soft);align-items:center}
+.step:first-of-type{border-top:0}
+.n{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--border);display:grid;place-items:center;font:600 12px var(--mono);color:var(--muted);flex-shrink:0}
+.n.done{background:var(--accent);border-color:var(--accent);color:var(--accent-on)}
+.step.cur{background:var(--accent-soft)}
+.step.cur .n{border-color:var(--accent);color:var(--accent)}
+.topic{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.topic .chip{height:28px;font-size:12px}
+.starter{display:flex;gap:12px;padding:12px 14px;border-top:1px solid var(--border-soft);align-items:center}
+</style></head><body><div class="app"><!--RAIL-->
+<main class="main"><div class="scroll">
+<div class="wrap">
+ <div>
+  <div class="eyebrow" style="color:var(--accent)">Welcome — you're signed in as saurav@…</div>
+  <h1 class="serif" style="font-size:34px;font-weight:600;letter-spacing:-.014em;margin:8px 0 6px">Let's get your library set up</h1>
+  <p class="ink2" style="font-size:14px;margin:0 0 22px;max-width:560px">Four short steps, each skippable. Everything works without them — they just make the next visit land on your papers instead of an empty page.</p>
+  <div class="card">
+   <div class="step"><div class="n done">✓</div><div style="flex:1"><b>Sign in &amp; connect Google Drive</b><div class="muted" style="font-size:12px">PDFs and highlights go to <span class="mono">Drive/Reader/</span></div></div><span class="chip acc">Done</span></div>
+   <div class="step cur"><div class="n">2</div><div style="flex:1"><b>Bring in what you already have</b><div class="muted" style="font-size:12px;margin-bottom:10px">Drop PDFs, a BibTeX / Zotero export, or paste a list of arXiv ids and DOIs.</div>
+     <div style="border:1.5px dashed var(--accent);border-radius:10px;padding:18px;text-align:center;background:var(--surface)"><div style="font-weight:500">Drop files here</div><div class="muted" style="font-size:12px;margin-top:3px">.pdf · .bib · .ris · Zotero CSL-JSON</div>
+     <div style="display:flex;justify-content:center;gap:8px;margin-top:12px"><span class="btn">Paste ids</span><span class="btn">Import Google Scholar library</span></div></div>
+    </div></div>
+   <div class="step"><div class="n">3</div><div style="flex:1"><b>Tell it what you work on</b><div class="muted" style="font-size:12px">Seeds Discover and the new-paper inbox</div>
+     <div class="topic"><span class="chip acc">✓ neural operators</span><span class="chip acc">✓ PDEs</span><span class="chip">mixture of experts</span><span class="chip">medical imaging</span><span class="chip">+ follow an author</span></div></div></div>
+   <div class="step"><div class="n">4</div><div style="flex:1"><b>Keep notes in Git &amp; pick a model</b><div class="muted" style="font-size:12px">GitHub repo for notes and the bibliography · Claude, DeepSeek or Gemini for Explain and Ask</div></div><span class="btn">Set up</span></div>
+  </div>
+  <div style="display:flex;gap:10px;margin-top:18px;align-items:center"><span class="btn primary">Continue</span><span class="btn ghost">Skip — take me to the library</span><span style="flex:1"></span><span class="muted" style="font-size:12px">You can come back to this from Settings</span></div>
+ </div>
+ <aside style="display:flex;flex-direction:column;gap:20px;padding-top:90px">
+  <section class="card">
+   <div style="padding:14px 14px 6px"><span class="eyebrow">Or start with one of these</span></div>
+   <div class="starter"><div class="cover" style="width:30px;height:40px"><i></i><i></i><i></i></div><div style="flex:1"><div class="ptitle" style="font-size:14px">Fourier Neural Operator for Parametric PDEs</div><div class="muted" style="font-size:11.5px">Most-read in “neural operators”</div></div><span class="btn" style="height:28px">Read</span></div>
+   <div class="starter"><div class="cover" style="width:30px;height:40px"><i></i><i></i><i></i></div><div style="flex:1"><div class="ptitle" style="font-size:14px">Attention Is All You Need</div><div class="muted" style="font-size:11.5px">A good paper to try highlights on</div></div><span class="btn" style="height:28px">Read</span></div>
+  </section>
+  <section class="card" style="padding:16px">
+   <div class="eyebrow">Three things worth knowing</div>
+   <div style="display:grid;grid-template-columns:auto 1fr;gap:10px 12px;margin-top:12px;font-size:12.5px;align-items:center" class="ink2">
+    <span><kbd>⌘K</kbd></span><span>search anything, from anywhere</span>
+    <span><kbd>right-click</kbd></span><span>a word — meaning, origins, comment</span>
+    <span><kbd>E</kbd></span><span>have the model explain the whole paper</span>
+    <span><kbd>⌘\</kbd></span><span>ask about what's on screen</span>
+   </div>
+  </section>
+ </aside>
+</div>
+</div></main></div><div class="label">Idea 5 · First-run setup (new users)</div></body></html>

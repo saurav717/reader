@@ -1,0 +1,70 @@
+<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.grid{display:grid;grid-template-columns:1.55fr 1fr;gap:22px;margin-top:22px}
+.hero{padding:22px 24px;display:flex;gap:22px}
+.hero .cover{width:96px;height:126px;padding:12px 10px;gap:6px}
+.hero .cover i{height:3px}.hero .cover i:first-child{height:7px}
+.snip{border-left:3px solid var(--ul-yellow);padding:8px 12px;margin:14px 0 16px;font-family:var(--serif);font-size:15px;line-height:1.5;background:var(--panel);border-radius:0 8px 8px 0}
+.row{display:flex;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid var(--border-soft)}
+.row:first-child{border-top:0}
+.qbox{display:flex;align-items:center;gap:10px;height:44px;padding:0 14px;border:1px solid var(--border);border-radius:11px;background:var(--surface);box-shadow:var(--shadow-sm);color:var(--muted);font-size:14px;width:520px}
+.stat b{font-family:var(--serif);font-size:26px;font-weight:600;display:block;color:var(--ink)}
+.hlitem{padding:11px 14px;border-top:1px solid var(--border-soft);font-family:var(--serif);font-size:14px;line-height:1.45}
+.hlitem:first-of-type{border-top:0}
+.hlitem small{display:block;font-family:var(--sans);font-size:11px;color:var(--muted);margin-top:4px}
+</style></head><body><div class="app"><!--RAIL-->
+<main class="main"><div class="scroll">
+<div style="display:flex;align-items:flex-end;justify-content:space-between">
+  <div><div class="eyebrow">Sunday, 27 September</div>
+  <h1 class="serif" style="font-size:34px;font-weight:600;letter-spacing:-.014em;margin-top:6px">Good evening, Saurav</h1></div>
+  <div class="qbox"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Search papers, people, or paste an arXiv id…<span style="flex:1"></span><kbd>⌘K</kbd></div>
+</div>
+
+<div class="grid">
+ <div style="display:flex;flex-direction:column;gap:22px">
+  <section class="card hero">
+   <div class="cover"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+   <div style="flex:1;min-width:0">
+    <div class="eyebrow" style="color:var(--accent)">Continue reading · opened 2 hours ago</div>
+    <div class="ptitle" style="font-size:22px;margin-top:6px">Fourier Neural Operator for Parametric Partial Differential Equations</div>
+    <div class="ink2" style="margin-top:4px">Zongyi Li, Nikola Kovachki et al. · ICLR 2021 · <span class="mono">arXiv:2010.08895</span></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:14px"><div class="bar" style="flex:1"><i style="width:42%"></i></div><span class="mono muted">42% · §3 Fourier layer · ~14 min left</span></div>
+    <div class="snip">“…parameterises the <span class="hl-y">integral kernel</span> directly in Fourier space and truncates the higher modes.”<div style="font-family:var(--sans);font-size:11px;color:var(--muted);margin-top:4px">Your last highlight · with a note: “Where does this kernel parameterisation come from?”</div></div>
+    <div style="display:flex;gap:8px"><span class="btn primary">Resume at §3 <kbd style="background:transparent;color:var(--accent-on);border-color:rgba(255,255,255,.35)">↵</kbd></span><span class="btn">Explain the paper</span><span class="btn">Open notes</span></div>
+   </div>
+  </section>
+
+  <section class="card">
+   <div style="display:flex;justify-content:space-between;padding:14px 14px 6px"><span class="eyebrow">Also in progress</span><span class="btn ghost" style="height:auto;padding:0">Reading now (4) →</span></div>
+   <div class="row"><div class="ring" style="--p:.63"></div><div style="flex:1"><div class="ptitle">A comprehensive survey of mixture-of-experts: Algorithms, theory, and applications</div><div class="muted" style="font-size:11.5px">S Mu, S Lin · 2025 · 63% · opened 2 days ago</div></div><span class="chip">5 highlights</span></div>
+   <div class="row"><div class="ring" style="--p:.18"></div><div style="flex:1"><div class="ptitle">Neural Operator: Learning Maps Between Function Spaces</div><div class="muted" style="font-size:11.5px">Kovachki et al. · JMLR 2023 · 18% · opened 4 days ago</div></div><span class="chip">1 note</span></div>
+   <div class="row"><div class="ring" style="--p:.08"></div><div style="flex:1"><div class="ptitle">Fusion approaches to predict post-stroke aphasia severity from multimodal neuroimaging data</div><div class="muted" style="font-size:11.5px">S Chennuri et al. · ICCV 2023 · 8% · opened last week</div></div><span class="chip">Stalled 6 days</span></div>
+  </section>
+  <section style="display:flex;gap:12px">
+   <div class="card" style="flex:1;padding:12px 14px"><div class="eyebrow">Collection</div><div class="ptitle" style="margin-top:4px">Neural operators</div><div class="muted" style="font-size:11.5px">9 papers · 2 unread</div></div>
+   <div class="card" style="flex:1;padding:12px 14px"><div class="eyebrow">Collection</div><div class="ptitle" style="margin-top:4px">Aphasia &amp; imaging</div><div class="muted" style="font-size:11.5px">14 papers · 6 unread</div></div>
+   <div class="card" style="flex:1;padding:12px 14px"><div class="eyebrow">Collection</div><div class="ptitle" style="margin-top:4px">Reading list</div><div class="muted" style="font-size:11.5px">5 papers · 3 unread</div></div>
+   <div class="card" style="width:120px;padding:12px 14px;display:grid;place-items:center;color:var(--accent);border-style:dashed;box-shadow:none">+ New</div>
+  </section>
+ </div>
+
+ <div style="display:flex;flex-direction:column;gap:22px">
+  <section class="card" style="padding:16px 18px;display:flex;gap:22px">
+   <div class="stat"><b>3</b><span class="muted">papers this week</span></div>
+   <div class="stat"><b>27</b><span class="muted">highlights</span></div>
+   <div class="stat"><b>12</b><span class="muted">not started</span></div>
+  </section>
+  <section class="card">
+   <div style="padding:14px 14px 6px"><span class="eyebrow">Recent highlights</span></div>
+   <div class="hlitem"><span class="hl-g">spectral convolution is resolution-invariant</span><small><span class="dot dg"></span> Fourier Neural Operator · §4</small></div>
+   <div class="hlitem"><span class="hl-b">sparse gating selects the top-k experts per token</span><small><span class="dot db"></span> Survey of mixture-of-experts · §2.1</small></div>
+   <div class="hlitem"><span class="hl-p">Does truncation lose shock fronts?</span><small><span class="dot dp"></span> Fourier Neural Operator · note · open question</small></div>
+  </section>
+  <section class="card">
+   <div style="padding:14px 14px 6px"><span class="eyebrow">Up next in your queue</span></div>
+   <div class="row"><div class="cover" style="width:30px;height:40px"><i></i><i></i><i></i></div><div style="flex:1"><div class="ptitle" style="font-size:14px">Physics-informed neural networks</div><div class="muted" style="font-size:11.5px">Raissi et al. · added yesterday · ~35 min</div></div></div>
+   <div class="row"><div class="cover" style="width:30px;height:40px"><i></i><i></i><i></i></div><div style="flex:1"><div class="ptitle" style="font-size:14px">DeepONet: Learning nonlinear operators</div><div class="muted" style="font-size:11.5px">Lu et al. · added 3 days ago · ~40 min</div></div></div>
+  </section>
+ </div>
+</div>
+</div></main></div><div class="label">Idea 1 · dark mode</div></body></html>
