@@ -80,6 +80,14 @@ const readPage = (): ExplainPage => {
     return 'explain';
   }
 };
+/** Which page Explain opens on next: for the progress pill, which opens the one being written. */
+export function openExplainOn(page: ExplainPage) {
+  try {
+    localStorage.setItem(PAGE_KEY, page);
+  } catch {
+    // private mode
+  }
+}
 interface PageStore {
   subscribe: (listener: () => void) => () => void;
   get: (paperId: string) => ReturnType<typeof explanationFor>;
@@ -148,7 +156,7 @@ const PY_TOKENS = new RegExp(
   'g',
 );
 /** The latest line of Claude's thinking summary, short enough for a status line. */
-function lastThought(thinking?: string) {
+export function lastThought(thinking?: string) {
   const line = thinking?.split('\n').map((l) => l.replace(/[*#_`]/g, '').trim()).filter(Boolean).at(-1);
   if (!line) return '';
   return line.length > 140 ? `${line.slice(0, 139)}…` : line;
@@ -542,6 +550,92 @@ function OpacityControl({ value, fallback, onChange }: { value: number | null; f
   );
 }
 
+/**
+ * Rewrite, in the bar: the page written again from scratch, by the model
+ * chosen here — the same one as before, or any other with a key.
+ */
+function RewriteMenu({
+  current,
+  keys,
+  disabled,
+  implementing,
+  onRewrite,
+}: {
+  current: string;
+  keys: Record<string, unknown>;
+  disabled: boolean;
+  implementing: boolean;
+  onRewrite: (model: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false);
+    };
+    // Esc closes this, not Explain behind it.
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        setOpen(false);
+      }
+    };
+    window.addEventListener('mousedown', away);
+    window.addEventListener('keydown', key, true);
+    return () => {
+      window.removeEventListener('mousedown', away);
+      window.removeEventListener('keydown', key, true);
+    };
+  }, [open]);
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+  return (
+    <div className="menu-wrap" ref={box}>
+      <button
+        type="button"
+        className="btn sm ghost rewrite"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((now) => !now)}
+        title={implementing ? 'Plan it again from scratch, for the machine picked now — with the model you choose' : 'Write it again from scratch — with the model you choose'}
+      >
+        Rewrite <span className="caret" aria-hidden="true">▾</span>
+      </button>
+      {open ? (
+        <div className="menu right rewrite-menu" role="menu" aria-label="Rewrite with">
+          <div className="menu-label">Rewrite with</div>
+          {MODELS.map((m) => {
+            const ready = Boolean(keys[m.provider]);
+            return (
+              <button
+                key={m.id}
+                type="button"
+                role="menuitem"
+                className={m.id === current ? 'is-checked' : undefined}
+                disabled={!ready}
+                onClick={() => {
+                  setOpen(false);
+                  onRewrite(m.id);
+                }}
+                title={ready ? undefined : `Add a ${PROVIDERS[m.provider].company} key in Settings to use ${m.label}`}
+              >
+                <span className="menu-tick">{m.id === current ? '✓' : ''}</span>
+                <span className="rewrite-model">
+                  <b>{m.label}</b>
+                  <span>{ready ? m.note : `${m.note} · needs a key`}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Explain({ paperId, title, authors, published, screen, onClose }: Props) {
   const assistant = useSyncExternalStore(subscribe, getState);
   const [page, setPage] = useState<ExplainPage>(readPage);
@@ -838,6 +932,11 @@ export default function Explain({ paperId, title, authors, published, screen, on
     const read = await screen();
     await store.generate(read, model);
   };
+  // Rewrite, with the model picked in its menu — the one chosen now, or another.
+  const rewriteWith = async (id: string) => {
+    const read = await screen();
+    await store.generate(read, id);
+  };
 
   const download = () => {
     const blob = new Blob([implementing ? scaffoldNotebook(title, sections) : notebook(title, sections)], { type: 'application/x-ipynb+json' });
@@ -938,37 +1037,55 @@ export default function Explain({ paperId, title, authors, published, screen, on
             </button>
           ))}
         </div>
+        {/* The same actions on both pages, always in the same places: shown but off while there is nothing for them to act on. */}
         {implementing && explanation?.content && !streaming ? (
           <>
             <ColabMenu title={title} content={shown} sections={sections} />
             <LocalMenu title={title} content={shown} sections={sections} />
           </>
-        ) : hasCode && !streaming ? (
-          <button type="button" className="btn sm" onClick={download} title="Every cell and its explanation as a Jupyter notebook — File → Upload notebook in Colab opens it">
+        ) : (
+          <button
+            type="button"
+            className="btn sm"
+            onClick={download}
+            disabled={!hasCode || streaming}
+            title={
+              hasCode && !streaming
+                ? 'Every cell and its explanation as a Jupyter notebook — File → Upload notebook in Colab opens it'
+                : streaming
+                  ? 'Ready once the page is written'
+                  : `No code cells on this ${implementing ? 'plan' : 'page'} yet`
+            }
+          >
             Notebook ↓
           </button>
-        ) : null}
-        {explanation?.content && !streaming ? (
-          <button type="button" className="btn sm ghost rewrite" onClick={() => void start()} disabled={!hasKey} title={implementing ? 'Plan it again from scratch, for the machine picked now' : 'Write it again from scratch'}>
-            Rewrite
-          </button>
-        ) : null}
+        )}
         {streaming ? (
           <button type="button" className="btn sm" onClick={store.stop}>
             Stop
           </button>
-        ) : null}
-        {explanation?.content ? (
-          <button
-            type="button"
-            className="btn sm ghost snip-toggle"
-            aria-pressed={snipping}
-            onClick={() => setSnipping(!snipping)}
-            title="Snip: drag a box over anything here — prose, a diagram, a code cell, a table — to add it to your notes (S)"
-          >
-            ✂ Snip
-          </button>
-        ) : null}
+        ) : (
+          <RewriteMenu
+            current={model}
+            keys={assistant.keys}
+            disabled={!explanation?.content || busy}
+            implementing={implementing}
+            onRewrite={(id) => {
+              setModel(id);
+              void rewriteWith(id);
+            }}
+          />
+        )}
+        <button
+          type="button"
+          className="btn sm ghost snip-toggle"
+          aria-pressed={snipping}
+          disabled={!explanation?.content}
+          onClick={() => setSnipping(!snipping)}
+          title="Snip: drag a box over anything here — prose, a diagram, a code cell, a table — to add it to your notes (S)"
+        >
+          ✂ Snip
+        </button>
         <OpacityControl value={opacity} fallback={defaultOpacity} onChange={(value) => updateSettings({ explainOpacity: value })} />
         <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the explanation (Esc)" title="Back to the paper (Esc or E)">
           <CloseIcon size={17} />
@@ -1041,9 +1158,9 @@ export default function Explain({ paperId, title, authors, published, screen, on
             )}
           </form>
           {pending && !pending.error ? (
-            <div className="ask-status">
+            <div className="ask-status is-live">
               <span className="spinner" />
-              <span className="ask-note">
+              <span className="ask-note" title={thought || undefined}>
                 {revising ? `Rewriting “${revising}”` : thought ? `Thinking — ${thought}` : 'Reading your request'} — <em>{pending.request}</em>
               </span>
             </div>

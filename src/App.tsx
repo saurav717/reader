@@ -9,6 +9,7 @@ import { followLight } from './lib/glassLight';
 import { clearSelection, currentSelection, currentSelectionIn, explanationOnScreen, paperText, pdfPageImages, pdfPagesInView, pdfPageTexts, trackSelection, visiblePassage } from './lib/screen';
 import Assistant from './components/Assistant';
 import Explain from './components/Explain';
+import ExplainProgress from './components/ExplainProgress';
 import { explanationFor, setExplainDrive } from './lib/explain';
 import { explainDrive } from './lib/explainDrive';
 import CollectionView from './components/CollectionView';
@@ -963,6 +964,17 @@ export default function App() {
           onClose={() => setExplainOpen(false)}
         />
       ) : null}
+
+      {/* The page goes on being written with Explain closed; this shows how far, from anywhere. */}
+      <ExplainProgress
+        hidden={showWelcome}
+        showing={explainOpen && explained ? explained.id : null}
+        onOpen={(id) => {
+          openPaper(id);
+          setBoardOpen(false);
+          setExplainOpen(true);
+        }}
+      />
 
       {assistantOpen && !showWelcome ? <Assistant onClose={closeAssistant} screen={readScreen} reading={Boolean(reading)} /> : null}
 
