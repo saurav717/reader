@@ -752,15 +752,21 @@ function dropFurniture(pages: Line[][], inputs: PageInput[], measures: Measures)
   const pageCount = pages.length;
   for (const [at, lines] of pages.entries()) {
     const page = inputs[at];
+    // A note's number hung in the margin, its text beside it, is no page
+    // number — unless what is beside it is the running head itself: Springer
+    // sets the article's number in a box before "Page 2 of 11".
+    const hung = new Map<Line, Line>();
     for (const line of lines) {
-      if (!marginal(line, page)) continue;
+      if (!marginal(line, page) || !/^\d{1,2}$/.test(line.text)) continue;
+      const beside = lines.find((other) => other !== line && Math.abs(other.baseline - line.baseline) < 0.6 * other.size && other.x0 > line.x1 && other.x0 - line.x1 < 4 * other.size);
+      if (beside) hung.set(line, beside);
+    }
+    for (const line of lines) {
+      if (!marginal(line, page) || hung.has(line)) continue;
       const text = line.text;
       const key = norm(text.replace(/\d+/g, '#')).toLowerCase();
       const repeats = seen.get(key)?.size || 0;
       const short = line.x1 - line.x0 < measures.columnWidth * 0.6;
-      // A note's number hung in the margin, its text beside it, is no page number.
-      const hung = /^\d{1,2}$/.test(text) && lines.some((other) => other !== line && Math.abs(other.baseline - line.baseline) < 0.6 * other.size && other.x0 > line.x1 && other.x0 - line.x1 < 4 * other.size);
-      if (hung) continue;
       if (
         /^\d+$/.test(text) ||
         /^(page\s+)?\d+\s*(of|\/)\s*\d+$/i.test(text) ||
@@ -771,6 +777,7 @@ function dropFurniture(pages: Line[][], inputs: PageInput[], measures: Measures)
         line.taken = true;
       }
     }
+    for (const [line, beside] of hung) if (beside.taken) line.taken = true;
     // A page number set higher than the margins above count — article's
     // is 88% of the way down a letter page — is still the page's last
     // line, a number alone, well clear of the text above it.
@@ -1387,11 +1394,17 @@ function paragraphs(ordered: Line[], measures: Measures, columns: Map<Line, numb
         else if (indented && !previousIndented && current.lines.length > 1) fresh = false;
       } else if (BULLET.test(line.text) || (NUMBERED.test(line.text) && line.x0 - columnLeft > em * 0.3)) fresh = true;
       else if (line.x0 - Math.min(columnLeft, current.lines[0].x0) > em * 0.7 && !(previous.x0 - columnLeft > em * 0.7)) fresh = true;
+      // A run-in heading at the start of a line, after a sentence ended —
+      // a structured abstract's "Summary", in bold, its text going on in
+      // roman — starts a paragraph however full the line before it is.
+      else if (runInHeading(line) && /[.!?]["'”’)]?$/.test(previous.text) && !previous.allBold) fresh = true;
       // Justified text: only a paragraph's last line stops short — one of
       // body text, or a shorter one ending its sentence ("…on the values.").
+      // Short of the paragraph's own edge: an abstract set across both
+      // columns of a two-column paper is wider than a column.
       else if (
         measures.justified &&
-        previous.x1 < columnLeft + measures.columnWidth - em * 0.6 &&
+        previous.x1 < Math.max(columnLeft + measures.columnWidth, ...current.lines.map((one) => one.x1)) - em * 0.6 &&
         line.x0 <= columnLeft + em * 0.3 &&
         (bodyLike(previous, measures) ||
           (Math.abs(previous.size - measures.bodySize) <= 0.6 && previous.mathShare < 0.3 && current.lines.length > 1 && /[\p{Ll}\d)\]][.!?]["'”’)]?$/u.test(previous.text) && /^[\p{Lu}“"(]/u.test(line.text)))
@@ -2055,6 +2068,22 @@ function headingLine(line: Line, measures: Measures, columnLeft: number): boolea
 }
 
 /**
+ * A line that opens with a heading run into its text: a few words in bold,
+ * starting with a capital, and the line going on in another face —
+ * "Recent findings While heritability…", "Summary Despite…".
+ */
+function runInHeading(line: Line): boolean {
+  if (line.allBold || line.caption || line.captionOf) return false;
+  const runs = line.runs.filter((run) => run.str.trim());
+  let at = 0;
+  while (at < runs.length && runs[at].bold && !runs[at].math) at += 1;
+  const rest = runs[at];
+  if (!at || !rest || !/\p{L}/u.test(rest.str)) return false;
+  const label = norm(runs.slice(0, at).map((run) => run.str).join(' '));
+  return /^\p{Lu}/u.test(label) && /\p{L}{3}/u.test(label) && label.split(' ').length <= 5;
+}
+
+/**
  * Headings set in the text's own type — neither larger nor bolder, as
  * Nature's journals set their subsections: "Early fusion", "Limitations".
  * A short line, starting with a capital and not ending a sentence, with
@@ -2165,6 +2194,10 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
   const headings: { block: Extract<Block, { kind: 'heading' }>; size: number; numbered: number; sub?: boolean }[] = [];
   let carry: Extract<Block, { kind: 'paragraph' }> | null = null;
   let carryLast: Line | null = null;
+  // Where a list item's turnover lines start, from its column's left edge:
+  // a list item runs on over a break only at that indent.
+  let carryIndent: number | null = null;
+  let carryColumn = 0;
 
   for (const [at, page] of inputs.entries()) {
     const lines = pages[at];
@@ -2384,6 +2417,8 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
       // A paragraph that ran on from the previous column or page.
       if (carry && carryLast && !list && !paragraph.lines[0].caption) {
         const last = plain(carry.spans);
+        const hanging = paragraph.lines[0].x0 - paragraph.columnLeft;
+        const broken = paragraph.lines[0].page !== carryLast.page || Math.abs(paragraph.columnLeft - carryColumn) > carryLast.size;
         const openEnded = !/[.!?:;"”’)\]]$/.test(last) || /[a-z],$/.test(last);
         const continues = /^[a-z(]/.test(text) || last.endsWith('-');
         const indented = paragraph.lines[0].x0 - paragraph.columnLeft > paragraph.lines[0].size * 0.7;
@@ -2391,17 +2426,27 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
         // "Science 194 282–7" — only an entry's indented turnover runs on:
         // an entry starting at the margin is the next one.
         // (Or one that starts in lower case: "of Clinical Neurology, 10(2)…" is no entry's head.)
-        const runsOn = inReferences ? indented || /^[a-z]/.test(text) : continues || !indented;
+        // A list item's own text, set at its turnover lines' indent, runs on
+        // it; anything else after a list is the text's.
+        const runsOn = carry.list
+          ? broken && carryIndent !== null && Math.abs(hanging - carryIndent) < 0.5 * carryLast.size
+          : inReferences
+            ? indented || /^[a-z]/.test(text)
+            : continues || !indented;
         if (openEnded && runsOn && Math.abs(paragraph.lines[0].size - carryLast.size) <= 0.6) {
           carry.spans = mergeSpans(carry.spans, spans, last.endsWith('-') && /^[a-z]/.test(text));
           carryLast = paragraph.lines[paragraph.lines.length - 1];
+          carryColumn = paragraph.columnLeft;
           continue;
         }
       }
       const block: Extract<Block, { kind: 'paragraph' }> = { kind: 'paragraph', spans, page: page.index, list };
       blocks.push(block);
-      carry = list ? null : block;
+      carry = block;
       carryLast = paragraph.lines[paragraph.lines.length - 1];
+      carryColumn = paragraph.columnLeft;
+      const turnover = paragraph.lines.length > 1 ? carryLast.x0 - paragraph.columnLeft : null;
+      carryIndent = list && turnover !== null && turnover > 0.5 * carryLast.size ? turnover : null;
     }
 
     if (feet.size) {
@@ -2829,7 +2874,9 @@ function contributionsSection(byline: PaperByline, blocks: Block[]): void {
 function bylineFootnote(byline: PaperByline, spans: Span[]): boolean {
   const text = plain(spans).trim();
   // "✉ Name", the envelope a star in some fonts, and perhaps the address: the corresponding author.
-  const corresponding = /^[✉*∗]\s*([^@]+?)(?:\s+[\w.+-]+@\S+)*$/.exec(text);
+  // Where the envelope is drawn rather than set, the name and the address
+  // are all there is of it.
+  const corresponding = /^[✉*∗]\s*([^@]+?)(?:\s+[\w.+-]+@\S+)*$/.exec(text) || /^([^@✉*∗\d]+?)(?:\s+[\w.+-]+@\S+)+$/.exec(text);
   if (corresponding) {
     const author = byline.authors.find((one) => foldName(one.name) === foldName(corresponding[1].trim()));
     if (author) {
