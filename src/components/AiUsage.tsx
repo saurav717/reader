@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api';
 import { MODELS } from '../lib/assistant';
 import type { ByModel, UsageReport } from './UsageView';
+import { KEEP_DAYS, PERIOD_PRESETS, addDays, dayOf, daysSpanned } from '../lib/usagePeriod';
+import type { AiPeriod, PeriodPreset, Range } from '../lib/usagePeriod';
 
 /** The owner's DeepSeek account, as DeepSeek reports it (worker/deepseekBalance.js). */
 export interface DeepSeekAccount {
@@ -168,7 +170,17 @@ const muted = { fontSize: 12.5, color: 'var(--muted)' } as const;
  * picked provider's days — cost, requests or tokens, switched in its header —
  * for everyone or the one person clicked in the table.
  */
-export default function AiUsage({ report }: { report: UsageReport }) {
+export default function AiUsage({
+  report,
+  period,
+  range,
+  onPeriod,
+}: {
+  report: UsageReport;
+  period: AiPeriod;
+  range: Range;
+  onPeriod: (period: AiPeriod) => void;
+}) {
   const [query, setQuery] = useState('');
   const [picked, setPicked] = useState<string | null>(null);
   const [provider, setProvider] = useState<Provider>('claude');
@@ -191,8 +203,13 @@ export default function AiUsage({ report }: { report: UsageReport }) {
   }, [picked, report.people]);
 
   const days = useMemo(() => daysBetween(report.since, report.until), [report.since, report.until]);
-  // Asked again as the report refreshes, at most once a minute.
-  const account = useDeepSeekAccount(days.length, `${report.until}:${report.people.length}:${aiCost(report.totals)}`);
+  // DeepSeek's balance is asked for back from today, so far enough to reach
+  // the period's first day, even when the period ends before today. Asked
+  // again as the report refreshes, at most once a minute.
+  const account = useDeepSeekAccount(
+    Math.min(KEEP_DAYS, daysSpanned(report.since, dayOf(Date.now()))),
+    `${report.until}:${report.people.length}:${aiCost(report.totals)}`,
+  );
 
   // "From balance" is DeepSeek's alone, and only with its key set.
   const hasBalance = provider === 'deepseek' && Boolean(account?.configured);
@@ -246,8 +263,11 @@ export default function AiUsage({ report }: { report: UsageReport }) {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
         <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>AI credits</h2>
         <span style={muted}>
-          {dollars(aiCost(report.totals))} across Claude, DeepSeek and Gemini · {report.since} to {report.until}
+          {dollars(aiCost(report.totals))} across Claude, DeepSeek and Gemini · {range.since} to{' '}
+          {range.live ? <span title={`Through ${range.until} (UTC), as of the last refresh`}>now</span> : range.until}
         </span>
+        <span style={{ flexGrow: 1 }} />
+        <PeriodPicker period={period} range={range} onPeriod={onPeriod} />
       </div>
 
       {/* 1 — each provider at a glance; the one pressed is the one charted below. */}
@@ -335,7 +355,7 @@ export default function AiUsage({ report }: { report: UsageReport }) {
               ) : (
                 <tr>
                   <td colSpan={2 + PROVIDERS.length} style={{ ...cell, textAlign: 'left', color: 'var(--muted)' }}>
-                    No email matches “{query}”.
+                    {people.length ? `No email matches “${query}”.` : 'Nobody used Ask AI or Explain in this period.'}
                   </td>
                 </tr>
               )}
@@ -403,6 +423,79 @@ export default function AiUsage({ report }: { report: UsageReport }) {
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * The AI credits' own period: a few ready ones, or two days picked — the
+ * second of which is "Now" until a day is picked for it. The days are UTC and
+ * go back no further than the tally keeps.
+ */
+function PeriodPicker({ period, range, onPeriod }: { period: AiPeriod; range: Range; onPeriod: (period: AiPeriod) => void }) {
+  const today = dayOf(Date.now());
+  const earliest = addDays(today, -(KEEP_DAYS - 1));
+  const box = {
+    fontSize: 13,
+    height: 30,
+    boxSizing: 'border-box' as const,
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    background: 'var(--paper)',
+    color: 'var(--ink)',
+    padding: '0 8px',
+  };
+  // Custom starts from the days shown, so switching to it changes nothing yet.
+  const pick = (preset: PeriodPreset) =>
+    onPeriod(preset === 'custom' ? { preset, from: range.since, to: range.live ? null : range.until } : { ...period, preset });
+  const now = period.to === null;
+  return (
+    <span role="group" aria-label="AI credits period" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <select value={period.preset} onChange={(event) => pick(event.target.value as PeriodPreset)} aria-label="Period" style={box}>
+        {PERIOD_PRESETS.map((entry) => (
+          <option key={entry.id} value={entry.id}>
+            {entry.label}
+          </option>
+        ))}
+      </select>
+      {period.preset === 'custom' ? (
+        <>
+          <input
+            type="date"
+            value={range.since}
+            min={earliest}
+            max={now ? today : period.to ?? today}
+            onChange={(event) => event.target.value && onPeriod({ ...period, from: event.target.value })}
+            aria-label="From"
+            style={box}
+          />
+          <span style={muted}>to</span>
+          <div className="segmented" role="group" aria-label="Up to">
+            <button type="button" aria-pressed={now} onClick={() => onPeriod({ ...period, to: null })} title="Up to now, refreshed as it goes">
+              Now
+            </button>
+            <button
+              type="button"
+              aria-pressed={!now}
+              onClick={() => onPeriod({ ...period, to: now ? today : period.to })}
+              title="Up to a day of your choosing"
+            >
+              Date
+            </button>
+          </div>
+          {!now ? (
+            <input
+              type="date"
+              value={range.until}
+              min={range.since}
+              max={today}
+              onChange={(event) => event.target.value && onPeriod({ ...period, to: event.target.value })}
+              aria-label="To"
+              style={box}
+            />
+          ) : null}
+        </>
+      ) : null}
+    </span>
   );
 }
 
