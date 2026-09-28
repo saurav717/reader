@@ -4810,3 +4810,34 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
   .desk-page { height: 260px; }
   .desk-scrim { padding: 20px 12px; }
 }
+
+/* A result opened, as in Discover: everywhere it can be read. */
+.find-item { border-top: 1px solid var(--border-soft); }
+.find-item:first-of-type { border-top: 0; }
+.find-item .find-row { border-top: 0; cursor: pointer; }
+.find-item.is-open { background: color-mix(in srgb, var(--accent-soft) 45%, transparent); }
+.find-detail { padding: 0 16px 14px; }
+.find-abstract { margin: 0 0 4px; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); max-width: 90ch; }
+.find-detail .locations { max-width: 640px; }
+.find-detail-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.find-detail-actions a.btn { text-decoration: none; color: var(--ink); }
+
+/* Between Home and the paper: G either way, and a button for it on each side. */
+.home-back {
+  display: inline-flex; align-items: center; gap: 10px; min-width: 0; max-width: 340px; height: 44px; padding: 0 10px 0 12px;
+  border-radius: 11px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft);
+  color: var(--accent-ink); cursor: pointer; text-align: left;
+}
+.home-back:hover { border-color: var(--accent); }
+.home-back-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.home-back-text small { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.85; }
+.home-back-text b { font-family: var(--serif); font-size: 13.5px; font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-return { color: var(--accent); position: relative; }
+.rail-return::after { content: ''; position: absolute; right: 7px; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--rail); }
+.topbar-home {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 10px; flex-shrink: 0;
+  border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); font-size: 12px; font-weight: 500; cursor: pointer;
+}
+.topbar-home:hover { color: var(--accent); border-color: var(--accent); }
+.topbar-home kbd { font-family: var(--mono); font-size: 10px; padding: 0 4px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; color: var(--muted); }
+@container (max-width: 860px) { .home-back { max-width: none; flex: 1 1 100%; } }

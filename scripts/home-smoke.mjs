@@ -323,6 +323,14 @@ await page.getByLabel('Search for papers').fill('mixture of experts');
 await page.getByLabel('Search for papers').press('Enter');
 await page.locator('.find-row .find-title', { hasText: 'Switch Transformers' }).waitFor({ timeout: 10000 });
 check('the results replace the suggestions', (await page.locator('.find-row').count()) === 4);
+await page.locator('.find-row .find-title', { hasText: 'Switch Transformers' }).click();
+await page.locator('.find-detail .locations').waitFor({ timeout: 5000 });
+check('clicking a result shows everywhere it can be read, as Discover does', await page.locator('.find-detail .locations').isVisible());
+check('with Save, Read and Source under it', (await page.locator('.find-detail-actions').getByRole('button', { name: /Save to Reading list/ }).count()) === 1 && (await page.locator('.find-detail-actions a', { hasText: 'Source' }).count()) === 1);
+await page.locator('.find-detail .locations .eyebrow').first().filter({ hasNotText: 'Looking' }).waitFor({ timeout: 10000 }).catch(() => {});
+await shot('home-find-detail');
+await page.locator('.find-row .find-title', { hasText: 'Switch Transformers' }).click();
+check('and clicking it again folds it away', (await page.locator('.find-detail').count()) === 0);
 check('one already in the library says so', ((await page.locator('.find-row', { hasText: 'comprehensive survey' }).locator('.find-have').textContent()) || '').includes('In Reading list'));
 const before = await count('Reading list');
 await page.locator('.find-row', { hasText: 'Switch Transformers' }).getByRole('button', { name: /Reading list/ }).click();
@@ -384,7 +392,27 @@ check('2 goes to the second paper on it', (await page.locator('.desk-scrim').cou
 await page.keyboard.press('r');
 await page.keyboard.press('g');
 await home(page).waitFor({ timeout: 5000 });
-check('G goes Home', await home(page).isVisible());
+check('G goes Home from the desk', await home(page).isVisible());
+
+console.log('\n== between Home and the paper: G, and a button either side ==');
+check('Home says which paper G goes back to', ((await page.locator('.home-back').textContent()) || '').includes('Back to reading'), (await page.locator('.home-back').textContent()) || '');
+check('and the rail has a way back under R', await page.locator('.rail-return').isVisible());
+const backTitle = ((await page.locator('.home-back b').textContent()) || '').replace('…', '');
+await shot('home-back');
+await page.keyboard.press('g');
+await page.waitForSelector('.main[data-paper-id]', { timeout: 10000 });
+await page.waitForFunction((start) => (document.querySelector('.reader-head .title')?.textContent || '').startsWith(start), backTitle.slice(0, 20), { timeout: 5000 }).catch(() => {});
+check('G on Home goes back into that paper', ((await page.locator('.reader-head .title').textContent()) || '').startsWith(backTitle.slice(0, 20)), `pill: ${backTitle} | opened: ${await page.locator('.reader-head .title').textContent()}`);
+check('whose top bar has a Home button', await page.locator('.topbar-home').isVisible());
+await page.keyboard.press('g');
+await home(page).waitFor({ timeout: 5000 });
+check('G in the paper goes Home', await home(page).isVisible());
+await page.locator('.rail-return').click();
+await page.waitForSelector('.main[data-paper-id]', { timeout: 10000 });
+check('the button under R goes back too', (await page.locator('.main.home').count()) === 0);
+await page.locator('.topbar-home').click();
+await home(page).waitFor({ timeout: 5000 });
+check('and the Home button in the top bar goes Home', await home(page).isVisible());
 
 console.log('\n== dark glass, and a phone ==');
 await page.evaluate(() => {
