@@ -30,6 +30,7 @@ import { askServices, servicesLabel } from './scholarServices.js';
 import { contributionsAsked, readContributions } from './contributionReader.js';
 import * as workspace from './workspace.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini } from './geminiRelay.js';
+import { handleColab, isColabPath } from './colab.js';
 import { Readable } from 'node:stream';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
@@ -65,7 +66,7 @@ function corsHeaders(req) {
     // rides in Authorization; and X-Reader-Client is the app's own id for
     // the browser it is in. A cross-origin request may send none of these
     // unless they are named here.
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client, X-Google-Token',
     'Access-Control-Max-Age': '86400',
   };
 }
@@ -640,6 +641,30 @@ async function browseStatus(req, res) {
   return send(res, 200, { ...rest, pdf: pdf ? { size: pdf.size } : null }, { 'Cache-Control': 'no-store' });
 }
 
+// ---------------------------------------------------------------- Colab ----
+//
+// The Explain and Implementation pages' Python cells, run in the signed-in
+// person's own Google Colab: the calls to Colab's session backend the page
+// cannot make cross-origin, made here with their Google token (X-Google-Token,
+// as the sign-in sends it) and nothing of this proxy's. See server/colab.js.
+// The whole prefix is gated by the token when one is wanted; what changes
+// something is a POST from this app only.
+
+async function colab(req, url, res) {
+  if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, { error: 'GET or POST' });
+  if (req.method === 'POST' && !fromThisApp(req)) return send(res, 403, { error: 'not from this app' });
+  let body = null;
+  if (req.method === 'POST') {
+    try {
+      body = await readJson(req);
+    } catch (error) {
+      return send(res, 400, { error: said(error, 'could not read that') });
+    }
+  }
+  const { status, body: answer } = await handleColab(url.pathname, req.method, req.headers['x-google-token'], body);
+  return send(res, status, answer, { 'Cache-Control': 'no-store' });
+}
+
 /**
  * The routes that want the token, when one is wanted — see server/guard.js.
  * Everything under /browse and /access but the two status routes, the
@@ -647,7 +672,7 @@ async function browseStatus(req, res) {
  */
 function gated(pathname) {
   if (pathname === '/browse/status' || pathname === '/access/status') return false;
-  return pathname.startsWith('/browse/') || pathname.startsWith('/access/') || pathname.startsWith('/scholar/captcha') || pathname.startsWith('/workspace/');
+  return pathname.startsWith('/browse/') || pathname.startsWith('/access/') || pathname.startsWith('/scholar/captcha') || pathname.startsWith('/workspace/') || isColabPath(pathname);
 }
 
 // ------------------------------------------------------------ workspace ----
@@ -820,6 +845,14 @@ export default async function apiRouter(req, res, next) {
         return await workspaceScaffold(req, res);
       case '/workspace/run':
         return await workspaceRun(req, res);
+      case '/colab/runtimes':
+      case '/colab/runtimes/stop':
+      case '/colab/units':
+      case '/colab/kernels':
+      case '/colab/kernels/list':
+      case '/colab/kernels/interrupt':
+      case '/colab/kernels/restart':
+        return await colab(req, url, res);
       case '/health':
         return send(res, 200, {
           ok: true,
@@ -832,6 +865,8 @@ export default async function apiRouter(req, res, next) {
           auth: tokenRequired(),
           /** Whether READER_WORKSPACE names a directory the Implementation page can write into and run in. */
           workspace: workspace.available(),
+          /** Whether the page's Python cells can be run in the signed-in person's own Google Colab through this proxy. */
+          colab: true,
         });
       default:
         if (next) return next();

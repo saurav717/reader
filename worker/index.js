@@ -34,6 +34,7 @@ import { contributionsAsked, readContributions } from '../server/contributionRea
 import { PROFILE_MODEL } from '../server/profileReader.js';
 import { aiCounts } from './usage.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini, tokensOf as geminiTokens } from '../server/geminiRelay.js';
+import { handleColab, isColabPath } from '../server/colab.js';
 import { readBalance } from './deepseekBalance.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
@@ -260,14 +261,14 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/usage/ai' && path !== '/ai/gemini') {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/usage/ai' && path !== '/ai/gemini' && !isColabPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(String(env.GEMINI_KEY || '').trim()), scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(String(env.GEMINI_KEY || '').trim()), colab: true, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
           200,
           headers,
         );
@@ -387,6 +388,22 @@ export default {
           status: response.status,
           headers: { ...headers, 'Content-Type': response.headers.get('Content-Type') || 'application/json', 'Cache-Control': 'no-store' },
         });
+      }
+
+      // The pages' Python cells, run in the signed-in person's own Google
+      // Colab: the calls to Colab's session backend the page cannot make
+      // cross-origin, made with their Google token (X-Google-Token) and
+      // nothing of this Worker's — see server/colab.js. Gated like the
+      // rest of what acts for a person; a POST from this app only.
+      if (isColabPath(path)) {
+        if (request.method !== 'GET' && request.method !== 'POST') return json({ error: 'GET or POST' }, 405, headers);
+        if (request.method === 'POST' && !ALLOWED_ORIGINS.includes(origin)) return json({ error: 'not from this app' }, 403, headers);
+        const who = await authorized(request, env);
+        if (!who) return needsToken(env, headers);
+        if (await personOverLimit(env, who)) return json({ error: 'too many requests at once; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });
+        const body = request.method === 'POST' ? await request.json().catch(() => null) : null;
+        const answer = await handleColab(path, request.method, request.headers.get('X-Google-Token'), body);
+        return json(answer.body, answer.status, { ...headers, 'Cache-Control': 'no-store' });
       }
 
       // A Worker has no disk and no GPU: the local workspace is the Node proxy's alone.

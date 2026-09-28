@@ -2590,10 +2590,11 @@ What it writes, in this order:
   they follow light and dark like everything else. DOMPurify cleans them first.
 - **Code cells**: short, seeded numpy you can run, numbered `In [1]`,
   `In [2]`, … Each one shows the output Claude expects, labelled as not yet
-  run. **Run in Colab** is in place but switched off until the Colab
-  connection is built — how it would work, and what it takes, is in
-  [docs/colab-run.md](docs/colab-run.md). **Notebook ↓** in the bar downloads every cell and its
-  explanation as an `.ipynb`, which Colab opens under *File → Upload notebook*.
+  run. **Run in Colab** runs exactly that code in a Colab runtime of your own
+  and puts what it printed under the cell, with a verdict against what Claude
+  expected — see [Running the cells in Colab](#running-the-cells-in-colab).
+  **Notebook ↓** in the bar downloads every cell and its explanation as an
+  `.ipynb`, which Colab opens under *File → Upload notebook*.
 - **Caveats**: a paper does not update itself, so each claim that has aged is
   flagged where it is made: *Still holds*, *Refined since*, *Superseded*,
   *Disputed* or *Disproved*. The outline counts them under **How it has
@@ -2624,6 +2625,74 @@ Three layouts, switched in the bar and remembered:
   paper still readable on the left.
 
 ![Beside the paper: the library and the paper on the left, the explanation on the right](docs/explain-beside.png)
+
+### Running the cells in Colab
+
+Every Python cell has **▶ Run in Colab**. The first click on a page that has
+never connected opens a card that says what will happen before anything
+does: a runtime starts *in your own Google Colab* — the same machines
+colab.research.google.com hands out, on your tier and your compute units —
+on the machine you pick (CPU by default; a T4, L4 or A100 a click away);
+Google asks once for Colab permission, on its own, separate from Drive; and
+two columns say what the reader can do with it and what it cannot.
+**Connect and run** opens Google's window, starts the runtime, and runs the
+cell. After that every cell on the page runs on its click.
+
+![the first click: the card under Run in Colab, with the machine, what Google will ask, and what the reader can and cannot do](docs/mockups/colab-2-connect.png)
+
+A cell that is running shows `In [*]`, a **Stop**, and its output as the
+kernel prints it. A cell that has run shows what it printed, on which machine
+and when, and how that compares with the output Claude wrote: *matches*, or
+*differs* with the differing lines tinted and **Ask Claude why it differs**,
+which puts the cell and both outputs in the bar as a question. A traceback
+gets **Ask Claude to fix this cell**; the fix comes back as a rewritten cell,
+not yet run. A cell Claude rewrites is a cell not yet run: runs are kept
+under the cell's code. Variables persist between cells, as in a notebook, so
+`In [2]` sees what `In [1]` defined.
+
+![a cell after it ran: the real output where the guess was, the lines that differ tinted, and the question a click away](docs/mockups/colab-4-ran.png)
+
+A cell that prints its losses — `loss=0.53`, `train_loss: 0.4 val_loss: 0.5`,
+a progress bar redrawing itself — earns a **loss curve** under its output,
+drawn as it runs, by step when the log names one. On a GPU runtime, **the GPU
+is watched while a cell runs**: one line of the reader's own (`nvidia-smi`,
+named in the runtime menu, in a second kernel so it never waits on the cell)
+every two seconds, drawn as utilisation over the run with the memory in the
+caption, and shown live in the bar's chip. The switch for it is in the
+runtime menu. Both charts have a table view.
+
+The chip in the bar — the Colab mark, a dot, the machine, how long it has
+been up — opens to the runtime: what it is, what it has cost, what has run;
+**Run all** (asks first, stops at the first error), **Open this runtime in
+Colab** (Colab's own page on the same machine, the one route to Drive, on
+purpose), **Restart the kernel**, **Change machine**, **Stop the runtime**,
+and **Forget Colab in this tab**. When Colab ends an idle runtime the cells
+keep what they printed, marked as from a runtime that has ended, and a line
+under the bar offers a new one.
+
+![the runtime menu: the machine, how long it has been up, compute units; run all, open in Colab, restart, change machine, stop](docs/mockups/colab-5-runtime.png)
+
+The rules the page keeps, and why, are in [docs/colab-run.md](docs/colab-run.md):
+nothing runs without a click on that cell; exactly the code shown is what
+runs; the scope is asked for late and kept the way the Drive token is (this
+tab, an hour, never on disk); the reader never mounts Drive or puts
+credentials in the kernel; output is text and pictures, never markup; and
+every output says where it ran.
+
+Under the hood: Colab's session backend does not take requests from another
+site, so the calls that start, list and stop a runtime, and that start,
+interrupt or restart its kernel, go through the reader's proxy — the Worker
+or `npm start` — with *your* Google token in `X-Google-Token`, the way a
+sign-in sends it, and nothing of the proxy's: no key, no cost to its owner.
+The proxy refuses any runtime address that is not Colab's own. The kernel
+itself is a WebSocket from the page straight to the runtime's Jupyter
+server, speaking the Jupyter protocol as Colab's page does. The routes are
+gated like everything that acts for a person (a token or a Google sign-in),
+and are on by default on both proxies: `colab: true` in `/health`. The
+page's side is `src/lib/colab.ts` and `src/components/Colab.tsx`; the
+proxies' is `server/colab.js`. The Colab API is in beta and allowlisted per
+Google Cloud project; a client ID whose project is not on the list gets a
+`403` from Colab, which the page says as much.
 
 ### Asking about it, or changing it
 
@@ -2872,6 +2941,11 @@ on a static deployment says what to run instead. The server side is
 
 ### Tests
 
+`scripts/colab.test.mjs` reads what a kernel sends back and compares it with
+what Claude expected, reads loss curves and GPU samples off a cell's output,
+and drives the proxy's half of Colab — the assignment, the kernel, the
+refusals, the runtime addresses it will not fetch — and the Node routes,
+against a stand-in for Colab.
 `scripts/implement.test.mjs` reads the plan's blocks, works a budget out on
 several machines, and checks the zip, the notebook and the commit's files;
 `scripts/workspace.test.mjs` writes and runs in a temporary workspace.

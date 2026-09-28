@@ -42,6 +42,8 @@ import { useStore } from '../lib/store';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ExplainIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon } from './icons';
 import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
+import { CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
+import { cellKey, colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, runCell, useClient as useColabClient } from '../lib/colab';
 import { tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
 import type { Flash } from './PassageFlash';
@@ -181,57 +183,106 @@ export function highlightPython(code: string): string {
 // The blocks
 // ---------------------------------------------------------------------------
 
-function CodeCell({ block, index }: { block: Extract<Block, { kind: 'code' }>; index: number }) {
+function CodeCell({ block, index, onAsk }: { block: Extract<Block, { kind: 'code' }>; index: number; onAsk?: (request: string, quote: string) => void }) {
   const [copied, setCopied] = useState(false);
   const python = block.lang === 'python';
   const shell = block.lang === 'bash';
   // A shell cell runs on the reader's own machine once the scaffold is written there (the Local menu).
   const { project, console: local } = useLocal();
+  // A Python cell runs in the reader's own Google Colab (src/lib/colab.ts). Its run is kept
+  // under its code, so a cell Claude rewrites comes back as not run.
+  const colab = useColab();
+  const { settings } = useStore();
+  const key = cellKey(block.code);
+  const run = python ? colab.runs[key] : undefined;
+  const live = run?.state === 'running' || run?.state === 'queued';
+  const [card, setCard] = useState(false);
+  const canRun = python && !block.open && colabAvailable(settings.googleClientId);
+  const runIt = () => {
+    // The first run in a tab that has never connected explains itself first; anything after runs on the click.
+    if (colab.status === 'off' && !colabGranted()) {
+      setCard(true);
+      return;
+    }
+    void runCell(key, block.code).catch(() => undefined);
+  };
+  const runTitle = !python
+    ? ''
+    : block.open
+      ? 'Ready once the cell is written'
+      : !settings.googleClientId.trim()
+        ? 'Running cells needs a Google client ID: Settings → Google'
+        : !canRun
+          ? 'Running cells needs the reader’s proxy: Settings → Paper proxy'
+          : colab.status === 'connecting'
+            ? 'Connecting to Colab…'
+            : colab.running
+              ? 'Another cell is running'
+              : run
+                ? 'Run this cell again in your Colab runtime'
+                : 'Run exactly this code in your own Google Colab, and see what it prints here';
   return (
-    <figure className={`explain-cell${shell ? ' is-shell' : ''}`}>
+    <figure className={`explain-cell${shell ? ' is-shell' : ''}${run ? ` has-run is-${run.state}` : ''}`}>
       <header>
-        <span className="cell-index">{python ? `In [${index}]` : shell ? '$' : 'Out'}</span>
+        <span className={`cell-index${live ? ' is-busy' : ''}`}>{python ? (live ? 'In [*]' : `In [${run?.executionCount ?? index}]`) : shell ? '$' : 'Out'}</span>
         <span className="cell-title">{block.title}</span>
+        {run ? <RunState run={run} /> : null}
         {python || shell ? (
           <>
-            <button
-              type="button"
-              className="btn sm ghost"
-              onClick={() => {
-                void navigator.clipboard?.writeText(block.code).then(() => {
-                  setCopied(true);
-                  window.setTimeout(() => setCopied(false), 1400);
-                });
-              }}
-            >
-              {copied ? 'Copied' : 'Copy'}
-            </button>
+            {!live ? (
+              <button
+                type="button"
+                className="btn sm ghost"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(block.code).then(() => {
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 1400);
+                  });
+                }}
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            ) : null}
             {shell && project ? (
               <button type="button" className="btn sm local-run" disabled={local.running || block.open} onClick={() => void runLocally(block.code.trim())} title={`Run in ${project.dir}`}>
                 ▶ Run locally
               </button>
             ) : null}
-            {python ? (
-              <button
-                type="button"
-                className="btn sm colab"
-                disabled
-                title="Running cells in Google Colab is coming next. For now, “Notebook” in the bar downloads every cell as an .ipynb that Colab opens."
-              >
-                <span className="colab-mark" aria-hidden="true">
-                  co
-                </span>
-                Run in Colab
+            {python && live ? (
+              <button type="button" className="btn sm colab-stop" onClick={() => void interruptColab()} title="Interrupt the kernel">
+                ■ Stop
+              </button>
+            ) : python ? (
+              <button type="button" className={`btn sm colab${canRun && !run ? ' is-go' : ''}`} disabled={!canRun || colab.status === 'connecting' || Boolean(colab.running)} onClick={runIt} title={runTitle}>
+                <ColabMark />
+                {run ? '▶ Run again' : '▶ Run in Colab'}
               </button>
             ) : null}
           </>
+        ) : null}
+        {card ? (
+          <ConnectCard
+            cellLabel={`In [${index}]`}
+            busy={colab.status === 'connecting'}
+            onClose={() => setCard(false)}
+            onConnect={(machine) => {
+              void connectColab(machine)
+                .then(() => {
+                  setCard(false);
+                  return runCell(key, block.code);
+                })
+                .catch(() => undefined);
+            }}
+          />
         ) : null}
       </header>
       <pre className="cell-code">
         <code dangerouslySetInnerHTML={{ __html: python ? highlightPython(block.code) : esc(block.code) }} />
         {block.open ? <span className="caret" aria-hidden="true" /> : null}
       </pre>
-      {block.output !== undefined ? (
+      {run ? (
+        <CellRunOutput run={run} expected={block.output} onAsk={onAsk ? (request) => onAsk(request, block.code.slice(0, 1500)) : undefined} onForget={() => forgetRun(key)} />
+      ) : block.output !== undefined ? (
         <div className="cell-output">
           <div className="cell-output-label">Expected output · written by Claude, not run yet</div>
           <pre>{block.output}</pre>
@@ -354,6 +405,7 @@ function SectionView({
   number,
   cells,
   onAdjust,
+  onAsk,
   onKeep,
   state,
 }: {
@@ -361,6 +413,8 @@ function SectionView({
   number: number;
   cells: Map<Block, number>;
   onAdjust?: (title: string) => void;
+  /** A question about one of this section's cells — its output, or its error — for the bar. */
+  onAsk?: (section: string, request: string, quote: string) => void;
   /** Keep the whole section in your notes. */
   onKeep?: (section: Section, element: HTMLElement) => void;
   /** Being rewritten now, just rewritten, or changed by an earlier request. */
@@ -383,7 +437,7 @@ function SectionView({
     ) : block.kind === 'figure' ? (
       <Figure key={key} block={block} />
     ) : block.kind === 'code' ? (
-      <CodeCell key={key} block={block} index={cells.get(block) ?? 0} />
+      <CodeCell key={key} block={block} index={cells.get(block) ?? 0} onAsk={onAsk ? (request, quote) => onAsk(section.title, request, quote) : undefined} />
     ) : block.kind === 'tree' ? (
       <TreeBlock key={key} block={block} />
     ) : block.kind === 'file' ? (
@@ -839,6 +893,9 @@ export default function Explain({ paperId, title, authors, published, screen, on
     return numbers;
   }, [sections]);
   const hasCode = cells.size > 0;
+  // The Python cells in the order they read, for Run all; a run is kept under the cell's code.
+  const runnable = useMemo(() => Array.from(cells.entries()).map(([block, n]) => ({ key: cellKey((block as Extract<Block, { kind: 'code' }>).code), code: (block as Extract<Block, { kind: 'code' }>).code, label: `In [${n}]` })), [cells]);
+  useColabClient(settings.googleClientId);
   const streaming = Boolean(explanation?.streaming);
   const thought = lastThought(explanation?.thinking);
   const busy = Boolean(streaming || (pending && !pending.error));
@@ -1009,15 +1066,17 @@ export default function Explain({ paperId, title, authors, published, screen, on
     return () => window.removeEventListener(SHOW_IN_EXPLAIN, onShow);
   }, []);
 
-  const submit = async (request = ask) => {
+  const submitWith = async (request: string, asked: RevisionScope) => {
     if (!request.trim() || busy) return;
     const read = await screen();
     setAsk('');
     setJustAsked(true);
-    const asked = scope;
     setScope({});
     await store.revise(read, request, asked);
   };
+  const submit = (request = ask) => submitWith(request, scope);
+  // A cell's output, or its error, taken to the bar as a question about that cell.
+  const askCell = (sectionTitle: string, request: string, quote: string) => void submitWith(request, { section: sectionTitle || undefined, quote });
   const adjust = (sectionTitle: string) => {
     setScope({ section: sectionTitle });
     askRef.current?.focus();
@@ -1147,6 +1206,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
             </button>
           ))}
         </div>
+        {/* The runtime the page's Python cells run in, when there is one to show or one could be started. */}
+        <ColabChip cells={runnable} />
         {/* The same actions on both pages, always in the same places: shown but off while there is nothing for them to act on. */}
         {implementing && explanation?.content && !streaming ? (
           <>
@@ -1201,6 +1262,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           <CloseIcon size={17} />
         </button>
       </header>
+      <ColabBanner />
 
       <div className="explain-ask">
         <div className="ask-column">
@@ -1446,6 +1508,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
                     number={index + (sections[0]?.title ? 1 : 0)}
                     cells={cells}
                     onAdjust={canAsk && !busy && section.title ? adjust : undefined}
+                    onAsk={canAsk && !busy ? askCell : undefined}
                     onKeep={!streaming && section.title ? keepSection : undefined}
                     state={stateOf(section)}
                   />

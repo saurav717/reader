@@ -11,6 +11,17 @@ app's own colours and type; the sources are in
 [`mockups/colab-src/`](mockups/colab-src/) and are re-rendered with
 `node docs/mockups/colab-src/render.mjs`.
 
+> **Built.** The design below is now in the app: `src/lib/colab.ts` (the
+> store, the runtime, the Jupyter kernel client), `src/components/Colab.tsx`
+> (the chip, the menu, the first-run card, a cell's output),
+> `src/components/Charts.tsx` (loss curves and the GPU's use, added on
+> request) and `server/colab.js` (the proxy's half, shared by the Worker and
+> `npm start`). Two things were decided by building rather than by the
+> reference page: the runtime calls go through the proxy, since Colab's
+> session backend does not take another origin's requests, and the kernel's
+> WebSocket goes straight from the page. See the README's *Running the cells
+> in Colab*. The rest of this document is the design as written.
+
 **Short answer: yes.** The API does the two things the page needs — start a
 runtime in the reader's own Colab account, and hand back a Jupyter server to
 talk to — and everything else is the standard Jupyter protocol that Colab's
