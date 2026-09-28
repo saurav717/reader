@@ -18,24 +18,51 @@ and are re-rendered with `node docs/mockups/landing-src/render.mjs`.
 
 ## 1. Pick up where you left off
 
-![Home: continue-reading hero, other papers in progress, recent highlights, queue](mockups/landing-1-continue.png)
+![Home: a full-width continue-reading card showing the actual page of the paper where you stopped, with a "You stopped here" line, your highlight and note pin; below it papers in progress, recent highlights and the queue](mockups/landing-1-continue.png)
 
-The paper you last opened is the hero. It shows its progress, the section
-you stopped in, and your last highlight and note, so you remember *why* you
-stopped. **Resume** (or just <kbd>↵</kbd>) opens the paper at that spot.
-Around it:
+The paper you last opened fills the top of Home, and **the page you stopped
+on is shown right there**. It's the real page, in the mode you left it in
+(PDF or Reflow), scrolled so a dashed **"You stopped here"** line sits in
+the middle of the view, with the lines you'd already read dimmed above it.
+Your last highlight is visible in context, with a pin for its note. Reading
+two or three lines is usually enough to remember where you were, before you
+even open the paper.
 
-- the other papers in progress, flagged when one has **stalled** for days
-- your collections as tiles
-- a small weekly tally
-- recent highlights
-- the next unread papers, with a rough reading time
+- **Resume here** (<kbd>↵</kbd>) or **Open at this line** opens the paper at
+  exactly that line.
+- The left of the card shows the progress, the note on your last highlight,
+  what the last session added (18 min, 3 highlights, 1 note), and what's
+  coming next (§4.1, Fig. 2).
+- Below the card are the other papers in progress (flagged when one has
+  **stalled** for days), recent highlights, and the next unread papers with a
+  rough reading time.
 
 **Why:** it takes the most common action ("carry on") from about four
-clicks down to one keystroke.
-**Cost:** low. `progress`, `lastOpenedAt`, highlights, notes and collections
-all exist already. The only new parts are "section at progress" and "reading
-time", which the PDF outline and word count can give.
+clicks down to one keystroke. The page preview also means you don't have to
+re-read the page just to find your place.
+
+**How the page preview would work:** today the app saves only `progress` (a
+0–1 scroll fraction). It would also need to save the **top visible line** as
+a text anchor, the same quote-plus-neighbours scheme `lib/anchor.ts` already
+uses for highlights, so it lands on the same spot in PDF and Reflow and
+survives a new arXiv version. Two ways to draw the preview:
+
+1. **Snapshot on leave (cheap, instant).** When you close a paper or switch
+   away, grab a ~900×400 crop of the viewport around the anchor (the PDF
+   canvas, or the Reflow DOM), store it as a small WebP beside the paper in
+   IndexedDB, and show it on Home. It's zero work at load time and works
+   offline.
+2. **Live render (sharper, selectable).** Open the cached PDF with pdf.js,
+   render just that page, and scroll it to the anchor; for Reflow, render
+   the few paragraphs around the anchor. This is more work on load, but the
+   text is real and the highlights are current.
+
+The best option is to start with the snapshot and swap in the live render
+once it's ready.
+
+**Cost:** low to medium. `progress`, `lastOpenedAt`, highlights, notes and
+text anchoring all exist already. The new parts are saving the reading
+anchor, the snapshot, and "section at this line" (from the PDF outline).
 
 Dark mode, for reference:
 
