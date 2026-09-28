@@ -1,0 +1,49 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.cols{display:grid;grid-template-columns:1.25fr 1fr;gap:24px;margin-top:22px}
+.flash{padding:28px 30px;position:relative}
+.flash blockquote{margin:14px 0 0;font-family:var(--serif);font-size:21px;line-height:1.5}
+.stack{position:absolute;left:14px;right:14px;bottom:-8px;height:12px;border:1px solid var(--border);border-top:0;border-radius:0 0 12px 12px;background:var(--surface);z-index:-1}
+.q{display:flex;gap:12px;padding:13px 16px;border-top:1px solid var(--border-soft);align-items:flex-start}
+.q:first-of-type{border-top:0}
+.heat{display:grid;grid-template-columns:repeat(26,15px);gap:4px;justify-content:space-between;margin-top:12px}
+.heat i{aspect-ratio:1;border-radius:2px;background:var(--border-soft)}
+.heat i.a{background:#b9d8c6}.heat i.b{background:#6fae8e}.heat i.c{background:var(--accent)}
+</style></head><body><div class="app"><!--RAIL-->
+<main class="main"><div class="scroll">
+<div style="display:flex;align-items:flex-end;justify-content:space-between">
+ <div><div class="eyebrow">Remember what you read</div>
+ <h1 class="serif" style="font-size:32px;font-weight:600;margin-top:6px">5 highlights to revisit, 2 questions still open</h1></div>
+ <div style="display:flex;gap:8px"><span class="btn">Skip to library</span><span class="btn primary">Start 3-minute review</span></div>
+</div>
+<div class="cols">
+ <div style="display:flex;flex-direction:column;gap:24px">
+  <section class="card flash">
+   <div style="display:flex;justify-content:space-between"><span class="eyebrow">Highlight 1 of 5 · from 9 days ago</span><span class="mono muted">spaced repetition</span></div>
+   <blockquote>“The Fourier layer is <span class="hl-g">discretisation-invariant</span>: a model trained at 64×64 can be evaluated at 256×256 <span class="hl-g">without retraining</span>.”</blockquote>
+   <div class="muted" style="margin-top:12px;font-size:12px">Fourier Neural Operator · Li et al. 2021 · §5.4 &nbsp;·&nbsp; <span style="color:var(--accent)">jump to passage →</span></div>
+   <div style="margin-top:18px;padding:12px 14px;background:var(--panel);border-radius:8px;font-size:12.5px" class="ink2"><b style="color:var(--ink)">Your note:</b> this is why FNO does zero-shot super-resolution — but check whether the error actually stays flat (Fig. 3?).</div>
+   <div style="display:flex;gap:8px;margin-top:20px"><span class="btn">Forgot <kbd>1</kbd></span><span class="btn">Fuzzy <kbd>2</kbd></span><span class="btn primary">Got it <kbd style="background:transparent;color:var(--accent-on);border-color:rgba(255,255,255,.35)">3</kbd></span><span style="flex:1"></span><span class="btn ghost">Turn into a note card</span></div>
+   
+  </section>
+  <section class="card" style="padding:16px 18px">
+   <div style="display:flex;justify-content:space-between"><span class="eyebrow">Reading over the last six months</span><span class="mono muted">streak 4 days</span></div>
+   <div class="heat" id="h"></div>
+  </section>
+ </div>
+ <div style="display:flex;flex-direction:column;gap:24px">
+  <section class="card">
+   <div style="padding:14px 16px 4px"><span class="eyebrow">Open questions from your notes</span></div>
+   <div class="q"><span class="dot dp" style="margin-top:5px"></span><div><div style="font-weight:500">Does truncation lose shock fronts?</div><div class="muted" style="font-size:11.5px;margin-top:3px">Fourier Neural Operator · 3 days ago</div><div style="margin-top:8px;display:flex;gap:6px"><span class="chip acc">1 new paper may answer this</span><span class="chip">Ask Claude</span></div></div></div>
+   <div class="q"><span class="dot dp" style="margin-top:5px"></span><div><div style="font-weight:500">Where does this kernel parameterisation come from?</div><div class="muted" style="font-size:11.5px;margin-top:3px">Fourier Neural Operator · 5 days ago</div><div style="margin-top:8px;display:flex;gap:6px"><span class="chip">Trace origins</span><span class="chip">Mark answered</span></div></div></div>
+  </section>
+  <section class="card">
+   <div style="padding:14px 16px 4px"><span class="eyebrow">Finished, but no summary yet</span></div>
+   <div class="q"><div class="cover" style="width:30px;height:40px"><i></i><i></i><i></i></div><div style="flex:1"><div class="ptitle" style="font-size:14px">Pattern Recognition and Machine Learning, ch. 9</div><div class="muted" style="font-size:11.5px">14 highlights · finished Tuesday</div></div><span class="btn" style="height:28px">Write 3 takeaways</span></div>
+   <div class="q"><div class="cover" style="width:30px;height:40px"><i></i><i></i><i></i></div><div style="flex:1"><div class="ptitle" style="font-size:14px">DeepONet: Learning nonlinear operators</div><div class="muted" style="font-size:11.5px">6 highlights · finished last week</div></div><span class="btn" style="height:28px">Draft from highlights ✦</span></div>
+  </section>
+ </div>
+</div>
+</div></main></div><div class="label">Idea 4 · Review &amp; resurface</div>
+<script>const h=document.getElementById('h');for(let k=0;k<182;k++){const i=document.createElement('i');const r=Math.abs(Math.sin(k*12.9898)*43758.5453)%1;const recent=k>150?.25:0;i.className=r+recent>.9?'c':r+recent>.72?'b':r+recent>.5?'a':'';h.appendChild(i)}</script>
+</body></html>

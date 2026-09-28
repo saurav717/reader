@@ -1,0 +1,43 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.stage{position:relative;height:100%}
+svg.map{position:absolute;inset:0;width:100%;height:100%}
+.side{position:absolute;right:0;top:0;width:330px;display:flex;flex-direction:column;gap:16px}
+.gap{display:flex;gap:10px;padding:10px 14px;border-top:1px solid var(--border-soft);align-items:center}
+.gap:first-of-type{border-top:0}
+.leg{display:flex;gap:14px;font-size:11.5px;color:var(--ink-2);align-items:center}
+.node-label{font:500 11px var(--sans);fill:var(--ink)}
+.node-sub{font:400 10px var(--mono);fill:var(--muted)}
+</style></head><body><div class="app"><!--RAIL-->
+<main class="main"><div class="scroll">
+<div style="position:relative;z-index:1">
+ <div class="eyebrow">Your library as a map · Operator learning for shocks</div>
+ <h1 class="serif" style="font-size:28px;font-weight:600;margin:6px 0 8px">What you've read, and what's missing</h1>
+ <div class="leg"><span><span class="dot" style="background:var(--accent)"></span> finished</span><span><span class="dot" style="background:#8fbfad"></span> reading</span><span><span class="dot" style="background:var(--surface);border:1.5px solid var(--ink-2)"></span> in library, unread</span><span><span class="dot" style="background:transparent;border:1.5px dashed var(--ul-pink)"></span> not in library — cited by ≥3 of yours</span><span class="muted">· lines = one cites the other · size = citations</span></div>
+</div>
+<div class="stage" style="margin-top:-60px">
+<svg class="map" viewBox="0 0 1330 760">
+ <g stroke="var(--border)" stroke-width="1.3" fill="none">
+  <path d="M470 380 L300 250"/><path d="M470 380 L330 520"/><path d="M470 380 L640 250"/><path d="M640 250 L300 250"/><path d="M640 250 L780 400"/><path d="M780 400 L470 380"/><path d="M620 560 L470 380"/><path d="M620 560 L330 520"/><path d="M780 400 L620 560"/><path d="M200 400 L300 250"/><path d="M200 400 L330 520"/><path d="M900 250 L640 250"/><path d="M900 250 L780 400"/>
+ </g>
+ <g stroke="var(--ul-pink)" stroke-width="1.3" stroke-dasharray="4 4" fill="none"><path d="M470 380 L400 140"/><path d="M640 250 L400 140"/><path d="M300 250 L400 140"/><path d="M780 400 L860 580"/><path d="M620 560 L860 580"/></g>
+ <circle cx="470" cy="380" r="30" fill="#8fbfad" stroke="var(--accent)" stroke-width="2.5"/><text class="node-label" x="470" y="428" text-anchor="middle">Fourier Neural Operator</text><text class="node-sub" x="470" y="442" text-anchor="middle">Li 2021 · reading 42%</text>
+ <circle cx="300" cy="250" r="20" fill="var(--accent)"/><text class="node-label" x="300" y="285" text-anchor="middle">Graph Kernel Network</text><text class="node-sub" x="300" y="298" text-anchor="middle">Li 2020</text>
+ <circle cx="330" cy="520" r="18" fill="var(--accent)"/><text class="node-label" x="330" y="553" text-anchor="middle">DeepONet</text><text class="node-sub" x="330" y="566" text-anchor="middle">Lu 2021</text>
+ <circle cx="640" cy="250" r="24" fill="#8fbfad"/><text class="node-label" x="640" y="215" text-anchor="middle">Neural Operator (JMLR)</text><text class="node-sub" x="640" y="202" text-anchor="middle">Kovachki 2023 · 18%</text>
+ <circle cx="780" cy="400" r="16" fill="var(--surface)" stroke="var(--ink-2)" stroke-width="1.5"/><text class="node-label" x="800" y="380" text-anchor="start">Localized kernels</text><text class="node-sub" x="800" y="393" text-anchor="start">2024 · unread</text>
+ <circle cx="620" cy="560" r="12" fill="var(--surface)" stroke="var(--ink-2)" stroke-width="1.5"/><text class="node-label" x="620" y="590" text-anchor="middle">Spectral Shock Capturing</text><text class="node-sub" x="620" y="603" text-anchor="middle">2026 · unread</text>
+ <circle cx="200" cy="400" r="14" fill="var(--accent)"/><text class="node-label" x="200" y="430" text-anchor="middle">PINNs</text>
+ <circle cx="900" cy="250" r="14" fill="var(--surface)" stroke="var(--ink-2)" stroke-width="1.5"/><text class="node-label" x="900" y="280" text-anchor="middle">Adaptive FNO</text>
+ <circle cx="400" cy="140" r="26" fill="var(--hl-pink)" stroke="var(--ul-pink)" stroke-width="2" stroke-dasharray="5 4"/><text class="node-label" x="400" y="95" text-anchor="middle">Multipole Graph Neural Operator</text><text class="node-sub" x="400" y="108" text-anchor="middle">cited by 3 of yours · not added</text>
+ <circle cx="860" cy="580" r="18" fill="var(--hl-pink)" stroke="var(--ul-pink)" stroke-width="2" stroke-dasharray="5 4"/><text class="node-label" x="860" y="616" text-anchor="middle">Hesthaven: Spectral methods</text><text class="node-sub" x="860" y="629" text-anchor="middle">the classic on Gibbs · not added</text>
+</svg>
+<div class="side">
+ <section class="card"><div style="padding:12px 14px 4px"><span class="eyebrow">Gaps worth filling</span></div>
+  <div class="gap"><span class="dot" style="border:1.5px dashed var(--ul-pink)"></span><div style="flex:1"><div class="ptitle" style="font-size:13.5px">Multipole Graph Neural Operator</div><div class="muted" style="font-size:11px">3 of your papers cite it</div></div><span class="btn" style="height:26px">Add</span></div>
+  <div class="gap"><span class="dot" style="border:1.5px dashed var(--ul-pink)"></span><div style="flex:1"><div class="ptitle" style="font-size:13.5px">Spectral methods for time-dependent problems</div><div class="muted" style="font-size:11px">foundational for your open question</div></div><span class="btn" style="height:26px">Add</span></div>
+ </section>
+ <section class="card" style="padding:12px 14px"><div class="eyebrow">Selected</div><div class="ptitle" style="margin-top:6px">Fourier Neural Operator</div><div class="muted" style="font-size:11.5px">cites 4 in your library · cited by 3 in your library</div><div style="display:flex;gap:6px;margin-top:10px"><span class="btn primary" style="height:28px">Resume</span><span class="btn" style="height:28px">Show only its neighbours</span></div></section>
+</div>
+</div>
+</div></main></div><div class="label">Idea 10 · Library map — see the gaps</div></body></html>

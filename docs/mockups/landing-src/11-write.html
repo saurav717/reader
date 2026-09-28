@@ -1,0 +1,45 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.wrap{display:grid;grid-template-columns:380px 1fr;gap:0;height:calc(100% + 68px);margin:-34px -44px}
+.src{background:var(--panel);border-right:1px solid var(--border);padding:22px 20px;position:relative;z-index:2}
+.h{padding:10px 12px;background:var(--surface);border:1px solid var(--border);border-radius:9px;margin-top:8px;font-family:var(--serif);font-size:14px;line-height:1.45;position:relative}
+.h small{display:block;font-family:var(--sans);font-size:11px;color:var(--muted);margin-top:4px}
+.h.drag{box-shadow:var(--shadow-md);transform:translateX(40px) rotate(-1deg);border-color:var(--accent)}
+.grp{margin-top:18px}
+.ed{padding:34px 60px;max-width:860px}
+.ed p{font-family:var(--serif);font-size:17px;line-height:1.75;margin:0 0 16px}
+.c{font-family:var(--mono);font-size:11.5px;color:var(--accent);background:var(--accent-soft);padding:1px 5px;border-radius:4px}
+.drop{border:1.5px dashed var(--accent);border-radius:8px;height:34px;display:flex;align-items:center;padding:0 12px;color:var(--accent);font-size:12px;margin:-4px 0 16px}
+.bib{border-top:1px solid var(--border);padding-top:14px;margin-top:10px;font-size:12px;color:var(--ink-2);line-height:1.7}
+</style></head><body><div class="app"><!--RAIL:away-->
+<main class="main"><div class="scroll">
+<div class="wrap">
+ <aside class="src">
+  <div style="display:flex;justify-content:space-between;align-items:center"><span class="eyebrow">Your material</span><span class="chip">Operator learning for shocks ▾</span></div>
+  <div class="grp"><div class="eyebrow" style="font-size:10px"><span class="dot dg"></span> Key results · 6</div>
+   <div class="h"><span class="hl-g">discretisation-invariant: trained at 64×64, evaluated at 256×256</span><small>Li 2021 · §5.4</small></div>
+   <div class="h drag"><span class="hl-g">local kernels recover the differential operator as a limit</span><small>Liu-Schiaffini 2024 · §3</small></div>
+  </div>
+  <div class="grp"><div class="eyebrow" style="font-size:10px"><span class="dot dy"></span> Limitations · 3</div>
+   <div class="h"><span class="hl-y">truncating high modes smooths sharp fronts</span><small>Chen 2026 · §1</small></div>
+  </div>
+  <div class="grp"><div class="eyebrow" style="font-size:10px"><span class="dot dp"></span> Open questions · 1</div>
+   <div class="h">Is the error near shocks bounded as resolution grows?<small>your note</small></div>
+  </div>
+  <div class="grp"><div class="eyebrow" style="font-size:10px">Takeaways · 2 papers</div>
+   <div class="h" style="font-family:var(--sans);font-size:12.5px">FNO: global convolution in Fourier space, O(n log n)…<small>from the wrap-up</small></div>
+  </div>
+ </aside>
+ <section class="ed">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:22px"><span class="eyebrow">Draft</span><h2 class="serif" style="font-size:20px;font-weight:600">Related work — operator learning near discontinuities</h2><span style="flex:1"></span><span class="btn" style="white-space:nowrap">Draft ✦</span><span class="btn" style="white-space:nowrap">Export .tex / .bib</span></div>
+  <p>Neural operators learn maps between function spaces rather than between fixed discretisations. The Fourier Neural Operator parameterises the kernel integral in Fourier space and is discretisation-invariant, allowing zero-shot super-resolution <span class="c">[Li 2021]</span>.</p>
+  <p>That same mode truncation, however, smooths sharp fronts, and Gibbs-type oscillations appear near shocks <span class="c">[Chen 2026]</span>.</p>
+  <div class="drop">Drop to cite: “local kernels recover the differential operator as a limit” → <span class="c" style="margin-left:6px">[Liu-Schiaffini 2024]</span></div>
+  <p class="muted" style="font-style:italic">Whether the error near a shock stays bounded as resolution grows is, to our knowledge, open…</p>
+  <div class="bib"><div class="eyebrow" style="margin-bottom:6px">References — kept in sync with <span class="mono" style="text-transform:none">bibliography.bib</span></div>
+   Chen, M., Patel, R. (2026). Spectral Shock Capturing for Operator Learning.<br>
+   Li, Z., Kovachki, N., et al. (2021). Fourier Neural Operator for Parametric PDEs. ICLR.<br>
+   Liu-Schiaffini, M., et al. (2024). Neural Operators with Localized Integral and Differential Kernels. ICML.</div>
+ </section>
+</div>
+</div></main></div><div class="label">Idea 11 · From highlights to a draft</div></body></html>

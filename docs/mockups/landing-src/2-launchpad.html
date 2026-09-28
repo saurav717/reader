@@ -1,0 +1,43 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.center{max-width:760px;margin:0 auto;padding-top:70px}
+.big{display:flex;align-items:center;gap:12px;height:58px;padding:0 18px;border:1.5px solid var(--accent);border-radius:14px;background:var(--surface);box-shadow:0 0 0 5px var(--accent-soft),var(--shadow-md);font-size:16px}
+.caret{width:1.5px;height:22px;background:var(--ink);margin-left:-8px}
+.drop{margin-top:14px;border:1.5px dashed var(--border);border-radius:12px;padding:12px 16px;display:flex;align-items:center;gap:12px;color:var(--muted)}
+.res{margin-top:10px;overflow:hidden}
+.res .grp{padding:10px 16px 4px}
+.res .it{display:flex;align-items:center;gap:12px;padding:9px 16px}
+.res .it.sel{background:var(--accent-soft)}
+.res .it .k{margin-left:auto;display:flex;gap:4px;align-items:center}
+.ico{width:28px;height:28px;border-radius:7px;background:var(--panel);display:grid;place-items:center;color:var(--accent);flex-shrink:0}
+.actions{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:26px}
+.act{padding:14px;display:flex;flex-direction:column;gap:6px}
+.act b{font-weight:600;font-size:13px}
+.av{width:28px;height:28px;border-radius:50%;background:var(--hl-blue);display:grid;place-items:center;font-weight:600;font-size:11px;color:var(--ink-2);flex-shrink:0}
+</style></head><body><div class="app"><!--RAIL-->
+<main class="main"><div class="scroll">
+<div class="center">
+ <div style="text-align:center;margin-bottom:26px">
+  <h1 class="serif" style="font-size:36px;font-weight:600;letter-spacing:-.014em">What are you reading today?</h1>
+  <p class="ink2" style="font-size:14px;margin:8px 0 0">One box for everything — search, open, add, ask.</p>
+ </div>
+ <div class="big"><svg class="i" viewBox="0 0 24 24" style="width:20px;height:20px;color:var(--accent)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>fourier neural op<span class="caret"></span><span style="flex:1"></span><span class="chip">Papers</span><span class="chip">People</span><span class="chip">My library</span></div>
+ <div class="card res">
+  <div class="grp eyebrow">In your library</div>
+  <div class="it sel"><div class="ring" style="--p:.42;width:28px;height:28px"></div><div><div class="ptitle" style="font-size:14px">Fourier Neural Operator for Parametric Partial Differential Equations</div><div class="muted" style="font-size:11.5px">42% read · last highlight 2 h ago</div></div><span class="k"><span class="muted" style="font-size:11px">Resume</span><kbd>↵</kbd></span></div>
+  <div class="grp eyebrow">Papers · arXiv, Semantic Scholar, OpenAlex</div>
+  <div class="it"><div class="ico">+</div><div><div class="ptitle" style="font-size:14px">Adaptive Fourier Neural Operators: Efficient Token Mixers for Transformers</div><div class="muted" style="font-size:11.5px">Guibas et al. · ICLR 2022 · 480 citations</div></div><span class="k"><span class="muted" style="font-size:11px">Add to Reading list</span><kbd>⌘</kbd><kbd>↵</kbd></span></div>
+  <div class="it"><div class="ico">+</div><div><div class="ptitle" style="font-size:14px">Geometry-Informed Neural Operator for Large-Scale 3D PDEs</div><div class="muted" style="font-size:11.5px">Li et al. · NeurIPS 2023 · 210 citations</div></div></div>
+  <div class="grp eyebrow">People</div>
+  <div class="it"><div class="av">ZL</div><div><div style="font-weight:500">Zongyi Li</div><div class="muted" style="font-size:11.5px">Caltech · 3 papers in your library</div></div></div>
+  <div class="it" style="border-top:1px solid var(--border-soft);margin-top:6px"><div class="ico">✦</div><div><div style="font-weight:500">Ask Claude: “fourier neural op…”</div><div class="muted" style="font-size:11.5px">Answer with the papers in your library as context</div></div><span class="k"><kbd>Tab</kbd></span></div>
+ </div>
+ <div class="drop"><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Drop a PDF, paste a DOI / arXiv / OpenReview link, or a BibTeX block — it lands in <b style="color:var(--ink-2)">Reading list</b></div>
+ <div class="actions">
+  <div class="card act"><span class="eyebrow">Resume</span><b>FNO · §3</b><span class="muted">42% · <kbd>R</kbd></span></div>
+  <div class="card act"><span class="eyebrow">Next unread</span><b>Physics-informed NNs</b><span class="muted">~35 min · <kbd>N</kbd></span></div>
+  <div class="card act"><span class="eyebrow">Discover</span><b>6 new for you</b><span class="muted">from your authors · <kbd>D</kbd></span></div>
+  <div class="card act"><span class="eyebrow">Notes</span><b>2 open questions</b><span class="muted">to follow up · <kbd>Q</kbd></span></div>
+ </div>
+</div>
+</div></main></div><div class="label">Idea 2 · Search-first launchpad</div></body></html>

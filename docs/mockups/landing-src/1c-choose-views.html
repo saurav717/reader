@@ -1,0 +1,122 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.grid{display:grid;grid-template-columns:1fr 340px;gap:20px;height:calc(100% - 64px)}
+.hero{display:flex;flex-direction:column;overflow:hidden;padding:0}
+.meta{display:flex;align-items:center;gap:22px;padding:16px 22px;border-bottom:1px solid var(--border-soft)}
+.meta .t{flex:1;min-width:0}
+.meta .ptitle{font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.facts{display:flex;gap:14px;white-space:nowrap;margin-top:6px;font-size:12px;color:var(--ink-2);align-items:center}
+.facts .bar{width:150px}
+.peek{position:relative;flex:1;background:var(--panel);overflow:hidden;padding:0 22px}
+.peekbar{position:absolute;top:0;left:0;right:0;z-index:3;display:flex;align-items:center;gap:8px;padding:10px 22px;background:linear-gradient(var(--panel) 60%,transparent)}
+.page{background:#fff;color:#1a1a17;box-shadow:0 2px 14px rgba(26,26,23,.12);max-width:660px;margin:0 auto 0 12px;padding:30px 56px 40px;font-family:'Times New Roman',Times,var(--serif);font-size:14.5px;line-height:1.5;position:relative}
+.page.prev{margin-top:-120px;padding-bottom:20px}
+.pghead{font-size:11px;color:#666;text-align:center;margin-bottom:18px;font-style:italic}
+.pgnum{text-align:center;font-size:12px;color:#444;margin-top:14px}
+.gap{height:14px}
+.page h4{font:700 15.5px 'Times New Roman',Times,serif;margin:14px 0 6px}
+.page p{margin:0 0 9px;text-align:justify;hyphens:auto}
+.page .eq{text-align:center;font-style:italic;margin:10px 0}
+.page .read{color:#8a877e}
+.fig{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0 6px}
+.fig div{height:92px;border:1px solid #ddd;border-radius:2px;background:radial-gradient(circle at 30% 40%,#f3c9c2,transparent 45%),radial-gradient(circle at 70% 65%,#bcd3ea,transparent 50%),linear-gradient(135deg,#eef3f8,#f8efe9)}
+.fig div:nth-child(2){filter:hue-rotate(40deg)}.fig div:nth-child(3){filter:hue-rotate(-60deg) saturate(.8)}
+.cap{font-size:12.5px;text-align:center;margin-bottom:10px}
+.hlp{background:#faeda2}
+.stop{position:relative;margin:12px -57px 14px;height:0;border-top:2px dashed var(--accent);z-index:2}
+.stop span{position:absolute;right:14px;top:-12px;background:var(--accent);color:var(--accent-on);font:600 11px var(--sans);padding:3px 10px;border-radius:999px}
+.stop::before{content:'';position:absolute;left:-2px;top:-7px;width:12px;height:12px;border-radius:50%;background:var(--accent)}
+.margin-note{text-align:left;position:absolute;right:-232px;width:205px;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--ul-pink);border-radius:8px;padding:9px 11px;font:12px/1.45 var(--sans);color:var(--ink);box-shadow:var(--shadow-sm)}
+.margin-note small{display:block;color:var(--muted);font-size:10.5px;margin-bottom:3px}
+.fade{position:absolute;left:0;right:0;bottom:0;height:110px;background:linear-gradient(transparent,var(--panel) 85%);z-index:2}
+.peek .open{position:absolute;right:22px;bottom:16px;z-index:3;display:flex;gap:8px}
+.side{display:flex;flex-direction:column;gap:16px;min-height:0}
+.row{display:flex;align-items:center;gap:11px;padding:9px 14px;border-top:1px solid var(--border-soft)}
+.row .ptitle{font-size:13.5px}
+.sh{display:flex;justify-content:space-between;padding:12px 14px 6px}
+.hlitem{padding:9px 14px;border-top:1px solid var(--border-soft);font-family:var(--serif);font-size:13.5px;line-height:1.4}
+.hlitem small{display:block;font-family:var(--sans);font-size:11px;color:var(--muted);margin-top:3px}
+:root[data-theme=dark] .page{background:#23252b;color:#dcd8ce}
+:root[data-theme=dark] .page .read,:root[data-theme=dark] .pghead,:root[data-theme=dark] .pgnum{color:#8d897f}
+:root[data-theme=dark] .hlp{background:rgba(246,226,122,.3)}
+:root[data-theme=dark] .fig div{border-color:#3a3d45;opacity:.45}
+.viewmenu{position:fixed;left:676px;top:66px;width:330px;background:var(--surface);border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow-md);z-index:10}
+.viewmenu .opt{display:flex;gap:11px;padding:8px 16px;align-items:flex-start}
+.viewmenu .opt.on{background:var(--accent-soft)}
+.viewmenu .opt b{font-weight:500;font-size:13px}
+.viewmenu .opt small{display:block;color:var(--muted);font-size:11.5px;margin-top:1px}
+.radio{width:15px;height:15px;border-radius:50%;border:1.5px solid var(--border);margin-top:2px;flex-shrink:0;display:grid;place-items:center}
+.radio.on{border-color:var(--accent)}.radio.on::after{content:'';width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.tick{display:inline-block;width:13px;height:13px;border:1.5px solid var(--border);border-radius:3px;margin-right:7px;vertical-align:-2px}
+.tick.on{background:var(--accent);border-color:var(--accent)}
+.dim{position:fixed;inset:0;background:rgba(26,26,23,.06);z-index:9}
+</style></head><body><div class="app"><!--RAIL-->
+<main class="main"><div class="scroll">
+<!--HOMEBAR:more-->
+<div class="grid">
+ <section class="card hero">
+  <div class="meta">
+   <div class="t">
+    <div class="eyebrow" style="color:var(--accent)">Continue reading · left 2 hours ago</div>
+    <div class="ptitle" style="margin-top:4px">Fourier Neural Operator for Parametric Partial Differential Equations</div>
+    <div class="facts"><span>Li, Kovachki et al. · ICLR 2021</span><div class="bar" style="width:110px"><i style="width:42%"></i></div><span class="mono">42% · ~14 min left</span><span class="muted">last session 18 min · 3 highlights</span></div>
+   </div>
+   <span class="btn primary" style="height:38px;padding:0 16px">Resume here <kbd style="background:transparent;color:var(--accent-on);border-color:rgba(255,255,255,.35)">↵</kbd></span>
+  </div>
+  <div class="peek">
+   <div class="peekbar"><span class="eyebrow">Where you stopped</span><span class="mono muted">page 5 of 16 · §4 Fourier Neural Operator</span><span style="flex:1"></span><span class="chip" style="height:22px;background:var(--surface);color:var(--accent-ink);border-color:var(--accent)">PDF</span><span class="chip" style="height:22px">Reflow</span></div>
+   <div class="page prev"><p class="read">…of the solution operator, and we then show that the resulting architecture approximates any continuous operator to arbitrary accuracy.</p><div class="pgnum">4</div></div>
+   <div class="gap"></div>
+   <div class="page">
+    <div class="pghead">Published as a conference paper at ICLR 2021</div>
+    <p class="read">We then apply several iterations of updates v<sub>t</sub> ↦ v<sub>t+1</sub>, where each update composes a non-local integral operator 𝒦 with a local, nonlinear activation function σ. Finally, the output u is the projection of v<sub>T</sub> by the local transformation Q.</p>
+    <h4>4 &nbsp;Fourier Neural Operator</h4>
+    <p class="read">We propose replacing the kernel integral operator in (3) by a convolution operator defined in Fourier space. Let ℱ denote the Fourier transform of a function f : D → ℝ<sup>d<sub>v</sub></sup> and ℱ<sup>−1</sup> its inverse.</p>
+    <p>Since the Fourier layer parameterises the <span class="hlp">integral kernel directly in Fourier space and truncates the higher modes</span>, each layer costs only 𝒪(n log n), and the same parameters can be evaluated on any grid.
+     <span class="margin-note" style="top:238px"><small>Your note · 2 h ago</small>Where does this kernel parameterisation come from?</span></p>
+    <div class="stop"><span>You stopped here</span></div>
+    <div class="eq">(𝒦(φ)v<sub>t</sub>)(x) = ℱ<sup>−1</sup>( R<sub>φ</sub> · (ℱv<sub>t</sub>) )(x), &nbsp;&nbsp; ∀x ∈ D &nbsp;&nbsp;&nbsp;&nbsp;(4)</div>
+    <p>where R<sub>φ</sub> is the Fourier transform of a periodic function κ : D̄ → ℝ<sup>d<sub>v</sub>×d<sub>v</sub></sup> parameterised by φ ∈ Θ<sub>𝒦</sub>. For frequency mode k ∈ D, we have (ℱv<sub>t</sub>)(k) ∈ ℂ<sup>d<sub>v</sub></sup> and R<sub>φ</sub>(k) ∈ ℂ<sup>d<sub>v</sub>×d<sub>v</sub></sup>.</p>
+    <div class="fig"><div></div><div></div><div></div></div>
+    <div class="cap">Figure 2: The full architecture of the neural operator and a Fourier layer.</div>
+    <p>The discretisation D<sub>j</sub> of the domain D gives n points; in the Fourier domain we keep at most k<sub>max</sub> modes…</p>
+   </div>
+   <div class="fade"></div>
+   <div class="open"><span class="btn" style="background:var(--surface)">Explain the paper</span><span class="btn" style="background:var(--surface)">Open at this line →</span></div>
+  </div>
+ </section>
+ <aside class="side">
+  <section class="card">
+   <div class="sh"><span class="eyebrow">Also in progress</span><span class="btn ghost" style="height:auto;padding:0;font-size:11.5px">All (4) →</span></div>
+   <div class="row"><div class="ring" style="--p:.63;width:28px;height:28px"></div><div style="flex:1"><div class="ptitle">Survey of mixture-of-experts</div><div class="muted" style="font-size:11px">63% · 2 days ago</div></div></div>
+   <div class="row"><div class="ring" style="--p:.18;width:28px;height:28px"></div><div style="flex:1"><div class="ptitle">Neural Operator: Learning Maps Between Function Spaces</div><div class="muted" style="font-size:11px">18% · 4 days ago</div></div></div>
+   <div class="row"><div class="ring" style="--p:.08;width:28px;height:28px"></div><div style="flex:1"><div class="ptitle">Post-stroke aphasia severity from multimodal neuroimaging</div><div class="muted" style="font-size:11px">8% · <span style="color:var(--ul-pink)">stalled 6 days</span></div></div></div>
+  </section>
+  <section class="card">
+   <div class="sh"><span class="eyebrow">Recent highlights</span></div>
+   <div class="hlitem"><span class="hl-g">spectral convolution is resolution-invariant</span><small><span class="dot dg"></span> Fourier Neural Operator · §4</small></div>
+   <div class="hlitem"><span class="hl-b">sparse gating selects the top-k experts per token</span><small><span class="dot db"></span> Mixture-of-experts · §2.1</small></div>
+   <div class="hlitem"><span class="hl-p">Does truncation lose shock fronts?</span><small><span class="dot dp"></span> open question</small></div>
+  </section>
+  <section class="card">
+   <div class="sh"><span class="eyebrow">Up next</span></div>
+   <div class="row"><div class="cover" style="width:26px;height:34px;padding:4px"><i></i><i></i></div><div style="flex:1"><div class="ptitle">Physics-informed neural networks</div><div class="muted" style="font-size:11px">~35 min · added yesterday</div></div></div>
+   <div class="row"><div class="cover" style="width:26px;height:34px;padding:4px"><i></i><i></i></div><div style="flex:1"><div class="ptitle">DeepONet</div><div class="muted" style="font-size:11px">~40 min · added 3 days ago</div></div></div>
+  </section>
+ </aside>
+</div>
+</div></main></div><div class="dim"></div><div class="viewmenu">
+ <div class="eyebrow" style="padding:14px 16px 6px">Home opens on</div>
+ <label class="opt on"><span class="radio on"></span><div><b>Continue reading</b><small>The page you stopped on, and what's in progress</small></div></label>
+ <label class="opt"><span class="radio"></span><div><b>Today</b><small>A timed plan and a focus session</small></div></label>
+ <label class="opt"><span class="radio"></span><div><b>Projects</b><small>Your active research question</small></div></label>
+ <label class="opt"><span class="radio"></span><div><b>Inbox</b><small>New papers since your last visit</small></div></label>
+ <label class="opt"><span class="radio"></span><div><b>Whichever I used last</b></div></label>
+ <div class="eyebrow" style="padding:12px 16px 6px;border-top:1px solid var(--border-soft);margin-top:6px">Show as tabs</div>
+ <div style="padding:2px 16px 10px;display:grid;grid-template-columns:1fr 1fr;gap:7px 10px;font-size:12.5px">
+  <span><span class="tick on"></span>Continue reading</span><span><span class="tick on"></span>Today</span>
+  <span><span class="tick on"></span>Projects</span><span><span class="tick on"></span>Inbox</span>
+  <span class="muted"><span class="tick"></span>Search-first</span><span class="muted"><span class="tick"></span>Review</span>
+ </div>
+ <div style="padding:10px 16px;border-top:1px solid var(--border-soft);display:flex;gap:10px;font-size:11.5px" class="muted"><span><kbd>1</kbd>–<kbd>4</kbd> switch views on Home</span><span style="margin-left:auto">Also in Settings</span></div>
+</div><div class="label">Home · ⋯ choose views and the default</div></body></html>
