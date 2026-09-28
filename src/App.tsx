@@ -26,6 +26,7 @@ import Settings from './components/Settings';
 import UsageView, { useIsOwner } from './components/UsageView';
 import Welcome from './components/Welcome';
 import Home from './components/Home';
+import { startVisit } from './lib/homeViews';
 import { SIGN_IN_REQUIRED } from './lib/google';
 import { canFullscreen, enterFullscreen, fullscreenElement, leaveFullscreen } from './lib/fullscreen';
 import { ChartIcon, GoogleMark, HighlighterIcon, LibraryIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
@@ -100,6 +101,7 @@ function readView(): View {
   try {
     if (!sessionStorage.getItem(VISIT_KEY)) {
       sessionStorage.setItem(VISIT_KEY, '1');
+      startVisit();
       return { kind: 'home' };
     }
   } catch {
@@ -916,7 +918,7 @@ export default function App() {
           onOrphans={onOrphans}
         />
       ) : view.kind === 'home' ? (
-        <Home onOpenPaper={openPaper} onOpenHighlight={openHighlight} onSearch={() => setPaletteOpen(true)} onDiscover={addPapers} />
+        <Home onOpenPaper={openPaper} onOpenHighlight={openHighlight} onSearch={() => setPaletteOpen(true)} onDiscover={addPapers} onShowNotes={() => openNotesRef.current()} />
       ) : view.kind === 'junk' ? (
         <JunkView />
       ) : (

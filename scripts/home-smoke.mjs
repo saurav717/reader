@@ -3,7 +3,9 @@
  * with a paper printed by Chromium, reads it as a PDF to page 3, and checks
  * that R brings Home up with that page on it and a line where the screen
  * began; that Enter goes back into the paper; that the same is true read
- * reflowed; that a new tab starts on Home while a reload stays put. Writes
+ * reflowed; that a new tab starts on Home while a reload stays put; and that
+ * Home's other views — Today, Projects, Inbox — are a key away, with the
+ * one it opens on chosen from its menu. Writes
  * screenshots of each state to .smoke/.
  *
  *   npm run build && npm start &
@@ -213,6 +215,58 @@ await page.waitForSelector('.main[data-paper-id]', { timeout: 10000 }).catch(() 
 check('a reload keeps the paper open', (await page.locator('.main[data-paper-id]').count()) === 1);
 await newVisit();
 check('a new tab opens on Home', await home(page).isVisible().catch(() => false));
+
+console.log('\n== the views: Today, Projects, Inbox ==');
+// The visit before this one was two days ago: what was added since is new.
+await page.evaluate(() => localStorage.setItem('reader.visit.at', new Date(Date.now() - 48 * 3600 * 1000).toISOString()));
+await newVisit();
+await home(page).waitFor({ timeout: 10000 });
+await closePanels();
+// Back to the paper read as a PDF, so it is the one to carry on with.
+await page.locator('.home-row', { hasText: 'Fourier Neural Operator' }).click();
+await page.locator('.segmented button', { hasText: 'PDF' }).click({ timeout: 20000 });
+await page.waitForSelector('.pdf-book-page:not(.drawing) canvas', { timeout: 30000 });
+await page.waitForTimeout(2800);
+await page.locator('.rail button.brand').click();
+await home(page).waitFor({ timeout: 10000 });
+const tabs = page.locator('.home-tabs .home-tab[aria-pressed]');
+check('four views, as tabs', (await tabs.count()) === 4, (await tabs.allTextContents()).join(' | '));
+check('Continue reading is the default', ((await tabs.first().textContent()) || '').includes('default'));
+check('the Inbox counts what is new', ((await tabs.nth(3).textContent()) || '').includes('1'), (await tabs.nth(3).textContent()) || '');
+await page.keyboard.press('2');
+await page.locator('.home-today').waitFor({ timeout: 5000 });
+const plan = await page.locator('.home-plan .home-row-title').allTextContents();
+check('2 is Today, a plan from the library', plan.length >= 4, plan.join(' | '));
+check('it starts with carrying on', (plan[0] || '').startsWith('Carry on with Fourier Neural Operator'), plan[0]);
+check('and picks up what stalled', plan.some((title) => title.startsWith('Pick back up: Fusion approaches')));
+check('the strip keeps where you stopped in reach', await page.locator('.home-strip').isVisible());
+await shot('home-today');
+await page.keyboard.press('3');
+await page.locator('.home-projects').waitFor({ timeout: 5000 });
+check('3 is Projects, the collection in three lanes', (await page.locator('.home-lane').count()) === 3);
+check('its papers set out by how far you are', (await page.locator('.home-lane').nth(1).locator('.home-lane-card').count()) === 4);
+await shot('home-projects');
+await page.keyboard.press('4');
+await page.locator('.home-inbox').waitFor({ timeout: 5000 });
+const fresh = await page.locator('.home-inbox .home-card').first().locator('.home-row-title').allTextContents();
+check('4 is the Inbox, with what was added since the last visit', fresh.length === 1 && fresh[0].startsWith('Physics-informed'), fresh.join(' | '));
+check('and what is still waiting from before', ((await page.locator('.home-inbox').textContent()) || '').includes('DeepONet'));
+await shot('home-inbox');
+
+console.log('\n== choose the view Home opens on ==');
+await page.getByRole('button', { name: "Choose Home's views" }).click();
+await page.locator('.home-menu').waitFor({ timeout: 5000 });
+await shot('home-menu');
+await page.locator('.home-menu-opt', { hasText: 'Today' }).click();
+await page.keyboard.press('Escape');
+await newVisit();
+await page.locator('.home-today').waitFor({ timeout: 10000 }).catch(() => {});
+check('a new visit opens on the view chosen', await page.locator('.home-today').isVisible());
+check('which the tabs now mark as the default', ((await page.locator('.home-tab.is-on').textContent()) || '').includes('default'));
+await page.getByRole('button', { name: "Choose Home's views" }).click();
+await page.locator('.home-menu-opt', { hasText: 'Continue reading' }).click();
+await page.keyboard.press('Escape');
+await page.keyboard.press('1');
 
 console.log('\n== dark glass, and a phone ==');
 await page.evaluate(() => {

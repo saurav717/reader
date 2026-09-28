@@ -25,6 +25,16 @@ been opened for five days), your latest highlights, and the papers you added las
 Where you stopped is kept in this browser only, for the last few papers; a reload
 of the tab stays on whatever you had open.
 
+Home has three more views, on tabs beside the greeting (or <kbd>1</kbd>–<kbd>4</kbd>):
+**Today**, a short plan made from your library — carry on, pick up what stalled,
+start the next paper, look over the week's highlights; **Projects**, each
+collection with its papers set out as not started, reading and finished; and
+the **Inbox**, the papers added since your last visit that you have not started,
+to open, mark read or send to Junk. On those views a strip at the bottom keeps
+the lines where you stopped and **Resume** in reach. The **⋯** at the end of the
+tabs chooses which view Home opens on — or whichever you used last — and which
+are shown.
+
 Right-click a selection in a paper and a card opens beside it, never over it, with
 three tabs: what the word
 **means**, where the idea **comes from** — a background paragraph, the earliest
