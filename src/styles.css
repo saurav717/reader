@@ -4415,3 +4415,137 @@ input.board-link-label { cursor: text; outline: none; min-width: 150px; text-ali
 @media (prefers-reduced-motion: reduce) {
   .rail-progress-btn, .ep-ring.is-open svg, .ep-bar.is-open i { animation: none; }
 }
+
+/* ----------------------------------------------------------------- home -- */
+
+/* R on the rail is Home: a button, ringed while Home is showing. */
+button.brand { border: 0; padding: 0; cursor: pointer; }
+button.brand:hover { filter: brightness(1.08); }
+button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px var(--accent); }
+:root[data-glass='on'] button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px var(--accent), 0 4px 12px -4px rgb(var(--accent-rgb) / 0.7); }
+
+.home-scroll { flex: 1; min-height: 0; overflow: auto; padding: 22px 28px 28px; display: flex; flex-direction: column; container-type: inline-size; }
+.home-bar { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; flex-wrap: wrap; }
+.home-hello { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.home-hello h1 { margin: 0; font-family: var(--serif); font-size: 26px; font-weight: 600; letter-spacing: -0.012em; line-height: 1.15; }
+.home-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.home-eyebrow.accent { color: var(--accent); }
+.home-search {
+  margin-left: auto; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px 0 14px;
+  width: min(360px, 100%); border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+  color: var(--muted); font-size: 13px; cursor: pointer; box-shadow: var(--shadow-sm); text-align: left;
+}
+.home-search span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-search:hover { border-color: var(--muted); }
+.home kbd, .home-search kbd {
+  font-family: var(--mono); font-size: 10.5px; padding: 1px 5px; border: 1px solid var(--border);
+  border-bottom-width: 2px; border-radius: 4px; color: var(--ink-2); background: var(--surface);
+}
+
+.home-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; }
+.home-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-sm); overflow: hidden; }
+.home-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.home-side .home-card > .home-eyebrow { padding: 12px 14px 6px; }
+
+.home-row, .home-hl {
+  display: flex; align-items: center; gap: 11px; width: 100%; padding: 9px 14px; border: 0;
+  border-top: 1px solid var(--border-soft); background: transparent; color: inherit; text-align: left; cursor: pointer;
+}
+.home-row:hover, .home-hl:hover { background: var(--accent-soft); }
+.home-row-text { display: flex; flex-direction: column; min-width: 0; }
+.home-row-title { font-family: var(--serif); font-size: 14px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.home-row-sub { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.home-stalled { color: var(--danger); }
+.home-hl { flex-direction: column; align-items: flex-start; gap: 3px; }
+.home-hl-quote { font-family: var(--serif); font-size: 13.5px; line-height: 1.45; padding: 0 2px; border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.hl-bg-yellow { background: var(--hl-yellow); }
+.hl-bg-green { background: var(--hl-green); }
+.hl-bg-blue { background: var(--hl-blue); }
+.hl-bg-pink { background: var(--hl-pink); }
+.home-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 2px; vertical-align: 1px; }
+.dot-yellow { background: var(--ul-yellow); }
+.dot-green { background: var(--ul-green); }
+.dot-blue { background: var(--ul-blue); }
+.dot-pink { background: var(--ul-pink); }
+
+.home-continue { display: flex; flex-direction: column; min-height: 520px; }
+/* With no page kept, the card is as tall as what it has to say. */
+.home-continue.is-bare { min-height: 0; align-self: start; }
+.home-continue.is-bare .home-peek { flex: none; }
+.home-continue.is-bare .home-peek-page { position: relative; inset: auto; padding-bottom: 20px; }
+.home-continue.is-bare .home-peek-sheet { margin-top: 42px; padding-bottom: 22px; }
+.home-continue.is-bare .home-peek-fade { display: none; }
+.home-continue-head { display: flex; align-items: center; gap: 18px; padding: 16px 20px; border-bottom: 1px solid var(--border-soft); }
+.home-continue-text { flex: 1; min-width: 0; }
+.home-continue-title { margin: 4px 0 0; font-family: var(--serif); font-size: 21px; font-weight: 500; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.home-facts { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 16px; margin-top: 5px; font-size: 12px; color: var(--ink-2); }
+.home-progress { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.home-bar-track { width: 110px; height: 5px; border-radius: 3px; background: var(--border-soft); overflow: hidden; }
+.home-bar-track > span { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.home-resume { height: 38px; padding: 0 16px; flex-shrink: 0; }
+.home-resume kbd { background: transparent; color: var(--accent-on); border-color: color-mix(in srgb, var(--accent-on) 40%, transparent); }
+
+.home-peek { position: relative; flex: 1; min-height: 0; background: var(--panel); overflow: hidden; }
+.home-peek-bar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 10px 20px;
+  background: linear-gradient(var(--panel) 55%, transparent);
+}
+.home-peek-where { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.home-chip { font-size: 11px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--accent); color: var(--accent-ink); background: var(--surface); }
+.home-peek-page {
+  position: absolute; inset: 0; display: block; width: 100%; padding: 0 20px; border: 0; background: transparent;
+  color: inherit; text-align: left; cursor: pointer; overflow: hidden;
+}
+.home-peek-fade { position: absolute; left: 0; right: 0; bottom: 0; height: 90px; background: linear-gradient(transparent, var(--panel)); pointer-events: none; z-index: 2; }
+
+/* The PDF page, moved up so where you were sits 130px down the view. */
+.home-peek-pdf {
+  position: relative; width: min(100%, 760px); margin: 0 auto;
+  transform: translateY(calc(var(--at) * -100% + 130px));
+  box-shadow: 0 2px 14px rgba(26, 26, 23, 0.14);
+}
+.home-peek-pdf img { display: block; width: 100%; height: auto; background: #fff; }
+:root[data-theme='dark'] .home-peek-pdf img { filter: brightness(0.86); }
+.home-peek-read { position: absolute; left: 0; right: 0; top: 0; height: calc(var(--at) * 100%); background: color-mix(in srgb, var(--panel) 45%, transparent); }
+.home-stop { position: absolute; left: -14px; right: -14px; top: calc(var(--at) * 100%); border-top: 2px dashed var(--accent); z-index: 1; }
+.home-stop::before { content: ''; position: absolute; left: -2px; top: -7px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+.home-stop > span {
+  position: absolute; right: 12px; top: -12px; background: var(--accent); color: var(--accent-on);
+  font-size: 11px; font-weight: 600; padding: 2px 10px; border-radius: 999px; white-space: nowrap;
+}
+.home-stop.in-flow { position: relative; display: block; left: auto; right: auto; top: auto; margin: 12px -38px 14px; }
+
+/* Reflow: the paragraphs, set like the reader's column. */
+.home-peek-sheet {
+  max-width: 720px; margin: 46px auto 0; padding: 22px 36px 60px; background: var(--surface);
+  border: 1px solid var(--border-soft); border-radius: 4px 4px 0 0; box-shadow: 0 2px 14px rgba(26, 26, 23, 0.1);
+  font-family: var(--serif); font-size: 15.5px; line-height: 1.6; color: var(--ink);
+}
+.home-peek-sheet p { margin: 0 0 12px; }
+.home-peek-sheet h3 { margin: 14px 0 8px; font-family: var(--sans); font-size: 16px; font-weight: 600; }
+.home-peek-sheet .is-read { color: var(--muted); }
+.home-peek-sheet mark { color: var(--ink); padding: 1px 2px; border-radius: 2px; }
+.home-peek-hint { font-family: var(--sans); font-size: 12.5px; color: var(--muted); }
+
+.home-empty {
+  max-width: 560px; margin: 40px auto; padding: 32px; text-align: center; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 14px;
+}
+.home-empty h2 { margin: 0 0 8px; font-family: var(--serif); font-size: 24px; font-weight: 600; }
+.home-empty p { color: var(--ink-2); font-size: 14px; line-height: 1.6; margin: 0 0 18px; }
+
+/* Laid out by the room Home has, which the library and the dock take from. */
+@container (max-width: 860px) {
+  /* One column: the page scrolls, rather than the cards shrinking to fit it. */
+  .home-grid { grid-template-columns: minmax(0, 1fr); flex: none; }
+  .home-continue { min-height: 460px; }
+}
+@container (max-width: 560px) {
+  .home-search { margin-left: 0; width: 100%; }
+  .home-continue-head { flex-wrap: wrap; }
+  .home-continue-text { flex-basis: 100%; }
+  .home-peek-sheet { padding: 18px 18px 50px; }
+}
+@media (max-width: 640px) {
+  .home-scroll { padding: 16px; }
+}

@@ -17,6 +17,7 @@ import {
   type CopyAttempt,
 } from '../lib/pdf';
 import SignInPrompt from './SignInPrompt';
+import { keepSpot } from '../lib/spot';
 import CopyPicker, { type CopyNote } from './CopyPicker';
 import PdfDropIn from './PdfDropIn';
 import MiniBrowser from './MiniBrowser';
@@ -448,6 +449,33 @@ export default function Reader({
     // markOpened is stable; re-running on every paper object change would loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
+
+  // Where you are in the paper, kept for Home: once the page has settled,
+  // whenever the scrolling stops, and on the way out — a layout effect, so
+  // that leaving still finds the page on screen to read.
+  useLayoutEffect(() => {
+    let settle = 0;
+    const keep = () => keepSpot(paperId, mode);
+    const onScroll = () => {
+      window.clearTimeout(settle);
+      settle = window.setTimeout(keep, 1200);
+    };
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') keep();
+    };
+    const first = window.setTimeout(keep, 2500);
+    window.addEventListener('scroll', onScroll, true);
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', keep);
+    return () => {
+      window.clearTimeout(settle);
+      window.clearTimeout(first);
+      window.removeEventListener('scroll', onScroll, true);
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', keep);
+      keep();
+    };
+  }, [paperId, mode, layout]);
 
   // A different paper is a different document, whichever way it is being read.
   // The fetch below turns the spinner back on if it is the one being read.
@@ -1552,7 +1580,7 @@ export default function Reader({
     .join(' · ');
 
   return (
-    <div className="main">
+    <div className="main" data-paper-id={paper.id}>
       {/* The top bar and what hangs from it. In zen mode it waits above the
           top edge of the screen with the side panes (App.tsx). */}
       <div className="reader-head">

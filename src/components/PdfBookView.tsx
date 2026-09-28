@@ -482,6 +482,7 @@ export default function PdfBookView({
       className={`book-view pdf-book${scrolling ? ' is-scrolled' : ''}`}
       aria-label={scrolling ? `${title} (PDF), scrolled` : `${title} (PDF), as a book`}
       data-current-page={firstInView}
+      data-pages={pages || undefined}
     >
       {scrolling ? (
         <div className="pdf-scroll-wrap">
