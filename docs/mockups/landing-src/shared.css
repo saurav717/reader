@@ -62,3 +62,13 @@ kbd{font-family:var(--mono);font-size:10.5px;padding:1px 5px;border:1px solid va
 .rs-stop{position:relative;margin:9px -23px 7px;border-top:2px dashed var(--accent)}
 .rs-stop span{position:absolute;right:12px;top:-11px;background:var(--accent);color:var(--accent-on);font:600 10.5px var(--sans);padding:2px 9px;border-radius:999px}
 :root[data-theme=dark] .rs-page{background:#23252b;color:#dcd8ce}
+
+/* Dark glass, as the app draws it: a dark wash of colour behind frosted panes. */
+[data-glass] body{background:radial-gradient(900px 600px at 8% 0%,rgba(40,120,100,.35),transparent 60%),radial-gradient(900px 700px at 100% 100%,rgba(120,60,110,.28),transparent 60%),#121317}
+[data-glass] .rail{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:18px;margin:10px 0 10px 10px;height:calc(100vh - 20px)}
+[data-glass] .main{margin:10px;border-radius:18px;background:rgba(20,21,26,.72);border:1px solid rgba(255,255,255,.08)}
+[data-glass] .card{background:rgba(255,255,255,.035);border-color:rgba(255,255,255,.09);box-shadow:none}
+[data-glass] .chip{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.1)}
+[data-glass] kbd{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.14)}
+[data-glass] .btn{background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12)}
+[data-glass] .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-on)}

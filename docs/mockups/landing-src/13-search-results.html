@@ -1,0 +1,58 @@
+<!doctype html><html data-theme="dark" data-glass><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.scroll{padding:22px 40px;display:flex;flex-direction:column;gap:16px}
+.big{display:flex;align-items:center;gap:12px;height:54px;padding:0 10px 0 18px;border-radius:14px;background:rgba(255,255,255,.06);border:1.5px solid rgba(87,169,143,.55);font-size:15.5px;max-width:1180px;width:100%;margin:0 auto}
+.big .q{flex:1;color:var(--ink)}
+.row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);max-width:1180px;width:100%;margin:0 auto}
+.chip.on{background:var(--accent-soft);color:var(--accent-ink);border-color:transparent}
+.dest{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 10px;border-radius:8px;border:1px solid rgba(255,255,255,.14);color:var(--ink);font-size:12.5px}
+.cols{display:grid;grid-template-columns:1fr 300px;gap:20px;max-width:1180px;width:100%;margin:0 auto}
+.res{display:flex;gap:14px;padding:13px 16px;border-top:1px solid rgba(255,255,255,.06);align-items:center;position:relative}
+.res:first-of-type{border-top:0}
+.res.sel{background:rgba(87,169,143,.10);box-shadow:inset 3px 0 0 var(--accent)}
+.meta{font-size:11.5px;color:var(--muted);margin-top:3px}
+.src{font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid rgba(255,255,255,.14);color:var(--ink-2);margin-left:4px}
+.split{display:inline-flex;border-radius:8px;overflow:visible;flex-shrink:0;position:relative}
+.split .btn{border-radius:0;height:30px}
+.split .btn:first-child{border-radius:8px 0 0 8px}.split .btn:last-child{border-radius:0 8px 8px 0;border-left:1px solid rgba(0,0,0,.25);padding:0 8px}
+.pick{position:absolute;right:0;top:36px;width:250px;z-index:5;background:#23252c;border:1px solid rgba(255,255,255,.12);border-radius:11px;box-shadow:0 18px 40px rgba(0,0,0,.5);padding:6px 0}
+.pick div{display:flex;align-items:center;gap:9px;padding:7px 12px;font-size:12.5px}
+.pick div.on{background:rgba(87,169,143,.14)}
+.pick kbd{margin-left:auto}
+.have{font-size:11.5px;color:var(--accent-ink);display:inline-flex;align-items:center;gap:6px}
+.coll{display:flex;align-items:center;gap:10px;padding:11px 14px;border:1px dashed rgba(255,255,255,.12);border-radius:10px;margin:8px 12px 0}
+.coll .n{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.coll.drop{border:1.5px solid var(--accent);background:rgba(87,169,143,.14);box-shadow:0 0 0 4px rgba(87,169,143,.1)}
+.ghost{position:fixed;left:1085px;top:268px;width:250px;padding:9px 12px;border-radius:10px;background:#2a2d34;border:1px solid var(--accent);box-shadow:0 20px 40px rgba(0,0,0,.5);transform:rotate(-2deg);font-family:var(--serif);font-size:13px;z-index:9}
+.toast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;padding:10px 12px 10px 16px;border-radius:12px;background:#2a2d34;border:1px solid rgba(255,255,255,.12);box-shadow:0 18px 40px rgba(0,0,0,.5);font-size:13px;z-index:9}
+.keys{max-width:1180px;width:100%;margin:0 auto;display:flex;gap:16px;font-size:11.5px;color:var(--muted)}
+</style></head><body><div class="app"><!--RAIL-->
+<main class="main"><div class="scroll">
+ <div class="big"><svg class="i" viewBox="0 0 24 24" style="width:19px;height:19px;color:var(--accent)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span class="q">scaling laws mixture of experts</span><span class="muted" style="font-size:12px">38 results</span><span class="btn primary" style="height:38px">Search</span></div>
+ <div class="row"><span class="chip on">arXiv 12</span><span class="chip on">Semantic Scholar 14</span><span class="chip on">OpenAlex 9</span><span class="chip on">Scholar 3</span><span class="chip">Since 2023 ▾</span><span class="chip">Has PDF</span><span class="chip">Most cited ▾</span><span style="flex:1"></span><span>Save to</span><span class="dest"><span class="dot" style="background:#5b63b7"></span>LLM scaling ▾</span></div>
+ <div class="cols">
+  <section class="card" style="overflow:visible">
+   <div class="res"><div style="flex:1"><div class="ptitle">Scaling Laws for Fine-Grained Mixture of Experts<span class="src">arXiv</span><span class="src">S2</span></div><div class="meta">J Krajewski, J Ludziejewski +8 · ICML 2024 · 95 citations · PDF</div></div><span class="have">✓ In <b>LLM scaling</b> · not started</span><span class="btn" style="height:30px">Read</span></div>
+   <div class="res sel"><div style="flex:1"><div class="ptitle">Unified Scaling Laws for Routed Language Models<span class="src">arXiv</span><span class="src">OA</span></div><div class="meta">A Clark, D de las Casas +25 · ICML 2022 · 240 citations · PDF</div></div><span class="btn" style="height:30px">Read</span>
+    <span class="split"><span class="btn primary">+ LLM scaling</span><span class="btn primary">▾</span>
+     <div class="pick"><div class="muted" style="font-size:11px;padding-bottom:4px">SAVE TO</div><div><span class="dot" style="background:var(--accent)"></span>Reading list<kbd>1</kbd></div><div class="on"><span class="dot" style="background:#5b63b7"></span>LLM scaling ✓<kbd>2</kbd></div><div><span class="dot" style="background:#b0643c"></span>Medical imaging<kbd>3</kbd></div><div><span class="dot" style="background:#8e6bb4"></span>Neural operators<kbd>4</kbd></div><div style="border-top:1px solid rgba(255,255,255,.08);margin-top:4px">+ New collection…<kbd>N</kbd></div></div>
+    </span></div>
+   <div class="res"><div style="flex:1"><div class="ptitle">DeepSeekMoE: Towards Ultimate Expert Specialization in Mixture-of-Experts Language Models<span class="src">arXiv</span></div><div class="meta">Damai Dai, Chengqi Deng +16 · 2024 · 480 citations · PDF</div></div><span class="btn" style="height:30px">Read</span><span class="split"><span class="btn primary">+ LLM scaling</span><span class="btn primary">▾</span></span></div>
+   <div class="res"><div style="flex:1"><div class="ptitle">Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity<span class="src">S2</span><span class="src">OA</span></div><div class="meta">W Fedus, B Zoph, N Shazeer · JMLR 2022 · 3,100 citations · PDF</div></div><span class="btn" style="height:30px">Read</span><span class="split"><span class="btn primary">+ LLM scaling</span><span class="btn primary">▾</span></span></div>
+   <div class="res"><div style="flex:1"><div class="ptitle">Mixture-of-Experts with Expert Choice Routing<span class="src">arXiv</span></div><div class="meta">Y Zhou, T Lei +8 · NeurIPS 2022 · 520 citations · PDF</div></div><span class="btn" style="height:30px">Read</span><span class="split"><span class="btn primary">+ LLM scaling</span><span class="btn primary">▾</span></span></div>
+   <div class="res"><div style="flex:1"><div class="ptitle">Scaling Laws for Neural Language Models<span class="src">arXiv</span><span class="src">S2</span></div><div class="meta">J Kaplan, S McCandlish +8 · 2020 · 5,600 citations · PDF</div></div><span class="btn" style="height:30px">Read</span><span class="split"><span class="btn primary">+ LLM scaling</span><span class="btn primary">▾</span></span></div>
+  </section>
+  <aside class="card" style="align-self:start;padding-bottom:12px">
+   <div style="padding:14px 14px 4px" class="eyebrow">Drop on a collection</div>
+   <div class="coll"><span class="dot" style="background:var(--accent)"></span>Reading list<span class="n">16</span></div>
+   <div class="coll drop"><span class="dot" style="background:#5b63b7"></span>LLM scaling<span class="n">5 → 6</span></div>
+   <div class="coll"><span class="dot" style="background:#b0643c"></span>Medical imaging<span class="n">6</span></div>
+   <div class="coll"><span class="dot" style="background:#8e6bb4"></span>Neural operators<span class="n">3</span></div>
+   <div class="coll" style="justify-content:center;color:var(--accent)">+ New collection</div>
+  </aside>
+ </div>
+ <div class="keys"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> read</span><span><kbd>A</kbd> save to LLM scaling</span><span><kbd>1</kbd>–<kbd>9</kbd> save to a collection</span><span><kbd>Esc</kbd> back to Home</span></div>
+</div></main></div>
+<div class="ghost">Switch Transformers: Scaling to Trillion Parameter…</div>
+<div class="toast"><span style="color:var(--accent-ink)">✓</span> Added <b>DeepSeekMoE</b> to <b>LLM scaling</b><span style="color:var(--accent-ink);font-weight:500">Undo</span><span style="color:var(--accent-ink);font-weight:500">Move…</span><span class="btn primary" style="height:28px">Read now</span></div>
+<div class="label">B · Searching: save to a collection in one step</div></body></html>

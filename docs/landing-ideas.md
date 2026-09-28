@@ -326,3 +326,71 @@ The new parts are the editor and drag-to-cite.
   suggest the next one from its references.
 - **Browser bookmarklet / share target.** "Send to Reader" from an arXiv
   page or a phone.
+
+---
+
+# Round 3: search first, the page preview for while you read
+
+Feedback on the built Home (#113, #114): the big page preview is better kept for
+**while you are reading** than put on the page you land on, and Home should
+put **finding papers and adding them to a collection** first. Home as built
+also shares the screen with the library panel and an empty Notes dock, which
+leave its middle cramped. These four mock-ups are drawn in the dark glass theme.
+
+## A · Search-first Home
+
+![Home led by a large search box with source chips and a "Save to" collection picker, suggestions for your collections with + buttons, your collections, and a slim continue-reading row of small page previews](mockups/landing-12-search-home.png)
+
+- **Search is the page.** A large search box, focused as Home opens (<kbd>/</kbd>
+  from anywhere), with the sources as chips and **Save to ▾**: the collection
+  that one click adds to.
+- **Suggestions for your collections** fill the space before you type. Each one
+  says why it is there: it cites what you are reading, it is by an author you
+  keep, it is often cited next to your papers, or it is trending in your
+  arXiv categories. Each has **Read** and **+ collection ▾**.
+- **Your collections** sit beside them as drop targets.
+- **Continue reading shrinks to a row** of three small cards, each a sliver of
+  the page with the "You were here" line. The full preview moves to C.
+- **Home takes the whole window.** The library panel and the dock close on
+  Home and come back when you open a paper.
+
+## B · Searching: save to a collection in one step
+
+![Results for a query with source badges, one already in the library, the + collection button open as a picker with number keys, a result being dragged onto a highlighted collection, and a toast "Added … Undo · Move… · Read now"](mockups/landing-13-search-results.png)
+
+- Results replace the suggestions in place; Home stays Home.
+- A paper **already in your library** says so ("In LLM scaling · not
+  started") instead of offering to add it twice.
+- **+ LLM scaling** saves to the chosen collection. **▾** picks another, with
+  <kbd>1</kbd>–<kbd>9</kbd>, or makes a new one.
+- **Drag a result** onto a collection on the right.
+- Keys: <kbd>↑</kbd><kbd>↓</kbd> move, <kbd>↵</kbd> read, <kbd>A</kbd> add,
+  <kbd>1</kbd>–<kbd>9</kbd> add to a collection.
+- A **toast** confirms, with **Undo**, **Move…** and **Read now**.
+
+## C · While reading: R opens your desk
+
+![Over a paper being read, a dimmed overlay shows four papers in progress as large page previews side by side, each with a "You were here" line, with 1–4 to switch and G to go Home](mockups/landing-14-reading-desk.png)
+
+This is where the big page preview lives now. Inside a paper, **R** (unused
+by the reader today) lays your papers in progress side by side, each at the
+page and line you left it. <kbd>1</kbd>–<kbd>4</kbd> switches paper at that line,
+<kbd>R</kbd> or <kbd>Esc</kbd> goes back, and <kbd>G</kbd> goes Home. It is for
+switching papers mid-session; Home is for finding the next one.
+
+## D · Collections as columns you add straight into
+
+![A search bar with a small Resume chip beside it; below, each collection is a column of its papers with progress rings and an "Add a paper to …" box; one is typed into and shows matching papers to add; a dashed "New collection" column](mockups/landing-15-collection-board.png)
+
+For when the collections are the point: each collection is a column with an
+**Add a paper to …** box that searches and adds right there. Drag cards between
+columns to move them. It suits projects, one collection per question, and sits
+closer to the Projects view than to Home.
+
+## Recommendation
+
+**A as Home, B as what searching on it looks like, and C for while you read.**
+Together they split the two jobs you described: Home finds and files papers,
+and the desk (R) gets you back into them. The current Continue reading card
+becomes the desk; Today, Projects and Inbox stay as tabs. D could replace the
+Projects tab later.
