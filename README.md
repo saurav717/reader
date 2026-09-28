@@ -2591,7 +2591,8 @@ What it writes, in this order:
 - **Code cells**: short, seeded numpy you can run, numbered `In [1]`,
   `In [2]`, … Each one shows the output Claude expects, labelled as not yet
   run. **Run in Colab** is in place but switched off until the Colab
-  connection is built. **Notebook ↓** in the bar downloads every cell and its
+  connection is built — how it would work, and what it takes, is in
+  [docs/colab-run.md](docs/colab-run.md). **Notebook ↓** in the bar downloads every cell and its
   explanation as an `.ipynb`, which Colab opens under *File → Upload notebook*.
 - **Caveats**: a paper does not update itself, so each claim that has aged is
   flagged where it is made: *Still holds*, *Refined since*, *Superseded*,

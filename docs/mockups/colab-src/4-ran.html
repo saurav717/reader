@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="explain.css"><style>.explain-figure{display:none}</style></head><body>
+<div class="explain">
+<!--BAR:<span class="colab-chip"><span class="colab-mark">co</span><span class="st"></span>T4 <em>· idle · 1 of 4 cells run</em></span>-->
+<div class="explain-scroll">
+<!--OUTLINE-->
+<div class="explain-doc">
+<!--PROSE[[
+<figure class="explain-cell">
+ <header><span class="cell-index">In [1]</span><span class="cell-title">Self-attention over four tokens</span><span class="cell-state ok">✓ Ran in 0.8 s</span><span class="btn sm ghost">Copy</span><span class="btn sm colab"><span class="colab-mark">co</span>▶ Run again</span></header>
+ %%CODE%%
+ <div class="cell-output"><div class="cell-output-label">Output · Colab T4 · 12:04<span class="spacer"></span><span class="verdict diff">◐ Differs from what Claude expected</span></div><pre>attention weights (rows sum to 1):
+    the [<span class="diff">0.4  0.21 0.27 0.12</span>]
+    cat [<span class="diff">0.09 0.71 0.08 0.12</span>]
+    sat [<span class="diff">0.18 0.11 0.6  0.11</span>]
+   down [<span class="diff">0.13 0.14 0.08 0.65</span>]
+output shape: (4, 8)</pre>
+  <div class="cell-actions"><span class="btn sm">Ask Claude why the numbers differ</span><span class="btn sm ghost">Show what Claude expected</span></div>
+ </div>
+</figure>
+]]-->
+</div></div></div>
+<div class="label">4 · ran: the real output replaces the guess, and the difference is a question away</div>
+</body></html>

@@ -1,0 +1,16 @@
+<pre class="cell-code"><span class="tok-k">import</span> numpy <span class="tok-k">as</span> np
+rng = np.random.<span class="tok-f">default_rng</span>(<span class="tok-n">0</span>)
+
+<span class="tok-k">def</span> <span class="tok-f">attention</span>(Q, K, V):
+    scores = Q @ K.T / np.<span class="tok-f">sqrt</span>(K.shape[<span class="tok-n">-1</span>])          <span class="tok-c"># how well each query matches each key</span>
+    w = np.<span class="tok-f">exp</span>(scores - scores.<span class="tok-f">max</span>(<span class="tok-n">-1</span>, keepdims=<span class="tok-k">True</span>))
+    w /= w.<span class="tok-f">sum</span>(<span class="tok-n">-1</span>, keepdims=<span class="tok-k">True</span>)                    <span class="tok-c"># softmax: rows sum to 1</span>
+    <span class="tok-k">return</span> w @ V, w
+
+tokens = [<span class="tok-s">"the"</span>, <span class="tok-s">"cat"</span>, <span class="tok-s">"sat"</span>, <span class="tok-s">"down"</span>]
+X = rng.<span class="tok-f">normal</span>(size=(<span class="tok-n">4</span>, <span class="tok-n">8</span>))
+out, w = <span class="tok-f">attention</span>(X, X, X)
+<span class="tok-f">print</span>(<span class="tok-s">"attention weights (rows sum to 1):"</span>)
+<span class="tok-k">for</span> t, row <span class="tok-k">in</span> <span class="tok-f">zip</span>(tokens, w):
+    <span class="tok-f">print</span>(<span class="tok-s">f"  {t:>5}"</span>, np.<span class="tok-f">round</span>(row, <span class="tok-n">2</span>))
+<span class="tok-f">print</span>(<span class="tok-s">"output shape:"</span>, out.shape)</pre>
