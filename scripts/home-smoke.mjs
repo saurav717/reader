@@ -5,7 +5,12 @@
  * began; that Enter goes back into the paper; that the same is true read
  * reflowed; that a new tab starts on Home while a reload stays put; and that
  * Home's other views — Today, Projects, Inbox — are a key away, with the
- * one it opens on chosen from its menu. Writes
+ * one it opens on chosen from its menu; that a new reader starts on Find
+ * papers, which saves a result to a collection in one step, by its button,
+ * its picker or a drag, with Undo; that the Collections view takes a paper
+ * straight into a column and moves one between them; that R, reading, lays
+ * the papers in progress out as a desk; and that the side panels are put away
+ * on Home and come back after. Writes
  * screenshots of each state to .smoke/.
  *
  *   npm run build && npm start &
@@ -44,6 +49,33 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 900 
 await context.route('**/pdf?*', (route) => route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF }));
 // Nothing else leaves the machine but the fonts.
 await context.route(/^https?:\/\/(?!localhost|127\.0\.0\.1|fonts\.)/, (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }));
+// Searching: Scholar through the proxy, OpenAlex for what Home suggests.
+const HITS = [
+  ['moe-survey', 'A comprehensive survey of mixture-of-experts: Algorithms, theory, and applications', ['S Mu', 'S Lin']],
+  ['switch', 'Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity', ['W Fedus', 'B Zoph', 'N Shazeer']],
+  ['expert-choice', 'Mixture-of-Experts with Expert Choice Routing', ['Y Zhou', 'T Lei']],
+  ['routed', 'Unified Scaling Laws for Routed Language Models', ['A Clark', 'D de las Casas']],
+];
+await context.route('**/scholar/search*', (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ results: HITS.map(([id, title, authors]) => ({ id, clusterId: id, title, url: `https://example.org/${id}`, pdfUrl: `https://example.org/${id}.pdf`, authors, snippet: '' })) }),
+  }),
+);
+await context.route('**/api.openalex.org/works*', (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      results: [
+        ['W1', 'Geometry-Informed Neural Operator for Large-Scale 3D PDEs', 'Z Li', 210],
+        ['W2', 'Adaptive Fourier Neural Operators: Efficient Token Mixers for Transformers', 'J Guibas', 480],
+        ['W3', 'Physics-Informed Neural Operator for Learning Partial Differential Equations', 'Z Li', 900],
+      ].map(([id, title, author, cited]) => ({ id: `https://openalex.org/${id}`, display_name: title, publication_date: '2023-01-01', authorships: [{ author: { display_name: author } }], cited_by_count: cited })),
+    }),
+  }),
+);
 let page = await context.newPage();
 const errors = [];
 page.on('pageerror', (error) => errors.push(String(error)));
@@ -87,6 +119,8 @@ async function seed(settings = {}) {
       localStorage.setItem('reader.settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('reader.settings') || '{}'), ...settings }));
       localStorage.setItem('reader.view', JSON.stringify({ kind: 'all' }));
       localStorage.removeItem('reader.spots');
+      // The first half is about Continue reading: Home opens on it, as it did.
+      localStorage.setItem('reader.home', JSON.stringify({ opensOn: 'continue', tabs: ['search', 'continue', 'today', 'projects', 'inbox', 'board'], last: 'continue', clearPanels: true, v: 2 }));
       const db = await new Promise((resolve, reject) => {
         const request = indexedDB.open('reader', 1);
         request.onsuccess = () => resolve(request.result);
@@ -169,7 +203,9 @@ await scroller.evaluate((element) => {
 });
 await page.waitForSelector('.pdf-book-page[data-page="3"]:not(.drawing)', { timeout: 15000 });
 await page.waitForTimeout(1800);
-const progressBefore = await page.evaluate(() => document.querySelector('.pdf-scroll')?.scrollTop ?? 0);
+// Where in the paper, as a fraction: the panels coming back can change the page's scale, not the place.
+const fraction = () => page.evaluate(() => { const el = document.querySelector('.pdf-scroll'); return el ? el.scrollTop / (el.scrollHeight - el.clientHeight) : 0; });
+const progressBefore = await fraction();
 await page.locator('.rail button.brand').click();
 await home(page).waitFor({ timeout: 10000 });
 check('R went Home', await home(page).isVisible());
@@ -185,8 +221,8 @@ console.log('\n== Enter goes back in, at the same place ==');
 await page.keyboard.press('Enter');
 await page.waitForSelector('.pdf-book-page:not(.drawing) canvas', { timeout: 30000 });
 await page.waitForTimeout(1200);
-const progressAfter = await page.evaluate(() => document.querySelector('.pdf-scroll')?.scrollTop ?? 0);
-check('the PDF opens where it was left', Math.abs(progressAfter - progressBefore) < 60, `${progressBefore} → ${progressAfter}`);
+const progressAfter = await fraction();
+check('the PDF opens where it was left', Math.abs(progressAfter - progressBefore) < 0.01, `${progressBefore.toFixed(3)} → ${progressAfter.toFixed(3)}`);
 
 console.log('\n== read reflowed ==');
 await page.locator('.segmented button', { hasText: 'Reflow' }).click({ timeout: 20000 });
@@ -230,26 +266,26 @@ await page.waitForTimeout(2800);
 await page.locator('.rail button.brand').click();
 await home(page).waitFor({ timeout: 10000 });
 const tabs = page.locator('.home-tabs .home-tab[aria-pressed]');
-check('four views, as tabs', (await tabs.count()) === 4, (await tabs.allTextContents()).join(' | '));
-check('Continue reading is the default', ((await tabs.first().textContent()) || '').includes('default'));
-check('the Inbox counts what is new', ((await tabs.nth(3).textContent()) || '').includes('1'), (await tabs.nth(3).textContent()) || '');
-await page.keyboard.press('2');
+check('six views, as tabs', (await tabs.count()) === 6, (await tabs.allTextContents()).join(' | '));
+check('Continue reading is the default here', ((await tabs.nth(1).textContent()) || '').includes('default'));
+check('the Inbox counts what is new', ((await tabs.nth(4).textContent()) || '').includes('1'), (await tabs.nth(4).textContent()) || '');
+await page.keyboard.press('3');
 await page.locator('.home-today').waitFor({ timeout: 5000 });
 const plan = await page.locator('.home-plan .home-row-title').allTextContents();
-check('2 is Today, a plan from the library', plan.length >= 4, plan.join(' | '));
+check('3 is Today, a plan from the library', plan.length >= 4, plan.join(' | '));
 check('it starts with carrying on', (plan[0] || '').startsWith('Carry on with Fourier Neural Operator'), plan[0]);
 check('and picks up what stalled', plan.some((title) => title.startsWith('Pick back up: Fusion approaches')));
 check('the strip keeps where you stopped in reach', await page.locator('.home-strip').isVisible());
 await shot('home-today');
-await page.keyboard.press('3');
+await page.keyboard.press('4');
 await page.locator('.home-projects').waitFor({ timeout: 5000 });
-check('3 is Projects, the collection in three lanes', (await page.locator('.home-lane').count()) === 3);
+check('4 is Projects, the collection in three lanes', (await page.locator('.home-lane').count()) === 3);
 check('its papers set out by how far you are', (await page.locator('.home-lane').nth(1).locator('.home-lane-card').count()) === 4);
 await shot('home-projects');
-await page.keyboard.press('4');
+await page.keyboard.press('5');
 await page.locator('.home-inbox').waitFor({ timeout: 5000 });
 const fresh = await page.locator('.home-inbox .home-card').first().locator('.home-row-title').allTextContents();
-check('4 is the Inbox, with what was added since the last visit', fresh.length === 1 && fresh[0].startsWith('Physics-informed'), fresh.join(' | '));
+check('5 is the Inbox, with what was added since the last visit', fresh.length === 1 && fresh[0].startsWith('Physics-informed'), fresh.join(' | '));
 check('and what is still waiting from before', ((await page.locator('.home-inbox').textContent()) || '').includes('DeepONet'));
 await shot('home-inbox');
 
@@ -257,16 +293,98 @@ console.log('\n== choose the view Home opens on ==');
 await page.getByRole('button', { name: "Choose Home's views" }).click();
 await page.locator('.home-menu').waitFor({ timeout: 5000 });
 await shot('home-menu');
-await page.locator('.home-menu-opt', { hasText: 'Today' }).click();
+await page.locator('.home-menu-opt', { hasText: 'A short plan' }).click();
 await page.keyboard.press('Escape');
 await newVisit();
 await page.locator('.home-today').waitFor({ timeout: 10000 }).catch(() => {});
 check('a new visit opens on the view chosen', await page.locator('.home-today').isVisible());
 check('which the tabs now mark as the default', ((await page.locator('.home-tab.is-on').textContent()) || '').includes('default'));
 await page.getByRole('button', { name: "Choose Home's views" }).click();
-await page.locator('.home-menu-opt', { hasText: 'Continue reading' }).click();
+await page.locator('.home-menu-opt', { hasText: 'The page you stopped on' }).click();
 await page.keyboard.press('Escape');
+await page.keyboard.press('2');
+
+console.log('\n== a new reader: Home opens on Find papers ==');
+await page.evaluate(() => localStorage.removeItem('reader.home'));
+await newVisit();
+page.on('dialog', (dialog) => dialog.accept('LLM scaling'));
+await page.locator('.find').waitFor({ timeout: 10000 });
+check('Find papers is the default for a new reader', ((await page.locator('.home-tab.is-on').textContent()) || '').includes('Find papers') && ((await page.locator('.home-tab.is-on').textContent()) || '').includes('default'));
+check('the search box has the cursor', await page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Search for papers'));
+check('the library and the dock are put away on Home', (await page.locator('.library-panel').count()) === 0 && (await page.locator('.dock').count()) === 0);
+await page.locator('.find-why').first().waitFor({ timeout: 10000 });
+check('it suggests papers near the one being read, saying why', ((await page.locator('.find-why').first().textContent()) || '').startsWith('Related to'));
+check('continue reading is a row of small cards', (await page.locator('.find-carry-card').count()) >= 2);
+await shot('home-find');
+
+console.log('\n== search, and save to a collection ==');
+const count = async (name) => Number((await page.locator('.find-coll', { hasText: name }).locator('.find-coll-count').textContent()) || 0);
+await page.getByLabel('Search for papers').fill('mixture of experts');
+await page.getByLabel('Search for papers').press('Enter');
+await page.locator('.find-row .find-title', { hasText: 'Switch Transformers' }).waitFor({ timeout: 10000 });
+check('the results replace the suggestions', (await page.locator('.find-row').count()) === 4);
+check('one already in the library says so', ((await page.locator('.find-row', { hasText: 'comprehensive survey' }).locator('.find-have').textContent()) || '').includes('In Reading list'));
+const before = await count('Reading list');
+await page.locator('.find-row', { hasText: 'Switch Transformers' }).getByRole('button', { name: /Reading list/ }).click();
+await page.locator('.find-toast').waitFor({ timeout: 5000 });
+check('+ saves it to the collection chosen', (await count('Reading list')) === before + 1, `${before} → ${await count('Reading list')}`);
+check('and says so, with Undo', ((await page.locator('.find-toast').textContent()) || '').includes('Added Switch Transformers'));
+await page.locator('.find-toast').getByRole('button', { name: 'Undo' }).click();
+await page.waitForTimeout(300);
+check('Undo takes it out again', (await count('Reading list')) === before);
+await page.locator('.find-colls').getByRole('button', { name: /New collection/ }).click();
+await page.locator('.find-coll', { hasText: 'LLM scaling' }).waitFor({ timeout: 5000 });
+check('a new collection is made from here, and becomes where things are saved', ((await page.locator('.find-dest select').inputValue()) || '') !== '' && ((await page.locator('.find-coll.is-target').textContent()) || '').includes('LLM scaling'));
+await page.locator('.find-row', { hasText: 'Expert Choice' }).getByRole('button', { name: 'Save to another collection' }).click();
+await page.locator('.find-pick').waitFor({ timeout: 5000 });
+await shot('home-find-results');
 await page.keyboard.press('1');
+await page.locator('.find-toast', { hasText: 'Expert Choice' }).waitFor({ timeout: 5000 });
+check('the picker saves to another collection by its number', ((await page.locator('.find-toast').textContent()) || '').includes('to Reading list'));
+await page.locator('.find-row', { hasText: 'Routed Language Models' }).dragTo(page.locator('.find-coll', { hasText: 'LLM scaling' }));
+await page.locator('.find-toast', { hasText: 'Routed' }).waitFor({ timeout: 5000 }).catch(() => {});
+check('a result dropped on a collection is saved there', ((await page.locator('.find-toast').textContent()) || '').includes('Routed Language Models to LLM scaling'), (await page.locator('.find-toast').textContent()) || '');
+
+console.log('\n== Collections: add straight into a column, move between them ==');
+await page.locator('.home-tab', { hasText: 'Collections' }).click();
+await page.locator('.cb').waitFor({ timeout: 5000 });
+const column = (name) => page.locator('.cb-col', { hasText: name }).first();
+const inColumn = async (name) => Number(((await column(name).locator('.cb-count').textContent()) || '0').split(' ')[0]);
+check('a column for each collection', (await page.locator('.cb-col:not(.cb-new)').count()) === 2);
+const llm = await inColumn('LLM scaling');
+await column('LLM scaling').getByLabel('Add a paper to LLM scaling').fill('switch transformers');
+await column('LLM scaling').locator('.cb-found button.is-first').waitFor({ timeout: 10000 });
+await shot('home-board');
+await column('LLM scaling').getByLabel('Add a paper to LLM scaling').press('Enter');
+await page.waitForTimeout(400);
+check('the box at a column\'s foot adds the paper found into it', (await inColumn('LLM scaling')) === llm + 1, `${llm} → ${await inColumn('LLM scaling')}`);
+const reading = await inColumn('Reading list');
+await column('Reading list').locator('.cb-card', { hasText: 'Fourier Neural Operator' }).dragTo(column('LLM scaling'));
+await page.waitForTimeout(400);
+check('a card dragged to another column moves the paper', (await inColumn('Reading list')) === reading - 1 && (await inColumn('LLM scaling')) === llm + 2);
+
+console.log('\n== reading: R lays out the desk ==');
+await page.locator('.home-tab', { hasText: 'Find papers' }).click();
+await page.locator('.find-carry-card', { hasText: 'Fourier Neural Operator' }).click();
+await page.waitForSelector('.pdf-book-page:not(.drawing) canvas', { timeout: 30000 });
+check('the side panels come back as they were', (await page.locator('.library-panel').count()) === 1);
+await page.waitForTimeout(1500);
+await page.keyboard.press('r');
+await page.locator('.desk-scrim').waitFor({ timeout: 5000 });
+check('R opens the desk, the paper being read first', ((await page.locator('.desk-card').first().textContent()) || '').includes('Fourier Neural Operator') && (await page.locator('.desk-card.is-now').count()) === 1);
+check('with the others in progress beside it, at their pages', (await page.locator('.desk-card').count()) === 4);
+check('this one shown where it is', await page.locator('.desk-card.is-now .home-peek-pdf img').isVisible());
+await shot('home-desk');
+await page.keyboard.press('Escape');
+check('Esc puts it away', (await page.locator('.desk-scrim').count()) === 0);
+await page.keyboard.press('r');
+await page.keyboard.press('2');
+await page.waitForSelector('.main[data-paper-id]:not([data-paper-id="scholar:fno"])', { timeout: 10000 });
+check('2 goes to the second paper on it', (await page.locator('.desk-scrim').count()) === 0);
+await page.keyboard.press('r');
+await page.keyboard.press('g');
+await home(page).waitFor({ timeout: 5000 });
+check('G goes Home', await home(page).isVisible());
 
 console.log('\n== dark glass, and a phone ==');
 await page.evaluate(() => {

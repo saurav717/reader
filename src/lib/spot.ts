@@ -208,13 +208,13 @@ function reflowSpot(paperId: string): Spot | null {
  * Keep where the paper is on screen now. Nothing is kept when the page is not
  * drawn yet — a paper still opening has not been left anywhere.
  */
-export function keepSpot(paperId: string, mode: ReadingMode): void {
-  if (typeof document === 'undefined') return;
+export function keepSpot(paperId: string, mode: ReadingMode): boolean {
+  if (typeof document === 'undefined') return false;
   // Moving from one paper to the next, the screen may already be the next one's.
   const showing = document.querySelector<HTMLElement>('.main[data-paper-id]')?.dataset.paperId;
-  if (showing !== paperId) return;
-  const spot =mode === 'pdf' ? pdfSpot(paperId) : reflowSpot(paperId);
-  if (!spot) return;
+  if (showing !== paperId) return false;
+  const spot = mode === 'pdf' ? pdfSpot(paperId) : reflowSpot(paperId);
+  if (!spot) return false;
   const spots = readAll();
   // A PDF page not drawn this time keeps the picture it had, if it is the same page.
   const before = spots[paperId];
@@ -224,4 +224,10 @@ export function keepSpot(paperId: string, mode: ReadingMode): void {
   }
   spots[paperId] = spot;
   writeAll(spots);
+  return true;
+}
+
+/** Keep where a paper is on screen now, whichever way it is being read. */
+export function keepSpotNow(paperId: string): void {
+  if (!keepSpot(paperId, 'pdf')) keepSpot(paperId, 'reflow');
 }
