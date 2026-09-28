@@ -131,12 +131,14 @@ async function newVisit() {
 const shot = (name) => page.screenshot({ path: `${OUT}/${name}.png` });
 const home = page => page.locator('.main.home');
 async function closePanels() {
-  for (const label of [/close library/i]) {
+  for (const label of [/close the library panel/i]) {
     const button = page.getByRole('button', { name: label }).first();
     if (await button.isVisible().catch(() => false)) await button.click();
   }
   const close = page.locator('.dock').getByRole('button', { name: /close/i }).first();
   if (await close.isVisible().catch(() => false)) await close.click();
+  // The panes slide away.
+  await page.waitForTimeout(500);
 }
 
 console.log('\n== a new visit opens on Home ==');
