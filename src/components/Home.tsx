@@ -1,21 +1,30 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import { FINISHED_AT, statusOf } from '../lib/status';
-import { authorLine, relativeDay } from '../lib/libraryLook';
-import { SPOT_EVENT, spotFor, type Spot } from '../lib/spot';
+import { relativeDay } from '../lib/libraryLook';
 import type { Highlight, Paper } from '../types';
 import { CoverTile, ProgressRing, progressLabel } from './LibraryBits';
-import { SearchIcon } from './icons';
+import { Continue, clip } from './HomeParts';
+import { InboxView, ProjectsView, ResumeStrip, STALLED_DAYS, TodayView, inboxOf } from './HomeViews';
+import { HOME_TABS, TAB_ABOUT, TAB_LABEL, openingTab, readHomePrefs, writeHomePrefs, type HomePrefs, type HomeTab } from '../lib/homeViews';
+import { CheckIcon, ClockIcon, InboxIcon, OpenBookIcon, SearchIcon, StackIcon } from './icons';
 
 interface Props {
   onOpenPaper: (id: string) => void;
   onOpenHighlight: (paperId: string, highlightId: string) => void;
   onSearch: () => void;
   onDiscover: () => void;
+  /** The highlights and notes of every paper, in the dock. */
+  onShowNotes: () => void;
 }
 
-/** A paper in progress not opened for this long is said to have stalled. */
-const STALLED_DAYS = 5;
+const TAB_ICON: Record<HomeTab, React.ReactNode> = {
+  continue: <OpenBookIcon size={15} />,
+  today: <ClockIcon size={15} />,
+  projects: <StackIcon size={15} />,
+  inbox: <InboxIcon size={15} />,
+};
+
 const DAY = 24 * 3600 * 1000;
 
 const opened = (paper: Paper) => paper.lastOpenedAt ?? '';
@@ -34,24 +43,26 @@ function greeting(now: Date, name?: string): string {
   return first ? `${part}, ${first}` : part;
 }
 
-/** "2 hours ago", "yesterday", "3 Sep": how long since you were reading it. */
-function sinceLeft(iso: string, now = new Date()): string {
-  const minutes = Math.round((now.getTime() - new Date(iso).getTime()) / 60000);
-  if (Number.isNaN(minutes)) return '';
-  if (minutes < 2) return 'just now';
-  if (minutes < 60) return `${minutes} minutes ago`;
-  if (minutes < 60 * 12) return `${Math.round(minutes / 60)} hour${minutes < 90 ? '' : 's'} ago`;
-  return relativeDay(iso, now);
-}
-
 /**
  * Home: where the app opens, and what R on the rail comes back to. The paper
  * you were last reading fills it, shown at the page you left it on, with what
  * else is in progress, your latest highlights and what is next beside it.
  */
-export default function Home({ onOpenPaper, onOpenHighlight, onSearch, onDiscover }: Props) {
+export default function Home({ onOpenPaper, onOpenHighlight, onSearch, onDiscover, onShowNotes }: Props) {
   const { papers, highlights, user } = useStore();
   const now = new Date();
+  const [prefs, setPrefs] = useState<HomePrefs>(readHomePrefs);
+  const [tab, setTab] = useState<HomeTab>(() => openingTab(prefs));
+  const [menuOpen, setMenuOpen] = useState(false);
+  const changePrefs = (next: HomePrefs) => {
+    setPrefs(next);
+    writeHomePrefs(next);
+  };
+  const show = (next: HomeTab) => {
+    setTab(next);
+    changePrefs({ ...prefs, last: next });
+  };
+  const tabs = HOME_TABS.filter((item) => prefs.tabs.includes(item));
 
   // The paper to carry on with: the last one opened that isn't finished; failing
   // that, the last one opened; failing that, the newest one not started.
@@ -85,6 +96,24 @@ export default function Home({ onOpenPaper, onOpenHighlight, onSearch, onDiscove
       .slice(0, 3);
   }, [highlights, papers]);
 
+  // 1–4 switch between the views shown as tabs.
+  const showRef = useRef(show);
+  showRef.current = show;
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target) || !/^[1-4]$/.test(event.key)) return;
+      if (document.querySelector('.scrim, .sheet, .palette')) return;
+      const next = tabs[Number(event.key) - 1];
+      if (!next) return;
+      event.preventDefault();
+      showRef.current(next);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [tabs]);
+
+  const fresh = useMemo(() => inboxOf(papers).fresh.length, [papers]);
+
   // Enter carries on reading, as the button says.
   useEffect(() => {
     if (!hero) return;
@@ -111,6 +140,29 @@ export default function Home({ onOpenPaper, onOpenHighlight, onSearch, onDiscove
             <span className="home-eyebrow">{now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
             <h1>{greeting(now, user?.name)}</h1>
           </div>
+          <nav className="home-tabs" aria-label="Home view">
+            {tabs.map((item, index) => (
+              <button
+                key={item}
+                type="button"
+                className={`home-tab${tab === item ? ' is-on' : ''}`}
+                aria-pressed={tab === item}
+                title={`${TAB_ABOUT[item]} (${index + 1})`}
+                onClick={() => show(item)}
+              >
+                {TAB_ICON[item]}
+                {TAB_LABEL[item]}
+                {prefs.opensOn === item ? <em>default</em> : null}
+                {item === 'inbox' && fresh ? <b aria-label={`${fresh} new`}>{fresh}</b> : null}
+              </button>
+            ))}
+            <span className="home-tabs-more">
+              <button type="button" className={`home-tab${menuOpen ? ' is-on' : ''}`} aria-expanded={menuOpen} aria-label="Choose Home's views" title="Choose Home's views" onClick={() => setMenuOpen(!menuOpen)}>
+                ⋯
+              </button>
+              {menuOpen ? <ViewMenu prefs={prefs} onChange={changePrefs} onClose={() => setMenuOpen(false)} /> : null}
+            </span>
+          </nav>
           <button type="button" className="home-search" onClick={onSearch}>
             <SearchIcon size={16} />
             <span>Search your library, or find a paper…</span>
@@ -118,7 +170,13 @@ export default function Home({ onOpenPaper, onOpenHighlight, onSearch, onDiscove
           </button>
         </header>
 
-        {!hero ? (
+        {tab === 'today' ? (
+          <TodayView hero={hero} onOpenPaper={onOpenPaper} onShowNotes={onShowNotes} />
+        ) : tab === 'projects' ? (
+          <ProjectsView hero={hero} onOpenPaper={onOpenPaper} />
+        ) : tab === 'inbox' ? (
+          <InboxView onOpenPaper={onOpenPaper} />
+        ) : !hero ? (
           <div className="home-empty">
             <h2>Your library is empty</h2>
             <p>Find a paper to read — search by title, author or topic, or paste an arXiv id or DOI. Home will pick up where you leave off.</p>
@@ -184,136 +242,64 @@ export default function Home({ onOpenPaper, onOpenHighlight, onSearch, onDiscove
             </aside>
           </div>
         )}
+        {tab !== 'continue' && hero && statusOf(hero) === 'reading' ? <ResumeStrip paper={hero} onOpen={() => onOpenPaper(hero.id)} /> : null}
       </div>
     </div>
   );
 }
 
-const clip = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
-
-/** The paper to carry on with, and the page you left it at. */
-function Continue({ paper, now, onOpen }: { paper: Paper; now: Date; onOpen: () => void }) {
-  const [spot, setSpot] = useState<Spot | null>(() => spotFor(paper.id));
+/** Which view Home opens on, and which are tabs. */
+function ViewMenu({ prefs, onChange, onClose }: { prefs: HomePrefs; onChange: (next: HomePrefs) => void; onClose: () => void }) {
+  const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    setSpot(spotFor(paper.id));
-    const onSpot = () => setSpot(spotFor(paper.id));
-    window.addEventListener(SPOT_EVENT, onSpot);
-    return () => window.removeEventListener(SPOT_EVENT, onSpot);
-  }, [paper.id]);
-
-  const year = /^\d{4}/.exec(paper.published || '')?.[0];
-  const started = paper.progress > 0;
-  // Whether there is a page to show, or only the abstract and a word about it.
-  const shown = (spot?.mode === 'pdf' && Boolean(spot.image)) || (spot?.mode === 'reflow' && Boolean(spot.blocks?.length));
-  const where =
-    spot?.mode === 'pdf'
-      ? spot.page
-        ? `page ${spot.page}${spot.pages ? ` of ${spot.pages}` : ''}`
-        : 'PDF'
-      : spot?.section ?? (spot ? 'Reflow' : '');
-
+    const onDown = (event: PointerEvent) => {
+      if (box.current && !box.current.parentElement?.contains(event.target as Node)) onClose();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('pointerdown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+  const opensOn = (value: HomePrefs['opensOn']) => {
+    // A view Home opens on is one of its tabs.
+    const tabs = value === 'last' || prefs.tabs.includes(value) ? prefs.tabs : HOME_TABS.filter((item) => item === value || prefs.tabs.includes(item));
+    onChange({ ...prefs, opensOn: value, tabs });
+  };
+  const toggle = (item: HomeTab) => {
+    const tabs = prefs.tabs.includes(item) ? prefs.tabs.filter((other) => other !== item) : HOME_TABS.filter((other) => other === item || prefs.tabs.includes(other));
+    onChange({ ...prefs, tabs, opensOn: prefs.opensOn !== 'last' && !tabs.includes(prefs.opensOn) ? 'continue' : prefs.opensOn });
+  };
   return (
-    <section className={`home-card home-continue${shown ? '' : ' is-bare'}`}>
-      <div className="home-continue-head">
-        <div className="home-continue-text">
-          <span className="home-eyebrow accent">
-            {started ? 'Continue reading' : 'Start reading'}
-            {paper.lastOpenedAt ? ` · left ${sinceLeft(paper.lastOpenedAt, now)}` : ''}
+    <div ref={box} className="home-menu" role="dialog" aria-label="Home's views">
+      <p className="home-eyebrow">Home opens on</p>
+      {[...HOME_TABS, 'last' as const].map((item) => (
+        <label key={item} className={`home-menu-opt${prefs.opensOn === item ? ' is-on' : ''}`}>
+          <input type="radio" name="home-opens-on" checked={prefs.opensOn === item} onChange={() => opensOn(item)} />
+          <span>
+            <b>{item === 'last' ? 'Whichever I used last' : TAB_LABEL[item]}</b>
+            {item === 'last' ? null : <small>{TAB_ABOUT[item]}</small>}
           </span>
-          <h2 className="home-continue-title" title={paper.title}>
-            {paper.title}
-          </h2>
-          <div className="home-facts">
-            <span>
-              {authorLine(paper.authors, 2)}
-              {paper.venue ? ` · ${paper.venue}` : ''}
-              {year && !paper.venue?.includes(year) ? ` · ${year}` : ''}
-            </span>
-            {started ? (
-              <span className="home-progress">
-                <span className="home-bar-track">
-                  <span style={{ width: `${Math.round(Math.min(1, paper.progress) * 100)}%` }} />
-                </span>
-                {progressLabel(paper.progress)}
-              </span>
-            ) : null}
-          </div>
-        </div>
-        <button type="button" className="btn primary home-resume" onClick={onOpen}>
-          {started ? 'Resume here' : 'Open'} <kbd>↵</kbd>
-        </button>
+        </label>
+      ))}
+      <p className="home-eyebrow home-menu-split">Show as tabs</p>
+      <div className="home-menu-tabs">
+        {HOME_TABS.map((item) => (
+          <label key={item} className={item === 'continue' ? 'is-fixed' : undefined}>
+            <input type="checkbox" checked={prefs.tabs.includes(item)} disabled={item === 'continue'} onChange={() => toggle(item)} />
+            {prefs.tabs.includes(item) ? <CheckIcon size={11} strokeWidth={3} className="home-menu-tick" /> : null}
+            {TAB_LABEL[item]}
+          </label>
+        ))}
       </div>
-
-      <div className="home-peek">
-        <div className="home-peek-bar">
-          <span className="home-eyebrow">{shown ? 'Where you stopped' : paper.abstract ? 'Abstract' : started ? 'Where you are' : 'Not started'}</span>
-          {shown && where ? <span className="home-peek-where">{where}</span> : null}
-          <span style={{ flex: 1 }} />
-          {shown && spot ? <span className="home-chip">{spot.mode === 'pdf' ? 'PDF' : 'Reflow'}</span> : null}
-        </div>
-        <button type="button" className="home-peek-page" onClick={onOpen} aria-label={`Open ${paper.title} where you stopped`}>
-          {shown && spot?.mode === 'pdf' ? (
-            <PdfPeek spot={spot} />
-          ) : shown && spot ? (
-            <ReflowPeek spot={spot} />
-          ) : (
-            <div className="home-peek-sheet home-peek-abstract">
-              {paper.abstract ? <p>{paper.abstract}</p> : null}
-              <p className="home-peek-hint">
-                {started
-                  ? 'Home will show the page you were on from the next time you read this paper.'
-                  : 'Home will show the page you stop on, once you have started it.'}
-              </p>
-            </div>
-          )}
-        </button>
-        <div className="home-peek-fade" aria-hidden="true" />
-      </div>
-    </section>
-  );
-}
-
-/** The PDF page you left, moved so that where you were sits a little below the top. */
-function PdfPeek({ spot }: { spot: Spot }) {
-  const top = spot.top ?? 0;
-  return (
-    <div className="home-peek-pdf" style={{ ['--at' as string]: String(top) }}>
-      <img src={spot.image} alt={`Page ${spot.page ?? ''} of the paper, as you left it`} />
-      {top > 0.02 ? <span className="home-peek-read" aria-hidden="true" /> : null}
-      <span className="home-stop" aria-hidden="true">
-        <span>You were here</span>
-      </span>
+      <p className="home-menu-foot">
+        <kbd>1</kbd>–<kbd>4</kbd> switch views · <kbd>↵</kbd> resumes reading
+      </p>
     </div>
   );
 }
 
-/** The paragraphs you left, the ones scrolled past dimmed, and a line where the screen began. */
-function ReflowPeek({ spot }: { spot: Spot }) {
-  const blocks = spot.blocks ?? [];
-  const stopAt = blocks.findIndex((block) => !block.read);
-  return (
-    <div className="home-peek-sheet home-peek-reflow">
-      {blocks.map((block, index) => {
-        const body = block.runs.map((run, at) =>
-          run.color ? (
-            <mark key={at} className={`hl-bg-${run.color}`}>
-              {run.text}
-            </mark>
-          ) : (
-            <span key={at}>{run.text}</span>
-          ),
-        );
-        return (
-          <div key={index} className={block.read ? 'is-read' : undefined}>
-            {index === stopAt && stopAt > 0 ? (
-              <span className="home-stop in-flow" aria-hidden="true">
-                <span>You were here</span>
-              </span>
-            ) : null}
-            {block.heading ? <h3>{body}</h3> : <p>{body}</p>}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
