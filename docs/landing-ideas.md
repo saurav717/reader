@@ -16,24 +16,54 @@ and are re-rendered with `node docs/mockups/landing-src/render.mjs`.
 
 ---
 
+## Home: one default view, three more a click away
+
+**Home opens on _Continue reading_**, the view that shows the page you
+stopped on. A switcher at the top of Home holds the three other views that
+are most worth having:
+
+| Tab | What it's for | Key |
+|---|---|---|
+| **Continue reading** (default) | The page you left, what's in progress, recent highlights, up next | <kbd>1</kbd> |
+| **Today** | A timed reading plan and a focus session (idea 8) | <kbd>2</kbd> |
+| **Projects** | Your active research question and its papers (idea 7) | <kbd>3</kbd> |
+| **Inbox** | New papers since your last visit, with a count badge (idea 3) | <kbd>4</kbd> |
+
+The **⋯** at the end of the switcher opens the menu below. There you choose
+which view **Home opens on** (or "whichever I used last"), and which views
+appear as tabs. Search-first (idea 2) and Review (idea 4) can be switched on
+as tabs too. The same choice is also in Settings.
+
+![The Home view menu: "Home opens on" radio options for Continue reading, Today, Projects, Inbox or whichever was used last, and checkboxes for which views show as tabs](mockups/landing-1c-choose-views.png)
+
+On Today, Projects and Inbox, a **"Pick up where you left off" strip** sits at
+the bottom. It shows a few lines of the page with the stop marker, and
+**Resume** (<kbd>↵</kbd>). Getting back into your paper is therefore one key
+from every view, not just the default one.
+
+Why these three: **Today** and **Projects** are the two ways of deciding
+*what* to read next (by time, or by question). The **Inbox** is the one
+place new material comes in. Search is already in Home's header on every
+view, so it doesn't need a tab of its own. Review works best as a short
+step inside Today rather than a place you'd start from.
+
 ## 1. Pick up where you left off
 
-![Home: a full-width continue-reading card showing the actual page of the paper where you stopped, with a "You stopped here" line, your highlight and note pin; below it papers in progress, recent highlights and the queue](mockups/landing-1-continue.png)
+![Home, Continue reading: most of the screen is the PDF page where you stopped, with the previous lines dimmed, the highlight, a margin note, and a "You stopped here" line, with papers in progress, highlights and up next in a column on the right](mockups/landing-1-continue.png)
 
-The paper you last opened fills the top of Home, and **the page you stopped
-on is shown right there**. It's the real page, in the mode you left it in
-(PDF or Reflow), scrolled so a dashed **"You stopped here"** line sits in
-the middle of the view, with the lines you'd already read dimmed above it.
-Your last highlight is visible in context, with a pin for its note. Reading
-two or three lines is usually enough to remember where you were, before you
-even open the paper.
+The paper you last opened takes up most of Home, and **most of the page you
+stopped on is shown**: the running head, the paragraphs you'd already read
+(dimmed), the section heading, your highlight with its note in the margin, a
+dashed **"You stopped here"** line, then the equation, figure and paragraph
+that come next. It's the real page, in the mode you left it in (PDF or
+Reflow). Seeing half a page is enough to remember where you were before you
+open anything.
 
 - **Resume here** (<kbd>↵</kbd>) or **Open at this line** opens the paper at
   exactly that line.
-- The left of the card shows the progress, the note on your last highlight,
-  what the last session added (18 min, 3 highlights, 1 note), and what's
-  coming next (§4.1, Fig. 2).
-- Below the card are the other papers in progress (flagged when one has
+- Above the page: the title, the progress, the time left, and what the last
+  session added.
+- In a column on the right: the other papers in progress (flagged when one has
   **stalled** for days), recent highlights, and the next unread papers with a
   rough reading time.
 

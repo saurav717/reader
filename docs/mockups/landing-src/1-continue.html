@@ -1,95 +1,98 @@
 <!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
 <style>
-.grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:20px;margin-top:22px}
-.hero{padding:0;display:grid;grid-template-columns:380px 1fr;overflow:hidden;grid-column:1/-1}
-.meta{padding:22px 24px;display:flex;flex-direction:column}
-.peek{position:relative;background:var(--panel);border-left:1px solid var(--border);padding:16px 18px 0;height:392px;overflow:hidden}
-.peek .bar-top{display:flex;align-items:center;gap:8px;margin-bottom:10px}
-.page{background:#fff;color:#1a1a17;border:1px solid var(--border);border-radius:3px 3px 0 0;box-shadow:0 2px 10px rgba(26,26,23,.10);padding:22px 60px;font-family:'Times New Roman',Times,var(--serif);font-size:15px;line-height:1.55;height:100%;position:relative;max-width:760px;margin:0 auto}
-.page h4{font:700 16px 'Times New Roman',Times,serif;margin:0 0 6px}
-.page p{margin:0 0 8px;text-align:justify;hyphens:auto}
-.page .eq{text-align:center;font-style:italic;margin:6px 0 8px}
-.page .fig{height:54px;border:1px solid #ddd;border-radius:2px;display:flex;gap:6px;padding:6px;margin:4px 0 8px}
-.page .fig i{flex:1;border-radius:2px;background:linear-gradient(135deg,#dbe8f3,#f3dfe4 45%,#e9f1dc)}
-.page .past{opacity:.55}
+.grid{display:grid;grid-template-columns:1fr 340px;gap:20px;height:calc(100% - 64px)}
+.hero{display:flex;flex-direction:column;overflow:hidden;padding:0}
+.meta{display:flex;align-items:center;gap:22px;padding:16px 22px;border-bottom:1px solid var(--border-soft)}
+.meta .t{flex:1;min-width:0}
+.meta .ptitle{font-size:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.facts{display:flex;gap:14px;white-space:nowrap;margin-top:6px;font-size:12px;color:var(--ink-2);align-items:center}
+.facts .bar{width:150px}
+.peek{position:relative;flex:1;background:var(--panel);overflow:hidden;padding:0 22px}
+.peekbar{position:absolute;top:0;left:0;right:0;z-index:3;display:flex;align-items:center;gap:8px;padding:10px 22px;background:linear-gradient(var(--panel) 60%,transparent)}
+.page{background:#fff;color:#1a1a17;box-shadow:0 2px 14px rgba(26,26,23,.12);max-width:660px;margin:0 auto 0 12px;padding:30px 56px 40px;font-family:'Times New Roman',Times,var(--serif);font-size:14.5px;line-height:1.5;position:relative}
+.page.prev{margin-top:-120px;padding-bottom:20px}
+.pghead{font-size:11px;color:#666;text-align:center;margin-bottom:18px;font-style:italic}
+.pgnum{text-align:center;font-size:12px;color:#444;margin-top:14px}
+.gap{height:14px}
+.page h4{font:700 15.5px 'Times New Roman',Times,serif;margin:14px 0 6px}
+.page p{margin:0 0 9px;text-align:justify;hyphens:auto}
+.page .eq{text-align:center;font-style:italic;margin:10px 0}
+.page .read{color:#8a877e}
+.fig{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0 6px}
+.fig div{height:92px;border:1px solid #ddd;border-radius:2px;background:radial-gradient(circle at 30% 40%,#f3c9c2,transparent 45%),radial-gradient(circle at 70% 65%,#bcd3ea,transparent 50%),linear-gradient(135deg,#eef3f8,#f8efe9)}
+.fig div:nth-child(2){filter:hue-rotate(40deg)}.fig div:nth-child(3){filter:hue-rotate(-60deg) saturate(.8)}
+.cap{font-size:12.5px;text-align:center;margin-bottom:10px}
 .hlp{background:#faeda2}
-.stop{position:relative;margin:10px -61px 12px;height:0;border-top:2px dashed var(--accent)}
-.stop span{position:absolute;right:10px;top:-11px;background:var(--accent);color:var(--accent-on);font:600 10.5px var(--sans);padding:2px 8px;border-radius:999px;letter-spacing:.02em}
-.stop::before{content:'';position:absolute;left:-1px;top:-6px;width:10px;height:10px;border-radius:50%;background:var(--accent)}
-.pin{position:absolute;right:-30px;width:18px;height:18px;border-radius:5px;background:#f6d8dc;border:1px solid #c9566c;display:grid;place-items:center;font:600 10px var(--sans);color:#8f2f2f}
-.fade{position:absolute;left:0;right:0;bottom:0;height:80px;background:linear-gradient(transparent,var(--panel))}
-.fadetop{position:absolute;left:0;right:0;top:44px;height:30px;background:linear-gradient(var(--panel),transparent);z-index:1}
-.peek .open{position:absolute;right:18px;bottom:14px;z-index:2}
-:root[data-theme=dark] .page{background:#23252b;color:#dcd8ce;border-color:var(--border)}
+.stop{position:relative;margin:12px -57px 14px;height:0;border-top:2px dashed var(--accent);z-index:2}
+.stop span{position:absolute;right:14px;top:-12px;background:var(--accent);color:var(--accent-on);font:600 11px var(--sans);padding:3px 10px;border-radius:999px}
+.stop::before{content:'';position:absolute;left:-2px;top:-7px;width:12px;height:12px;border-radius:50%;background:var(--accent)}
+.margin-note{text-align:left;position:absolute;right:-232px;width:205px;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--ul-pink);border-radius:8px;padding:9px 11px;font:12px/1.45 var(--sans);color:var(--ink);box-shadow:var(--shadow-sm)}
+.margin-note small{display:block;color:var(--muted);font-size:10.5px;margin-bottom:3px}
+.fade{position:absolute;left:0;right:0;bottom:0;height:110px;background:linear-gradient(transparent,var(--panel) 85%);z-index:2}
+.peek .open{position:absolute;right:22px;bottom:16px;z-index:3;display:flex;gap:8px}
+.side{display:flex;flex-direction:column;gap:16px;min-height:0}
+.row{display:flex;align-items:center;gap:11px;padding:9px 14px;border-top:1px solid var(--border-soft)}
+.row .ptitle{font-size:13.5px}
+.sh{display:flex;justify-content:space-between;padding:12px 14px 6px}
+.hlitem{padding:9px 14px;border-top:1px solid var(--border-soft);font-family:var(--serif);font-size:13.5px;line-height:1.4}
+.hlitem small{display:block;font-family:var(--sans);font-size:11px;color:var(--muted);margin-top:3px}
+:root[data-theme=dark] .page{background:#23252b;color:#dcd8ce}
+:root[data-theme=dark] .page .read,:root[data-theme=dark] .pghead,:root[data-theme=dark] .pgnum{color:#8d897f}
 :root[data-theme=dark] .hlp{background:rgba(246,226,122,.3)}
-:root[data-theme=dark] .page .fig{border-color:#3a3d45}
-:root[data-theme=dark] .page .fig i{opacity:.35}
-.note{margin:14px 0 16px;padding:9px 12px;border-radius:8px;background:var(--hl-pink);font-size:12px;line-height:1.45}
-.snip{border-left:3px solid var(--ul-yellow);padding:8px 12px;margin:14px 0 16px;font-family:var(--serif);font-size:15px;line-height:1.5;background:var(--panel);border-radius:0 8px 8px 0}
-.row{display:flex;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid var(--border-soft)}
-.row:first-child{border-top:0}
-.qbox{display:flex;align-items:center;gap:10px;height:44px;padding:0 14px;border:1px solid var(--border);border-radius:11px;background:var(--surface);box-shadow:var(--shadow-sm);color:var(--muted);font-size:14px;width:520px}
-.stat b{font-family:var(--serif);font-size:26px;font-weight:600;display:block;color:var(--ink)}
-.hlitem{padding:11px 14px;border-top:1px solid var(--border-soft);font-family:var(--serif);font-size:14px;line-height:1.45}
-.hlitem:first-of-type{border-top:0}
-.hlitem small{display:block;font-family:var(--sans);font-size:11px;color:var(--muted);margin-top:4px}
+:root[data-theme=dark] .fig div{border-color:#3a3d45;opacity:.45}
 </style></head><body><div class="app"><!--RAIL-->
 <main class="main"><div class="scroll">
-<div style="display:flex;align-items:flex-end;justify-content:space-between">
-  <div><div class="eyebrow">Sunday, 27 September</div>
-  <h1 class="serif" style="font-size:34px;font-weight:600;letter-spacing:-.014em;margin-top:6px">Good evening, Saurav</h1></div>
-  <div class="qbox"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Search papers, people, or paste an arXiv id…<span style="flex:1"></span><kbd>⌘K</kbd></div>
-</div>
-
+<!--HOMEBAR:continue-->
 <div class="grid">
-  <section class="card hero">
-   <div class="meta">
-    <div class="eyebrow" style="color:var(--accent)">Continue reading · 2 hours ago</div>
-    <div class="ptitle" style="font-size:22px;margin-top:6px">Fourier Neural Operator for Parametric Partial Differential Equations</div>
-    <div class="ink2" style="margin-top:4px">Zongyi Li, Nikola Kovachki et al. · ICLR 2021</div>
-    <div style="display:flex;align-items:center;gap:10px;margin-top:14px"><div class="bar" style="flex:1"><i style="width:42%"></i></div><span class="mono muted">42% · ~14 min left</span></div>
-    <div class="note"><b>Your note</b> on the last highlight: “Where does this kernel parameterisation come from?”</div>
-    <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:12px;margin-bottom:16px">
-     <span class="muted">Last session</span><span>18 min · 3 highlights · 1 note</span>
-     <span class="muted">Coming up</span><span>§4.1 Discretisation invariance · Fig. 2</span>
-    </div>
-    <div style="flex:1"></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="btn primary">Resume here <kbd style="background:transparent;color:var(--accent-on);border-color:rgba(255,255,255,.35)">↵</kbd></span><span class="btn">Explain the paper</span></div>
+ <section class="card hero">
+  <div class="meta">
+   <div class="t">
+    <div class="eyebrow" style="color:var(--accent)">Continue reading · left 2 hours ago</div>
+    <div class="ptitle" style="margin-top:4px">Fourier Neural Operator for Parametric Partial Differential Equations</div>
+    <div class="facts"><span>Li, Kovachki et al. · ICLR 2021</span><div class="bar" style="width:110px"><i style="width:42%"></i></div><span class="mono">42% · ~14 min left</span><span class="muted">last session 18 min · 3 highlights</span></div>
    </div>
-   <div class="peek">
-    <div class="bar-top"><span class="eyebrow">Where you stopped</span><span class="mono muted">page 5 of 16 · §4</span><span style="flex:1"></span><span class="chip" style="height:22px;background:var(--surface);color:var(--accent-ink);border-color:var(--accent)">PDF</span><span class="chip" style="height:22px">Reflow</span></div>
-    <div class="fadetop"></div>
-    <div class="page">
-     <p class="past">…where each update composes a non-local integral operator with a local, nonlinear activation function. Finally, the output u is the projection of v<sub>T</sub> by Q.</p>
-     <h4>4 &nbsp;Fourier Neural Operator</h4>
-     <p>We propose replacing the kernel integral operator in (3) by a convolution operator defined in Fourier space. Let ℱ denote the Fourier transform of a function f : D → ℝ<sup>d<sub>v</sub></sup>. Since the Fourier layer parameterises the <span class="hlp">integral kernel directly in Fourier space and truncates the higher modes</span>, each layer costs only 𝒪(n log n).<span class="pin" style="top:168px" title="your note">✎</span></p>
-     <div class="stop"><span>You stopped here · 2 h ago</span></div>
-     
-     
-     <div class="eq" style="margin-top:14px">(𝒦(φ)v<sub>t</sub>)(x) = ℱ<sup>−1</sup>( R<sub>φ</sub> · (ℱv<sub>t</sub>) )(x), &nbsp; ∀x ∈ D &nbsp;&nbsp;&nbsp;(4)</div>
-     <p>where R<sub>φ</sub> is the Fourier transform of a periodic function κ : D̄ → ℝ<sup>d<sub>v</sub>×d<sub>v</sub></sup> parameterised by φ ∈ Θ<sub>𝒦</sub>…</p>
-     <div class="fig"><i></i><i></i><i></i></div>
-    </div>
-    <div class="fade"></div>
-    <span class="btn open" style="background:var(--surface)">Open at this line →</span>
+   <span class="btn primary" style="height:38px;padding:0 16px">Resume here <kbd style="background:transparent;color:var(--accent-on);border-color:rgba(255,255,255,.35)">↵</kbd></span>
+  </div>
+  <div class="peek">
+   <div class="peekbar"><span class="eyebrow">Where you stopped</span><span class="mono muted">page 5 of 16 · §4 Fourier Neural Operator</span><span style="flex:1"></span><span class="chip" style="height:22px;background:var(--surface);color:var(--accent-ink);border-color:var(--accent)">PDF</span><span class="chip" style="height:22px">Reflow</span></div>
+   <div class="page prev"><p class="read">…of the solution operator, and we then show that the resulting architecture approximates any continuous operator to arbitrary accuracy.</p><div class="pgnum">4</div></div>
+   <div class="gap"></div>
+   <div class="page">
+    <div class="pghead">Published as a conference paper at ICLR 2021</div>
+    <p class="read">We then apply several iterations of updates v<sub>t</sub> ↦ v<sub>t+1</sub>, where each update composes a non-local integral operator 𝒦 with a local, nonlinear activation function σ. Finally, the output u is the projection of v<sub>T</sub> by the local transformation Q.</p>
+    <h4>4 &nbsp;Fourier Neural Operator</h4>
+    <p class="read">We propose replacing the kernel integral operator in (3) by a convolution operator defined in Fourier space. Let ℱ denote the Fourier transform of a function f : D → ℝ<sup>d<sub>v</sub></sup> and ℱ<sup>−1</sup> its inverse.</p>
+    <p>Since the Fourier layer parameterises the <span class="hlp">integral kernel directly in Fourier space and truncates the higher modes</span>, each layer costs only 𝒪(n log n), and the same parameters can be evaluated on any grid.
+     <span class="margin-note" style="top:238px"><small>Your note · 2 h ago</small>Where does this kernel parameterisation come from?</span></p>
+    <div class="stop"><span>You stopped here</span></div>
+    <div class="eq">(𝒦(φ)v<sub>t</sub>)(x) = ℱ<sup>−1</sup>( R<sub>φ</sub> · (ℱv<sub>t</sub>) )(x), &nbsp;&nbsp; ∀x ∈ D &nbsp;&nbsp;&nbsp;&nbsp;(4)</div>
+    <p>where R<sub>φ</sub> is the Fourier transform of a periodic function κ : D̄ → ℝ<sup>d<sub>v</sub>×d<sub>v</sub></sup> parameterised by φ ∈ Θ<sub>𝒦</sub>. For frequency mode k ∈ D, we have (ℱv<sub>t</sub>)(k) ∈ ℂ<sup>d<sub>v</sub></sup> and R<sub>φ</sub>(k) ∈ ℂ<sup>d<sub>v</sub>×d<sub>v</sub></sup>.</p>
+    <div class="fig"><div></div><div></div><div></div></div>
+    <div class="cap">Figure 2: The full architecture of the neural operator and a Fourier layer.</div>
+    <p>The discretisation D<sub>j</sub> of the domain D gives n points; in the Fourier domain we keep at most k<sub>max</sub> modes…</p>
    </div>
+   <div class="fade"></div>
+   <div class="open"><span class="btn" style="background:var(--surface)">Explain the paper</span><span class="btn" style="background:var(--surface)">Open at this line →</span></div>
+  </div>
+ </section>
+ <aside class="side">
+  <section class="card">
+   <div class="sh"><span class="eyebrow">Also in progress</span><span class="btn ghost" style="height:auto;padding:0;font-size:11.5px">All (4) →</span></div>
+   <div class="row"><div class="ring" style="--p:.63;width:28px;height:28px"></div><div style="flex:1"><div class="ptitle">Survey of mixture-of-experts</div><div class="muted" style="font-size:11px">63% · 2 days ago</div></div></div>
+   <div class="row"><div class="ring" style="--p:.18;width:28px;height:28px"></div><div style="flex:1"><div class="ptitle">Neural Operator: Learning Maps Between Function Spaces</div><div class="muted" style="font-size:11px">18% · 4 days ago</div></div></div>
+   <div class="row"><div class="ring" style="--p:.08;width:28px;height:28px"></div><div style="flex:1"><div class="ptitle">Post-stroke aphasia severity from multimodal neuroimaging</div><div class="muted" style="font-size:11px">8% · <span style="color:var(--ul-pink)">stalled 6 days</span></div></div></div>
   </section>
   <section class="card">
-   <div style="display:flex;justify-content:space-between;padding:14px 14px 6px"><span class="eyebrow">Also in progress</span><span class="btn ghost" style="height:auto;padding:0">Reading now (4) →</span></div>
-   <div class="row"><div class="ring" style="--p:.63"></div><div style="flex:1"><div class="ptitle">A comprehensive survey of mixture-of-experts: Algorithms, theory, and applications</div><div class="muted" style="font-size:11.5px">S Mu, S Lin · 2025 · 63% · opened 2 days ago</div></div><span class="chip">5 highlights</span></div>
-   <div class="row"><div class="ring" style="--p:.18"></div><div style="flex:1"><div class="ptitle">Neural Operator: Learning Maps Between Function Spaces</div><div class="muted" style="font-size:11.5px">Kovachki et al. · JMLR 2023 · 18% · opened 4 days ago</div></div><span class="chip">1 note</span></div>
-   <div class="row"><div class="ring" style="--p:.08"></div><div style="flex:1"><div class="ptitle">Fusion approaches to predict post-stroke aphasia severity from multimodal neuroimaging data</div><div class="muted" style="font-size:11.5px">S Chennuri et al. · ICCV 2023 · 8% · opened last week</div></div><span class="chip">Stalled 6 days</span></div>
-  </section>
-  <section class="card">
-   <div style="padding:14px 14px 6px"><span class="eyebrow">Recent highlights</span></div>
+   <div class="sh"><span class="eyebrow">Recent highlights</span></div>
    <div class="hlitem"><span class="hl-g">spectral convolution is resolution-invariant</span><small><span class="dot dg"></span> Fourier Neural Operator · §4</small></div>
-   <div class="hlitem"><span class="hl-b">sparse gating selects the top-k experts per token</span><small><span class="dot db"></span> Survey of mixture-of-experts · §2.1</small></div>
-   <div class="hlitem"><span class="hl-p">Does truncation lose shock fronts?</span><small><span class="dot dp"></span> Fourier Neural Operator · note · open question</small></div>
+   <div class="hlitem"><span class="hl-b">sparse gating selects the top-k experts per token</span><small><span class="dot db"></span> Mixture-of-experts · §2.1</small></div>
+   <div class="hlitem"><span class="hl-p">Does truncation lose shock fronts?</span><small><span class="dot dp"></span> open question</small></div>
   </section>
   <section class="card">
-   <div style="padding:14px 14px 6px"><span class="eyebrow">Up next in your queue</span></div>
-   <div class="row"><div class="cover" style="width:30px;height:40px"><i></i><i></i><i></i></div><div style="flex:1"><div class="ptitle" style="font-size:14px">Physics-informed neural networks</div><div class="muted" style="font-size:11.5px">Raissi et al. · added yesterday · ~35 min</div></div></div>
-   <div class="row"><div class="cover" style="width:30px;height:40px"><i></i><i></i><i></i></div><div style="flex:1"><div class="ptitle" style="font-size:14px">DeepONet: Learning nonlinear operators</div><div class="muted" style="font-size:11.5px">Lu et al. · added 3 days ago · ~40 min</div></div></div>
+   <div class="sh"><span class="eyebrow">Up next</span></div>
+   <div class="row"><div class="cover" style="width:26px;height:34px;padding:4px"><i></i><i></i></div><div style="flex:1"><div class="ptitle">Physics-informed neural networks</div><div class="muted" style="font-size:11px">~35 min · added yesterday</div></div></div>
+   <div class="row"><div class="cover" style="width:26px;height:34px;padding:4px"><i></i><i></i></div><div style="flex:1"><div class="ptitle">DeepONet</div><div class="muted" style="font-size:11px">~40 min · added 3 days ago</div></div></div>
   </section>
+ </aside>
 </div>
-</div></main></div><div class="label">Idea 1 · Pick up where you left off</div></body></html>
+</div></main></div><div class="label">Home · Continue reading (default)</div></body></html>
