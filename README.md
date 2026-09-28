@@ -14,6 +14,8 @@ and what you have **finished**. In the middle, the paper. On the right, a dock
 holding **Discover** and **Highlights** — tabs, so the reading column never has a
 panel crowding it on both sides.
 
+![Home: the paper last read, shown at the PDF page it was left on with a line where the screen began, and the papers in progress, the latest highlights and what is next beside it](docs/home.png)
+
 A visit starts on **Home**, and the **R** at the top of the rail brings you back
 to it. Home shows the paper you were last reading at the page you left it on: the
 PDF page, or the paragraphs in Reflow, with the part you had scrolled past dimmed
