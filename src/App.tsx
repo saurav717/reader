@@ -25,12 +25,15 @@ import Reader from './components/Reader';
 import Settings from './components/Settings';
 import UsageView, { useIsOwner } from './components/UsageView';
 import Welcome from './components/Welcome';
+import Home from './components/Home';
 import { SIGN_IN_REQUIRED } from './lib/google';
 import { canFullscreen, enterFullscreen, fullscreenElement, leaveFullscreen } from './lib/fullscreen';
 import { ChartIcon, GoogleMark, HighlighterIcon, LibraryIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
 
 const WELCOME_KEY = 'reader.welcomed';
 const VIEW_KEY = 'reader.view';
+/** Set for the life of the tab: a visit starts on Home, a reload stays where it was. */
+const VISIT_KEY = 'reader.visit';
 const LAYOUT_KEY = 'reader.layout';
 const ASSISTANT_KEY = 'reader.assistant.open';
 const ZEN_KEY = 'reader.zen';
@@ -92,13 +95,23 @@ interface Layout {
 }
 
 function readView(): View {
+  // A new visit — signing in, a new tab — opens on Home, with the paper you
+  // were reading one key away; reloading the tab keeps you where you were.
+  try {
+    if (!sessionStorage.getItem(VISIT_KEY)) {
+      sessionStorage.setItem(VISIT_KEY, '1');
+      return { kind: 'home' };
+    }
+  } catch {
+    return { kind: 'home' };
+  }
   try {
     const raw = localStorage.getItem(VIEW_KEY);
     if (raw) return JSON.parse(raw) as View;
   } catch {
     // fall through to the default
   }
-  return { kind: 'all' };
+  return { kind: 'home' };
 }
 
 const NARROW = 900;
@@ -467,6 +480,15 @@ export default function App() {
     }
   }, []);
 
+  // From a highlight on Home: the paper, with that highlight chosen in its notes.
+  const openHighlight = useCallback(
+    (paperId: string, highlightId: string) => {
+      openPaper(paperId);
+      setSelectedHighlightId(highlightId);
+    },
+    [openPaper],
+  );
+
   const openFromDiscover = useCallback((id: string) => openPaper(id, true), [openPaper]);
   // From the progress in the rail: the paper, with its Explain page open on the page being written.
   const openFromProgress = useCallback(
@@ -561,7 +583,7 @@ export default function App() {
     const where =
       view.kind === 'collection'
         ? `Browsing the collection “${name ?? 'Collection'}”`
-        : { all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library' }[view.kind];
+        : { home: 'On Home — the paper last read, what is in progress and the latest highlights', all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library' }[view.kind];
     const library = Array.from(document.querySelectorAll('.paper-name'), (el) => el.textContent?.trim() ?? '').filter(Boolean);
     return { where, library };
   }, [view, papers, collections, highlights, explainOpen]);
@@ -750,9 +772,20 @@ export default function App() {
       {...zenPointer}
     >
       <nav className="rail" aria-label="Primary">
-        <div className="brand" aria-hidden="true">
+        <button
+          type="button"
+          className="brand"
+          aria-label="Home"
+          aria-current={view.kind === 'home' && !onUsage && !showWelcome ? 'page' : undefined}
+          title="Home — the paper you were reading, and what is next"
+          onClick={() => {
+            setUsageOpen(false);
+            setView({ kind: 'home' });
+            if (isNarrow()) setLibraryOpen(false);
+          }}
+        >
           R
-        </div>
+        </button>
         <button
           type="button"
           className="icon-btn"
@@ -882,6 +915,8 @@ export default function App() {
           onSelectHighlight={setSelectedHighlightId}
           onOrphans={onOrphans}
         />
+      ) : view.kind === 'home' ? (
+        <Home onOpenPaper={openPaper} onOpenHighlight={openHighlight} onSearch={() => setPaletteOpen(true)} onDiscover={addPapers} />
       ) : view.kind === 'junk' ? (
         <JunkView />
       ) : (

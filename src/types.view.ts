@@ -1,4 +1,5 @@
 export type View =
+  | { kind: 'home' }
   | { kind: 'all' }
   | { kind: 'reading' }
   | { kind: 'unread' }
