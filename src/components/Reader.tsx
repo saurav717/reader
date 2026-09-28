@@ -75,6 +75,8 @@ interface Props {
   notesOpen: boolean;
   selectedHighlightId: string | null;
   onBack: () => void;
+  /** Home, from the top bar; G does the same, and G on Home comes back. */
+  onHome?: () => void;
   onToggleNotes: () => void;
   /** Bring the highlights pane forward; `force` opens the dock if it is shut. */
   onNotes: (force: boolean) => void;
@@ -136,6 +138,7 @@ export default function Reader({
   notesOpen,
   selectedHighlightId,
   onBack,
+  onHome,
   onToggleNotes,
   onNotes,
   onToggleSidebar,
@@ -1591,6 +1594,11 @@ export default function Reader({
           <button type="button" className="icon-btn sm" onClick={onBack} aria-label="Back to the collection">
             <ArrowLeftIcon size={18} />
           </button>
+          {onHome ? (
+            <button type="button" className="topbar-home" onClick={onHome} title="Home — G, and G on Home brings you back here">
+              Home <kbd>G</kbd>
+            </button>
+          ) : null}
           <div className="topbar-heading">
             <div className="title" title={paper.title}>{paper.title}</div>
             <div className="sub" title={topbarSub}>{topbarSub}</div>

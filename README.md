@@ -27,7 +27,10 @@ shown, and whether the library and the dock are put away while you are on Home
   collection the **+** on each result adds it to. Its **▾** picks another
   (<kbd>1</kbd>–<kbd>9</kbd>) or makes a new one; a result can also be dragged onto
   a collection on the right, and each save says so with **Undo**. A paper
-  already in the library says where it is instead. Before anything is asked it
+  already in the library says where it is instead. Click a result, or press
+  <kbd>↵</kbd> on it, and it opens as it does in Discover: the abstract, every
+  place it can be read — which of them are files — and Save, Read and Source.
+  Before anything is asked it
   suggests papers near the one you are reading, and more by its first author,
   from OpenAlex; underneath, the papers in progress as small cards, each a
   sliver of the page where you stopped. People, more pages and Scholar's
@@ -44,6 +47,10 @@ shown, and whether the library and the dock are put away while you are on Home
   started, to open, mark read or send to Junk.
 - **Collections** — each collection a column, with a box at its foot that finds
   a paper and puts it straight in; drag a card to another column to move it.
+
+**G** goes between Home and the paper you are reading, both ways. On Home the
+paper it goes back to is named in a **Back to reading** button beside the
+greeting, and under R on the rail; in the paper, the top bar has **Home**.
 
 While you read, **R** opens your **desk**: the papers in progress side by side,
 each at the page and line you left it. <kbd>1</kbd>–<kbd>4</kbd> goes to one there,

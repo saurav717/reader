@@ -115,7 +115,7 @@ function ResultHead({
  * Scholar answers it with "All 14 versions"; this is the same list, built from
  * the indexes that publish one, with a link to Scholar's own for comparison.
  */
-function Locations({ paper }: { paper: PaperRef }) {
+export function Locations({ paper }: { paper: PaperRef }) {
   const [locations, setLocations] = useState<PaperLocation[] | null>(null);
   const [failed, setFailed] = useState(false);
 

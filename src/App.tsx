@@ -31,7 +31,8 @@ import Desk from './components/Desk';
 import { keepSpotNow } from './lib/spot';
 import { SIGN_IN_REQUIRED } from './lib/google';
 import { canFullscreen, enterFullscreen, fullscreenElement, leaveFullscreen } from './lib/fullscreen';
-import { ChartIcon, GoogleMark, HighlighterIcon, LibraryIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
+import { ChartIcon, GoogleMark, HighlighterIcon, LibraryIcon, OpenBookIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
+import { FINISHED_AT } from './lib/status';
 
 const WELCOME_KEY = 'reader.welcomed';
 const VIEW_KEY = 'reader.view';
@@ -147,6 +148,10 @@ export default function App() {
   const [libraryOpen, setLibraryOpen] = useState(layout.libraryOpen);
   const [dock, setDock] = useState<Dock>(layout.dock);
   const [view, setView] = useState<View>(readView);
+  /** For the keys, which are set up before openPaper is. */
+  const openPaperRef = useRef<(id: string) => void>(() => {});
+  /** The paper read last in this tab: what G, and the button under R, go back to from Home. */
+  const [lastPaperId, setLastPaperId] = useState<string | null>(() => (view.kind === 'paper' ? view.id : null));
   /** The desk: the papers in progress at the page each was left on, over the one being read. */
   const [deskOpen, setDeskOpen] = useState(false);
   // On Home the library and the dock are put away, and come back as they were
@@ -423,7 +428,35 @@ export default function App() {
 
   const readingNow = view.kind === 'paper';
   useEffect(() => {
+    if (view.kind === 'paper') setLastPaperId(view.id);
+  }, [view]);
+  // Back from Home: the paper read last in this tab, or — at the start of a
+  // visit — the one last opened and not finished.
+  const returnPaper = useMemo(() => {
+    const last = lastPaperId ? papers.find((paper) => paper.id === lastPaperId) : undefined;
+    if (last) return last;
+    return papers
+      .filter((paper) => paper.lastOpenedAt && paper.progress < FINISHED_AT)
+      .sort((a, b) => (b.lastOpenedAt ?? '').localeCompare(a.lastOpenedAt ?? ''))[0];
+  }, [lastPaperId, papers]);
+  const returnRef = useRef(returnPaper);
+  returnRef.current = returnPaper;
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // G, on its own and not while typing, goes between Home and the paper being read.
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'g' && !isTyping(event.target)) {
+        if (document.querySelector('.scrim, .sheet, .palette, .desk-scrim')) return;
+        if (readingNow) {
+          event.preventDefault();
+          setView({ kind: 'home' });
+          return;
+        }
+        if (view.kind === 'home' && returnRef.current) {
+          event.preventDefault();
+          openPaperRef.current(returnRef.current.id);
+          return;
+        }
+      }
       // R, on its own and not while typing, lays the papers in progress out as a desk.
       if (readingNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'r' && !isTyping(event.target)) {
         if (document.querySelector('.scrim, .sheet, .palette, .desk-scrim')) return;
@@ -538,6 +571,7 @@ export default function App() {
     [openPaper],
   );
 
+  openPaperRef.current = openPaper;
   const openFromDiscover = useCallback((id: string) => openPaper(id, true), [openPaper]);
   // From the progress in the rail: the paper, with its Explain page open on the page being written.
   const openFromProgress = useCallback(
@@ -826,7 +860,7 @@ export default function App() {
           className="brand"
           aria-label="Home"
           aria-current={view.kind === 'home' && !onUsage && !showWelcome ? 'page' : undefined}
-          title="Home — the paper you were reading, and what is next"
+          title="Home — press G to go between Home and the paper you are reading"
           onClick={() => {
             setUsageOpen(false);
             setView({ kind: 'home' });
@@ -835,6 +869,18 @@ export default function App() {
         >
           R
         </button>
+        {/* On Home, the way back into the paper, right under the way out of it. */}
+        {view.kind === 'home' && returnPaper && !showWelcome && !onUsage ? (
+          <button
+            type="button"
+            className="icon-btn rail-return"
+            aria-label={`Back to reading ${returnPaper.title} (G)`}
+            title={`Back to ${returnPaper.title} — G`}
+            onClick={() => openPaper(returnPaper.id)}
+          >
+            <OpenBookIcon size={19} />
+          </button>
+        ) : null}
         <button
           type="button"
           className="icon-btn"
@@ -955,6 +1001,7 @@ export default function App() {
           notesOpen={notesShown}
           selectedHighlightId={selectedHighlightId}
           onBack={() => setView(collections[0] ? { kind: 'collection', id: collections[0].id } : { kind: 'all' })}
+          onHome={() => setView({ kind: 'home' })}
           onToggleNotes={toggleNotes}
           onNotes={revealNotes}
           onToggleSidebar={() => setLibraryOpen(!libraryOpen)}
@@ -968,7 +1015,7 @@ export default function App() {
           onOrphans={onOrphans}
         />
       ) : view.kind === 'home' ? (
-        <Home onOpenPaper={openPaper} onOpenHighlight={openHighlight} onSearch={() => setPaletteOpen(true)} onDiscover={addPapers} onShowNotes={() => openNotesRef.current()} />
+        <Home returnTo={returnPaper} returnFromThisVisit={Boolean(lastPaperId && returnPaper?.id === lastPaperId)} onOpenPaper={openPaper} onOpenHighlight={openHighlight} onSearch={() => setPaletteOpen(true)} onDiscover={addPapers} onShowNotes={() => openNotesRef.current()} />
       ) : view.kind === 'junk' ? (
         <JunkView />
       ) : (

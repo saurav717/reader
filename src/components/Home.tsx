@@ -12,6 +12,10 @@ import { HOME_TABS, TAB_ABOUT, TAB_LABEL, openingTab, readHomePrefs, writeHomePr
 import { CheckIcon, ClockIcon, GridIcon, InboxIcon, OpenBookIcon, SearchIcon, StackIcon } from './icons';
 
 interface Props {
+  /** The paper G, and the pill beside the greeting, go back to. */
+  returnTo?: Paper;
+  /** Whether it was being read in this tab — “back to” — or last visit — “continue”. */
+  returnFromThisVisit?: boolean;
   onOpenPaper: (id: string) => void;
   onOpenHighlight: (paperId: string, highlightId: string) => void;
   onSearch: () => void;
@@ -52,7 +56,7 @@ function greeting(now: Date, name?: string): string {
  * you were last reading fills it, shown at the page you left it on, with what
  * else is in progress, your latest highlights and what is next beside it.
  */
-export default function Home({ onOpenPaper, onOpenHighlight, onSearch, onDiscover, onShowNotes }: Props) {
+export default function Home({ returnTo, returnFromThisVisit, onOpenPaper, onOpenHighlight, onSearch, onDiscover, onShowNotes }: Props) {
   const { papers, highlights, user } = useStore();
   const now = new Date();
   const [prefs, setPrefs] = useState<HomePrefs>(readHomePrefs);
@@ -146,6 +150,16 @@ export default function Home({ onOpenPaper, onOpenHighlight, onSearch, onDiscove
             <span className="home-eyebrow">{now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
             <h1>{greeting(now, user?.name)}</h1>
           </div>
+          {returnTo && tab !== 'continue' ? (
+            <button type="button" className="home-back" onClick={() => onOpenPaper(returnTo.id)} title={`${returnTo.title} — G goes between Home and this paper`}>
+              <OpenBookIcon size={17} />
+              <span className="home-back-text">
+                <small>{returnFromThisVisit ? 'Back to reading' : 'Continue reading'}</small>
+                <b>{clip(returnTo.title, 44)}</b>
+              </span>
+              <kbd>G</kbd>
+            </button>
+          ) : null}
           <nav className="home-tabs" aria-label="Home view">
             {tabs.map((item, index) => (
               <button
@@ -181,6 +195,7 @@ export default function Home({ onOpenPaper, onOpenHighlight, onSearch, onDiscove
             key={findAsk?.at ?? 'find'}
             hero={hero}
             ask={findAsk?.query}
+            focusBox={!returnFromThisVisit}
             saveTo={prefs.saveTo}
             onSaveTo={(id) => changePrefs({ ...prefs, saveTo: id })}
             onOpenPaper={onOpenPaper}

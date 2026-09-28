@@ -6,7 +6,8 @@ import { statusOf } from '../lib/status';
 import type { Collection, Paper, PaperRef, SourceId } from '../types';
 import { progressLabel } from './LibraryBits';
 import { PdfPeek, ReflowPeek, clip, hasPage, sinceLeft, useSpot, whereIn } from './HomeParts';
-import { CheckIcon, ChevronDownIcon, PlusIcon, SearchIcon } from './icons';
+import { CheckIcon, ChevronDownIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
+import { Locations } from './Discover';
 
 /** A search result dragged onto a collection carries itself. */
 const REF_MIME = 'application/x-reader-ref';
@@ -18,6 +19,11 @@ interface Props {
   hero: Paper | null;
   /** A question to start with, asked as the view opens. */
   ask?: string;
+  /**
+   * Put the cursor in the box as the view opens: at the start of a visit, yes;
+   * back from a paper, no — there G has to reach the paper again, not the box.
+   */
+  focusBox?: boolean;
   saveTo?: string;
   onSaveTo: (collectionId: string) => void;
   onOpenPaper: (id: string) => void;
@@ -43,7 +49,7 @@ interface Suggestion {
  * collection — the + button saves to the collection chosen beside the box,
  * its ▾ to any other, and a result can be dragged onto one on the right.
  */
-export function FindPapers({ hero, ask, saveTo, onSaveTo, onOpenPaper, onDiscover }: Props) {
+export function FindPapers({ hero, ask, focusBox = true, saveTo, onSaveTo, onOpenPaper, onDiscover }: Props) {
   const { papers, collections, addPaper, createCollection, setPaperCollections, removePaper } = useStore();
   const [query, setQuery] = useState(ask ?? '');
   const [asked, setAsked] = useState('');
@@ -53,6 +59,8 @@ export function FindPapers({ hero, ask, saveTo, onSaveTo, onOpenPaper, onDiscove
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState(0);
   const [picking, setPicking] = useState<string | null>(null);
+  /** The result opened to show everywhere it can be read, as Discover's are. */
+  const [openId, setOpenId] = useState<string | null>(null);
   const [added, setAdded] = useState<Added | null>(null);
   const [dropOn, setDropOn] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
@@ -61,9 +69,9 @@ export function FindPapers({ hero, ask, saveTo, onSaveTo, onOpenPaper, onDiscove
 
   const target = collections.find((item) => item.id === saveTo) ?? collections[0];
 
-  // The box has the cursor as Home opens on it, and / puts it back from anywhere on Home.
+  // The box has the cursor as a visit opens on it, and / puts it there from anywhere on Home.
   useEffect(() => {
-    input.current?.focus();
+    if (focusBox || ask) input.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
       const typing = event.target as HTMLElement | null;
@@ -75,6 +83,8 @@ export function FindPapers({ hero, ask, saveTo, onSaveTo, onOpenPaper, onDiscove
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+    // Once, as the view opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // A paper is in the library by its id, or by its title under another source's id.
@@ -279,7 +289,7 @@ export function FindPapers({ hero, ask, saveTo, onSaveTo, onOpenPaper, onDiscove
     } else if (ref && event.key === 'Enter' && (event.target as HTMLElement).classList.contains('find-row')) {
       event.preventDefault();
       event.stopPropagation();
-      void read(ref);
+      setOpenId((current) => (current === ref.id ? null : ref.id));
     }
   };
 
@@ -370,13 +380,21 @@ export function FindPapers({ hero, ask, saveTo, onSaveTo, onOpenPaper, onDiscove
           {shown.map((ref, index) => {
             const have = inLibrary(ref);
             const year = /^\d{4}/.exec(ref.published || '')?.[0];
+            const open = openId === ref.id;
             return (
+              <div key={`${ref.id}-${index}`} className={`find-item${open ? ' is-open' : ''}`}>
               <div
-                key={`${ref.id}-${index}`}
                 className={`find-row${index === selected ? ' is-selected' : ''}`}
                 tabIndex={0}
                 draggable
+                aria-expanded={open}
+                title="Click to see everywhere it can be read"
                 onFocus={() => setSelected(index)}
+                onClick={(event) => {
+                  // The buttons on the row do their own thing; anywhere else opens it.
+                  if ((event.target as HTMLElement).closest('button, a, select, .find-pick')) return;
+                  setOpenId(open ? null : ref.id);
+                }}
                 onDragStart={(event) => {
                   event.dataTransfer.setData(REF_MIME, JSON.stringify(ref));
                   event.dataTransfer.effectAllowed = 'copy';
@@ -390,6 +408,7 @@ export function FindPapers({ hero, ask, saveTo, onSaveTo, onOpenPaper, onDiscove
                     {ref.venue ? ` · ${clip(ref.venue, 50)}` : ''}
                     {year ? ` · ${year}` : ''}
                     {typeof ref.citedBy === 'number' ? ` · ${ref.citedBy.toLocaleString()} citations` : ''}
+                    {ref.scholarVersions ? ` · ${ref.scholarVersions} versions` : ''}
                     {ref.pdfUrl ? ' · PDF' : ''}
                   </span>
                 </div>
@@ -428,12 +447,43 @@ export function FindPapers({ hero, ask, saveTo, onSaveTo, onOpenPaper, onDiscove
                   </span>
                 )}
               </div>
+              {open ? (
+                <div className="find-detail">
+                  {ref.abstract ? (
+                    <p className="find-abstract">
+                      {ref.abstract.slice(0, 420)}
+                      {ref.abstract.length > 420 ? '…' : ''}
+                    </p>
+                  ) : null}
+                  <Locations paper={ref} />
+                  <div className="find-detail-actions">
+                    {have && target && have.collectionIds.includes(target.id) ? (
+                      <span className="find-have">
+                        <CheckIcon size={13} /> In {target.name}
+                      </span>
+                    ) : (
+                      <button type="button" className="btn primary sm" onClick={() => void save(ref, target)} disabled={!target}>
+                        <PlusIcon size={13} /> Save to {target ? clip(target.name, 24) : 'a collection'}
+                      </button>
+                    )}
+                    <button type="button" className="btn sm" onClick={() => void read(ref)}>
+                      {have ? 'Open' : 'Read'}
+                    </button>
+                    {ref.landingUrl ? (
+                      <a className="btn sm" href={ref.landingUrl} target="_blank" rel="noreferrer noopener">
+                        Source <ExternalIcon size={12} />
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              </div>
             );
           })}
           {shown.length ? (
             <p className="find-keys">
-              <kbd>↑</kbd>
-              <kbd>↓</kbd> move · <kbd>↵</kbd> read · <kbd>A</kbd> save to {target?.name ?? 'a collection'} · <kbd>▾</kbd> then <kbd>1</kbd>–<kbd>9</kbd> another · drag onto a collection
+              Click a paper to see everywhere it can be read · <kbd>↑</kbd>
+              <kbd>↓</kbd> move · <kbd>↵</kbd> open it · <kbd>A</kbd> save to {target?.name ?? 'a collection'} · <kbd>▾</kbd> then <kbd>1</kbd>–<kbd>9</kbd> another · drag onto a collection
             </p>
           ) : null}
         </section>
