@@ -1,0 +1,43 @@
+<!doctype html><html data-theme="dark" data-glass><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.top{height:54px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:14px;padding:0 20px}
+.doc{max-width:720px;margin:0 auto;padding:30px 40px;font-family:var(--serif);font-size:18px;line-height:1.7;color:var(--ink-2)}
+.scrim{position:fixed;inset:0;background:rgba(10,11,14,.62);backdrop-filter:blur(6px);z-index:5}
+.desk{position:fixed;left:110px;right:50px;top:60px;z-index:6}
+.dh{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+.dh h2{font-family:var(--serif);font-size:28px;font-weight:600}
+.find{display:flex;align-items:center;gap:10px;height:40px;padding:0 12px;border-radius:10px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);color:var(--muted);font-size:13px;width:360px;margin-left:auto}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.pc{border-radius:14px;overflow:hidden;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1)}
+.pc.cur{border:1.5px solid var(--accent);box-shadow:0 0 0 5px rgba(87,169,143,.14)}
+.pg{height:430px;background:#23252b;position:relative;overflow:hidden;padding:18px 20px;font-family:'Times New Roman',serif;font-size:11px;line-height:1.5;color:#cfcac0}
+.pg p{margin:0 0 8px;text-align:justify}
+.pg .read{color:#7c786f}
+.pg h4{font-size:12px;margin:8px 0 4px;color:#e4e0d6}
+.pg .hl{background:rgba(246,226,122,.3)}
+.stop{position:relative;margin:10px -21px 10px;border-top:2px dashed var(--accent)}
+.stop span{position:absolute;right:10px;top:-10px;background:var(--accent);color:var(--accent-on);font:600 10px var(--sans);padding:1px 8px;border-radius:999px}
+.fade{position:absolute;left:0;right:0;bottom:0;height:70px;background:linear-gradient(transparent,#23252b)}
+.info{padding:12px 14px}
+.info .ptitle{font-size:14.5px}
+.meta{font-size:11.5px;color:var(--muted);margin-top:3px;display:flex;gap:8px;align-items:center}
+.bar{width:70px}
+.foot{display:flex;gap:18px;margin-top:16px;font-size:12px;color:var(--muted);align-items:center}
+.label{z-index:20}
+</style></head><body><div class="app"><!--RAIL:away-->
+<main class="main">
+ <div class="top"><span class="muted">←</span><div><div style="font-size:13px">Attention Is All You Need</div><div class="mono muted">arXiv:1706.03762 · 75%</div></div></div>
+ <div class="doc"><h3 style="font-family:var(--sans)">5 Training</h3><p>This section describes the training regime for our models. We trained on the standard WMT 2014 English-German dataset consisting of about 4.5 million sentence pairs…</p></div>
+</main></div>
+<div class="scrim"></div>
+<div class="desk">
+ <div class="dh"><div><div class="eyebrow" style="color:var(--accent-ink)">Your desk · R</div><h2>Four papers open on it</h2></div><div class="find"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Find a paper, or one of these…<span style="flex:1"></span><kbd>⌘K</kbd></div><span class="btn">Go to Home</span></div>
+ <div class="cards">
+  <div class="pc cur"><div class="pg"><h4>5 Training</h4><p class="read">This section describes the training regime for our models. 5.1 Training Data and Batching: We trained on the standard WMT 2014 English-German dataset consisting of about 4.5 million sentence pairs.</p><p class="read">Sentences were encoded using byte-pair encoding, which has a shared source-target vocabulary of about 37000 tokens.</p><div class="stop"><span>Reading now</span></div><p>5.2 Hardware and Schedule. We trained our models on one machine with 8 NVIDIA P100 GPUs. For our base models using the hyperparameters described throughout the paper, each training step took about 0.4 seconds.</p><p>We trained the base models for a total of 100,000 steps or 12 hours. For our big models, step time was 1.0 seconds.</p><p>5.3 Optimizer. We used the Adam optimizer with β1 = 0.9, β2 = 0.98 and ε = 10⁻⁹…</p><div class="fade"></div></div><div class="info"><div class="ptitle">Attention Is All You Need</div><div class="meta"><span class="bar"><i style="width:75%"></i></span>75% · page 7 of 11 <kbd style="margin-left:auto">1</kbd></div></div></div>
+  <div class="pc"><div class="pg"><h4>Abstract</h4><p class="read">The rapid development of open-source large language models (LLMs) has been truly remarkable. However, the scaling laws described in previous literature present varying conclusions…</p><div class="stop"><span>You were here</span></div><p>We delve into the study of scaling laws and present our distinctive findings that facilitate the scaling of large scale models in two prevalent used open-source configurations, 7B and 67B.</p><p>Guided by the scaling laws, we introduce DeepSeek LLM, a project dedicated to advancing open-source language models with a long-term perspective…</p><div class="fade"></div></div><div class="info"><div class="ptitle">DeepSeek LLM: Scaling open-source language models</div><div class="meta"><span class="bar"><i style="width:2%"></i></span>1% · Abstract · 5 min ago <kbd style="margin-left:auto">2</kbd></div></div></div>
+  <div class="pc"><div class="pg"><h4>3 Model Architecture</h4><p class="read">DeepSeek-VL adopts a hybrid vision encoder which combines a text-aligned encoder for coarse semantic extraction with a high-resolution encoder…</p><p class="read">The vision-language adaptor bridges the two encoders to the language model…</p><div class="stop"><span>You were here</span></div><p>3.2 Training Pipelines. We train DeepSeek-VL in three consecutive stages: <span class="hl">vision-language adaptor warmup</span>, joint vision-language pretraining, and supervised fine-tuning.</p><p>In the first stage, we freeze the encoders and the language model…</p><div class="fade"></div></div><div class="info"><div class="ptitle">DeepSeek-VL: towards real-world vision-language understanding</div><div class="meta"><span class="bar"><i style="width:2%"></i></span>2% · page 4 of 33 · today <kbd style="margin-left:auto">3</kbd></div></div></div>
+  <div class="pc"><div class="pg"><h4>6 Results</h4><p class="read">The measured range precision of the heterodyning system was assessed by capturing a flat target at a series of known distances…</p><div class="stop"><span>You were here</span></div><p>Figure 7 shows the standard deviation of the range measurement as a function of integration time. With an integration time of 2 s, a precision of 0.5 mm was achieved across the full field.</p><p>7 Conclusion. We have demonstrated a solid-state full-field heterodyning range imaging camera…</p><div class="fade"></div></div><div class="info"><div class="ptitle">Achieving sub-millimetre precision with a solid-state full-field heterodyning…</div><div class="meta"><span class="bar"><i style="width:92%"></i></span>92% · page 9 of 10 · 2 days ago <kbd style="margin-left:auto">4</kbd></div></div></div>
+ </div>
+ <div class="foot"><span><kbd>1</kbd>–<kbd>4</kbd> switch paper, at the line you left</span><span><kbd>R</kbd> or <kbd>Esc</kbd> back to this paper</span><span><kbd>G</kbd> go Home</span><span style="margin-left:auto">Put a paper on the desk: <b style="color:var(--ink)">Keep open</b> in its menu · it leaves when finished</span></div>
+</div>
+<div class="label">C · While reading: R opens your desk</div></body></html>

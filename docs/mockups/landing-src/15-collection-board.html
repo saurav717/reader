@@ -1,0 +1,66 @@
+<!doctype html><html data-theme="dark" data-glass><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.scroll{padding:22px 32px;display:flex;flex-direction:column;gap:16px}
+.bar1{display:flex;align-items:center;gap:14px}
+.big{flex:1;display:flex;align-items:center;gap:12px;height:50px;padding:0 10px 0 16px;border-radius:13px;background:rgba(255,255,255,.06);border:1.5px solid rgba(87,169,143,.5);color:var(--muted);font-size:14.5px}
+.carry{display:flex;align-items:center;gap:10px;height:50px;padding:0 14px;border-radius:13px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);font-size:12.5px}
+.board{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start}
+.col{border-radius:14px;background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.09);padding:12px}
+.ch{display:flex;align-items:center;gap:8px;padding:2px 4px 10px}
+.ch b{font-weight:600;font-size:14px}
+.ch .n{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.pc{display:flex;gap:10px;align-items:center;padding:9px 10px;border-radius:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);margin-bottom:8px}
+.pc .ptitle{font-size:13.5px}
+.pc .meta{font-size:11px;color:var(--muted);margin-top:2px}
+.add{display:flex;align-items:center;gap:8px;height:36px;padding:0 10px;border-radius:9px;border:1px dashed rgba(255,255,255,.16);color:var(--muted);font-size:12.5px}
+.add.on{border:1.5px solid var(--accent);color:var(--ink);background:rgba(87,169,143,.08)}
+.sugg{margin-top:6px;border-radius:10px;background:#24262d;border:1px solid rgba(255,255,255,.12);box-shadow:0 16px 36px rgba(0,0,0,.45);overflow:hidden}
+.sugg div{padding:8px 10px;border-top:1px solid rgba(255,255,255,.06);font-size:12.5px}
+.sugg div:first-child{border-top:0;background:rgba(87,169,143,.12)}
+.sugg small{display:block;color:var(--muted);font-size:10.5px;margin-top:2px}
+.newc{border:1px dashed rgba(255,255,255,.16);border-radius:14px;padding:18px;text-align:center;color:var(--muted);font-size:12.5px}
+.sec{display:flex;align-items:center;gap:10px}
+</style></head><body><div class="app"><!--RAIL-->
+<main class="main"><div class="scroll">
+ <div class="bar1">
+  <div class="big"><svg class="i" viewBox="0 0 24 24" style="color:var(--accent)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>Search papers and people, or paste a link — saves to the collection you pick<span style="flex:1"></span><kbd>/</kbd></div>
+  <div class="carry"><div class="ring" style="--p:.75;width:26px;height:26px"></div><div><div style="font-weight:500">Attention Is All You Need</div><div class="muted" style="font-size:11px">75% · page 7 · yesterday</div></div><span class="btn primary" style="height:30px;margin-left:6px">Resume ↵</span></div>
+ </div>
+ <div class="sec"><span class="eyebrow">Your collections</span><span class="muted" style="font-size:11.5px">— each one takes a paper straight in; drag between them to move</span><span style="flex:1"></span><span class="chip">Sort: last added ▾</span></div>
+ <div class="board">
+  <div class="col">
+   <div class="ch"><span class="dot" style="background:var(--accent)"></span><b>Reading list</b><span class="n">16 · 4 reading</span></div>
+   <div class="pc"><div class="ring" style="--p:.01;width:24px;height:24px"></div><div><div class="ptitle">DeepSeek LLM: Scaling open-source language models</div><div class="meta">1% · 5 min ago</div></div></div>
+   <div class="pc"><div class="ring" style="--p:.02;width:24px;height:24px"></div><div><div class="ptitle">DeepSeek-VL: towards real-world vision-language understanding</div><div class="meta">2% · today</div></div></div>
+   <div class="pc"><div class="ring" style="--p:0;width:24px;height:24px"></div><div><div class="ptitle">PET imaging of neurotransmission using direct parametric reconstruction</div><div class="meta">not started · added yesterday</div></div></div>
+   <div class="muted" style="font-size:11.5px;padding:0 4px 8px">+ 13 more</div>
+   <div class="add">+ Add a paper to Reading list</div>
+  </div>
+  <div class="col">
+   <div class="ch"><span class="dot" style="background:#5b63b7"></span><b>LLM scaling</b><span class="n">5</span></div>
+   <div class="pc"><div class="ring" style="--p:.75;width:24px;height:24px"></div><div><div class="ptitle">Attention Is All You Need</div><div class="meta">75% · yesterday</div></div></div>
+   <div class="pc"><div class="ring" style="--p:0;width:24px;height:24px"></div><div><div class="ptitle">Nemotron-4 340B technical report</div><div class="meta">not started</div></div></div>
+   <div class="pc"><div class="ring" style="--p:0;width:24px;height:24px"></div><div><div class="ptitle">Compact Language Models via Pruning and Knowledge Distillation</div><div class="meta">not started</div></div></div>
+   <div class="add on">chinchilla compute optimal<span style="flex:1"></span><kbd>↵</kbd></div>
+   <div class="sugg">
+    <div><b>Training Compute-Optimal Large Language Models</b><small>Hoffmann et al. · NeurIPS 2022 · 2,900 citations · ↵ adds here</small></div>
+    <div>Chinchilla Scaling: A replication attempt<small>Besiroglu et al. · 2024 · arXiv</small></div>
+    <div>Beyond Chinchilla-Optimal: Accounting for Inference<small>Sardana, Frankle · ICML 2024</small></div>
+    <div style="color:var(--accent-ink)">Search everywhere for “chinchilla compute optimal” →</div>
+   </div>
+  </div>
+  <div class="col">
+   <div class="ch"><span class="dot" style="background:#b0643c"></span><b>Medical imaging</b><span class="n">6</span></div>
+   <div class="pc"><div class="ring" style="--p:.92;width:24px;height:24px"></div><div><div class="ptitle">Achieving sub-millimetre precision with a solid-state…</div><div class="meta">92% · 2 days ago</div></div></div>
+   <div class="pc"><div class="ring" style="--p:0;width:24px;height:24px"></div><div><div class="ptitle">Quantification of Myocardial Mitochondrial Membrane Potential…</div><div class="meta">not started</div></div></div>
+   <div class="pc"><div class="ring" style="--p:0;width:24px;height:24px"></div><div><div class="ptitle">Smooth Solutions of the Navier-Stokes Equation</div><div class="meta">not started</div></div></div>
+   <div class="add">+ Add a paper to Medical imaging</div>
+   <div style="margin-top:10px;padding:10px;border-radius:10px;background:rgba(255,255,255,.03);font-size:11.5px" class="muted"><b style="color:var(--ink-2)">Suggested here:</b> 2 papers cite three of these — <span style="color:var(--accent-ink)">show</span></div>
+  </div>
+  <div class="newc">
+   <div style="font-size:22px;color:var(--accent)">+</div>
+   <div style="color:var(--ink);font-weight:500;margin:4px 0">New collection</div>
+   <div>Name it after a question — “Why do MoE routers collapse?” — and add to it as you search.</div>
+  </div>
+ </div>
+</div></main></div><div class="label">D · Collections as columns you add straight into</div></body></html>

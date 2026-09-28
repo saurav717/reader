@@ -6,8 +6,10 @@ import type { Highlight, Paper } from '../types';
 import { CoverTile, ProgressRing, progressLabel } from './LibraryBits';
 import { Continue, clip } from './HomeParts';
 import { InboxView, ProjectsView, ResumeStrip, STALLED_DAYS, TodayView, inboxOf } from './HomeViews';
+import { FindPapers } from './HomeSearch';
+import { CollectionsBoard } from './HomeBoard';
 import { HOME_TABS, TAB_ABOUT, TAB_LABEL, openingTab, readHomePrefs, writeHomePrefs, type HomePrefs, type HomeTab } from '../lib/homeViews';
-import { CheckIcon, ClockIcon, InboxIcon, OpenBookIcon, SearchIcon, StackIcon } from './icons';
+import { CheckIcon, ClockIcon, GridIcon, InboxIcon, OpenBookIcon, SearchIcon, StackIcon } from './icons';
 
 interface Props {
   onOpenPaper: (id: string) => void;
@@ -19,6 +21,8 @@ interface Props {
 }
 
 const TAB_ICON: Record<HomeTab, React.ReactNode> = {
+  search: <SearchIcon size={15} />,
+  board: <GridIcon size={15} />,
   continue: <OpenBookIcon size={15} />,
   today: <ClockIcon size={15} />,
   projects: <StackIcon size={15} />,
@@ -54,6 +58,8 @@ export default function Home({ onOpenPaper, onOpenHighlight, onSearch, onDiscove
   const [prefs, setPrefs] = useState<HomePrefs>(readHomePrefs);
   const [tab, setTab] = useState<HomeTab>(() => openingTab(prefs));
   const [menuOpen, setMenuOpen] = useState(false);
+  /** A question handed to Find papers from elsewhere on Home: a column's “search everywhere”. */
+  const [findAsk, setFindAsk] = useState<{ query: string; at: number } | null>(null);
   const changePrefs = (next: HomePrefs) => {
     setPrefs(next);
     writeHomePrefs(next);
@@ -101,7 +107,7 @@ export default function Home({ onOpenPaper, onOpenHighlight, onSearch, onDiscove
   showRef.current = show;
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target) || !/^[1-4]$/.test(event.key)) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target) || !/^[1-9]$/.test(event.key)) return;
       if (document.querySelector('.scrim, .sheet, .palette')) return;
       const next = tabs[Number(event.key) - 1];
       if (!next) return;
@@ -170,7 +176,25 @@ export default function Home({ onOpenPaper, onOpenHighlight, onSearch, onDiscove
           </button>
         </header>
 
-        {tab === 'today' ? (
+        {tab === 'search' ? (
+          <FindPapers
+            key={findAsk?.at ?? 'find'}
+            hero={hero}
+            ask={findAsk?.query}
+            saveTo={prefs.saveTo}
+            onSaveTo={(id) => changePrefs({ ...prefs, saveTo: id })}
+            onOpenPaper={onOpenPaper}
+            onDiscover={(query) => window.dispatchEvent(new CustomEvent('reader:discover', { detail: { query } }))}
+          />
+        ) : tab === 'board' ? (
+          <CollectionsBoard
+            onOpenPaper={onOpenPaper}
+            onFind={(query) => {
+              setFindAsk({ query, at: Date.now() });
+              show('search');
+            }}
+          />
+        ) : tab === 'today' ? (
           <TodayView hero={hero} onOpenPaper={onOpenPaper} onShowNotes={onShowNotes} />
         ) : tab === 'projects' ? (
           <ProjectsView hero={hero} onOpenPaper={onOpenPaper} />
@@ -242,7 +266,7 @@ export default function Home({ onOpenPaper, onOpenHighlight, onSearch, onDiscove
             </aside>
           </div>
         )}
-        {tab !== 'continue' && hero && statusOf(hero) === 'reading' ? <ResumeStrip paper={hero} onOpen={() => onOpenPaper(hero.id)} /> : null}
+        {tab !== 'continue' && tab !== 'search' && hero && statusOf(hero) === 'reading' ? <ResumeStrip paper={hero} onOpen={() => onOpenPaper(hero.id)} /> : null}
       </div>
     </div>
   );
@@ -270,9 +294,12 @@ function ViewMenu({ prefs, onChange, onClose }: { prefs: HomePrefs; onChange: (n
     const tabs = value === 'last' || prefs.tabs.includes(value) ? prefs.tabs : HOME_TABS.filter((item) => item === value || prefs.tabs.includes(item));
     onChange({ ...prefs, opensOn: value, tabs });
   };
+  // The view Home opens on stays a tab; any other can be put away.
+  const fixed = (item: HomeTab) => item === prefs.opensOn || (prefs.opensOn === 'last' && prefs.tabs.length === 1 && prefs.tabs[0] === item);
   const toggle = (item: HomeTab) => {
+    if (fixed(item)) return;
     const tabs = prefs.tabs.includes(item) ? prefs.tabs.filter((other) => other !== item) : HOME_TABS.filter((other) => other === item || prefs.tabs.includes(other));
-    onChange({ ...prefs, tabs, opensOn: prefs.opensOn !== 'last' && !tabs.includes(prefs.opensOn) ? 'continue' : prefs.opensOn });
+    onChange({ ...prefs, tabs });
   };
   return (
     <div ref={box} className="home-menu" role="dialog" aria-label="Home's views">
@@ -289,15 +316,22 @@ function ViewMenu({ prefs, onChange, onClose }: { prefs: HomePrefs; onChange: (n
       <p className="home-eyebrow home-menu-split">Show as tabs</p>
       <div className="home-menu-tabs">
         {HOME_TABS.map((item) => (
-          <label key={item} className={item === 'continue' ? 'is-fixed' : undefined}>
-            <input type="checkbox" checked={prefs.tabs.includes(item)} disabled={item === 'continue'} onChange={() => toggle(item)} />
+          <label key={item} className={fixed(item) ? 'is-fixed' : undefined} title={fixed(item) ? 'Home opens on it, so it stays' : undefined}>
+            <input type="checkbox" checked={prefs.tabs.includes(item)} disabled={fixed(item)} onChange={() => toggle(item)} />
             {prefs.tabs.includes(item) ? <CheckIcon size={11} strokeWidth={3} className="home-menu-tick" /> : null}
             {TAB_LABEL[item]}
           </label>
         ))}
       </div>
+      <label className="home-menu-check">
+        <input type="checkbox" checked={prefs.clearPanels} onChange={() => onChange({ ...prefs, clearPanels: !prefs.clearPanels })} />
+        <span>
+          <b>Put the side panels away on Home</b>
+          <small>The library and the dock close while you are on Home, and come back as they were when you open a paper.</small>
+        </span>
+      </label>
       <p className="home-menu-foot">
-        <kbd>1</kbd>–<kbd>4</kbd> switch views · <kbd>↵</kbd> resumes reading
+        <kbd>1</kbd>–<kbd>{Math.min(9, prefs.tabs.length)}</kbd> switch views · <kbd>/</kbd> search · <kbd>R</kbd> in a paper opens your desk
       </p>
     </div>
   );

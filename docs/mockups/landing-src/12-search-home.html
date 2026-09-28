@@ -1,0 +1,71 @@
+<!doctype html><html data-theme="dark" data-glass><head><meta charset="utf-8"><link rel="stylesheet" href="shared.css">
+<style>
+.scroll{padding:26px 40px;display:flex;flex-direction:column;gap:22px}
+.top{display:flex;align-items:center;gap:14px}
+.top .hi{font-family:var(--serif);font-size:18px;font-weight:600}
+.hero{max-width:900px;width:100%;margin:6px auto 0;text-align:center}
+.hero h1{font-family:var(--serif);font-size:38px;font-weight:600;letter-spacing:-.015em}
+.hero p{color:var(--ink-2);margin:6px 0 18px;font-size:14px}
+.big{display:flex;align-items:center;gap:12px;height:60px;padding:0 10px 0 20px;border-radius:15px;background:rgba(255,255,255,.06);border:1.5px solid rgba(87,169,143,.55);box-shadow:0 0 0 6px rgba(87,169,143,.10);font-size:16px;color:var(--muted);text-align:left}
+.big .ph{flex:1}
+.big .btn.primary{height:42px;padding:0 18px;font-size:14px}
+.row{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+.src .chip.on{background:var(--accent-soft);color:var(--accent-ink);border-color:transparent}
+.dest{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 10px;border-radius:8px;border:1px solid rgba(255,255,255,.14);color:var(--ink);font-size:12.5px}
+.dest .dot{background:var(--accent)}
+.cols{display:grid;grid-template-columns:1fr 330px;gap:20px;max-width:1180px;width:100%;margin:0 auto}
+.sh{display:flex;justify-content:space-between;align-items:center;padding:14px 16px 8px}
+.res{display:flex;gap:14px;padding:12px 16px;border-top:1px solid rgba(255,255,255,.06);align-items:center}
+.why{font-size:11.5px;color:var(--accent-ink);margin-bottom:3px}
+.ptitle{color:var(--ink)}
+.meta{font-size:11.5px;color:var(--muted);margin-top:3px}
+.split{display:inline-flex;border-radius:8px;overflow:hidden;flex-shrink:0}
+.split .btn{border-radius:0;height:30px}
+.split .btn+.btn{border-left:1px solid rgba(0,0,0,.25);padding:0 8px}
+.coll{display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid rgba(255,255,255,.06)}
+.coll .n{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.desk{max-width:1180px;width:100%;margin:0 auto}
+.minis{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.mini{display:flex;gap:12px;padding:10px;align-items:center}
+.thumb{width:120px;height:74px;border-radius:6px;background:#23252b;overflow:hidden;position:relative;flex-shrink:0;border:1px solid rgba(255,255,255,.08)}
+.thumb i{display:block;height:3px;margin:6px 10px 0;background:rgba(220,216,206,.35);border-radius:2px}
+.thumb i.r{background:rgba(220,216,206,.15)}
+.thumb b{position:absolute;left:0;right:0;top:34px;border-top:1.5px dashed var(--accent)}
+</style></head><body><div class="app"><!--RAIL-->
+<main class="main"><div class="scroll">
+ <div class="top"><span class="eyebrow">Monday 28 September</span><span class="hi">Good afternoon, Saurav</span><span style="flex:1"></span><span class="chip">Library 16</span><span class="chip">Reading 4</span><span class="chip">Inbox <b style="color:var(--accent-ink)">8</b></span></div>
+
+ <div class="hero">
+  <h1>Find your next paper</h1>
+  <p>Search six sources at once — or paste an arXiv id, DOI or link, or drop a PDF anywhere on the page.</p>
+  <div class="big"><svg class="i" viewBox="0 0 24 24" style="width:20px;height:20px;color:var(--accent)"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><span class="ph">Papers, people or topics — “scaling laws for mixture of experts”…</span><kbd>/</kbd><span class="btn primary">Search</span></div>
+  <div class="row src"><span>Search in</span><span class="chip on">arXiv</span><span class="chip on">Semantic Scholar</span><span class="chip on">OpenAlex</span><span class="chip on">Google Scholar</span><span class="chip">Crossref</span><span class="chip">Books</span><span style="width:18px"></span><span>Save to</span><span class="dest"><span class="dot"></span>Reading list ▾</span></div>
+ </div>
+
+ <div class="cols">
+  <section class="card">
+   <div class="sh"><span class="eyebrow">Suggested for your collections</span><span class="muted" style="font-size:11.5px">from what you are reading and have saved</span></div>
+   <div class="res"><div style="flex:1"><div class="why">Cites <b>DeepSeek LLM</b>, which you are reading</div><div class="ptitle">DeepSeekMoE: Towards Ultimate Expert Specialization in Mixture-of-Experts Language Models</div><div class="meta">Damai Dai, Chengqi Deng +16 · arXiv 2024 · 480 citations · PDF</div></div><span class="btn" style="height:30px">Read</span><span class="split"><span class="btn primary">+ Reading list</span><span class="btn primary">▾</span></span></div>
+   <div class="res"><div style="flex:1"><div class="why">By <b>Xiao Bi</b> · 3 of their papers are in your library</div><div class="ptitle">DeepSeek-V2: A Strong, Economical, and Efficient Mixture-of-Experts Language Model</div><div class="meta">DeepSeek-AI · arXiv 2024 · 610 citations · PDF</div></div><span class="btn" style="height:30px">Read</span><span class="split"><span class="btn primary">+ Reading list</span><span class="btn primary">▾</span></span></div>
+   <div class="res"><div style="flex:1"><div class="why">Often cited with <b>Attention Is All You Need</b> and <b>Nemotron-4</b></div><div class="ptitle">Training Compute-Optimal Large Language Models</div><div class="meta">J Hoffmann, S Borgeaud +20 · NeurIPS 2022 · 2,900 citations · PDF</div></div><span class="btn" style="height:30px">Read</span><span class="split"><span class="btn primary">+ Reading list</span><span class="btn primary">▾</span></span></div>
+   <div class="res"><div style="flex:1"><div class="why">Trending this week in <b>cs.CL</b></div><div class="ptitle">Scaling Laws for Fine-Grained Mixture of Experts</div><div class="meta">J Krajewski, J Ludziejewski +8 · ICML 2024 · 95 citations · PDF</div></div><span class="btn" style="height:30px">Read</span><span class="split"><span class="btn primary">+ Reading list</span><span class="btn primary">▾</span></span></div>
+  </section>
+  <aside class="card" style="align-self:start">
+   <div class="sh"><span class="eyebrow">Your collections</span><span class="btn ghost" style="height:auto;padding:0;font-size:12px">+ New</span></div>
+   <div class="coll"><span class="dot" style="background:var(--accent)"></span>Reading list<span class="n">16</span></div>
+   <div class="coll"><span class="dot" style="background:#b0643c"></span>Medical imaging<span class="n">6</span></div>
+   <div class="coll"><span class="dot" style="background:#5b63b7"></span>LLM scaling<span class="n">5</span></div>
+   <div class="coll"><span class="dot" style="background:#8e6bb4"></span>Neural operators<span class="n">3</span></div>
+   <div style="padding:10px 16px 14px;font-size:11.5px" class="muted">Drag a paper onto one to save it there.</div>
+  </aside>
+ </div>
+
+ <div class="desk">
+  <div class="sh" style="padding:0 2px 10px"><span class="eyebrow">Continue reading</span><span class="muted" style="font-size:11.5px">R while reading shows these large</span></div>
+  <div class="minis">
+   <div class="card mini"><div class="thumb"><i class="r"></i><i class="r"></i><i class="r"></i><i class="r"></i><b></b><i style="margin-top:12px"></i><i></i><i></i></div><div style="min-width:0"><div class="ptitle" style="font-size:13.5px">Deepseek LLM: Scaling open-source language models</div><div class="meta">1% · Abstract · 5 min ago</div></div></div>
+   <div class="card mini"><div class="thumb"><i class="r"></i><i class="r"></i><i class="r"></i><i class="r"></i><b></b><i style="margin-top:12px"></i><i></i><i></i></div><div><div class="ptitle" style="font-size:13.5px">Attention Is All You Need</div><div class="meta">75% · page 8 of 11 · yesterday</div></div></div>
+   <div class="card mini"><div class="thumb"><i class="r"></i><i class="r"></i><i class="r"></i><i class="r"></i><b></b><i style="margin-top:12px"></i><i></i><i></i></div><div><div class="ptitle" style="font-size:13.5px">Achieving sub-millimetre precision…</div><div class="meta">92% · page 9 of 10 · 2 days ago</div></div></div>
+  </div>
+ </div>
+</div></main></div><div class="label">A · Search-first Home</div></body></html>

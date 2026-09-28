@@ -26,7 +26,9 @@ import Settings from './components/Settings';
 import UsageView, { useIsOwner } from './components/UsageView';
 import Welcome from './components/Welcome';
 import Home from './components/Home';
-import { startVisit } from './lib/homeViews';
+import { readHomePrefs, startVisit } from './lib/homeViews';
+import Desk from './components/Desk';
+import { keepSpotNow } from './lib/spot';
 import { SIGN_IN_REQUIRED } from './lib/google';
 import { canFullscreen, enterFullscreen, fullscreenElement, leaveFullscreen } from './lib/fullscreen';
 import { ChartIcon, GoogleMark, HighlighterIcon, LibraryIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
@@ -145,6 +147,11 @@ export default function App() {
   const [libraryOpen, setLibraryOpen] = useState(layout.libraryOpen);
   const [dock, setDock] = useState<Dock>(layout.dock);
   const [view, setView] = useState<View>(readView);
+  /** The desk: the papers in progress at the page each was left on, over the one being read. */
+  const [deskOpen, setDeskOpen] = useState(false);
+  // On Home the library and the dock are put away, and come back as they were
+  // when Home is left — unless one was opened on Home, which is then left be.
+  const panelsBeforeHome = useRef<Layout | null>(null);
   const [selectedHighlightId, setSelectedHighlightId] = useState<string | null>(null);
   const [orphanIds, setOrphanIds] = useState<string[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -380,8 +387,32 @@ export default function App() {
   }, [view]);
 
   useEffect(() => {
-    localStorage.setItem(LAYOUT_KEY, JSON.stringify({ libraryOpen, dock } satisfies Layout));
+    // Put away for Home is not a choice to remember: what is kept is how they were.
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(panelsBeforeHome.current ?? ({ libraryOpen, dock } satisfies Layout)));
   }, [libraryOpen, dock]);
+
+  const onHome = view.kind === 'home';
+  useEffect(() => {
+    if (onHome) {
+      if (!readHomePrefs().clearPanels || isNarrow() || panelsBeforeHome.current) return;
+      panelsBeforeHome.current = { libraryOpen, dock };
+      setLibraryOpen(false);
+      setDock(null);
+      return;
+    }
+    const before = panelsBeforeHome.current;
+    if (!before) return;
+    panelsBeforeHome.current = null;
+    setLibraryOpen(before.libraryOpen);
+    // Opening a paper may have asked for its notes already: that stands.
+    setDock((current) => current ?? before.dock);
+    // Only the move onto and off Home; the panels' own state is read, not followed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onHome]);
+  /** A panel opened by hand on Home is the reader's choice, not something to undo on leaving. */
+  const panelTouched = () => {
+    panelsBeforeHome.current = null;
+  };
 
   // A paper removed from the library must not leave the reader pointing at it.
   useEffect(() => {
@@ -393,6 +424,14 @@ export default function App() {
   const readingNow = view.kind === 'paper';
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      // R, on its own and not while typing, lays the papers in progress out as a desk.
+      if (readingNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'r' && !isTyping(event.target)) {
+        if (document.querySelector('.scrim, .sheet, .palette, .desk-scrim')) return;
+        event.preventDefault();
+        if (view.kind === 'paper') keepSpotNow(view.id);
+        setDeskOpen(true);
+        return;
+      }
       // B, on its own and not while typing, opens and shuts the notes board —
       // the paper's notes full screen. While it is open, the keys for what
       // is under it wait.
@@ -455,7 +494,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toggleZen, toggleExplain, toggleFullscreen, readingNow]);
+  }, [toggleZen, toggleExplain, toggleFullscreen, readingNow, view]);
 
   // Full screen is for reading: leaving the paper leaves it too.
   useEffect(() => {
@@ -465,6 +504,14 @@ export default function App() {
   /** `fromDiscover`: opened from Discover's pane, which stays — with its results and what it said about the save. */
   const openPaper = useCallback((id: string, fromDiscover = false) => {
     setUsageOpen(false);
+    // Off Home, the panels come back in the same render as the paper: back
+    // after it, they would narrow a page already scrolled to where it was left.
+    const before = panelsBeforeHome.current;
+    if (before) {
+      panelsBeforeHome.current = null;
+      setLibraryOpen(before.libraryOpen);
+      setDock(before.dock);
+    }
     setView({ kind: 'paper', id });
     setSelectedHighlightId(null);
     setOrphanIds([]);
@@ -796,6 +843,7 @@ export default function App() {
           title="Library — your collections and what you are reading"
           onClick={() => {
             setUsageOpen(false);
+            panelTouched();
             setLibraryOpen(usageOpen ? true : !libraryOpen);
           }}
         >
@@ -809,6 +857,7 @@ export default function App() {
           title="Discover"
           onClick={() => {
             setUsageOpen(false);
+            panelTouched();
             setDock(dockPane === 'discover' && !usageOpen ? null : 'discover');
           }}
         >
@@ -822,6 +871,7 @@ export default function App() {
           title="Highlights and notes (H, or ⌘⇧\)"
           onClick={() => {
             setUsageOpen(false);
+            panelTouched();
             toggleNotes();
           }}
         >
@@ -1010,6 +1060,25 @@ export default function App() {
           published={explained.published}
           screen={readScreen}
           onClose={() => setExplainOpen(false)}
+        />
+      ) : null}
+
+      {deskOpen && view.kind === 'paper' && !showWelcome ? (
+        <Desk
+          current={view.id}
+          onOpen={(id) => {
+            setDeskOpen(false);
+            openPaper(id);
+          }}
+          onClose={() => setDeskOpen(false)}
+          onHome={() => {
+            setDeskOpen(false);
+            setView({ kind: 'home' });
+          }}
+          onSearch={() => {
+            setDeskOpen(false);
+            setPaletteOpen(true);
+          }}
         />
       ) : null}
 

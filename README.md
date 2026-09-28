@@ -14,26 +14,42 @@ and what you have **finished**. In the middle, the paper. On the right, a dock
 holding **Discover** and **Highlights** — tabs, so the reading column never has a
 panel crowding it on both sides.
 
-![Home: the paper last read, shown at the PDF page it was left on with a line where the screen began, and the papers in progress, the latest highlights and what is next beside it](docs/home.png)
+![Home on Find papers: a large search box with the sources and the collection to save to, suggestions near the paper being read, your collections, and the papers in progress as small cards](docs/home.png)
 
 A visit starts on **Home**, and the **R** at the top of the rail brings you back
-to it. Home shows the paper you were last reading at the page you left it on: the
-PDF page, or the paragraphs in Reflow, with the part you had scrolled past dimmed
-and a line where your screen began. **Resume here**, or <kbd>↵</kbd>, opens the
-paper there. Beside it are the other papers in progress (flagged when one has not
-been opened for five days), your latest highlights, and the papers you added last.
-Where you stopped is kept in this browser only, for the last few papers; a reload
-of the tab stays on whatever you had open.
+to it. Home is a set of views on tabs beside the greeting, on <kbd>1</kbd>–<kbd>6</kbd>,
+and the **⋯** at the end of them chooses which one Home opens on, which are
+shown, and whether the library and the dock are put away while you are on Home
+(they are, by default, and come back as they were when you open a paper):
 
-Home has three more views, on tabs beside the greeting (or <kbd>1</kbd>–<kbd>4</kbd>):
-**Today**, a short plan made from your library — carry on, pick up what stalled,
-start the next paper, look over the week's highlights; **Projects**, each
-collection with its papers set out as not started, reading and finished; and
-the **Inbox**, the papers added since your last visit that you have not started,
-to open, mark read or send to Junk. On those views a strip at the bottom keeps
-the lines where you stopped and **Resume** in reach. The **⋯** at the end of the
-tabs chooses which view Home opens on — or whichever you used last — and which
-are shown.
+- **Find papers** — the default. A large search box (<kbd>/</kbd> from anywhere on
+  Home) over the indexes you pick, or an arXiv id, and **Save to**: the
+  collection the **+** on each result adds it to. Its **▾** picks another
+  (<kbd>1</kbd>–<kbd>9</kbd>) or makes a new one; a result can also be dragged onto
+  a collection on the right, and each save says so with **Undo**. A paper
+  already in the library says where it is instead. Before anything is asked it
+  suggests papers near the one you are reading, and more by its first author,
+  from OpenAlex; underneath, the papers in progress as small cards, each a
+  sliver of the page where you stopped. People, more pages and Scholar's
+  captcha are one link away, in Discover.
+- **Continue reading** — the paper you were last reading at the page you left
+  it on: the PDF page, or the paragraphs in Reflow, with the part you had
+  scrolled past dimmed and a line where your screen began. **Resume here**, or
+  <kbd>↵</kbd>, opens it there.
+- **Today** — a short plan made from your library: carry on, pick up what
+  stalled, start the next paper, look over the week's highlights.
+- **Projects** — each collection with its papers as not started, reading and
+  finished. Off by default: Collections shows the same papers and takes new ones.
+- **Inbox** — the papers added since your last visit that you have not
+  started, to open, mark read or send to Junk.
+- **Collections** — each collection a column, with a box at its foot that finds
+  a paper and puts it straight in; drag a card to another column to move it.
+
+While you read, **R** opens your **desk**: the papers in progress side by side,
+each at the page and line you left it. <kbd>1</kbd>–<kbd>4</kbd> goes to one there,
+<kbd>R</kbd> or <kbd>Esc</kbd> back, <kbd>G</kbd> to Home. Where you stopped is kept
+in this browser only, for the last few papers; a reload of the tab stays on
+whatever you had open.
 
 Right-click a selection in a paper and a card opens beside it, never over it, with
 three tabs: what the word
