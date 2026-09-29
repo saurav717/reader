@@ -87,6 +87,8 @@ export type Status =
   | 'connecting'
   | 'idle'
   | 'busy'
+  /** The socket dropped; the page is opening another to the same kernel. */
+  | 'reconnecting'
   /** Colab ended the runtime, or the kernel went away. */
   | 'lost'
   | 'error';
@@ -240,6 +242,10 @@ export function makeMessage(msgType: string, content: Record<string, unknown>, s
 export const executeRequest = (code: string, sessionId: string) =>
   makeMessage('execute_request', { code, silent: false, store_history: true, user_expressions: {}, allow_stdin: false, stop_on_error: true }, sessionId);
 
+/** Every half minute over an open socket: a kernel_info_request on the control channel, which a kernel answers even while a cell runs. */
+export const HEARTBEAT_MS = 30_000;
+export const heartbeatRequest = (sessionId: string) => makeMessage('kernel_info_request', {}, sessionId, 'control');
+
 export function parseMessage(text: string): JupyterMessage | null {
   try {
     const parsed = JSON.parse(text) as Partial<JupyterMessage>;
@@ -375,6 +381,14 @@ class Kernel {
   private readonly sessionId = uuid();
   private readonly waiting = new Map<string, OnMessage>();
   private closed: (() => void) | null = null;
+  /**
+   * A heartbeat over the socket while it is open. Nothing on the path keeps
+   * a quiet socket: Cloudflare closes one that has carried nothing for a
+   * hundred seconds, and Colab counts a runtime with no client as idle. A
+   * kernel_info_request every half minute is traffic both ways, and real
+   * kernel activity.
+   */
+  private heartbeat: number | null = null;
   /** How the socket got there: straight to the runtime, or carried by the proxy. */
   via: 'direct' | 'proxy' = 'direct';
 
@@ -442,6 +456,10 @@ class Kernel {
       const settle = () => {
         window.clearTimeout(timer);
         ready = true;
+        this.stopHeartbeat();
+        this.heartbeat = window.setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(heartbeatRequest(this.sessionId)));
+        }, HEARTBEAT_MS);
         resolve();
       };
       socket.addEventListener('open', () => {
@@ -477,6 +495,7 @@ class Kernel {
       });
       socket.addEventListener('close', (event) => {
         window.clearTimeout(timer);
+        this.stopHeartbeat();
         if (this.socket === socket) this.socket = null;
         this.closed?.();
         if (!opened || !ready) reject(new Error(`The runtime closed the connection (${event.code}${event.reason ? `: ${event.reason}` : ''}).`));
@@ -538,10 +557,16 @@ class Kernel {
     });
   }
 
+  private stopHeartbeat() {
+    if (this.heartbeat !== null) window.clearInterval(this.heartbeat);
+    this.heartbeat = null;
+  }
+
   close() {
     const socket = this.socket;
     this.socket = null;
     this.closed = null;
+    this.stopHeartbeat();
     socket?.close();
   }
 }
@@ -654,12 +679,56 @@ async function attach(runtime: Runtime, googleToken: string): Promise<Kernel> {
     runtime.proxy,
     id,
     (reason) => {
-      if (kernel === attached) lost(`The connection to the runtime closed: ${reason}`);
+      if (kernel === attached) void dropped(runtime, reason);
     },
     ticketFor(runtime),
   );
   await attached.connect();
   return attached;
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+let reconnecting = false;
+
+/**
+ * The work kernel's socket closed under us. A closed socket is not a gone
+ * kernel: the runtime keeps its Python, and its variables, whether a page
+ * is connected or not. So another socket is opened to the same kernel,
+ * three times with a growing pause, and only when the runtime is gone —
+ * or nothing answers — does the page say so. A kernel that was replaced
+ * meanwhile is said too: the earlier runs are marked as from before.
+ */
+async function dropped(runtime: Runtime, reason: string) {
+  if (reconnecting || state.status === 'off') return;
+  reconnecting = true;
+  kernel = null;
+  set({ status: 'reconnecting', running: undefined, error: undefined });
+  try {
+    for (const pause of [800, 2500, 8000]) {
+      await sleep(pause);
+      if (state.status !== 'reconnecting') return;
+      try {
+        const googleToken = await tokenOrConnect();
+        const previous = state.kernel;
+        const attached = await attach(runtime, googleToken);
+        kernel = attached;
+        const same = attached.id === previous;
+        const runs = same ? state.runs : Object.fromEntries(Object.entries(state.runs).map(([key, run]) => [key, { ...run, stale: true }]));
+        set({ status: 'idle', kernel: attached.id, via: attached.via, runs, error: same ? undefined : 'The connection dropped and the kernel was gone; a new one started, so what earlier cells defined is lost.' });
+        return;
+      } catch (error) {
+        if (error instanceof ColabRequestError && error.flags.gone) break;
+      }
+    }
+    lost(`The connection to the runtime closed (${reason}) and could not be opened again.`);
+  } finally {
+    reconnecting = false;
+  }
+}
+
+/** Waits out a connection in progress, so a click during one runs after it rather than starting another. */
+async function settled(): Promise<void> {
+  for (let waited = 0; (state.status === 'reconnecting' || state.status === 'connecting') && waited < 30_000; waited += 200) await sleep(200);
 }
 
 /**
@@ -715,6 +784,7 @@ async function refreshUnits(googleToken: string) {
  */
 export async function runCell(key: string, code: string): Promise<void> {
   if (state.running) return;
+  await settled();
   if (!kernel || state.status === 'off' || state.status === 'lost' || state.status === 'error') await connect(state.machine);
   const runtime = state.runtime;
   if (!kernel || !runtime) return;
@@ -739,11 +809,11 @@ export async function runCell(key: string, code: string): Promise<void> {
     setRun(key, { ...state.runs[key], state: reply.status === 'ok' ? 'ran' : reply.status === 'aborted' ? 'interrupted' : 'failed', outputs, startedAt: started, ms: Date.now() - started, executionCount: reply.executionCount, where });
   } catch (error) {
     setRun(key, { ...state.runs[key], state: 'interrupted', outputs, startedAt: started, ms: Date.now() - started, where, stale: true });
-    if (state.status !== 'lost') set({ error: message(error) });
+    if (state.status !== 'lost' && state.status !== 'reconnecting') set({ error: message(error) });
   } finally {
     stopWatching();
     if (state.status === 'busy') set({ status: 'idle', running: undefined });
-    else set({ running: undefined });
+    else if (state.status !== 'reconnecting') set({ running: undefined });
   }
 }
 

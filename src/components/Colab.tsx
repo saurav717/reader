@@ -165,13 +165,15 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
   }, [colab.startedAt]);
   const available = colabAvailable(settings.googleClientId);
   if (!available && colab.status === 'off') return null;
-  const connected = colab.status === 'idle' || colab.status === 'busy';
+  const connected = colab.status === 'idle' || colab.status === 'busy' || colab.status === 'reconnecting';
   const ran = cells.filter((cell) => colab.runs[cell.key]?.state === 'ran').length;
-  const dot = colab.status === 'busy' ? 'busy' : colab.status === 'connecting' ? 'busy' : connected ? 'on' : colab.status === 'lost' || colab.status === 'error' ? 'lost' : 'off';
+  const dot = colab.status === 'busy' ? 'busy' : colab.status === 'connecting' || colab.status === 'reconnecting' ? 'busy' : connected ? 'on' : colab.status === 'lost' || colab.status === 'error' ? 'lost' : 'off';
   const text =
     colab.status === 'connecting'
       ? 'Colab · connecting…'
-      : connected && colab.runtime
+      : colab.status === 'reconnecting'
+        ? `${colab.runtime ? machineLabel(colab.runtime) : 'Colab'} · reconnecting…`
+        : connected && colab.runtime
         ? `${machineLabel(colab.runtime)} · ${colab.status === 'busy' ? (colab.gpu ? `GPU ${colab.gpu.util}%` : 'running') : 'idle'} · ${clock(colab.startedAt, now)}`
         : colab.status === 'lost'
           ? `${colab.runtime ? machineLabel(colab.runtime) : 'Colab'} · runtime ended`

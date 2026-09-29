@@ -2695,7 +2695,14 @@ let through — opens a WebSocket to `/colab/socket?ticket=…`, says hello
 with the runtime's token, and the proxy dials the runtime with that token
 in the header and pipes frames both ways without reading them. The
 refusal is remembered for the tab, so later sockets go the way that
-worked; the runtime menu says which way. The Worker does this with a
+worked; the runtime menu says which way. The socket carries a heartbeat —
+a `kernel_info_request` every half minute — because nothing on the path
+keeps a quiet one: Cloudflare closes a socket that has carried nothing
+for a hundred seconds, and Colab counts a runtime with no client as idle.
+A socket that drops anyway is opened again to the same kernel, three
+times with a growing pause; a closed socket is not a gone kernel, and the
+variables are still there. Only when the runtime itself is gone does the
+page say so. The Worker does this with a
 `WebSocketPair` (`worker/colabSocket.js`); the Node proxy with the `ws`
 package on its http server (`server/colabSocket.js`); Vercel's functions
 cannot hold a socket, so there the page's own connection is the only one.

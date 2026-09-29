@@ -37,6 +37,13 @@ describe('the Jupyter messages', () => {
     assert.equal(request.content.allow_stdin, false);
     assert.equal(request.content.stop_on_error, true);
   });
+  it('beats every half minute with a kernel_info_request on the control channel, which a busy kernel still answers', () => {
+    const beat = lib.heartbeatRequest('session-1');
+    assert.equal(beat.header.msg_type, 'kernel_info_request');
+    assert.equal(beat.channel, 'control');
+    assert.equal(beat.header.session, 'session-1');
+    assert.ok(lib.HEARTBEAT_MS < 100_000, 'inside Cloudflare’s hundred seconds of quiet');
+  });
   it('reads what the socket carries, and shrugs at anything else', () => {
     const text = JSON.stringify(msg('stream', { name: 'stdout', text: 'hi' }));
     assert.equal(lib.parseMessage(text).header.msg_type, 'stream');
