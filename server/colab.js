@@ -89,8 +89,13 @@ export function checkRuntimeUrl(value) {
     throw new ColabRefused(400, 'the runtime URL is not a URL');
   }
   const host = url.hostname.toLowerCase();
-  const colabs = host === 'colab.research.google.com' || host.endsWith('.colab.research.google.com') || host.endsWith('.googleusercontent.com') || host.endsWith('.colab.googleusercontent.com');
-  if (url.protocol !== 'https:' || !colabs || url.username || url.password) throw new ColabRefused(400, 'that is not a Colab runtime');
+  // Where Colab puts a runtime's Jupyter server: its own hosts under
+  // colab.dev (m-s-….us-west1-a.prod.colab.dev), googleusercontent.com, or
+  // colab.research.google.com itself. Nothing else is fetched, whatever the
+  // page says — and what was refused is named, so a new host of Colab's is
+  // a one-line fix rather than a mystery.
+  const colabs = host === 'colab.dev' || host.endsWith('.colab.dev') || host.endsWith('.googleusercontent.com') || host === 'colab.research.google.com' || host.endsWith('.colab.research.google.com') || host === 'colab.sandbox.google.com';
+  if (url.protocol !== 'https:' || !colabs || url.username || url.password) throw new ColabRefused(400, `that is not a Colab runtime (${url.protocol}//${host})`);
   return url.href.endsWith('/') ? url.href : `${url.href}/`;
 }
 
