@@ -34,7 +34,8 @@ import { contributionsAsked, readContributions } from '../server/contributionRea
 import { PROFILE_MODEL } from '../server/profileReader.js';
 import { aiCounts } from './usage.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini, tokensOf as geminiTokens } from '../server/geminiRelay.js';
-import { handleColab, isColabPath } from '../server/colab.js';
+import { handleColab, isColabPath, readSocketTicket } from '../server/colab.js';
+import { bridgeSocket } from './colabSocket.js';
 import { readBalance } from './deepseekBalance.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
@@ -396,13 +397,22 @@ export default {
       // nothing of this Worker's — see server/colab.js. Gated like the
       // rest of what acts for a person; a POST from this app only.
       if (isColabPath(path)) {
+        // The kernel's socket, when the page's own was refused: let in by a
+        // ticket this Worker signed a minute ago (worker/colabSocket.js).
+        if (path === '/colab/socket') {
+          if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'not from this app' }, 403, headers);
+          if ((request.headers.get('Upgrade') || '').toLowerCase() !== 'websocket') return json({ error: 'a WebSocket upgrade' }, 426, headers);
+          const ticket = await readSocketTicket(String(env.READER_TOKEN || '').trim(), url.searchParams.get('ticket'));
+          if (!ticket) return json({ error: 'a ticket from /colab/socket/ticket, still fresh' }, 401, headers);
+          return bridgeSocket(ticket);
+        }
         if (request.method !== 'GET' && request.method !== 'POST') return json({ error: 'GET or POST' }, 405, headers);
         if (request.method === 'POST' && !ALLOWED_ORIGINS.includes(origin)) return json({ error: 'not from this app' }, 403, headers);
         const who = await authorized(request, env);
         if (!who) return needsToken(env, headers);
         if (await personOverLimit(env, who)) return json({ error: 'too many requests at once; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });
         const body = request.method === 'POST' ? await request.json().catch(() => null) : null;
-        const answer = await handleColab(path, request.method, request.headers.get('X-Google-Token'), body);
+        const answer = await handleColab(path, request.method, request.headers.get('X-Google-Token'), body, { secret: String(env.READER_TOKEN || '').trim() });
         return json(answer.body, answer.status, { ...headers, 'Cache-Control': 'no-store' });
       }
 

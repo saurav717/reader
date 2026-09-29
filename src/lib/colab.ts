@@ -18,7 +18,7 @@
 // reader never mounts Drive or puts credentials in the kernel; output is
 // text and pictures, never markup; and every output says where it ran.
 
-import { apiFetch, hasProxy } from './api';
+import { api, apiFetch, hasProxy } from './api';
 import { colabToken, connectColab, dropColab, hasColabAccess } from './google';
 import type { GpuSample } from './telemetry';
 import { GPU_PROBE, parseGpuSample } from './telemetry';
@@ -107,6 +107,8 @@ export interface ColabState {
   gpuWatch: boolean;
   /** The last GPU sample taken, while a cell runs. */
   gpu?: GpuSample;
+  /** How the kernel's socket is carried: straight to the runtime, or by the proxy when the runtime refused the page's own. */
+  via?: 'direct' | 'proxy';
 }
 
 // ------------------------------------------------------------ the store ----
@@ -115,6 +117,8 @@ const MACHINE_KEY = 'reader.colab.machine';
 const NOTEBOOK_KEY = 'reader.colab.notebook';
 const RUNTIME_KEY = 'reader.colab.runtime';
 const GPU_KEY = 'reader.colab.gpu-watch';
+/** Once the page's own socket to a runtime has been refused, the proxy carries it from then on, in this tab. */
+const VIA_KEY = 'reader.colab.via';
 
 const read = <T>(storage: Storage | undefined, key: string): T | null => {
   try {
@@ -371,40 +375,111 @@ class Kernel {
   private readonly sessionId = uuid();
   private readonly waiting = new Map<string, OnMessage>();
   private closed: (() => void) | null = null;
+  /** How the socket got there: straight to the runtime, or carried by the proxy. */
+  via: 'direct' | 'proxy' = 'direct';
 
   constructor(
     private readonly proxy: RuntimeProxy,
     readonly id: string,
     private readonly onClose: (reason: string) => void,
+    /** A ticket for the proxy to carry this kernel's socket, when the runtime will not take the page's own. */
+    private readonly ticket?: (kernel: string, session: string) => Promise<string>,
   ) {}
 
-  connect(): Promise<void> {
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) return Promise.resolve();
+  /**
+   * The runtime's socket, straight from the page when the runtime allows
+   * it, and through the proxy when it does not (Colab's runtime proxy takes
+   * a socket from Colab's own page and from a client that can set headers,
+   * not from another site). A refusal is remembered for the tab, so the
+   * next connection goes the way that worked.
+   */
+  async connect(): Promise<void> {
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) return;
+    const remembered = read<string>(session(), VIA_KEY);
+    if (remembered !== 'proxy') {
+      try {
+        await this.open(this.directUrl(), null);
+        this.via = 'direct';
+        return;
+      } catch (error) {
+        if (!this.ticket || !hasProxy()) throw error;
+      }
+    }
+    if (!this.ticket) throw new Error('The runtime would not take a connection from this page, and there is no proxy to carry one.');
+    const ticket = await this.ticket(this.id, this.sessionId);
+    const bridge = new URL(api('/colab/socket'), window.location.href);
+    bridge.protocol = bridge.protocol === 'http:' ? 'ws:' : 'wss:';
+    bridge.searchParams.set('ticket', ticket);
+    await this.open(bridge.href, JSON.stringify({ type: 'hello', token: this.proxy.token }));
+    this.via = 'proxy';
+    write(session(), VIA_KEY, 'proxy');
+  }
+
+  private directUrl(): string {
+    const url = new URL(`api/kernels/${encodeURIComponent(this.id)}/channels`, this.proxy.url);
+    url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:';
+    url.searchParams.set('session_id', this.sessionId);
+    url.searchParams.set('colab-runtime-proxy-token', this.proxy.token);
+    return url.href;
+  }
+
+  /**
+   * Opens one socket. With a `hello`, it is the proxy's bridge: the hello
+   * goes first, and the socket counts as open when the bridge says the
+   * runtime is on the other end.
+   */
+  private open(href: string, hello: string | null): Promise<void> {
     return new Promise((resolve, reject) => {
-      const url = new URL(`api/kernels/${encodeURIComponent(this.id)}/channels`, this.proxy.url);
-      url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:';
-      url.searchParams.set('session_id', this.sessionId);
-      url.searchParams.set('colab-runtime-proxy-token', this.proxy.token);
-      const socket = new WebSocket(url.href);
+      const socket = new WebSocket(href);
       let opened = false;
+      let ready = hello === null;
+      const timer = window.setTimeout(() => {
+        if (!ready) {
+          socket.close();
+          reject(new Error('The runtime did not answer in time.'));
+        }
+      }, 25_000);
+      const settle = () => {
+        window.clearTimeout(timer);
+        ready = true;
+        resolve();
+      };
       socket.addEventListener('open', () => {
         opened = true;
-        resolve();
+        if (hello) socket.send(hello);
+        else settle();
       });
       socket.addEventListener('message', (event) => {
-        const message = typeof event.data === 'string' ? parseMessage(event.data) : null;
+        if (typeof event.data !== 'string') return;
+        if (!ready) {
+          // The bridge's own word, before the kernel's: ready, or why not.
+          try {
+            const note = JSON.parse(event.data) as { type?: string; error?: string };
+            if (note?.type === 'ready') {
+              settle();
+              return;
+            }
+          } catch {
+            // the kernel's, then
+          }
+        }
+        const message = parseMessage(event.data);
         if (!message) return;
         const parent = message.parent_header?.msg_id;
         const handler = parent ? this.waiting.get(parent) : undefined;
         handler?.(message);
       });
       socket.addEventListener('error', () => {
-        if (!opened) reject(new Error('Could not open a connection to the runtime — it may have ended, or its address may not take connections from this site.'));
+        if (!opened) {
+          window.clearTimeout(timer);
+          reject(new Error('Could not open a connection to the runtime — it may have ended, or its address may not take connections from this site.'));
+        }
       });
       socket.addEventListener('close', (event) => {
-        this.socket = null;
+        window.clearTimeout(timer);
+        if (this.socket === socket) this.socket = null;
         this.closed?.();
-        if (!opened) reject(new Error(`The runtime closed the connection (${event.code}).`));
+        if (!opened || !ready) reject(new Error(`The runtime closed the connection (${event.code}${event.reason ? `: ${event.reason}` : ''}).`));
         else this.onClose(event.reason || `closed (${event.code})`);
       });
       this.socket = socket;
@@ -496,9 +571,14 @@ async function watchGpu(key: string, runtime: Runtime, googleToken: string, star
   try {
     if (!monitor) {
       const made = await relay<{ kernel: { id: string } }>('/colab/kernels', googleToken, { method: 'POST', body: { proxy: runtime.proxy } });
-      const attached = new Kernel(runtime.proxy, made.kernel.id, () => {
-        if (monitor === attached) monitor = null;
-      });
+      const attached = new Kernel(
+        runtime.proxy,
+        made.kernel.id,
+        () => {
+          if (monitor === attached) monitor = null;
+        },
+        ticketFor(runtime),
+      );
       await attached.connect();
       monitor = attached;
     }
@@ -558,14 +638,26 @@ const lost = (reason: string) => {
   set({ status: 'lost', kernel: undefined, running: undefined, runs, error: reason });
 };
 
+/** A ticket for the proxy to carry a kernel's socket: asked for as the page connects, with the person's own token. */
+const ticketFor = (runtime: Runtime) => async (kernelId: string, sessionId: string) => {
+  const googleToken = await tokenOrConnect();
+  const answer = await relay<{ ticket: string }>('/colab/socket/ticket', googleToken, { method: 'POST', body: { proxy: { url: runtime.proxy.url }, kernel: kernelId, session: sessionId } });
+  return answer.ticket;
+};
+
 async function attach(runtime: Runtime, googleToken: string): Promise<Kernel> {
   // The runtime's kernel, if it has one — a second kernel would be a second Python with none of the first's variables.
   const listed = await relay<{ kernels: { id: string }[] }>('/colab/kernels/list', googleToken, { method: 'POST', body: { proxy: runtime.proxy } }).catch(() => null);
   let id = state.kernel && listed?.kernels?.some((k) => k.id === state.kernel) ? state.kernel : listed?.kernels?.[0]?.id;
   if (!id) id = (await relay<{ kernel: { id: string } }>('/colab/kernels', googleToken, { method: 'POST', body: { proxy: runtime.proxy } })).kernel.id;
-  const attached = new Kernel(runtime.proxy, id, (reason) => {
-    if (kernel === attached) lost(`The connection to the runtime closed: ${reason}`);
-  });
+  const attached = new Kernel(
+    runtime.proxy,
+    id,
+    (reason) => {
+      if (kernel === attached) lost(`The connection to the runtime closed: ${reason}`);
+    },
+    ticketFor(runtime),
+  );
   await attached.connect();
   return attached;
 }
@@ -590,7 +682,7 @@ export async function connect(machine: Machine = state.machine): Promise<void> {
     closeKernels();
     kernel = await attach(runtime, googleToken);
     write(session(), RUNTIME_KEY, runtime);
-    set({ status: 'idle', runtime, kernel: kernel.id, startedAt: state.runtime?.endpoint === runtime.endpoint && state.startedAt ? state.startedAt : Date.now(), error: undefined });
+    set({ status: 'idle', runtime, kernel: kernel.id, via: kernel.via, startedAt: state.runtime?.endpoint === runtime.endpoint && state.startedAt ? state.startedAt : Date.now(), error: undefined });
     void refreshUnits(googleToken);
   } catch (error) {
     const flags = error instanceof ColabRequestError ? error.flags : {};
