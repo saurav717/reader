@@ -125,7 +125,9 @@ describe('the proxy’s half', () => {
   });
   it('fetches a runtime’s Jupyter server only where Colab puts one', () => {
     assert.equal(relay.checkRuntimeUrl('https://abc-colab.googleusercontent.com/tun/m/xyz'), 'https://abc-colab.googleusercontent.com/tun/m/xyz/');
-    for (const bad of ['http://abc-colab.googleusercontent.com/', 'https://evil.example.com/googleusercontent.com/', 'https://user:pw@abc.googleusercontent.com/', 'https://169.254.169.254/', 'https://googleusercontent.com.evil.net/', 'nope']) {
+    assert.equal(relay.checkRuntimeUrl('https://m-s-2r3ptqkc7gsj0-s.us-west1-a.prod.colab.dev'), 'https://m-s-2r3ptqkc7gsj0-s.us-west1-a.prod.colab.dev/');
+    assert.throws(() => relay.checkRuntimeUrl('https://evil.example.com/'), /not a Colab runtime \(https:\/\/evil\.example\.com\)/);
+    for (const bad of ['http://abc-colab.googleusercontent.com/', 'https://evil.example.com/googleusercontent.com/', 'https://user:pw@abc.googleusercontent.com/', 'https://169.254.169.254/', 'https://googleusercontent.com.evil.net/', 'https://colab.dev.evil.net/', 'https://notcolab.dev/', 'nope']) {
       assert.throws(() => relay.checkRuntimeUrl(bad), /not a Colab runtime|not a URL/, bad);
     }
   });
