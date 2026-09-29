@@ -1,0 +1,453 @@
+// Google Colab on the Explain and Implementation pages: the chip in the bar
+// that says what is running and opens to the runtime's menu, the card the
+// first Run opens to say what will happen before anything does, and what a
+// cell that has run shows under its code. The store, the runtime and the
+// kernel are src/lib/colab.ts; the rules they keep are in docs/colab-run.md.
+
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import type { CellRun, Machine, Output } from '../lib/colab';
+import { colabAvailable, colabNow, compareOutput, connect, differingLines, disconnect, MACHINES, machineLabel, outputText, restartKernel, runAll, setGpuWatch, setMachine, stopRuntime, subscribeColab } from '../lib/colab';
+import { useStore } from '../lib/store';
+import { hasCurve, lossSeries } from '../lib/telemetry';
+import { GpuChart, LossChart } from './Charts';
+
+export const useColab = () => useSyncExternalStore(subscribeColab, colabNow);
+
+/** The Colab mark: the two rings, as the page draws them everywhere Colab is named. */
+export const ColabMark = () => (
+  <span className="colab-mark" aria-hidden="true">
+    co
+  </span>
+);
+
+const clock = (since: number | undefined, now: number) => {
+  if (!since) return '';
+  const s = Math.max(0, Math.round((now - since) / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : `${m}:${String(s % 60).padStart(2, '0')}`;
+};
+
+/** Colab's own page attached to this runtime, as the CLI's `colab url` builds it: the backend named twice, the way Colab's frontend looks for it. */
+const attachUrl = (endpoint: string) => {
+  const host = 'https://colab.research.google.com';
+  const path = `/tun/m/${endpoint}`;
+  return `${host}/notebooks/empty.ipynb?dbu=${encodeURIComponent(path)}#datalabBackendUrl=${host}${path}`;
+};
+
+function useAway(open: boolean, close: () => void, box: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) close();
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        close();
+      }
+    };
+    window.addEventListener('mousedown', away);
+    window.addEventListener('keydown', key, true);
+    return () => {
+      window.removeEventListener('mousedown', away);
+      window.removeEventListener('keydown', key, true);
+    };
+  }, [open, close, box]);
+}
+
+/** The machines, as buttons; the one chosen is kept for next time. */
+export function MachinePicker({ machine, onPick, disabled }: { machine: Machine; onPick: (machine: Machine) => void; disabled?: boolean }) {
+  return (
+    <div className="colab-pick" role="radiogroup" aria-label="Machine">
+      {MACHINES.map((option) => (
+        <button
+          key={option.accelerator}
+          type="button"
+          role="radio"
+          aria-checked={machine.accelerator === option.accelerator}
+          className={`colab-opt${machine.accelerator === option.accelerator ? ' is-on' : ''}`}
+          disabled={disabled}
+          onClick={() => onPick({ ...machine, accelerator: option.accelerator })}
+        >
+          <b>{option.label}</b>
+          <small>{option.note}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * What the first Run says before anything happens: that a runtime starts in
+ * the person's own Colab, on which machine, that Google will ask once for
+ * Colab, and what the reader can and cannot do with it.
+ */
+export function ConnectCard({ cellLabel, onConnect, onClose, busy }: { cellLabel?: string; onConnect: (machine: Machine) => void; onClose: () => void; busy?: boolean }) {
+  const colab = useColab();
+  const { settings } = useStore();
+  const [machine, pick] = useState<Machine>(colab.machine);
+  const box = useRef<HTMLDivElement>(null);
+  useAway(true, onClose, box);
+  const available = colabAvailable(settings.googleClientId);
+  return (
+    <div className="menu right colab-menu colab-connect" role="dialog" aria-label="Run in Google Colab" ref={box}>
+      <div className="menu-label">
+        <b>Run {cellLabel ? `${cellLabel} ` : 'this cell '}in your Google Colab.</b> The first run starts a runtime in your own Colab account — the same one colab.research.google.com uses — and every cell on this page can then run in it with one click.
+      </div>
+      <MachinePicker machine={machine} onPick={pick} disabled={busy} />
+      <div className="colab-google">
+        <span className="colab-g" aria-hidden="true" />
+        <div>
+          Google will ask once for <b>Colab</b> access{settings.googleClientId ? ' on top of the sign-in you have given' : ''} (<code>auth/colaboratory</code>). It is kept the way the Drive token is: in this tab, for an hour, never on disk.
+        </div>
+      </div>
+      <div className="colab-can">
+        <div>
+          <b>The reader can</b>
+          <ul>
+            <li>run the cells on this page you click</li>
+            <li>show what they print here — and loss curves, when a cell prints losses</li>
+            {machine.accelerator !== 'NONE' ? <li>read the GPU's use while a cell runs (nvidia-smi, every two seconds)</li> : <li>stop or restart the runtime</li>}
+          </ul>
+        </div>
+        <div>
+          <b>It cannot</b>
+          <ul>
+            <li>run anything without a click</li>
+            <li>mount your Drive or read your notebooks</li>
+            <li>start more than one runtime</li>
+          </ul>
+        </div>
+      </div>
+      <hr />
+      {available ? (
+        <button type="button" className="colab-action is-primary" disabled={busy} onClick={() => onConnect(machine)}>
+          <b>{busy ? 'Connecting…' : `Connect and run${cellLabel ? ` ${cellLabel}` : ''}`}</b>
+          <span>Opens Google's window, starts the {machineLabel(machine)} runtime, runs the cell. About fifteen seconds the first time.</span>
+        </button>
+      ) : (
+        <div className="colab-status">
+          <b>Not available here.</b> {settings.googleClientId ? 'Running cells needs the reader’s proxy (Settings → Paper proxy), which makes the calls to Colab that a page cannot.' : 'Give Settings → Google a client ID first: the runtime is started as you.'}
+        </div>
+      )}
+      <div className="colab-hint">
+        <ColabMark />
+        The code was written by a model, from the paper. Read it before you run it: it runs as you, on your Colab quota. <b>Notebook ↓</b> in the bar is the same cells for Colab's own page instead.
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The chip in the bar: the Colab mark, a dot for the state, the machine and
+ * how long it has been up. It opens to the runtime's menu — what it is,
+ * what it costs, what has run — and to starting one when there is none.
+ */
+export function ColabChip({ cells }: { cells: { key: string; code: string; label: string }[] }) {
+  const colab = useColab();
+  const { settings, user } = useStore();
+  const [open, setOpen] = useState(false);
+  const [confirmAll, setConfirmAll] = useState(false);
+  const [changing, setChanging] = useState(false);
+  const [now, setNow] = useState(Date.now());
+  const box = useRef<HTMLDivElement>(null);
+  const close = () => {
+    setOpen(false);
+    setConfirmAll(false);
+    setChanging(false);
+  };
+  useAway(open, close, box);
+  useEffect(() => {
+    if (!colab.startedAt) return;
+    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(tick);
+  }, [colab.startedAt]);
+  const available = colabAvailable(settings.googleClientId);
+  if (!available && colab.status === 'off') return null;
+  const connected = colab.status === 'idle' || colab.status === 'busy';
+  const ran = cells.filter((cell) => colab.runs[cell.key]?.state === 'ran').length;
+  const dot = colab.status === 'busy' ? 'busy' : colab.status === 'connecting' ? 'busy' : connected ? 'on' : colab.status === 'lost' || colab.status === 'error' ? 'lost' : 'off';
+  const text =
+    colab.status === 'connecting'
+      ? 'Colab · connecting…'
+      : connected && colab.runtime
+        ? `${machineLabel(colab.runtime)} · ${colab.status === 'busy' ? (colab.gpu ? `GPU ${colab.gpu.util}%` : 'running') : 'idle'} · ${clock(colab.startedAt, now)}`
+        : colab.status === 'lost'
+          ? `${colab.runtime ? machineLabel(colab.runtime) : 'Colab'} · runtime ended`
+          : colab.status === 'error'
+            ? 'Colab · not connected'
+            : 'Colab · no runtime';
+  return (
+    <div className="menu-wrap" ref={box}>
+      <button type="button" className={`colab-chip is-${dot}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title={colab.error || 'Your Colab runtime: the cells on this page run in it'}>
+        <ColabMark />
+        <span className={`colab-dot is-${dot}`} aria-hidden="true" />
+        {text}
+      </button>
+      {open ? (
+        connected || colab.status === 'busy' ? (
+          <div className="menu right colab-menu colab-runtime" role="menu" aria-label="Your Colab runtime">
+            <div className="menu-label">
+              <b>Your Colab runtime</b> · started from this page{user?.email ? `, as ${user.email}` : ''}
+            </div>
+            <div className="colab-stats">
+              <div>
+                <span className="k">Machine</span>
+                <span className="v">{colab.runtime ? machineLabel(colab.runtime) : '—'}</span>
+              </div>
+              <div>
+                <span className="k">Up for</span>
+                <span className="v">{clock(colab.startedAt, now) || '—'}</span>
+              </div>
+              <div>
+                <span className="k">Compute units</span>
+                <span className="v">
+                  {colab.units?.balance !== undefined ? colab.units.balance.toFixed(1) : colab.runtime?.accelerator ? 'your tier’s' : '0'}
+                  {colab.units?.ratePerHour ? <small> · {colab.units.ratePerHour.toFixed(2)}/h</small> : !colab.runtime?.accelerator ? <small> · free</small> : null}
+                </span>
+              </div>
+            </div>
+            <div className="colab-hint">
+              {cells.length} {cells.length === 1 ? 'cell' : 'cells'} on this page · {ran} {ran === 1 ? 'has' : 'have'} run · variables are kept between runs, so a later cell sees an earlier one's
+            </div>
+            {colab.runtime?.accelerator ? (
+              <label className="colab-switch">
+                <input type="checkbox" checked={colab.gpuWatch} onChange={(event) => setGpuWatch(event.target.checked)} />
+                <span>
+                  <b>Watch the GPU while cells run</b>
+                  <small>
+                    One line of the reader's own, in a second kernel, every two seconds: <code>nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total</code>. Drawn under the cell.
+                  </small>
+                </span>
+              </label>
+            ) : null}
+            <hr />
+            {confirmAll ? (
+              <div className="colab-status">
+                Run all {cells.length} cells, top to bottom? It stops at the first that fails.
+                <div className="colab-row">
+                  <button
+                    type="button"
+                    className="btn sm primary"
+                    onClick={() => {
+                      close();
+                      void runAll(cells);
+                    }}
+                  >
+                    Run all
+                  </button>
+                  <button type="button" className="btn sm" onClick={() => setConfirmAll(false)}>
+                    Not now
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" role="menuitem" className="colab-action" disabled={colab.status === 'busy' || !cells.length} onClick={() => setConfirmAll(true)}>
+                <b>Run all cells, top to bottom</b>
+                <span>Asks first; stops at the first error</span>
+              </button>
+            )}
+            {colab.runtime ? (
+              <a className="colab-action" role="menuitem" href={attachUrl(colab.runtime.endpoint)} target="_blank" rel="noreferrer noopener">
+                <b>Open this runtime in Colab ↗</b>
+                <span>Colab's own notebook page on the same machine — for editing, plots, a terminal, or Drive, on purpose</span>
+              </a>
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              className="colab-action"
+              disabled={colab.status === 'busy'}
+              onClick={() => {
+                close();
+                void restartKernel();
+              }}
+            >
+              <b>Restart the kernel</b>
+              <span>Forgets every variable; keeps the machine and the files on it</span>
+            </button>
+            {changing ? (
+              <div className="colab-status">
+                A new runtime on another machine; this one is stopped.
+                <MachinePicker
+                  machine={colab.machine}
+                  onPick={(machine) => {
+                    setMachine(machine);
+                    close();
+                    void stopRuntime().then(() => connect(machine));
+                  }}
+                />
+              </div>
+            ) : (
+              <button type="button" role="menuitem" className="colab-action" disabled={colab.status === 'busy'} onClick={() => setChanging(true)}>
+                <b>Change machine…</b>
+                <span>CPU, T4, L4, A100 — a new runtime; this one is stopped</span>
+              </button>
+            )}
+            <hr />
+            <button
+              type="button"
+              role="menuitem"
+              className="colab-action is-danger"
+              onClick={() => {
+                close();
+                void stopRuntime();
+              }}
+            >
+              <b>Stop the runtime</b>
+              <span>Releases the machine now. Colab stops an idle one itself after a while.</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="colab-action"
+              onClick={() => {
+                close();
+                disconnect();
+              }}
+            >
+              <b>Forget Colab in this tab</b>
+              <span>Drops the connection and the token here. The permission itself is removed at myaccount.google.com/permissions.</span>
+            </button>
+          </div>
+        ) : (
+          <ConnectCard
+            busy={colab.status === 'connecting'}
+            onClose={close}
+            onConnect={(machine) => {
+              close();
+              void connect(machine).catch(() => undefined);
+            }}
+          />
+        )
+      ) : null}
+    </div>
+  );
+}
+
+/** A line under the bar while the runtime is gone or the last thing failed, with the way back. */
+export function ColabBanner() {
+  const colab = useColab();
+  const [hidden, setHidden] = useState<string | undefined>();
+  if (!colab.error || hidden === colab.error || colab.status === 'connecting') return null;
+  return (
+    <div className={`colab-banner is-${colab.status}`} role="status">
+      <ColabMark />
+      <span className="colab-banner-text">{colab.error}</span>
+      {colab.status === 'lost' || colab.status === 'error' || colab.status === 'off' ? (
+        <button type="button" className="btn sm" onClick={() => void connect(colab.machine).catch(() => undefined)}>
+          {colab.status === 'lost' ? `Start a new ${machineLabel(colab.machine)} runtime` : 'Try again'}
+        </button>
+      ) : null}
+      <button type="button" className="btn sm ghost" onClick={() => setHidden(colab.error)}>
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
+const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const seconds = (ms: number | undefined) => (ms === undefined ? '' : ms < 10_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 1000)} s`);
+
+/** What the header of a cell that has run, or is running, says about it. */
+export function RunState({ run }: { run: CellRun }) {
+  if (run.state === 'running' || run.state === 'queued') {
+    return (
+      <span className="cell-state is-busy">
+        <span className="spinner" /> Running on {run.where.replace(/^Colab · /, '')}
+      </span>
+    );
+  }
+  const label = run.state === 'ran' ? `✓ Ran in ${seconds(run.ms)}` : run.state === 'failed' ? `✕ Failed after ${seconds(run.ms)}` : '■ Stopped';
+  return <span className={`cell-state is-${run.state}`}>{label}</span>;
+}
+
+function OutputView({ output, marked, offset }: { output: Output; marked: Set<number>; offset: number }) {
+  if (output.type === 'image') return <img className="cell-image" alt="A figure the cell drew" src={`data:${output.mime};base64,${output.data}`} />;
+  if (output.type === 'error') return <pre className="cell-error">{output.traceback || `${output.ename}: ${output.evalue}`}</pre>;
+  const lines = output.text.replace(/\n$/, '').split('\n');
+  return (
+    <pre className={output.type === 'stream' && output.name === 'stderr' ? 'is-stderr' : undefined}>
+      {lines.map((line, index) => (
+        <span key={index} className={marked.has(offset + index) ? 'is-diff' : undefined}>
+          {line}
+          {index < lines.length - 1 ? '\n' : ''}
+        </span>
+      ))}
+    </pre>
+  );
+}
+
+/**
+ * Under a cell that has run: what it printed, where and when, how it
+ * compares with what Claude wrote as the expected output, and the two
+ * things to do about a difference — ask, or see the expectation.
+ */
+export function CellRunOutput({ run, expected, onAsk, onForget }: { run: CellRun; expected?: string; onAsk?: (request: string) => void; onForget: () => void }) {
+  const [showExpected, setShowExpected] = useState(false);
+  const live = run.state === 'running' || run.state === 'queued';
+  const verdict = live ? 'none' : compareOutput(expected, run.outputs);
+  const actual = outputText(run.outputs);
+  const marked = verdict === 'differs' ? differingLines(expected, actual) : new Set<number>();
+  const failed = run.outputs.some((output) => output.type === 'error');
+  // A training loop that prints its losses earns a curve; a GPU that was watched, its use.
+  const losses = useMemo(() => lossSeries(actual), [actual]);
+  const curve = hasCurve(losses);
+  // Line offsets so the tint lands on the right line across several stream outputs.
+  const offsets: number[] = [];
+  let count = 0;
+  for (const output of run.outputs) {
+    offsets.push(count);
+    if (output.type === 'stream' || output.type === 'text') count += output.text.replace(/\n$/, '').split('\n').length;
+  }
+  return (
+    <div className={`cell-output is-run${live ? ' is-live' : ''}${run.stale ? ' is-stale' : ''}`}>
+      <div className="cell-output-label">
+        {live ? <span className="spinner" /> : null}
+        <span>{live ? 'Output · streaming from Colab' : `Output · ${run.where} · ${time(run.startedAt)}${run.stale ? ' · that runtime has ended' : ''}`}</span>
+        <span className="spacer" />
+        {!live ? (
+          failed ? (
+            <span className="cell-verdict is-bad">✕ Error</span>
+          ) : verdict === 'match' ? (
+            <span className="cell-verdict is-ok">✓ Matches what Claude expected</span>
+          ) : verdict === 'differs' ? (
+            <span className="cell-verdict is-diff">◐ Differs from what Claude expected</span>
+          ) : null
+        ) : null}
+      </div>
+      {run.outputs.length ? run.outputs.map((output, index) => <OutputView key={index} output={output} marked={marked} offset={offsets[index]} />) : !live ? <pre className="is-empty">(nothing printed)</pre> : null}
+      {live && run.outputs.length ? <span className="caret" aria-hidden="true" /> : null}
+      {curve ? <LossChart series={losses} live={live} /> : null}
+      {run.gpu && run.gpu.length >= 2 ? <GpuChart samples={run.gpu} live={live} /> : null}
+      {!live ? (
+        <div className="cell-actions">
+          {onAsk && failed ? (
+            <button type="button" className="btn sm" onClick={() => onAsk(`This cell fails when run in Colab. The traceback:\n\n\`\`\`\n${actual.slice(0, 4000)}\n\`\`\`\n\nFix the cell so it runs, keep it short, and keep its expected output and explanation in step with the fix.`)}>
+              Ask Claude to fix this cell
+            </button>
+          ) : onAsk && verdict === 'differs' ? (
+            <button type="button" className="btn sm" onClick={() => onAsk(`This cell was run in Colab and printed something other than the expected output you wrote. What it printed:\n\n\`\`\`\n${actual.slice(0, 4000)}\n\`\`\`\n\nExplain the difference in a sentence or two where the cell is, and if your expected output was wrong, correct it to what the code prints.`)}>
+              Ask Claude why it differs
+            </button>
+          ) : null}
+          {expected ? (
+            <button type="button" className="btn sm ghost" onClick={() => setShowExpected(!showExpected)}>
+              {showExpected ? 'Hide what Claude expected' : 'Show what Claude expected'}
+            </button>
+          ) : null}
+          <button type="button" className="btn sm ghost" onClick={onForget} title="Put the expected output back, as if the cell had not run">
+            Clear
+          </button>
+        </div>
+      ) : null}
+      {showExpected && expected ? (
+        <div className="cell-expected">
+          <div className="cell-output-label">Expected output · written by Claude</div>
+          <pre>{expected}</pre>
+        </div>
+      ) : null}
+    </div>
+  );
+}

@@ -33,6 +33,12 @@ const IDENTITY_SCOPES = 'openid email profile';
 export const SIGN_IN_REQUIRED = (import.meta.env as ImportMetaEnv | undefined)?.VITE_REQUIRE_SIGN_IN === 'true';
 
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+/**
+ * Colab: the scope that lets the pages' Python cells run in the person's own
+ * Colab runtimes (src/lib/colab.ts). Asked for late — at the first Run, not
+ * at sign-in — and on its own, so Drive is never bundled with it.
+ */
+export const COLAB_SCOPE = 'https://www.googleapis.com/auth/colaboratory';
 
 interface TokenResponse {
   access_token?: string;
@@ -250,6 +256,10 @@ export function hasDriveAccess(): boolean {
   return currentScopes().includes(DRIVE_SCOPE);
 }
 
+export function hasColabAccess(): boolean {
+  return currentScopes().includes(COLAB_SCOPE);
+}
+
 async function fetchProfile(accessToken: string): Promise<GoogleUser> {
   const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -294,6 +304,40 @@ export async function ensureDriveToken(clientId: string): Promise<string> {
   const granted = await tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`, '');
   if (!granted.scopes.includes(DRIVE_SCOPE)) throw new Error('Drive access was not granted');
   return granted.accessToken;
+}
+
+/**
+ * Incremental consent for Colab: keeps identity and Drive (when Drive has
+ * been granted), adds Colab. Google shows its window for the new scope
+ * however the prompt is set, so this, too, has to happen inside a click.
+ * The token that comes back replaces the one held, and carries every scope
+ * granted so far, so Drive keeps working on it.
+ */
+export function connectColab(clientId: string): Promise<string> {
+  const scopes = [IDENTITY_SCOPES, hasDriveAccess() ? DRIVE_SCOPE : '', COLAB_SCOPE].filter(Boolean).join(' ');
+  return tokenFor(clientId, scopes, '').then((granted) => {
+    if (!granted.scopes.includes(COLAB_SCOPE)) throw new Error('Colab access was not granted');
+    return granted.accessToken;
+  });
+}
+
+/** The live token with Colab on it, renewed quietly on the grant already given; null when Colab was never connected in this tab. */
+export async function colabToken(clientId: string): Promise<string | null> {
+  if (token && token.expiresAt > Date.now() && token.scopes.includes(COLAB_SCOPE)) return token.accessToken;
+  if (!token?.scopes.includes(COLAB_SCOPE)) return null;
+  const scopes = [IDENTITY_SCOPES, token.scopes.includes(DRIVE_SCOPE) ? DRIVE_SCOPE : '', COLAB_SCOPE].filter(Boolean).join(' ');
+  const granted = await tokenFor(clientId, scopes, '');
+  return granted.scopes.includes(COLAB_SCOPE) ? granted.accessToken : null;
+}
+
+/**
+ * Forget Colab in this tab. Google's grant is one grant for the whole app,
+ * so the token cannot lose one scope and keep the rest: the token goes, and
+ * the next thing that needs Drive asks quietly for Drive alone. Taking the
+ * permission away for good is done at myaccount.google.com/permissions.
+ */
+export function dropColab(): void {
+  if (token?.scopes.includes(COLAB_SCOPE)) forgetToken();
 }
 
 /**

@@ -1,0 +1,31 @@
+<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><link rel="stylesheet" href="explain.css"><style>.explain-figure{display:none}</style></head><body>
+<div class="explain">
+<!--BAR:<span class="colab-chip"><span class="colab-mark">co</span><span class="st lost"></span>T4 <em>· runtime ended</em></span>-->
+<div class="explain-scroll">
+<!--OUTLINE-->
+<div class="explain-doc">
+<!--PROSE[[
+<figure class="explain-cell">
+ <header><span class="cell-index">In [2]</span><span class="cell-title">Multi-head: split, attend, concatenate</span><span class="cell-state bad">✕ Failed after 0.3 s</span><span class="btn sm ghost">Copy</span><span class="btn sm colab"><span class="colab-mark">co</span>▶ Run again</span></header>
+ <pre class="cell-code">heads = <span class="tok-n">8</span>
+d_head = X.shape[<span class="tok-n">-1</span>] // heads
+Xh = X.<span class="tok-f">reshape</span>(<span class="tok-n">4</span>, heads, d_head)
+outs = [<span class="tok-f">attention</span>(Xh[:, h], Xh[:, h], Xh[:, h])[<span class="tok-n">0</span>]
+        <span class="tok-k">for</span> h <span class="tok-k">in</span> <span class="tok-f">range</span>(heads)]
+<span class="tok-f">print</span>(np.<span class="tok-f">concatenate</span>(outs, axis=<span class="tok-n">-1</span>).shape)</pre>
+ <div class="cell-output"><div class="cell-output-label">Output · ran in Colab · T4 · 12:06<span class="spacer"></span><span class="verdict bad">✕ Error</span></div><pre><span class="err">ValueError                 Traceback (most recent call last)
+Cell In[2], line 3
+      1 heads = 8
+      2 d_head = X.shape[-1] // heads
+----> 3 Xh = X.reshape(4, heads, d_head)
+
+ValueError: cannot reshape array of size 32
+            into shape (4,8,1)</span></pre>
+  <div class="cell-actions"><span class="btn sm">Ask Claude to fix this cell</span><span class="btn sm ghost">Show what Claude expected</span></div>
+ </div>
+</figure>
+<div class="first-run" style="margin:0"><b>Colab ended the runtime</b> after 90 minutes idle, as it does for every free-tier session. Variables from In [1] are gone; the cells stay as they are.<div class="row"><span class="btn sm colab go"><span class="colab-mark">co</span>Start a new T4 and re-run In [1]</span><span class="btn sm">Later</span></div></div>
+]]-->
+</div></div></div>
+<div class="label">6 · dark: a traceback is a question for Claude; a runtime that ended says so where it matters</div>
+</body></html>
