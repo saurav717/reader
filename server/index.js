@@ -1,9 +1,11 @@
 // Production server: the same /api handler the dev server uses, plus the built
 // client. `npm run build && npm start`.
 import express from 'express';
+import { createServer } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import apiRouter from './api.js';
+import apiRouter, { fromThisApp } from './api.js';
+import { attachColabSocket } from './colabSocket.js';
 import { loopbackHost, tokenRequired } from './guard.js';
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -29,7 +31,10 @@ app.use('/api', apiRouter);
 app.use(express.static(dist, { index: false, maxAge: '1h' }));
 app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
 
-app.listen(port, host, () => {
+// The one WebSocket the proxy carries: a Colab kernel's, for the page (server/colabSocket.js).
+const server = createServer(app);
+attachColabSocket(server, { fromThisApp });
+server.listen(port, host, () => {
   console.log(`reader listening on http://${host.includes(':') ? `[${host}]` : host}:${port}`);
   console.log(
     tokenRequired()

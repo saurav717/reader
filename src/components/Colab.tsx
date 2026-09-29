@@ -210,6 +210,7 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
             </div>
             <div className="colab-hint">
               {cells.length} {cells.length === 1 ? 'cell' : 'cells'} on this page · {ran} {ran === 1 ? 'has' : 'have'} run · variables are kept between runs, so a later cell sees an earlier one's
+              {colab.via === 'proxy' ? ' · the kernel’s socket is carried by the proxy, since the runtime would not take this page’s own' : ''}
             </div>
             {colab.runtime?.accelerator ? (
               <label className="colab-switch">

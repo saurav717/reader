@@ -31,6 +31,7 @@ import { contributionsAsked, readContributions } from './contributionReader.js';
 import * as workspace from './workspace.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini } from './geminiRelay.js';
 import { handleColab, isColabPath } from './colab.js';
+import { socketSecret } from './colabSocket.js';
 import { Readable } from 'node:stream';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
@@ -661,7 +662,7 @@ async function colab(req, url, res) {
       return send(res, 400, { error: said(error, 'could not read that') });
     }
   }
-  const { status, body: answer } = await handleColab(url.pathname, req.method, req.headers['x-google-token'], body);
+  const { status, body: answer } = await handleColab(url.pathname, req.method, req.headers['x-google-token'], body, { secret: socketSecret() });
   return send(res, status, answer, { 'Cache-Control': 'no-store' });
 }
 
@@ -852,6 +853,7 @@ export default async function apiRouter(req, res, next) {
       case '/colab/kernels/list':
       case '/colab/kernels/interrupt':
       case '/colab/kernels/restart':
+      case '/colab/socket/ticket':
         return await colab(req, url, res);
       case '/health':
         return send(res, 200, {

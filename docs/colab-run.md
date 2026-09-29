@@ -19,7 +19,11 @@ app's own colours and type; the sources are in
 > `npm start`). Two things were decided by building rather than by the
 > reference page: the runtime calls go through the proxy, since Colab's
 > session backend does not take another origin's requests, and the kernel's
-> WebSocket goes straight from the page. See the README's *Running the cells
+> WebSocket goes straight from the page when the runtime allows it. In
+> practice Colab's runtime proxy (`*.prod.colab.dev`) refused the page's
+> own socket, so the proxy carries it on a signed one-minute ticket —
+> `server/colabSocket.js` and `worker/colabSocket.js`, the fallback this
+> document names under *Where the calls run*. See the README's *Running the cells
 > in Colab*. The rest of this document is the design as written.
 
 **Short answer: yes.** The API does the two things the page needs — start a

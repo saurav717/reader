@@ -2685,10 +2685,23 @@ interrupt or restart its kernel, go through the reader's proxy — the Worker
 or `npm start` — with *your* Google token in `X-Google-Token`, the way a
 sign-in sends it, and nothing of the proxy's: no key, no cost to its owner.
 The proxy refuses any runtime address that is not Colab's own. The kernel
-itself is a WebSocket from the page straight to the runtime's Jupyter
-server, speaking the Jupyter protocol as Colab's page does. The routes are
-gated like everything that acts for a person (a token or a Google sign-in),
-and are on by default on both proxies: `colab: true` in `/health`. The
+itself is a WebSocket speaking the Jupyter protocol as Colab's page does.
+The page opens it straight to the runtime first; Colab's runtime proxy
+takes a socket from Colab's own page and from a client that can set
+headers, and not from another site's browser, so when that is refused the
+proxy carries it: the page asks for a **ticket** — a note the proxy signs,
+naming the runtime and the kernel, good for a minute, for someone the gate
+let through — opens a WebSocket to `/colab/socket?ticket=…`, says hello
+with the runtime's token, and the proxy dials the runtime with that token
+in the header and pipes frames both ways without reading them. The
+refusal is remembered for the tab, so later sockets go the way that
+worked; the runtime menu says which way. The Worker does this with a
+`WebSocketPair` (`worker/colabSocket.js`); the Node proxy with the `ws`
+package on its http server (`server/colabSocket.js`); Vercel's functions
+cannot hold a socket, so there the page's own connection is the only one.
+The routes are gated like everything that acts for a person (a token or a
+Google sign-in), and are on by default on both proxies: `colab: true` in
+`/health`. The
 page's side is `src/lib/colab.ts` and `src/components/Colab.tsx`; the
 proxies' is `server/colab.js`. The Colab API is in beta and allowlisted per
 Google Cloud project; a client ID whose project is not on the list gets a
@@ -2944,8 +2957,9 @@ on a static deployment says what to run instead. The server side is
 `scripts/colab.test.mjs` reads what a kernel sends back and compares it with
 what Claude expected, reads loss curves and GPU samples off a cell's output,
 and drives the proxy's half of Colab — the assignment, the kernel, the
-refusals, the runtime addresses it will not fetch — and the Node routes,
-against a stand-in for Colab.
+refusals, the runtime addresses it will not fetch, the socket tickets and
+the bridge that carries a kernel's socket, against a stand-in runtime — and
+the Node routes, against a stand-in for Colab.
 `scripts/implement.test.mjs` reads the plan's blocks, works a budget out on
 several machines, and checks the zip, the notebook and the commit's files;
 `scripts/workspace.test.mjs` writes and runs in a temporary workspace.

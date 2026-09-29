@@ -254,12 +254,87 @@ export async function restartKernel(proxy, id) {
   return { ok: true };
 }
 
+// -------------------------------------------------------- the socket bridge ---
+//
+// Colab's runtime proxy takes a kernel's WebSocket from Colab's own page and
+// from a client that can set headers, and not from another site's browser.
+// So when the page's own socket is refused, the proxy carries it: the page
+// asks for a ticket (a signed note of which runtime and kernel, good for a
+// minute, from someone the gate let through), opens a WebSocket to
+// /colab/socket?ticket=…, says hello with the runtime's proxy token, and
+// the proxy dials the runtime with that token in the header and the query
+// and pipes frames both ways, touching none of them. The ticket carries no
+// secret — the proxy token travels once, inside the socket, never in a URL.
+
+const TICKET_PREFIX = 'rct1.';
+const TICKET_SECONDS = 60;
+const encoder = new TextEncoder();
+const base64url = (bytes) =>
+  btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+const fromBase64url = (text) => {
+  const padded = text.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (text.length % 4)) % 4);
+  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
+};
+const ticketKey = (secret) => crypto.subtle.importKey('raw', encoder.encode(`reader-colab:${secret}`), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
+
+/** A ticket for one kernel's socket on one runtime, good for a minute. */
+export async function issueSocketTicket(secret, { url, kernel, session }, now = Date.now()) {
+  if (!secret) throw new ColabRefused(501, 'this proxy cannot carry a kernel socket: it has no secret to sign a ticket with');
+  const payload = base64url(encoder.encode(JSON.stringify({ u: checkRuntimeUrl(url), k: kernelId(kernel), s: String(session || '').slice(0, 80), x: Math.floor(now / 1000) + TICKET_SECONDS })));
+  const signature = await crypto.subtle.sign('HMAC', await ticketKey(secret), encoder.encode(payload));
+  return `${TICKET_PREFIX}${payload}.${base64url(signature)}`;
+}
+
+/** What a ticket names, or null: signed with this secret, not expired, and still a Colab runtime. */
+export async function readSocketTicket(secret, ticket, now = Date.now()) {
+  if (!secret || typeof ticket !== 'string' || !ticket.startsWith(TICKET_PREFIX)) return null;
+  const [payload, signature] = ticket.slice(TICKET_PREFIX.length).split('.');
+  if (!payload || !signature) return null;
+  try {
+    const ok = await crypto.subtle.verify('HMAC', await ticketKey(secret), fromBase64url(signature), encoder.encode(payload));
+    if (!ok) return null;
+    const claims = JSON.parse(new TextDecoder().decode(fromBase64url(payload)));
+    if (typeof claims.u !== 'string' || typeof claims.k !== 'string' || typeof claims.x !== 'number' || claims.x * 1000 <= now) return null;
+    return { url: checkRuntimeUrl(claims.u), kernel: kernelId(claims.k), session: typeof claims.s === 'string' ? claims.s : '' };
+  } catch {
+    return null;
+  }
+}
+
+/** The first frame over the bridge: the runtime's proxy token, and nothing else. */
+export function readHello(data) {
+  try {
+    const hello = JSON.parse(typeof data === 'string' ? data : '');
+    return hello?.type === 'hello' && typeof hello.token === 'string' && hello.token.length > 0 && hello.token.length < 4096 ? hello.token : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Where the runtime's kernel socket is, and the headers Colab's own client sends with it. */
+export function upstreamSocket({ url, kernel, session, token }) {
+  const socket = new URL(`api/kernels/${encodeURIComponent(kernelId(kernel))}/channels`, checkRuntimeUrl(url));
+  socket.protocol = 'wss:';
+  if (session) socket.searchParams.set('session_id', session);
+  socket.searchParams.set('colab-runtime-proxy-token', token);
+  return {
+    href: socket.href,
+    headers: { 'X-Colab-Runtime-Proxy-Token': token, 'X-Colab-Client-Agent': CLIENT_AGENT, Origin: COLAB_HOST },
+  };
+}
+
+/** A close code a WebSocket may be closed with; anything else becomes a plain close. */
+export const closeCode = (code) => (Number.isInteger(code) && ((code >= 1000 && code <= 1003) || (code >= 1007 && code <= 1014) || (code >= 3000 && code <= 4999)) ? code : 1000);
+
 /**
  * The page's request, routed: the path under /colab, its method, the Google
  * token and the JSON body. One function for both proxies, so the routes are
  * in step; it answers with { status, body }.
  */
-export async function handleColab(path, method, googleToken, body) {
+export async function handleColab(path, method, googleToken, body, { secret = '' } = {}) {
   const token = String(googleToken || '').trim();
   if (!token) return { status: 401, body: { error: 'the request has no Google sign-in (X-Google-Token); connect Colab first', reauth: true } };
   try {
@@ -271,6 +346,7 @@ export async function handleColab(path, method, googleToken, body) {
     if (path === '/colab/kernels' && method === 'POST') return { status: 200, body: { kernel: await startKernel(body?.proxy) } };
     if (path === '/colab/kernels/interrupt' && method === 'POST') return { status: 200, body: await interruptKernel(body?.proxy, body?.kernel) };
     if (path === '/colab/kernels/restart' && method === 'POST') return { status: 200, body: await restartKernel(body?.proxy, body?.kernel) };
+    if (path === '/colab/socket/ticket' && method === 'POST') return { status: 200, body: { ticket: await issueSocketTicket(secret, { url: body?.proxy?.url, kernel: body?.kernel, session: body?.session }) } };
     return { status: 404, body: { error: 'not found' } };
   } catch (error) {
     if (error instanceof ColabRefused) {

@@ -6,7 +6,7 @@
 //
 //   node --test scripts/colab.test.mjs
 
-import { after, afterEach, describe, it } from 'node:test';
+import { after, afterEach, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -95,17 +95,20 @@ describe('what a cell shows', () => {
 });
 
 describe('the proxy’s half', () => {
-  const realFetch = globalThis.fetch;
+  let before = null;
   const calls = [];
   const answers = [];
   const XSSI = ")]}'\n";
   const proxyInfo = { url: 'https://abc-colab.googleusercontent.com/tun/m/xyz/', token: 'ptok', tokenExpiresInSeconds: 3600 };
   afterEach(() => {
-    globalThis.fetch = realFetch;
+    // Put back whatever fetch was there — another suite's stand-in, or the real one — not a copy taken earlier.
+    if (before) globalThis.fetch = before;
+    before = null;
     calls.length = 0;
     answers.length = 0;
   });
   const fake = () => {
+    before = globalThis.fetch;
     globalThis.fetch = async (input, init = {}) => {
       const url = String(input);
       calls.push({ url, method: init.method || 'GET', headers: init.headers || {}, body: init.body });
@@ -200,6 +203,9 @@ describe('the Node proxy’s /colab routes', () => {
   let base;
   const ready = new Promise((resolve) => server.listen(0, resolve)).then(() => {
     base = `http://localhost:${server.address().port}`;
+  });
+  before(async () => {
+    await ready;
     globalThis.fetch = async (input, init = {}) => {
       const url = String(input instanceof Request ? input.url : input);
       if (url.startsWith(base)) return realFetch(input, init);
@@ -292,5 +298,148 @@ describe('what a running cell says about itself', () => {
     assert.equal(telemetry.short(0.5), '0.5');
     assert.equal(telemetry.short(1234), '1.2k');
     assert.equal(telemetry.short(0.00042), '4.2e-4');
+  });
+});
+
+describe('the socket bridge', () => {
+  const SECRET = 'bridge-secret';
+  const RUNTIME = 'https://m-s-abc.us-west1-a.prod.colab.dev/';
+  it('signs a ticket for one kernel on one runtime, good for a minute, and reads nothing else', async () => {
+    const ticket = await relay.issueSocketTicket(SECRET, { url: RUNTIME, kernel: 'k1', session: 's1' }, 1_000_000);
+    assert.match(ticket, /^rct1\./);
+    assert.deepEqual(await relay.readSocketTicket(SECRET, ticket, 1_000_000 + 30_000), { url: RUNTIME, kernel: 'k1', session: 's1' });
+    assert.equal(await relay.readSocketTicket(SECRET, ticket, 1_000_000 + 61_000), null, 'expired');
+    assert.equal(await relay.readSocketTicket('other-secret', ticket, 1_000_000), null, 'another secret');
+    assert.equal(await relay.readSocketTicket(SECRET, `${ticket}x`, 1_000_000), null, 'tampered');
+    assert.equal(await relay.readSocketTicket('', ticket, 1_000_000), null, 'no secret');
+    await assert.rejects(relay.issueSocketTicket(SECRET, { url: 'https://evil.example.com/', kernel: 'k1' }), /not a Colab runtime/);
+    await assert.rejects(relay.issueSocketTicket('', { url: RUNTIME, kernel: 'k1' }), /no secret/);
+  });
+  it('dials the runtime as Colab’s own client does: the token in the query and the header, Colab as the origin', () => {
+    const { href, headers } = relay.upstreamSocket({ url: RUNTIME, kernel: 'k1', session: 's1', token: 'ptok' });
+    assert.equal(href, 'wss://m-s-abc.us-west1-a.prod.colab.dev/api/kernels/k1/channels?session_id=s1&colab-runtime-proxy-token=ptok');
+    assert.equal(headers['X-Colab-Runtime-Proxy-Token'], 'ptok');
+    assert.equal(headers.Origin, 'https://colab.research.google.com');
+    assert.equal(relay.readHello(JSON.stringify({ type: 'hello', token: 'ptok' })), 'ptok');
+    assert.equal(relay.readHello(JSON.stringify({ type: 'execute_request' })), null);
+    assert.equal(relay.readHello('nonsense'), null);
+    assert.equal(relay.closeCode(1006), 1000);
+    assert.equal(relay.closeCode(1011), 1011);
+    assert.equal(relay.closeCode(4001), 4001);
+  });
+  it('hands a ticket out over /colab/socket/ticket, for a Colab runtime only', async () => {
+    const given = await relay.handleColab('/colab/socket/ticket', 'POST', 't', { proxy: { url: RUNTIME }, kernel: 'k1', session: 's1' }, { secret: SECRET });
+    assert.equal(given.status, 200);
+    assert.deepEqual(await relay.readSocketTicket(SECRET, given.body.ticket), { url: RUNTIME, kernel: 'k1', session: 's1' });
+    const refused = await relay.handleColab('/colab/socket/ticket', 'POST', 't', { proxy: { url: 'https://evil.example.com/' }, kernel: 'k1' }, { secret: SECRET });
+    assert.equal(refused.status, 400);
+  });
+});
+
+describe('the Node proxy carries a kernel’s socket', async () => {
+  const { WebSocket, WebSocketServer } = await import('ws');
+  const { createServer: createHttpServer } = await import('node:http');
+  const { attachColabSocket, bridge, socketSecret } = await import('../server/colabSocket.js');
+  const RUNTIME = 'https://m-s-abc.us-west1-a.prod.colab.dev/';
+  // A stand-in runtime: a WebSocket server that echoes frames back, tagged.
+  const runtime = createHttpServer();
+  const kernels = new WebSocketServer({ server: runtime });
+  kernels.on('connection', (socket) => socket.on('message', (data) => socket.send(`echo:${data}`)));
+  await new Promise((resolve) => runtime.listen(0, resolve));
+  const runtimeAddress = `ws://localhost:${runtime.address().port}/`;
+  // What the bridge dials is recorded, and the stand-in answers in the runtime's place.
+  const dialled = [];
+  const dial = (href, headers) => {
+    dialled.push({ href, headers });
+    return new WebSocket(runtimeAddress);
+  };
+  const proxy = createHttpServer((req, res) => apiRouter(req, res));
+  const secret = 'node-bridge-secret';
+  const sockets = attachColabSocket(proxy, { secret: () => secret, fromThisApp: (req) => !req.headers.origin || req.headers.origin === 'http://localhost:5173' });
+  await new Promise((resolve) => proxy.listen(0, resolve));
+  const base = `ws://localhost:${proxy.address().port}`;
+  const opened = [];
+  after(() => {
+    for (const socket of opened) socket.terminate();
+    kernels.close();
+    runtime.close();
+    sockets.close();
+    proxy.close();
+  });
+
+  const open = (url, headers = {}) =>
+    new Promise((resolve, reject) => {
+      const socket = new WebSocket(url, { headers });
+      opened.push(socket);
+      const frames = [];
+      const closed = new Promise((done) => socket.on('close', (code, reason) => done({ code, reason: reason.toString() })));
+      socket.on('message', (data) => frames.push(data.toString()));
+      socket.on('open', () => resolve({ socket, frames, closed }));
+      socket.on('error', reject);
+      socket.on('unexpected-response', (_req, res) => reject(Object.assign(new Error(`refused ${res.statusCode}`), { status: res.statusCode })));
+    });
+  const until = (frames, count) =>
+    new Promise((resolve, reject) => {
+      const started = Date.now();
+      const tick = () => (frames.length >= count ? resolve(frames) : Date.now() - started > 5000 ? reject(new Error(`only ${frames.length} frames`)) : setTimeout(tick, 10));
+      tick();
+    });
+  /** A bridge of its own for one test, on a stand-in runtime, closed after. */
+  const withBridge = async (run) => {
+    const direct = createHttpServer();
+    const server = new WebSocketServer({ server: direct });
+    server.on('connection', (client) => bridge(client, { url: RUNTIME, kernel: 'k1', session: 's1' }, { dial }));
+    await new Promise((resolve) => direct.listen(0, resolve));
+    try {
+      await run(`ws://localhost:${direct.address().port}/`);
+    } finally {
+      for (const client of server.clients) client.terminate();
+      server.close();
+      direct.close();
+    }
+  };
+
+  it('refuses a socket without a fresh ticket, or from elsewhere', async () => {
+    await assert.rejects(open(`${base}/colab/socket`), (error) => error.status === 401);
+    await assert.rejects(open(`${base}/colab/socket?ticket=rct1.bad.bad`), (error) => error.status === 401);
+    const ticket = await relay.issueSocketTicket(secret, { url: RUNTIME, kernel: 'k1' });
+    await assert.rejects(open(`${base}/colab/socket?ticket=${ticket}`, { Origin: 'https://elsewhere.example' }), (error) => error.status === 403);
+    await assert.rejects(open(`${base}/elsewhere`), (error) => error.status === 404);
+  });
+  it('closes a socket whose first frame is not the hello', () =>
+    withBridge(async (address) => {
+      const { socket, closed } = await open(address);
+      socket.send(JSON.stringify({ header: { msg_type: 'execute_request' } }));
+      assert.equal((await closed).code, 1008);
+    }));
+  it('pipes frames both ways once the page has said hello, dialling the runtime as Colab’s client does', () =>
+    withBridge(async (address) => {
+      const { socket, frames } = await open(address);
+      socket.send(JSON.stringify({ type: 'hello', token: 'ptok' }));
+      // A frame sent before the runtime answers is held, and goes through once it has.
+      socket.send('first');
+      await until(frames, 2);
+      assert.deepEqual(frames, [JSON.stringify({ type: 'ready' }), 'echo:first']);
+      socket.send('second');
+      await until(frames, 3);
+      assert.equal(frames[2], 'echo:second');
+      assert.equal(dialled.length, 1);
+      assert.equal(dialled[0].href, 'wss://m-s-abc.us-west1-a.prod.colab.dev/api/kernels/k1/channels?session_id=s1&colab-runtime-proxy-token=ptok');
+      assert.equal(dialled[0].headers['X-Colab-Runtime-Proxy-Token'], 'ptok');
+      assert.equal(dialled[0].headers.Origin, 'https://colab.research.google.com');
+    }));
+  it('lets a ticketed socket through /colab/socket to the bridge', async () => {
+    const ticket = await relay.issueSocketTicket(secret, { url: RUNTIME, kernel: 'k1', session: 's1' });
+    const { socket, closed } = await open(`${base}/colab/socket?ticket=${ticket}`, { Origin: 'http://localhost:5173' });
+    socket.send('not a hello');
+    assert.equal((await closed).code, 1008);
+  });
+  it('is signed with READER_TOKEN when there is one, and with its own secret otherwise', () => {
+    delete process.env.READER_TOKEN;
+    const own = socketSecret();
+    assert.ok(own.length > 20);
+    process.env.READER_TOKEN = 'the-token';
+    assert.equal(socketSecret(), 'the-token');
+    delete process.env.READER_TOKEN;
   });
 });
