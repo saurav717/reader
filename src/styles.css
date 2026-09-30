@@ -2884,7 +2884,8 @@ body.win-moving .assistant-win { transition: none; }
 .explain-scroll {
   flex: 1; overflow-y: auto; overscroll-behavior: contain;
   display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 56px;
-  padding: 44px 48px 140px 28px;
+  --explain-pad-top: 44px;
+  padding: var(--explain-pad-top) 48px 140px 28px;
   scroll-padding-top: 24px;
 }
 
@@ -2946,7 +2947,7 @@ body.win-moving .assistant-win { transition: none; }
 .layout-margin .row-main:empty + .row-side { grid-column: 2; }
 .layout-margin .row-side { margin: 4px 0 18px; }
 .layout-notebook .explain-doc { max-width: 880px; }
-.layout-beside .explain-scroll { grid-template-columns: minmax(0, 1fr); padding: 36px 44px 140px 40px; }
+.layout-beside .explain-scroll { grid-template-columns: minmax(0, 1fr); --explain-pad-top: 36px; padding: var(--explain-pad-top) 44px 140px 40px; }
 .layout-beside .explain-outline { display: none; }
 .layout-beside .explain-doc { max-width: 760px; }
 
@@ -2992,7 +2993,8 @@ body.win-moving .assistant-win { transition: none; }
 /* A code cell, dressed like a notebook's. */
 .explain-cell { margin: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: clip; }
 /* The header, with Run in Colab, keeps to the top of what is on screen while a long cell scrolls; `clip` above, not `hidden`, so it can. */
-.explain-cell > header { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 12px; border-bottom: 1px solid var(--border-soft); background: var(--panel); position: sticky; top: 0; z-index: 3; }
+.explain-cell > header { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 12px; border-bottom: 1px solid var(--border-soft); background: var(--panel); position: sticky; top: calc(-1 * var(--explain-pad-top, 0px)); z-index: 3; }
+/* A sticky element's rectangle is the scroller's content box, inside its padding: the negative top puts the header at the visible edge. */
 .cell-index { font: 500 11px var(--mono); color: var(--accent); white-space: nowrap; }
 .cell-title { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .explain-cell .btn.colab { display: inline-flex; align-items: center; gap: 6px; }
@@ -3141,7 +3143,7 @@ body.win-moving .assistant-win { transition: none; }
 }
 @media (max-width: 900px) {
   .explain.layout-beside { left: 0; }
-  .explain-scroll { grid-template-columns: minmax(0, 1fr); padding: 24px 18px 120px; gap: 0; }
+  .explain-scroll { grid-template-columns: minmax(0, 1fr); --explain-pad-top: 24px; padding: var(--explain-pad-top) 18px 120px; gap: 0; }
   .explain-outline { display: none; }
   .explain-bar-title { display: none; }
   /* Every layout is one column here, so the switch has nothing to switch. */

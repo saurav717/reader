@@ -630,7 +630,7 @@ await page.waitForTimeout(300);
 const headBox = await pageCell.locator('header').boundingBox();
 const pageScroller = await page.locator('.explain-scroll').boundingBox();
 const pageCellBox = await pageCell.boundingBox();
-check('the header, with Run in Colab, sticks to the top of the page while a long cell scrolls', pageCellBox.y < pageScroller.y - 100 && headBox.y >= pageScroller.y - 1 && headBox.y < pageScroller.y + 60, `cell top ${Math.round(pageCellBox.y)}, header ${Math.round(headBox.y)}, scroller ${Math.round(pageScroller.y)}`);
+check('the header, with Run in Colab, sticks to the top of the page while a long cell scrolls', pageCellBox.y < pageScroller.y - 100 && headBox.y >= pageScroller.y - 1 && headBox.y < pageScroller.y + 12, `cell top ${Math.round(pageCellBox.y)}, header ${Math.round(headBox.y)}, scroller ${Math.round(pageScroller.y)}`);
 await page.screenshot({ path: `${OUT}/colab-notebook-14-sticky-header-light.png` });
 await page.getByRole('tab', { name: 'Colab' }).click();
 await page.waitForTimeout(300);
