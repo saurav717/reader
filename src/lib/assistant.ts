@@ -496,6 +496,8 @@ export interface Prefs {
   model: string;
   /** The model Explain and Implementation start with; unset follows the chat's. */
   explainModel?: string;
+  /** The model that answers the ask bars on the Explain, Implementation and Colab pages; unset, the page's own writer answers. */
+  askModel?: string;
   context: Record<ContextKey, boolean>;
 }
 
@@ -510,7 +512,8 @@ function loadPrefs(): Prefs {
     const known = (id: string | undefined) => (id && (MODELS.some((m) => m.id === id) || RETIRED[id]) ? modelSpec(id).id : undefined);
     const model = known(saved.model) ?? base.model;
     const explainModel = known(saved.explainModel);
-    return { model, ...(explainModel ? { explainModel } : {}), context: { ...base.context, ...(saved.context || {}) } };
+    const askModel = known(saved.askModel);
+    return { model, ...(explainModel ? { explainModel } : {}), ...(askModel ? { askModel } : {}), context: { ...base.context, ...(saved.context || {}) } };
   } catch {
     return base;
   }
@@ -705,6 +708,14 @@ export function setModel(model: string) {
 export function setExplainModel(model: string) {
   if (!MODELS.some((m) => m.id === model)) return;
   set({ prefs: { ...state.prefs, explainModel: model } });
+  savePrefs();
+}
+
+/** The model that answers the ask bars, whoever wrote the page; '' goes back to the page's writer. */
+export function setAskModel(model: string) {
+  if (model && !MODELS.some((m) => m.id === model)) return;
+  const { askModel: _was, ...rest } = state.prefs;
+  set({ prefs: model ? { ...rest, askModel: model } : rest });
   savePrefs();
 }
 

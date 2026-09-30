@@ -416,10 +416,12 @@ One short sentence to the reader on what you changed.`,
     .join('\n\n');
 }
 
-export async function reviseImplementation(screen: Screen, request: string, scope: RevisionScope = {}) {
+export async function reviseImplementation(screen: Screen, request: string, scope: RevisionScope = {}, model?: string) {
   const paper = screen.paper;
   const current = paper && cache.get(paper.id);
   if (!paper || !current?.content || running || current.streaming || !request.trim()) return;
+  // Answered by the model the bar picked, else by the one that wrote the page.
+  const answerer = model || current.model;
   const before = current.content;
   const pending = { request: request.trim(), scope, reply: '', started: Date.now() };
   const update = (patch: Partial<Explanation>) => {
@@ -432,10 +434,10 @@ export async function reviseImplementation(screen: Screen, request: string, scop
 
   let SDK: SDK | null = null;
   try {
-    if (modelSpec(current.model).provider === 'anthropic') SDK = await sdk();
+    if (modelSpec(answerer).provider === 'anthropic') SDK = await sdk();
     const { stop } = await streamOnce(
       paper.id,
-      current.model,
+      answerer,
       {
         system: systemFor(screen),
         messages: [
@@ -449,9 +451,9 @@ export async function reviseImplementation(screen: Screen, request: string, scop
         update({ pending: { ...pending } });
       },
     );
-    if (stop === 'refusal') throw new Error(`${PROVIDERS[modelSpec(current.model).provider].name} declined that request.`);
+    if (stop === 'refusal') throw new Error(`${PROVIDERS[modelSpec(answerer).provider].name} declined that request.`);
     const applied = applyEdits(before, pending.reply, scope.section);
-    if (!applied.touched.length && applied.content === before) throw new Error(applied.note || `${PROVIDERS[modelSpec(current.model).provider].name} left the page as it was.`);
+    if (!applied.touched.length && applied.content === before) throw new Error(applied.note || `${PROVIDERS[modelSpec(answerer).provider].name} left the page as it was.`);
     const revision: Revision = { request: pending.request, before, note: applied.note, touched: applied.touched, at: Date.now() };
     const next = update({
       content: applied.content,

@@ -2046,6 +2046,11 @@ screen before it answers, so there is nothing to paste.
 
 ![the Ask AI window over a paper, answering a question about a selected sentence](docs/ask-claude.png)
 
+The pill under the box — the maker's mark and the model's name — names the
+model that answers the next question. It opens a menu of every model as
+cards, greyed where a key is missing, and can be changed between one question
+and the next; the conversation so far goes to whichever answers.
+
 ### Choosing a model: Claude, DeepSeek or Gemini
 
 The picker at the top of the window lists every model, grouped by who runs it:
@@ -2940,6 +2945,13 @@ so. The toolbar's Run all is the same queue. `runAll`, `pauseRuns`,
 
 ![the pane while Run all is paused: running cell 19, one queued, pauses after this cell, with Resume and Stop](docs/colab-notebook-paused.png)
 
+The same pane sits beside the **Explanation** and **Implementation** pages
+whenever they have Python cells: **Runtime** and **Metrics** in the header
+open it, with the runtime's meters, the metrics the page's cells print and
+the files on the runtime, and the text moves left to make room. It opens by
+itself when a runtime connects and folds when the runtime goes, unless it
+was opened or closed by hand; a cell named in the pane scrolls the page to it.
+
 The Ask AI window sees the notebook too. Whenever the paper has one, a
 question there goes with `<colab_notebook>`: the cells numbered, what each
 printed, the tracebacks, which cell is running now, the runtime, and
@@ -2978,11 +2990,16 @@ kept.
   page or, with a chip, for that section.
 - **/** jumps to the bar; **Esc** in it clears the chips, then leaves it.
 - A changed section keeps a **Revised at your request** mark.
-- **Which model answers.** The chooser before **Ask** names the model that
-  answers the bar: the page's own writer until another is picked, and then
+- **Which model answers.** The pill before **Ask** — the maker's mark and
+  the model's name, opening the same cards the Rewrite menu shows — names the
+  model that answers the bar: the page's own writer until another is picked, and then
   that one — on the Explanation, Implementation and Colab bars alike — until
   it is changed back. A page DeepSeek wrote can be tweaked by Claude, and the
-  other way round. A model without a key is listed but cannot be picked.
+  other way round. A model without a key is listed but cannot be picked. The
+  buttons under a cell's output — *Ask Gemini 3.8 Flash to fix this cell*,
+  *Ask … why it differs* — name that model, and *what … expected* names the
+  page's writer; the header, the bar and the buttons all say the model's own
+  name, never just its maker.
 - The header's **◑** sets how see-through the page is; the sun or moon beside
   it switches the whole app between light and dark mode, as Settings does.
 

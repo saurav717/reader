@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import DOMPurify from 'dompurify';
-import { getState as assistantState, modelSpec, PROVIDERS, subscribe as subscribeAssistant } from '../lib/assistant';
+import { getState as assistantState, modelSpec, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
 import type { Screen } from '../lib/assistant';
 import { colabAvailable, colabGranted, connect as connectColab, interrupt as interruptColab, listContents, machineLabel, runAll, runCell } from '../lib/colab';
 import type { CellRun, RuntimeEntry } from '../lib/colab';
@@ -33,6 +33,7 @@ import type { NbCell } from '../lib/notebook';
 import { useStore } from '../lib/store';
 import { attachUrl, CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Colab';
 import { highlightPython, lastThought } from './Explain';
+import ModelChip from './ModelChip';
 import { CloseIcon, SparkleIcon } from './icons';
 import MetricsPane from './MetricsPane';
 import PassageFlash from './PassageFlash';
@@ -144,6 +145,7 @@ function Cell({
   onRun,
   onAsk,
   lit,
+  asker,
 }: {
   paperId: string;
   cell: NbCell;
@@ -160,6 +162,8 @@ function Cell({
   onAsk?: (request: string, quote: string) => void;
   /** Brought into view from the Ask AI window: lit for a moment. */
   lit?: boolean;
+  /** Who the ask bar answers with, for the buttons under a failed cell. */
+  asker?: string;
 }) {
   const live = run?.state === 'running' || run?.state === 'queued';
   // What is shown under the cell: the run in the Colab store while there is one, else what the notebook kept.
@@ -228,7 +232,7 @@ function Cell({
           <div className="nb-markdown explain-prose" onDoubleClick={() => onEdit(true)} dangerouslySetInnerHTML={{ __html: cell.source.trim() ? mdHtml(cell.source) : '<p class="nb-empty">Empty text cell — double-click to write</p>' }} />
         )}
         {python && run ? <RunState run={run} /> : null}
-        {python && shown ? <CellRunOutput run={shown} onAsk={onAsk ? (request) => onAsk(request, cell.source.slice(0, 1500)) : undefined} onForget={() => setOutputs(paperId, cell.id, [], null, undefined)} /> : null}
+        {python && shown ? <CellRunOutput run={shown} asker={asker} onAsk={onAsk ? (request) => onAsk(request, cell.source.slice(0, 1500)) : undefined} onForget={() => setOutputs(paperId, cell.id, [], null, undefined)} /> : null}
       </div>
       <div className="nb-tools" role="toolbar" aria-label="Cell">
         {status ? <span className={`nb-tools-state is-${status}`}>{statusText}</span> : null}
@@ -271,7 +275,7 @@ function Cell({
 // The runtime's disk
 // ---------------------------------------------------------------------------
 
-function FilesPane() {
+export function FilesPane() {
   const colab = useColab();
   const connected = colab.status === 'idle' || colab.status === 'busy';
   const [path, setPath] = useState('');
@@ -389,9 +393,10 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
   const cells = nb?.cells ?? [];
-  // The ask bar: the model the pages are written with, or the one Rewrite last picked here; a key for it; nothing being answered.
-  const model = nbAsk.model ?? assistant.prefs.explainModel ?? assistant.prefs.model;
-  const writer = PROVIDERS[modelSpec(model).provider].name;
+  // The ask bar: the model picked for the ask bars, else the one Rewrite last picked here, else the pages'; a key for it; nothing being answered.
+  const writerModel = nbAsk.model ?? assistant.prefs.explainModel ?? assistant.prefs.model;
+  const model = assistant.prefs.askModel ?? writerModel;
+  const writer = modelSpec(model).label;
   const asking = Boolean(nbAsk.pending && !nbAsk.pending.error);
   const canAsk = Boolean(nb && assistant.keys[modelSpec(model).provider] && !asking);
   const thought = lastThought(nbAsk.pending?.thinking);
@@ -811,6 +816,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
               }
               aria-label="Ask for a cell, or a change to one"
             />
+            <ModelChip value={model} writer={writerModel} keys={assistant.keys} disabled={asking} what="Writes the cells with" onChange={(id) => setAskModel(id === writerModel ? '' : id)} />
             {asking ? (
               <button type="button" className="btn sm" onClick={stopNotebookAsk}>
                 Stop
@@ -939,6 +945,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
                 onRun={(then) => runOne(cell, then)}
                 onAsk={canAsk ? (request, cellQuote) => void submit(request, { cell: index + 1, quote: cellQuote }) : undefined}
                 lit={shown === cell.id}
+                asker={writer}
               />
             ))
           )}

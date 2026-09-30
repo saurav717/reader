@@ -6,7 +6,6 @@ import type { FormEvent } from 'react';
 import {
   ASSISTANT_NAME,
   CONTEXT_ROWS,
-  MODELS,
   PROVIDERS,
   PROVIDER_IDS,
   looksLikeKey,
@@ -38,6 +37,7 @@ import { STYLES, clamp, clearOf, styleAt } from '../lib/floatWindow';
 import { stacked, useFloatingWindow, viewport } from './FloatingWindow';
 import { markdown } from '../lib/markdown';
 import { placeFigures } from '../lib/figures';
+import ModelChip from './ModelChip';
 import { CameraIcon, CheckIcon, CloseIcon, PlusIcon, SearchIcon, SparkleIcon } from './icons';
 import { useStore } from '../lib/store';
 import { resolvePaper } from '../lib/recommend';
@@ -931,24 +931,6 @@ export default function Assistant({ onClose, screen, reading }: Props) {
       </header>
 
       <div className="chat-toolbar">
-        <select
-          className="chat-model"
-          value={model.id}
-          disabled={s.live}
-          onChange={(event) => setModel(event.target.value)}
-          title="Which model answers — Claude, DeepSeek or Gemini"
-          aria-label="Model"
-        >
-          {PROVIDER_IDS.map((id) => (
-            <optgroup key={id} label={`${PROVIDERS[id].company}${s.keys[id] ? '' : PROVIDERS[id].viaProxy ? ` — ${geminiNote(s.gemini).short}` : ' — no key yet'}`}>
-              {MODELS.filter((m) => m.provider === id).map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label} — {m.note}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
         <span style={{ flexGrow: 1 }} />
         <button
           type="button"
@@ -1092,7 +1074,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
         {s.hasKey && !s.turns.length ? (
           <div className="chat-empty">
             <p>
-              Just ask — {provider.name} reads your screen first. {reading ? 'The paper, the passage in view, what you have selected and your highlights' : 'The list you are looking at'}{' '}
+              Just ask — {model.label} reads your screen first. {reading ? 'The paper, the passage in view, what you have selected and your highlights' : 'The list you are looking at'}{' '}
               go along with the question, so there is nothing to paste. The ⚙ menu says exactly what, and lets you hold anything back.
             </p>
             <ul>
@@ -1133,6 +1115,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
       ) : null}
 
       <form className="chat-compose" onSubmit={submit}>
+        <div className="chat-compose-row">
         {canCapture() ? (
           <button
             type="button"
@@ -1150,7 +1133,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           rows={1}
           value={input}
           disabled={!s.hasKey}
-          placeholder={s.hasKey ? (reading ? 'Ask about this paper…' : `Ask ${provider.name}…`) : provider.viaProxy ? `${provider.name} is not available yet — see above` : `Add a ${provider.company} API key above to start`}
+          placeholder={s.hasKey ? (reading ? `Ask ${model.label} about this paper…` : `Ask ${model.label}…`) : provider.viaProxy ? `${provider.name} is not available yet — see above` : `Add a ${provider.company} API key above to start`}
           aria-label={ASSISTANT_NAME}
           onChange={(event) => {
             setInput(event.target.value);
@@ -1173,6 +1156,11 @@ export default function Assistant({ onClose, screen, reading }: Props) {
             Send
           </button>
         )}
+        </div>
+        <div className="chat-compose-foot">
+          <ModelChip value={model.id} keys={s.keys} disabled={s.live} what="Answers with" up align="left" view="list" onChange={setModel} />
+          <span className="chat-compose-hint">↵ sends · ⇧↵ new line</span>
+        </div>
       </form>
 
       {grips.map(({ key, ...grip }) => (

@@ -3,7 +3,8 @@ import { cleanFigure } from '../lib/sanitize';
 import type { CSSProperties } from 'react';
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Screen } from '../lib/assistant';
-import { ASSISTANT_NAME, geminiNote, getState, looksLikeKey, MODELS, modelSpec, PROVIDERS, saveKey, setExplainModel, subscribe } from '../lib/assistant';
+import { ASSISTANT_NAME, geminiNote, getState, looksLikeKey, MODELS, modelSpec, PROVIDERS, saveKey, setAskModel, setExplainModel, subscribe } from '../lib/assistant';
+import ModelChip from './ModelChip';
 import type { Block, Section } from '../lib/explain';
 import {
   applyEdits,
@@ -25,6 +26,7 @@ import type { DriveState, RevisionScope } from '../lib/explain';
 import {
   dismissImplementPending,
   generateImplementation,
+  computeOf,
   implementationFor,
   loadImplementation,
   reviseImplementation,
@@ -42,13 +44,15 @@ import { useStore } from '../lib/store';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ColabIcon, ExplainIcon, MoonIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon, SunIcon } from './icons';
 import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, PlanContext, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
-import { CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
-import NotebookPage from './Notebook';
+import { attachUrl, CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
+import MetricsPane from './MetricsPane';
+import RuntimePane from './RuntimePane';
+import NotebookPage, { FilesPane } from './Notebook';
 import { notebookAskFor, rewriteCells, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk } from '../lib/notebookAsk';
 import { holdCell, SHOW_CELL } from '../lib/notebookNav';
 import type { ShowCell } from '../lib/notebookNav';
 import { colabNow } from '../lib/colab';
-import { cellKey, colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, runCell, useClient as useColabClient } from '../lib/colab';
+import { cellKey, colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, outputText, runAll, runCell, useClient as useColabClient } from '../lib/colab';
 import { KeepButton, KeepContext, tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
 import type { Flash } from './PassageFlash';
@@ -193,7 +197,7 @@ export function highlightPython(code: string): string {
 // The blocks
 // ---------------------------------------------------------------------------
 
-function CodeCell({ block, index, onAsk }: { block: Extract<Block, { kind: 'code' }>; index: number; onAsk?: (request: string, quote: string) => void }) {
+function CodeCell({ block, index, onAsk, asker, writer }: { block: Extract<Block, { kind: 'code' }>; index: number; onAsk?: (request: string, quote: string) => void; asker?: string; writer?: string }) {
   const [copied, setCopied] = useState(false);
   const python = block.lang === 'python';
   const shell = block.lang === 'bash';
@@ -232,7 +236,7 @@ function CodeCell({ block, index, onAsk }: { block: Extract<Block, { kind: 'code
                 ? 'Run this cell again in your Colab runtime'
                 : 'Run exactly this code in your own Google Colab, and see what it prints here';
   return (
-    <figure className={`explain-cell${shell ? ' is-shell' : ''}${run ? ` has-run is-${run.state}` : ''}`}>
+    <figure className={`explain-cell${shell ? ' is-shell' : ''}${run ? ` has-run is-${run.state}` : ''}`} data-key={python ? key : undefined}>
       <header>
         <span className={`cell-index${live ? ' is-busy' : ''}`}>{python ? (live ? 'In [*]' : `In [${run?.executionCount ?? index}]`) : shell ? '$' : 'Out'}</span>
         <span className="cell-title">{block.title}</span>
@@ -293,7 +297,7 @@ function CodeCell({ block, index, onAsk }: { block: Extract<Block, { kind: 'code
         {block.open ? <span className="caret" aria-hidden="true" /> : null}
       </pre>
       {run ? (
-        <CellRunOutput run={run} expected={block.output} onAsk={onAsk ? (request) => onAsk(request, block.code.slice(0, 1500)) : undefined} onForget={() => forgetRun(key)} />
+        <CellRunOutput run={run} expected={block.output} asker={asker} writer={writer} onAsk={onAsk ? (request) => onAsk(request, block.code.slice(0, 1500)) : undefined} onForget={() => forgetRun(key)} />
       ) : block.output !== undefined ? (
         <div className="cell-output">
           <div className="cell-output-label">Expected output · written by Claude, not run yet</div>
@@ -427,6 +431,8 @@ function SectionView({
   onAsk,
   onKeep,
   state,
+  asker,
+  writer,
 }: {
   section: Section;
   number: number;
@@ -434,6 +440,9 @@ function SectionView({
   onAdjust?: (title: string) => void;
   /** A question about one of this section's cells — its output, or its error — for the bar. */
   onAsk?: (section: string, request: string, quote: string) => void;
+  /** Who the bar answers with, and who wrote the page, for the labels under a cell's output. */
+  asker?: string;
+  writer?: string;
   /** Keep the whole section in your notes. */
   onKeep?: (section: Section, element: HTMLElement) => void;
   /** Being rewritten now, just rewritten, or changed by an earlier request. */
@@ -456,7 +465,7 @@ function SectionView({
     ) : block.kind === 'figure' ? (
       <Figure key={key} block={block} />
     ) : block.kind === 'code' ? (
-      <CodeCell key={key} block={block} index={cells.get(block) ?? 0} onAsk={onAsk ? (request, quote) => onAsk(section.title, request, quote) : undefined} />
+      <CodeCell key={key} block={block} index={cells.get(block) ?? 0} asker={asker} writer={writer} onAsk={onAsk ? (request, quote) => onAsk(section.title, request, quote) : undefined} />
     ) : block.kind === 'tree' ? (
       <TreeBlock key={key} block={block} />
     ) : block.kind === 'file' ? (
@@ -863,7 +872,11 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const provider = PROVIDERS[chosen.provider];
   const hasKey = assistant.keys[chosen.provider];
   // Who wrote the page on screen — or who is about to.
-  const writer = PROVIDERS[modelSpec(explanation?.model ?? model).provider].name;
+  // Named by the model, not its maker: the reader picks a model, and sees that model's name wherever it acts.
+  const writer = modelSpec(explanation?.model ?? model).label;
+  // Who answers the bar: the model picked for it, else the page's writer.
+  const askModel = assistant.prefs.askModel ?? explanation?.model ?? model;
+  const asker = modelSpec(askModel).label;
   const [keyDraft, setKeyDraft] = useState('');
   const [active, setActive] = useState('');
   const [checked, setChecked] = useState(false);
@@ -948,6 +961,44 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const runnable = useMemo(() => Array.from(cells.entries()).map(([block, n]) => ({ key: cellKey((block as Extract<Block, { kind: 'code' }>).code), code: (block as Extract<Block, { kind: 'code' }>).code, label: `In [${n}]` })), [cells]);
   useColabClient(settings.googleClientId);
   const streaming = Boolean(explanation?.streaming);
+  // The pane beside the page, as the Colab tab has it, whenever the page has
+  // cells to run: the runtime's meters, the metrics its cells print, its
+  // files. It opens by itself when a runtime connects, and folds when the
+  // runtime goes — unless it was opened or closed by hand.
+  const colab = useColab();
+  const [side, setSide] = useState<'runtime' | 'metrics' | 'files' | null>(null);
+  const sideByHand = useRef(false);
+  const connected = colab.status === 'idle' || colab.status === 'busy';
+  useEffect(() => {
+    if (connected && hasCode) {
+      if (!sideByHand.current) setSide((current) => current ?? 'runtime');
+    } else if (!connected) {
+      setSide((current) => (current === 'runtime' && !sideByHand.current ? null : current));
+    }
+  }, [connected, hasCode]);
+  const pickSide = (next: 'runtime' | 'metrics' | 'files' | null) => {
+    sideByHand.current = true;
+    setSide(next);
+  };
+  const codeCells = useMemo(() => runnable.map((cell) => ({ key: cell.key, id: cell.key, label: cell.label })), [runnable]);
+  const metricCells = useMemo(
+    () =>
+      runnable.map((cell) => {
+        const run = colab.runs[cell.key];
+        return { key: cell.key, id: cell.key, label: cell.label, text: run ? outputText(run.outputs) : '', at: run?.startedAt || 0 };
+      }),
+    [runnable, colab.runs],
+  );
+  // The plan's compute block, for the ticks on the pane's meters: this page's when it is the plan, else the paper's plan when it has one.
+  const compute = useMemo(() => {
+    const plan = implementing ? sections : implementationFor(paperId)?.content ? parseExplanation(implementationFor(paperId)!.content) : null;
+    return plan ? computeOf(plan) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [side, implementing, sections, explanation?.content]);
+  const goToCell = (key: string) => {
+    const cell = docRef.current?.querySelector<HTMLElement>(`.explain-cell[data-key="${CSS.escape(key)}"]`);
+    cell?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
   // The Colab tab's own request, for the header's Rewrite and Stop while that tab is the one open.
   const nbAsk = useSyncExternalStore(subscribeNotebookAsk, () => notebookAskFor(paperId));
   const nbBusy = Boolean(nbAsk.pending && !nbAsk.pending.error);
@@ -976,10 +1027,10 @@ export default function Explain({ paperId, title, authors, published, screen, on
     }
   };
   // Who writes the notebook: the model Rewrite last picked for it, else the pages'.
-  const nbWriter = PROVIDERS[modelSpec(nbAsk.model ?? model).provider].name;
+  const nbWriter = modelSpec(nbAsk.model ?? model).label;
   const thought = lastThought(explanation?.thinking);
   const busy = Boolean(streaming || (pending && !pending.error));
-  const canAsk = Boolean(explanation?.content && explanation.model && assistant.keys[modelSpec(explanation.model).provider] && !streaming);
+  const canAsk = Boolean(explanation?.content && explanation.model && assistant.keys[modelSpec(askModel).provider] && !streaming);
 
   // Ask Claude, while this is open, points at passages here: the explanation's
   // own words are marked on it; the paper's are left to the paper when it is
@@ -1154,7 +1205,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
     setAsk('');
     setJustAsked(true);
     setScope({});
-    await store.revise(read, request, asked);
+    await store.revise(read, request, asked, askModel);
   };
   const submit = (request = ask) => submitWith(request, scope);
   // A cell's output, or its error, taken to the bar as a question about that cell.
@@ -1297,6 +1348,16 @@ export default function Explain({ paperId, title, authors, published, screen, on
         {/* The runtime the page's Python cells run in, when there is one to show or one could be started. */}
         <ColabChip cells={runnable} />
         {/* The same actions on both pages, always in the same places: shown but off while there is nothing for them to act on. */}
+        {page !== 'colab' && hasCode ? (
+          <>
+            <button type="button" className={`btn sm ghost${side === 'runtime' ? ' is-on' : ''}`} aria-pressed={side === 'runtime'} onClick={() => pickSide(side === 'runtime' ? null : 'runtime')} title="The machine: how busy it is, the last ten minutes, what is left of the session">
+              Runtime
+            </button>
+            <button type="button" className={`btn sm ghost${side === 'metrics' ? ' is-on' : ''}`} aria-pressed={side === 'metrics'} onClick={() => pickSide(side === 'metrics' ? null : 'metrics')} title="Training metrics, read off what the cells print: loss, accuracy, lr… a chart a metric, live">
+              Metrics
+            </button>
+          </>
+        ) : null}
         {implementing && explanation?.content && !streaming ? (
           <>
             <ColabMenu title={title} content={shown} sections={sections} />
@@ -1432,14 +1493,17 @@ export default function Explain({ paperId, title, authors, published, screen, on
               placeholder={
                 !explanation?.content
                   ? `Ask questions or request changes here, once the ${implementing ? 'plan' : 'explanation'} is written`
-                  : scope.section || scope.quote
-                    ? 'Ask about this, or say how to change it…'
-                    : implementing
-                      ? 'Ask about the plan, or change it — a different dataset, framework, scale…  ( / )'
-                      : `Ask anything about this explanation, or tell ${writer} how to change it…  ( / )`
+                  : !assistant.keys[modelSpec(askModel).provider]
+                    ? `${MODELS.find((m) => m.id === askModel)?.label ?? asker} needs its key in Settings — or pick another model here`
+                    : scope.section || scope.quote
+                      ? 'Ask about this, or say how to change it…'
+                      : implementing
+                        ? `Ask ${asker} about the plan, or to change it — a different dataset, framework, scale…  ( / )`
+                        : `Ask ${asker} anything about this explanation, or how to change it…  ( / )`
               }
               aria-label="Ask about the explanation, or ask for a change"
             />
+            <ModelChip value={askModel} writer={explanation?.model} keys={assistant.keys} disabled={busy || !explanation?.content} what="Answers here with" onChange={(id) => setAskModel(id === explanation?.model ? '' : id)} />
             {busy && pending ? (
               <button type="button" className="btn sm" onClick={store.stop}>
                 Stop
@@ -1498,6 +1562,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
         </div>
       </div>
 
+      <div className={`explain-split${side ? ' has-side' : ''}`}>
       <div className="explain-scroll" ref={scrollRef}>
         <nav className="explain-outline" aria-label="Sections">
           <div className="outline-paper">
@@ -1634,6 +1699,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
                     onAsk={canAsk && !busy ? askCell : undefined}
                     onKeep={!streaming && section.title ? keepSection : undefined}
                     state={stateOf(section)}
+                    asker={asker}
+                    writer={writer}
                   />
                 </Fragment>
               ))}
@@ -1658,6 +1725,33 @@ export default function Explain({ paperId, title, authors, published, screen, on
         </article>
         </PlanContext.Provider>
         </KeepContext.Provider>
+      </div>
+      {side ? (
+        <aside className="nb-side explain-side" aria-label={side === 'runtime' ? 'The runtime' : side === 'metrics' ? 'Training metrics' : 'Files on the runtime'}>
+          <div className="nb-side-tabs" role="tablist">
+            <button type="button" role="tab" aria-selected={side === 'runtime'} onClick={() => pickSide('runtime')}>
+              Runtime
+            </button>
+            <button type="button" role="tab" aria-selected={side === 'metrics'} onClick={() => pickSide('metrics')}>
+              Metrics
+            </button>
+            <button type="button" role="tab" aria-selected={side === 'files'} onClick={() => pickSide('files')}>
+              Files
+            </button>
+            <span className="spacer" />
+            <button type="button" className="icon-btn sm" onClick={() => pickSide(null)} aria-label="Close the pane">
+              <CloseIcon size={14} />
+            </button>
+          </div>
+          {side === 'runtime' ? (
+            <RuntimePane cells={codeCells} compute={compute} onGoTo={goToCell} onRunAll={colabAvailable(settings.googleClientId) && runnable.length ? () => void runAll(runnable).catch(() => undefined) : undefined} />
+          ) : side === 'metrics' ? (
+            <MetricsPane cells={metricCells} running={colab.running} onGoTo={goToCell} colabUrl={colab.runtime ? attachUrl(colab.runtime.endpoint) : undefined} />
+          ) : (
+            <FilesPane />
+          )}
+        </aside>
+      ) : null}
       </div>
         </>
       )}
