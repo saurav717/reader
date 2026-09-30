@@ -5,7 +5,7 @@ import type { Explanation } from '../lib/explain';
 import { implementationsAtWork, subscribeImplement } from '../lib/implement';
 import { useStore } from '../lib/store';
 import { lastThought, openExplainOn } from './Explain';
-import type { ExplainPage } from './Explain';
+import type { WrittenPage as ExplainPage } from './Explain';
 import { ExplainIcon, PlanIcon } from './icons';
 
 /** The explanation is "At a glance", four to eight sections and "Since then"; the plan is ten, in order. */

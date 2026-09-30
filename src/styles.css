@@ -5053,3 +5053,31 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
   .need-row { grid-template-columns: 1fr auto; grid-template-areas: 'label fit' 'bar bar' 'numbers numbers' 'note note'; }
   .colab-step { grid-template-columns: 26px minmax(0, 1fr); grid-template-areas: 'n body' 'n actions' 'n code' 'n output'; }
 }
+
+/* ---- The Colab tab: Colab's own page, in the proxy's browser ----------------------
+   A strip that says what is shown and on which runtime, the browser pane
+   filling the rest, and a line at the foot about the sign-in. */
+.colab-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.colab-page-head { display: flex; align-items: center; gap: 12px; padding: 10px 20px; border-bottom: 1px solid var(--border-soft); background: color-mix(in srgb, var(--panel) 45%, var(--paper)); }
+.colab-page-head > .colab-mark { flex: none; }
+.colab-page-what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.colab-page-what b { font-size: 13px; font-weight: 600; }
+.colab-page-what span { font-size: 12px; line-height: 1.45; color: var(--ink-2); }
+.colab-page-head .btn { flex: none; }
+.colab-page .mini-browser { flex: 1; min-height: 0; }
+.colab-page .mini-browser-screen { flex: 1; min-height: 0; }
+.browser-pane-address { display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; overflow: hidden; color: var(--ink-2); }
+.browser-pane-url { font: 11.5px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.colab-page-runtime { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
+.colab-page-foot { margin: 0; padding: 8px 20px; border-top: 1px solid var(--border-soft); font-size: 11.5px; line-height: 1.45; color: var(--muted); background: color-mix(in srgb, var(--panel) 45%, var(--paper)); }
+.colab-page-foot .is-problem { color: var(--danger); }
+.colab-page-card { max-width: 720px; margin: 40px auto; padding: 0 24px; font-size: 14px; line-height: 1.6; color: var(--ink-2); }
+.colab-page-card h2 { margin: 0 0 12px; font: 600 20px/1.3 var(--sans); color: var(--ink); letter-spacing: -0.01em; }
+.colab-page-card p { margin: 0 0 12px; }
+.colab-page-card b { color: var(--ink); font-weight: 600; }
+.colab-page-card code { font: 12px var(--mono); padding: 1px 5px; border-radius: 5px; background: var(--panel); }
+.colab-page-card ul { margin: 0 0 12px; padding-left: 20px; }
+.colab-page-card li { margin-bottom: 6px; }
+.colab-page-reason { padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.colab-page-card a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.colab-page-card a:hover { text-decoration: underline; }

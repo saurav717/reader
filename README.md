@@ -2719,6 +2719,43 @@ proxies' is `server/colab.js`. The Colab API is in beta and allowlisted per
 Google Cloud project; a client ID whose project is not on the list gets a
 `403` from Colab, which the page says as much.
 
+### Colab's own page, as a tab
+
+The bar's third tab, **Colab**, is Colab's own notebook page — the whole
+thing, menus, cells, the runtime chip — inside the reader, attached to the
+runtime the chip in the bar holds. It is the same kernel the cells on the
+Explanation and Implementation pages run in, so a variable a cell here set
+is there in Colab's notebook, and what you do there is seen here. It is the
+one route to mounting Drive, on purpose, from Colab's own menu.
+
+Google does not let Colab's page be shown inside another site's frame, so
+the tab does not frame it. It opens the page in **the browser inside the
+reader** — the proxy's own headless Chromium, the one the paper's copies
+sign in through (see [A browser inside the reader](#a-browser-inside-the-reader-sign-in-without-a-screen-on-the-proxy))
+— and shows its picture, with your clicks, keys, scrolling and paste sent
+back. The first time, Google asks you to sign in inside the pane; the
+sign-in is kept in the proxy's browser profile, as a publisher's is, and
+Colab then opens as you. With no runtime yet the tab shows Colab's front
+page and says so; start one from the chip, or run a cell, and the tab
+attaches Colab's notebook to it. Leaving the tab closes the page on the
+proxy; the runtime stays. **Open in a new tab ↗** is the same page in a tab
+of your own.
+
+![the Colab tab: Colab's notebook attached to the T4 runtime, in the proxy's browser, with a cell run there and its output](docs/colab-tab.png)
+
+A proxy without a browser — the Worker with no Browser Rendering bound, a
+Node proxy whose `npm install` skipped Chromium — gets a card in the tab's
+place: what it would show, why it cannot be framed, what to set up, and the
+runtime one click away in a tab of your own.
+
+![the Colab tab where the proxy has no browser: what it would show, and what to set up](docs/colab-tab-no-browser.png)
+
+The tab is `src/components/ColabPage.tsx` over a plain browser pane,
+`src/components/BrowserPane.tsx`, which is the sign-in pane's frames and
+input without the PDF hunting. `scripts/colab-tab-smoke.mjs` runs it
+against a stand-in for Colab's page, driven as the proxy's browser would be,
+and photographs it.
+
 ### Asking about it, or changing it
 
 The bar across the top of the page takes a question or an instruction:

@@ -40,9 +40,10 @@ import type { NoteSource } from '../lib/notes';
 import { selectedText } from '../lib/screen';
 import { useStore } from '../lib/store';
 import { typesetMath } from '../lib/typesetMath';
-import { CloseIcon, ExplainIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon } from './icons';
+import { CloseIcon, ColabIcon, ExplainIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon } from './icons';
 import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, PlanContext, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
 import { CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
+import ColabPage from './ColabPage';
 import { cellKey, colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, runCell, useClient as useColabClient } from '../lib/colab';
 import { KeepButton, KeepContext, tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
@@ -73,11 +74,15 @@ const readLayout = (): ExplainLayout => {
  * so the view is written once against this shape and given whichever store
  * the tab in the bar picks.
  */
-export type ExplainPage = 'explain' | 'implement';
+/** The pages with something written on them: the explanation and the plan. */
+export type WrittenPage = 'explain' | 'implement';
+/** Those, and the Colab tab, which shows Colab's own page on the runtime rather than anything written. */
+export type ExplainPage = WrittenPage | 'colab';
 const PAGE_KEY = 'reader.explain.page';
 const readPage = (): ExplainPage => {
   try {
-    return localStorage.getItem(PAGE_KEY) === 'implement' ? 'implement' : 'explain';
+    const kept = localStorage.getItem(PAGE_KEY);
+    return kept === 'implement' || kept === 'colab' ? kept : 'explain';
   } catch {
     return 'explain';
   }
@@ -101,7 +106,7 @@ interface PageStore {
   dismiss: (paperId: string) => void;
   stop: () => void;
 }
-const STORES: Record<ExplainPage, PageStore> = {
+const STORES: Record<WrittenPage, PageStore> = {
   explain: {
     subscribe: subscribeExplain,
     get: explanationFor,
@@ -128,6 +133,7 @@ const STORES: Record<ExplainPage, PageStore> = {
 const PAGES: { id: ExplainPage; label: string; note: string }[] = [
   { id: 'explain', label: 'Explanation', note: 'What the paper says: the problem, the method, why it works, and what has changed since' },
   { id: 'implement', label: 'Implementation', note: 'How to build it: what to reproduce, the datasets, the repository, the starter files, and what it costs on your machine' },
+  { id: 'colab', label: 'Colab', note: "Colab's own notebook page on your runtime, inside the reader — opened in the proxy's browser, with the same kernel the cells here run in" },
 ];
 
 const VERDICT_CELL = /<td>(Still holds|Holds|Refined(?: since)?|Superseded|Disputed|Disproved)<\/td>/gi;
@@ -812,7 +818,8 @@ function RewriteMenu({
 export default function Explain({ paperId, title, authors, published, screen, onClose }: Props) {
   const assistant = useSyncExternalStore(subscribe, getState);
   const [page, setPage] = useState<ExplainPage>(readPage);
-  const store = STORES[page];
+  // The Colab tab sits over the explanation: what is written, kept and asked about is the explanation's while it is up.
+  const store = STORES[page === 'colab' ? 'explain' : page];
   const implementing = page === 'implement';
   const explanation = useSyncExternalStore(store.subscribe, () => store.get(paperId));
   const driveState = useSyncExternalStore(store.subscribe, () => store.driveState(paperId));
@@ -1205,7 +1212,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
         <div className="segmented explain-pages" role="tablist" aria-label="Page">
           {PAGES.map((option) => (
             <button key={option.id} type="button" role="tab" aria-selected={page === option.id} aria-pressed={page === option.id} title={option.note} onClick={() => setPage(option.id)}>
-              {option.id === 'implement' ? <PlanIcon size={13} /> : <ExplainIcon size={13} />}
+              {option.id === 'implement' ? <PlanIcon size={13} /> : option.id === 'colab' ? <ColabIcon size={13} /> : <ExplainIcon size={13} />}
               <span>{option.label}</span>
             </button>
           ))}
@@ -1275,6 +1282,10 @@ export default function Explain({ paperId, title, authors, published, screen, on
       </header>
       <ColabBanner />
 
+      {page === 'colab' ? (
+        <ColabPage />
+      ) : (
+        <>
       <div className="explain-ask">
         <div className="ask-column">
           <form
@@ -1549,6 +1560,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
         </PlanContext.Provider>
         </KeepContext.Provider>
       </div>
+        </>
+      )}
 
       {picked ? (
         <div className="selection-toolbar" style={{ top: picked.top, left: picked.left }} role="toolbar" aria-label="The selection">

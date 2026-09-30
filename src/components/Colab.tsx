@@ -50,7 +50,7 @@ export function specsText(specs: MachineSpecs | undefined): string {
 }
 
 /** Colab's own page attached to this runtime, as the CLI's `colab url` builds it: the backend named twice, the way Colab's frontend looks for it. */
-const attachUrl = (endpoint: string) => {
+export const attachUrl = (endpoint: string) => {
   const host = 'https://colab.research.google.com';
   const path = `/tun/m/${endpoint}`;
   return `${host}/notebooks/empty.ipynb?dbu=${encodeURIComponent(path)}#datalabBackendUrl=${host}${path}`;
