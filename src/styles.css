@@ -3196,6 +3196,14 @@ body.win-moving .assistant-win { transition: none; }
 }
 .ask-field input::placeholder { color: var(--muted); }
 .ask-field .btn { flex: none; height: 32px; padding: 0 14px; }
+/* Which model answers the bar: a small chooser before Ask, the page's writer until another is picked. */
+.ask-field .ask-model {
+  flex: none; min-width: 0; max-width: 180px; height: 32px; padding: 0 8px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font: 12px var(--sans);
+}
+.ask-field .ask-model:focus { outline: none; border-color: var(--accent); }
+.ask-field.is-off .ask-model { color: var(--muted); }
+@media (max-width: 720px) { .ask-field .ask-model { max-width: 120px; } }
 .ask-chip {
   display: inline-flex; align-items: center; gap: 4px; flex: none; max-width: 38%;
   height: 26px; padding: 0 4px 0 9px; border-radius: 7px;

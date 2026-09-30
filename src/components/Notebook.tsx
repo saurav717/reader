@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import DOMPurify from 'dompurify';
-import { getState as assistantState, modelSpec, PROVIDERS, subscribe as subscribeAssistant } from '../lib/assistant';
+import { getState as assistantState, modelSpec, PROVIDERS, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
 import type { Screen } from '../lib/assistant';
 import { colabAvailable, colabGranted, connect as connectColab, interrupt as interruptColab, listContents, machineLabel, runAll, runCell } from '../lib/colab';
 import type { CellRun, RuntimeEntry } from '../lib/colab';
@@ -32,7 +32,7 @@ import { appendCells, cellStatus, clearOutputs, fromIpynb, insertCell, loadNoteb
 import type { NbCell } from '../lib/notebook';
 import { useStore } from '../lib/store';
 import { attachUrl, CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Colab';
-import { highlightPython, lastThought } from './Explain';
+import { AskModelPicker, highlightPython, lastThought } from './Explain';
 import { CloseIcon, SparkleIcon } from './icons';
 import MetricsPane from './MetricsPane';
 import PassageFlash from './PassageFlash';
@@ -389,8 +389,9 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
   const cells = nb?.cells ?? [];
-  // The ask bar: the model the pages are written with, or the one Rewrite last picked here; a key for it; nothing being answered.
-  const model = nbAsk.model ?? assistant.prefs.explainModel ?? assistant.prefs.model;
+  // The ask bar: the model picked for the ask bars, else the one Rewrite last picked here, else the pages'; a key for it; nothing being answered.
+  const writerModel = nbAsk.model ?? assistant.prefs.explainModel ?? assistant.prefs.model;
+  const model = assistant.prefs.askModel ?? writerModel;
   const writer = PROVIDERS[modelSpec(model).provider].name;
   const asking = Boolean(nbAsk.pending && !nbAsk.pending.error);
   const canAsk = Boolean(nb && assistant.keys[modelSpec(model).provider] && !asking);
@@ -811,6 +812,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
               }
               aria-label="Ask for a cell, or a change to one"
             />
+            <AskModelPicker value={model} writer={writerModel} keys={assistant.keys} disabled={asking} onChange={setAskModel} />
             {asking ? (
               <button type="button" className="btn sm" onClick={stopNotebookAsk}>
                 Stop

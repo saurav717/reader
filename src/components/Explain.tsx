@@ -3,7 +3,8 @@ import { cleanFigure } from '../lib/sanitize';
 import type { CSSProperties } from 'react';
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Screen } from '../lib/assistant';
-import { ASSISTANT_NAME, geminiNote, getState, looksLikeKey, MODELS, modelSpec, PROVIDERS, saveKey, setExplainModel, subscribe } from '../lib/assistant';
+import { ASSISTANT_NAME, geminiNote, getState, looksLikeKey, MODELS, modelSpec, PROVIDERS, saveKey, setAskModel, setExplainModel, subscribe } from '../lib/assistant';
+import type { Provider } from '../lib/assistant';
 import type { Block, Section } from '../lib/explain';
 import {
   applyEdits,
@@ -648,6 +649,38 @@ const readRewriteView = (): RewriteView => {
 };
 
 /**
+ * Which model answers the ask bar: the page's own writer until another is
+ * picked here, and then that one, on every page's bar, until it is changed
+ * back. A model without a key is listed but cannot be picked.
+ */
+export function AskModelPicker({ value, writer, keys, disabled, onChange }: { value: string; writer?: string; keys: Record<string, unknown>; disabled?: boolean; onChange: (model: string) => void }) {
+  const chosen = MODELS.find((m) => m.id === value);
+  const writerSpec = writer ? MODELS.find((m) => m.id === writer) : undefined;
+  return (
+    <select
+      className="ask-model"
+      value={value}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.value === writer ? '' : event.target.value)}
+      aria-label="Which model answers what you ask here"
+      title={`Which model answers what you ask here${writerSpec ? ` — the page was written by ${writerSpec.label}` : ''}${chosen && !keys[chosen.provider] ? `. ${chosen.label} needs its key in Settings` : ''}`}
+    >
+      {(Object.keys(PROVIDERS) as Provider[]).map((provider) => (
+        <optgroup key={provider} label={PROVIDERS[provider].company}>
+          {MODELS.filter((m) => m.provider === provider).map((m) => (
+            <option key={m.id} value={m.id} disabled={!keys[provider]}>
+              {m.label}
+              {m.id === writer ? ' · wrote this' : ''}
+              {keys[provider] ? '' : ' · needs a key'}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
+}
+
+/**
  * Rewrite, in the bar: the page written again from scratch, by the model
  * chosen here — the same one as before, or any other with a key.
  */
@@ -867,6 +900,9 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const hasKey = assistant.keys[chosen.provider];
   // Who wrote the page on screen — or who is about to.
   const writer = PROVIDERS[modelSpec(explanation?.model ?? model).provider].name;
+  // Who answers the bar: the model picked for it, else the page's writer.
+  const askModel = assistant.prefs.askModel ?? explanation?.model ?? model;
+  const asker = PROVIDERS[modelSpec(askModel).provider].name;
   const [keyDraft, setKeyDraft] = useState('');
   const [active, setActive] = useState('');
   const [checked, setChecked] = useState(false);
@@ -1020,7 +1056,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const nbWriter = PROVIDERS[modelSpec(nbAsk.model ?? model).provider].name;
   const thought = lastThought(explanation?.thinking);
   const busy = Boolean(streaming || (pending && !pending.error));
-  const canAsk = Boolean(explanation?.content && explanation.model && assistant.keys[modelSpec(explanation.model).provider] && !streaming);
+  const canAsk = Boolean(explanation?.content && explanation.model && assistant.keys[modelSpec(askModel).provider] && !streaming);
 
   // Ask Claude, while this is open, points at passages here: the explanation's
   // own words are marked on it; the paper's are left to the paper when it is
@@ -1195,7 +1231,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
     setAsk('');
     setJustAsked(true);
     setScope({});
-    await store.revise(read, request, asked);
+    await store.revise(read, request, asked, askModel);
   };
   const submit = (request = ask) => submitWith(request, scope);
   // A cell's output, or its error, taken to the bar as a question about that cell.
@@ -1483,14 +1519,17 @@ export default function Explain({ paperId, title, authors, published, screen, on
               placeholder={
                 !explanation?.content
                   ? `Ask questions or request changes here, once the ${implementing ? 'plan' : 'explanation'} is written`
-                  : scope.section || scope.quote
-                    ? 'Ask about this, or say how to change it…'
-                    : implementing
-                      ? 'Ask about the plan, or change it — a different dataset, framework, scale…  ( / )'
-                      : `Ask anything about this explanation, or tell ${writer} how to change it…  ( / )`
+                  : !assistant.keys[modelSpec(askModel).provider]
+                    ? `${MODELS.find((m) => m.id === askModel)?.label ?? asker} needs its key in Settings — or pick another model here`
+                    : scope.section || scope.quote
+                      ? 'Ask about this, or say how to change it…'
+                      : implementing
+                        ? `Ask ${asker} about the plan, or to change it — a different dataset, framework, scale…  ( / )`
+                        : `Ask ${asker} anything about this explanation, or how to change it…  ( / )`
               }
               aria-label="Ask about the explanation, or ask for a change"
             />
+            <AskModelPicker value={askModel} writer={explanation?.model} keys={assistant.keys} disabled={busy || !explanation?.content} onChange={setAskModel} />
             {busy && pending ? (
               <button type="button" className="btn sm" onClick={store.stop}>
                 Stop

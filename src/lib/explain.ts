@@ -764,11 +764,13 @@ export async function generateExplanation(screen: Screen, model: string) {
   }
 }
 
-/** Answers a request from the bar by editing the page's sections. */
-export async function reviseExplanation(screen: Screen, request: string, scope: RevisionScope = {}) {
+/** Answers a request from the bar by editing the page's sections — with the model the bar picked, else the page's writer. */
+export async function reviseExplanation(screen: Screen, request: string, scope: RevisionScope = {}, model?: string) {
   const paper = screen.paper;
   const current = paper && cache.get(paper.id);
   if (!paper || !current?.content || running || current.streaming || !request.trim()) return;
+  // Answered by the model the bar picked, else by the one that wrote the page.
+  const answerer = model || current.model;
   const before = current.content;
   const pending = { request: request.trim(), scope, reply: '', started: Date.now() };
   const update = (patch: Partial<Explanation>) => {
@@ -781,10 +783,10 @@ export async function reviseExplanation(screen: Screen, request: string, scope: 
 
   let SDK: SDK | null = null;
   try {
-    if (modelSpec(current.model).provider === 'anthropic') SDK = await sdk();
+    if (modelSpec(answerer).provider === 'anthropic') SDK = await sdk();
     const { stop } = await streamOnce(
       paper.id,
-      current.model,
+      answerer,
       'medium',
       {
         system: systemFor(screen),
@@ -799,9 +801,9 @@ export async function reviseExplanation(screen: Screen, request: string, scope: 
         update({ pending: { ...pending } });
       },
     );
-    if (stop === 'refusal') throw new Error(`${PROVIDERS[modelSpec(current.model).provider].name} declined that request.`);
+    if (stop === 'refusal') throw new Error(`${PROVIDERS[modelSpec(answerer).provider].name} declined that request.`);
     const applied = applyEdits(before, pending.reply, scope.section);
-    if (!applied.touched.length && applied.content === before) throw new Error(applied.note || `${PROVIDERS[modelSpec(current.model).provider].name} left the page as it was.`);
+    if (!applied.touched.length && applied.content === before) throw new Error(applied.note || `${PROVIDERS[modelSpec(answerer).provider].name} left the page as it was.`);
     const revision: Revision = { request: pending.request, before, note: applied.note, touched: applied.touched, at: Date.now() };
     const next = update({
       content: applied.content,
