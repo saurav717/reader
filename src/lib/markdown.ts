@@ -24,6 +24,21 @@ export function inline(src: string): string {
     return `\u0000${codes.length - 1}\u0000`;
   });
   s = esc(s);
+  // A picture, `![caption](src)`: a web address or an inline data: image is
+  // drawn as it is; `figure:3`, `table:2` and `page:4` name a figure, table
+  // or page of the open paper, which the window looks up on the page and
+  // draws once the answer is on screen (see placeFigures). Before links, since
+  // a picture is a link with a mark in front.
+  s = s.replace(/!\[([^\]\n]*)\]\(\s*(?:(https?:\/\/[^\s)]+|data:image\/[a-z+.-]+;base64,[A-Za-z0-9+/=]+)|(figure|fig|table|page):\s*([^\s)]+))\s*\)/gi, (_, caption: string, src: string | undefined, kind: string | undefined, ref: string | undefined) => {
+    const alt = caption.trim();
+    const what = /^fig/i.test(kind ?? '') ? 'figure' : (kind ?? '').toLowerCase();
+    const img = src
+      ? `<img class="chat-image" src="${src}" alt="${alt}" loading="lazy" decoding="async">`
+      : `<img class="chat-image chat-figure" data-figure="${what}:${(ref ?? '').replace(/^#/, '')}" alt="${alt}">`;
+    // Spans, not a figure: a picture can sit inside a paragraph or a list item.
+    codes.push(`<span class="chat-picture">${img}${alt ? `<span class="chat-picture-caption">${alt}</span>` : ''}</span>`);
+    return `\u0000${codes.length - 1}\u0000`;
+  });
   s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, text: string, url: string) =>
     `<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`,
   );

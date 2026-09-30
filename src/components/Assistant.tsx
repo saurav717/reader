@@ -37,6 +37,7 @@ import { typesetMath } from '../lib/typesetMath';
 import { STYLES, clamp, clearOf, styleAt } from '../lib/floatWindow';
 import { stacked, useFloatingWindow, viewport } from './FloatingWindow';
 import { markdown } from '../lib/markdown';
+import { placeFigures } from '../lib/figures';
 import { CameraIcon, CheckIcon, CloseIcon, PlusIcon, SearchIcon, SparkleIcon } from './icons';
 import { useStore } from '../lib/store';
 import { resolvePaper } from '../lib/recommend';
@@ -409,7 +410,15 @@ function peekPlace(box: DOMRect): React.CSSProperties {
     : { left, bottom: window.innerHeight - box.top + 6, width: PEEK_WIDTH };
 }
 
-function TurnView({ turn, index, actions, question }: { turn: Turn; index: number; actions: PaperActions; question?: string }) {
+/** A picture in the chat: a click opens it at full size in the window, another puts it back. */
+const togglePicture = (target: HTMLElement): boolean => {
+  const picture = target.closest<HTMLImageElement>('img.chat-image, .chat-attachments img');
+  if (!picture || !picture.src) return false;
+  picture.classList.toggle('is-open');
+  return true;
+};
+
+function TurnView({ turn, index, actions, question, sent }: { turn: Turn; index: number; actions: PaperActions; question?: string; sent?: Turn['images'] }) {
   const textRef = useRef<HTMLDivElement>(null);
   const isClaude = turn.role !== 'user';
   const pointed = isClaude ? splitPassages(turn.content) : { text: turn.content, passages: [] as Passage[] };
@@ -454,6 +463,7 @@ function TurnView({ turn, index, actions, question }: { turn: Turn; index: numbe
     });
     void typesetMath(container);
     if (turn.streaming) return;
+    placeFigures(container, sent);
     placeCards(container, papers, actions.layout);
     markAdds(container, (title) => actions.adds[paperKey(title)]);
   });
@@ -461,7 +471,15 @@ function TurnView({ turn, index, actions, question }: { turn: Turn; index: numbe
   if (!isClaude) {
     return (
       <div className="chat-turn chat-user">
-        {turn.shot ? <span className="chat-shot-tag">Screenshot attached</span> : null}
+        {turn.images?.length ? (
+          <div className="chat-attachments" onClick={(event) => togglePicture(event.target as HTMLElement)}>
+            {turn.images.map((image, at) => (
+              <img key={at} src={`data:image/jpeg;base64,${image.data}`} alt={image.label} title={`${image.label.replace(/:$/, '')} — click to see it at full size`} loading="lazy" decoding="async" />
+            ))}
+          </div>
+        ) : turn.shot ? (
+          <span className="chat-shot-tag">Screenshot attached</span>
+        ) : null}
         <div
           className="chat-text"
           // The quote that leads a question renders as a quote; the rest is plain text.
@@ -504,6 +522,7 @@ function TurnView({ turn, index, actions, question }: { turn: Turn; index: numbe
           className="chat-text"
           onClick={(event) => {
             const target = event.target as HTMLElement;
+            if (togglePicture(target)) return;
             const cell = target.closest<HTMLElement>('.chat-cell');
             if (cell) {
               // A cell named in the answer: the notebook brings it into view, on the Colab tab.
@@ -1088,7 +1107,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           </div>
         ) : null}
         {s.turns.map((turn, index) => (
-          <TurnView key={index} index={index} turn={turn} actions={actions} question={s.turns[index - 1]?.role === 'user' ? s.turns[index - 1].content : undefined} />
+          <TurnView key={index} index={index} turn={turn} actions={actions} question={s.turns[index - 1]?.role === 'user' ? s.turns[index - 1].content : undefined} sent={s.turns[index - 1]?.role === 'user' ? s.turns[index - 1].images : undefined} />
         ))}
       </div>
 

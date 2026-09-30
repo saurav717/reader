@@ -180,7 +180,10 @@ What you can see:
   are missing and equations may be garbled — say so if that matters. In PDF mode it is read
   from the PDF file, page by page, each page marked [Page N].
 - In PDF mode, the pages in view may also come as images at the start of the message: that
-  is exactly what the reader is looking at, figures and equations included. Read them.
+  is exactly what the reader is looking at, figures and equations included. Read them. In
+  Reflow mode the figures and tables on screen come the same way, each introduced by its
+  caption, as do the figures on the Explain page when it is open. A figure that came as a
+  picture is one you can see: read it, and never say figures are missing when it is there.
 - The reader can also attach a screenshot of the whole browser tab. It shows the app as they
   see it — this chat window may be floating over part of it; look past that.
 - Each message carries a <screen> block holding what is on the reader's screen at that
@@ -190,6 +193,15 @@ What you can see:
 - "This", "here" and "that sentence" usually mean the selection, or else the passage in view.
 - A switch under ⚙ can withhold any part of that block. If something you need is genuinely
   not there, say which part is missing.
+
+Showing a picture in the answer:
+- The app can draw a figure of the paper, or a page of the PDF, inside your answer, sized to
+  fit the window. To show one, write on a line of its own:
+  ![Figure 3: the ablation results](figure:3)
+  where the number after \`figure:\` is the figure's number as its caption gives it (use
+  \`table:2\` for a table), or in PDF mode ![Page 4](page:4) for a whole page. The text in
+  brackets is the caption under the picture. Show a figure when the reader asks to see one,
+  and when the answer turns on what a figure shows; only name figures that are in the paper.
 
 Naming papers to read:
 - Whenever you name another paper the reader might read (prior work, background, a
@@ -226,6 +238,12 @@ Pointing at passages in the open paper:
 - In the prose, you can point at one of those passages as [the words you want to link](passage:1),
   with its number in the block.
 - The fenced blocks come last, \`passages\` before \`papers\`, and nothing follows them.
+- When the Colab tab is the one on screen, a passage can point at the notebook instead: add
+  "in": "notebook" and "cell": 3 (the cell's number) to its line, and copy the quote from that
+  cell's code or output in <colab_notebook>, one to three lines, exactly as they are there. The
+  app scrolls the Colab tab to the cell and marks those lines. When the question is about the
+  notebook — its code, an error, what a cell printed — point at the notebook, not at the paper
+  or the explanation underneath it.
 
 When the Explain page is open:
 - The reader may have the paper's Explain page open — a long walkthrough of the paper that Claude
@@ -267,8 +285,10 @@ export interface Passage {
   page?: number;
   /** Scroll to this one as soon as the answer is in. */
   show?: boolean;
-  /** Where the words are: the paper itself, or its Explain page. */
-  source?: 'paper' | 'explanation';
+  /** Where the words are: the paper itself, its Explain page, or the notebook on its Colab tab. */
+  source?: 'paper' | 'explanation' | 'notebook';
+  /** The cell of the notebook, numbered from 1, for a passage of the notebook. */
+  cell?: number;
 }
 
 const PASSAGES_FENCE = /(?:^|\n)[ \t]*```passages[ \t]*\n([\s\S]*?)(?:\n[ \t]*```[ \t]*(?=\n|$)|$)/;
@@ -291,13 +311,17 @@ export function splitPassages(content: string): { text: string; passages: Passag
     const quote = field(parsed?.quote)?.replace(/\[Page \d+\]/g, ' ').replace(/\s+/g, ' ');
     if (!quote) continue;
     const page = Number(parsed.page);
+    const cell = Number(parsed.cell);
+    const where = field(parsed.in) ?? '';
     passages.push({
       quote,
       label: field(parsed.label) ?? 'This part of the paper',
       section: field(parsed.section),
       page: Number.isInteger(page) && page > 0 ? page : undefined,
       show: parsed.show === true,
-      ...(/^explanation$/i.test(field(parsed.in) ?? '') ? { source: 'explanation' as const } : {}),
+      ...(/^explanation$/i.test(where) ? { source: 'explanation' as const } : {}),
+      ...(/^(colab_)?notebook$|^colab$|^cell$/i.test(where) ? { source: 'notebook' as const } : {}),
+      ...(Number.isInteger(cell) && cell > 0 ? { cell } : {}),
     });
   }
   return { text, passages: passages.slice(0, 8) };
@@ -455,7 +479,7 @@ export type ContextKey = 'paper' | 'fullText' | 'visible' | 'selection' | 'highl
 export const CONTEXT_ROWS: [ContextKey, string, string][] = [
   ['paper', 'Paper details', 'title, authors, venue, identifiers and abstract'],
   ['fullText', 'Full text', 'the whole paper as the reader extracted it (cached between questions)'],
-  ['visible', 'Passage in view', 'the paragraphs on screen right now — in PDF mode, a picture of the pages in view'],
+  ['visible', 'Passage in view', 'the paragraphs on screen right now, with the figures in view as pictures — in PDF mode, a picture of the pages in view'],
   ['selection', 'Your selection', 'the text you last selected in the paper'],
   ['highlights', 'Highlights and notes', 'what you have marked in this paper, and what you wrote'],
   ['explanation', 'The explanation', 'the paper’s Explain page, when it is open — all of it, and the part in view'],
@@ -572,6 +596,8 @@ export interface Turn {
   truncated?: boolean;
   /** A screenshot went with this question. */
   shot?: boolean;
+  /** The pictures that went with this question — pages, figures, the screenshot — kept for the thread on screen, not stored. */
+  images?: { label: string; data: string }[];
   /** Which model wrote an answer. Chats from before there was a choice have none: they were Claude's. */
   model?: string;
 }
@@ -1185,7 +1211,8 @@ export async function send(text: string, screenOrPending: Screen | Promise<Scree
 
   const reply: Turn = { role: 'assistant', content: '', thinking: '', streaming: true, model: state.prefs.model };
   const shot = state.shot;
-  set({ turns: [...state.turns, { role: 'user', content: question, ...(shot ? { shot: true } : {}) }, reply], live: true, quote: '', shot: '' });
+  const asked: Turn = { role: 'user', content: question, ...(shot ? { shot: true } : {}) };
+  set({ turns: [...state.turns, asked, reply], live: true, quote: '', shot: '' });
 
   let SDK: SDK | null = null;
   try {
@@ -1201,6 +1228,11 @@ export async function send(text: string, screenOrPending: Screen | Promise<Scree
           ...(shot ? [{ label: 'A screenshot of the reader’s browser tab, taken as they asked:', data: shot }] : []),
         ]
       : [];
+    // The question shows what went with it, as it was sent.
+    if (images.length) {
+      asked.images = images;
+      set({ turns: [...state.turns] });
+    }
     const messages = buildMessages(state.turns.filter((t) => t !== reply), screenBlock(screen, on), images);
     const system = systemBlocks(screen, on);
     if (!model.vision) system.push({ type: 'text', text: TEXT_ONLY });

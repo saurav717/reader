@@ -10,7 +10,7 @@
 // takes one in. The model and the store are src/lib/notebook.ts. Nothing
 // runs without a click or a Shift-Enter on that cell; Run all asks first.
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import DOMPurify from 'dompurify';
 import { getState as assistantState, modelSpec, PROVIDERS, subscribe as subscribeAssistant } from '../lib/assistant';
@@ -23,6 +23,8 @@ import { commitFiles, targetFrom } from '../lib/github';
 import { computeOf, implementationFor } from '../lib/implement';
 import { askNotebook, dismissNotebookAsk, loadNotebookAsk, notebookAskFor, outputText, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
 import type { AskScope } from '../lib/notebookAsk';
+import { findPassage, findSquashed, FLASH_EVENT, setNotebookLocator, squash, takeHeldPassage } from '../lib/locate';
+import type { LocateRequest, LocateResult } from '../lib/locate';
 import { SHOW_CELL, takeHeldCell } from '../lib/notebookNav';
 import type { ShowCell } from '../lib/notebookNav';
 import { markdown } from '../lib/markdown';
@@ -33,6 +35,8 @@ import { attachUrl, CellRunOutput, ColabMark, ConnectCard, RunState, useColab } 
 import { highlightPython, lastThought } from './Explain';
 import { CloseIcon, SparkleIcon } from './icons';
 import MetricsPane from './MetricsPane';
+import PassageFlash from './PassageFlash';
+import type { Flash } from './PassageFlash';
 import RuntimePane from './RuntimePane';
 
 const useNotebook = (paperId: string) => useSyncExternalStore(subscribeNotebook, () => notebookFor(paperId));
@@ -450,11 +454,67 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
     return () => window.removeEventListener(SHOW_CELL, onShow);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // A passage of the notebook the Ask AI window points at: the cell brought
+  // into view and lit, and the words marked on it for a moment — in the code
+  // as it is coloured, in a text cell's prose, or in what the cell printed.
+  const [flash, setFlash] = useState<Flash | null>(null);
+  const flashKey = useRef(0);
+  const runsRef = useRef(colab.runs);
+  runsRef.current = colab.runs;
+  const locateHere = useCallback(async (request: LocateRequest): Promise<LocateResult> => {
+    const list = cellsRef.current;
+    const textOf = (cell: NbCell) => `${cell.source}\n${cell.type === 'code' ? outputText(cell, runsRef.current[runKey(cell.id)]) : ''}`;
+    const named = request.cell && list[request.cell - 1] ? request.cell - 1 : -1;
+    // The cell the answer named first, then the rest: the whole quote, or the cell holding most of it.
+    const order = named >= 0 ? [named, ...list.keys()] : [...list.keys()];
+    let best: { index: number; words: number } | null = null;
+    for (const index of order) {
+      const hit = findSquashed(squash(textOf(list[index])).text, request.quote);
+      if (!hit) continue;
+      if (hit.words === hit.of) {
+        best = { index, words: hit.words };
+        break;
+      }
+      if (!best || hit.words > best.words) best = { index, words: hit.words };
+    }
+    const index = best?.index ?? named;
+    if (index < 0) return { found: false, reason: list.length ? 'Those words are not in the notebook.' : 'The notebook has no cells yet.' };
+    const cell = list[index];
+    goTo(cell.id);
+    setShown(cell.id);
+    window.setTimeout(() => setShown((current) => (current === cell.id ? null : current)), 2400);
+    const section = root.current?.querySelector<HTMLElement>(`[data-cell="${cell.id}"]`);
+    const scroller = root.current?.querySelector<HTMLElement>('.nb-cells') ?? null;
+    let range: Range | null = null;
+    if (section && best) {
+      // The coloured code first — the textarea over it holds the same text but draws no rectangles.
+      for (const part of ['.nb-shadow', '.nb-markdown', '.nb-body']) {
+        const element = section.querySelector<HTMLElement>(part);
+        range = element ? findPassage(element, request.quote) : null;
+        if (range) break;
+      }
+    }
+    if (range) {
+      setFlash({ range, label: request.label, where: `The notebook · cell ${index + 1}`, clip: scroller, anchor: scroller, key: ++flashKey.current, n: request.n });
+      window.dispatchEvent(new CustomEvent(FLASH_EVENT, { detail: { quote: request.quote } }));
+    }
+    return { found: true };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    const release = setNotebookLocator(locateHere);
+    return () => {
+      release();
+      window.dispatchEvent(new CustomEvent(FLASH_EVENT, { detail: { quote: null } }));
+    };
+  }, [locateHere]);
   // Asked for while another page was open: taken once the cells are here.
   useEffect(() => {
     if (!nb) return;
     const held = takeHeldCell();
     if (held) window.setTimeout(() => showCell(held), 50);
+    const passage = takeHeldPassage();
+    if (passage) window.setTimeout(() => void locateHere(passage.request).then(passage.reply), 80);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nb?.paperId]);
   /** A request to the bar: about the cell picked, and the passage taken, unless the caller says otherwise. */
@@ -605,6 +665,16 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
 
   return (
     <div className="nb-page" ref={root} onKeyDown={onKey} tabIndex={-1}>
+      {flash ? (
+        <PassageFlash
+          flash={flash}
+          look={settings.passageLook}
+          onDone={() => {
+            setFlash(null);
+            window.dispatchEvent(new CustomEvent(FLASH_EVENT, { detail: { quote: null } }));
+          }}
+        />
+      ) : null}
       <div className="nb-toolbar" role="toolbar" aria-label="Notebook">
         <ColabMark />
         <span className="nb-title">

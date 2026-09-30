@@ -251,6 +251,94 @@ export function pdfPageImages(max = 2): { label: string; data: string }[] {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Figures in Reflow mode, and on the Explain page
+// ---------------------------------------------------------------------------
+//
+// Reflow mode has the paper's figures and tables as pictures in the column —
+// the crops the reader cut from the PDF, or the files an HTML rendering
+// links — and the Explain page keeps its own. The ones on screen go with a
+// question the way a PDF page does, each named by its caption, so the model
+// sees the figure the reader is looking at rather than a note that figures
+// are missing.
+
+/** The longest side of a figure as it is sent. */
+const FIGURE_PIXELS = 1200;
+const CAPTION_MAX = 240;
+
+/** A figure's caption: the figcaption it sits in, else its alt text. */
+function captionOf(image: HTMLImageElement): string {
+  const figure = image.closest('figure');
+  const caption = figure?.querySelector('figcaption');
+  const words = (caption ? text(caption) : image.alt || '').replace(/\s+/g, ' ').trim();
+  return words.length > CAPTION_MAX ? `${words.slice(0, CAPTION_MAX)}…` : words;
+}
+
+/** The images inside `root` that are on screen inside `frame`, largest first, that have loaded and are big enough to be a figure. */
+function imagesInView(root: Element, frame: DOMRect): HTMLImageElement[] {
+  const top = Math.max(frame.top, 0);
+  const bottom = Math.min(frame.bottom, window.innerHeight);
+  return Array.from(root.querySelectorAll<HTMLImageElement>('img'))
+    .filter((image) => image.complete && image.naturalWidth >= 40 && image.naturalHeight >= 40)
+    .filter((image) => {
+      const r = image.getBoundingClientRect();
+      return r.height > 0 && r.bottom > top && r.top < bottom;
+    });
+}
+
+/**
+ * A loaded image as base64 JPEG, held to FIGURE_PIXELS on its long side. An
+ * image from another origin taints a canvas, so it is fetched instead — the
+ * paper proxy answers with CORS headers — and drawn from the bytes.
+ */
+async function imageJpeg(image: HTMLImageElement): Promise<string> {
+  const scale = Math.min(1, FIGURE_PIXELS / Math.max(image.naturalWidth, image.naturalHeight));
+  const copy = document.createElement('canvas');
+  copy.width = Math.round(image.naturalWidth * scale);
+  copy.height = Math.round(image.naturalHeight * scale);
+  try {
+    return jpeg(image, copy);
+  } catch {
+    const response = await fetch(image.currentSrc || image.src, { mode: 'cors' });
+    if (!response.ok) return '';
+    const bitmap = await createImageBitmap(await response.blob());
+    try {
+      return jpeg(bitmap, copy);
+    } finally {
+      bitmap.close();
+    }
+  }
+}
+
+/**
+ * The figures and tables on screen in Reflow mode, and on the Explain page
+ * when it is open, as JPEG pictures with their captions — at most `max`.
+ */
+export async function figureImages({ paper = true, max = 4 }: { paper?: boolean; max?: number } = {}): Promise<{ label: string; data: string }[]> {
+  const out: { label: string; data: string }[] = [];
+  const body = document.querySelector(BODY);
+  const explain = document.querySelector('.explain-scroll');
+  const places: { root: Element | null; frame: Element | null; where: string }[] = [
+    { root: paper ? body : null, frame: body?.closest('.reader-scroll, .book-pages') ?? body, where: 'of the paper' },
+    { root: explain, frame: explain, where: 'on the Explain page' },
+  ];
+  for (const place of places) {
+    if (!place.root || !place.frame) continue;
+    for (const image of imagesInView(place.root, place.frame.getBoundingClientRect())) {
+      if (out.length >= max) return out;
+      try {
+        const data = await imageJpeg(image);
+        if (!data) continue;
+        const caption = captionOf(image);
+        out.push({ label: `A figure ${place.where}, on screen now${caption ? ` — its caption: ${caption}` : ''}:`, data });
+      } catch {
+        // a picture that cannot be read is left out; the text still goes
+      }
+    }
+  }
+  return out;
+}
+
 /** A picture drawn onto `into` at its size, on white, as base64 JPEG. */
 function jpeg(source: CanvasImageSource, into: HTMLCanvasElement): string {
   const context = into.getContext('2d');
