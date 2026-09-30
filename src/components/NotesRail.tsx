@@ -310,7 +310,7 @@ export default function NotesRail({ paperId, selectedId, orphanIds, onSelect, on
                                 className="dot"
                                 style={
                                   highlight.style === 'underline'
-                                    ? { background: 'none', borderRadius: 0, height: 0, borderBottom: `3px solid ${colour?.swatch}` }
+                                    ? { background: 'none', borderRadius: 0, height: 0, borderBottom: '3px solid var(--ink)' }
                                     : { background: colour?.swatch }
                                 }
                               />

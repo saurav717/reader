@@ -1898,7 +1898,7 @@ same way, so either mode shows what was marked in the other, and both are saved
 with the paper to Drive (and GitHub) as one annotation list.
 
 In the reader, in Reflow or PDF mode: select text, then click a colour or press
-`1`–`4`; `U` (or the **U** button) switches the colours to underlining and back;
+`1`–`4`; `U` (or the **U** button) underlines it with a plain black line — no colour to pick;
 `N` highlights and opens a note. A mark's **U** in the highlights pane turns a
 highlight into an underline and back. `H` — or `⌘⇧\`, which works while typing too — opens and
 closes the highlights and notes; see

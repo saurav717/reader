@@ -490,15 +490,12 @@ mark.hl-blue { background: var(--hl-blue); }
 mark.hl-pink { background: var(--hl-pink); }
 mark.hl[data-has-note='true'] { box-shadow: 0 1.5px 0 var(--muted); }
 mark.hl.is-selected { box-shadow: 0 0 0 2px var(--accent); }
-/* Underlined rather than painted over: the colour goes into the line. */
+/* Underlined rather than painted over: one plain line in the text's colour, whatever the mark's colour. */
 mark.hl.hl-underline {
   background: transparent; padding: 0; border-radius: 0;
   text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; text-decoration-skip-ink: none;
+  text-decoration-color: currentColor;
 }
-mark.hl-underline.hl-yellow { text-decoration-color: var(--ul-yellow); }
-mark.hl-underline.hl-green { text-decoration-color: var(--ul-green); }
-mark.hl-underline.hl-blue { text-decoration-color: var(--ul-blue); }
-mark.hl-underline.hl-pink { text-decoration-color: var(--ul-pink); }
 mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-style: double; }
 
 .selection-toolbar {
@@ -1764,17 +1761,11 @@ mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-s
 .pdf-mark.hl-green { background: #b5e0c3; }
 .pdf-mark.hl-blue { background: #b3d2f0; }
 .pdf-mark.hl-pink { background: #f2bcc4; }
-.pdf-mark.hl-underline { background: none; border-radius: 0; border-bottom: 2px solid; }
-.pdf-mark.hl-underline.hl-yellow { border-color: #c9a400; }
-.pdf-mark.hl-underline.hl-green { border-color: #3c9160; }
-.pdf-mark.hl-underline.hl-blue { border-color: #3a78bd; }
-.pdf-mark.hl-underline.hl-pink { border-color: #c9566c; }
+.pdf-mark.hl-underline { background: none; border-radius: 0; border-bottom: 2px solid #111; }
 .pdf-mark.is-selected { box-shadow: 0 0 0 2px var(--accent); }
 
 /* The style a selection is marked in: painted over, or underlined. */
 .selection-toolbar .mark-style { font-family: var(--serif); font-size: 15px; text-decoration: underline; text-underline-offset: 3px; }
-.selection-toolbar .mark-style[aria-pressed='true'] { background: rgba(255, 255, 255, 0.24); }
-.selection-toolbar .swatch.is-underline { height: 0; border-radius: 0; border-bottom: 3px solid; margin-top: 8px; background: none !important; }
 
 /* ------------------------------------------------------------ ask claude -- */
 /* A window over the reader rather than a column beside it: dragged by its
