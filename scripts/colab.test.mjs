@@ -21,6 +21,7 @@ delete process.env.READER_TOKEN;
 const lib = await load('src/lib/colab.ts');
 const telemetry = await load('src/lib/telemetry.ts');
 const nbLib = await loadTogether(['src/lib/notebook.ts', 'src/lib/explain.ts', 'src/lib/notebookAsk.ts'], { external: ['@anthropic-ai/sdk'] });
+const nav = await load('src/lib/notebookNav.ts');
 const rt = await loadTogether(['src/lib/runtime.ts', 'src/lib/colabRun.ts', 'src/lib/hardware.ts'], { external: ['@anthropic-ai/sdk'] });
 const relay = await import('../server/colab.js');
 const { default: apiRouter } = await import('../server/api.js');
@@ -560,6 +561,18 @@ describe('whether a cell has run', () => {
     assert.equal(cellStatus({ ...ran, outputs: [{ type: 'error', ename: 'E', evalue: 'v', traceback: 't' }] }), 'failed', 'a kept traceback is a failure');
     assert.equal(cellStatus({ ...fresh, count: 4 }), 'earlier', 'a count from an .ipynb, with no run here');
     assert.equal(cellStatus(newCell('markdown', 'hi')), null);
+  });
+});
+
+describe('cells named in an answer', () => {
+  it('links every mention, outside code', () => {
+    const { linkCells } = nav;
+    const link = (n) => `<a class="chat-cell" href="#cell-${n}" data-cell="${n}" title="Go to cell ${n} in the notebook">${n}</a>`;
+    assert.equal(linkCells('<p>Cell 5 prints them.</p>'), `<p>Cell ${link(5)} prints them.</p>`);
+    assert.equal(linkCells('<p>see cells 3, 5 and 7</p>'), `<p>see cells ${link(3)}, ${link(5)} and ${link(7)}</p>`);
+    assert.equal(linkCells('<p>cells 2–4 differ</p>'), `<p>cells ${link(2)}–${link(4)} differ</p>`);
+    assert.equal(linkCells('<p><code>cell 5</code> and <pre>x = cell 9</pre> stay, cell 1 links</p>'), `<p><code>cell 5</code> and <pre>x = cell 9</pre> stay, cell ${link(1)} links</p>`);
+    assert.equal(linkCells('<p>a cell phone, cellular</p>'), '<p>a cell phone, cellular</p>');
   });
 });
 

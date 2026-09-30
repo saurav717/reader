@@ -23,6 +23,8 @@ import { commitFiles, targetFrom } from '../lib/github';
 import { computeOf, implementationFor } from '../lib/implement';
 import { askNotebook, dismissNotebookAsk, loadNotebookAsk, notebookAskFor, outputText, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
 import type { AskScope } from '../lib/notebookAsk';
+import { SHOW_CELL, takeHeldCell } from '../lib/notebookNav';
+import type { ShowCell } from '../lib/notebookNav';
 import { markdown } from '../lib/markdown';
 import { appendCells, cellStatus, clearOutputs, fromIpynb, insertCell, loadNotebook, moveCell, notebookFileName, notebookFor, removeCell, runKey, seedCells, setOutputs, setSource, setType, subscribeNotebook, toIpynb } from '../lib/notebook';
 import type { NbCell } from '../lib/notebook';
@@ -137,6 +139,7 @@ function Cell({
   onEdit,
   onRun,
   onAsk,
+  lit,
 }: {
   paperId: string;
   cell: NbCell;
@@ -151,6 +154,8 @@ function Cell({
   /** Run this cell; `then` says where the selection goes after. */
   onRun: (then: 'stay' | 'next' | 'insert') => void;
   onAsk?: (request: string, quote: string) => void;
+  /** Brought into view from the Ask AI window: lit for a moment. */
+  lit?: boolean;
 }) {
   const live = run?.state === 'running' || run?.state === 'queued';
   // What is shown under the cell: the run in the Colab store while there is one, else what the notebook kept.
@@ -183,7 +188,7 @@ function Cell({
     status === 'running' ? 'running' : status === 'queued' ? 'queued' : status === 'ran' ? `ran${cell.ranAt ? ` ${time(cell.ranAt)}` : ''}` : status === 'failed' ? 'failed' : status === 'stopped' ? 'stopped' : status === 'changed' ? 'changed since it ran' : status === 'earlier' ? 'ran earlier, elsewhere' : status === 'never' ? 'not run yet' : '';
   return (
     <section
-      className={`nb-cell is-${cell.type}${selected ? ' is-selected' : ''}${editing ? ' is-editing' : ''}${run ? ` is-${run.state}` : ''}${cell.fresh ? ' is-fresh' : ''}`}
+      className={`nb-cell is-${cell.type}${selected ? ' is-selected' : ''}${editing ? ' is-editing' : ''}${run ? ` is-${run.state}` : ''}${cell.fresh ? ' is-fresh' : ''}${lit ? ' is-shown' : ''}`}
       data-cell={cell.id}
       onMouseDown={onSelect}
       aria-label={`${cell.type === 'code' ? 'Code' : 'Text'} cell ${index + 1}`}
@@ -424,6 +429,34 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
     root.current?.querySelector<HTMLElement>(`[data-cell="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
   const selectedIndex = selected ? cells.findIndex((cell) => cell.id === selected) : -1;
+  /** The cell shown on request from the Ask AI window: picked, scrolled to, and lit for a moment. */
+  const [shown, setShown] = useState<string | null>(null);
+  const cellsRef = useRef(cells);
+  cellsRef.current = cells;
+  const showCell = (n: number) => {
+    const cell = cellsRef.current[n - 1];
+    if (!cell) {
+      setNote(`There is no cell ${n} — the notebook has ${cellsRef.current.length}.`);
+      window.setTimeout(() => setNote(null), 4000);
+      return;
+    }
+    goTo(cell.id);
+    setShown(cell.id);
+    window.setTimeout(() => setShown((current) => (current === cell.id ? null : current)), 2400);
+  };
+  useEffect(() => {
+    const onShow = (event: Event) => showCell((event as CustomEvent<ShowCell>).detail.cell);
+    window.addEventListener(SHOW_CELL, onShow);
+    return () => window.removeEventListener(SHOW_CELL, onShow);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Asked for while another page was open: taken once the cells are here.
+  useEffect(() => {
+    if (!nb) return;
+    const held = takeHeldCell();
+    if (held) window.setTimeout(() => showCell(held), 50);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nb?.paperId]);
   /** A request to the bar: about the cell picked, and the passage taken, unless the caller says otherwise. */
   const submit = async (request = ask, scope: AskScope = { cell: selectedIndex >= 0 ? selectedIndex + 1 : undefined, quote }) => {
     if (!request.trim() || !canAsk) return;
@@ -835,6 +868,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
                 onEdit={(on) => setEditing((current) => (on ? cell.id : current === cell.id ? null : current))}
                 onRun={(then) => runOne(cell, then)}
                 onAsk={canAsk ? (request, cellQuote) => void submit(request, { cell: index + 1, quote: cellQuote }) : undefined}
+                lit={shown === cell.id}
               />
             ))
           )}

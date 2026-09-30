@@ -2935,8 +2935,10 @@ whether the Colab tab is the one on screen — so *which cell is running?*,
 *which cell has the attention code?*, *why does cell 3 fail?* and *does
 this output bear out the paper?* are answered from the notebook, from any
 tab. It has a switch of its own under **What the model sees** (on by
-default). It answers and explains; the tab's own bar is the one that
-writes cells.
+default). Every cell an answer names — *cell 5*, *cells 3 and 7* — is a
+link: a click brings that cell into view on the Colab tab, picked and lit
+for a moment, switching to the tab first when another page is open. It
+answers and explains; the tab's own bar is the one that writes cells.
 
 The prompt, the reply's grammar, the parser and the store are
 `src/lib/notebookAsk.ts`; the edits are resolved and applied in

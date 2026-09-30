@@ -233,6 +233,19 @@ await context.addInitScript(
         ];
       };
       const cellAsked = body.match(/Rewrite cell (\d+) in place/);
+      // The Ask AI window's question about a cell: an answer that names cells, so the mentions can be clicked.
+      const printsAsked = body.match(/What does cell (\d+) print\?|Which cell is running now\?/);
+      if (printsAsked && !/writing cells for a Jupyter notebook/.test(body)) {
+        const n = Number(printsAsked[1] || 3);
+        const answer = sseOf(`Cell ${n} prints the attention weights, rows summing to one. Compare cells ${n} and ${n + 1}: the second scales the logits.`);
+        const stream = new ReadableStream({
+          async start(controller) {
+            for (const event of answer) controller.enqueue(new TextEncoder().encode(event));
+            controller.close();
+          },
+        });
+        return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream', 'request-id': 'req_smoke' } });
+      }
       const forNotebook = /writing cells for a Jupyter notebook/.test(body) && (cellAsked ? sseOf(`Cell ${cellAsked[1]} again.\n\n\`\`\`python cell=${cellAsked[1]}\n# rewritten by the stand-in\nprint("cell ${cellAsked[1]} rewritten")\n\`\`\``) : window.__nbReply);
       const events = forNotebook || explanation;
       const stream = new ReadableStream({
@@ -637,6 +650,16 @@ await page.waitForTimeout(600);
 const assistantAsk = await page.evaluate(() => window.__requests.at(-1));
 check('the question went with the Colab notebook: its cells numbered, with their outputs, and the runtime', /<colab_notebook>/.test(assistantAsk) && /on their T4 runtime/.test(assistantAsk) && new RegExp(`### Cell ${n} \\(code`).test(assistantAsk) && /the answer is 42/.test(assistantAsk) && /with its Colab notebook open/.test(assistantAsk));
 check('and says the tab is on screen and nothing runs', /the tab on screen now/.test(assistantAsk) && /Nothing is running now/.test(assistantAsk));
+await page.waitForFunction(() => document.querySelectorAll('.assistant-win .chat-cell').length >= 3, null, { timeout: 15000 });
+const cellLinks = await page.locator('.assistant-win .chat-cell').allTextContents();
+check('the cells the answer names are links', cellLinks.length === 3 && cellLinks[0] === String(n) && cellLinks[2] === String(n + 1), cellLinks.join(','));
+await page.locator('.nb-cells').evaluate((el) => (el.scrollTop = el.scrollHeight));
+await page.locator('.assistant-win .chat-cell').last().click();
+await page.waitForTimeout(700);
+const litCell = page.locator('.nb-cell.is-shown');
+const litBox = await litCell.boundingBox();
+const cellsBox = await page.locator('.nb-cells').boundingBox();
+check('a click brings that cell into view on the Colab tab, picked and lit', (await litCell.count()) === 1 && (await litCell.getAttribute('aria-label')) === `Code cell ${n + 1}` && (await litCell.evaluate((el) => el.classList.contains('is-selected'))) && litBox.y >= cellsBox.y - 4 && litBox.y < cellsBox.y + cellsBox.height, `${JSON.stringify(litBox)} in ${JSON.stringify(cellsBox)}`);
 await page.keyboard.press('Control+j');
 await page.waitForSelector('.assistant-win', { state: 'detached', timeout: 5000 }).catch(() => undefined);
 await page.waitForTimeout(300);
@@ -654,9 +677,15 @@ await page.waitForFunction((count) => window.__requests.length > count, await pa
 await page.waitForTimeout(600);
 const fromExplanation = await page.evaluate(() => window.__requests.at(-1));
 check('from the Explanation tab the notebook still goes, marked as not the tab on screen, with the running cell named', /<colab_notebook>/.test(fromExplanation) && /not the tab on screen now/.test(fromExplanation) && /Running now: cell \d+\./.test(fromExplanation) && /\(code, running\)/.test(fromExplanation));
+await page.waitForFunction(() => document.querySelectorAll('.assistant-win .chat-cell').length >= 3, null, { timeout: 15000 });
+// The last link in the chat is this answer's "cells 3 and 4" — the earlier answer's links are still above it.
+const clickedCell = await page.locator('.assistant-win .chat-cell').last().textContent();
+await page.locator('.assistant-win .chat-cell').last().click();
+await page.waitForSelector('.nb-page .nb-cell.is-shown', { timeout: 10000 });
+await page.waitForTimeout(500);
+check('a cell clicked from the Explanation tab opens the Colab tab and goes to it', new RegExp(`cell ${clickedCell}$`).test(await page.locator('.nb-cell.is-shown').getAttribute('aria-label')) && (await page.locator('.explain-pages [role="tab"]', { hasText: 'Colab' }).getAttribute('aria-selected')) === 'true', `${await page.locator('.nb-cell.is-shown').getAttribute('aria-label')} / ${await page.locator('.explain-pages [role="tab"]', { hasText: 'Colab' }).getAttribute('aria-selected')}`);
 await page.keyboard.press('Control+j');
 await page.waitForSelector('.assistant-win', { state: 'detached', timeout: 5000 }).catch(() => undefined);
-await page.getByRole('tab', { name: 'Colab' }).click();
 await page.waitForSelector('.nb-page', { timeout: 10000 });
 await page.waitForSelector('.nb-cell.is-running', { state: 'detached', timeout: 30000 });
 await page.waitForTimeout(500);
