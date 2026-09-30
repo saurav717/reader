@@ -4,7 +4,7 @@ import type { CSSProperties } from 'react';
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Screen } from '../lib/assistant';
 import { ASSISTANT_NAME, geminiNote, getState, looksLikeKey, MODELS, modelSpec, PROVIDERS, saveKey, setAskModel, setExplainModel, subscribe } from '../lib/assistant';
-import type { Provider } from '../lib/assistant';
+import ModelChip from './ModelChip';
 import type { Block, Section } from '../lib/explain';
 import {
   applyEdits,
@@ -652,38 +652,6 @@ const readRewriteView = (): RewriteView => {
     return 'grid';
   }
 };
-
-/**
- * Which model answers the ask bar: the page's own writer until another is
- * picked here, and then that one, on every page's bar, until it is changed
- * back. A model without a key is listed but cannot be picked.
- */
-export function AskModelPicker({ value, writer, keys, disabled, onChange }: { value: string; writer?: string; keys: Record<string, unknown>; disabled?: boolean; onChange: (model: string) => void }) {
-  const chosen = MODELS.find((m) => m.id === value);
-  const writerSpec = writer ? MODELS.find((m) => m.id === writer) : undefined;
-  return (
-    <select
-      className="ask-model"
-      value={value}
-      disabled={disabled}
-      onChange={(event) => onChange(event.target.value === writer ? '' : event.target.value)}
-      aria-label="Which model answers what you ask here"
-      title={`Which model answers what you ask here${writerSpec ? ` — ✎ marks ${writerSpec.label}, which wrote the page` : ''}${chosen && !keys[chosen.provider] ? `. ${chosen.label} needs its key in Settings` : ''}`}
-    >
-      {(Object.keys(PROVIDERS) as Provider[]).map((provider) => (
-        <optgroup key={provider} label={PROVIDERS[provider].company}>
-          {MODELS.filter((m) => m.provider === provider).map((m) => (
-            <option key={m.id} value={m.id} disabled={!keys[provider]}>
-              {m.label}
-              {m.id === writer ? ' ✎' : ''}
-              {keys[provider] ? '' : ' · needs a key'}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
-  );
-}
 
 /**
  * Rewrite, in the bar: the page written again from scratch, by the model
@@ -1535,7 +1503,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
               }
               aria-label="Ask about the explanation, or ask for a change"
             />
-            <AskModelPicker value={askModel} writer={explanation?.model} keys={assistant.keys} disabled={busy || !explanation?.content} onChange={setAskModel} />
+            <ModelChip value={askModel} writer={explanation?.model} keys={assistant.keys} disabled={busy || !explanation?.content} what="Answers here with" onChange={(id) => setAskModel(id === explanation?.model ? '' : id)} />
             {busy && pending ? (
               <button type="button" className="btn sm" onClick={store.stop}>
                 Stop

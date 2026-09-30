@@ -32,7 +32,8 @@ import { appendCells, cellStatus, clearOutputs, fromIpynb, insertCell, loadNoteb
 import type { NbCell } from '../lib/notebook';
 import { useStore } from '../lib/store';
 import { attachUrl, CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Colab';
-import { AskModelPicker, highlightPython, lastThought } from './Explain';
+import { highlightPython, lastThought } from './Explain';
+import ModelChip from './ModelChip';
 import { CloseIcon, SparkleIcon } from './icons';
 import MetricsPane from './MetricsPane';
 import PassageFlash from './PassageFlash';
@@ -815,7 +816,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
               }
               aria-label="Ask for a cell, or a change to one"
             />
-            <AskModelPicker value={model} writer={writerModel} keys={assistant.keys} disabled={asking} onChange={setAskModel} />
+            <ModelChip value={model} writer={writerModel} keys={assistant.keys} disabled={asking} what="Writes the cells with" onChange={(id) => setAskModel(id === writerModel ? '' : id)} />
             {asking ? (
               <button type="button" className="btn sm" onClick={stopNotebookAsk}>
                 Stop

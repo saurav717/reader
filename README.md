@@ -2046,9 +2046,10 @@ screen before it answers, so there is nothing to paste.
 
 ![the Ask AI window over a paper, answering a question about a selected sentence](docs/ask-claude.png)
 
-The chooser beside the box names the model that answers the next question —
-any Claude, DeepSeek or Gemini model with a key — and can be changed between
-one question and the next; the conversation so far goes to whichever answers.
+The pill under the box — the maker's mark and the model's name — names the
+model that answers the next question. It opens a menu of every model as
+cards, greyed where a key is missing, and can be changed between one question
+and the next; the conversation so far goes to whichever answers.
 
 ### Choosing a model: Claude, DeepSeek or Gemini
 
@@ -2989,8 +2990,9 @@ kept.
   page or, with a chip, for that section.
 - **/** jumps to the bar; **Esc** in it clears the chips, then leaves it.
 - A changed section keeps a **Revised at your request** mark.
-- **Which model answers.** The chooser before **Ask** names the model that
-  answers the bar: the page's own writer until another is picked, and then
+- **Which model answers.** The pill before **Ask** — the maker's mark and
+  the model's name, opening the same cards the Rewrite menu shows — names the
+  model that answers the bar: the page's own writer until another is picked, and then
   that one — on the Explanation, Implementation and Colab bars alike — until
   it is changed back. A page DeepSeek wrote can be tweaked by Claude, and the
   other way round. A model without a key is listed but cannot be picked. The
