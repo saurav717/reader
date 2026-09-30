@@ -240,10 +240,12 @@ When the Explain page is open:
   "in" are passages of the paper. Point at the explanation when the reader is asking about what
   it says; point at the paper when they want the source.
 
-When the Colab tab is open:
-- <colab_notebook> in the <screen> block is the reader's own notebook, on their Google Colab runtime:
-  its cells numbered from 1, each with the code or text and what it printed when it last ran, tracebacks
-  included. "This cell", "cell 3", "the error" and "what it printed" mean that notebook.
+When <colab_notebook> is in the <screen> block:
+- It is the reader's own notebook on the paper, on their Google Colab runtime — there whenever the paper has
+  one, whether or not the Colab tab is the one on screen: its cells numbered from 1, each with the code or
+  text and what it printed when it last ran, tracebacks included, which cell is running now, and the runtime.
+  "This cell", "cell 3", "the error", "what it printed" and "which cell is running" mean that notebook. Never
+  say you cannot see the notebook while the block is there; when it is not, say the paper has no notebook yet.
 - Answer from it: read the code and the outputs, say what a traceback means and what to change, judge
   whether an output bears out the paper. Show code as a fenced python block the reader can paste into a
   cell. The tab has an ask bar of its own that writes and changes cells in place, so when the reader wants
@@ -432,8 +434,8 @@ export interface Screen {
   explanation?: ScreenExplanation;
   /** Where the selection was made. */
   selectionIn?: 'paper' | 'explanation';
-  /** The Colab tab, when it is open: the reader's own notebook on their runtime, cell by cell with what each printed. */
-  notebook?: { text: string; runtime?: string };
+  /** The reader's own notebook on their Colab runtime, whenever the paper has one: cell by cell with what each printed, whether the Colab tab is the one on screen, and which cell runs now. */
+  notebook?: { text: string; runtime?: string; open: boolean; running?: string };
 }
 
 export interface ScreenExplanation {
@@ -446,7 +448,7 @@ export interface ScreenExplanation {
   covers?: boolean;
 }
 
-export type ContextKey = 'paper' | 'fullText' | 'visible' | 'selection' | 'highlights' | 'library' | 'explanation';
+export type ContextKey = 'paper' | 'fullText' | 'visible' | 'selection' | 'highlights' | 'library' | 'explanation' | 'notebook';
 
 export const CONTEXT_ROWS: [ContextKey, string, string][] = [
   ['paper', 'Paper details', 'title, authors, venue, identifiers and abstract'],
@@ -455,6 +457,7 @@ export const CONTEXT_ROWS: [ContextKey, string, string][] = [
   ['selection', 'Your selection', 'the text you last selected in the paper'],
   ['highlights', 'Highlights and notes', 'what you have marked in this paper, and what you wrote'],
   ['explanation', 'The explanation', 'the paper’s Explain page, when it is open — all of it, and the part in view'],
+  ['notebook', 'The Colab notebook', 'your notebook on the Colab tab — every cell, what it printed, which is running — whenever the paper has one'],
   ['library', 'The list on screen', 'the titles in the collection you are looking at'],
 ];
 
@@ -474,7 +477,7 @@ function loadPrefs(): Prefs {
   const base: Prefs = {
     model: DEFAULT_MODEL,
     // All on: the point of the window is not having to paste the screen into it.
-    context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true },
+    context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true },
   };
   try {
     const saved = JSON.parse(localStorage.getItem(PREFS_STORE) || '{}') as Partial<Prefs>;
@@ -604,7 +607,7 @@ let state: AssistantState = {
   threadId: null,
   history: [],
   live: false,
-  prefs: { model: DEFAULT_MODEL, context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true } },
+  prefs: { model: DEFAULT_MODEL, context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true } },
   keys: { anthropic: false, deepseek: false, gemini: false },
   hasKey: false,
   gemini: 'checking',
@@ -1013,11 +1016,15 @@ export function screenBlock(screen: Screen, on: Record<ContextKey, boolean>): st
     );
     parts.push(tag('explanation_in_view', clip(explanation.visible, VISIBLE_MAX_CHARS)));
   }
-  // The Colab tab goes with the explanation's switch: the notebook is the reader's own work on the paper, and what is on screen.
-  if (on.explanation && screen.notebook) {
-    parts.push(tag('colab_notebook', `Open, in the Colab tab: the reader's own notebook${screen.notebook.runtime ? `, on their ${screen.notebook.runtime} runtime` : ', with no runtime connected yet'}. Its cells, numbered, with what each printed when it last ran:
-
-${clip(screen.notebook.text, NOTEBOOK_MAX_CHARS)}`));
+  // The notebook has a switch of its own, and goes whether or not the Colab tab is the one on screen: it is the reader's own work on the paper.
+  if (on.notebook && screen.notebook) {
+    const n = screen.notebook;
+    const head = [
+      `The reader's own notebook on the paper, in the Colab tab${n.open ? ' — the tab on screen now' : ' (not the tab on screen now; the reader can switch to it)'}`,
+      n.runtime ? `on their ${n.runtime} runtime` : 'with no runtime connected yet',
+      n.running ? `Running now: ${n.running}.` : 'Nothing is running now.',
+    ].join('; ');
+    parts.push(tag('colab_notebook', `${head}\nIts cells, numbered, with what each printed when it last ran:\n\n${clip(n.text, NOTEBOOK_MAX_CHARS)}`));
   }
   // The paper behind an explanation that covers it is not what is in view.
   if (on.visible && !explanation?.covers) parts.push(tag('passage_in_view', clip(screen.visible, VISIBLE_MAX_CHARS)));

@@ -622,9 +622,30 @@ await page.waitForFunction((count) => window.__requests.length > count, await pa
 await page.waitForTimeout(600);
 const assistantAsk = await page.evaluate(() => window.__requests.at(-1));
 check('the question went with the Colab notebook: its cells numbered, with their outputs, and the runtime', /<colab_notebook>/.test(assistantAsk) && /on their T4 runtime/.test(assistantAsk) && new RegExp(`### Cell ${n} \\(code`).test(assistantAsk) && /the answer is 42/.test(assistantAsk) && /with its Colab notebook open/.test(assistantAsk));
+check('and says the tab is on screen and nothing runs', /the tab on screen now/.test(assistantAsk) && /Nothing is running now/.test(assistantAsk));
 await page.keyboard.press('Control+j');
 await page.waitForSelector('.assistant-win', { state: 'detached', timeout: 5000 }).catch(() => undefined);
 await page.waitForTimeout(300);
+// From the Explanation tab, with a cell running: the notebook still goes, and names the cell.
+const slow = page.locator('.nb-cell.is-code', { hasText: 'time.sleep' }).first();
+await slow.locator('.nb-run').click();
+await page.waitForSelector('.nb-cell.is-running', { timeout: 15000 });
+await page.getByRole('tab', { name: 'Explanation' }).click();
+await page.waitForSelector('.explain-scroll', { timeout: 10000 });
+await page.keyboard.press('Control+j');
+await page.waitForSelector('.assistant-win textarea', { timeout: 10000 });
+await page.locator('.assistant-win textarea').fill('Which cell is running now?');
+await page.keyboard.press('Enter');
+await page.waitForFunction((count) => window.__requests.length > count, await page.evaluate(() => window.__requests.length) - 1, { timeout: 15000 });
+await page.waitForTimeout(600);
+const fromExplanation = await page.evaluate(() => window.__requests.at(-1));
+check('from the Explanation tab the notebook still goes, marked as not the tab on screen, with the running cell named', /<colab_notebook>/.test(fromExplanation) && /not the tab on screen now/.test(fromExplanation) && /Running now: cell \d+\./.test(fromExplanation) && /\(code, running\)/.test(fromExplanation));
+await page.keyboard.press('Control+j');
+await page.waitForSelector('.assistant-win', { state: 'detached', timeout: 5000 }).catch(() => undefined);
+await page.getByRole('tab', { name: 'Colab' }).click();
+await page.waitForSelector('.nb-page', { timeout: 10000 });
+await page.waitForSelector('.nb-cell.is-running', { state: 'detached', timeout: 30000 });
+await page.waitForTimeout(500);
 
 console.log('\n== run, pause and stop, from the pane ==');
 await pane.getByRole('tab', { name: 'Runtime' }).click();

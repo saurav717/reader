@@ -12,7 +12,7 @@ import Explain from './components/Explain';
 import { RailProgress } from './components/ExplainProgress';
 import { colabNow, machineLabel } from './lib/colab';
 import { explanationFor, setExplainDrive } from './lib/explain';
-import { notebookFor } from './lib/notebook';
+import { notebookFor, runKey } from './lib/notebook';
 import { cellsBlock } from './lib/notebookAsk';
 import { explainDrive } from './lib/explainDrive';
 import CollectionView from './components/CollectionView';
@@ -638,12 +638,15 @@ export default function App() {
         const explainPage = explainOpen ? explanationOnScreen() : null;
         const explained = explainPage ? explanationFor(paper.id)?.content : '';
         const explanation = explainPage && explained ? { text: explained, visible: explainPage.visible, layout: explainPage.layout, covers: explainPage.covers } : undefined;
-        // The Colab tab, when it is the one open: the notebook, cell by cell, and the runtime it is on.
-        const nb = explainOpen && document.querySelector('.nb-page') ? notebookFor(paper.id) : undefined;
+        // The paper's notebook, whenever it has one: cell by cell, the runtime it is on, which cell runs now, and whether the Colab tab is the one on screen.
+        const nb = explainOpen ? notebookFor(paper.id) : undefined;
         const colab = colabNow();
-        const notebook = nb ? { text: cellsBlock(nb.cells, colab.runs), runtime: colab.runtime && (colab.status === 'idle' || colab.status === 'busy') ? machineLabel(colab.runtime) : undefined } : undefined;
+        const nbOpen = Boolean(document.querySelector('.nb-page'));
+        const runningAt = colab.running ? (nb?.cells.findIndex((cell) => runKey(cell.id) === colab.running) ?? -1) : -1;
+        const running = !colab.running ? undefined : runningAt >= 0 ? `cell ${runningAt + 1}` : colab.running.startsWith('nb:') ? 'a cell of the notebook' : 'a code cell of the Explanation or Implementation page, not the notebook';
+        const notebook = nb ? { text: cellsBlock(nb.cells, colab.runs), runtime: colab.runtime && (colab.status === 'idle' || colab.status === 'busy') ? machineLabel(colab.runtime) : undefined, open: nbOpen, running } : undefined;
         return {
-          where: notebook ? 'Reading a paper, with its Colab notebook open' : explanation ? 'Reading a paper, with its Explain page open' : 'Reading a paper',
+          where: notebook?.open ? 'Reading a paper, with its Colab notebook open' : explanation ? 'Reading a paper, with its Explain page open' : 'Reading a paper',
           paper: {
             id: paper.id,
             title: paper.title,

@@ -16,7 +16,7 @@ const win = await load('src/lib/floatWindow.ts');
 
 after(cleanup);
 
-const ALL = { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true };
+const ALL = { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true };
 const paperScreen = {
   where: 'Reading a paper',
   paper: {
@@ -65,6 +65,13 @@ describe('the screen block', () => {
   it('lists the titles on screen only when no paper is open', () => {
     const browsing = { where: 'Browsing all papers', library: ['A', 'B'] };
     assert.match(assistant.screenBlock(browsing, ALL), /<list_on_screen>\n- A\n- B/);
+    // The Colab notebook rides on its own switch, whether or not its tab is the one on screen, and says which cell runs.
+    const withNotebook = { ...paperScreen, notebook: { text: '### Cell 1 (code, running)\n```python\nprint(1)\n```', runtime: 'T4', open: false, running: 'cell 1' } };
+    const nbBlock = assistant.screenBlock(withNotebook, ALL);
+    assert.match(nbBlock, /<colab_notebook>\nThe reader's own notebook on the paper, in the Colab tab \(not the tab on screen now[^]*on their T4 runtime; Running now: cell 1\.\nIts cells[^]*### Cell 1 \(code, running\)/);
+    assert.match(assistant.screenBlock({ ...withNotebook, notebook: { ...withNotebook.notebook, open: true, running: undefined, runtime: undefined } }, ALL), /the tab on screen now; with no runtime connected yet; Nothing is running now\./);
+    assert.doesNotMatch(assistant.screenBlock(withNotebook, { ...ALL, notebook: false }), /colab_notebook/);
+    assert.ok(assistant.CONTEXT_ROWS.some(([key]) => key === 'notebook'));
     assert.doesNotMatch(assistant.screenBlock({ ...paperScreen, library: ['A'] }, ALL), /list_on_screen/);
   });
 });
