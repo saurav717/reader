@@ -271,7 +271,7 @@ function Cell({
 // The runtime's disk
 // ---------------------------------------------------------------------------
 
-function FilesPane() {
+export function FilesPane() {
   const colab = useColab();
   const connected = colab.status === 'idle' || colab.status === 'busy';
   const [path, setPath] = useState('');

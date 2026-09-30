@@ -2940,6 +2940,13 @@ so. The toolbar's Run all is the same queue. `runAll`, `pauseRuns`,
 
 ![the pane while Run all is paused: running cell 19, one queued, pauses after this cell, with Resume and Stop](docs/colab-notebook-paused.png)
 
+The same pane sits beside the **Explanation** and **Implementation** pages
+whenever they have Python cells: **Runtime** and **Metrics** in the header
+open it, with the runtime's meters, the metrics the page's cells print and
+the files on the runtime, and the text moves left to make room. It opens by
+itself when a runtime connects and folds when the runtime goes, unless it
+was opened or closed by hand; a cell named in the pane scrolls the page to it.
+
 The Ask AI window sees the notebook too. Whenever the paper has one, a
 question there goes with `<colab_notebook>`: the cells numbered, what each
 printed, the tracebacks, which cell is running now, the runtime, and

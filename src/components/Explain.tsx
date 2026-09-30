@@ -25,6 +25,7 @@ import type { DriveState, RevisionScope } from '../lib/explain';
 import {
   dismissImplementPending,
   generateImplementation,
+  computeOf,
   implementationFor,
   loadImplementation,
   reviseImplementation,
@@ -42,13 +43,15 @@ import { useStore } from '../lib/store';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ColabIcon, ExplainIcon, MoonIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon, SunIcon } from './icons';
 import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, PlanContext, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
-import { CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
-import NotebookPage from './Notebook';
+import { attachUrl, CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
+import MetricsPane from './MetricsPane';
+import RuntimePane from './RuntimePane';
+import NotebookPage, { FilesPane } from './Notebook';
 import { notebookAskFor, rewriteCells, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk } from '../lib/notebookAsk';
 import { holdCell, SHOW_CELL } from '../lib/notebookNav';
 import type { ShowCell } from '../lib/notebookNav';
 import { colabNow } from '../lib/colab';
-import { cellKey, colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, runCell, useClient as useColabClient } from '../lib/colab';
+import { cellKey, colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, outputText, runAll, runCell, useClient as useColabClient } from '../lib/colab';
 import { KeepButton, KeepContext, tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
 import type { Flash } from './PassageFlash';
@@ -232,7 +235,7 @@ function CodeCell({ block, index, onAsk }: { block: Extract<Block, { kind: 'code
                 ? 'Run this cell again in your Colab runtime'
                 : 'Run exactly this code in your own Google Colab, and see what it prints here';
   return (
-    <figure className={`explain-cell${shell ? ' is-shell' : ''}${run ? ` has-run is-${run.state}` : ''}`}>
+    <figure className={`explain-cell${shell ? ' is-shell' : ''}${run ? ` has-run is-${run.state}` : ''}`} data-key={python ? key : undefined}>
       <header>
         <span className={`cell-index${live ? ' is-busy' : ''}`}>{python ? (live ? 'In [*]' : `In [${run?.executionCount ?? index}]`) : shell ? '$' : 'Out'}</span>
         <span className="cell-title">{block.title}</span>
@@ -948,6 +951,44 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const runnable = useMemo(() => Array.from(cells.entries()).map(([block, n]) => ({ key: cellKey((block as Extract<Block, { kind: 'code' }>).code), code: (block as Extract<Block, { kind: 'code' }>).code, label: `In [${n}]` })), [cells]);
   useColabClient(settings.googleClientId);
   const streaming = Boolean(explanation?.streaming);
+  // The pane beside the page, as the Colab tab has it, whenever the page has
+  // cells to run: the runtime's meters, the metrics its cells print, its
+  // files. It opens by itself when a runtime connects, and folds when the
+  // runtime goes — unless it was opened or closed by hand.
+  const colab = useColab();
+  const [side, setSide] = useState<'runtime' | 'metrics' | 'files' | null>(null);
+  const sideByHand = useRef(false);
+  const connected = colab.status === 'idle' || colab.status === 'busy';
+  useEffect(() => {
+    if (connected && hasCode) {
+      if (!sideByHand.current) setSide((current) => current ?? 'runtime');
+    } else if (!connected) {
+      setSide((current) => (current === 'runtime' && !sideByHand.current ? null : current));
+    }
+  }, [connected, hasCode]);
+  const pickSide = (next: 'runtime' | 'metrics' | 'files' | null) => {
+    sideByHand.current = true;
+    setSide(next);
+  };
+  const codeCells = useMemo(() => runnable.map((cell) => ({ key: cell.key, id: cell.key, label: cell.label })), [runnable]);
+  const metricCells = useMemo(
+    () =>
+      runnable.map((cell) => {
+        const run = colab.runs[cell.key];
+        return { key: cell.key, id: cell.key, label: cell.label, text: run ? outputText(run.outputs) : '', at: run?.startedAt || 0 };
+      }),
+    [runnable, colab.runs],
+  );
+  // The plan's compute block, for the ticks on the pane's meters: this page's when it is the plan, else the paper's plan when it has one.
+  const compute = useMemo(() => {
+    const plan = implementing ? sections : implementationFor(paperId)?.content ? parseExplanation(implementationFor(paperId)!.content) : null;
+    return plan ? computeOf(plan) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [side, implementing, sections, explanation?.content]);
+  const goToCell = (key: string) => {
+    const cell = docRef.current?.querySelector<HTMLElement>(`.explain-cell[data-key="${CSS.escape(key)}"]`);
+    cell?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
   // The Colab tab's own request, for the header's Rewrite and Stop while that tab is the one open.
   const nbAsk = useSyncExternalStore(subscribeNotebookAsk, () => notebookAskFor(paperId));
   const nbBusy = Boolean(nbAsk.pending && !nbAsk.pending.error);
@@ -1297,6 +1338,16 @@ export default function Explain({ paperId, title, authors, published, screen, on
         {/* The runtime the page's Python cells run in, when there is one to show or one could be started. */}
         <ColabChip cells={runnable} />
         {/* The same actions on both pages, always in the same places: shown but off while there is nothing for them to act on. */}
+        {page !== 'colab' && hasCode ? (
+          <>
+            <button type="button" className={`btn sm ghost${side === 'runtime' ? ' is-on' : ''}`} aria-pressed={side === 'runtime'} onClick={() => pickSide(side === 'runtime' ? null : 'runtime')} title="The machine: how busy it is, the last ten minutes, what is left of the session">
+              Runtime
+            </button>
+            <button type="button" className={`btn sm ghost${side === 'metrics' ? ' is-on' : ''}`} aria-pressed={side === 'metrics'} onClick={() => pickSide(side === 'metrics' ? null : 'metrics')} title="Training metrics, read off what the cells print: loss, accuracy, lr… a chart a metric, live">
+              Metrics
+            </button>
+          </>
+        ) : null}
         {implementing && explanation?.content && !streaming ? (
           <>
             <ColabMenu title={title} content={shown} sections={sections} />
@@ -1498,6 +1549,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
         </div>
       </div>
 
+      <div className={`explain-split${side ? ' has-side' : ''}`}>
       <div className="explain-scroll" ref={scrollRef}>
         <nav className="explain-outline" aria-label="Sections">
           <div className="outline-paper">
@@ -1658,6 +1710,33 @@ export default function Explain({ paperId, title, authors, published, screen, on
         </article>
         </PlanContext.Provider>
         </KeepContext.Provider>
+      </div>
+      {side ? (
+        <aside className="nb-side explain-side" aria-label={side === 'runtime' ? 'The runtime' : side === 'metrics' ? 'Training metrics' : 'Files on the runtime'}>
+          <div className="nb-side-tabs" role="tablist">
+            <button type="button" role="tab" aria-selected={side === 'runtime'} onClick={() => pickSide('runtime')}>
+              Runtime
+            </button>
+            <button type="button" role="tab" aria-selected={side === 'metrics'} onClick={() => pickSide('metrics')}>
+              Metrics
+            </button>
+            <button type="button" role="tab" aria-selected={side === 'files'} onClick={() => pickSide('files')}>
+              Files
+            </button>
+            <span className="spacer" />
+            <button type="button" className="icon-btn sm" onClick={() => pickSide(null)} aria-label="Close the pane">
+              <CloseIcon size={14} />
+            </button>
+          </div>
+          {side === 'runtime' ? (
+            <RuntimePane cells={codeCells} compute={compute} onGoTo={goToCell} onRunAll={colabAvailable(settings.googleClientId) && runnable.length ? () => void runAll(runnable).catch(() => undefined) : undefined} />
+          ) : side === 'metrics' ? (
+            <MetricsPane cells={metricCells} running={colab.running} onGoTo={goToCell} colabUrl={colab.runtime ? attachUrl(colab.runtime.endpoint) : undefined} />
+          ) : (
+            <FilesPane />
+          )}
+        </aside>
+      ) : null}
       </div>
         </>
       )}
