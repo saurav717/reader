@@ -5128,6 +5128,9 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .nb-editor > * { grid-area: 1 / 1; }
 .nb-editor .cell-code { padding: 12px 14px; font: 12.5px/1.6 var(--mono); tab-size: 4; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; overflow: hidden; }
 .nb-shadow { pointer-events: none; margin: 0; }
+/* The coloured layer's <code> takes the browser's own monospace face unless told otherwise, so a long line wrapped at a
+   different column than the textarea over it, and every line after landed a line off from the caret. Same font, same wrap. */
+.nb-shadow code { font: inherit; letter-spacing: inherit; white-space: inherit; overflow-wrap: inherit; word-break: inherit; tab-size: inherit; }
 .nb-text { display: block; width: 100%; border: 0; outline: 0; resize: none; background: transparent; color: transparent; caret-color: var(--ink); box-sizing: border-box; }
 .nb-text::placeholder { color: var(--muted); }
 .nb-text::selection { background: color-mix(in srgb, var(--accent) 25%, transparent); }

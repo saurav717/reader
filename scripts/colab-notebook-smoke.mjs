@@ -328,6 +328,20 @@ await seededArea.press('Control+z').catch(() => undefined);
 await seededArea.fill(seededBefore);
 await page.waitForTimeout(200);
 check('and it can be put back', (await seededArea.inputValue()) === seededBefore);
+// The caret and the coloured code must sit on the same lines: same face in both layers, and the same wrapping of a long line.
+await seededArea.fill(`${seededBefore}\nq = rng.normal(size=(trials, 1, d_k))                    # one query per trial, a long comment that wraps at some width or other\nprint("after the long line")`);
+await page.waitForTimeout(200);
+const layers = await seededCode.evaluate((el) => {
+  const area = el.querySelector('.nb-text');
+  const code = el.querySelector('.nb-shadow code');
+  const pre = el.querySelector('.nb-shadow');
+  const areaStyle = getComputedStyle(area);
+  const codeStyle = getComputedStyle(code);
+  return { sameFont: areaStyle.fontFamily === codeStyle.fontFamily && areaStyle.fontSize === codeStyle.fontSize && areaStyle.lineHeight === codeStyle.lineHeight, areaHeight: area.getBoundingClientRect().height, preHeight: pre.getBoundingClientRect().height, textHeight: area.scrollHeight };
+});
+check('the textarea and the coloured layer share one face and wrap alike, so the caret sits on the line it shows', layers.sameFont && Math.abs(layers.areaHeight - layers.preHeight) < 2 && layers.textHeight <= layers.areaHeight + 1, JSON.stringify(layers));
+await seededArea.fill(seededBefore);
+await page.waitForTimeout(200);
 await page.keyboard.press('Escape');
 const textCell = page.locator('.nb-cell.is-markdown').nth(1);
 await textCell.hover();
