@@ -20,8 +20,8 @@
 
 import { api, apiFetch, hasProxy } from './api';
 import { colabToken, connectColab, dropColab, hasColabAccess } from './google';
-import type { GpuSample } from './telemetry';
-import { GPU_PROBE, parseGpuSample } from './telemetry';
+import type { MachineSample, MachineSpecs } from './telemetry';
+import { MACHINE_PROBE, parseMachineSample, specsOf } from './telemetry';
 
 // ---------------------------------------------------------------- types ----
 
@@ -76,8 +76,8 @@ export interface CellRun {
   where: string;
   /** Set when the runtime it ran on has since gone. */
   stale?: boolean;
-  /** The GPU's use while it ran, sampled every couple of seconds, when the machine has one and the watch is on. */
-  gpu?: GpuSample[];
+  /** The machine's use while it ran — GPU, CPU, memory, disk — sampled every couple of seconds while the watch is on. */
+  samples?: MachineSample[];
 }
 
 export type Status =
@@ -103,12 +103,20 @@ export interface ColabState {
   error?: string;
   /** Compute units, as Colab last reported them. */
   units?: { balance?: number; ratePerHour?: number };
-  /** Whether the GPU is watched while a cell runs (the runtime menu's switch); on unless turned off. */
+  /** Whether the machine is watched while a cell runs (the runtime menu's switch); on unless turned off. */
   gpuWatch: boolean;
-  /** The last GPU sample taken, while a cell runs. */
-  gpu?: GpuSample;
+  /** The last sample taken: while a cell runs, or the one reading taken as the runtime connected. */
+  sample?: MachineSample;
+  /** What the runtime's machine is, read off the first sample: the GPU by name, the CPUs, the memory, the disk. */
+  specs?: MachineSpecs;
+  /** The samples of this runtime, running or idle, for the last while — the Runtime pane's timeline. */
+  history: { at: number; sample: MachineSample }[];
+  /** How the machine is read between cells (the pane's switch): live, every two seconds; slow, every half minute; or not at all. */
+  pulse: Pulse;
   /** How the kernel's socket is carried: straight to the runtime, or by the proxy when the runtime refused the page's own. */
   via?: 'direct' | 'proxy';
+  /** The kernel's socket dropped and is being opened again; the runtime and the kernel are still there. */
+  reconnecting?: boolean;
 }
 
 // ------------------------------------------------------------ the store ----
@@ -117,6 +125,13 @@ const MACHINE_KEY = 'reader.colab.machine';
 const NOTEBOOK_KEY = 'reader.colab.notebook';
 const RUNTIME_KEY = 'reader.colab.runtime';
 const GPU_KEY = 'reader.colab.gpu-watch';
+const PULSE_KEY = 'reader.colab.pulse';
+/** How much of the timeline is kept. */
+export const HISTORY_MS = 10 * 60_000;
+export type Pulse = 'live' | 'slow' | 'off';
+/** How often the machine is read between cells, by pulse: live is the watch's own cadence, so the meters are as current idle as they are while a cell runs. */
+export const PULSE_MS: Record<Pulse, number> = { live: 2000, slow: 30_000, off: 0 };
+const isPulse = (value: unknown): value is Pulse => value === 'live' || value === 'slow' || value === 'off';
 /** Once the page's own socket to a runtime has been refused, the proxy carries it from then on, in this tab. */
 const VIA_KEY = 'reader.colab.via';
 
@@ -157,7 +172,11 @@ function notebookId(): string {
   return made;
 }
 
-let state: ColabState = { status: 'off', machine: savedMachine(), runs: {}, gpuWatch: read<boolean>(local(), GPU_KEY) !== false };
+const savedPulse = (): Pulse => {
+  const saved = read<unknown>(local(), PULSE_KEY);
+  return isPulse(saved) ? saved : 'live';
+};
+let state: ColabState = { status: 'off', machine: savedMachine(), runs: {}, gpuWatch: read<boolean>(local(), GPU_KEY) !== false, history: [], pulse: savedPulse() };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<ColabState>) => {
   state = { ...state, ...patch };
@@ -176,10 +195,10 @@ export function subscribeColab(listener: () => void) {
 /** Whether cells can be run at all here: a proxy to reach Colab through, and a client ID to sign in with. */
 export const colabAvailable = (clientId: string) => hasProxy() && Boolean(clientId.trim());
 
-/** The GPU watch: nvidia-smi every couple of seconds in a second kernel while a cell runs, shown under the cell. */
+/** The machine watch: the probe every couple of seconds in a second kernel while a cell runs, shown under the cell and in the chip. */
 export function setGpuWatch(on: boolean) {
   write(local(), GPU_KEY, on);
-  set({ gpuWatch: on, gpu: on ? state.gpu : undefined });
+  set({ gpuWatch: on, sample: on ? state.sample : undefined });
   if (!on) stopWatching();
 }
 
@@ -364,17 +383,37 @@ async function relay<T>(path: string, googleToken: string, init: { method?: 'GET
 
 type OnMessage = (message: JupyterMessage) => void;
 
+/** How often a frame goes to the kernel while nothing else does, so no hop on the way closes a silent socket. */
+export const KEEPALIVE_MS = 15_000;
+/** How long the page waits between its tries at opening a dropped socket again, before it gives the runtime up. */
+export const RECONNECT_WAITS_MS = [1_000, 2_000, 4_000, 8_000];
+
 /**
  * The WebSocket to the runtime's kernel. One session id for the page's
  * requests, so the kernel's replies can be told apart from other clients'.
  * Colab's proxy wants its token both as a query parameter and, where a
  * browser cannot set headers on a WebSocket, only there.
+ *
+ * The socket is a pipe, not the runtime: the kernel and everything in it
+ * stay on the machine whether or not a socket is open to it, and Colab keeps
+ * the machine for as long as its own idle limit allows — an hour and a half
+ * or so on the free tier, twelve hours in all. What a quiet page loses is
+ * the pipe, since Colab's tunnel, the Worker's bridge and the browser are
+ * each free to close a connection that has carried nothing for a while. So
+ * a frame goes out every few seconds when nothing else is going, and a
+ * socket that closes anyway is opened again to the same kernel, with a few
+ * tries a growing wait apart, before the page says the runtime is gone.
  */
 class Kernel {
   private socket: WebSocket | null = null;
   private readonly sessionId = uuid();
   private readonly waiting = new Map<string, OnMessage>();
   private closed: (() => void) | null = null;
+  private keepAlive: number | null = null;
+  private lastKeepAlive: string | null = null;
+  private reconnecting: Promise<void> | null = null;
+  /** Closed on purpose: no reconnecting. */
+  private ended = false;
   /** How the socket got there: straight to the runtime, or carried by the proxy. */
   via: 'direct' | 'proxy' = 'direct';
 
@@ -384,7 +423,73 @@ class Kernel {
     private readonly onClose: (reason: string) => void,
     /** A ticket for the proxy to carry this kernel's socket, when the runtime will not take the page's own. */
     private readonly ticket?: (kernel: string, session: string) => Promise<string>,
+    /** Told when the socket drops and when it is back. */
+    private readonly onLink?: (link: 'open' | 'reconnecting') => void,
   ) {}
+
+  get connected(): boolean {
+    return this.socket !== null && this.socket.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * A kernel_info_request every KEEPALIVE_MS, so the socket is never silent
+   * long enough for anything on the way to give it up. The reply is not
+   * waited on — while a cell runs the kernel answers after it — only dropped
+   * when it comes, and its handler goes with the next request.
+   */
+  private startKeepAlive() {
+    this.stopKeepAlive();
+    this.keepAlive = window.setInterval(() => {
+      const socket = this.socket;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      if (this.lastKeepAlive) this.waiting.delete(this.lastKeepAlive);
+      const request = makeMessage('kernel_info_request', {}, this.sessionId);
+      this.lastKeepAlive = request.header.msg_id;
+      this.waiting.set(request.header.msg_id, (message) => {
+        if (message.header.msg_type === 'kernel_info_reply') this.waiting.delete(request.header.msg_id);
+      });
+      try {
+        socket.send(JSON.stringify(request));
+      } catch {
+        // closing; the close event follows
+      }
+    }, KEEPALIVE_MS);
+  }
+
+  private stopKeepAlive() {
+    if (this.keepAlive !== null) window.clearInterval(this.keepAlive);
+    this.keepAlive = null;
+  }
+
+  /**
+   * The socket again, to the same kernel, after it closed on its own: a
+   * few tries, a growing wait apart. A runtime that is gone — Colab says so
+   * when the proxy asks for a ticket — is not tried again. When no try
+   * opens one, the kernel is given up and `onClose` says why.
+   */
+  private reconnect(reason: string): Promise<void> {
+    if (this.reconnecting) return this.reconnecting;
+    this.onLink?.('reconnecting');
+    this.reconnecting = (async () => {
+      let why = reason;
+      for (const wait of RECONNECT_WAITS_MS) {
+        await new Promise((resolve) => window.setTimeout(resolve, wait));
+        if (this.ended) return;
+        try {
+          await this.connect();
+          this.reconnecting = null;
+          this.onLink?.('open');
+          return;
+        } catch (error) {
+          why = message(error);
+          if (error instanceof ColabRequestError && error.flags.gone) break;
+        }
+      }
+      this.reconnecting = null;
+      if (!this.ended) this.onClose(why);
+    })();
+    return this.reconnecting;
+  }
 
   /**
    * The runtime's socket, straight from the page when the runtime allows
@@ -442,6 +547,7 @@ class Kernel {
       const settle = () => {
         window.clearTimeout(timer);
         ready = true;
+        this.startKeepAlive();
         resolve();
       };
       socket.addEventListener('open', () => {
@@ -477,10 +583,14 @@ class Kernel {
       });
       socket.addEventListener('close', (event) => {
         window.clearTimeout(timer);
-        if (this.socket === socket) this.socket = null;
+        const mine = this.socket === socket;
+        if (mine) {
+          this.socket = null;
+          this.stopKeepAlive();
+        }
         this.closed?.();
         if (!opened || !ready) reject(new Error(`The runtime closed the connection (${event.code}${event.reason ? `: ${event.reason}` : ''}).`));
-        else this.onClose(event.reason || `closed (${event.code})`);
+        else if (mine && !this.ended) void this.reconnect(event.reason || `closed (${event.code})`);
       });
       this.socket = socket;
     });
@@ -491,7 +601,9 @@ class Kernel {
    * for each message meant for this request on the way. The reply's status
    * says whether it ended in an error; the count is In [n].
    */
-  execute(code: string, onOutput: (message: JupyterMessage) => void): Promise<{ status: 'ok' | 'error' | 'aborted'; executionCount?: number }> {
+  async execute(code: string, onOutput: (message: JupyterMessage) => void): Promise<{ status: 'ok' | 'error' | 'aborted'; executionCount?: number }> {
+    // A cell run while the socket is being opened again waits for it, rather than failing for a pipe that is a moment away.
+    if (!this.connected && this.reconnecting) await this.reconnecting.catch(() => undefined);
     return new Promise((resolve, reject) => {
       const socket = this.socket;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -539,6 +651,8 @@ class Kernel {
   }
 
   close() {
+    this.ended = true;
+    this.stopKeepAlive();
     const socket = this.socket;
     this.socket = null;
     this.closed = null;
@@ -549,27 +663,27 @@ class Kernel {
 // ------------------------------------------------------------ the actions --
 
 let kernel: Kernel | null = null;
-/** A second, small kernel on the same machine for the GPU watch, so the probe never waits on the cell. */
+/** A second, small kernel on the same machine for the watch, so the probe never waits on the cell. */
 let monitor: Kernel | null = null;
 let watching: number | null = null;
 let clientIdNow = '';
 
-const GPU_EVERY_MS = 2000;
+const SAMPLE_EVERY_MS = 2000;
 
 function stopWatching() {
   if (watching !== null) window.clearTimeout(watching);
   watching = null;
 }
 
-/**
- * While `key` runs on a machine with a GPU: nvidia-smi in the monitor kernel
- * every couple of seconds, each sample onto the run and into the chip. Any
- * failure ends the watch quietly — it is a reading, not the work.
- */
-async function watchGpu(key: string, runtime: Runtime, googleToken: string, started: number) {
-  if (!state.gpuWatch || !runtime.accelerator) return;
-  try {
-    if (!monitor) {
+/** The monitor kernel being started, so two askers at once — the reading on connect and the watch of a first run — share one, not start two. */
+let startingMonitor: Promise<Kernel | null> | null = null;
+
+/** The monitor kernel, started on first need. Null when it could not be had — the watch is a reading, not the work. */
+function ensureMonitor(runtime: Runtime, googleToken: string): Promise<Kernel | null> {
+  if (monitor) return Promise.resolve(monitor);
+  if (startingMonitor) return startingMonitor;
+  startingMonitor = (async () => {
+    try {
       const made = await relay<{ kernel: { id: string } }>('/colab/kernels', googleToken, { method: 'POST', body: { proxy: runtime.proxy } });
       const attached = new Kernel(
         runtime.proxy,
@@ -581,29 +695,111 @@ async function watchGpu(key: string, runtime: Runtime, googleToken: string, star
       );
       await attached.connect();
       monitor = attached;
+      return attached;
+    } catch {
+      return null;
+    } finally {
+      startingMonitor = null;
     }
+  })();
+  return startingMonitor;
+}
+
+/** One reading of the machine from the monitor kernel; null when the probe could not run or printed nothing readable. */
+async function takeSample(t: number): Promise<MachineSample | null> {
+  if (!monitor) return null;
+  let text = '';
+  try {
+    await monitor.execute(MACHINE_PROBE, (incoming) => {
+      if (incoming.header.msg_type === 'stream') text += asText(incoming.content.text);
+    });
   } catch {
-    return;
+    return null;
   }
+  return parseMachineSample(text, t);
+}
+
+/** A sample onto the store: the last reading, the machine's specs from it, and the timeline, kept to the last while. */
+const keepSample = (sample: MachineSample) => {
+  const at = Date.now();
+  const history = [...state.history.filter((entry) => at - entry.at <= HISTORY_MS), { at, sample }];
+  set({ sample, specs: { ...state.specs, ...specsOf(sample) }, history });
+};
+
+// ------------------------------------------------------------ idle pulse ---
+
+let pulsing: number | null = null;
+
+function stopPulse() {
+  if (pulsing !== null) window.clearTimeout(pulsing);
+  pulsing = null;
+}
+
+/** The machine read between cells at the pulse's cadence, while the runtime is idle; the watch takes over while a cell runs. */
+function schedulePulse() {
+  stopPulse();
+  const every = PULSE_MS[state.pulse];
+  if (!every || !state.gpuWatch || state.status !== 'idle') return;
+  pulsing = window.setTimeout(() => {
+    pulsing = null;
+    void probeMachine().finally(() => schedulePulse());
+  }, every);
+}
+
+/**
+ * The pulse: the reading between cells, so the Runtime pane's meters and
+ * timeline are real time rather than a record of the last run. Live is the
+ * watch's own two seconds. Each reading runs a few lines in the second
+ * kernel, which Colab may count as activity — welcome on the free tier,
+ * where it keeps a runtime from idling out; on a machine billed in compute
+ * units the runtime is being paid for while it is up either way, and the
+ * reading itself is a negligible share of it. Remembered once switched.
+ */
+export function setPulse(pulse: Pulse) {
+  write(local(), PULSE_KEY, pulse);
+  set({ pulse });
+  schedulePulse();
+}
+
+/**
+ * While `key` runs: the probe in the monitor kernel every couple of seconds,
+ * each sample onto the run and into the chip. Any failure ends the watch
+ * quietly.
+ */
+async function watchMachine(key: string, runtime: Runtime, googleToken: string, started: number) {
+  if (!state.gpuWatch) return;
+  if (!(await ensureMonitor(runtime, googleToken))) return;
   const tick = async () => {
     if (state.running !== key || !monitor) return;
-    let text = '';
-    try {
-      await monitor.execute(GPU_PROBE, (incoming) => {
-        if (incoming.header.msg_type === 'stream') text += asText(incoming.content.text);
-      });
-    } catch {
-      return;
-    }
-    const sample = parseGpuSample(text, Math.round((Date.now() - started) / 100) / 10);
+    const sample = await takeSample(Math.round((Date.now() - started) / 100) / 10);
     if (sample && state.running === key) {
       const run = state.runs[key];
-      if (run) setRun(key, { ...run, gpu: [...(run.gpu ?? []), sample] });
-      set({ gpu: sample });
+      if (run) setRun(key, { ...run, samples: [...(run.samples ?? []), sample] });
+      keepSample(sample);
     }
-    if (state.running === key) watching = window.setTimeout(() => void tick(), GPU_EVERY_MS);
+    if (state.running === key) watching = window.setTimeout(() => void tick(), SAMPLE_EVERY_MS);
   };
   watching = window.setTimeout(() => void tick(), 400);
+}
+
+/**
+ * One reading of the runtime's machine now, between cells: what it is and
+ * how busy it is. Taken as the runtime connects when the watch is on, and
+ * on request from the Implementation page's Colab panel. Nothing while a
+ * cell runs — the watch is already sampling.
+ */
+export async function probeMachine(): Promise<MachineSample | null> {
+  const runtime = state.runtime;
+  if (!runtime || !state.gpuWatch || state.running || state.status !== 'idle') return null;
+  try {
+    const googleToken = await colabToken(clientIdNow);
+    if (!googleToken || !(await ensureMonitor(runtime, googleToken))) return null;
+    const sample = await takeSample(0);
+    if (sample) keepSample(sample);
+    return sample;
+  } catch {
+    return null;
+  }
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -625,6 +821,7 @@ const whereOf = (runtime: Runtime) => `Colab · ${machineLabel(runtime)}`;
 
 const closeKernels = () => {
   stopWatching();
+  stopPulse();
   kernel?.close();
   kernel = null;
   monitor?.close();
@@ -635,7 +832,7 @@ const lost = (reason: string) => {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
   const runs = Object.fromEntries(Object.entries(state.runs).map(([key, run]) => [key, run.state === 'running' || run.state === 'queued' ? { ...run, state: 'interrupted' as RunState, stale: true, ms: Date.now() - run.startedAt } : { ...run, stale: true }]));
-  set({ status: 'lost', kernel: undefined, running: undefined, runs, error: reason });
+  set({ status: 'lost', kernel: undefined, running: undefined, runs, error: reason, sample: undefined, reconnecting: false });
 };
 
 /** A ticket for the proxy to carry a kernel's socket: asked for as the page connects, with the person's own token. */
@@ -654,9 +851,12 @@ async function attach(runtime: Runtime, googleToken: string): Promise<Kernel> {
     runtime.proxy,
     id,
     (reason) => {
-      if (kernel === attached) lost(`The connection to the runtime closed: ${reason}`);
+      if (kernel === attached) lost(`The connection to the runtime closed and could not be opened again: ${reason}`);
     },
     ticketFor(runtime),
+    (link) => {
+      if (kernel === attached) set({ reconnecting: link === 'reconnecting', via: attached.via });
+    },
   );
   await attached.connect();
   return attached;
@@ -682,8 +882,11 @@ export async function connect(machine: Machine = state.machine): Promise<void> {
     closeKernels();
     kernel = await attach(runtime, googleToken);
     write(session(), RUNTIME_KEY, runtime);
-    set({ status: 'idle', runtime, kernel: kernel.id, via: kernel.via, startedAt: state.runtime?.endpoint === runtime.endpoint && state.startedAt ? state.startedAt : Date.now(), error: undefined });
+    const same = state.runtime?.endpoint === runtime.endpoint;
+    set({ status: 'idle', runtime, kernel: kernel.id, via: kernel.via, reconnecting: false, startedAt: same && state.startedAt ? state.startedAt : Date.now(), error: undefined, history: same ? state.history : [] });
     void refreshUnits(googleToken);
+    // What the machine is, read once as it connects, so the page can say so before anything runs; then the pulse, if it is on.
+    void probeMachine().finally(() => schedulePulse());
   } catch (error) {
     const flags = error instanceof ColabRequestError ? error.flags : {};
     if (flags.gone) {
@@ -720,9 +923,10 @@ export async function runCell(key: string, code: string): Promise<void> {
   if (!kernel || !runtime) return;
   const started = Date.now();
   const where = whereOf(runtime);
-  set({ status: 'busy', running: key, gpu: undefined });
+  stopPulse();
+  set({ status: 'busy', running: key });
   setRun(key, { state: 'running', outputs: [], startedAt: started, where });
-  if (runtime.accelerator && state.gpuWatch) void colabToken(clientIdNow).then((googleToken) => (googleToken ? watchGpu(key, runtime, googleToken, started) : undefined)).catch(() => undefined);
+  if (state.gpuWatch) void colabToken(clientIdNow).then((googleToken) => (googleToken ? watchMachine(key, runtime, googleToken, started) : undefined)).catch(() => undefined);
   let outputs: Output[] = [];
   let cut = false;
   try {
@@ -744,6 +948,7 @@ export async function runCell(key: string, code: string): Promise<void> {
     stopWatching();
     if (state.status === 'busy') set({ status: 'idle', running: undefined });
     else set({ running: undefined });
+    schedulePulse();
   }
 }
 
@@ -786,7 +991,7 @@ export async function stopRuntime(): Promise<void> {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
   const runs = Object.fromEntries(Object.entries(state.runs).map(([key, run]) => [key, { ...run, stale: true }]));
-  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, runs, error: undefined, gpu: undefined });
+  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, runs, error: undefined, sample: undefined, specs: undefined, history: [], reconnecting: false });
   if (!runtime) return;
   try {
     const googleToken = await tokenOrConnect();
@@ -801,7 +1006,23 @@ export function disconnect(): void {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
   dropColab();
-  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, error: undefined, units: undefined });
+  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, error: undefined, units: undefined, sample: undefined, specs: undefined, history: [], reconnecting: false });
+}
+
+export interface RuntimeEntry {
+  name: string;
+  path: string;
+  type: 'directory' | 'notebook' | 'file';
+  size: number | null;
+  modified: string | null;
+}
+
+/** What is on the runtime's disk under `path` — the notebook page's Files pane. Needs a runtime. */
+export async function listContents(path = ''): Promise<{ path: string; entries: RuntimeEntry[] }> {
+  const runtime = state.runtime;
+  if (!runtime || state.status === 'off' || state.status === 'lost') throw new Error('No runtime is connected.');
+  const googleToken = await tokenOrConnect();
+  return relay<{ path: string; entries: RuntimeEntry[] }>('/colab/contents', googleToken, { method: 'POST', body: { proxy: runtime.proxy, path } });
 }
 
 /** Forgets one cell's run — for a cell whose code has changed, or on request. */

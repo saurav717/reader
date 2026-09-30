@@ -8,8 +8,9 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import type { CellRun, Machine, Output } from '../lib/colab';
 import { colabAvailable, colabNow, compareOutput, connect, differingLines, disconnect, MACHINES, machineLabel, outputText, restartKernel, runAll, setGpuWatch, setMachine, stopRuntime, subscribeColab } from '../lib/colab';
 import { useStore } from '../lib/store';
-import { hasCurve, lossSeries } from '../lib/telemetry';
-import { GpuChart, LossChart } from './Charts';
+import type { MachineSample, MachineSpecs } from '../lib/telemetry';
+import { gigabytes, hasCurve, lossSeries, MACHINE_PROBE } from '../lib/telemetry';
+import { LossChart, MachineChart } from './Charts';
 
 export const useColab = () => useSyncExternalStore(subscribeColab, colabNow);
 
@@ -28,8 +29,28 @@ const clock = (since: number | undefined, now: number) => {
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : `${m}:${String(s % 60).padStart(2, '0')}`;
 };
 
+/** The chip while a cell runs: the machine's use from the last sample, or just that it runs. */
+const busyText = (sample: MachineSample | undefined) => {
+  if (!sample) return 'running';
+  const parts = [sample.gpu ? `GPU ${sample.gpu.util}%` : '', sample.cpu !== undefined ? `CPU ${sample.cpu}%` : ''].filter(Boolean);
+  return parts.length ? parts.join(' · ') : 'running';
+};
+
+/** The runtime's machine in a line: the card, the CPUs, the memory, the disk — what the probe read. */
+export function specsText(specs: MachineSpecs | undefined): string {
+  if (!specs) return '';
+  return [
+    specs.gpuName ? `${specs.gpuName}${specs.vramMb ? ` · ${gigabytes(specs.vramMb)}` : ''}` : '',
+    specs.cpus ? `${specs.cpus} CPU${specs.cpus === 1 ? '' : 's'}` : '',
+    specs.ramTotalMb ? `${gigabytes(specs.ramTotalMb)} RAM` : '',
+    specs.diskFreeGb !== undefined ? `${specs.diskFreeGb} GB disk free` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
 /** Colab's own page attached to this runtime, as the CLI's `colab url` builds it: the backend named twice, the way Colab's frontend looks for it. */
-const attachUrl = (endpoint: string) => {
+export const attachUrl = (endpoint: string) => {
   const host = 'https://colab.research.google.com';
   const path = `/tun/m/${endpoint}`;
   return `${host}/notebooks/empty.ipynb?dbu=${encodeURIComponent(path)}#datalabBackendUrl=${host}${path}`;
@@ -108,7 +129,7 @@ export function ConnectCard({ cellLabel, onConnect, onClose, busy }: { cellLabel
           <ul>
             <li>run the cells on this page you click</li>
             <li>show what they print here — and loss curves, when a cell prints losses</li>
-            {machine.accelerator !== 'NONE' ? <li>read the GPU's use while a cell runs (nvidia-smi, every two seconds)</li> : <li>stop or restart the runtime</li>}
+            <li>read the machine's use while a cell runs — {machine.accelerator !== 'NONE' ? 'GPU, ' : ''}CPU, memory, disk — with a few lines of its own, every two seconds</li>
           </ul>
         </div>
         <div>
@@ -150,6 +171,7 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
   const [open, setOpen] = useState(false);
   const [confirmAll, setConfirmAll] = useState(false);
   const [changing, setChanging] = useState(false);
+  const [probe, setProbe] = useState(false);
   const [now, setNow] = useState(Date.now());
   const box = useRef<HTMLDivElement>(null);
   const close = () => {
@@ -172,7 +194,7 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
     colab.status === 'connecting'
       ? 'Colab · connecting…'
       : connected && colab.runtime
-        ? `${machineLabel(colab.runtime)} · ${colab.status === 'busy' ? (colab.gpu ? `GPU ${colab.gpu.util}%` : 'running') : 'idle'} · ${clock(colab.startedAt, now)}`
+        ? `${machineLabel(colab.runtime)} · ${colab.reconnecting ? 'reconnecting…' : colab.status === 'busy' ? busyText(colab.sample) : 'idle'} · ${clock(colab.startedAt, now)}`
         : colab.status === 'lost'
           ? `${colab.runtime ? machineLabel(colab.runtime) : 'Colab'} · runtime ended`
           : colab.status === 'error'
@@ -208,21 +230,43 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
                 </span>
               </div>
             </div>
+            {colab.specs ? (
+              <div className="colab-specs" title="Read off the machine by the probe below, as the runtime connected">
+                {colab.specs.gpuName ? (
+                  <span>
+                    <b>{colab.specs.gpuName}</b>
+                    {colab.specs.vramMb ? ` · ${gigabytes(colab.specs.vramMb)}` : ''}
+                  </span>
+                ) : (
+                  <span>
+                    <b>No GPU</b>
+                  </span>
+                )}
+                {colab.specs.cpus ? <span>{colab.specs.cpus} CPUs</span> : null}
+                {colab.specs.ramTotalMb ? <span>{gigabytes(colab.specs.ramTotalMb)} RAM</span> : null}
+                {colab.specs.diskFreeGb !== undefined ? <span>{colab.specs.diskFreeGb} GB disk free</span> : null}
+                {colab.sample?.cpu !== undefined && colab.status === 'idle' ? <span className="colab-specs-now">CPU {colab.sample.cpu}% now</span> : null}
+              </div>
+            ) : null}
             <div className="colab-hint">
               {cells.length} {cells.length === 1 ? 'cell' : 'cells'} on this page · {ran} {ran === 1 ? 'has' : 'have'} run · variables are kept between runs, so a later cell sees an earlier one's
               {colab.via === 'proxy' ? ' · the kernel’s socket is carried by the proxy, since the runtime would not take this page’s own' : ''}
             </div>
-            {colab.runtime?.accelerator ? (
-              <label className="colab-switch">
-                <input type="checkbox" checked={colab.gpuWatch} onChange={(event) => setGpuWatch(event.target.checked)} />
-                <span>
-                  <b>Watch the GPU while cells run</b>
-                  <small>
-                    One line of the reader's own, in a second kernel, every two seconds: <code>nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total</code>. Drawn under the cell.
-                  </small>
-                </span>
-              </label>
-            ) : null}
+            <label className="colab-switch">
+              <input type="checkbox" checked={colab.gpuWatch} onChange={(event) => setGpuWatch(event.target.checked)} />
+              <span>
+                <b>Watch the machine while cells run</b>
+                <small>
+                  A few lines of the reader's own, in a second kernel, every two seconds: {colab.runtime?.accelerator ? <code>nvidia-smi</code> : null}
+                  {colab.runtime?.accelerator ? ', ' : ''}
+                  <code>/proc/stat</code>, <code>/proc/meminfo</code> and the disk. Drawn under the cell as GPU and CPU use, VRAM and RAM.{' '}
+                  <button type="button" className="link" onClick={() => setProbe(!probe)}>
+                    {probe ? 'Hide the probe' : 'Show the probe'}
+                  </button>
+                </small>
+              </span>
+            </label>
+            {probe ? <pre className="colab-probe">{MACHINE_PROBE}</pre> : null}
             <hr />
             {confirmAll ? (
               <div className="colab-status">
@@ -421,7 +465,7 @@ export function CellRunOutput({ run, expected, onAsk, onForget }: { run: CellRun
       {run.outputs.length ? run.outputs.map((output, index) => <OutputView key={index} output={output} marked={marked} offset={offsets[index]} />) : !live ? <pre className="is-empty">(nothing printed)</pre> : null}
       {live && run.outputs.length ? <span className="caret" aria-hidden="true" /> : null}
       {curve ? <LossChart series={losses} live={live} /> : null}
-      {run.gpu && run.gpu.length >= 2 ? <GpuChart samples={run.gpu} live={live} /> : null}
+      {run.samples && run.samples.length >= 2 ? <MachineChart samples={run.samples} live={live} /> : null}
       {!live ? (
         <div className="cell-actions">
           {onAsk && failed ? (

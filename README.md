@@ -2654,12 +2654,24 @@ under the cell's code. Variables persist between cells, as in a notebook, so
 
 A cell that prints its losses — `loss=0.53`, `train_loss: 0.4 val_loss: 0.5`,
 a progress bar redrawing itself — earns a **loss curve** under its output,
-drawn as it runs, by step when the log names one. On a GPU runtime, **the GPU
-is watched while a cell runs**: one line of the reader's own (`nvidia-smi`,
-named in the runtime menu, in a second kernel so it never waits on the cell)
-every two seconds, drawn as utilisation over the run with the memory in the
-caption, and shown live in the bar's chip. The switch for it is in the
-runtime menu. Both charts have a table view.
+drawn as it runs, by step when the log names one. **The machine is watched
+while a cell runs**: a few lines of the reader's own — `nvidia-smi` when there
+is a GPU, `/proc/stat` for the CPUs, `/proc/meminfo` for the memory, the disk —
+shown in full in the runtime menu, run in a second kernel so they never wait
+on the cell, every two seconds. Under the cell they are drawn as GPU and CPU
+utilisation over the run and as VRAM and RAM in use, and the bar's chip
+carries the numbers live (*T4 · GPU 62% · CPU 54%*). The same probe runs once
+as the runtime connects, so the runtime menu says what the machine is — the
+card by name, the CPUs, the RAM, the disk free — before anything has run. The
+switch for it is in the runtime menu. All the charts have a table view.
+
+![the runtime menu: the machine as the probe read it — Tesla T4, 15 GB, 2 CPUs, 13 GB RAM, 71 GB disk free — the watch switch, and the probe shown in full](docs/colab-runtime-machine.png)
+
+Every Python cell's header holds **Copy**, **Run in Colab** and an
+**Add to notes** button of its own, side by side, so the button that comes up
+on the corner of a diagram or a table never lands on a cell's buttons.
+
+![a cell's header: the index, the title, Add to notes, Copy and Run in Colab in a row](docs/colab-cell-header.png)
 
 The chip in the bar — the Colab mark, a dot, the machine, how long it has
 been up — opens to the runtime: what it is, what it has cost, what has run;
@@ -2669,6 +2681,19 @@ purpose), **Restart the kernel**, **Change machine**, **Stop the runtime**,
 and **Forget Colab in this tab**. When Colab ends an idle runtime the cells
 keep what they printed, marked as from a runtime that has ended, and a line
 under the bar offers a new one.
+
+The runtime outlives a quiet page. Colab keeps a machine until its own idle
+limit — about an hour and a half without a cell on the free tier, and
+twelve hours in all — and the reader has no shorter one. What a quiet page
+can lose is the socket to the kernel: Colab's tunnel, the Worker's bridge
+and the browser are each free to close a connection that has carried
+nothing for a while, and an early version took that for the runtime ending.
+Now a small frame (a `kernel_info_request`) goes down every kernel socket
+every fifteen seconds while nothing else does, and a socket that closes
+anyway is opened again to the same kernel — the chip says *reconnecting…*
+for the moment it takes, a cell run meanwhile waits for it, and every
+variable is where it was. Only when a few tries a growing wait apart all
+fail, or Colab says the runtime is gone, does the page say so.
 
 ![the runtime menu: the machine, how long it has been up, compute units; run all, open in Colab, restart, change machine, stop](docs/mockups/colab-5-runtime.png)
 
@@ -2706,6 +2731,104 @@ page's side is `src/lib/colab.ts` and `src/components/Colab.tsx`; the
 proxies' is `server/colab.js`. The Colab API is in beta and allowlisted per
 Google Cloud project; a client ID whose project is not on the list gets a
 `403` from Colab, which the page says as much.
+
+### A notebook of your own, on the runtime
+
+The bar's third tab, **Colab**, is a notebook: cells of your own, run in
+the Colab runtime the chip holds — the same kernel the cells on the
+Explanation and Implementation pages run in, so a variable a cell there
+set is here, and the other way round. Colab's API gives the reader the
+runtime and the page speaks the Jupyter protocol to its kernel, so the
+notebook needs nothing of Colab's page: it is the reader's, drawn the way
+the pages draw their cells, kept in this browser like the explanation and
+the plan, one a paper.
+
+![the Colab tab: the notebook seeded from the explanation, its first cell run in the T4 runtime with what it printed under it, and a cell typed in and run](docs/colab-notebook.png)
+
+- **Seeded from the page.** The first time it opens it holds the
+  explanation's cells and text, the way *Notebook ↓* writes them, with
+  Claude's expected outputs left out — the point is to run them. **Cells ▾**
+  adds the explanation's or the plan's cells again, or the cells of any
+  `.ipynb`.
+- **Cells to write and run.** `▶` on a cell, or <kbd>Shift</kbd>+<kbd>Enter</kbd>,
+  runs it and moves on (a new cell when it was the last); <kbd>Alt</kbd>+<kbd>Enter</kbd>
+  runs and adds one; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> runs in place. With a cell
+  picked and nothing being typed, the keys Colab and Jupyter share:
+  <kbd>A</kbd> and <kbd>B</kbd> add above and below, <kbd>M</kbd> and <kbd>Y</kbd>
+  make it text or code, <kbd>D</kbd> <kbd>D</kbd> deletes, <kbd>↑</kbd> <kbd>↓</kbd>
+  move. Text cells are Markdown, rendered as the page renders it; double-click
+  to edit. **Run all** asks first and stops at the first error; **Stop**
+  interrupts the kernel. Nothing runs without a click or a Shift-Enter on
+  that cell.
+- **What a cell printed stays.** Its output, its loss curve and the machine's
+  use while it ran are drawn under it as under a page cell, the verdict
+  aside (there is nothing expected to compare with); the output and the
+  count are kept with the notebook, so they are there after a reload and go
+  into the file.
+- **Files.** The runtime's disk, from its Jupyter contents API through the
+  proxy (`/colab/contents`): what the cells wrote, the data they fetched,
+  the checkpoints, a folder at a time. It goes when the runtime does.
+- **Out, and in.** **Notebook ▾** downloads it as an `.ipynb`, commits it to
+  the Git repository from Settings under `notebooks/` and opens it in Colab
+  from there, or opens the runtime in Colab's own page for what only that
+  page has — Drive, on purpose. An `.ipynb` from elsewhere is added cell by
+  cell; HTML outputs are dropped on the way in, as kernel output is
+  everywhere on the page.
+
+The notebook keeps to the left, and the right is a pane that opens on its
+own when a runtime connects and folds when it ends, with two tabs:
+
+- **Runtime.** What the machine is — the card by name, the CPUs, the RAM,
+  the disk — and how busy it is, **in real time**: the machine is read every
+  two seconds whether a cell runs or not, so the numbers are the machine
+  now, not the last run. How it is shown is a choice, remembered, in three
+  looks:
+  - **Tiles** (the default): each of GPU, VRAM, CPU and RAM as its value
+    large with its last minute under it as a sparkline, and headroom against
+    the plan's need spelled out; then **the last ten minutes** as heat strips,
+    one a resource, one hue light to dark with the value, ending in the
+    peak, in step with a ruler of which cell ran when — a segment a run, the
+    live one in orange, a click on one goes to its cell.
+  - **Meters**: five bars for GPU, VRAM, CPU, RAM and disk, the plan's needs
+    as ticks, the fill turning amber past three quarters and red past nine
+    tenths; the ten minutes as two line charts, use and memory, with the
+    ruler between them.
+  - **Rings**: dials for the GPU, the CPU and the memory's share; VRAM and
+    RAM as a budget — used and free of the total, the plan's need marked
+    and said plainly when it is more than the machine has; and the
+    hungriest cells of the window by their peaks, each a link to the cell.
+
+  The GPU and its memory are always drawn in the first series colour, the
+  CPU and the system's memory in the second, whichever look and wherever
+  they appear. Under all three, the **limits**: what is left of the session
+  against Colab's cap for the machine, the compute units and how long they
+  last at the rate they are going, and a word when nothing has run for a
+  while. Then the **watch** while cells run (the probe from the chip's menu,
+  every two seconds) and the **pulse** between cells — live every two
+  seconds, every thirty seconds, or off. Colab may count the pulse as
+  activity: on the free tier that keeps the runtime up; on a machine billed
+  in units the runtime is paid for while it is up either way, and the
+  reading is a negligible share of it. Last, the runtime's own actions:
+  restart the kernel, change machine, open in Colab, stop.
+- **Files.** The runtime's disk, as above.
+
+![the notebook on the left and the Runtime pane on the right in Tiles: the machine, the values with their last minute, the heat strips in step with the ruler of runs, the limits, the pulse, the actions](docs/colab-notebook.png)
+
+![a cell running, in Tiles: the GPU tile rising, the strips darkening, the live run in orange on the ruler](docs/colab-notebook-live.png)
+
+![the same run in Meters: the bars, and use and memory as line charts with the ruler between them](docs/colab-notebook-meters.png)
+
+![the same run in Rings: three dials, memory as a budget against the plan, and the hungriest cells](docs/colab-notebook-rings.png)
+
+![the Files tab of the pane: the runtime's disk, folders first](docs/colab-notebook-files.png)
+
+The pane's sums — the timeline, the ruler, the session and the units, the
+ticks — are `src/lib/runtime.ts`; the pane is `src/components/RuntimePane.tsx`.
+
+The model and the store are `src/lib/notebook.ts`; the page is
+`src/components/Notebook.tsx`. `scripts/colab-notebook-smoke.mjs` drives it
+against a stand-in runtime — the tab, a cell run, the typing and the keys,
+the files, the download, a reload — and photographs it.
 
 ### Asking about it, or changing it
 
@@ -2763,8 +2886,10 @@ toolbar.
 What Claude writes is often worth keeping: a worked example, a code cell, a
 table, a diagram, a caveat. Any of it goes into your notes:
 
-- **Point at it.** A diagram, a code cell (with its expected output), a table,
-  an equation or a caveat shows **Add to notes** on its corner.
+- **Point at it.** A diagram, a table, an equation or a caveat shows
+  **Add to notes** on its corner. A code cell (with its expected output), a
+  starter file and the compute budget carry the button in their own header
+  instead, beside *Copy*, where a corner button would sit on *Run in Colab*.
 - **Select it.** Any selection on the page — a sentence, a list, a paragraph
   with maths in it — has **Add to notes** in its toolbar, beside **Ask Claude**.
 - **A whole section.** Its heading has **Add to notes** beside *Ask or adjust*.
@@ -2920,6 +3045,44 @@ follow — so running it top to bottom lays the repository out and runs it.
 
 ![the Colab menu: commit and open, or download the notebook or the zip](docs/implement-colab.png)
 
+### Run it on Colab, from the page
+
+The first item in that menu, **Run it on Colab, from this page**, and the
+**Run it on Colab** link under *Your machine* in the outline, go to a panel
+under the compute budget that runs the plan in a Colab runtime of your own
+without leaving the page — the same runtime the Explain page's cells use, on
+the same rules. It has four parts:
+
+- **The machine.** Colab's four machines — CPU, T4, L4, A100 — as cards, each
+  with the budget worked out on it (hours, cost, sessions) and whether the plan
+  fits; the smallest that fits is marked. Picking one sets the hardware picker
+  too, so the budget follows.
+- **What it needs, and what the machine has.** Accelerator memory, RAM, disk
+  and sessions, each a bar of the plan's need against the machine — from the
+  catalogue at first, and **measured** once a runtime is connected: the card's
+  memory as `nvidia-smi` reports it, the RAM, the disk free now. A need that
+  does not fit says what to do about it: the budget's *shrink* line, a
+  high-RAM runtime, checkpoints between sessions.
+- **How to run it, in order.** Connect a runtime (the first time, the card
+  that says what will happen), then the steps as cells the kernel takes
+  exactly as shown: one that lays the starter files out in the runtime's
+  disk, the plan's shell cells as `%%bash` cells, the Makefile's targets, and
+  the plan's Python cells. Each runs on its click, with its output, its loss
+  curve and its verdict under it, as a cell on the page does; **Run all
+  steps** asks first and stops at the first that fails.
+- **The machine, as it runs.** Tiles for the GPU, VRAM, CPU, RAM and disk,
+  filled by the probe every two seconds while a step runs, and the two charts
+  under them — utilisation, and memory in use — for the step running now, or
+  the last one that ran.
+
+![the panel: the four machines with the budget on each, the needs against the T4 as measured, and the steps with Connect and Run](docs/implement-colab-run.png)
+
+![a step running: the tiles and the GPU, CPU, VRAM and RAM drawn as it runs, with the chip in the bar carrying the numbers](docs/implement-colab-live.png)
+
+The choices, the needs, the scaffold cell and the steps are
+`src/lib/colabRun.ts`; the panel is `ColabRunPanel` in
+`src/components/Implement.tsx`.
+
 ### Your own machine
 
 A paper that wants days of training on a GPU under the desk is the other
@@ -2966,6 +3129,10 @@ several machines, and checks the zip, the notebook and the commit's files;
 `scripts/implement-smoke.mjs` runs the whole page in a browser against a
 stand-in for `api.anthropic.com` (`scripts/fixtures/implement-minitron.md`),
 with `READER_WORKSPACE` set on the server, and photographs every state.
+`scripts/colab-run-smoke.mjs` does the same for Colab with a stand-in
+runtime — a small Jupyter server in the script, and the proxy's Colab routes
+answered in the browser — so a cell's run, the probe, the runtime menu and the
+*Run it on Colab* panel are photographed live, without a Google account.
 
 ## Layout
 

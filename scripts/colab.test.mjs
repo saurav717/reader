@@ -12,7 +12,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { cleanup, load } from './bundle.mjs';
+import { cleanup, load, loadTogether } from './bundle.mjs';
 
 process.env.READER_SCHOLAR_PROFILE_DIR = join(tmpdir(), `reader-no-scholar-profile-${process.pid}`);
 process.env.READER_PROFILE_DIR = join(tmpdir(), `reader-no-profile-${process.pid}`);
@@ -20,6 +20,8 @@ delete process.env.READER_TOKEN;
 
 const lib = await load('src/lib/colab.ts');
 const telemetry = await load('src/lib/telemetry.ts');
+const nbLib = await loadTogether(['src/lib/notebook.ts', 'src/lib/explain.ts'], { external: ['@anthropic-ai/sdk'] });
+const rt = await loadTogether(['src/lib/runtime.ts', 'src/lib/colabRun.ts', 'src/lib/hardware.ts'], { external: ['@anthropic-ai/sdk'] });
 const relay = await import('../server/colab.js');
 const { default: apiRouter } = await import('../server/api.js');
 
@@ -222,6 +224,28 @@ describe('the Node proxy’s /colab routes', () => {
     server.close();
   });
 
+  it('lists the runtime’s disk through the contents API, and refuses a path that climbs', async () => {
+    await ready;
+    const saved = globalThis.fetch;
+    globalThis.fetch = async (input, init = {}) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.startsWith(base)) return saved(input, init);
+      sent.push({ url });
+      return new Response(JSON.stringify({ content: [{ name: 'models', path: 'models', type: 'directory' }, { name: 'PLAN.md', path: 'PLAN.md', type: 'file', size: 2048, last_modified: '2026-09-30T10:00:00Z' }, { name: 'a.ipynb', path: 'a.ipynb', type: 'notebook', size: 10 }] }), { status: 200 });
+    };
+    try {
+      const proxy = { url: 'https://abc.prod.colab.dev/', token: 'tok' };
+      const ok = await (await saved(`${base}/colab/contents`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-google-token': 'g' }, body: JSON.stringify({ proxy, path: '' }) })).json();
+      assert.equal(ok.path, '', JSON.stringify(ok));
+      assert.deepEqual(ok.entries.map((e) => [e.name, e.type, e.size]), [['models', 'directory', null], ['a.ipynb', 'notebook', 10], ['PLAN.md', 'file', 2048]]);
+      assert.match(sent.at(-1).url, /\/api\/contents\/\?type=directory&content=1&colab-runtime-proxy-token=tok/);
+      const bad = await saved(`${base}/colab/contents`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-google-token': 'g' }, body: JSON.stringify({ proxy, path: '../etc' }) });
+      assert.equal(bad.status, 400);
+    } finally {
+      globalThis.fetch = saved;
+    }
+  });
+
   it('says in /health that cells can be run through it', async () => {
     await ready;
     const health = await (await realFetch(`${base}/health`)).json();
@@ -289,8 +313,29 @@ describe('what a running cell says about itself', () => {
     assert.deepEqual(telemetry.parseGpuSample('63, 3012, 15360\n', 4.2), { t: 4.2, util: 63, memUsedMb: 3012, memTotalMb: 15360 });
     assert.deepEqual(telemetry.parseGpuSample('63, 3012, 15360\n12, 100, 15360\n', 1), { t: 1, util: 63, memUsedMb: 3112, memTotalMb: 30720 });
     assert.equal(telemetry.parseGpuSample('nvidia-smi: command not found', 1), null);
-    assert.match(telemetry.GPU_PROBE, /nvidia-smi/);
     assert.equal(telemetry.gigabytes(15360), '15 GB');
+  });
+  it('reads the machine probe’s line: the GPU by name, the CPU, the memory, the disk', () => {
+    assert.match(telemetry.MACHINE_PROBE, /nvidia-smi/);
+    assert.match(telemetry.MACHINE_PROBE, /\/proc\/stat/);
+    assert.match(telemetry.MACHINE_PROBE, /json\.dumps/);
+    const line = '{"gpu": "Tesla T4, 63, 3012, 15360", "cpu": 41, "cpus": 2, "ram": [5200, 13000], "disk": [71, 78]}';
+    const sample = telemetry.parseMachineSample(`some warning first\n${line}\n`, 4.2);
+    assert.deepEqual(sample, { t: 4.2, gpu: { t: 4.2, name: 'Tesla T4', util: 63, memUsedMb: 3012, memTotalMb: 15360 }, cpu: 41, cpus: 2, ramUsedMb: 5200, ramTotalMb: 13000, diskFreeGb: 71, diskTotalGb: 78 });
+    assert.deepEqual(telemetry.specsOf(sample), { gpuName: 'Tesla T4', vramMb: 15360, cpus: 2, ramTotalMb: 13000, diskTotalGb: 78, diskFreeGb: 71 });
+    // A CPU runtime: no GPU line, the rest as before.
+    const cpuOnly = telemetry.parseMachineSample('{"gpu": "", "cpu": 12, "cpus": 2, "ram": [1200, 13000], "disk": [100, 107]}', 0);
+    assert.equal(cpuOnly.gpu, undefined);
+    assert.equal(cpuOnly.cpu, 12);
+    assert.equal(cpuOnly.ramTotalMb, 13000);
+    // Two cards are named once, with the count; the numbers are summed as before.
+    const two = telemetry.parseMachineSample('{"gpu": "NVIDIA A100-SXM4-40GB, 90, 30000, 40960\\nNVIDIA A100-SXM4-40GB, 10, 100, 40960", "cpu": null, "cpus": 12, "ram": null, "disk": null}', 1);
+    assert.deepEqual(two.gpu, { t: 1, name: '2× NVIDIA A100-SXM4-40GB', util: 90, memUsedMb: 30100, memTotalMb: 81920 });
+    assert.equal(two.cpu, undefined);
+    assert.equal(two.ramUsedMb, undefined);
+    // Not the probe's line at all.
+    assert.equal(telemetry.parseMachineSample('Traceback (most recent call last):\n  NameError', 1), null);
+    assert.equal(telemetry.parseMachineSample('{"weights": [1, 2]}', 1), null);
   });
   it('picks clean ticks and short numbers for the axes', () => {
     assert.deepEqual(telemetry.ticks(0, 100, 3), [0, 50, 100]);
@@ -441,5 +486,130 @@ describe('the Node proxy carries a kernel’s socket', async () => {
     process.env.READER_TOKEN = 'the-token';
     assert.equal(socketSecret(), 'the-token');
     delete process.env.READER_TOKEN;
+  });
+});
+
+describe('a notebook of the reader’s own', () => {
+  const { seedCells, toIpynb, fromIpynb, notebookFileName, newCell } = nbLib;
+  const sections = nbLib.parseExplanation('## At a glance\n\nA line.\n\n```python title="Two"\nprint(1 + 1)\n```\n\n```output\n2\n```\n\n## More\n\nText.');
+  it('is seeded from the page’s cells, with Claude’s expected outputs left out', () => {
+    const cells = seedCells('A paper', sections);
+    assert.deepEqual(cells.map((c) => c.type), ['markdown', 'markdown', 'code', 'markdown']);
+    assert.match(cells[0].source, /^# A paper/);
+    assert.equal(cells[2].source, '# Two\nprint(1 + 1)', 'the cell’s title rides along as a comment');
+    assert.deepEqual(cells[2].outputs, []);
+    assert.equal(cells[2].count, null);
+    assert.ok(cells.every((c) => /^[\w-]{8}$/.test(c.id)));
+  });
+  it('goes out as an .ipynb Colab reads, and comes back the same', () => {
+    const cells = [
+      { ...newCell('markdown', '## Hello'), id: 'm1' },
+      { ...newCell('code', 'print("hi")'), id: 'c1', count: 3, outputs: [{ type: 'stream', name: 'stdout', text: 'hi\n' }, { type: 'text', text: '42' }, { type: 'image', mime: 'image/png', data: 'AAAA' }, { type: 'error', ename: 'E', evalue: 'v', traceback: 'a\nb' }] },
+    ];
+    const text = toIpynb({ title: 'T', cells });
+    const book = JSON.parse(text);
+    assert.equal(book.nbformat, 4);
+    assert.equal(book.metadata.kernelspec.name, 'python3');
+    assert.deepEqual(book.cells[1].outputs.map((o) => o.output_type), ['stream', 'execute_result', 'display_data', 'error']);
+    assert.equal(book.cells[1].execution_count, 3);
+    const back = fromIpynb(text);
+    assert.deepEqual(back.map((c) => [c.type, c.source, c.count]), [['markdown', '## Hello', null], ['code', 'print("hi")', 3]]);
+    assert.deepEqual(back[1].outputs, cells[1].outputs);
+    // A notebook from elsewhere: HTML outputs are dropped, raw cells become text, sources as arrays are joined.
+    const foreign = fromIpynb(JSON.stringify({ cells: [{ cell_type: 'raw', source: ['a\n', 'b'] }, { cell_type: 'code', source: 'x', outputs: [{ output_type: 'display_data', data: { 'text/html': '<b>no</b>', 'text/plain': 'yes' } }], execution_count: null }] }));
+    assert.deepEqual(foreign.map((c) => [c.type, c.source]), [['markdown', 'a\nb'], ['code', 'x']]);
+    assert.deepEqual(foreign[1].outputs, [{ type: 'text', text: 'yes' }]);
+    assert.equal(fromIpynb('not json'), null);
+    assert.equal(fromIpynb('{"cells": 3}'), null);
+  });
+  it('names the file from the title', () => {
+    assert.equal(notebookFileName('Attention Is All You Need'), 'attention-is-all-you-need.ipynb');
+    assert.equal(notebookFileName('!!!'), 'notebook.ipynb');
+  });
+});
+
+describe('the Runtime pane’s sums', () => {
+  const now = 1_000_000_000;
+  it('counts the session against Colab’s cap for the machine', () => {
+    assert.equal(rt.sessionCapHours('T4'), 12);
+    assert.equal(rt.sessionCapHours('A100'), 24);
+    assert.equal(rt.sessionCapHours(null), 12);
+    const left = rt.sessionLeft('T4', now - 3 * 3_600_000, now);
+    assert.equal(left.capHours, 12);
+    assert.equal(left.leftMs, 9 * 3_600_000);
+    assert.equal(left.share, 0.25);
+    assert.equal(rt.sessionLeft('T4', undefined, now).usedMs, 0);
+  });
+  it('turns units and a rate into hours, and says nothing without both', () => {
+    assert.equal(rt.unitsLeft({ balance: 10, ratePerHour: 2 }), 5);
+    assert.equal(rt.unitsLeft({ balance: 10 }), null);
+    assert.equal(rt.unitsLeft(undefined), null);
+    assert.equal(rt.spanText(9 * 3_600_000), '9 h');
+    assert.equal(rt.spanText(95 * 60_000), '1 h 35 min');
+    assert.equal(rt.spanText(20_000), 'under a minute');
+  });
+  it('draws the last minutes as series, with only the lines the samples have', () => {
+    const history = [
+      { at: now - 15 * 60_000, sample: { t: 0, gpu: { t: 0, util: 99, memUsedMb: 1, memTotalMb: 2 }, cpu: 99 } },
+      { at: now - 5 * 60_000, sample: { t: 0, gpu: { t: 0, util: 40, memUsedMb: 4096, memTotalMb: 15360 }, cpu: 20, ramUsedMb: 2048, ramTotalMb: 13000 } },
+      { at: now, sample: { t: 0, cpu: 30, ramUsedMb: 3072, ramTotalMb: 13000 } },
+    ];
+    const { use, memory } = rt.timeline(history, now, 10 * 60_000);
+    assert.deepEqual(use.map((s) => [s.name, s.points]), [['GPU', [{ x: -5, y: 40 }]], ['CPU', [{ x: -5, y: 20 }, { x: 0, y: 30 }]]]);
+    assert.deepEqual(memory.map((s) => [s.name, s.points.length]), [['VRAM', 1], ['RAM', 2]]);
+    assert.deepEqual(rt.timeline([], now, 60_000), { use: [], memory: [], from: now - 60_000 });
+  });
+  it('marks which cells ran when along the window, clipped, the live one to now', () => {
+    const runs = {
+      'nb:old': { state: 'ran', outputs: [], startedAt: now - 20 * 60_000, ms: 60_000, where: 'Colab' },
+      'nb:a': { state: 'ran', outputs: [], startedAt: now - 12 * 60_000, ms: 4 * 60_000, where: 'Colab' },
+      'nb:b': { state: 'failed', outputs: [], startedAt: now - 3 * 60_000, ms: 100, where: 'Colab' },
+      'nb:c': { state: 'running', outputs: [], startedAt: now - 60_000, where: 'Colab' },
+    };
+    const segments = rt.rulerSegments(runs, now, 10 * 60_000);
+    assert.deepEqual(segments.map((s) => [s.key, s.start, s.end, s.state, s.live]), [
+      ['nb:a', -10, -8, 'ran', false],
+      ['nb:b', -3, -2.98, 'failed', false],
+      ['nb:c', -1, 0, 'running', true],
+    ]);
+  });
+  it('takes the plan’s needs for the ticks, and knows a meter near its top', () => {
+    assert.deepEqual(rt.needMarkers({ phases: [{ name: 'a', memoryGb: 9 }, { name: 'b', memoryGb: 22 }], ramGb: 16 }), { vramGb: 22, ramGb: 16 });
+    assert.deepEqual(rt.needMarkers({ phases: [], minVramGb: 8 }), { vramGb: 8, ramGb: undefined });
+    assert.deepEqual(rt.needMarkers(null), {});
+    assert.equal(rt.nearFull(14, 15), true);
+    assert.equal(rt.nearFull(5, 15), false);
+    assert.equal(rt.nearFull(undefined, 15), false);
+  });
+});
+
+describe('the Runtime pane’s strips, sparklines and peaks', () => {
+  const now = 1_000_000_000;
+  it('bins the window for the strips, the highest of each bin, empty where nothing was read', () => {
+    const history = [
+      { at: now - 55_000, sample: { t: 0, cpu: 10 } },
+      { at: now - 52_000, sample: { t: 0, cpu: 40 } },
+      { at: now - 5_000, sample: { t: 0, cpu: 20 } },
+      { at: now - 200_000, sample: { t: 0, cpu: 99 } },
+    ];
+    const out = rt.bins(history, now, 60_000, 10_000, (s) => s.cpu);
+    assert.deepEqual(out, [40, undefined, undefined, undefined, undefined, 20]);
+    assert.equal(rt.peakOf(out), 40);
+    assert.equal(rt.peakOf([undefined, undefined]), undefined);
+  });
+  it('gives the last minute as points over seconds before now', () => {
+    const history = [{ at: now - 90_000, sample: { t: 0, cpu: 1 } }, { at: now - 30_000, sample: { t: 0, cpu: 2, gpu: { t: 0, util: 5, memUsedMb: 1024, memTotalMb: 2048 } } }, { at: now, sample: { t: 0, cpu: 3 } }];
+    assert.deepEqual(rt.recent(history, now, 60_000, (s) => s.cpu), [{ x: -30, y: 2 }, { x: 0, y: 3 }]);
+    assert.deepEqual(rt.recent(history, now, 60_000, (s) => s.gpu?.util), [{ x: -30, y: 5 }]);
+  });
+  it('lists the hungriest runs of the window by their peaks, the busiest first', () => {
+    const runs = {
+      'nb:a': { state: 'ran', outputs: [], startedAt: now - 60_000, ms: 10_000, where: 'Colab', samples: [{ t: 1, gpu: { t: 1, util: 20, memUsedMb: 2048, memTotalMb: 15360 }, cpu: 10 }, { t: 3, gpu: { t: 3, util: 70, memUsedMb: 9000, memTotalMb: 15360 }, cpu: 30 }] },
+      'nb:b': { state: 'ran', outputs: [], startedAt: now - 30_000, ms: 10_000, where: 'Colab', samples: [{ t: 1, cpu: 55, ramUsedMb: 4096 }] },
+      'nb:old': { state: 'ran', outputs: [], startedAt: now - 20 * 60_000, ms: 10_000, where: 'Colab', samples: [{ t: 1, gpu: { t: 1, util: 99, memUsedMb: 1, memTotalMb: 2 } }] },
+      'nb:none': { state: 'ran', outputs: [], startedAt: now - 10_000, ms: 100, where: 'Colab' },
+    };
+    const peaks = rt.peaksByCell(runs, now, 10 * 60_000);
+    assert.deepEqual(peaks.map((p) => [p.key, p.gpu, p.vramMb, p.cpu, p.ramMb]), [['nb:a', 70, 9000, 30, undefined], ['nb:b', undefined, undefined, 55, 4096]]);
   });
 });

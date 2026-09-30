@@ -4944,3 +4944,318 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .colab-switch b { display: block; font-weight: 600; }
 .colab-switch small { color: var(--muted); font-size: 11px; }
 .colab-switch code { font: 10px var(--mono); }
+
+/* ---- "Add to notes", in a header ---------------------------------------------
+   A code cell, a starter file and the budget carry the button in their own
+   header, beside Copy, where the hover button on the corner would otherwise
+   land on Run in Colab. Muted until the header is pointed at; the label goes
+   on a narrow screen and the icon stays. */
+.keep-btn { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+.keep-btn:hover, .keep-btn:focus-visible { color: var(--ink); }
+.explain-cell > header .keep-btn, .impl-file > header .keep-btn, .impl-budget > header .keep-btn, .impl-colab > header .keep-btn { opacity: 0.55; }
+.explain-cell:hover > header .keep-btn, .impl-file:hover > header .keep-btn, .impl-budget:hover > header .keep-btn, .impl-colab:hover > header .keep-btn,
+.explain-cell > header .keep-btn:focus-visible, .impl-file > header .keep-btn:focus-visible, .impl-budget > header .keep-btn:focus-visible { opacity: 1; }
+.note-clip .keep-btn { display: none; }
+/* In a cell or a file card the label needs room the margin column does not have: the icon alone there, the label once the card is wide (the Notebook layout, a starter file). */
+.explain-cell, .impl-file { container-type: inline-size; }
+@container (max-width: 620px) {
+  .keep-btn span { display: none; }
+}
+@media (max-width: 760px) {
+  .keep-btn span { display: none; }
+}
+.outline-hardware .hw-change + .hw-change { margin-left: 12px; }
+
+/* ---- The runtime's machine, and its use ------------------------------------------
+   What the probe read as the runtime connected, in the runtime menu; the probe
+   itself, on request; and the charts under a cell that ran. */
+.colab-specs { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 8px 8px; font-size: 11.5px; color: var(--ink-2); }
+.colab-specs b { font-weight: 600; color: var(--ink); }
+.colab-specs-now { color: var(--muted); }
+.colab-switch small .link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.colab-probe { margin: 0 8px 8px; padding: 8px 10px; max-height: 180px; overflow: auto; border-radius: 8px; background: var(--panel); border: 1px solid var(--border-soft); font: 10.5px/1.45 var(--mono); color: var(--ink-2); white-space: pre; }
+.cell-machine { display: grid; gap: 6px; }
+
+/* ---- Run it on Colab: the panel under the compute budget --------------------------
+   Four parts, each under a small label: Colab's machines as cards with the
+   budget on each; what the plan needs against what the machine has, as bars;
+   the steps, numbered, each a cell with Run; and the machine as it runs —
+   tiles, and the same charts a cell earns. */
+.impl-colab { margin: 14px 0 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.impl-colab > header { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 12px; border-bottom: 1px solid var(--border-soft); background: var(--panel); }
+.impl-colab:not(.is-open) > header { border-bottom: 0; }
+.impl-colab > header .cell-index { display: inline-flex; }
+.impl-colab .cell-title { font-weight: 600; }
+.colab-title-note { font-weight: 400; color: var(--muted); }
+.colab-lede { margin: 0; padding: 12px 14px 4px; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.colab-lede b { color: var(--danger); font-weight: 500; }
+.colab-part-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 14px 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.colab-part-label .btn { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.colab-run-all { display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--ink-2); }
+
+.colab-machines { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; padding: 0 14px; }
+.colab-machine { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 11px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); text-align: left; font: inherit; color: var(--ink); cursor: pointer; }
+.colab-machine:hover:not(:disabled) { border-color: var(--muted); }
+.colab-machine:disabled { cursor: default; }
+.colab-machine.is-on { border-color: #e8710a; box-shadow: 0 0 0 1px #e8710a inset; background: color-mix(in srgb, #e8710a 7%, var(--surface)); }
+.colab-machine .machine-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.colab-machine b { font-size: 13px; font-weight: 600; }
+.colab-machine small { font-size: 11px; color: var(--muted); }
+.machine-best { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--v-holds) 16%, transparent); color: var(--v-holds); white-space: nowrap; }
+.machine-est { display: flex; flex-wrap: wrap; gap: 4px 8px; font: 12px var(--mono); color: var(--ink-2); }
+
+.colab-needs { display: grid; gap: 6px; padding: 0 14px; }
+.need-row { display: grid; grid-template-columns: 150px minmax(80px, 1fr) minmax(170px, auto) auto; grid-template-areas: 'label bar numbers fit' 'note note note note'; align-items: center; column-gap: 12px; row-gap: 2px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--panel) 70%, transparent); font-size: 12.5px; }
+.need-label { grid-area: label; font-weight: 500; }
+.need-bar { grid-area: bar; display: block; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--muted) 22%, transparent); overflow: hidden; }
+.need-fill { display: block; height: 100%; border-radius: 4px; background: var(--v-holds); transition: width 0.3s ease; }
+.need-fill.is-tight { background: #e8710a; }
+.need-fill.is-over { background: var(--danger); }
+.need-numbers { grid-area: numbers; color: var(--ink-2); white-space: nowrap; }
+.need-numbers b { font-weight: 600; color: var(--ink); }
+.need-measured { margin-left: 6px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--v-holds); }
+.need-row .fit-chip { grid-area: fit; justify-self: end; }
+.need-note { grid-area: note; font-size: 11.5px; color: var(--muted); }
+.need-row.fit-no .need-note, .need-row.fit-tight .need-note { color: var(--ink-2); }
+
+.colab-steps { list-style: none; margin: 0; padding: 0 14px; display: grid; gap: 6px; }
+.colab-step { position: relative; display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; grid-template-areas: 'n body actions' 'n code code' 'n output output'; column-gap: 10px; row-gap: 6px; align-items: start; padding: 9px 10px; border: 1px solid var(--border-soft); border-radius: 10px; background: color-mix(in srgb, var(--panel) 55%, transparent); }
+.colab-step.is-done, .colab-step.is-ran { border-color: color-mix(in srgb, var(--v-holds) 45%, var(--border-soft)); }
+.colab-step.is-failed { border-color: color-mix(in srgb, var(--danger) 45%, var(--border-soft)); }
+.colab-step.is-empty { display: block; color: var(--muted); font-size: 12.5px; }
+.step-number { grid-area: n; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--panel); border: 1px solid var(--border); font: 600 11.5px var(--mono); color: var(--ink-2); }
+.colab-step.is-done .step-number, .colab-step.is-ran .step-number { background: color-mix(in srgb, var(--v-holds) 16%, transparent); border-color: transparent; color: var(--v-holds); }
+.colab-step.is-running .step-number { border-color: #e8710a; }
+.step-number .spinner { width: 12px; height: 12px; }
+.step-body { grid-area: body; display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-top: 3px; }
+.step-body b { font-size: 13px; font-weight: 600; }
+.step-note { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.step-note .link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.step-actions { grid-area: actions; position: relative; display: flex; gap: 6px; align-items: center; }
+.step-actions .colab-connect { position: absolute; right: 0; top: calc(100% + 6px); z-index: 42; }
+.step-code { grid-area: code; margin: 0; max-height: 320px; overflow: auto; border-radius: 8px; border: 1px solid var(--border-soft); }
+.step-output { grid-area: output; min-width: 0; }
+.step-output .cell-output { border-radius: 8px; border: 1px solid var(--border-soft); }
+
+.colab-live { margin: 0 14px 14px; padding: 10px; border-radius: 10px; border: 1px dashed var(--border); }
+.colab-live.is-on { border-style: solid; }
+.live-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; }
+.live-tile { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--panel); border: 1px solid var(--border-soft); }
+.live-tile .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.live-tile b { font: 600 18px/1.15 var(--sans); letter-spacing: -0.01em; color: var(--ink); }
+.colab-live:not(.is-on) .live-tile b { color: var(--muted); }
+.live-tile small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.colab-live .cell-machine { margin-top: 8px; }
+.colab-live .cell-chart { margin: 0; }
+.live-empty { margin-top: 8px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--panel) 70%, transparent); font-size: 12.5px; color: var(--muted); }
+.live-note { margin-top: 8px; font-size: 11px; line-height: 1.45; color: var(--muted); }
+@media (max-width: 760px) {
+  .need-row { grid-template-columns: 1fr auto; grid-template-areas: 'label fit' 'bar bar' 'numbers numbers' 'note note'; }
+  .colab-step { grid-template-columns: 26px minmax(0, 1fr); grid-template-areas: 'n body' 'n actions' 'n code' 'n output'; }
+}
+
+/* ---- The Colab tab: a notebook of your own, on the runtime ---------------------
+   A toolbar, the cells down the middle — each a gutter with Run and In [n],
+   the editor or the rendered text, the output as a page cell shows it, and
+   its tools on the right when pointed at — and the runtime's files beside
+   them when asked for. */
+.nb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; outline: 0; }
+.nb-toolbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid var(--border-soft); background: color-mix(in srgb, var(--panel) 45%, var(--paper)); flex-wrap: wrap; }
+.nb-toolbar > .colab-mark { flex: none; }
+.nb-title { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 1px; }
+.nb-title b { font-size: 13px; font-weight: 600; }
+.nb-title span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nb-toolbar .btn.is-on { background: var(--accent-soft); color: var(--accent-ink); }
+.nb-confirm { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+.nb-menu { min-width: 260px; }
+.nb-menu a { display: block; padding: 7px 10px; color: inherit; text-decoration: none; font-size: 13px; border-radius: 6px; }
+.nb-menu a:hover { background: var(--accent-soft); color: var(--accent-ink); }
+.nb-note { flex: none; padding: 6px 20px; font-size: 12.5px; color: var(--ink); background: color-mix(in srgb, var(--v-holds) 12%, transparent); border-bottom: 1px solid var(--border-soft); }
+.nb-note.is-problem { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.nb-note a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.nb-card { position: relative; height: 0; z-index: 42; }
+.nb-card .colab-connect { position: absolute; right: 20px; top: 8px; }
+.nb-split { flex: 1; min-height: 0; display: flex; }
+.nb-cells { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; padding: 22px 28px 120px; }
+.nb-loading { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.nb-cell { position: relative; display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; max-width: 980px; margin: 0 auto 10px; padding: 6px 8px 6px 0; border: 1px solid transparent; border-radius: 12px; }
+.nb-cell:hover { border-color: var(--border-soft); }
+.nb-cell.is-selected { border-color: var(--border); background: color-mix(in srgb, var(--panel) 40%, transparent); }
+.nb-cell.is-editing, .nb-cell.is-selected.is-code { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.nb-cell.is-running { border-color: #e8710a; }
+.nb-cell.is-failed { border-color: color-mix(in srgb, var(--danger) 55%, var(--border)); }
+.nb-gutter { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 8px; }
+.nb-run { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--accent); font-size: 10px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.nb-run:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.nb-run:disabled { opacity: 0.4; cursor: not-allowed; }
+.nb-run.is-busy { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.nb-mark { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); font: 600 13px var(--sans); }
+.nb-count { font: 500 10.5px var(--mono); color: var(--accent); white-space: nowrap; }
+.nb-body { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.nb-body .cell-state { padding: 0 2px; }
+.nb-body .cell-output { border: 1px solid var(--border-soft); border-radius: 10px; overflow: hidden; }
+.nb-editor { display: grid; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.nb-editor > * { grid-area: 1 / 1; }
+.nb-editor .cell-code { padding: 12px 14px; font: 12.5px/1.6 var(--mono); tab-size: 4; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; overflow: hidden; }
+.nb-shadow { pointer-events: none; margin: 0; }
+.nb-text { display: block; width: 100%; border: 0; outline: 0; resize: none; background: transparent; color: transparent; caret-color: var(--ink); box-sizing: border-box; }
+.nb-text::placeholder { color: var(--muted); }
+.nb-text::selection { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+.nb-cell.is-editing .nb-editor, .nb-editor:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.nb-markdown { padding: 6px 12px; min-height: 30px; cursor: text; }
+.nb-markdown > :first-child { margin-top: 0; }
+.nb-markdown > :last-child { margin-bottom: 0; }
+.nb-empty { color: var(--muted); font-style: italic; }
+.nb-tools { position: absolute; top: -12px; right: 10px; display: none; gap: 2px; padding: 2px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-sm); }
+.nb-cell:hover .nb-tools, .nb-cell.is-selected .nb-tools { display: inline-flex; }
+.nb-tools button { height: 22px; min-width: 22px; padding: 0 6px; border: 0; border-radius: 5px; background: transparent; color: var(--ink-2); font: 500 11px var(--sans); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.nb-tools button:hover { background: var(--accent-soft); color: var(--accent-ink); }
+.nb-tools button.is-danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+.nb-add { display: block; margin: 4px auto 18px; padding: 6px 14px; border: 1px dashed var(--border); border-radius: 999px; background: transparent; color: var(--muted); font: 500 12px var(--sans); cursor: pointer; }
+.nb-add:hover { color: var(--accent); border-color: var(--accent); }
+.nb-hint { max-width: 980px; margin: 0 auto; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.nb-hint kbd { font: 10.5px var(--mono); padding: 1px 4px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel); }
+.nb-files { flex: none; width: 280px; display: flex; flex-direction: column; border-left: 1px solid var(--border-soft); background: color-mix(in srgb, var(--panel) 45%, var(--paper)); }
+.nb-files header { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; }
+.nb-files header b { font-weight: 600; }
+.nb-files-path { flex: 1; min-width: 0; font: 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nb-files ul { list-style: none; margin: 0; padding: 6px 8px; overflow-y: auto; flex: 1; }
+.nb-files li { font: 12.5px var(--sans); }
+.nb-files li > button, .nb-files li > span { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; text-align: left; }
+.nb-files li > button { cursor: pointer; }
+.nb-files li > button:hover { background: var(--accent-soft); color: var(--accent-ink); }
+.nb-files li small { margin-left: auto; color: var(--muted); font-size: 11px; }
+.nb-file-icon { width: 14px; color: var(--muted); text-align: center; }
+.nb-files-note { margin: 0; padding: 12px; font-size: 12.5px; color: var(--muted); line-height: 1.5; display: flex; gap: 8px; align-items: center; }
+.nb-files-note.is-problem { color: var(--danger); }
+.nb-files-foot { margin: 0; padding: 10px 12px; border-top: 1px solid var(--border-soft); font-size: 11px; color: var(--muted); line-height: 1.45; }
+@media (max-width: 900px) {
+  .nb-cells { padding: 14px 10px 100px; }
+  .nb-cell { grid-template-columns: 40px minmax(0, 1fr); }
+  .nb-files { position: fixed; right: 0; top: 0; bottom: 0; width: min(320px, 90vw); z-index: 40; }
+}
+
+/* ---- The pane beside the notebook: the runtime, or its files ---------------------
+   The notebook keeps to the left at a fixed width; the pane takes the right
+   when a runtime is connected (or asked for), with Runtime and Files as tabs. */
+.nb-cells { padding: 22px 28px 120px 28px; }
+.nb-cell { margin: 0 0 10px; }
+.nb-hint, .nb-add { margin-left: 0; }
+.nb-add { margin: 4px 0 18px; }
+.nb-side { flex: none; width: 360px; display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--border-soft); background: color-mix(in srgb, var(--panel) 45%, var(--paper)); }
+.nb-side-tabs { flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 8px 0 12px; border-bottom: 1px solid var(--border-soft); }
+.nb-side-tabs .spacer { flex: 1; }
+.nb-side-tabs [role='tab'] { padding: 7px 10px 8px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font: 600 12px var(--sans); cursor: pointer; }
+.nb-side-tabs [role='tab'][aria-selected='true'] { color: var(--ink); border-bottom-color: var(--accent); }
+.nb-side .nb-files { width: auto; border-left: 0; background: transparent; flex: 1; min-height: 0; }
+.rt-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px 20px; }
+.rt-empty { margin: 0; padding: 6px 2px; font-size: 12.5px; line-height: 1.5; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.rt-head { display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px; border-bottom: 1px solid var(--border-soft); }
+.rt-head b { font-size: 13.5px; font-weight: 600; }
+.rt-head > span { font-size: 11.5px; color: var(--muted); }
+.rt-state { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2) !important; }
+.rt-part-label { margin: 14px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.rt-part-label small { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.rt-meters { display: grid; gap: 7px; }
+.rt-meter { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-areas: 'label bar value' 'note note note'; align-items: center; column-gap: 8px; row-gap: 2px; font-size: 12px; }
+.rt-meter-label { grid-area: label; font-weight: 600; color: var(--ink-2); }
+.rt-meter-bar { grid-area: bar; position: relative; display: block; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--muted) 22%, transparent); overflow: visible; }
+.rt-meter-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--accent); transition: width 0.4s ease; }
+.rt-meter.is-full .rt-meter-fill, .rt-meter-fill.is-warn { background: var(--danger); }
+.rt-meter.is-empty .rt-meter-fill { display: none; }
+.rt-meter-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #e8710a; border-radius: 1px; }
+.rt-meter-value { grid-area: value; font: 500 11.5px var(--mono); color: var(--ink); white-space: nowrap; min-width: 84px; text-align: right; }
+.rt-meter-note { grid-area: note; font-size: 11px; line-height: 1.4; color: var(--muted); }
+.rt-meter.is-full .rt-meter-note { color: var(--danger); }
+.rt-timeline { display: grid; gap: 4px; }
+.rt-timeline .cell-chart { margin: 0; }
+.rt-ruler { display: block; width: 100%; height: 14px; }
+.rt-ruler-track { fill: color-mix(in srgb, var(--muted) 18%, transparent); }
+.rt-ruler-run { fill: var(--accent); opacity: 0.85; }
+.rt-ruler-run.is-failed { fill: var(--danger); }
+.rt-ruler-run.is-running { fill: #e8710a; }
+.rt-ruler-run.is-link { cursor: pointer; }
+.rt-ruler-run.is-link:hover { opacity: 1; }
+.rt-note { margin: 0; font-size: 11.5px; line-height: 1.45; color: var(--muted); }
+.rt-note.is-warn { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, #e8710a 12%, transparent); color: var(--ink-2); }
+.rt-limits { display: grid; gap: 8px; }
+.rt-limit { display: grid; gap: 4px; font-size: 12px; }
+.rt-limit-row { display: flex; justify-content: space-between; gap: 8px; }
+.rt-limit-row b { font-weight: 600; color: var(--ink-2); }
+.rt-limit-row span { color: var(--ink); font: 500 11.5px var(--mono); text-align: right; }
+.rt-switch { margin: 0 0 8px; }
+.rt-read { margin: -2px 0 0; }
+.rt-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.rt-actions .btn { text-decoration: none; }
+.rt-confirm { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.rt-change { margin-top: 8px; font-size: 12px; color: var(--ink-2); line-height: 1.45; }
+.rt-change .colab-pick { margin: 8px 0 0; }
+@media (max-width: 1100px) {
+  .nb-side { position: fixed; right: 0; top: 0; bottom: 0; width: min(360px, 92vw); z-index: 40; box-shadow: var(--shadow-md); }
+}
+
+/* ---- The Runtime pane's three looks --------------------------------------------- */
+.rt-styles { margin: 10px 0 0; }
+.rt-styles button { flex: 1; font-size: 11.5px; padding: 4px 8px; }
+.rt-live { display: inline-flex; align-items: center; gap: 5px; color: var(--v-holds); }
+.rt-live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--v-holds); animation: rt-pulse 2s ease-in-out infinite; }
+@keyframes rt-pulse { 50% { opacity: 0.25; } }
+.rt-meter.is-warn .rt-meter-fill { background: #e8a94c; }
+.rt-meter.is-bad .rt-meter-fill { background: var(--danger); }
+.rt-meter.is-bad .rt-meter-note { color: var(--danger); }
+/* Tiles */
+.rt-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.rt-tile { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border-soft); min-width: 0; }
+.rt-tile-k { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.rt-tile-n { font: 600 20px/1.1 var(--sans); letter-spacing: -0.01em; color: var(--ink); }
+.rt-tile-n small { font: 400 11px var(--sans); color: var(--muted); margin-left: 4px; }
+.rt-tile-note { font-size: 10.5px; line-height: 1.35; color: var(--muted); }
+.rt-spark { display: block; width: 100%; height: 22px; margin-top: 4px; }
+.rt-spark path { fill: none; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
+.rt-strips { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; }
+.rt-strips > b { font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
+.rt-strip { display: flex; gap: 1px; height: 14px; border-radius: 3px; overflow: hidden; }
+.rt-strip i { flex: 1; background: color-mix(in srgb, var(--muted) 10%, transparent); }
+.rt-strip-peak { font: 500 11px var(--mono); color: var(--ink-2); min-width: 72px; text-align: right; white-space: nowrap; }
+.rt-strips .rt-ruler { height: 8px; margin-top: 2px; }
+.rt-strip-axis { display: flex; justify-content: space-between; gap: 6px; font-size: 9.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.rt-strip-axis span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; }
+/* Rings */
+.rt-rings { display: flex; justify-content: space-around; padding: 4px 0; }
+.rt-ring { text-align: center; }
+.rt-ring svg { width: 76px; height: 76px; display: block; margin: 0 auto; }
+.rt-ring-track { fill: none; stroke: color-mix(in srgb, var(--muted) 22%, transparent); stroke-width: 7; }
+.rt-ring-fill { fill: none; stroke-width: 7; stroke-linecap: round; transition: stroke-dasharray 0.4s ease; }
+.rt-ring.is-warn .rt-ring-fill { stroke: #e8a94c; }
+.rt-ring.is-bad .rt-ring-fill { stroke: var(--danger); }
+.rt-ring text { font: 600 15px var(--sans); fill: var(--ink); }
+.rt-ring-k { display: block; margin-top: 3px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.rt-budgets { display: grid; gap: 12px; }
+.rt-budget { display: grid; gap: 4px; }
+.rt-budget-row { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--ink-2); }
+.rt-budget-row b { font-weight: 600; }
+.rt-budget-bar { position: relative; display: block; height: 14px; border-radius: 4px; background: color-mix(in srgb, var(--muted) 22%, transparent); }
+.rt-budget-used { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; transition: width 0.4s ease; }
+.rt-budget.is-warn .rt-budget-used { background: #e8a94c; }
+.rt-budget.is-bad .rt-budget-used { background: var(--danger); }
+.rt-budget-need { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: #e8710a; }
+.rt-budget-need.is-over { background: var(--danger); }
+.rt-budget-note { font-size: 10.5px; color: var(--muted); }
+.rt-budget-note.is-over { color: var(--danger); }
+.rt-legend { display: flex; gap: 12px; font-size: 10.5px; color: var(--muted); }
+.rt-legend i { display: inline-block; width: 10px; height: 8px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+.rt-legend i.is-free { background: color-mix(in srgb, var(--muted) 22%, transparent); }
+.rt-legend i.is-need { background: #e8710a; }
+.rt-peaks { display: grid; gap: 6px; }
+.rt-peak { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 4px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.rt-peak:hover:not(:disabled) { background: var(--accent-soft); }
+.rt-peak:disabled { cursor: default; }
+.rt-peak b { font-size: 11.5px; font-weight: 500; color: var(--ink-2); }
+.rt-peak .rt-meter-bar { height: 6px; }
+.rt-peak-v { display: flex; flex-direction: column; align-items: flex-end; font: 500 11px var(--mono); color: var(--ink-2); white-space: nowrap; }
+.rt-peak-v small { font-size: 10px; color: var(--muted); }
+/* The pulse */
+.rt-pulse { display: grid; gap: 6px; margin: 0 0 8px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--panel) 70%, transparent); }
+.rt-pulse-label b { display: block; font-size: 12.5px; font-weight: 600; }
+.rt-pulse-label small { display: block; font-size: 11px; line-height: 1.4; color: var(--muted); }
+.rt-pulse-pick button { flex: 1; font-size: 11px; padding: 4px 6px; }

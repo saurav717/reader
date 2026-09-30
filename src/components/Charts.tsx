@@ -1,12 +1,12 @@
-// The two small charts a running cell can earn: its loss curves, read off
-// what it prints, and the GPU's use while it ran. Drawn as SVG in the page's
+// The small charts a running cell can earn: its loss curves, read off what
+// it prints, and the machine's use while it ran — GPU and CPU, VRAM and RAM. Drawn as SVG in the page's
 // own colours (--viz-1, -2, -3, validated for light and dark), 2px lines, a
 // legend whenever there are two series, the last value labelled at the end
 // of each line, hairline gridlines, a crosshair with the values under the
 // pointer, and the same numbers as a table one click away.
 
 import { useMemo, useState } from 'react';
-import type { GpuSample, Series } from '../lib/telemetry';
+import type { MachineSample, Series } from '../lib/telemetry';
 import { gigabytes, short, ticks } from '../lib/telemetry';
 
 const W = 420;
@@ -22,12 +22,13 @@ interface Drawn {
   points: { x: number; y: number; px: number; py: number }[];
 }
 
-function useScales(series: Series[]) {
+function useScales(series: Series[], xRange?: [number, number]) {
   return useMemo(() => {
     const xs = series.flatMap((s) => s.points.map((p) => p.x));
     const ys = series.flatMap((s) => s.points.map((p) => p.y));
-    const xMin = Math.min(...xs);
-    const xMax = Math.max(...xs);
+    // The x range is the points' unless given — a timeline keeps its whole window, so a minute of samples sits at its end.
+    const xMin = xRange ? xRange[0] : Math.min(...xs);
+    const xMax = xRange ? xRange[1] : Math.max(...xs);
     let yMin = Math.min(...ys);
     let yMax = Math.max(...ys);
     if (yMax === yMin) {
@@ -45,7 +46,7 @@ function useScales(series: Series[]) {
       return { name: s.name, colour: COLOURS[index] ?? COLOURS[3], path: points.map((p, i) => `${i ? 'L' : 'M'}${p.px.toFixed(1)} ${p.py.toFixed(1)}`).join(' '), last: points[points.length - 1], points };
     });
     return { xMin, xMax, yMin, yMax, sx, sy, drawn, yTicks: ticks(yMin, yMax, 3), xTicks: ticks(xMin, xMax, 4) };
-  }, [series]);
+  }, [series, xRange?.[0], xRange?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /**
@@ -53,8 +54,8 @@ function useScales(series: Series[]) {
  * value at each line's end and, under the pointer, every series' value at
  * the nearest x.
  */
-export function LineChart({ series, title, xLabel, unit, tableLabel }: { series: Series[]; title: string; xLabel: string; unit?: string; tableLabel?: string }) {
-  const { drawn, yTicks, xTicks, sx, sy, xMin, xMax } = useScales(series);
+export function LineChart({ series, title, xLabel, unit, tableLabel, xRange }: { series: Series[]; title: string; xLabel: string; unit?: string; tableLabel?: string; xRange?: [number, number] }) {
+  const { drawn, yTicks, xTicks, sx, sy, xMin, xMax } = useScales(series, xRange);
   const [hover, setHover] = useState<number | null>(null);
   const [table, setTable] = useState(false);
   if (!drawn.length) return null;
@@ -128,18 +129,24 @@ export function LineChart({ series, title, xLabel, unit, tableLabel }: { series:
               {short(tick)}
             </text>
           ))}
-          <text className="tick axis" x={W - PAD.right} y={H - 6} textAnchor="end">
+          <text className="tick axis" x={W - PAD.right + 8} y={H - 6} textAnchor="start">
             {xLabel}
           </text>
-          {drawn.map((line) => (
-            <g key={line.name}>
-              <path className="series" d={line.path} style={{ stroke: line.colour }} />
-              <circle className="end" cx={line.last.px} cy={line.last.py} r={4} style={{ fill: line.colour }} />
-              <text className="end-label" x={line.last.px + 8} y={line.last.py + 3.5}>
-                {fmt(line.last.y)}
-              </text>
-            </g>
-          ))}
+          {drawn.map((line, index) => {
+            // An end label that would sit on an earlier line's is left out: the legend and the crosshair carry it, rather than two numbers overprinted.
+            const clear = drawn.slice(0, index).every((other) => Math.abs(other.last.py - line.last.py) > 11);
+            return (
+              <g key={line.name}>
+                <path className="series" d={line.path} style={{ stroke: line.colour }} />
+                <circle className="end" cx={line.last.px} cy={line.last.py} r={4} style={{ fill: line.colour }} />
+                {clear ? (
+                  <text className="end-label" x={line.last.px + 8} y={line.last.py + 3.5}>
+                    {fmt(line.last.y)}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
           {under ? (
             <g className="crosshair">
               <line x1={hoverX} x2={hoverX} y1={PAD.top} y2={H - PAD.bottom} />
@@ -170,15 +177,34 @@ export const LossChart = ({ series, live }: { series: Series[]; live?: boolean }
   <LineChart series={series} title={`Loss, read from what the cell print${live ? 's' : 'ed'}`} xLabel={series.some((s) => s.stepped) ? 'step' : 'line'} />
 );
 
-/** The GPU while the cell ran: utilisation over time, with memory in the caption. */
-export function GpuChart({ samples, live }: { samples: GpuSample[]; live?: boolean }) {
-  const series = useMemo<Series[]>(() => [{ name: 'GPU', stepped: true, points: samples.map((s) => ({ x: s.t, y: s.util })) }], [samples]);
-  const last = samples[samples.length - 1];
-  const peak = Math.max(...samples.map((s) => s.util));
-  if (!last) return null;
+/**
+ * The machine while the cell ran: GPU and CPU utilisation over time on one
+ * chart, and the memory in use — the card's and the system's — on another,
+ * each drawn from whatever the samples have. A CPU runtime gets the CPU and
+ * the RAM; a GPU runtime gets all four.
+ */
+export function MachineChart({ samples, live }: { samples: MachineSample[]; live?: boolean }) {
+  const { use, memory, last } = useMemo(() => {
+    const withGpu = samples.filter((s) => s.gpu);
+    const withCpu = samples.filter((s) => s.cpu !== undefined);
+    const withRam = samples.filter((s) => s.ramUsedMb !== undefined);
+    const use: Series[] = [];
+    if (withGpu.length) use.push({ name: 'GPU', stepped: true, points: withGpu.map((s) => ({ x: s.t, y: s.gpu!.util })) });
+    if (withCpu.length) use.push({ name: 'CPU', stepped: true, points: withCpu.map((s) => ({ x: s.t, y: s.cpu! })) });
+    const memory: Series[] = [];
+    if (withGpu.length) memory.push({ name: 'VRAM', stepped: true, points: withGpu.map((s) => ({ x: s.t, y: s.gpu!.memUsedMb / 1024 })) });
+    if (withRam.length) memory.push({ name: 'RAM', stepped: true, points: withRam.map((s) => ({ x: s.t, y: s.ramUsedMb! / 1024 })) });
+    return { use, memory, last: samples[samples.length - 1] };
+  }, [samples]);
+  if (!last || !use.length) return null;
+  const peakGpu = Math.max(0, ...samples.map((s) => s.gpu?.util ?? 0));
+  const peakCpu = Math.max(0, ...samples.map((s) => s.cpu ?? 0));
+  const useTitle = [last.gpu ? `GPU ${live ? last.gpu.util : peakGpu}%` : '', last.cpu !== undefined ? `CPU ${live ? last.cpu : peakCpu}%` : ''].filter(Boolean).join(' · ');
+  const memTitle = [last.gpu ? `VRAM ${gigabytes(last.gpu.memUsedMb)} of ${gigabytes(last.gpu.memTotalMb)}` : '', last.ramUsedMb !== undefined ? `RAM ${gigabytes(last.ramUsedMb)} of ${gigabytes(last.ramTotalMb ?? 0)}` : ''].filter(Boolean).join(' · ');
   return (
-    <div className="cell-gpu">
-      <LineChart series={series} title={`GPU ${live ? 'now' : 'peak'} ${live ? last.util : peak}% · memory ${gigabytes(last.memUsedMb)} of ${gigabytes(last.memTotalMb)}`} xLabel="s" unit="%" tableLabel="GPU %" />
+    <div className="cell-machine">
+      <LineChart series={use} title={`${live ? 'Now' : 'Peak'} · ${useTitle}`} xLabel="s" unit="%" tableLabel={use.length === 1 ? `${use[0].name} %` : undefined} />
+      {memory.length ? <LineChart series={memory} title={`Memory · ${memTitle}`} xLabel="s" unit=" GB" /> : null}
     </div>
   );
 }

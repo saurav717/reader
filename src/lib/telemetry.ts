@@ -1,7 +1,7 @@
 // What a running cell says about itself, read off its output: the losses a
-// training loop prints, turned into curves, and the GPU's use while it runs,
-// sampled by a line of the reader's own. Pure functions over text; the
-// charts are drawn in src/components/Colab.tsx.
+// training loop prints, turned into curves, and the machine's use while it
+// runs — GPU, CPU, memory, disk — sampled by a few lines of the reader's own. Pure functions over text; the
+// charts are drawn in src/components/Charts.tsx.
 
 export interface Point {
   x: number;
@@ -90,7 +90,7 @@ export function lossSeries(text: string): Series[] {
 /** Whether there is enough of a curve to draw: three points on one series. */
 export const hasCurve = (series: Series[]) => series.some((entry) => entry.points.length >= 3);
 
-// ------------------------------------------------------------------ GPU ----
+// -------------------------------------------------------------- machine ----
 
 export interface GpuSample {
   /** Seconds since the cell started. */
@@ -102,11 +102,62 @@ export interface GpuSample {
 }
 
 /**
- * The one line the reader runs of its own, in a second kernel on the same
- * machine, every couple of seconds while a cell runs: nvidia-smi's numbers,
- * one GPU a line. Shown in the runtime menu, so nothing runs unseen.
+ * The machine at one moment: the GPU when nvidia-smi can see one, the CPUs,
+ * the system memory and the disk. Every part is optional, since a CPU
+ * runtime has no GPU and a probe can fail halfway; `t` is seconds since the
+ * cell started, or 0 for a reading taken between cells.
  */
-export const GPU_PROBE = "import subprocess;print(subprocess.run(['nvidia-smi','--query-gpu=utilization.gpu,memory.used,memory.total','--format=csv,noheader,nounits'],capture_output=True,text=True).stdout)";
+export interface MachineSample {
+  t: number;
+  gpu?: GpuSample & { name?: string };
+  /** CPU utilisation, 0–100, over every core. */
+  cpu?: number;
+  cpus?: number;
+  ramUsedMb?: number;
+  ramTotalMb?: number;
+  diskFreeGb?: number;
+  diskTotalGb?: number;
+}
+
+/** What the machine is, read off a sample: the parts that do not change while it is up. */
+export interface MachineSpecs {
+  gpuName?: string;
+  vramMb?: number;
+  cpus?: number;
+  ramTotalMb?: number;
+  diskTotalGb?: number;
+  diskFreeGb?: number;
+}
+
+/**
+ * The one thing the reader runs of its own, in a second kernel on the same
+ * machine, every couple of seconds while a cell runs and once when the
+ * runtime connects: nvidia-smi's numbers when there is a GPU, the CPUs' busy
+ * share from /proc/stat over a quarter of a second, the memory from
+ * /proc/meminfo, and the disk. One JSON line. Shown in the runtime menu, so
+ * nothing runs unseen; it reads, and changes nothing.
+ */
+export const MACHINE_PROBE = `import json, os, shutil, subprocess, time
+def _safe(f):
+    try: return f()
+    except Exception: return None
+def _cpu():
+    def snap():
+        with open('/proc/stat') as f: v = [int(x) for x in f.readline().split()[1:]]
+        return sum(v), v[3] + v[4]
+    a, ia = snap(); time.sleep(0.25); b, ib = snap()
+    return round(100 * (1 - (ib - ia) / max(1, b - a)))
+def _ram():
+    m = {}
+    with open('/proc/meminfo') as f:
+        for line in f:
+            k, v = line.split(':', 1); m[k] = int(v.split()[0])
+    return [(m['MemTotal'] - m['MemAvailable']) // 1024, m['MemTotal'] // 1024]
+def _gpu():
+    return subprocess.run(['nvidia-smi', '--query-gpu=name,utilization.gpu,memory.used,memory.total', '--format=csv,noheader,nounits'], capture_output=True, text=True, timeout=5).stdout.strip()
+def _disk():
+    d = shutil.disk_usage('/'); return [d.free // 2**30, d.total // 2**30]
+print(json.dumps({'gpu': _safe(_gpu) or '', 'cpu': _safe(_cpu), 'cpus': os.cpu_count(), 'ram': _safe(_ram), 'disk': _safe(_disk)}))`;
 
 /** nvidia-smi's csv, read: the busiest GPU's utilisation, and memory summed. Null when the line is not that. */
 export function parseGpuSample(text: string, t: number): GpuSample | null {
@@ -121,6 +172,62 @@ export function parseGpuSample(text: string, t: number): GpuSample | null {
     memUsedMb: rows.reduce((sum, cells) => sum + cells[1], 0),
     memTotalMb: rows.reduce((sum, cells) => sum + cells[2], 0),
   };
+}
+
+/** nvidia-smi's csv with the name first: "Tesla T4, 63, 3012, 15360", one GPU a line. */
+function parseNamedGpu(text: string, t: number): MachineSample['gpu'] | undefined {
+  const rows = text
+    .split('\n')
+    .map((line) => line.split(','))
+    .filter((cells) => cells.length >= 4)
+    .map((cells) => ({ name: cells[0].trim(), numbers: cells.slice(1, 4).map((cell) => Number(cell.trim())) }))
+    .filter((row) => row.numbers.every((n) => Number.isFinite(n)));
+  if (!rows.length) return parseGpuSample(text, t) ?? undefined;
+  const name = rows[0].name && rows.every((row) => row.name === rows[0].name) ? (rows.length > 1 ? `${rows.length}× ${rows[0].name}` : rows[0].name) : rows.map((row) => row.name).join(', ');
+  return { t, name, util: Math.max(...rows.map((row) => row.numbers[0])), memUsedMb: rows.reduce((sum, row) => sum + row.numbers[1], 0), memTotalMb: rows.reduce((sum, row) => sum + row.numbers[2], 0) };
+}
+
+const finite = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
+
+/**
+ * What the probe printed, read: the last line that is its JSON. Null when
+ * nothing in the text is — a kernel that printed a traceback instead.
+ */
+export function parseMachineSample(text: string, t: number): MachineSample | null {
+  const lines = text.split('\n').map((line) => line.trim()).filter((line) => line.startsWith('{'));
+  for (const line of lines.reverse()) {
+    let raw: Record<string, unknown>;
+    try {
+      raw = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (!raw || typeof raw !== 'object' || !('cpu' in raw || 'gpu' in raw || 'ram' in raw)) continue;
+    const ram = Array.isArray(raw.ram) ? raw.ram : [];
+    const disk = Array.isArray(raw.disk) ? raw.disk : [];
+    const sample: MachineSample = { t };
+    const gpu = typeof raw.gpu === 'string' && raw.gpu.trim() ? parseNamedGpu(raw.gpu, t) : undefined;
+    if (gpu) sample.gpu = gpu;
+    const cpu = finite(raw.cpu);
+    if (cpu !== undefined) sample.cpu = Math.max(0, Math.min(100, Math.round(cpu)));
+    const cpus = finite(raw.cpus);
+    if (cpus !== undefined) sample.cpus = cpus;
+    if (finite(ram[0]) !== undefined && finite(ram[1]) !== undefined) {
+      sample.ramUsedMb = ram[0] as number;
+      sample.ramTotalMb = ram[1] as number;
+    }
+    if (finite(disk[0]) !== undefined && finite(disk[1]) !== undefined) {
+      sample.diskFreeGb = disk[0] as number;
+      sample.diskTotalGb = disk[1] as number;
+    }
+    return sample;
+  }
+  return null;
+}
+
+/** The lasting parts of a sample: what the machine is. */
+export function specsOf(sample: MachineSample): MachineSpecs {
+  return { gpuName: sample.gpu?.name, vramMb: sample.gpu?.memTotalMb, cpus: sample.cpus, ramTotalMb: sample.ramTotalMb, diskTotalGb: sample.diskTotalGb, diskFreeGb: sample.diskFreeGb };
 }
 
 export const gigabytes = (mb: number) => `${(mb / 1024).toFixed(mb >= 10240 ? 0 : 1)} GB`;

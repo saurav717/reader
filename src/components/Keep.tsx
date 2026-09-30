@@ -1,7 +1,34 @@
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent, RefObject } from 'react';
 import { OPEN_NOTES } from '../lib/notes';
 import { NoteIcon } from './icons';
+
+/**
+ * How a piece of the page is kept, for the pieces that carry their own
+ * button: a code cell, a starter file, the budget — anything whose header
+ * already holds buttons, where a button dropped on the corner would land on
+ * top of Copy or Run in Colab. The page provides it; `KeepButton` calls it.
+ */
+export const KeepContext = createContext<((element: HTMLElement) => void) | null>(null);
+
+/** "Add to notes", in a header, for the piece of the page (`selector`) the button sits in. */
+export function KeepButton({ selector, what }: { selector: string; what: string }) {
+  const keep = useContext(KeepContext);
+  if (!keep) return null;
+  return (
+    <button
+      type="button"
+      className="btn sm ghost keep-btn"
+      onClick={(event) => {
+        const element = event.currentTarget.closest<HTMLElement>(selector);
+        if (element) keep(element);
+      }}
+      title={`Keep this ${what} in your notes`}
+    >
+      <NoteIcon size={13} /> <span>Add to notes</span>
+    </button>
+  );
+}
 
 // ===========================================================================
 //  Keeping a piece of a page in your notes: the "Add to notes" button that
@@ -14,9 +41,11 @@ import { NoteIcon } from './icons';
 /**
  * The corner button. `selector` says what can be kept whole under `root`;
  * the page's scrolling, anywhere, puts the button away, since it no longer
- * sits on what it would keep.
+ * sits on what it would keep. `own` names the pieces that carry the button
+ * in their own header (a `KeepButton`): the corner button stays away from
+ * those, so it never covers what the header already holds.
  */
-export function useKeeper({ root, selector, onKeep, off = false }: { root: RefObject<HTMLElement>; selector: string; onKeep: (element: HTMLElement) => void; off?: boolean }) {
+export function useKeeper({ root, selector, onKeep, off = false, own }: { root: RefObject<HTMLElement>; selector: string; onKeep: (element: HTMLElement) => void; off?: boolean; own?: string }) {
   const [at, setAt] = useState<{ element: HTMLElement; top: number; right: number } | null>(null);
 
   useEffect(() => {
@@ -36,6 +65,10 @@ export function useKeeper({ root, selector, onKeep, off = false }: { root: RefOb
     // Something keepable inside something keepable — an equation in a caveat — is kept with what holds it.
     let element = found;
     for (let outer = element.parentElement?.closest<HTMLElement>(selector); outer && root.current.contains(outer); outer = outer.parentElement?.closest<HTMLElement>(selector)) element = outer;
+    if (own && element.matches(own)) {
+      if (at) setAt(null);
+      return;
+    }
     if (at?.element === element) return;
     const rect = element.getBoundingClientRect();
     setAt({ element, top: Math.max(rect.top + 6, 56), right: window.innerWidth - rect.right + 6 });

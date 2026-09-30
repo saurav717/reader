@@ -853,6 +853,7 @@ export default async function apiRouter(req, res, next) {
       case '/colab/kernels/list':
       case '/colab/kernels/interrupt':
       case '/colab/kernels/restart':
+      case '/colab/contents':
       case '/colab/socket/ticket':
         return await colab(req, url, res);
       case '/health':
