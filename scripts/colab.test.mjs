@@ -587,6 +587,15 @@ describe('the notebook’s ask bar', () => {
     assert.deepEqual(parseNotebookReply('````python after=end\nprint("```")\n````').edits, [{ kind: 'insert', after: 'end', type: 'code', source: 'print("```")' }], 'four backticks around three');
     assert.deepEqual(parseNotebookReply('```python cell=2\nx = 1\n').edits, [], 'an open fence is not a cell');
   });
+  it('knows a request for the whole notebook again, and takes an answer that replaces every cell', () => {
+    const { wantsWholeNotebook } = nbLib;
+    for (const yes of ['Rewrite the whole notebook from scratch in PyTorch', 'regenerate all the code', 'Can you redo the entire notebook with JAX?', 'rewrite all my cells', 'start over: the notebook, but for CIFAR-10', 'Write the notebook again with a smaller model']) assert.equal(wantsWholeNotebook(yes), true, yes);
+    for (const no of ['Rewrite cell 3 in PyTorch', 'what does the notebook print?', 'add a cell that plots the loss', 'fix the error in cell 7', 'Write a training loop']) assert.equal(wantsWholeNotebook(no), false, no);
+    const reply = parseNotebookReply('The notebook again.\n\n```markdown notebook=new\n# Title\n```\n\n```python\nprint(1)\n```');
+    assert.equal(reply.replaceAll, true);
+    assert.deepEqual(reply.edits.map((e) => [e.type, e.source]), [['markdown', '# Title'], ['code', 'print(1)']]);
+    assert.equal(parseNotebookReply('```python after=end\nprint(1)\n```').replaceAll, undefined);
+  });
   it('says why an answer gave the notebook nothing', () => {
     const { nothingTaken } = nbLib;
     assert.match(nothingTaken('DeepSeek', '', 'thought and thought', 'max_tokens'), /ran out of room.*reasoning used up the answer.*Rewrite cell by cell/);

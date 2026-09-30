@@ -2869,6 +2869,17 @@ runtime, a text cell before each step — and every cell is replaced, with
 Undo bringing the old ones back. The header on this tab reads *Notebook
 with …* after whichever model writes it.
 
+The bar takes the whole notebook too: *rewrite the whole notebook from
+scratch in PyTorch*, *regenerate all the code for CIFAR-10*, *start over
+with a smaller model* — a request for the notebook, or all of its code,
+written again is sent as the rewrite with your words steering it, and the
+answer replaces every cell, with Undo bringing the old ones back. A model
+may also say so itself, with `notebook=new` on its first fence.
+
+Every cell is yours to edit: click into the code and type, or double-click
+a text cell; **Edit** in a cell's tools puts the caret there too. An edited
+cell keeps its last output, marked as from before the edit (the amber mark).
+
 When an answer gives the notebook nothing, the bar says why: a model that
 reasons first (DeepSeek's thinking models, say) can spend the whole answer
 reasoning on a big request and send no cell, or its answer can be cut off
@@ -2917,12 +2928,15 @@ so. The toolbar's Run all is the same queue. `runAll`, `pauseRuns`,
 
 ![the pane while Run all is paused: running cell 19, one queued, pauses after this cell, with Resume and Stop](docs/colab-notebook-paused.png)
 
-The Ask AI window sees the notebook too. While the Colab tab is open, a
+The Ask AI window sees the notebook too. Whenever the paper has one, a
 question there goes with `<colab_notebook>`: the cells numbered, what each
-printed, the tracebacks, and which runtime it is on — so *what does cell 3
-print?*, *why does this fail?* and *does this output bear out the paper?*
-are answered from the notebook, under the explanation's context switch. It
-answers and explains; the tab's own bar is the one that writes cells.
+printed, the tracebacks, which cell is running now, the runtime, and
+whether the Colab tab is the one on screen — so *which cell is running?*,
+*which cell has the attention code?*, *why does cell 3 fail?* and *does
+this output bear out the paper?* are answered from the notebook, from any
+tab. It has a switch of its own under **What the model sees** (on by
+default). It answers and explains; the tab's own bar is the one that
+writes cells.
 
 The prompt, the reply's grammar, the parser and the store are
 `src/lib/notebookAsk.ts`; the edits are resolved and applied in

@@ -171,7 +171,9 @@ function Cell({
       }
       onRun(event.altKey ? 'insert' : event.shiftKey ? 'next' : 'stay');
     } else if (event.key === 'Escape') {
+      // Leaves the editor, and goes no further: the page's own Escape would close it, since a text cell's editor is gone by the time it looks.
       event.preventDefault();
+      event.stopPropagation();
       onEdit(false);
     }
   };
@@ -221,6 +223,21 @@ function Cell({
       </div>
       <div className="nb-tools" role="toolbar" aria-label="Cell">
         {status ? <span className={`nb-tools-state is-${status}`}>{statusText}</span> : null}
+        <button
+          type="button"
+          onClick={(event) => {
+            // Into the editor: the code's textarea, or a text cell's editor, with the caret at the end.
+            onEdit(true);
+            const area = (event.currentTarget.closest('.nb-cell') as HTMLElement | null)?.querySelector<HTMLTextAreaElement>('.nb-text');
+            if (area) {
+              area.focus();
+              area.setSelectionRange(area.value.length, area.value.length);
+            }
+          }}
+          title={cell.type === 'code' ? 'Edit the code — or just click into it and type' : 'Edit the text (or double-click it)'}
+        >
+          Edit
+        </button>
         <button type="button" onClick={() => moveCell(paperId, cell.id, -1)} title="Move up" aria-label="Move up">
           ↑
         </button>
@@ -730,6 +747,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
                   ]
                 : [
                     "Write the paper's core method as a runnable cell",
+                    'Rewrite the whole notebook from scratch, in PyTorch, with a small training run',
                     'Write a cell that trains a small version on a toy dataset',
                     'Add a cell that plots the loss curve',
                     'Reproduce the main table on a tiny scale',
@@ -824,7 +842,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
             + Code
           </button>
           <p className="nb-hint">
-            Shift-Enter runs a cell and moves on; Alt-Enter runs and adds one. With a cell picked and nothing being typed: <kbd>A</kbd> and <kbd>B</kbd> add above and below, <kbd>M</kbd> and <kbd>Y</kbd> make it text or code, <kbd>D D</kbd> deletes, <kbd>↑</kbd> <kbd>↓</kbd> move. The cells share the kernel with the Explanation and
+            Every cell is yours to edit: click into the code and type, or double-click a text cell. Shift-Enter runs a cell and moves on; Alt-Enter runs and adds one. With a cell picked and nothing being typed: <kbd>A</kbd> and <kbd>B</kbd> add above and below, <kbd>M</kbd> and <kbd>Y</kbd> make it text or code, <kbd>D D</kbd> deletes, <kbd>↑</kbd> <kbd>↓</kbd> move. The cells share the kernel with the Explanation and
             Implementation pages; the runtime's menu is the chip in the bar. Kept in this browser{nb ? `, last changed ${time(nb.updated)}` : ''}.
           </p>
         </div>

@@ -904,7 +904,9 @@ export default function Explain({ paperId, title, authors, published, screen, on
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       // Not from the ask bar, the assistant, or the notebook, where Escape leaves an editor or drops a picked cell first.
-      if (event.key === 'Escape' && !document.activeElement?.closest('.assistant-win, .explain-ask, .nb-page') && !document.querySelector('.scrim')) onClose();
+      // Judged by where the key was pressed, not where focus is now: an editor that closed on this Escape has already let focus go.
+      const from = event.target instanceof Element ? event.target : document.activeElement;
+      if (event.key === 'Escape' && !from?.closest('.assistant-win, .explain-ask, .nb-page') && !document.querySelector('.scrim')) onClose();
       // "/" goes to the bar at the top, as it does to a search box.
       if (event.key === '/' && !(event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable="true"]')) {
         event.preventDefault();
@@ -948,6 +950,11 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const nbAsk = useSyncExternalStore(subscribeNotebookAsk, () => notebookAskFor(paperId));
   const nbBusy = Boolean(nbAsk.pending && !nbAsk.pending.error);
   const [nbRewrite, setNbRewriteState] = useState<NotebookRewrite>(readNotebookRewrite);
+  // Snip is the pages' own; on the Colab tab its layer would only sit over the cells.
+  useEffect(() => {
+    if (page === 'colab') setSnipping(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
   const setNbRewrite = (mode: NotebookRewrite) => {
     setNbRewriteState(mode);
     try {

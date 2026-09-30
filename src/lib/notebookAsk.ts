@@ -52,8 +52,20 @@ FORMAT — the notebook applies your answer, so keep to it exactly:
   calls for it; check torch.cuda.is_available() and fall back to the CPU with a smaller size rather than fail.
 - Nothing that mounts Drive, asks for input, or needs credentials. Keep a cell under about 80 lines; split
   longer work across cells. Never delete cells; say so if a cell should go, and the reader will.
+- The whole notebook again: when the reader asks for the notebook, or all of its code, written again, from
+  scratch, or regenerated, put notebook=new on the FIRST fence — \`\`\`python notebook=new — and then every
+  fence in your answer is a new cell, in order; the current cells are all replaced by yours. Text cells as
+  markdown, code cells as python, a short text cell before each step.
 
 If the request is a question rather than a request for code, answer it in the prose and add no cells.`;
+
+/** Whether a request asks for the whole notebook again — "rewrite all the code", "regenerate the notebook", "start over from scratch" — rather than a cell or two. */
+export function wantsWholeNotebook(request: string): boolean {
+  const text = request.toLowerCase();
+  const again = /\b(re-?writ(?:e|ing)|re-?generat(?:e|ing)|re-?do|re-?creat(?:e|ing)|re-?build|start (?:over|again|afresh)|from scratch|write .{0,30}\bagain)\b/.test(text);
+  const whole = /\b(whole|entire|all(?: of)?(?: the| my| this)?|every|full|complete)\b[^.?!]{0,40}\b(notebook|code|cells?)\b|\b(the|this|my) (whole |entire )?notebook\b/.test(text);
+  return again && whole;
+}
 
 /** Rewrite, from the bar's menu: the whole notebook again, by the model picked. */
 export const REWRITE_REQUEST = `Write this notebook again from scratch, for this paper: the code a reader runs to try its central idea —
@@ -68,6 +80,8 @@ export interface NotebookReply {
   /** The prose outside the fences, for the line under the bar. */
   note: string;
   edits: NbEdit[];
+  /** The answer is the whole notebook again: every fence a new cell, in order, in place of every current cell. */
+  replaceAll?: boolean;
 }
 
 /** A fenced block: three or more backticks or tildes, closed by the same; the language, the rest of the info string, the body. */
@@ -99,9 +113,11 @@ const where = (info: string): { cell?: number; after?: number | 'end' } => {
  */
 export function parseNotebookReply(text: string): NotebookReply {
   const edits: NbEdit[] = [];
+  let replaceAll = false;
   const prose = text.replace(FENCE, (_match, _fence: string, lang: string, info: string, body: string) => {
     const type = asType(lang);
     if (type === null) return '';
+    if (/\b(?:notebook|replace)\s*=\s*"?(?:new|all)"?/i.test(info)) replaceAll = true;
     const source = body.replace(/\n$/, '');
     const at = where(info);
     if (at.cell !== undefined) edits.push({ kind: 'replace', cell: at.cell, type, source });
@@ -113,7 +129,7 @@ export function parseNotebookReply(text: string): NotebookReply {
     .replace(/\n{2,}/g, '\n')
     .trim()
     .slice(0, 600);
-  return { note, edits };
+  return replaceAll ? { note, edits, replaceAll } : { note, edits };
 }
 
 /** Why an answer gave the notebook nothing, in words the reader can act on. */
@@ -265,10 +281,13 @@ export async function loadNotebookAsk(paperId: string) {
  * change when the whole answer is in, so nothing half-written is ever a cell.
  */
 export async function askNotebook(params: { paperId: string; screen: Screen; model: string; request: string; scope?: AskScope; runs?: Record<string, CellRun>; pages?: { explanation?: string; plan?: string }; mode?: 'ask' | 'rewrite' }): Promise<void> {
-  const { paperId, screen, model, scope = {}, runs = {}, pages = {}, mode = 'ask' } = params;
+  const { paperId, screen, model, scope = {}, runs = {}, pages = {} } = params;
   const request = params.request.trim();
   const nb = notebookFor(paperId);
   if (!request || !nb || running) return;
+  // A request for the whole notebook again is the rewrite, with the reader's words steering it; the reply then replaces every cell.
+  const mode: 'ask' | 'rewrite' = params.mode === 'rewrite' || wantsWholeNotebook(request) ? 'rewrite' : 'ask';
+  const rewriteAsk = `${REWRITE_REQUEST}${params.mode === 'rewrite' ? '' : `\n\nThe reader asks, in their words: “${request}”. Follow that — it decides what the notebook is for, the framework, the scale, the data.`}`;
   const pending: NbPending = { request, reply: '', started: Date.now() };
   update(paperId, { pending: { ...pending }, model });
   let SDK: SDK | null = null;
@@ -278,7 +297,7 @@ export async function askNotebook(params: { paperId: string; screen: Screen; mod
       model,
       maxTokens: MAX_TOKENS,
       system: systemFor(screen),
-      messages: [{ role: 'user', content: mode === 'rewrite' ? requestText(REWRITE_REQUEST, {}, nb.cells, runs, pages) : requestText(request, scope, nb.cells, runs, pages) }],
+      messages: [{ role: 'user', content: mode === 'rewrite' ? requestText(rewriteAsk, {}, nb.cells, runs, pages) : requestText(request, scope, nb.cells, runs, pages) }],
       effort: 'medium',
     });
     running = { paperId, abort: () => stream.abort() };
@@ -305,7 +324,7 @@ export async function askNotebook(params: { paperId: string; screen: Screen; mod
     const parsed = parseNotebookReply(pending.reply);
     const scopeIndex = scope.cell ? scope.cell - 1 : null;
     const applied =
-      mode === 'rewrite'
+      mode === 'rewrite' || parsed.replaceAll
         ? parsed.edits.length
           ? replaceCells(paperId, parsed.edits.map((edit) => newCell(edit.type, edit.source)))
           : null
