@@ -220,7 +220,12 @@ rewrites that one cell, which comes back marked *Revised* and unrun, with
 **Run in Colab** on it again. When Colab ends an idle runtime — it does, on
 the free tier — the cells keep their outputs, marked as from a runtime that
 is gone, and the card offers a new machine and the re-run that would bring
-the state back.
+the state back. A socket that closes is not a runtime that ended: the page
+sends a keep-alive frame down every kernel socket while nothing else goes,
+and opens a dropped one again to the same kernel (a few tries, a growing
+wait apart) before it says the runtime is gone — the tunnel, the Worker's
+bridge and the browser may each close a silent connection well before
+Colab's own idle limit.
 
 ---
 

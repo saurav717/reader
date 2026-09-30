@@ -115,6 +115,8 @@ export interface ColabState {
   pulse: Pulse;
   /** How the kernel's socket is carried: straight to the runtime, or by the proxy when the runtime refused the page's own. */
   via?: 'direct' | 'proxy';
+  /** The kernel's socket dropped and is being opened again; the runtime and the kernel are still there. */
+  reconnecting?: boolean;
 }
 
 // ------------------------------------------------------------ the store ----
@@ -381,17 +383,37 @@ async function relay<T>(path: string, googleToken: string, init: { method?: 'GET
 
 type OnMessage = (message: JupyterMessage) => void;
 
+/** How often a frame goes to the kernel while nothing else does, so no hop on the way closes a silent socket. */
+export const KEEPALIVE_MS = 15_000;
+/** How long the page waits between its tries at opening a dropped socket again, before it gives the runtime up. */
+export const RECONNECT_WAITS_MS = [1_000, 2_000, 4_000, 8_000];
+
 /**
  * The WebSocket to the runtime's kernel. One session id for the page's
  * requests, so the kernel's replies can be told apart from other clients'.
  * Colab's proxy wants its token both as a query parameter and, where a
  * browser cannot set headers on a WebSocket, only there.
+ *
+ * The socket is a pipe, not the runtime: the kernel and everything in it
+ * stay on the machine whether or not a socket is open to it, and Colab keeps
+ * the machine for as long as its own idle limit allows — an hour and a half
+ * or so on the free tier, twelve hours in all. What a quiet page loses is
+ * the pipe, since Colab's tunnel, the Worker's bridge and the browser are
+ * each free to close a connection that has carried nothing for a while. So
+ * a frame goes out every few seconds when nothing else is going, and a
+ * socket that closes anyway is opened again to the same kernel, with a few
+ * tries a growing wait apart, before the page says the runtime is gone.
  */
 class Kernel {
   private socket: WebSocket | null = null;
   private readonly sessionId = uuid();
   private readonly waiting = new Map<string, OnMessage>();
   private closed: (() => void) | null = null;
+  private keepAlive: number | null = null;
+  private lastKeepAlive: string | null = null;
+  private reconnecting: Promise<void> | null = null;
+  /** Closed on purpose: no reconnecting. */
+  private ended = false;
   /** How the socket got there: straight to the runtime, or carried by the proxy. */
   via: 'direct' | 'proxy' = 'direct';
 
@@ -401,7 +423,73 @@ class Kernel {
     private readonly onClose: (reason: string) => void,
     /** A ticket for the proxy to carry this kernel's socket, when the runtime will not take the page's own. */
     private readonly ticket?: (kernel: string, session: string) => Promise<string>,
+    /** Told when the socket drops and when it is back. */
+    private readonly onLink?: (link: 'open' | 'reconnecting') => void,
   ) {}
+
+  get connected(): boolean {
+    return this.socket !== null && this.socket.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * A kernel_info_request every KEEPALIVE_MS, so the socket is never silent
+   * long enough for anything on the way to give it up. The reply is not
+   * waited on — while a cell runs the kernel answers after it — only dropped
+   * when it comes, and its handler goes with the next request.
+   */
+  private startKeepAlive() {
+    this.stopKeepAlive();
+    this.keepAlive = window.setInterval(() => {
+      const socket = this.socket;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      if (this.lastKeepAlive) this.waiting.delete(this.lastKeepAlive);
+      const request = makeMessage('kernel_info_request', {}, this.sessionId);
+      this.lastKeepAlive = request.header.msg_id;
+      this.waiting.set(request.header.msg_id, (message) => {
+        if (message.header.msg_type === 'kernel_info_reply') this.waiting.delete(request.header.msg_id);
+      });
+      try {
+        socket.send(JSON.stringify(request));
+      } catch {
+        // closing; the close event follows
+      }
+    }, KEEPALIVE_MS);
+  }
+
+  private stopKeepAlive() {
+    if (this.keepAlive !== null) window.clearInterval(this.keepAlive);
+    this.keepAlive = null;
+  }
+
+  /**
+   * The socket again, to the same kernel, after it closed on its own: a
+   * few tries, a growing wait apart. A runtime that is gone — Colab says so
+   * when the proxy asks for a ticket — is not tried again. When no try
+   * opens one, the kernel is given up and `onClose` says why.
+   */
+  private reconnect(reason: string): Promise<void> {
+    if (this.reconnecting) return this.reconnecting;
+    this.onLink?.('reconnecting');
+    this.reconnecting = (async () => {
+      let why = reason;
+      for (const wait of RECONNECT_WAITS_MS) {
+        await new Promise((resolve) => window.setTimeout(resolve, wait));
+        if (this.ended) return;
+        try {
+          await this.connect();
+          this.reconnecting = null;
+          this.onLink?.('open');
+          return;
+        } catch (error) {
+          why = message(error);
+          if (error instanceof ColabRequestError && error.flags.gone) break;
+        }
+      }
+      this.reconnecting = null;
+      if (!this.ended) this.onClose(why);
+    })();
+    return this.reconnecting;
+  }
 
   /**
    * The runtime's socket, straight from the page when the runtime allows
@@ -459,6 +547,7 @@ class Kernel {
       const settle = () => {
         window.clearTimeout(timer);
         ready = true;
+        this.startKeepAlive();
         resolve();
       };
       socket.addEventListener('open', () => {
@@ -494,10 +583,14 @@ class Kernel {
       });
       socket.addEventListener('close', (event) => {
         window.clearTimeout(timer);
-        if (this.socket === socket) this.socket = null;
+        const mine = this.socket === socket;
+        if (mine) {
+          this.socket = null;
+          this.stopKeepAlive();
+        }
         this.closed?.();
         if (!opened || !ready) reject(new Error(`The runtime closed the connection (${event.code}${event.reason ? `: ${event.reason}` : ''}).`));
-        else this.onClose(event.reason || `closed (${event.code})`);
+        else if (mine && !this.ended) void this.reconnect(event.reason || `closed (${event.code})`);
       });
       this.socket = socket;
     });
@@ -508,7 +601,9 @@ class Kernel {
    * for each message meant for this request on the way. The reply's status
    * says whether it ended in an error; the count is In [n].
    */
-  execute(code: string, onOutput: (message: JupyterMessage) => void): Promise<{ status: 'ok' | 'error' | 'aborted'; executionCount?: number }> {
+  async execute(code: string, onOutput: (message: JupyterMessage) => void): Promise<{ status: 'ok' | 'error' | 'aborted'; executionCount?: number }> {
+    // A cell run while the socket is being opened again waits for it, rather than failing for a pipe that is a moment away.
+    if (!this.connected && this.reconnecting) await this.reconnecting.catch(() => undefined);
     return new Promise((resolve, reject) => {
       const socket = this.socket;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -556,6 +651,8 @@ class Kernel {
   }
 
   close() {
+    this.ended = true;
+    this.stopKeepAlive();
     const socket = this.socket;
     this.socket = null;
     this.closed = null;
@@ -578,25 +675,34 @@ function stopWatching() {
   watching = null;
 }
 
+/** The monitor kernel being started, so two askers at once — the reading on connect and the watch of a first run — share one, not start two. */
+let startingMonitor: Promise<Kernel | null> | null = null;
+
 /** The monitor kernel, started on first need. Null when it could not be had — the watch is a reading, not the work. */
-async function ensureMonitor(runtime: Runtime, googleToken: string): Promise<Kernel | null> {
-  if (monitor) return monitor;
-  try {
-    const made = await relay<{ kernel: { id: string } }>('/colab/kernels', googleToken, { method: 'POST', body: { proxy: runtime.proxy } });
-    const attached = new Kernel(
-      runtime.proxy,
-      made.kernel.id,
-      () => {
-        if (monitor === attached) monitor = null;
-      },
-      ticketFor(runtime),
-    );
-    await attached.connect();
-    monitor = attached;
-    return attached;
-  } catch {
-    return null;
-  }
+function ensureMonitor(runtime: Runtime, googleToken: string): Promise<Kernel | null> {
+  if (monitor) return Promise.resolve(monitor);
+  if (startingMonitor) return startingMonitor;
+  startingMonitor = (async () => {
+    try {
+      const made = await relay<{ kernel: { id: string } }>('/colab/kernels', googleToken, { method: 'POST', body: { proxy: runtime.proxy } });
+      const attached = new Kernel(
+        runtime.proxy,
+        made.kernel.id,
+        () => {
+          if (monitor === attached) monitor = null;
+        },
+        ticketFor(runtime),
+      );
+      await attached.connect();
+      monitor = attached;
+      return attached;
+    } catch {
+      return null;
+    } finally {
+      startingMonitor = null;
+    }
+  })();
+  return startingMonitor;
 }
 
 /** One reading of the machine from the monitor kernel; null when the probe could not run or printed nothing readable. */
@@ -726,7 +832,7 @@ const lost = (reason: string) => {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
   const runs = Object.fromEntries(Object.entries(state.runs).map(([key, run]) => [key, run.state === 'running' || run.state === 'queued' ? { ...run, state: 'interrupted' as RunState, stale: true, ms: Date.now() - run.startedAt } : { ...run, stale: true }]));
-  set({ status: 'lost', kernel: undefined, running: undefined, runs, error: reason, sample: undefined });
+  set({ status: 'lost', kernel: undefined, running: undefined, runs, error: reason, sample: undefined, reconnecting: false });
 };
 
 /** A ticket for the proxy to carry a kernel's socket: asked for as the page connects, with the person's own token. */
@@ -745,9 +851,12 @@ async function attach(runtime: Runtime, googleToken: string): Promise<Kernel> {
     runtime.proxy,
     id,
     (reason) => {
-      if (kernel === attached) lost(`The connection to the runtime closed: ${reason}`);
+      if (kernel === attached) lost(`The connection to the runtime closed and could not be opened again: ${reason}`);
     },
     ticketFor(runtime),
+    (link) => {
+      if (kernel === attached) set({ reconnecting: link === 'reconnecting', via: attached.via });
+    },
   );
   await attached.connect();
   return attached;
@@ -774,7 +883,7 @@ export async function connect(machine: Machine = state.machine): Promise<void> {
     kernel = await attach(runtime, googleToken);
     write(session(), RUNTIME_KEY, runtime);
     const same = state.runtime?.endpoint === runtime.endpoint;
-    set({ status: 'idle', runtime, kernel: kernel.id, via: kernel.via, startedAt: same && state.startedAt ? state.startedAt : Date.now(), error: undefined, history: same ? state.history : [] });
+    set({ status: 'idle', runtime, kernel: kernel.id, via: kernel.via, reconnecting: false, startedAt: same && state.startedAt ? state.startedAt : Date.now(), error: undefined, history: same ? state.history : [] });
     void refreshUnits(googleToken);
     // What the machine is, read once as it connects, so the page can say so before anything runs; then the pulse, if it is on.
     void probeMachine().finally(() => schedulePulse());
@@ -882,7 +991,7 @@ export async function stopRuntime(): Promise<void> {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
   const runs = Object.fromEntries(Object.entries(state.runs).map(([key, run]) => [key, { ...run, stale: true }]));
-  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, runs, error: undefined, sample: undefined, specs: undefined, history: [] });
+  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, runs, error: undefined, sample: undefined, specs: undefined, history: [], reconnecting: false });
   if (!runtime) return;
   try {
     const googleToken = await tokenOrConnect();
@@ -897,7 +1006,7 @@ export function disconnect(): void {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
   dropColab();
-  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, error: undefined, units: undefined, sample: undefined, specs: undefined, history: [] });
+  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, error: undefined, units: undefined, sample: undefined, specs: undefined, history: [], reconnecting: false });
 }
 
 export interface RuntimeEntry {

@@ -194,7 +194,7 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
     colab.status === 'connecting'
       ? 'Colab · connecting…'
       : connected && colab.runtime
-        ? `${machineLabel(colab.runtime)} · ${colab.status === 'busy' ? busyText(colab.sample) : 'idle'} · ${clock(colab.startedAt, now)}`
+        ? `${machineLabel(colab.runtime)} · ${colab.reconnecting ? 'reconnecting…' : colab.status === 'busy' ? busyText(colab.sample) : 'idle'} · ${clock(colab.startedAt, now)}`
         : colab.status === 'lost'
           ? `${colab.runtime ? machineLabel(colab.runtime) : 'Colab'} · runtime ended`
           : colab.status === 'error'

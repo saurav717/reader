@@ -45,6 +45,8 @@ let kernelCount = 0;
 let executionCount = 0;
 const ran = [];
 const probes = [];
+/** The keep-alive frames the page sent while nothing else was going, by the time they came. */
+const keepalives = [];
 const header = (type) => ({ msg_id: `k-${Math.random().toString(36).slice(2)}`, msg_type: type, session: 'kernel', username: 'kernel', version: '5.3', date: new Date().toISOString() });
 const send = (socket, type, content, parent, channel = 'iopub') => socket.send(JSON.stringify({ header: header(type), parent_header: { msg_id: parent }, metadata: {}, content, channel, buffers: [] }));
 
@@ -72,6 +74,11 @@ kernels.on('connection', (socket) => {
     try {
       message = JSON.parse(String(data));
     } catch {
+      return;
+    }
+    if (message?.header?.msg_type === 'kernel_info_request') {
+      keepalives.push(Date.now());
+      send(socket, 'kernel_info_reply', { status: 'ok', protocol_version: '5.3', implementation: 'stand-in' }, message.header.msg_id, 'shell');
       return;
     }
     if (message?.header?.msg_type !== 'execute_request') return;
@@ -306,6 +313,19 @@ await page.locator('.nb-cells').evaluate((el) => (el.scrollTop = 0));
 await page.waitForTimeout(300);
 await page.screenshot({ path: `${OUT}/colab-notebook-2-ran-dark.png` });
 
+console.log('\n== the runtime drops the sockets, and the page opens them again ==');
+// The kernel's socket and the monitor's, closed from the runtime's side the way an idle tunnel closes one: nothing has ended.
+const socketsBefore = kernels.clients.size;
+const probesAtDrop = probes.length;
+for (const socket of kernels.clients) socket.close(1001, 'idle');
+const saidReconnecting = await page.waitForFunction(() => /reconnecting/.test(document.querySelector('.colab-chip')?.textContent ?? ''), null, { timeout: 4000 }).then(() => true).catch(() => false);
+check('the chip says reconnecting for the moment it takes', saidReconnecting);
+await page.waitForFunction(() => /T4 · idle/.test(document.querySelector('.colab-chip')?.textContent ?? ''), null, { timeout: 15000 });
+await page.waitForTimeout(2500);
+check('the two sockets — the kernel’s and the monitor’s — are back, to the same kernels, and the runtime is not reported as ended', socketsBefore === 2 && kernels.clients.size === 2 && kernelCount === 2 && !/runtime ended/.test(await page.locator('.colab-chip').textContent()), `${socketsBefore} before, ${kernels.clients.size} after, ${kernelCount} kernels started`);
+check('the pane stayed with the runtime, and the reads went on', (await page.locator('.nb-side .rt-pane .rt-head').count()) === 1 && probes.length > probesAtDrop);
+check('the cell keeps its run', (await first.locator('.nb-count').textContent()) === '[1]');
+
 console.log('\n== a slow cell, watched on the timeline ==');
 await page.locator('.nb-add').click();
 await page.waitForTimeout(200);
@@ -416,6 +436,7 @@ await page.locator('.nb-cell', { hasText: 'the answer is 42' }).scrollIntoViewIf
 await page.waitForTimeout(300);
 await page.screenshot({ path: `${OUT}/colab-notebook-5-light.png` });
 
+check('the page kept the sockets alive with a frame every fifteen seconds while nothing ran', keepalives.length >= 1, `${keepalives.length} keep-alive frames`);
 check('no page errors', errors.length === 0, errors.join(' | '));
 console.log(`\n${problems.length ? `${problems.length} problem(s):\n  ${problems.join('\n  ')}` : 'all good'}\n`);
 await browser.close();

@@ -2682,6 +2682,19 @@ and **Forget Colab in this tab**. When Colab ends an idle runtime the cells
 keep what they printed, marked as from a runtime that has ended, and a line
 under the bar offers a new one.
 
+The runtime outlives a quiet page. Colab keeps a machine until its own idle
+limit — about an hour and a half without a cell on the free tier, and
+twelve hours in all — and the reader has no shorter one. What a quiet page
+can lose is the socket to the kernel: Colab's tunnel, the Worker's bridge
+and the browser are each free to close a connection that has carried
+nothing for a while, and an early version took that for the runtime ending.
+Now a small frame (a `kernel_info_request`) goes down every kernel socket
+every fifteen seconds while nothing else does, and a socket that closes
+anyway is opened again to the same kernel — the chip says *reconnecting…*
+for the moment it takes, a cell run meanwhile waits for it, and every
+variable is where it was. Only when a few tries a growing wait apart all
+fail, or Colab says the runtime is gone, does the page say so.
+
 ![the runtime menu: the machine, how long it has been up, compute units; run all, open in Colab, restart, change machine, stop](docs/mockups/colab-5-runtime.png)
 
 The rules the page keeps, and why, are in [docs/colab-run.md](docs/colab-run.md):
