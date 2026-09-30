@@ -10,7 +10,10 @@ import { clearSelection, currentSelection, currentSelectionIn, explanationOnScre
 import Assistant from './components/Assistant';
 import Explain from './components/Explain';
 import { RailProgress } from './components/ExplainProgress';
+import { colabNow, machineLabel } from './lib/colab';
 import { explanationFor, setExplainDrive } from './lib/explain';
+import { notebookFor } from './lib/notebook';
+import { cellsBlock } from './lib/notebookAsk';
 import { explainDrive } from './lib/explainDrive';
 import CollectionView from './components/CollectionView';
 import JunkView from './components/JunkView';
@@ -635,8 +638,12 @@ export default function App() {
         const explainPage = explainOpen ? explanationOnScreen() : null;
         const explained = explainPage ? explanationFor(paper.id)?.content : '';
         const explanation = explainPage && explained ? { text: explained, visible: explainPage.visible, layout: explainPage.layout, covers: explainPage.covers } : undefined;
+        // The Colab tab, when it is the one open: the notebook, cell by cell, and the runtime it is on.
+        const nb = explainOpen && document.querySelector('.nb-page') ? notebookFor(paper.id) : undefined;
+        const colab = colabNow();
+        const notebook = nb ? { text: cellsBlock(nb.cells, colab.runs), runtime: colab.runtime && (colab.status === 'idle' || colab.status === 'busy') ? machineLabel(colab.runtime) : undefined } : undefined;
         return {
-          where: explanation ? 'Reading a paper, with its Explain page open' : 'Reading a paper',
+          where: notebook ? 'Reading a paper, with its Colab notebook open' : explanation ? 'Reading a paper, with its Explain page open' : 'Reading a paper',
           paper: {
             id: paper.id,
             title: paper.title,
@@ -656,6 +663,7 @@ export default function App() {
           selection: currentSelection(),
           selectionIn: currentSelectionIn(),
           explanation,
+          notebook,
           highlights: highlights
             .filter((h) => h.paperId === paper.id && !h.orphaned)
             .map((h) => ({ exact: h.exact, kind: kind(h.color), note: h.note, section: h.section })),

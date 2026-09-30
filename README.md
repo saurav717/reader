@@ -2828,7 +2828,52 @@ ticks — are `src/lib/runtime.ts`; the pane is `src/components/RuntimePane.tsx`
 The model and the store are `src/lib/notebook.ts`; the page is
 `src/components/Notebook.tsx`. `scripts/colab-notebook-smoke.mjs` drives it
 against a stand-in runtime — the tab, a cell run, the typing and the keys,
-the files, the download, a reload — and photographs it.
+the ask bar, Rewrite, the files, the download, a reload — and photographs it.
+
+#### The ask bar: cells written, changed and fixed for you
+
+Under the notebook's toolbar is the same bar the Explanation and
+Implementation pages have, and on this tab it writes cells. *Write the
+paper's core method as a runnable cell*, *rewrite cell 5 in PyTorch, on the
+GPU*, *fix the error in cell 7*, *add a cell that plots the loss curve*: the
+request goes to the model the pages are written with (the one under
+**Rewrite**, or the Ask AI model), with the paper, the explanation, the plan
+and the notebook as it stands — every cell numbered, with what it last
+printed and any traceback — and the answer comes back as cells. A new cell
+goes where the model says (`after=3`, or at the end), a changed cell is
+replaced in place, and each is marked **New · from the ask bar** or
+**Rewritten at your request** until it is edited or run. Nothing runs on its
+own: **Run them** under the bar runs the cells it wrote, in order, and
+**Undo** puts the notebook back as it was. Pick a cell and the bar is about
+it — a *cell 5* chip, suggestions for that cell, a new cell lands right
+after it — and the **Fix this cell** button under a failed cell takes the
+traceback to the bar the same way. The bar's suggestions show when it is
+focused and empty.
+
+![a cell rewritten in place and a new cell after it, both marked, with Run them and Undo under the bar](docs/colab-notebook-ask.png)
+
+![the bar with a cell picked: suggestions for that cell](docs/colab-notebook-ask-suggestions.png)
+
+**Rewrite** in the page's bar, on this tab, rewrites the notebook rather
+than the explanation under it: the model picked writes the notebook again
+from scratch — the paper's method as a small faithful implementation, an
+experiment sized for the runtime, a text cell before each step — and every
+cell is replaced, with Undo bringing the old ones back. **Stop** ends a
+request half-way, with nothing changed.
+
+![the notebook rewritten: three new cells, every one marked as the model's](docs/colab-notebook-rewritten.png)
+
+The Ask AI window sees the notebook too. While the Colab tab is open, a
+question there goes with `<colab_notebook>`: the cells numbered, what each
+printed, the tracebacks, and which runtime it is on — so *what does cell 3
+print?*, *why does this fail?* and *does this output bear out the paper?*
+are answered from the notebook, under the explanation's context switch. It
+answers and explains; the tab's own bar is the one that writes cells.
+
+The prompt, the reply's grammar, the parser and the store are
+`src/lib/notebookAsk.ts`; the edits are resolved and applied in
+`src/lib/notebook.ts` (`resolveEdits`, `applyEdits`, `replaceCells`,
+`restoreCells`), with tests in `scripts/colab.test.mjs`.
 
 ### Asking about it, or changing it
 

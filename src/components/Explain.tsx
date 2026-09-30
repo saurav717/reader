@@ -44,6 +44,8 @@ import { CloseIcon, ColabIcon, ExplainIcon, NoteIcon, OpacityIcon, PlanIcon, Spa
 import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, PlanContext, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
 import { CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
 import NotebookPage from './Notebook';
+import { notebookAskFor, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk } from '../lib/notebookAsk';
+import { colabNow } from '../lib/colab';
 import { cellKey, colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, runCell, useClient as useColabClient } from '../lib/colab';
 import { KeepButton, KeepContext, tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
@@ -639,12 +641,15 @@ function RewriteMenu({
   keys,
   disabled,
   implementing,
+  forNotebook,
   onRewrite,
 }: {
   current: string;
   keys: Record<string, unknown>;
   disabled: boolean;
   implementing: boolean;
+  /** On the Colab tab: the notebook, not the page. */
+  forNotebook?: boolean;
   onRewrite: (model: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -700,7 +705,7 @@ function RewriteMenu({
         aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen((now) => !now)}
-        title={implementing ? 'Plan it again from scratch, for the machine picked now — with the model you choose' : 'Write it again from scratch — with the model you choose'}
+        title={forNotebook ? 'Write the notebook again from scratch — the paper’s method and an experiment as cells, with the model you choose' : implementing ? 'Plan it again from scratch, for the machine picked now — with the model you choose' : 'Write it again from scratch — with the model you choose'}
       >
         Rewrite <span className="caret" aria-hidden="true">▾</span>
       </button>
@@ -708,7 +713,7 @@ function RewriteMenu({
         <div className={`menu right rewrite-menu is-${view}`} role="menu" aria-label="Rewrite with">
           <div className="rw-head">
             <span className="rw-head-text">
-              <b>Rewrite with</b>
+              <b>Rewrite {forNotebook ? 'the notebook ' : ''}with</b>
               <span>Written again from scratch · Undo brings it back</span>
             </span>
             <span className="rw-views" role="group" aria-label="Show the models as">
@@ -914,6 +919,9 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const runnable = useMemo(() => Array.from(cells.entries()).map(([block, n]) => ({ key: cellKey((block as Extract<Block, { kind: 'code' }>).code), code: (block as Extract<Block, { kind: 'code' }>).code, label: `In [${n}]` })), [cells]);
   useColabClient(settings.googleClientId);
   const streaming = Boolean(explanation?.streaming);
+  // The Colab tab's own request, for the header's Rewrite and Stop while that tab is the one open.
+  const nbAsk = useSyncExternalStore(subscribeNotebookAsk, () => notebookAskFor(paperId));
+  const nbBusy = Boolean(nbAsk.pending && !nbAsk.pending.error);
   const thought = lastThought(explanation?.thinking);
   const busy = Boolean(streaming || (pending && !pending.error));
   const canAsk = Boolean(explanation?.content && explanation.model && assistant.keys[modelSpec(explanation.model).provider] && !streaming);
@@ -1123,6 +1131,11 @@ export default function Explain({ paperId, title, authors, published, screen, on
   // Rewrite, with the model picked in its menu — the one chosen now, or another.
   const rewriteWith = async (id: string) => {
     const read = await screen();
+    if (page === 'colab') {
+      // On the Colab tab, Rewrite is the notebook's: its cells written again by the model picked, not the page under it.
+      await rewriteNotebook({ paperId, screen: read, model: id, runs: colabNow().runs, pages: { explanation: STORES.explain.get(paperId)?.content, plan: implementationFor(paperId)?.content } });
+      return;
+    }
     await store.generate(read, id);
   };
 
@@ -1250,7 +1263,25 @@ export default function Explain({ paperId, title, authors, published, screen, on
             Notebook ↓
           </button>
         )}
-        {streaming ? (
+        {page === 'colab' ? (
+          nbBusy ? (
+            <button type="button" className="btn sm" onClick={stopNotebookAsk}>
+              Stop
+            </button>
+          ) : (
+            <RewriteMenu
+              current={nbAsk.model ?? model}
+              keys={assistant.keys}
+              disabled={!assistant.keys[modelSpec(nbAsk.model ?? model).provider]}
+              implementing={false}
+              forNotebook
+              onRewrite={(id) => {
+                setModel(id);
+                void rewriteWith(id);
+              }}
+            />
+          )
+        ) : streaming ? (
           <button type="button" className="btn sm" onClick={store.stop}>
             Stop
           </button>
@@ -1284,7 +1315,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
       <ColabBanner />
 
       {page === 'colab' ? (
-        <NotebookPage paperId={paperId} title={title} sections={STORES.explain.get(paperId)?.content ? parseExplanation(STORES.explain.get(paperId)!.content) : sections} planSections={() => (implementationFor(paperId)?.content ? parseExplanation(implementationFor(paperId)!.content) : null)} />
+        <NotebookPage paperId={paperId} title={title} screen={screen} sections={STORES.explain.get(paperId)?.content ? parseExplanation(STORES.explain.get(paperId)!.content) : sections} planSections={() => (implementationFor(paperId)?.content ? parseExplanation(implementationFor(paperId)!.content) : null)} />
       ) : (
         <>
       <div className="explain-ask">

@@ -13,18 +13,23 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import DOMPurify from 'dompurify';
+import { getState as assistantState, modelSpec, PROVIDERS, subscribe as subscribeAssistant } from '../lib/assistant';
+import type { Screen } from '../lib/assistant';
 import { colabAvailable, colabGranted, connect as connectColab, interrupt as interruptColab, listContents, machineLabel, runAll, runCell } from '../lib/colab';
 import type { CellRun, RuntimeEntry } from '../lib/colab';
+import { explanationFor } from '../lib/explain';
 import type { Section } from '../lib/explain';
 import { commitFiles, targetFrom } from '../lib/github';
-import { computeOf } from '../lib/implement';
+import { computeOf, implementationFor } from '../lib/implement';
+import { askNotebook, dismissNotebookAsk, loadNotebookAsk, notebookAskFor, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
+import type { AskScope } from '../lib/notebookAsk';
 import { markdown } from '../lib/markdown';
 import { appendCells, clearOutputs, fromIpynb, insertCell, loadNotebook, moveCell, notebookFileName, notebookFor, removeCell, runKey, seedCells, setOutputs, setSource, setType, subscribeNotebook, toIpynb } from '../lib/notebook';
 import type { NbCell } from '../lib/notebook';
 import { useStore } from '../lib/store';
 import { attachUrl, CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Colab';
-import { highlightPython } from './Explain';
-import { CloseIcon } from './icons';
+import { highlightPython, lastThought } from './Explain';
+import { CloseIcon, SparkleIcon } from './icons';
 import RuntimePane from './RuntimePane';
 
 const useNotebook = (paperId: string) => useSyncExternalStore(subscribeNotebook, () => notebookFor(paperId));
@@ -162,7 +167,7 @@ function Cell({
   const python = cell.type === 'code';
   return (
     <section
-      className={`nb-cell is-${cell.type}${selected ? ' is-selected' : ''}${editing ? ' is-editing' : ''}${run ? ` is-${run.state}` : ''}`}
+      className={`nb-cell is-${cell.type}${selected ? ' is-selected' : ''}${editing ? ' is-editing' : ''}${run ? ` is-${run.state}` : ''}${cell.fresh ? ' is-fresh' : ''}`}
       data-cell={cell.id}
       onMouseDown={onSelect}
       aria-label={`${cell.type === 'code' ? 'Code' : 'Text'} cell ${index + 1}`}
@@ -186,6 +191,11 @@ function Cell({
         <span className="nb-count">{python ? (live ? '[*]' : `[${run?.executionCount ?? cell.count ?? ' '}]`) : ''}</span>
       </div>
       <div className="nb-body">
+        {cell.fresh ? (
+          <span className="revised-pill nb-fresh" title="From the ask bar; the mark goes when the cell is edited or run">
+            {cell.fresh === 'new' ? 'New · from the ask bar' : 'Rewritten at your request'}
+          </span>
+        ) : null}
         {cell.type === 'code' || editing ? (
           <Editor value={cell.source} python={python} autoFocus={editing} onChange={(next) => setSource(paperId, cell.id, next)} onKeyDown={keys} placeholder={python ? '# Python, on your Colab runtime' : 'Markdown'} onBlur={() => (python ? onEdit(false) : undefined)} />
         ) : (
@@ -297,10 +307,18 @@ function FilesPane() {
 
 type Push = { state: 'idle' } | { state: 'pushing' } | { state: 'pushed'; url: string } | { state: 'error'; message: string };
 
-export default function NotebookPage({ paperId, title, sections, planSections, onAsk }: { paperId: string; title: string; sections: Section[]; planSections?: () => Section[] | null; onAsk?: (request: string, quote: string) => void }) {
+export default function NotebookPage({ paperId, title, screen, sections, planSections }: { paperId: string; title: string; screen: () => Promise<Screen>; sections: Section[]; planSections?: () => Section[] | null }) {
   const nb = useNotebook(paperId);
   const colab = useColab();
   const { settings } = useStore();
+  const assistant = useSyncExternalStore(subscribeAssistant, assistantState);
+  const nbAsk = useSyncExternalStore(subscribeNotebookAsk, () => notebookAskFor(paperId));
+  const [ask, setAsk] = useState('');
+  const [askFocused, setAskFocused] = useState(false);
+  const [justAsked, setJustAsked] = useState(false);
+  /** A passage the next request is about: an output, a traceback, a bit of code. The cell it is about is the one picked. */
+  const [quote, setQuote] = useState<string | undefined>(undefined);
+  const askRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   /** The pane on the right: the runtime, the files, or nothing. It opens on its own when a runtime connects, and folds when it ends. */
@@ -315,10 +333,17 @@ export default function NotebookPage({ paperId, title, sections, planSections, o
   const filePick = useRef<HTMLInputElement>(null);
   useEffect(() => {
     void loadNotebook(paperId, title, () => seedCells(title, sections));
+    void loadNotebookAsk(paperId);
     // Seeded once; the cells are the notebook's from then on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
   const cells = nb?.cells ?? [];
+  // The ask bar: the model the pages are written with, or the one Rewrite last picked here; a key for it; nothing being answered.
+  const model = nbAsk.model ?? assistant.prefs.explainModel ?? assistant.prefs.model;
+  const writer = PROVIDERS[modelSpec(model).provider].name;
+  const asking = Boolean(nbAsk.pending && !nbAsk.pending.error);
+  const canAsk = Boolean(nb && assistant.keys[modelSpec(model).provider] && !asking);
+  const thought = lastThought(nbAsk.pending?.thinking);
   const available = colabAvailable(settings.googleClientId);
   const connected = colab.status === 'idle' || colab.status === 'busy';
   useEffect(() => {
@@ -343,6 +368,32 @@ export default function NotebookPage({ paperId, title, sections, planSections, o
   const goTo = (id: string) => {
     setSelected(id);
     root.current?.querySelector<HTMLElement>(`[data-cell="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+  const selectedIndex = selected ? cells.findIndex((cell) => cell.id === selected) : -1;
+  /** A request to the bar: about the cell picked, and the passage taken, unless the caller says otherwise. */
+  const submit = async (request = ask, scope: AskScope = { cell: selectedIndex >= 0 ? selectedIndex + 1 : undefined, quote }) => {
+    if (!request.trim() || !canAsk) return;
+    const read = await screen();
+    setAsk('');
+    setQuote(undefined);
+    setJustAsked(true);
+    await askNotebook({ paperId, screen: read, model, request, scope, runs: colab.runs, pages: { explanation: explanationFor(paperId)?.content, plan: implementationFor(paperId)?.content } });
+  };
+  // A reply landed: the first cell it wrote or changed comes into view, picked.
+  const lastAt = nbAsk.last?.at;
+  useEffect(() => {
+    const first = nbAsk.last?.touched[0];
+    if (lastAt && first && Date.now() - lastAt < 5000) goTo(first);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastAt]);
+  /** Runs the cells the last reply wrote, in order. */
+  const runFresh = () => {
+    const touched = new Set(nbAsk.last?.touched ?? []);
+    const fresh = cells.filter((cell) => touched.has(cell.id) && cell.type === 'code' && cell.source.trim());
+    if (!fresh.length) return;
+    const go = () => void runAll(fresh.map((cell) => ({ key: runKey(cell.id), code: cell.source })));
+    if (colab.status === 'off' && !colabGranted()) setCard({ then: go });
+    else go();
   };
   const busy = Boolean(colab.running) || colab.status === 'connecting';
   const target = targetFrom(settings);
@@ -543,6 +594,127 @@ export default function NotebookPage({ paperId, title, sections, planSections, o
         </button>
         <input ref={filePick} type="file" accept=".ipynb,application/x-ipynb+json,application/json" hidden onChange={(event) => void addFromFile(event.target.files?.[0]).then(() => (event.target.value = ''))} />
       </div>
+      <div className="explain-ask nb-ask">
+        <div className="ask-column">
+          <form
+            className={`ask-field${asking ? ' is-busy' : ''}${askFocused ? ' is-focused' : ''}${!canAsk ? ' is-off' : ''}`}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submit();
+            }}
+          >
+            <SparkleIcon size={16} />
+            {selectedIndex >= 0 ? (
+              <span className="ask-chip" title={`About cell ${selectedIndex + 1}: a new cell goes after it, a change is to it`}>
+                cell {selectedIndex + 1}
+                <button type="button" aria-label="Not about this cell" onClick={() => setSelected(null)}>
+                  ×
+                </button>
+              </span>
+            ) : null}
+            {quote ? (
+              <span className="ask-chip quote" title={quote}>
+                “{quote.length > 42 ? `${quote.slice(0, 42)}…` : quote}”
+                <button type="button" aria-label="Not about this passage" onClick={() => setQuote(undefined)}>
+                  ×
+                </button>
+              </span>
+            ) : null}
+            <input
+              ref={askRef}
+              value={ask}
+              disabled={!canAsk}
+              onChange={(event) => {
+                setAsk(event.target.value);
+                setJustAsked(false);
+              }}
+              onFocus={() => {
+                setAskFocused(true);
+                setJustAsked(false);
+              }}
+              onBlur={() => window.setTimeout(() => setAskFocused(false), 150)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') event.currentTarget.blur();
+                event.stopPropagation();
+              }}
+              placeholder={
+                !assistant.keys[modelSpec(model).provider]
+                  ? `Ask ${writer} to write or change cells here, once its key is in Settings`
+                  : selectedIndex >= 0
+                    ? `Ask ${writer} to write a cell after cell ${selectedIndex + 1}, or to change it…`
+                    : `Ask ${writer} to write code from the paper, change a cell, or fix one…`
+              }
+              aria-label="Ask for a cell, or a change to one"
+            />
+            {asking ? (
+              <button type="button" className="btn sm" onClick={stopNotebookAsk}>
+                Stop
+              </button>
+            ) : (
+              <button type="submit" className="btn sm primary" disabled={!canAsk || !ask.trim()}>
+                Ask
+              </button>
+            )}
+          </form>
+          {nbAsk.pending && !nbAsk.pending.error ? (
+            <div className="ask-status is-live">
+              <span className="spinner" />
+              <span className="ask-note" title={thought || undefined}>
+                {nbAsk.pending.reply ? 'Writing the cells' : thought ? `Thinking — ${thought}` : 'Reading the notebook and the paper'} — <em>{nbAsk.pending.request}</em>
+              </span>
+            </div>
+          ) : nbAsk.pending?.error ? (
+            <div className="ask-status is-error">
+              <span className="ask-note">{nbAsk.pending.error}</span>
+              <button type="button" className="btn sm ghost" onClick={() => dismissNotebookAsk(paperId)}>
+                Dismiss
+              </button>
+            </div>
+          ) : askFocused && !ask && canAsk && !justAsked ? (
+            <div className="ask-suggestions">
+              {(selectedIndex >= 0
+                ? [
+                    `Rewrite cell ${selectedIndex + 1} in PyTorch, on the GPU`,
+                    `Explain what cell ${selectedIndex + 1} does in a text cell above it`,
+                    `Make cell ${selectedIndex + 1} print a check that it is right`,
+                    `Split cell ${selectedIndex + 1} into smaller steps`,
+                    `Fix the error in cell ${selectedIndex + 1}`,
+                  ]
+                : [
+                    "Write the paper's core method as a runnable cell",
+                    'Write a cell that trains a small version on a toy dataset',
+                    'Add a cell that plots the loss curve',
+                    'Reproduce the main table on a tiny scale',
+                    'Rewrite the code in JAX',
+                    'Add a cell that times a forward pass on this GPU',
+                  ]
+              ).map((suggestion) => (
+                <button key={suggestion} type="button" className="ask-suggestion" onMouseDown={(event) => event.preventDefault()} onClick={() => void submit(suggestion)}>
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          ) : nbAsk.last ? (
+            <div className="ask-status is-done">
+              <span className="check">✓</span>
+              <span className="ask-note">
+                {nbAsk.last.note || `Done: ${nbAsk.last.request}`}
+                {nbAsk.last.touched.length ? ` · ${nbAsk.last.touched.length} ${nbAsk.last.touched.length === 1 ? 'cell' : 'cells'}` : ''}
+              </span>
+              {nbAsk.last.touched.some((id) => cells.find((cell) => cell.id === id)?.type === 'code') ? (
+                <button type="button" className="btn sm ghost" disabled={!available || busy} onClick={runFresh} title="Run the cells it wrote, in order">
+                  Run them
+                </button>
+              ) : null}
+              {nbAsk.last.touched.length ? (
+                <button type="button" className="btn sm ghost" onClick={() => undoNotebookReply(paperId)} title={`Put the cells back as they were before “${nbAsk.last.request}”`}>
+                  Undo
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
       {note || push.state === 'pushed' || push.state === 'error' ? (
         <div className={`nb-note${push.state === 'error' ? ' is-problem' : ''}`} role="status">
           {note ??
@@ -595,7 +767,7 @@ export default function NotebookPage({ paperId, title, sections, planSections, o
                 onSelect={() => setSelected(cell.id)}
                 onEdit={(on) => setEditing((current) => (on ? cell.id : current === cell.id ? null : current))}
                 onRun={(then) => runOne(cell, then)}
-                onAsk={onAsk}
+                onAsk={canAsk ? (request, cellQuote) => void submit(request, { cell: index + 1, quote: cellQuote }) : undefined}
               />
             ))
           )}
