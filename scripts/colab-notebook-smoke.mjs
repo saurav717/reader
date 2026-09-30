@@ -315,6 +315,34 @@ check('no cell has run', (await page.locator('.nb-cell .cell-output').count()) =
 check('the page’s ask bar and the outline are put away; the notebook has a bar of its own', (await page.locator('.explain-ask:not(.nb-ask)').count()) === 0 && (await page.locator('.explain-outline').count()) === 0 && (await page.locator('.nb-ask input').count()) === 1);
 await page.screenshot({ path: `${OUT}/colab-notebook-1-seeded-dark.png` });
 
+console.log('\n== every cell is editable: a seeded code cell, typed into ==');
+const seededCode = codeCells.first();
+const seededArea = seededCode.locator('.nb-text');
+const seededBefore = await seededArea.inputValue();
+await seededArea.click();
+await page.keyboard.press('Control+End');
+await page.keyboard.type('\n# a line of my own');
+await page.waitForTimeout(300);
+check('typing into a seeded code cell changes it, and the colouring follows', (await seededArea.inputValue()) === `${seededBefore}\n# a line of my own` && /a line of my own/.test(await seededCode.locator('.nb-shadow').textContent()));
+await seededArea.press('Control+z').catch(() => undefined);
+await seededArea.fill(seededBefore);
+await page.waitForTimeout(200);
+check('and it can be put back', (await seededArea.inputValue()) === seededBefore);
+await page.keyboard.press('Escape');
+const textCell = page.locator('.nb-cell.is-markdown').nth(1);
+await textCell.hover();
+await textCell.locator('.nb-tools button', { hasText: 'Edit' }).click();
+await page.waitForTimeout(200);
+check('Edit in a text cell’s tools opens its editor, with the caret at the end', (await textCell.locator('.nb-text').count()) === 1 && (await textCell.evaluate((el) => el.contains(document.activeElement))));
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await seededCode.hover();
+await seededCode.locator('.nb-tools button', { hasText: 'Edit' }).click();
+await page.waitForTimeout(200);
+check('and in a code cell’s, it puts the caret in the code', await seededCode.evaluate((el) => el.contains(document.activeElement) && document.activeElement.classList.contains('nb-text')));
+await page.keyboard.press('Escape');
+await page.locator('.nb-cells').click({ position: { x: 4, y: 4 } });
+
 console.log('\n== a cell runs in the runtime ==');
 const first = codeCells.first();
 await first.scrollIntoViewIfNeeded();
@@ -517,6 +545,28 @@ await page.screenshot({ path: `${OUT}/colab-notebook-11-ask-hidden-dark.png` });
 await askToggle.click();
 await page.waitForTimeout(200);
 check('and comes back from the toolbar, with its status still there', (await page.locator('.nb-ask').count()) === 1 && (await bar.getByRole('button', { name: 'Undo' }).count()) === 1 && (await page.evaluate(() => localStorage.getItem('reader.colab.ask-bar'))) === 'shown');
+
+console.log('\n== the bar, asked for the whole notebook again ==');
+await page.locator('.nb-cells').click({ position: { x: 4, y: 4 } });
+await page.evaluate(
+  (events) => {
+    window.__nbReply = events;
+  },
+  sse('The notebook again, in PyTorch.\n\n```markdown notebook=new\n# Attention in PyTorch\n```\n\n```python\nimport torch\nprint(torch.__version__)\n```\n\n```python\nprint("a small training run")\n```'),
+);
+const cellsBeforeWhole = await page.locator('.nb-cell').count();
+const requestsBeforeWhole = await page.evaluate(() => window.__requests.length);
+await askInput.fill('Rewrite the whole notebook from scratch in PyTorch, with a small training run');
+await page.keyboard.press('Enter');
+await page.waitForSelector('.nb-ask .ask-status.is-done', { timeout: 20000 });
+await page.waitForTimeout(400);
+const wholeAsk = await page.evaluate((from) => window.__requests[from], requestsBeforeWhole);
+check('a request for the whole notebook is sent as the rewrite, with the reader’s words steering it', /Write this notebook again from scratch/.test(wholeAsk) && /The reader asks, in their words: “Rewrite the whole notebook from scratch in PyTorch/.test(wholeAsk));
+check('and the answer replaces every cell', (await page.locator('.nb-cell').count()) === 3 && (await page.locator('.nb-cell.is-fresh').count()) === 3 && (await page.locator('.nb-cell', { hasText: 'a small training run' }).count()) === 1, `${await page.locator('.nb-cell').count()} cells`);
+await page.screenshot({ path: `${OUT}/colab-notebook-17-whole-from-bar-dark.png` });
+await bar.getByRole('button', { name: 'Undo' }).click();
+await page.waitForTimeout(300);
+check('Undo brings the notebook back', (await page.locator('.nb-cell').count()) === cellsBeforeWhole && (await page.locator('.nb-cell', { hasText: 'the answer is 42' }).count()) === 1);
 
 console.log('\n== Rewrite, on this tab, rewrites the notebook ==');
 await page.evaluate(

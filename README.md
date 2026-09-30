@@ -2869,6 +2869,17 @@ runtime, a text cell before each step — and every cell is replaced, with
 Undo bringing the old ones back. The header on this tab reads *Notebook
 with …* after whichever model writes it.
 
+The bar takes the whole notebook too: *rewrite the whole notebook from
+scratch in PyTorch*, *regenerate all the code for CIFAR-10*, *start over
+with a smaller model* — a request for the notebook, or all of its code,
+written again is sent as the rewrite with your words steering it, and the
+answer replaces every cell, with Undo bringing the old ones back. A model
+may also say so itself, with `notebook=new` on its first fence.
+
+Every cell is yours to edit: click into the code and type, or double-click
+a text cell; **Edit** in a cell's tools puts the caret there too. An edited
+cell keeps its last output, marked as from before the edit (the amber mark).
+
 When an answer gives the notebook nothing, the bar says why: a model that
 reasons first (DeepSeek's thinking models, say) can spend the whole answer
 reasoning on a big request and send no cell, or its answer can be cut off
