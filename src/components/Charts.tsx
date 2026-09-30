@@ -132,15 +132,21 @@ export function LineChart({ series, title, xLabel, unit, tableLabel, xRange }: {
           <text className="tick axis" x={W - PAD.right + 8} y={H - 6} textAnchor="start">
             {xLabel}
           </text>
-          {drawn.map((line) => (
-            <g key={line.name}>
-              <path className="series" d={line.path} style={{ stroke: line.colour }} />
-              <circle className="end" cx={line.last.px} cy={line.last.py} r={4} style={{ fill: line.colour }} />
-              <text className="end-label" x={line.last.px + 8} y={line.last.py + 3.5}>
-                {fmt(line.last.y)}
-              </text>
-            </g>
-          ))}
+          {drawn.map((line, index) => {
+            // An end label that would sit on an earlier line's is left out: the legend and the crosshair carry it, rather than two numbers overprinted.
+            const clear = drawn.slice(0, index).every((other) => Math.abs(other.last.py - line.last.py) > 11);
+            return (
+              <g key={line.name}>
+                <path className="series" d={line.path} style={{ stroke: line.colour }} />
+                <circle className="end" cx={line.last.px} cy={line.last.py} r={4} style={{ fill: line.colour }} />
+                {clear ? (
+                  <text className="end-label" x={line.last.px + 8} y={line.last.py + 3.5}>
+                    {fmt(line.last.y)}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
           {under ? (
             <g className="crosshair">
               <line x1={hoverX} x2={hoverX} y1={PAD.top} y2={H - PAD.bottom} />

@@ -582,3 +582,34 @@ describe('the Runtime pane’s sums', () => {
     assert.equal(rt.nearFull(undefined, 15), false);
   });
 });
+
+describe('the Runtime pane’s strips, sparklines and peaks', () => {
+  const now = 1_000_000_000;
+  it('bins the window for the strips, the highest of each bin, empty where nothing was read', () => {
+    const history = [
+      { at: now - 55_000, sample: { t: 0, cpu: 10 } },
+      { at: now - 52_000, sample: { t: 0, cpu: 40 } },
+      { at: now - 5_000, sample: { t: 0, cpu: 20 } },
+      { at: now - 200_000, sample: { t: 0, cpu: 99 } },
+    ];
+    const out = rt.bins(history, now, 60_000, 10_000, (s) => s.cpu);
+    assert.deepEqual(out, [40, undefined, undefined, undefined, undefined, 20]);
+    assert.equal(rt.peakOf(out), 40);
+    assert.equal(rt.peakOf([undefined, undefined]), undefined);
+  });
+  it('gives the last minute as points over seconds before now', () => {
+    const history = [{ at: now - 90_000, sample: { t: 0, cpu: 1 } }, { at: now - 30_000, sample: { t: 0, cpu: 2, gpu: { t: 0, util: 5, memUsedMb: 1024, memTotalMb: 2048 } } }, { at: now, sample: { t: 0, cpu: 3 } }];
+    assert.deepEqual(rt.recent(history, now, 60_000, (s) => s.cpu), [{ x: -30, y: 2 }, { x: 0, y: 3 }]);
+    assert.deepEqual(rt.recent(history, now, 60_000, (s) => s.gpu?.util), [{ x: -30, y: 5 }]);
+  });
+  it('lists the hungriest runs of the window by their peaks, the busiest first', () => {
+    const runs = {
+      'nb:a': { state: 'ran', outputs: [], startedAt: now - 60_000, ms: 10_000, where: 'Colab', samples: [{ t: 1, gpu: { t: 1, util: 20, memUsedMb: 2048, memTotalMb: 15360 }, cpu: 10 }, { t: 3, gpu: { t: 3, util: 70, memUsedMb: 9000, memTotalMb: 15360 }, cpu: 30 }] },
+      'nb:b': { state: 'ran', outputs: [], startedAt: now - 30_000, ms: 10_000, where: 'Colab', samples: [{ t: 1, cpu: 55, ramUsedMb: 4096 }] },
+      'nb:old': { state: 'ran', outputs: [], startedAt: now - 20 * 60_000, ms: 10_000, where: 'Colab', samples: [{ t: 1, gpu: { t: 1, util: 99, memUsedMb: 1, memTotalMb: 2 } }] },
+      'nb:none': { state: 'ran', outputs: [], startedAt: now - 10_000, ms: 100, where: 'Colab' },
+    };
+    const peaks = rt.peaksByCell(runs, now, 10 * 60_000);
+    assert.deepEqual(peaks.map((p) => [p.key, p.gpu, p.vramMb, p.cpu, p.ramMb]), [['nb:a', 70, 9000, 30, undefined], ['nb:b', undefined, undefined, 55, 4096]]);
+  });
+});

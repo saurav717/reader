@@ -97,3 +97,67 @@ export function needMarkers(compute: Compute | null | undefined): { vramGb?: num
 
 /** Whether a meter is near its top: nine tenths and over. */
 export const nearFull = (used: number | undefined, total: number | undefined) => used !== undefined && total !== undefined && total > 0 && used / total >= 0.9;
+
+/**
+ * The window in bins, for the heat strips: one bin every `binMs`, oldest
+ * first, each the highest value of the samples in it, or undefined where
+ * nothing was read. `pick` says which value.
+ */
+export function bins(history: Sampled[], now: number, windowMs: number, binMs: number, pick: (sample: MachineSample) => number | undefined): (number | undefined)[] {
+  const count = Math.round(windowMs / binMs);
+  const out: (number | undefined)[] = Array.from({ length: count }, () => undefined);
+  const from = now - windowMs;
+  for (const entry of history) {
+    if (entry.at < from || entry.at > now) continue;
+    const y = pick(entry.sample);
+    if (y === undefined) continue;
+    const index = Math.min(count - 1, Math.floor((entry.at - from) / binMs));
+    out[index] = out[index] === undefined ? y : Math.max(out[index] as number, y);
+  }
+  return out;
+}
+
+/** The last `windowMs` of one value, as points over seconds before now, for a sparkline. */
+export function recent(history: Sampled[], now: number, windowMs: number, pick: (sample: MachineSample) => number | undefined): { x: number; y: number }[] {
+  const from = now - windowMs;
+  return history.flatMap((entry) => {
+    if (entry.at < from) return [];
+    const y = pick(entry.sample);
+    return y === undefined ? [] : [{ x: (entry.at - now) / 1000, y }];
+  });
+}
+
+/** The highest value in the window, or undefined when nothing was read. */
+export const peakOf = (values: (number | undefined)[]): number | undefined => values.reduce<number | undefined>((best, value) => (value === undefined ? best : best === undefined ? value : Math.max(best, value)), undefined);
+
+export interface CellPeak {
+  key: string;
+  gpu?: number;
+  vramMb?: number;
+  cpu?: number;
+  ramMb?: number;
+  startedAt: number;
+}
+
+/**
+ * The hungriest runs of the window: each run's peaks off the samples taken
+ * while it ran, the highest GPU (else CPU) first, at most `limit`.
+ */
+export function peaksByCell(runs: Record<string, CellRun>, now: number, windowMs: number, limit = 4): CellPeak[] {
+  const from = now - windowMs;
+  return Object.entries(runs)
+    .filter(([, run]) => run.startedAt >= from && run.samples && run.samples.length)
+    .map(([key, run]) => {
+      const samples = run.samples ?? [];
+      return {
+        key,
+        startedAt: run.startedAt,
+        gpu: peakOf(samples.map((s) => s.gpu?.util)),
+        vramMb: peakOf(samples.map((s) => s.gpu?.memUsedMb)),
+        cpu: peakOf(samples.map((s) => s.cpu)),
+        ramMb: peakOf(samples.map((s) => s.ramUsedMb)),
+      };
+    })
+    .sort((a, b) => (b.gpu ?? b.cpu ?? 0) - (a.gpu ?? a.cpu ?? 0) || b.startedAt - a.startedAt)
+    .slice(0, limit);
+}

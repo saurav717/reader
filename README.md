@@ -2766,27 +2766,46 @@ The notebook keeps to the left, and the right is a pane that opens on its
 own when a runtime connects and folds when it ends, with two tabs:
 
 - **Runtime.** What the machine is — the card by name, the CPUs, the RAM,
-  the disk — and how busy it is now: meters for the GPU, VRAM, CPU, RAM and
-  disk, with the plan's needs as ticks on the memory ones when the paper
-  has a plan, and a warning as one nears its top. Under them **the last ten
-  minutes**: use and memory over time, across cells, with a ruler of which
-  cell ran when — a segment a run, the live one in orange, a click on one
-  goes to its cell. Then the **limits**: what is left of the session against
-  Colab's cap for the machine, the compute units and how long they last at
-  the rate they are going, and a word when nothing has run for a while.
-  Then the two switches: the **watch** while cells run (the probe from the
-  chip's menu, every two seconds), and the **pulse between cells** — the
-  same reading every thirty seconds while nothing runs, so the meters stay
-  live. Colab may count the pulse as activity: on the free tier that keeps
-  the runtime up, on a machine billed in units it is a quiet cost, so it is
-  on by default on the free tier only and remembered once switched. Last,
-  the runtime's own actions: restart the kernel, change machine, open in
-  Colab, stop.
+  the disk — and how busy it is, **in real time**: the machine is read every
+  two seconds whether a cell runs or not, so the numbers are the machine
+  now, not the last run. How it is shown is a choice, remembered, in three
+  looks:
+  - **Tiles** (the default): each of GPU, VRAM, CPU and RAM as its value
+    large with its last minute under it as a sparkline, and headroom against
+    the plan's need spelled out; then **the last ten minutes** as heat strips,
+    one a resource, one hue light to dark with the value, ending in the
+    peak, in step with a ruler of which cell ran when — a segment a run, the
+    live one in orange, a click on one goes to its cell.
+  - **Meters**: five bars for GPU, VRAM, CPU, RAM and disk, the plan's needs
+    as ticks, the fill turning amber past three quarters and red past nine
+    tenths; the ten minutes as two line charts, use and memory, with the
+    ruler between them.
+  - **Rings**: dials for the GPU, the CPU and the memory's share; VRAM and
+    RAM as a budget — used and free of the total, the plan's need marked
+    and said plainly when it is more than the machine has; and the
+    hungriest cells of the window by their peaks, each a link to the cell.
+
+  The GPU and its memory are always drawn in the first series colour, the
+  CPU and the system's memory in the second, whichever look and wherever
+  they appear. Under all three, the **limits**: what is left of the session
+  against Colab's cap for the machine, the compute units and how long they
+  last at the rate they are going, and a word when nothing has run for a
+  while. Then the **watch** while cells run (the probe from the chip's menu,
+  every two seconds) and the **pulse** between cells — live every two
+  seconds, every thirty seconds, or off. Colab may count the pulse as
+  activity: on the free tier that keeps the runtime up; on a machine billed
+  in units the runtime is paid for while it is up either way, and the
+  reading is a negligible share of it. Last, the runtime's own actions:
+  restart the kernel, change machine, open in Colab, stop.
 - **Files.** The runtime's disk, as above.
 
-![the notebook on the left and the Runtime pane on the right: the machine, the meters, the last ten minutes with the ruler of runs, the limits, the switches, the actions](docs/colab-notebook.png)
+![the notebook on the left and the Runtime pane on the right in Tiles: the machine, the values with their last minute, the heat strips in step with the ruler of runs, the limits, the pulse, the actions](docs/colab-notebook.png)
 
-![a cell running: the meters rising, the timeline drawing use and memory, the live run in orange on the ruler](docs/colab-notebook-live.png)
+![a cell running, in Tiles: the GPU tile rising, the strips darkening, the live run in orange on the ruler](docs/colab-notebook-live.png)
+
+![the same run in Meters: the bars, and use and memory as line charts with the ruler between them](docs/colab-notebook-meters.png)
+
+![the same run in Rings: three dials, memory as a budget against the plan, and the hungriest cells](docs/colab-notebook-rings.png)
 
 ![the Files tab of the pane: the runtime's disk, folders first](docs/colab-notebook-files.png)
 

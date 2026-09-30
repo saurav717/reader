@@ -44,6 +44,7 @@ const kernels = new WebSocketServer({ server: runtime });
 let kernelCount = 0;
 let executionCount = 0;
 const ran = [];
+const probes = [];
 const header = (type) => ({ msg_id: `k-${Math.random().toString(36).slice(2)}`, msg_type: type, session: 'kernel', username: 'kernel', version: '5.3', date: new Date().toISOString() });
 const send = (socket, type, content, parent, channel = 'iopub') => socket.send(JSON.stringify({ header: header(type), parent_header: { msg_id: parent }, metadata: {}, content, channel, buffers: [] }));
 
@@ -77,7 +78,8 @@ kernels.on('connection', (socket) => {
     const parent = message.header.msg_id;
     const code = String(message.content?.code ?? '');
     const { lines, probe, every = 30 } = answer(code);
-    if (!probe) {
+    if (probe) probes.push(Date.now());
+    else {
       ran.push(code);
       busySince = Date.now();
     }
@@ -290,10 +292,16 @@ check('the pane opened on its own when the runtime connected, on its Runtime tab
 check('the notebook keeps to the left of it', (await first.boundingBox()).x < 120, `x ${(await first.boundingBox()).x}`);
 await page.waitForFunction(() => /Tesla T4/.test(document.querySelector('.rt-head')?.textContent ?? ''), null, { timeout: 10000 });
 check('it says what the machine is', /Tesla T4/.test(await pane.locator('.rt-head b').textContent()) && /2 CPUs/.test(await pane.locator('.rt-head').textContent()));
-const meters = await pane.locator('.rt-meter').allTextContents();
-check('five meters: GPU, VRAM, CPU, RAM and disk, with numbers', meters.length === 5 && /GPU\s*\d+%/.test(meters[0]) && /VRAM.*\/ 15 GB/.test(meters[1]) && /CPU\s*\d+%/.test(meters[2]) && /RAM.*\/ 13 GB/.test(meters[3]) && /Disk\s*71 GB free/.test(meters[4]), meters.map((m) => m.replace(/\s+/g, ' ')).join(' | '));
+const tiles = await pane.locator('.rt-tile').allTextContents();
+check('four tiles — GPU, VRAM, CPU, RAM — with numbers, and the disk as a meter', tiles.length === 4 && /GPU\d+%/.test(tiles[0]) && /VRAM[\d.]+of 15 GB/.test(tiles[1]) && /CPU\d+%/.test(tiles[2]) && /RAM[\d.]+of 13 GB/.test(tiles[3]) && /71 GB.*free of 78/.test(await pane.locator('.rt-meter').first().textContent()), tiles.map((m) => m.replace(/\s+/g, ' ')).join(' | '));
 check('the session limit counts against the T4’s twelve hours', /left of 12 h/.test(await pane.locator('.rt-limits').textContent()));
-check('the pulse is on, since a T4 is the free tier', await pane.locator('.rt-switch input').nth(1).isChecked());
+check('the pulse is live by default', (await pane.locator('.rt-pulse-pick [aria-checked="true"]').textContent()) === 'Live · 2 s' && /live, every 2 s/.test(await pane.locator('.rt-part-label').first().textContent()));
+const samplesAt = () => page.evaluate(() => document.querySelectorAll('.rt-strip').length ? Array.from(document.querySelectorAll('.rt-strip')).map((s) => Array.from(s.querySelectorAll('i')).filter((i) => i.style.background).length) : null);
+const readsBefore = probes.length;
+await page.waitForTimeout(5200);
+check('with nothing running the machine is still read, every two seconds', probes.length - readsBefore >= 2, `${probes.length - readsBefore} reads in 5 s`);
+check('the pane opens on Tiles, with the value large and its last minute under it', (await pane.locator('.rt-styles [aria-checked="true"]').textContent()) === 'Tiles' && (await pane.locator('.rt-tile').count()) === 4 && (await pane.locator('.rt-tile .rt-spark path').count()) >= 2);
+check('and the heat strips fill as it is read', (await samplesAt())?.some((n) => n >= 1) === true, JSON.stringify(await samplesAt()));
 await page.locator('.nb-cells').evaluate((el) => (el.scrollTop = 0));
 await page.waitForTimeout(300);
 await page.screenshot({ path: `${OUT}/colab-notebook-2-ran-dark.png` });
@@ -305,13 +313,26 @@ await page.locator('.nb-cell.is-selected .nb-text').click();
 await page.keyboard.type('import time\nfor step in range(6):\n    time.sleep(1)');
 await page.keyboard.press('Control+Enter');
 await page.waitForSelector('.nb-cell.is-running', { timeout: 10000 });
-await page.waitForFunction(() => document.querySelectorAll('.rt-timeline .cell-chart').length >= 1 && /running/.test(document.querySelector('.rt-state')?.textContent ?? ''), null, { timeout: 20000 });
+await page.waitForFunction(() => /running/.test(document.querySelector('.rt-state')?.textContent ?? ''), null, { timeout: 20000 });
 await page.waitForTimeout(3500);
-check('while it runs the pane says which cell, and the meters rise', /running cell \d+/.test(await pane.locator('.rt-state').textContent()) && Number((await pane.locator('.rt-meter').first().textContent()).match(/(\d+)%/)?.[1]) > 30, (await pane.locator('.rt-state').textContent()) + ' / ' + (await pane.locator('.rt-meter').first().textContent()).replace(/\s+/g, ' '));
-check('the timeline draws use and memory over the last minutes', (await pane.locator('.rt-timeline .cell-chart').count()) === 2 && /min/.test(await pane.locator('.rt-timeline').textContent()));
+const gpuTile = async () => Number((await pane.locator('.rt-tile').first().locator('.rt-tile-n').textContent()).match(/(\d+)/)?.[1]);
+check('while it runs the pane says which cell, and the GPU tile rises', /running cell \d+/.test(await pane.locator('.rt-state').textContent()) && (await gpuTile()) > 30, (await pane.locator('.rt-state').textContent()) + ' / ' + (await gpuTile()));
 check('and the ruler marks the runs, the live one in orange', (await pane.locator('.rt-ruler-run').count()) >= 2 && (await pane.locator('.rt-ruler-run.is-running').count()) === 1);
+check('the strips end with each resource’s peak', /peak \d+%/.test(await pane.locator('.rt-strip-peak').first().textContent()));
 await page.locator('.nb-cell.is-running').scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/colab-notebook-6-runtime-live-dark.png` });
+// The other two looks, while it still runs.
+await pane.getByRole('radio', { name: 'Meters' }).click();
+await page.waitForTimeout(2500);
+check('Meters: five bars and the two line charts with the ruler', (await pane.locator('.rt-meter').count()) === 5 && (await pane.locator('.rt-timeline .cell-chart').count()) === 2 && (await pane.locator('.rt-timeline .rt-ruler').count()) === 1);
+await page.screenshot({ path: `${OUT}/colab-notebook-7-meters-dark.png` });
+await pane.getByRole('radio', { name: 'Rings' }).click();
+await page.waitForTimeout(2500);
+check('Rings: three dials, memory as a budget, and the cells’ peaks', (await pane.locator('.rt-ring').count()) === 3 && (await pane.locator('.rt-budget').count()) === 2 && (await pane.locator('.rt-peak').count()) >= 1);
+await page.screenshot({ path: `${OUT}/colab-notebook-8-rings-dark.png` });
+check('the look is remembered', (await page.evaluate(() => localStorage.getItem('reader.colab.pane-style'))) === 'rings');
+await pane.getByRole('radio', { name: 'Tiles' }).click();
+await page.waitForTimeout(300);
 await page.waitForSelector('.nb-cell.is-running', { state: 'detached', timeout: 30000 });
 await page.waitForTimeout(600);
 check('the loss curve is under the cell, as under a page cell', (await page.locator('.nb-cell.is-ran .cell-chart').count()) >= 1);
@@ -365,7 +386,11 @@ await page.waitForTimeout(400);
 await page.screenshot({ path: `${OUT}/colab-notebook-4-files-dark.png` });
 await pane.getByRole('tab', { name: 'Runtime' }).click();
 await page.waitForTimeout(300);
-check('back on the Runtime tab, the timeline is still there', (await pane.locator('.rt-timeline .cell-chart').count()) === 2);
+check('back on the Runtime tab, the strips are still there', (await pane.locator('.rt-strip').count()) === 4);
+await pane.getByRole('radio', { name: 'Every 30 s' }).click();
+await page.waitForTimeout(300);
+check('the pulse can be slowed, and says so', (await page.evaluate(() => JSON.parse(localStorage.getItem('reader.colab.pulse')))) === 'slow' && !/live, every/.test(await pane.locator('.rt-part-label').first().textContent()));
+await pane.getByRole('radio', { name: 'Live · 2 s' }).click();
 
 console.log('\n== out as an .ipynb, and kept across a reload ==');
 await page.getByRole('button', { name: /^Notebook ▾$/ }).click();

@@ -111,8 +111,8 @@ export interface ColabState {
   specs?: MachineSpecs;
   /** The samples of this runtime, running or idle, for the last while — the Runtime pane's timeline. */
   history: { at: number; sample: MachineSample }[];
-  /** Whether the machine is read between cells too (the pane's switch); decided at connect when never set. */
-  idlePulse: boolean;
+  /** How the machine is read between cells (the pane's switch): live, every two seconds; slow, every half minute; or not at all. */
+  pulse: Pulse;
   /** How the kernel's socket is carried: straight to the runtime, or by the proxy when the runtime refused the page's own. */
   via?: 'direct' | 'proxy';
 }
@@ -123,10 +123,13 @@ const MACHINE_KEY = 'reader.colab.machine';
 const NOTEBOOK_KEY = 'reader.colab.notebook';
 const RUNTIME_KEY = 'reader.colab.runtime';
 const GPU_KEY = 'reader.colab.gpu-watch';
-const PULSE_KEY = 'reader.colab.idle-pulse';
-/** How much of the timeline is kept, and how often the machine is read between cells. */
+const PULSE_KEY = 'reader.colab.pulse';
+/** How much of the timeline is kept. */
 export const HISTORY_MS = 10 * 60_000;
-export const IDLE_PULSE_MS = 30_000;
+export type Pulse = 'live' | 'slow' | 'off';
+/** How often the machine is read between cells, by pulse: live is the watch's own cadence, so the meters are as current idle as they are while a cell runs. */
+export const PULSE_MS: Record<Pulse, number> = { live: 2000, slow: 30_000, off: 0 };
+const isPulse = (value: unknown): value is Pulse => value === 'live' || value === 'slow' || value === 'off';
 /** Once the page's own socket to a runtime has been refused, the proxy carries it from then on, in this tab. */
 const VIA_KEY = 'reader.colab.via';
 
@@ -167,7 +170,11 @@ function notebookId(): string {
   return made;
 }
 
-let state: ColabState = { status: 'off', machine: savedMachine(), runs: {}, gpuWatch: read<boolean>(local(), GPU_KEY) !== false, history: [], idlePulse: read<boolean>(local(), PULSE_KEY) === true };
+const savedPulse = (): Pulse => {
+  const saved = read<unknown>(local(), PULSE_KEY);
+  return isPulse(saved) ? saved : 'live';
+};
+let state: ColabState = { status: 'off', machine: savedMachine(), runs: {}, gpuWatch: read<boolean>(local(), GPU_KEY) !== false, history: [], pulse: savedPulse() };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<ColabState>) => {
   state = { ...state, ...patch };
@@ -622,32 +629,31 @@ function stopPulse() {
   pulsing = null;
 }
 
-/** The machine read between cells, every half minute, while the pulse is on and the runtime idle; the watch takes over while a cell runs. */
+/** The machine read between cells at the pulse's cadence, while the runtime is idle; the watch takes over while a cell runs. */
 function schedulePulse() {
   stopPulse();
-  if (!state.idlePulse || !state.gpuWatch || state.status !== 'idle') return;
+  const every = PULSE_MS[state.pulse];
+  if (!every || !state.gpuWatch || state.status !== 'idle') return;
   pulsing = window.setTimeout(() => {
     pulsing = null;
     void probeMachine().finally(() => schedulePulse());
-  }, IDLE_PULSE_MS);
+  }, every);
 }
 
 /**
- * The idle pulse: a reading between cells, so the Runtime pane's meters
- * and timeline stay live. Each reading runs a line in the second kernel,
- * which Colab may count as activity — welcome on the free tier, where it
- * keeps a runtime from idling out, and a quiet cost on a machine billed in
- * compute units — so it is on by default on the free tier only, and
- * remembered once switched.
+ * The pulse: the reading between cells, so the Runtime pane's meters and
+ * timeline are real time rather than a record of the last run. Live is the
+ * watch's own two seconds. Each reading runs a few lines in the second
+ * kernel, which Colab may count as activity — welcome on the free tier,
+ * where it keeps a runtime from idling out; on a machine billed in compute
+ * units the runtime is being paid for while it is up either way, and the
+ * reading itself is a negligible share of it. Remembered once switched.
  */
-export function setIdlePulse(on: boolean) {
-  write(local(), PULSE_KEY, on);
-  set({ idlePulse: on });
+export function setPulse(pulse: Pulse) {
+  write(local(), PULSE_KEY, pulse);
+  set({ pulse });
   schedulePulse();
 }
-
-/** What the pulse is unless it was ever switched: on for a free-tier machine, off for one that burns units. */
-const defaultPulse = (runtime: Runtime) => (read<boolean>(local(), PULSE_KEY) ?? (!runtime.accelerator || runtime.accelerator === 'T4'));
 
 /**
  * While `key` runs: the probe in the monitor kernel every couple of seconds,
@@ -768,7 +774,7 @@ export async function connect(machine: Machine = state.machine): Promise<void> {
     kernel = await attach(runtime, googleToken);
     write(session(), RUNTIME_KEY, runtime);
     const same = state.runtime?.endpoint === runtime.endpoint;
-    set({ status: 'idle', runtime, kernel: kernel.id, via: kernel.via, startedAt: same && state.startedAt ? state.startedAt : Date.now(), error: undefined, history: same ? state.history : [], idlePulse: defaultPulse(runtime) });
+    set({ status: 'idle', runtime, kernel: kernel.id, via: kernel.via, startedAt: same && state.startedAt ? state.startedAt : Date.now(), error: undefined, history: same ? state.history : [] });
     void refreshUnits(googleToken);
     // What the machine is, read once as it connects, so the page can say so before anything runs; then the pulse, if it is on.
     void probeMachine().finally(() => schedulePulse());
