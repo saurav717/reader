@@ -47,9 +47,18 @@ const ran = [];
 const header = (type) => ({ msg_id: `k-${Math.random().toString(36).slice(2)}`, msg_type: type, session: 'kernel', username: 'kernel', version: '5.3', date: new Date().toISOString() });
 const send = (socket, type, content, parent, channel = 'iopub') => socket.send(JSON.stringify({ header: header(type), parent_header: { msg_id: parent }, metadata: {}, content, channel, buffers: [] }));
 
+/** Whether a cell is running, so the probe's numbers rise while one does. */
+let busySince = 0;
+function probeLine() {
+  const t = busySince ? (Date.now() - busySince) / 1000 : 0;
+  const busy = busySince ? Math.min(1, t / 3) : 0;
+  const wave = 0.5 + 0.5 * Math.sin(t / 1.3);
+  return JSON.stringify({ gpu: `Tesla T4, ${Math.round(busy * (58 + 34 * wave))}, ${Math.round(412 + busy * (9600 + 700 * wave))}, 15360`, cpu: Math.round(6 + busy * (30 + 22 * (1 - wave))), cpus: 2, ram: [Math.round(1900 + busy * 3200), 13012], disk: [71, 78] });
+}
 /** What a cell prints, for the code the page sent. */
 function answer(code) {
-  if (code.startsWith('import json, os, shutil, subprocess, time')) return { lines: ['{"gpu": "Tesla T4, 4, 412, 15360", "cpu": 7, "cpus": 2, "ram": [1900, 13012], "disk": [71, 78]}'], probe: true };
+  if (code.startsWith('import json, os, shutil, subprocess, time')) return { lines: [probeLine()], probe: true };
+  if (/time\.sleep/.test(code)) return { lines: Array.from({ length: 6 }, (_, i) => `step ${i}  loss=${(2.4 * Math.exp(-i / 2) + 0.5).toFixed(3)}`), every: 1300 };
   if (/import numpy as np/.test(code) && /attention weights \(rows sum to 1\)/.test(code)) return { lines: ['attention weights (rows sum to 1):', '    the [0.6 0.1 0.2 0.1]', '    cat [0.02 0.89 0.04 0.05]', '    sat [0.15 0.2  0.56 0.1 ]', '   down [0.08 0.3  0.11 0.51]', 'output shape: (4, 8)'] };
   const printed = [...code.matchAll(/^print\((["'])(.*?)\1\)$/gm)].map((m) => m[2]);
   if (printed.length) return { lines: printed };
@@ -67,14 +76,20 @@ kernels.on('connection', (socket) => {
     if (message?.header?.msg_type !== 'execute_request') return;
     const parent = message.header.msg_id;
     const code = String(message.content?.code ?? '');
-    const { lines, probe } = answer(code);
-    if (!probe) ran.push(code);
+    const { lines, probe, every = 30 } = answer(code);
+    if (!probe) {
+      ran.push(code);
+      busySince = Date.now();
+    }
     send(socket, 'status', { execution_state: 'busy' }, parent);
     for (const line of lines) {
       send(socket, 'stream', { name: 'stdout', text: `${line}\n` }, parent);
-      await sleep(30);
+      await sleep(every);
     }
-    if (!probe) executionCount += 1;
+    if (!probe) {
+      executionCount += 1;
+      busySince = 0;
+    }
     send(socket, 'execute_reply', { status: 'ok', execution_count: probe ? undefined : executionCount }, parent, 'shell');
     send(socket, 'status', { execution_state: 'idle' }, parent);
   });
@@ -267,9 +282,42 @@ check('the first code cell ran in the stand-in kernel, and printed what it print
 check('the gutter counts it', (await first.locator('.nb-count').textContent()) === '[1]');
 check('the chip in the bar holds the runtime', /T4 · idle/.test(await page.locator('.colab-chip').textContent()));
 check('exactly the cell’s code went to the kernel', ran[0] === (await first.locator('.nb-text').inputValue()));
+
+console.log('\n== the Runtime pane opens with the runtime ==');
+await page.waitForSelector('.nb-side .rt-pane', { timeout: 10000 });
+const pane = page.locator('.nb-side');
+check('the pane opened on its own when the runtime connected, on its Runtime tab', (await pane.locator('[role="tab"][aria-selected="true"]').textContent()) === 'Runtime');
+check('the notebook keeps to the left of it', (await first.boundingBox()).x < 120, `x ${(await first.boundingBox()).x}`);
+await page.waitForFunction(() => /Tesla T4/.test(document.querySelector('.rt-head')?.textContent ?? ''), null, { timeout: 10000 });
+check('it says what the machine is', /Tesla T4/.test(await pane.locator('.rt-head b').textContent()) && /2 CPUs/.test(await pane.locator('.rt-head').textContent()));
+const meters = await pane.locator('.rt-meter').allTextContents();
+check('five meters: GPU, VRAM, CPU, RAM and disk, with numbers', meters.length === 5 && /GPU\s*\d+%/.test(meters[0]) && /VRAM.*\/ 15 GB/.test(meters[1]) && /CPU\s*\d+%/.test(meters[2]) && /RAM.*\/ 13 GB/.test(meters[3]) && /Disk\s*71 GB free/.test(meters[4]), meters.map((m) => m.replace(/\s+/g, ' ')).join(' | '));
+check('the session limit counts against the T4’s twelve hours', /left of 12 h/.test(await pane.locator('.rt-limits').textContent()));
+check('the pulse is on, since a T4 is the free tier', await pane.locator('.rt-switch input').nth(1).isChecked());
 await page.locator('.nb-cells').evaluate((el) => (el.scrollTop = 0));
 await page.waitForTimeout(300);
 await page.screenshot({ path: `${OUT}/colab-notebook-2-ran-dark.png` });
+
+console.log('\n== a slow cell, watched on the timeline ==');
+await page.locator('.nb-add').click();
+await page.waitForTimeout(200);
+await page.locator('.nb-cell.is-selected .nb-text').click();
+await page.keyboard.type('import time\nfor step in range(6):\n    time.sleep(1)');
+await page.keyboard.press('Control+Enter');
+await page.waitForSelector('.nb-cell.is-running', { timeout: 10000 });
+await page.waitForFunction(() => document.querySelectorAll('.rt-timeline .cell-chart').length >= 1 && /running/.test(document.querySelector('.rt-state')?.textContent ?? ''), null, { timeout: 20000 });
+await page.waitForTimeout(3500);
+check('while it runs the pane says which cell, and the meters rise', /running cell \d+/.test(await pane.locator('.rt-state').textContent()) && Number((await pane.locator('.rt-meter').first().textContent()).match(/(\d+)%/)?.[1]) > 30, (await pane.locator('.rt-state').textContent()) + ' / ' + (await pane.locator('.rt-meter').first().textContent()).replace(/\s+/g, ' '));
+check('the timeline draws use and memory over the last minutes', (await pane.locator('.rt-timeline .cell-chart').count()) === 2 && /min/.test(await pane.locator('.rt-timeline').textContent()));
+check('and the ruler marks the runs, the live one in orange', (await pane.locator('.rt-ruler-run').count()) >= 2 && (await pane.locator('.rt-ruler-run.is-running').count()) === 1);
+await page.locator('.nb-cell.is-running').scrollIntoViewIfNeeded();
+await page.screenshot({ path: `${OUT}/colab-notebook-6-runtime-live-dark.png` });
+await page.waitForSelector('.nb-cell.is-running', { state: 'detached', timeout: 30000 });
+await page.waitForTimeout(600);
+check('the loss curve is under the cell, as under a page cell', (await page.locator('.nb-cell.is-ran .cell-chart').count()) >= 1);
+await pane.locator('.rt-ruler-run').first().click();
+await page.waitForTimeout(600);
+check('a segment of the ruler goes to its cell', (await page.locator('.nb-cell.is-selected').count()) === 1 && /attention weights/.test(await page.locator('.nb-cell.is-selected').textContent()));
 
 console.log('\n== typing a cell, and the keys ==');
 // The + Code at the foot adds at the end; the toolbar's adds below the cell picked.
@@ -305,7 +353,7 @@ await note.scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/colab-notebook-3-typed-dark.png` });
 
 console.log('\n== the runtime’s disk ==');
-await page.getByRole('button', { name: 'Files' }).click();
+await pane.getByRole('tab', { name: 'Files' }).click();
 await page.waitForSelector('.nb-files li', { timeout: 10000 });
 const listed = await page.locator('.nb-files li').allTextContents();
 check('the files pane lists the runtime’s disk, folders first', /data\//.test(listed[0]) && listed.some((l) => /PLAN\.md/.test(l) && /47 KB/.test(l)), listed.join(' | '));
@@ -315,7 +363,9 @@ check('a folder opens', contentsAsked.at(-1) === 'models' && /pruned_0\.8b/.test
 await page.locator('.nb-files li button', { hasText: '..' }).click();
 await page.waitForTimeout(400);
 await page.screenshot({ path: `${OUT}/colab-notebook-4-files-dark.png` });
-await page.locator('.nb-files').getByRole('button', { name: 'Close the files' }).click();
+await pane.getByRole('tab', { name: 'Runtime' }).click();
+await page.waitForTimeout(300);
+check('back on the Runtime tab, the timeline is still there', (await pane.locator('.rt-timeline .cell-chart').count()) === 2);
 
 console.log('\n== out as an .ipynb, and kept across a reload ==');
 await page.getByRole('button', { name: /^Notebook ▾$/ }).click();
@@ -328,6 +378,14 @@ await withSettings({ theme: 'light' });
 await page.waitForSelector('.nb-cell', { timeout: 15000 });
 await page.waitForTimeout(500);
 check('after a reload the notebook is as it was, outputs and all', (await page.locator('.nb-cell').count()) === before && (await page.locator('.nb-cell', { hasText: 'the answer is 42' }).locator('.cell-output').count()) === 1);
+check('and with no runtime the pane is folded', (await page.locator('.nb-side').count()) === 0);
+// Connect again from the chip: the pane comes back with the runtime.
+await page.locator('.colab-chip').click();
+await page.waitForSelector('.colab-connect');
+await page.locator('.colab-connect').getByRole('button', { name: /Connect/ }).click();
+await page.waitForSelector('.nb-side .rt-pane', { timeout: 30000 });
+await page.waitForFunction(() => /Tesla T4/.test(document.querySelector('.rt-head')?.textContent ?? ''), null, { timeout: 10000 });
+await page.waitForTimeout(800);
 check('the tab is remembered', (await page.evaluate(() => localStorage.getItem('reader.explain.page'))) === 'colab');
 await page.locator('.nb-cell', { hasText: 'the answer is 42' }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(300);

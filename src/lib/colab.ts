@@ -109,6 +109,10 @@ export interface ColabState {
   sample?: MachineSample;
   /** What the runtime's machine is, read off the first sample: the GPU by name, the CPUs, the memory, the disk. */
   specs?: MachineSpecs;
+  /** The samples of this runtime, running or idle, for the last while — the Runtime pane's timeline. */
+  history: { at: number; sample: MachineSample }[];
+  /** Whether the machine is read between cells too (the pane's switch); decided at connect when never set. */
+  idlePulse: boolean;
   /** How the kernel's socket is carried: straight to the runtime, or by the proxy when the runtime refused the page's own. */
   via?: 'direct' | 'proxy';
 }
@@ -119,6 +123,10 @@ const MACHINE_KEY = 'reader.colab.machine';
 const NOTEBOOK_KEY = 'reader.colab.notebook';
 const RUNTIME_KEY = 'reader.colab.runtime';
 const GPU_KEY = 'reader.colab.gpu-watch';
+const PULSE_KEY = 'reader.colab.idle-pulse';
+/** How much of the timeline is kept, and how often the machine is read between cells. */
+export const HISTORY_MS = 10 * 60_000;
+export const IDLE_PULSE_MS = 30_000;
 /** Once the page's own socket to a runtime has been refused, the proxy carries it from then on, in this tab. */
 const VIA_KEY = 'reader.colab.via';
 
@@ -159,7 +167,7 @@ function notebookId(): string {
   return made;
 }
 
-let state: ColabState = { status: 'off', machine: savedMachine(), runs: {}, gpuWatch: read<boolean>(local(), GPU_KEY) !== false };
+let state: ColabState = { status: 'off', machine: savedMachine(), runs: {}, gpuWatch: read<boolean>(local(), GPU_KEY) !== false, history: [], idlePulse: read<boolean>(local(), PULSE_KEY) === true };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<ColabState>) => {
   state = { ...state, ...patch };
@@ -598,8 +606,48 @@ async function takeSample(t: number): Promise<MachineSample | null> {
   return parseMachineSample(text, t);
 }
 
-/** A sample onto the store: the last reading, and the machine's specs from it. */
-const keepSample = (sample: MachineSample) => set({ sample, specs: { ...state.specs, ...specsOf(sample) } });
+/** A sample onto the store: the last reading, the machine's specs from it, and the timeline, kept to the last while. */
+const keepSample = (sample: MachineSample) => {
+  const at = Date.now();
+  const history = [...state.history.filter((entry) => at - entry.at <= HISTORY_MS), { at, sample }];
+  set({ sample, specs: { ...state.specs, ...specsOf(sample) }, history });
+};
+
+// ------------------------------------------------------------ idle pulse ---
+
+let pulsing: number | null = null;
+
+function stopPulse() {
+  if (pulsing !== null) window.clearTimeout(pulsing);
+  pulsing = null;
+}
+
+/** The machine read between cells, every half minute, while the pulse is on and the runtime idle; the watch takes over while a cell runs. */
+function schedulePulse() {
+  stopPulse();
+  if (!state.idlePulse || !state.gpuWatch || state.status !== 'idle') return;
+  pulsing = window.setTimeout(() => {
+    pulsing = null;
+    void probeMachine().finally(() => schedulePulse());
+  }, IDLE_PULSE_MS);
+}
+
+/**
+ * The idle pulse: a reading between cells, so the Runtime pane's meters
+ * and timeline stay live. Each reading runs a line in the second kernel,
+ * which Colab may count as activity — welcome on the free tier, where it
+ * keeps a runtime from idling out, and a quiet cost on a machine billed in
+ * compute units — so it is on by default on the free tier only, and
+ * remembered once switched.
+ */
+export function setIdlePulse(on: boolean) {
+  write(local(), PULSE_KEY, on);
+  set({ idlePulse: on });
+  schedulePulse();
+}
+
+/** What the pulse is unless it was ever switched: on for a free-tier machine, off for one that burns units. */
+const defaultPulse = (runtime: Runtime) => (read<boolean>(local(), PULSE_KEY) ?? (!runtime.accelerator || runtime.accelerator === 'T4'));
 
 /**
  * While `key` runs: the probe in the monitor kernel every couple of seconds,
@@ -661,6 +709,7 @@ const whereOf = (runtime: Runtime) => `Colab · ${machineLabel(runtime)}`;
 
 const closeKernels = () => {
   stopWatching();
+  stopPulse();
   kernel?.close();
   kernel = null;
   monitor?.close();
@@ -718,10 +767,11 @@ export async function connect(machine: Machine = state.machine): Promise<void> {
     closeKernels();
     kernel = await attach(runtime, googleToken);
     write(session(), RUNTIME_KEY, runtime);
-    set({ status: 'idle', runtime, kernel: kernel.id, via: kernel.via, startedAt: state.runtime?.endpoint === runtime.endpoint && state.startedAt ? state.startedAt : Date.now(), error: undefined });
+    const same = state.runtime?.endpoint === runtime.endpoint;
+    set({ status: 'idle', runtime, kernel: kernel.id, via: kernel.via, startedAt: same && state.startedAt ? state.startedAt : Date.now(), error: undefined, history: same ? state.history : [], idlePulse: defaultPulse(runtime) });
     void refreshUnits(googleToken);
-    // What the machine is, read once as it connects, so the page can say so before anything runs.
-    void probeMachine();
+    // What the machine is, read once as it connects, so the page can say so before anything runs; then the pulse, if it is on.
+    void probeMachine().finally(() => schedulePulse());
   } catch (error) {
     const flags = error instanceof ColabRequestError ? error.flags : {};
     if (flags.gone) {
@@ -758,6 +808,7 @@ export async function runCell(key: string, code: string): Promise<void> {
   if (!kernel || !runtime) return;
   const started = Date.now();
   const where = whereOf(runtime);
+  stopPulse();
   set({ status: 'busy', running: key });
   setRun(key, { state: 'running', outputs: [], startedAt: started, where });
   if (state.gpuWatch) void colabToken(clientIdNow).then((googleToken) => (googleToken ? watchMachine(key, runtime, googleToken, started) : undefined)).catch(() => undefined);
@@ -782,6 +833,7 @@ export async function runCell(key: string, code: string): Promise<void> {
     stopWatching();
     if (state.status === 'busy') set({ status: 'idle', running: undefined });
     else set({ running: undefined });
+    schedulePulse();
   }
 }
 
@@ -824,7 +876,7 @@ export async function stopRuntime(): Promise<void> {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
   const runs = Object.fromEntries(Object.entries(state.runs).map(([key, run]) => [key, { ...run, stale: true }]));
-  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, runs, error: undefined, sample: undefined, specs: undefined });
+  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, runs, error: undefined, sample: undefined, specs: undefined, history: [] });
   if (!runtime) return;
   try {
     const googleToken = await tokenOrConnect();
@@ -839,7 +891,7 @@ export function disconnect(): void {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
   dropColab();
-  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, error: undefined, units: undefined, sample: undefined, specs: undefined });
+  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, error: undefined, units: undefined, sample: undefined, specs: undefined, history: [] });
 }
 
 export interface RuntimeEntry {

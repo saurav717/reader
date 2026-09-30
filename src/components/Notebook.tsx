@@ -17,6 +17,7 @@ import { colabAvailable, colabGranted, connect as connectColab, interrupt as int
 import type { CellRun, RuntimeEntry } from '../lib/colab';
 import type { Section } from '../lib/explain';
 import { commitFiles, targetFrom } from '../lib/github';
+import { computeOf } from '../lib/implement';
 import { markdown } from '../lib/markdown';
 import { appendCells, clearOutputs, fromIpynb, insertCell, loadNotebook, moveCell, notebookFileName, notebookFor, removeCell, runKey, seedCells, setOutputs, setSource, setType, subscribeNotebook, toIpynb } from '../lib/notebook';
 import type { NbCell } from '../lib/notebook';
@@ -24,6 +25,7 @@ import { useStore } from '../lib/store';
 import { attachUrl, CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Colab';
 import { highlightPython } from './Explain';
 import { CloseIcon } from './icons';
+import RuntimePane from './RuntimePane';
 
 const useNotebook = (paperId: string) => useSyncExternalStore(subscribeNotebook, () => notebookFor(paperId));
 
@@ -217,7 +219,7 @@ function Cell({
 // The runtime's disk
 // ---------------------------------------------------------------------------
 
-function FilesPane({ onClose }: { onClose: () => void }) {
+function FilesPane() {
   const colab = useColab();
   const connected = colab.status === 'idle' || colab.status === 'busy';
   const [path, setPath] = useState('');
@@ -248,9 +250,6 @@ function FilesPane({ onClose }: { onClose: () => void }) {
         <span className="nb-files-path">/content{path ? `/${path}` : ''}</span>
         <button type="button" className="icon-btn sm" onClick={() => void load(path)} disabled={!connected || loading} title="Read the disk again" aria-label="Refresh">
           ↻
-        </button>
-        <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the files">
-          <CloseIcon size={14} />
         </button>
       </header>
       {!connected ? (
@@ -304,7 +303,9 @@ export default function NotebookPage({ paperId, title, sections, planSections, o
   const { settings } = useStore();
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
-  const [files, setFiles] = useState(false);
+  /** The pane on the right: the runtime, the files, or nothing. It opens on its own when a runtime connects, and folds when it ends. */
+  const [side, setSide] = useState<'runtime' | 'files' | null>(null);
+  const closedByHand = useRef(false);
   const [card, setCard] = useState<{ then: () => void } | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
   const [push, setPush] = useState<Push>({ state: 'idle' });
@@ -320,6 +321,29 @@ export default function NotebookPage({ paperId, title, sections, planSections, o
   const cells = nb?.cells ?? [];
   const available = colabAvailable(settings.googleClientId);
   const connected = colab.status === 'idle' || colab.status === 'busy';
+  useEffect(() => {
+    if (connected) {
+      if (!closedByHand.current) setSide((current) => current ?? 'runtime');
+    } else {
+      setSide((current) => (current === 'runtime' ? null : current));
+      closedByHand.current = false;
+    }
+  }, [connected]);
+  const closeSide = () => {
+    closedByHand.current = true;
+    setSide(null);
+  };
+  // The plan's compute block, for the ticks on the pane's meters, when the paper has a plan.
+  const compute = useMemo(() => {
+    const plan = planSections?.();
+    return plan ? computeOf(plan) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [side, nb?.updated]);
+  const codeCells = useMemo(() => cells.map((cell, index) => ({ cell, index })).filter(({ cell }) => cell.type === 'code').map(({ cell, index }) => ({ key: runKey(cell.id), id: cell.id, label: `cell ${index + 1}` })), [cells]);
+  const goTo = (id: string) => {
+    setSelected(id);
+    root.current?.querySelector<HTMLElement>(`[data-cell="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
   const busy = Boolean(colab.running) || colab.status === 'connecting';
   const target = targetFrom(settings);
   const ranCount = useMemo(() => cells.filter((cell) => cell.type === 'code' && (colab.runs[runKey(cell.id)]?.state === 'ran' || cell.count !== null)).length, [cells, colab.runs]);
@@ -511,7 +535,10 @@ export default function NotebookPage({ paperId, title, sections, planSections, o
             ) : null}
           </>,
         )}
-        <button type="button" className={`btn sm ghost${files ? ' is-on' : ''}`} aria-pressed={files} onClick={() => setFiles(!files)} title="What is on the runtime's disk">
+        <button type="button" className={`btn sm ghost${side === 'runtime' ? ' is-on' : ''}`} aria-pressed={side === 'runtime'} onClick={() => (side === 'runtime' ? closeSide() : setSide('runtime'))} title="The machine: how busy it is, the last ten minutes, what is left of the session">
+          Runtime
+        </button>
+        <button type="button" className={`btn sm ghost${side === 'files' ? ' is-on' : ''}`} aria-pressed={side === 'files'} onClick={() => (side === 'files' ? closeSide() : setSide('files'))} title="What is on the runtime's disk">
           Files
         </button>
         <input ref={filePick} type="file" accept=".ipynb,application/x-ipynb+json,application/json" hidden onChange={(event) => void addFromFile(event.target.files?.[0]).then(() => (event.target.value = ''))} />
@@ -547,7 +574,7 @@ export default function NotebookPage({ paperId, title, sections, planSections, o
           />
         </div>
       ) : null}
-      <div className={`nb-split${files ? ' has-files' : ''}`}>
+      <div className={`nb-split${side ? ' has-side' : ''}`}>
         <div className="nb-cells" onMouseDown={(event) => (event.target === event.currentTarget ? setSelected(null) : undefined)}>
           {!nb ? (
             <p className="nb-loading">
@@ -580,7 +607,23 @@ export default function NotebookPage({ paperId, title, sections, planSections, o
             Implementation pages; the runtime's menu is the chip in the bar. Kept in this browser{nb ? `, last changed ${time(nb.updated)}` : ''}.
           </p>
         </div>
-        {files ? <FilesPane onClose={() => setFiles(false)} /> : null}
+        {side ? (
+          <aside className="nb-side" aria-label={side === 'runtime' ? 'The runtime' : 'Files on the runtime'}>
+            <div className="nb-side-tabs" role="tablist">
+              <button type="button" role="tab" aria-selected={side === 'runtime'} onClick={() => setSide('runtime')}>
+                Runtime
+              </button>
+              <button type="button" role="tab" aria-selected={side === 'files'} onClick={() => setSide('files')}>
+                Files
+              </button>
+              <span className="spacer" />
+              <button type="button" className="icon-btn sm" onClick={closeSide} aria-label="Close the pane">
+                <CloseIcon size={14} />
+              </button>
+            </div>
+            {side === 'runtime' ? <RuntimePane cells={codeCells} compute={compute} onGoTo={goTo} /> : <FilesPane />}
+          </aside>
+        ) : null}
       </div>
     </div>
   );

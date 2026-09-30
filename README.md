@@ -2762,7 +2762,36 @@ the plan, one a paper.
   cell; HTML outputs are dropped on the way in, as kernel output is
   everywhere on the page.
 
-![the files pane beside the notebook: the runtime's disk, folders first](docs/colab-notebook-files.png)
+The notebook keeps to the left, and the right is a pane that opens on its
+own when a runtime connects and folds when it ends, with two tabs:
+
+- **Runtime.** What the machine is — the card by name, the CPUs, the RAM,
+  the disk — and how busy it is now: meters for the GPU, VRAM, CPU, RAM and
+  disk, with the plan's needs as ticks on the memory ones when the paper
+  has a plan, and a warning as one nears its top. Under them **the last ten
+  minutes**: use and memory over time, across cells, with a ruler of which
+  cell ran when — a segment a run, the live one in orange, a click on one
+  goes to its cell. Then the **limits**: what is left of the session against
+  Colab's cap for the machine, the compute units and how long they last at
+  the rate they are going, and a word when nothing has run for a while.
+  Then the two switches: the **watch** while cells run (the probe from the
+  chip's menu, every two seconds), and the **pulse between cells** — the
+  same reading every thirty seconds while nothing runs, so the meters stay
+  live. Colab may count the pulse as activity: on the free tier that keeps
+  the runtime up, on a machine billed in units it is a quiet cost, so it is
+  on by default on the free tier only and remembered once switched. Last,
+  the runtime's own actions: restart the kernel, change machine, open in
+  Colab, stop.
+- **Files.** The runtime's disk, as above.
+
+![the notebook on the left and the Runtime pane on the right: the machine, the meters, the last ten minutes with the ruler of runs, the limits, the switches, the actions](docs/colab-notebook.png)
+
+![a cell running: the meters rising, the timeline drawing use and memory, the live run in orange on the ruler](docs/colab-notebook-live.png)
+
+![the Files tab of the pane: the runtime's disk, folders first](docs/colab-notebook-files.png)
+
+The pane's sums — the timeline, the ruler, the session and the units, the
+ticks — are `src/lib/runtime.ts`; the pane is `src/components/RuntimePane.tsx`.
 
 The model and the store are `src/lib/notebook.ts`; the page is
 `src/components/Notebook.tsx`. `scripts/colab-notebook-smoke.mjs` drives it

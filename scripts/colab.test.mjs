@@ -21,6 +21,7 @@ delete process.env.READER_TOKEN;
 const lib = await load('src/lib/colab.ts');
 const telemetry = await load('src/lib/telemetry.ts');
 const nbLib = await loadTogether(['src/lib/notebook.ts', 'src/lib/explain.ts'], { external: ['@anthropic-ai/sdk'] });
+const rt = await loadTogether(['src/lib/runtime.ts', 'src/lib/colabRun.ts', 'src/lib/hardware.ts'], { external: ['@anthropic-ai/sdk'] });
 const relay = await import('../server/colab.js');
 const { default: apiRouter } = await import('../server/api.js');
 
@@ -524,5 +525,60 @@ describe('a notebook of the reader’s own', () => {
   it('names the file from the title', () => {
     assert.equal(notebookFileName('Attention Is All You Need'), 'attention-is-all-you-need.ipynb');
     assert.equal(notebookFileName('!!!'), 'notebook.ipynb');
+  });
+});
+
+describe('the Runtime pane’s sums', () => {
+  const now = 1_000_000_000;
+  it('counts the session against Colab’s cap for the machine', () => {
+    assert.equal(rt.sessionCapHours('T4'), 12);
+    assert.equal(rt.sessionCapHours('A100'), 24);
+    assert.equal(rt.sessionCapHours(null), 12);
+    const left = rt.sessionLeft('T4', now - 3 * 3_600_000, now);
+    assert.equal(left.capHours, 12);
+    assert.equal(left.leftMs, 9 * 3_600_000);
+    assert.equal(left.share, 0.25);
+    assert.equal(rt.sessionLeft('T4', undefined, now).usedMs, 0);
+  });
+  it('turns units and a rate into hours, and says nothing without both', () => {
+    assert.equal(rt.unitsLeft({ balance: 10, ratePerHour: 2 }), 5);
+    assert.equal(rt.unitsLeft({ balance: 10 }), null);
+    assert.equal(rt.unitsLeft(undefined), null);
+    assert.equal(rt.spanText(9 * 3_600_000), '9 h');
+    assert.equal(rt.spanText(95 * 60_000), '1 h 35 min');
+    assert.equal(rt.spanText(20_000), 'under a minute');
+  });
+  it('draws the last minutes as series, with only the lines the samples have', () => {
+    const history = [
+      { at: now - 15 * 60_000, sample: { t: 0, gpu: { t: 0, util: 99, memUsedMb: 1, memTotalMb: 2 }, cpu: 99 } },
+      { at: now - 5 * 60_000, sample: { t: 0, gpu: { t: 0, util: 40, memUsedMb: 4096, memTotalMb: 15360 }, cpu: 20, ramUsedMb: 2048, ramTotalMb: 13000 } },
+      { at: now, sample: { t: 0, cpu: 30, ramUsedMb: 3072, ramTotalMb: 13000 } },
+    ];
+    const { use, memory } = rt.timeline(history, now, 10 * 60_000);
+    assert.deepEqual(use.map((s) => [s.name, s.points]), [['GPU', [{ x: -5, y: 40 }]], ['CPU', [{ x: -5, y: 20 }, { x: 0, y: 30 }]]]);
+    assert.deepEqual(memory.map((s) => [s.name, s.points.length]), [['VRAM', 1], ['RAM', 2]]);
+    assert.deepEqual(rt.timeline([], now, 60_000), { use: [], memory: [], from: now - 60_000 });
+  });
+  it('marks which cells ran when along the window, clipped, the live one to now', () => {
+    const runs = {
+      'nb:old': { state: 'ran', outputs: [], startedAt: now - 20 * 60_000, ms: 60_000, where: 'Colab' },
+      'nb:a': { state: 'ran', outputs: [], startedAt: now - 12 * 60_000, ms: 4 * 60_000, where: 'Colab' },
+      'nb:b': { state: 'failed', outputs: [], startedAt: now - 3 * 60_000, ms: 100, where: 'Colab' },
+      'nb:c': { state: 'running', outputs: [], startedAt: now - 60_000, where: 'Colab' },
+    };
+    const segments = rt.rulerSegments(runs, now, 10 * 60_000);
+    assert.deepEqual(segments.map((s) => [s.key, s.start, s.end, s.state, s.live]), [
+      ['nb:a', -10, -8, 'ran', false],
+      ['nb:b', -3, -2.98, 'failed', false],
+      ['nb:c', -1, 0, 'running', true],
+    ]);
+  });
+  it('takes the plan’s needs for the ticks, and knows a meter near its top', () => {
+    assert.deepEqual(rt.needMarkers({ phases: [{ name: 'a', memoryGb: 9 }, { name: 'b', memoryGb: 22 }], ramGb: 16 }), { vramGb: 22, ramGb: 16 });
+    assert.deepEqual(rt.needMarkers({ phases: [], minVramGb: 8 }), { vramGb: 8, ramGb: undefined });
+    assert.deepEqual(rt.needMarkers(null), {});
+    assert.equal(rt.nearFull(14, 15), true);
+    assert.equal(rt.nearFull(5, 15), false);
+    assert.equal(rt.nearFull(undefined, 15), false);
   });
 });

@@ -22,12 +22,13 @@ interface Drawn {
   points: { x: number; y: number; px: number; py: number }[];
 }
 
-function useScales(series: Series[]) {
+function useScales(series: Series[], xRange?: [number, number]) {
   return useMemo(() => {
     const xs = series.flatMap((s) => s.points.map((p) => p.x));
     const ys = series.flatMap((s) => s.points.map((p) => p.y));
-    const xMin = Math.min(...xs);
-    const xMax = Math.max(...xs);
+    // The x range is the points' unless given — a timeline keeps its whole window, so a minute of samples sits at its end.
+    const xMin = xRange ? xRange[0] : Math.min(...xs);
+    const xMax = xRange ? xRange[1] : Math.max(...xs);
     let yMin = Math.min(...ys);
     let yMax = Math.max(...ys);
     if (yMax === yMin) {
@@ -45,7 +46,7 @@ function useScales(series: Series[]) {
       return { name: s.name, colour: COLOURS[index] ?? COLOURS[3], path: points.map((p, i) => `${i ? 'L' : 'M'}${p.px.toFixed(1)} ${p.py.toFixed(1)}`).join(' '), last: points[points.length - 1], points };
     });
     return { xMin, xMax, yMin, yMax, sx, sy, drawn, yTicks: ticks(yMin, yMax, 3), xTicks: ticks(xMin, xMax, 4) };
-  }, [series]);
+  }, [series, xRange?.[0], xRange?.[1]]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /**
@@ -53,8 +54,8 @@ function useScales(series: Series[]) {
  * value at each line's end and, under the pointer, every series' value at
  * the nearest x.
  */
-export function LineChart({ series, title, xLabel, unit, tableLabel }: { series: Series[]; title: string; xLabel: string; unit?: string; tableLabel?: string }) {
-  const { drawn, yTicks, xTicks, sx, sy, xMin, xMax } = useScales(series);
+export function LineChart({ series, title, xLabel, unit, tableLabel, xRange }: { series: Series[]; title: string; xLabel: string; unit?: string; tableLabel?: string; xRange?: [number, number] }) {
+  const { drawn, yTicks, xTicks, sx, sy, xMin, xMax } = useScales(series, xRange);
   const [hover, setHover] = useState<number | null>(null);
   const [table, setTable] = useState(false);
   if (!drawn.length) return null;
@@ -128,7 +129,7 @@ export function LineChart({ series, title, xLabel, unit, tableLabel }: { series:
               {short(tick)}
             </text>
           ))}
-          <text className="tick axis" x={W - PAD.right} y={H - 6} textAnchor="end">
+          <text className="tick axis" x={W - PAD.right + 8} y={H - 6} textAnchor="start">
             {xLabel}
           </text>
           {drawn.map((line) => (
