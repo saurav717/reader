@@ -2858,11 +2858,23 @@ seen.
 ![the bar with a cell picked: suggestions for that cell](docs/colab-notebook-ask-suggestions.png)
 
 **Rewrite** in the page's bar, on this tab, rewrites the notebook rather
-than the explanation under it: the model picked writes the notebook again
-from scratch — the paper's method as a small faithful implementation, an
-experiment sized for the runtime, a text cell before each step — and every
-cell is replaced, with Undo bringing the old ones back. **Stop** ends a
-request half-way, with nothing changed.
+than the explanation under it, with the model picked in its menu, and the
+menu offers two ways. **Cell by cell** — the default — asks for each code
+cell in turn and replaces it in its place: the text cells and the order
+stay, each cell lands as its answer comes, marked, the bar counts them
+down, Stop keeps the cells done so far, and one Undo puts every cell back.
+**Whole notebook** writes the notebook again from scratch — the paper's
+method as a small faithful implementation, an experiment sized for the
+runtime, a text cell before each step — and every cell is replaced, with
+Undo bringing the old ones back. The header on this tab reads *Notebook
+with …* after whichever model writes it.
+
+When an answer gives the notebook nothing, the bar says why: a model that
+reasons first (DeepSeek's thinking models, say) can spend the whole answer
+reasoning on a big request and send no cell, or its answer can be cut off
+before the cell is whole — in both cases, ask for less at once, one cell or
+Rewrite cell by cell. The answer's room is 32,000 tokens, reasoning
+included.
 
 ![the notebook rewritten: three new cells, every one marked as the model's](docs/colab-notebook-rewritten.png)
 

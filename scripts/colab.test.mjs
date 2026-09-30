@@ -583,6 +583,17 @@ describe('the notebook’s ask bar', () => {
     assert.deepEqual(parseNotebookReply('```py after=end\nx = 1\n```').edits[0].after, 'end');
     assert.deepEqual(parseNotebookReply('```python cell="2" title="Two"\nx = 1\n```').edits[0], { kind: 'replace', cell: 2, type: 'code', source: 'x = 1' });
     assert.deepEqual(parseNotebookReply('Just an answer, no code.'), { note: 'Just an answer, no code.', edits: [] });
+    assert.deepEqual(parseNotebookReply('~~~python cell=2\nx = 1\n~~~').edits, [{ kind: 'replace', cell: 2, type: 'code', source: 'x = 1' }], 'tilde fences');
+    assert.deepEqual(parseNotebookReply('````python after=end\nprint("```")\n````').edits, [{ kind: 'insert', after: 'end', type: 'code', source: 'print("```")' }], 'four backticks around three');
+    assert.deepEqual(parseNotebookReply('```python cell=2\nx = 1\n').edits, [], 'an open fence is not a cell');
+  });
+  it('says why an answer gave the notebook nothing', () => {
+    const { nothingTaken } = nbLib;
+    assert.match(nothingTaken('DeepSeek', '', 'thought and thought', 'max_tokens'), /ran out of room.*reasoning used up the answer.*Rewrite cell by cell/);
+    assert.match(nothingTaken('DeepSeek', '', undefined, 'end_turn'), /empty answer/);
+    assert.match(nothingTaken('Claude', 'Here it is:\n```python cell=2\nx = 1\n', undefined, 'max_tokens'), /cut off before the cell was complete/);
+    assert.match(nothingTaken('Claude', 'Here it is:\n```python cell=2\nx = 1\n', undefined, 'end_turn'), /cut off/);
+    assert.match(nothingTaken('Claude', 'I would rather not.', undefined, 'end_turn'), /answered without a cell.*I would rather not/);
   });
   it('applies the edits: replacements in place, new cells after the cell named as it was numbered, unplaced ones after the cell asked about', () => {
     const edits = [

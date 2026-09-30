@@ -3231,6 +3231,7 @@ body.win-moving .assistant-win { transition: none; }
 .rewrite-menu .p-deepseek { --maker: #5b7cfa; }
 .rewrite-menu .p-gemini { --maker: #8e75f0; }
 .rw-head-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.rw-nb-mode { margin-top: 6px; align-self: flex-start; }
 .rw-views { display: flex; flex: none; padding: 2px; gap: 2px; border-radius: 9px; background: var(--rail); border: 1px solid var(--border); }
 .menu .rw-views button {
   width: 28px; height: 24px; padding: 0; justify-content: center; border-radius: 7px; color: var(--muted);

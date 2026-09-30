@@ -708,7 +708,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
             <div className="ask-status is-live">
               <span className="spinner" />
               <span className="ask-note" title={thought || undefined}>
-                {nbAsk.pending.reply ? 'Writing the cells' : thought ? `Thinking — ${thought}` : 'Reading the notebook and the paper'} — <em>{nbAsk.pending.request}</em>
+                {nbAsk.pending.progress ? `Rewriting ${nbAsk.pending.progress.label} — ${nbAsk.pending.progress.done} of ${nbAsk.pending.progress.total} done` : nbAsk.pending.reply ? 'Writing the cells' : thought ? `Thinking — ${thought}` : 'Reading the notebook and the paper'} — <em>{nbAsk.pending.request}</em>
               </span>
             </div>
           ) : nbAsk.pending?.error ? (

@@ -221,7 +221,19 @@ await context.addInitScript(
       if (!url.startsWith('https://api.anthropic.com')) return real(input, init);
       const body = typeof init?.body === 'string' ? init.body : '';
       window.__requests.push(body);
-      const forNotebook = /writing cells for a Jupyter notebook/.test(body) && window.__nbReply;
+      const sseOf = (text) => {
+        const event = (name, data) => `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
+        return [
+          event('message_start', { type: 'message_start', message: { id: 'msg_cell', type: 'message', role: 'assistant', model: 'claude-opus-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 900, output_tokens: 1 } } }),
+          event('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+          event('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }),
+          event('content_block_stop', { type: 'content_block_stop', index: 0 }),
+          event('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 90 } }),
+          event('message_stop', { type: 'message_stop' }),
+        ];
+      };
+      const cellAsked = body.match(/Rewrite cell (\d+) in place/);
+      const forNotebook = /writing cells for a Jupyter notebook/.test(body) && (cellAsked ? sseOf(`Cell ${cellAsked[1]} again.\n\n\`\`\`python cell=${cellAsked[1]}\n# rewritten by the stand-in\nprint("cell ${cellAsked[1]} rewritten")\n\`\`\``) : window.__nbReply);
       const events = forNotebook || explanation;
       const stream = new ReadableStream({
         async start(controller) {
@@ -514,9 +526,28 @@ await page.evaluate(
   sse('The notebook again: the method, then an experiment.\n\n```markdown after=end\n# Attention, from scratch\n```\n\n```python after=end\nimport numpy as np\nprint("scaled dot-product attention")\n```\n\n```python after=end\nprint("a small experiment")\n```'),
 );
 const cellsBeforeRewrite = await page.locator('.nb-cell').count();
+check('the header names who writes the notebook on this tab', /Notebook with Claude/.test(await page.locator('.explain-brand').textContent()), await page.locator('.explain-brand').textContent());
 await page.getByRole('button', { name: /^Rewrite/ }).click();
 await page.waitForSelector('.rewrite-menu');
-check('the menu says it is the notebook that is rewritten', /Rewrite the notebook with/.test(await page.locator('.rewrite-menu .rw-head b').textContent()));
+check('the menu says it is the notebook that is rewritten, cell by cell to begin with', /Rewrite the notebook with/.test(await page.locator('.rewrite-menu .rw-head b').textContent()) && (await page.locator('.rw-nb-mode [aria-checked="true"]').textContent()) === 'Cell by cell');
+const codeWithSource = await page.locator('.nb-cell.is-code').evaluateAll((els) => els.filter((el) => el.querySelector('.nb-text')?.value.trim()).length);
+const requestsBeforeCells = await page.evaluate(() => window.__requests.length);
+await page.locator('.rewrite-menu .rw-card:not([disabled])').first().click();
+await page.waitForSelector('.nb-ask .ask-status.is-done', { timeout: 60000 });
+await page.waitForTimeout(400);
+const cellAsks = await page.evaluate((from) => window.__requests.slice(from), requestsBeforeCells);
+check('cell by cell: one request a code cell, each naming its cell', cellAsks.length === codeWithSource && cellAsks.every((body) => /Rewrite cell \d+ in place/.test(body)), `${cellAsks.length} requests for ${codeWithSource} code cells`);
+check('every code cell is rewritten in its place, marked, and the text cells stay', (await page.locator('.nb-cell').count()) === cellsBeforeRewrite && (await page.locator('.nb-cell.is-code .nb-fresh', { hasText: 'Rewritten at your request' }).count()) === codeWithSource && (await page.locator('.nb-cell.is-code .nb-text').evaluateAll((els) => els.filter((el) => /rewritten by the stand-in/.test(el.value)).length)) === codeWithSource && (await page.locator('.nb-cell.is-markdown', { hasText: 'A note of my own' }).count()) === 1);
+check('the note says so', new RegExp(`${codeWithSource} of ${codeWithSource} code cells rewritten with Claude, each in place`).test(await bar.locator('.ask-status.is-done .ask-note').textContent()), await bar.locator('.ask-status.is-done .ask-note').textContent());
+await page.screenshot({ path: `${OUT}/colab-notebook-16-rewritten-cells-dark.png` });
+await bar.getByRole('button', { name: 'Undo' }).click();
+await page.waitForTimeout(300);
+check('one Undo puts every cell back', (await page.locator('.nb-cell.is-fresh').count()) === 0 && (await page.locator('.nb-cell', { hasText: 'the answer is 42' }).count()) === 1 && (await page.locator('.nb-cell.is-code .nb-text').evaluateAll((els) => els.filter((el) => /rewritten by the stand-in/.test(el.value)).length)) === 0);
+// The other way: the whole notebook from scratch.
+await page.getByRole('button', { name: /^Rewrite/ }).click();
+await page.waitForSelector('.rewrite-menu');
+await page.locator('.rw-nb-mode').getByRole('radio', { name: 'Whole notebook' }).click();
+check('the choice is remembered', (await page.evaluate(() => localStorage.getItem('reader.colab.rewrite'))) === 'notebook');
 await page.locator('.rewrite-menu .rw-card:not([disabled])').first().click();
 await page.waitForSelector('.nb-ask .ask-status.is-live', { timeout: 5000 }).catch(() => undefined);
 await page.waitForSelector('.nb-ask .ask-status.is-done', { timeout: 20000 });
@@ -527,6 +558,7 @@ check('every cell is the model’s now, three of them, and the old ones are gone
 await page.screenshot({ path: `${OUT}/colab-notebook-10-rewritten-dark.png` });
 await bar.getByRole('button', { name: 'Undo' }).click();
 await page.waitForTimeout(300);
+await page.evaluate(() => localStorage.setItem('reader.colab.rewrite', 'cells'));
 check('Undo brings the notebook back as it was', (await page.locator('.nb-cell').count()) === cellsBeforeRewrite && (await page.locator('.nb-cell', { hasText: 'the answer is 42' }).count()) === 1 && (await page.locator('.nb-cell.is-fresh').count()) === 0);
 
 console.log('\n== Ask AI sees the notebook ==');

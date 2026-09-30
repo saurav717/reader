@@ -44,7 +44,7 @@ import { CloseIcon, ColabIcon, ExplainIcon, NoteIcon, OpacityIcon, PlanIcon, Spa
 import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, PlanContext, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
 import { CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
 import NotebookPage from './Notebook';
-import { notebookAskFor, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk } from '../lib/notebookAsk';
+import { notebookAskFor, rewriteCells, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk } from '../lib/notebookAsk';
 import { colabNow } from '../lib/colab';
 import { cellKey, colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, runCell, useClient as useColabClient } from '../lib/colab';
 import { KeepButton, KeepContext, tableText, useKept, useKeeper } from './Keep';
@@ -623,6 +623,16 @@ function OpacityControl({ value, fallback, onChange }: { value: number | null; f
 
 /** How the Rewrite menu lays out the models: boxes in a grid, or a list by maker. Remembered. */
 type RewriteView = 'grid' | 'list';
+/** What Rewrite does to the notebook on the Colab tab: every code cell in turn, in place, or the whole notebook from scratch. Remembered. */
+type NotebookRewrite = 'cells' | 'notebook';
+const NB_REWRITE_KEY = 'reader.colab.rewrite';
+const readNotebookRewrite = (): NotebookRewrite => {
+  try {
+    return localStorage.getItem(NB_REWRITE_KEY) === 'notebook' ? 'notebook' : 'cells';
+  } catch {
+    return 'cells';
+  }
+};
 const REWRITE_VIEW_KEY = 'reader.rewrite.view';
 const readRewriteView = (): RewriteView => {
   try {
@@ -642,6 +652,8 @@ function RewriteMenu({
   disabled,
   implementing,
   forNotebook,
+  notebookMode,
+  onNotebookMode,
   onRewrite,
 }: {
   current: string;
@@ -650,6 +662,9 @@ function RewriteMenu({
   implementing: boolean;
   /** On the Colab tab: the notebook, not the page. */
   forNotebook?: boolean;
+  /** On the Colab tab: the whole notebook again, or every code cell in turn, in place. */
+  notebookMode?: NotebookRewrite;
+  onNotebookMode?: (mode: NotebookRewrite) => void;
   onRewrite: (model: string) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -705,7 +720,7 @@ function RewriteMenu({
         aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen((now) => !now)}
-        title={forNotebook ? 'Write the notebook again from scratch — the paper’s method and an experiment as cells, with the model you choose' : implementing ? 'Plan it again from scratch, for the machine picked now — with the model you choose' : 'Write it again from scratch — with the model you choose'}
+        title={forNotebook ? 'Write the notebook again — the whole notebook from scratch, or every code cell in turn, in place — with the model you choose' : implementing ? 'Plan it again from scratch, for the machine picked now — with the model you choose' : 'Write it again from scratch — with the model you choose'}
       >
         Rewrite <span className="caret" aria-hidden="true">▾</span>
       </button>
@@ -714,7 +729,17 @@ function RewriteMenu({
           <div className="rw-head">
             <span className="rw-head-text">
               <b>Rewrite {forNotebook ? 'the notebook ' : ''}with</b>
-              <span>Written again from scratch · Undo brings it back</span>
+              <span>{forNotebook ? (notebookMode === 'cells' ? 'Every code cell again, one by one, each in its place · Undo brings them back' : 'The whole notebook again from scratch · Undo brings it back') : 'Written again from scratch · Undo brings it back'}</span>
+              {forNotebook && onNotebookMode ? (
+                <span className="segmented sm rw-nb-mode" role="radiogroup" aria-label="What Rewrite does to the notebook">
+                  <button type="button" role="radio" aria-checked={notebookMode === 'cells'} aria-pressed={notebookMode === 'cells'} onClick={() => onNotebookMode('cells')} title="Each code cell asked for in turn and replaced in place; text cells and the order stay">
+                    Cell by cell
+                  </button>
+                  <button type="button" role="radio" aria-checked={notebookMode !== 'cells'} aria-pressed={notebookMode !== 'cells'} onClick={() => onNotebookMode('notebook')} title="The paper’s method and an experiment as new cells; every current cell replaced">
+                    Whole notebook
+                  </button>
+                </span>
+              ) : null}
             </span>
             <span className="rw-views" role="group" aria-label="Show the models as">
               <button type="button" aria-pressed={view === 'grid'} onClick={() => pickView('grid')} title="Boxes in a grid">
@@ -922,6 +947,17 @@ export default function Explain({ paperId, title, authors, published, screen, on
   // The Colab tab's own request, for the header's Rewrite and Stop while that tab is the one open.
   const nbAsk = useSyncExternalStore(subscribeNotebookAsk, () => notebookAskFor(paperId));
   const nbBusy = Boolean(nbAsk.pending && !nbAsk.pending.error);
+  const [nbRewrite, setNbRewriteState] = useState<NotebookRewrite>(readNotebookRewrite);
+  const setNbRewrite = (mode: NotebookRewrite) => {
+    setNbRewriteState(mode);
+    try {
+      localStorage.setItem(NB_REWRITE_KEY, mode);
+    } catch {
+      // private mode
+    }
+  };
+  // Who writes the notebook: the model Rewrite last picked for it, else the pages'.
+  const nbWriter = PROVIDERS[modelSpec(nbAsk.model ?? model).provider].name;
   const thought = lastThought(explanation?.thinking);
   const busy = Boolean(streaming || (pending && !pending.error));
   const canAsk = Boolean(explanation?.content && explanation.model && assistant.keys[modelSpec(explanation.model).provider] && !streaming);
@@ -1132,8 +1168,9 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const rewriteWith = async (id: string) => {
     const read = await screen();
     if (page === 'colab') {
-      // On the Colab tab, Rewrite is the notebook's: its cells written again by the model picked, not the page under it.
-      await rewriteNotebook({ paperId, screen: read, model: id, runs: colabNow().runs, pages: { explanation: STORES.explain.get(paperId)?.content, plan: implementationFor(paperId)?.content } });
+      // On the Colab tab, Rewrite is the notebook's: its cells written again by the model picked, not the page under it — every code cell in turn, or the whole notebook.
+      const params = { paperId, screen: read, model: id, runs: colabNow().runs, pages: { explanation: STORES.explain.get(paperId)?.content, plan: implementationFor(paperId)?.content } };
+      await (nbRewrite === 'cells' ? rewriteCells(params) : rewriteNotebook(params));
       return;
     }
     await store.generate(read, id);
@@ -1218,7 +1255,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
     >
       <header className="explain-bar">
         <span className="explain-brand">
-          <ExplainIcon size={17} /> <span>Explained by {writer}</span>
+          {page === 'colab' ? <ColabIcon size={17} /> : <ExplainIcon size={17} />} <span>{page === 'colab' ? `Notebook with ${nbWriter}` : `Explained by ${writer}`}</span>
         </span>
         <span className="explain-bar-title" title={title}>
           {title}
@@ -1275,6 +1312,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
               disabled={!assistant.keys[modelSpec(nbAsk.model ?? model).provider]}
               implementing={false}
               forNotebook
+              notebookMode={nbRewrite}
+              onNotebookMode={setNbRewrite}
               onRewrite={(id) => {
                 setModel(id);
                 void rewriteWith(id);
