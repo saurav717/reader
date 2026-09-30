@@ -382,6 +382,20 @@ await pane.locator('.rt-ruler-run').first().click();
 await page.waitForTimeout(600);
 check('a segment of the ruler goes to its cell', (await page.locator('.nb-cell.is-selected').count()) === 1 && /attention weights/.test(await page.locator('.nb-cell.is-selected').textContent()));
 
+console.log('\n== Run stays in reach on a long cell ==');
+// The first code cell is a long one: scrolled so that its top is well above the fold, its Run button is still on screen, stuck to the top.
+const longCell = page.locator('.nb-cell.is-code').first();
+await longCell.evaluate((el) => {
+  const scroller = el.closest('.nb-cells');
+  scroller.scrollTop = el.offsetTop - scroller.offsetTop + 160;
+});
+await page.waitForTimeout(300);
+const runBox = await longCell.locator('.nb-run').boundingBox();
+const scrollerBox = await page.locator('.nb-cells').boundingBox();
+const cellBox = await longCell.boundingBox();
+check('the gutter with Run sticks to the top of the notebook while a long cell scrolls', cellBox.y < scrollerBox.y - 100 && runBox.y >= scrollerBox.y && runBox.y < scrollerBox.y + 40, `cell top ${Math.round(cellBox.y)}, run ${Math.round(runBox.y)}, scroller ${Math.round(scrollerBox.y)}`);
+await page.locator('.nb-cells').evaluate((el) => (el.scrollTop = 0));
+
 console.log('\n== the Metrics tab: what the cells print as they train ==');
 await pane.getByRole('tab', { name: 'Metrics' }).click();
 await page.waitForSelector('.rt-metrics .cell-chart', { timeout: 10000 });
@@ -603,6 +617,24 @@ await page.waitForTimeout(300);
 await page.screenshot({ path: `${OUT}/colab-notebook-5-light.png` });
 
 check('the page kept the sockets alive with a frame every fifteen seconds while nothing ran', keepalives.length >= 1, `${keepalives.length} keep-alive frames`);
+console.log('\n== and on the Explanation page, a cell’s header with Run in Colab ==');
+await page.getByRole('tab', { name: 'Explanation' }).click();
+await page.waitForSelector('.explain-scroll .explain-cell', { timeout: 10000 });
+const pageCell = page.locator('.explain-doc .explain-cell').first();
+await pageCell.evaluate((el) => {
+  const scroller = el.closest('.explain-scroll');
+  const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  scroller.scrollTop = top + 160;
+});
+await page.waitForTimeout(300);
+const headBox = await pageCell.locator('header').boundingBox();
+const pageScroller = await page.locator('.explain-scroll').boundingBox();
+const pageCellBox = await pageCell.boundingBox();
+check('the header, with Run in Colab, sticks to the top of the page while a long cell scrolls', pageCellBox.y < pageScroller.y - 100 && headBox.y >= pageScroller.y - 1 && headBox.y < pageScroller.y + 60, `cell top ${Math.round(pageCellBox.y)}, header ${Math.round(headBox.y)}, scroller ${Math.round(pageScroller.y)}`);
+await page.screenshot({ path: `${OUT}/colab-notebook-14-sticky-header-light.png` });
+await page.getByRole('tab', { name: 'Colab' }).click();
+await page.waitForTimeout(300);
+
 check('no page errors', errors.length === 0, errors.join(' | '));
 console.log(`\n${problems.length ? `${problems.length} problem(s):\n  ${problems.join('\n  ')}` : 'all good'}\n`);
 await browser.close();

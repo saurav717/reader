@@ -2990,8 +2990,9 @@ body.win-moving .assistant-win { transition: none; }
 .explain-figure figcaption { margin-top: 10px; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); }
 
 /* A code cell, dressed like a notebook's. */
-.explain-cell { margin: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
-.explain-cell > header { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 12px; border-bottom: 1px solid var(--border-soft); background: var(--panel); }
+.explain-cell { margin: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: clip; }
+/* The header, with Run in Colab, keeps to the top of what is on screen while a long cell scrolls; `clip` above, not `hidden`, so it can. */
+.explain-cell > header { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 12px; border-bottom: 1px solid var(--border-soft); background: var(--panel); position: sticky; top: 0; z-index: 3; }
 .cell-index { font: 500 11px var(--mono); color: var(--accent); white-space: nowrap; }
 .cell-title { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .explain-cell .btn.colab { display: inline-flex; align-items: center; gap: 6px; }
@@ -4845,7 +4846,7 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 @container (max-width: 860px) { .home-back { max-width: none; flex: 1 1 100%; } }
 
 /* Run in Colab: a cell run in the reader's own Colab runtime (src/components/Colab.tsx). */
-.explain-cell > header { position: relative; }
+.explain-cell > header { position: sticky; } /* sticky, as above; still the containing block for the card below */
 .explain-cell > header .colab-connect { position: absolute; right: 8px; top: calc(100% + 6px); z-index: 42; }
 .btn.colab.is-go { border-color: #e8710a; color: #a24d00; background: color-mix(in srgb, #e8710a 8%, var(--surface)); }
 .btn.colab.is-go:hover { background: color-mix(in srgb, #e8710a 16%, var(--surface)); }
@@ -5093,6 +5094,8 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .nb-cell.is-running { border-color: #e8710a; }
 .nb-cell.is-failed { border-color: color-mix(in srgb, var(--danger) 55%, var(--border)); }
 .nb-gutter { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 8px; }
+/* The gutter keeps to the top of what is on screen while a long cell scrolls, so Run is always within reach. */
+.nb-gutter { position: sticky; top: 8px; align-self: start; z-index: 2; }
 .nb-run { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--accent); font-size: 10px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
 .nb-run:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
 .nb-run:disabled { opacity: 0.4; cursor: not-allowed; }
