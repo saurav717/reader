@@ -1077,7 +1077,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
         {s.hasKey && !s.turns.length ? (
           <div className="chat-empty">
             <p>
-              Just ask — {provider.name} reads your screen first. {reading ? 'The paper, the passage in view, what you have selected and your highlights' : 'The list you are looking at'}{' '}
+              Just ask — {model.label} reads your screen first. {reading ? 'The paper, the passage in view, what you have selected and your highlights' : 'The list you are looking at'}{' '}
               go along with the question, so there is nothing to paste. The ⚙ menu says exactly what, and lets you hold anything back.
             </p>
             <ul>
@@ -1135,7 +1135,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           rows={1}
           value={input}
           disabled={!s.hasKey}
-          placeholder={s.hasKey ? (reading ? 'Ask about this paper…' : `Ask ${provider.name}…`) : provider.viaProxy ? `${provider.name} is not available yet — see above` : `Add a ${provider.company} API key above to start`}
+          placeholder={s.hasKey ? (reading ? `Ask ${model.label} about this paper…` : `Ask ${model.label}…`) : provider.viaProxy ? `${provider.name} is not available yet — see above` : `Add a ${provider.company} API key above to start`}
           aria-label={ASSISTANT_NAME}
           onChange={(event) => {
             setInput(event.target.value);

@@ -904,10 +904,11 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const provider = PROVIDERS[chosen.provider];
   const hasKey = assistant.keys[chosen.provider];
   // Who wrote the page on screen — or who is about to.
-  const writer = PROVIDERS[modelSpec(explanation?.model ?? model).provider].name;
+  // Named by the model, not its maker: the reader picks a model, and sees that model's name wherever it acts.
+  const writer = modelSpec(explanation?.model ?? model).label;
   // Who answers the bar: the model picked for it, else the page's writer.
   const askModel = assistant.prefs.askModel ?? explanation?.model ?? model;
-  const asker = PROVIDERS[modelSpec(askModel).provider].name;
+  const asker = modelSpec(askModel).label;
   const [keyDraft, setKeyDraft] = useState('');
   const [active, setActive] = useState('');
   const [checked, setChecked] = useState(false);
@@ -1058,7 +1059,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
     }
   };
   // Who writes the notebook: the model Rewrite last picked for it, else the pages'.
-  const nbWriter = PROVIDERS[modelSpec(nbAsk.model ?? model).provider].name;
+  const nbWriter = modelSpec(nbAsk.model ?? model).label;
   const thought = lastThought(explanation?.thinking);
   const busy = Boolean(streaming || (pending && !pending.error));
   const canAsk = Boolean(explanation?.content && explanation.model && assistant.keys[modelSpec(askModel).provider] && !streaming);

@@ -2994,8 +2994,10 @@ kept.
   that one — on the Explanation, Implementation and Colab bars alike — until
   it is changed back. A page DeepSeek wrote can be tweaked by Claude, and the
   other way round. A model without a key is listed but cannot be picked. The
-  buttons under a cell's output — *Ask … to fix this cell*, *Ask … why it
-  differs* — name that model, and *what … expected* names the page's writer.
+  buttons under a cell's output — *Ask Gemini 3.8 Flash to fix this cell*,
+  *Ask … why it differs* — name that model, and *what … expected* names the
+  page's writer; the header, the bar and the buttons all say the model's own
+  name, never just its maker.
 - The header's **◑** sets how see-through the page is; the sun or moon beside
   it switches the whole app between light and dark mode, as Settings does.
 

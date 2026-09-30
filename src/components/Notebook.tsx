@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import DOMPurify from 'dompurify';
-import { getState as assistantState, modelSpec, PROVIDERS, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
+import { getState as assistantState, modelSpec, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
 import type { Screen } from '../lib/assistant';
 import { colabAvailable, colabGranted, connect as connectColab, interrupt as interruptColab, listContents, machineLabel, runAll, runCell } from '../lib/colab';
 import type { CellRun, RuntimeEntry } from '../lib/colab';
@@ -395,7 +395,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
   // The ask bar: the model picked for the ask bars, else the one Rewrite last picked here, else the pages'; a key for it; nothing being answered.
   const writerModel = nbAsk.model ?? assistant.prefs.explainModel ?? assistant.prefs.model;
   const model = assistant.prefs.askModel ?? writerModel;
-  const writer = PROVIDERS[modelSpec(model).provider].name;
+  const writer = modelSpec(model).label;
   const asking = Boolean(nbAsk.pending && !nbAsk.pending.error);
   const canAsk = Boolean(nb && assistant.keys[modelSpec(model).provider] && !asking);
   const thought = lastThought(nbAsk.pending?.thinking);
