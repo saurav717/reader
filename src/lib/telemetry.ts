@@ -90,6 +90,86 @@ export function lossSeries(text: string): Series[] {
 /** Whether there is enough of a curve to draw: three points on one series. */
 export const hasCurve = (series: Series[]) => series.some((entry) => entry.points.length >= 3);
 
+// ------------------------------------------------------------- metrics ----
+//
+// The Metrics pane reads every scalar a training loop prints, the way
+// TensorBoard's Scalars tab shows every tag: the loss, but also accuracy,
+// the learning rate, perplexity, BLEU, F1, a gradient norm, a reward. A
+// value counts when its name is one of those, on its own or with a split in
+// front (train_loss, val/acc, test accuracy); "step 100" and "epoch 2" say
+// where it is, as for the loss curves.
+
+export interface Metric {
+  /** The metric's name, the split taken off: loss, acc, lr… */
+  name: string;
+  /** One series a split — train, val, test… — or one unnamed series when the log names none. */
+  series: Series[];
+}
+
+const SPLIT = '(?:train(?:ing)?|val(?:id(?:ation)?)?|test|eval(?:uation)?|dev)';
+const METRIC_NAMES = 'loss|nll|acc(?:uracy)?|top[- _]?[15](?:[- _]?acc(?:uracy)?)?|lr|learning[ _-]?rate|ppl|perplexity|bleu|rouge(?:[- _]?[l12])?|f1|auc(?:roc)?|m?ap|precision|recall|iou|dice|wer|cer|mse|mae|rmse|r2|grad[ _-]?norm|reward|return|score|error(?:[ _-]?rate)?|err|elbo|kl|entropy';
+const METRIC = new RegExp(`(?<![\\w./])(?:(${SPLIT})[ _/-])?(${METRIC_NAMES})(?:@\\d+)?\\b\\s*(?:[:=]\\s*|\\s+)([-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:e[-+]?\\d+)?)(?![\\w./])`, 'gi');
+export const MAX_METRICS = 8;
+
+const metricName = (raw: string) => {
+  const lower = raw.toLowerCase().replace(/[ _-]+/g, ' ').trim();
+  if (/^acc/.test(lower)) return 'accuracy';
+  if (lower === 'learning rate') return 'lr';
+  if (lower === 'ppl') return 'perplexity';
+  if (lower === 'err' || /^error/.test(lower)) return 'error';
+  if (/^grad/.test(lower)) return 'grad norm';
+  if (/^top ?1/.test(lower)) return 'top-1';
+  if (/^top ?5/.test(lower)) return 'top-5';
+  return lower;
+};
+
+/**
+ * The metrics in a cell's output, each with a series a split, by step (or
+ * epoch, or a progress bar's count) where the line names one and by the
+ * order of the lines otherwise. At most MAX_METRICS metrics, the first
+ * seen kept; nothing for output that names none.
+ */
+export function metricSeries(text: string): Metric[] {
+  const metrics = new Map<string, Map<string, Series>>();
+  const orders = new Map<string, number>();
+  for (const line of text.split(/\r\n|\r|\n/)) {
+    const found: { metric: string; split: string; y: number }[] = [];
+    METRIC.lastIndex = 0;
+    for (const match of line.matchAll(METRIC)) {
+      const y = Number(match[3]);
+      if (!Number.isFinite(y)) continue;
+      found.push({ metric: metricName(match[2]), split: match[1] ? seriesName(match[1]) : '', y });
+    }
+    if (!found.length) continue;
+    const step = line.match(STEP)?.[1] ?? line.match(EPOCH)?.[1] ?? line.match(PROGRESS)?.[1];
+    for (const { metric, split, y } of found) {
+      let splits = metrics.get(metric);
+      if (!splits) {
+        if (metrics.size >= MAX_METRICS) continue;
+        splits = new Map();
+        metrics.set(metric, splits);
+      }
+      let entry = splits.get(split);
+      if (!entry) {
+        if (splits.size >= MAX_SERIES) continue;
+        entry = { name: split, points: [], stepped: step !== undefined };
+        splits.set(split, entry);
+      }
+      const orderKey = `${metric}\u0000${split}`;
+      const order = (orders.get(orderKey) ?? 0) + 1;
+      orders.set(orderKey, order);
+      if (step === undefined) entry.stepped = false;
+      entry.points.push({ x: step !== undefined ? Number(step) : order, y });
+    }
+  }
+  return Array.from(metrics.entries()).map(([name, splits]) => ({
+    name,
+    series: Array.from(splits.values())
+      .map((entry) => ({ ...entry, points: downsample(entry.stepped ? entry.points : entry.points.map((point, index) => ({ x: index + 1, y: point.y }))) }))
+      .filter((entry) => entry.points.length > 0),
+  }));
+}
+
 // -------------------------------------------------------------- machine ----
 
 export interface GpuSample {

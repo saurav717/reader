@@ -5099,6 +5099,22 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .nb-run.is-busy { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
 .nb-mark { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); font: 600 13px var(--sans); }
 .nb-count { font: 500 10.5px var(--mono); color: var(--accent); white-space: nowrap; }
+/* Whether the cell has run: a dot in the gutter, named in the tools on hover. */
+.nb-ran { width: 7px; height: 7px; border-radius: 50%; background: var(--border); box-shadow: 0 0 0 1px var(--surface); }
+.nb-ran.is-ran { background: var(--v-holds); }
+.nb-ran.is-failed { background: var(--danger); }
+.nb-ran.is-stopped { background: var(--muted); }
+.nb-ran.is-changed { background: var(--v-refined); box-shadow: 0 0 0 1px var(--surface), 0 0 0 2px color-mix(in srgb, var(--v-refined) 35%, transparent); }
+.nb-ran.is-earlier { background: color-mix(in srgb, var(--v-holds) 45%, var(--border)); }
+.nb-ran.is-never { background: transparent; border: 1px solid var(--muted); width: 6px; height: 6px; }
+.nb-ran.is-running, .nb-ran.is-queued { background: #e8710a; }
+.nb-ran.is-running { animation: revising 0.9s ease-in-out infinite alternate; }
+.nb-tools-state { display: inline-flex; align-items: center; height: 22px; padding: 0 8px 0 6px; margin-right: 2px; border-right: 1px solid var(--border-soft); font: 500 10.5px var(--sans); color: var(--muted); white-space: nowrap; }
+.nb-tools-state.is-ran { color: var(--v-holds); }
+.nb-tools-state.is-failed { color: var(--danger); }
+.nb-tools-state.is-changed { color: var(--v-refined); }
+.nb-tools-state.is-running, .nb-tools-state.is-queued { color: #e8710a; }
+.cell-state.is-queued { color: var(--muted); }
 .nb-body { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .nb-body .cell-state { padding: 0 2px; }
 .nb-body .cell-output { border: 1px solid var(--border-soft); border-radius: 10px; overflow: hidden; }
@@ -5194,6 +5210,19 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .rt-switch { margin: 0 0 8px; }
 .rt-read { margin: -2px 0 0; }
 .rt-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+/* Run, pause and stop, at the top of the pane. */
+.rt-run { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
+.rt-run-state { flex: 1 1 100%; display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); }
+.rt-run .btn:disabled { opacity: 0.45; }
+/* The Metrics tab. */
+.rt-metrics .rt-head span code, .rt-metrics .rt-empty code, .rt-metric-note code { font: 11px var(--mono); }
+.rt-metric-cells { margin-top: 10px; flex-wrap: wrap; }
+.rt-metric { margin-top: 4px; }
+.rt-metric .cell-chart { margin: 0; }
+.rt-metric-cells-go { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.rt-metric-cells-go .rt-peak { display: inline-flex; gap: 4px; padding: 2px 8px; font-size: 11.5px; color: var(--accent); }
+.rt-metric-note { margin: 16px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.rt-metric-note a { color: var(--accent); }
 .rt-actions .btn { text-decoration: none; }
 .rt-confirm { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
 .rt-change { margin-top: 8px; font-size: 12px; color: var(--ink-2); line-height: 1.45; }

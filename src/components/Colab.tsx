@@ -397,7 +397,8 @@ const seconds = (ms: number | undefined) => (ms === undefined ? '' : ms < 10_000
 
 /** What the header of a cell that has run, or is running, says about it. */
 export function RunState({ run }: { run: CellRun }) {
-  if (run.state === 'running' || run.state === 'queued') {
+  if (run.state === 'queued') return <span className="cell-state is-queued">◌ Queued — runs after the cells before it</span>;
+  if (run.state === 'running') {
     return (
       <span className="cell-state is-busy">
         <span className="spinner" /> Running on {run.where.replace(/^Colab · /, '')}

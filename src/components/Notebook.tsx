@@ -10,112 +10,48 @@
 // takes one in. The model and the store are src/lib/notebook.ts. Nothing
 // runs without a click or a Shift-Enter on that cell; Run all asks first.
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from "react";
-import DOMPurify from "dompurify";
-import {
-  getState as assistantState,
-  modelSpec,
-  PROVIDERS,
-  subscribe as subscribeAssistant,
-} from "../lib/assistant";
-import type { Screen } from "../lib/assistant";
-import {
-  colabAvailable,
-  colabGranted,
-  connect as connectColab,
-  interrupt as interruptColab,
-  listContents,
-  machineLabel,
-  runAll,
-  runCell,
-} from "../lib/colab";
-import type { CellRun, RuntimeEntry } from "../lib/colab";
-import { explanationFor } from "../lib/explain";
-import type { Section } from "../lib/explain";
-import { commitFiles, targetFrom } from "../lib/github";
-import { computeOf, implementationFor } from "../lib/implement";
-import {
-  askNotebook,
-  dismissNotebookAsk,
-  loadNotebookAsk,
-  notebookAskFor,
-  stopNotebookAsk,
-  subscribeNotebookAsk,
-  undoNotebookReply,
-} from "../lib/notebookAsk";
-import type { AskScope } from "../lib/notebookAsk";
-import { markdown } from "../lib/markdown";
-import {
-  appendCells,
-  clearOutputs,
-  fromIpynb,
-  insertCell,
-  loadNotebook,
-  moveCell,
-  notebookFileName,
-  notebookFor,
-  removeCell,
-  runKey,
-  seedCells,
-  setOutputs,
-  setSource,
-  setType,
-  subscribeNotebook,
-  toIpynb,
-} from "../lib/notebook";
-import type { NbCell } from "../lib/notebook";
-import { useStore } from "../lib/store";
-import {
-  attachUrl,
-  CellRunOutput,
-  ColabMark,
-  ConnectCard,
-  RunState,
-  useColab,
-} from "./Colab";
-import { highlightPython, lastThought } from "./Explain";
-import { CloseIcon, SparkleIcon } from "./icons";
-import RuntimePane from "./RuntimePane";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
+import DOMPurify from 'dompurify';
+import { getState as assistantState, modelSpec, PROVIDERS, subscribe as subscribeAssistant } from '../lib/assistant';
+import type { Screen } from '../lib/assistant';
+import { colabAvailable, colabGranted, connect as connectColab, interrupt as interruptColab, listContents, machineLabel, runAll, runCell } from '../lib/colab';
+import type { CellRun, RuntimeEntry } from '../lib/colab';
+import { explanationFor } from '../lib/explain';
+import type { Section } from '../lib/explain';
+import { commitFiles, targetFrom } from '../lib/github';
+import { computeOf, implementationFor } from '../lib/implement';
+import { askNotebook, dismissNotebookAsk, loadNotebookAsk, notebookAskFor, outputText, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
+import type { AskScope } from '../lib/notebookAsk';
+import { markdown } from '../lib/markdown';
+import { appendCells, cellStatus, clearOutputs, fromIpynb, insertCell, loadNotebook, moveCell, notebookFileName, notebookFor, removeCell, runKey, seedCells, setOutputs, setSource, setType, subscribeNotebook, toIpynb } from '../lib/notebook';
+import type { NbCell } from '../lib/notebook';
+import { useStore } from '../lib/store';
+import { attachUrl, CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Colab';
+import { highlightPython, lastThought } from './Explain';
+import { CloseIcon, SparkleIcon } from './icons';
+import MetricsPane from './MetricsPane';
+import RuntimePane from './RuntimePane';
 
-const useNotebook = (paperId: string) =>
-  useSyncExternalStore(subscribeNotebook, () => notebookFor(paperId));
+const useNotebook = (paperId: string) => useSyncExternalStore(subscribeNotebook, () => notebookFor(paperId));
 
 /** Whether the ask bar is shown: open unless hidden, and remembered. */
-const ASK_BAR_KEY = "reader.colab.ask-bar";
+const ASK_BAR_KEY = 'reader.colab.ask-bar';
 const readAskBar = (): boolean => {
   try {
-    return localStorage.getItem(ASK_BAR_KEY) !== "hidden";
+    return localStorage.getItem(ASK_BAR_KEY) !== 'hidden';
   } catch {
     return true;
   }
 };
 
-const esc = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-const mdHtml = (md: string) =>
-  DOMPurify.sanitize(markdown(md), { ADD_ATTR: ["target"] });
-const time = (at: number) =>
-  new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-const bytes = (n: number | null) =>
-  n === null
-    ? ""
-    : n < 1024
-      ? `${n} B`
-      : n < 1024 * 1024
-        ? `${(n / 1024).toFixed(0)} KB`
-        : n < 1024 ** 3
-          ? `${(n / 1024 ** 2).toFixed(1)} MB`
-          : `${(n / 1024 ** 3).toFixed(1)} GB`;
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const mdHtml = (md: string) => DOMPurify.sanitize(markdown(md), { ADD_ATTR: ['target'] });
+const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const bytes = (n: number | null) => (n === null ? '' : n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(1)} GB`);
 
 function download(name: string, blob: Blob) {
-  const link = document.createElement("a");
+  const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
   link.download = name;
   link.click();
@@ -127,23 +63,7 @@ function download(name: string, blob: Blob) {
 // what is highlighted; the two share a grid cell, so the height is the text's.
 // ---------------------------------------------------------------------------
 
-function Editor({
-  value,
-  python,
-  autoFocus,
-  onChange,
-  onKeyDown,
-  onBlur,
-  placeholder,
-}: {
-  value: string;
-  python: boolean;
-  autoFocus?: boolean;
-  onChange: (next: string) => void;
-  onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
-  onBlur?: () => void;
-  placeholder?: string;
-}) {
+function Editor({ value, python, autoFocus, onChange, onKeyDown, onBlur, placeholder }: { value: string; python: boolean; autoFocus?: boolean; onChange: (next: string) => void; onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void; onBlur?: () => void; placeholder?: string }) {
   const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (autoFocus) {
@@ -155,11 +75,7 @@ function Editor({
   return (
     <div className="nb-editor">
       <pre className="cell-code nb-shadow" aria-hidden="true">
-        <code
-          dangerouslySetInnerHTML={{
-            __html: (python ? highlightPython(value) : esc(value)) + "\n",
-          }}
-        />
+        <code dangerouslySetInnerHTML={{ __html: (python ? highlightPython(value) : esc(value)) + '\n' }} />
       </pre>
       <textarea
         ref={box}
@@ -169,52 +85,30 @@ function Editor({
         autoCapitalize="off"
         autoCorrect="off"
         placeholder={placeholder}
-        aria-label={python ? "Code" : "Text"}
+        aria-label={python ? 'Code' : 'Text'}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
-          if (
-            event.key === "Tab" &&
-            !event.metaKey &&
-            !event.ctrlKey &&
-            !event.altKey
-          ) {
+          if (event.key === 'Tab' && !event.metaKey && !event.ctrlKey && !event.altKey) {
             // Four spaces, as Colab does; a selection is indented or outdented a line at a time.
             event.preventDefault();
             const element = event.currentTarget;
-            const {
-              selectionStart: start,
-              selectionEnd: end,
-              value: text,
-            } = element;
-            const lineStart = text.lastIndexOf("\n", start - 1) + 1;
+            const { selectionStart: start, selectionEnd: end, value: text } = element;
+            const lineStart = text.lastIndexOf('\n', start - 1) + 1;
             if (event.shiftKey) {
               const chunk = text.slice(lineStart, end);
-              const outdented = chunk.replace(/^ {1,4}/gm, "");
-              const next =
-                text.slice(0, lineStart) + outdented + text.slice(end);
+              const outdented = chunk.replace(/^ {1,4}/gm, '');
+              const next = text.slice(0, lineStart) + outdented + text.slice(end);
               onChange(next);
               const shift = chunk.length - outdented.length;
-              window.requestAnimationFrame(() =>
-                element.setSelectionRange(
-                  Math.max(lineStart, start - Math.min(4, shift)),
-                  Math.max(lineStart, end - shift),
-                ),
-              );
-            } else if (start !== end && text.slice(start, end).includes("\n")) {
+              window.requestAnimationFrame(() => element.setSelectionRange(Math.max(lineStart, start - Math.min(4, shift)), Math.max(lineStart, end - shift)));
+            } else if (start !== end && text.slice(start, end).includes('\n')) {
               const chunk = text.slice(lineStart, end);
-              const indented = chunk.replace(/^/gm, "    ");
+              const indented = chunk.replace(/^/gm, '    ');
               onChange(text.slice(0, lineStart) + indented + text.slice(end));
-              window.requestAnimationFrame(() =>
-                element.setSelectionRange(
-                  start + 4,
-                  end + (indented.length - chunk.length),
-                ),
-              );
+              window.requestAnimationFrame(() => element.setSelectionRange(start + 4, end + (indented.length - chunk.length)));
             } else {
-              onChange(text.slice(0, start) + "    " + text.slice(end));
-              window.requestAnimationFrame(() =>
-                element.setSelectionRange(start + 4, start + 4),
-              );
+              onChange(text.slice(0, start) + '    ' + text.slice(end));
+              window.requestAnimationFrame(() => element.setSelectionRange(start + 4, start + 4));
             }
             return;
           }
@@ -255,87 +149,51 @@ function Cell({
   onSelect: () => void;
   onEdit: (on: boolean) => void;
   /** Run this cell; `then` says where the selection goes after. */
-  onRun: (then: "stay" | "next" | "insert") => void;
+  onRun: (then: 'stay' | 'next' | 'insert') => void;
   onAsk?: (request: string, quote: string) => void;
 }) {
-  const live = run?.state === "running" || run?.state === "queued";
+  const live = run?.state === 'running' || run?.state === 'queued';
   // What is shown under the cell: the run in the Colab store while there is one, else what the notebook kept.
-  const shown: CellRun | undefined =
-    run ??
-    (cell.outputs.length || cell.count !== null
-      ? {
-          state: "ran",
-          outputs: cell.outputs,
-          startedAt: cell.ranAt ?? 0,
-          where: cell.ranAt
-            ? "Colab · kept with the notebook"
-            : "kept with the notebook",
-          executionCount: cell.count ?? undefined,
-        }
-      : undefined);
+  const shown: CellRun | undefined = run ?? (cell.outputs.length || cell.count !== null ? { state: 'ran', outputs: cell.outputs, startedAt: cell.ranAt ?? 0, where: cell.ranAt ? 'Colab · kept with the notebook' : 'kept with the notebook', executionCount: cell.count ?? undefined } : undefined);
   // A run that has ended goes into the notebook, so it is there after a reload.
   useEffect(() => {
     if (!run || live) return;
-    if (run.outputs !== cell.outputs)
-      setOutputs(
-        paperId,
-        cell.id,
-        run.outputs,
-        run.executionCount ?? cell.count,
-        run.startedAt,
-      );
+    if (run.outputs !== cell.outputs) setOutputs(paperId, cell.id, run.outputs, run.executionCount ?? cell.count, run.startedAt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.state]);
   const keys = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    if (
-      event.key === "Enter" &&
-      (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey)
-    ) {
+    if (event.key === 'Enter' && (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey)) {
       event.preventDefault();
-      if (cell.type === "markdown") {
+      if (cell.type === 'markdown') {
         onEdit(false);
-        if (event.shiftKey) onRun("next");
+        if (event.shiftKey) onRun('next');
         return;
       }
-      onRun(event.altKey ? "insert" : event.shiftKey ? "next" : "stay");
-    } else if (event.key === "Escape") {
+      onRun(event.altKey ? 'insert' : event.shiftKey ? 'next' : 'stay');
+    } else if (event.key === 'Escape') {
       event.preventDefault();
       onEdit(false);
     }
   };
-  const python = cell.type === "code";
+  const python = cell.type === 'code';
+  const status = cellStatus(cell, run);
+  const statusText =
+    status === 'running' ? 'running' : status === 'queued' ? 'queued' : status === 'ran' ? `ran${cell.ranAt ? ` ${time(cell.ranAt)}` : ''}` : status === 'failed' ? 'failed' : status === 'stopped' ? 'stopped' : status === 'changed' ? 'changed since it ran' : status === 'earlier' ? 'ran earlier, elsewhere' : status === 'never' ? 'not run yet' : '';
   return (
     <section
-      className={`nb-cell is-${cell.type}${selected ? " is-selected" : ""}${editing ? " is-editing" : ""}${run ? ` is-${run.state}` : ""}${cell.fresh ? " is-fresh" : ""}`}
+      className={`nb-cell is-${cell.type}${selected ? ' is-selected' : ''}${editing ? ' is-editing' : ''}${run ? ` is-${run.state}` : ''}${cell.fresh ? ' is-fresh' : ''}`}
       data-cell={cell.id}
       onMouseDown={onSelect}
-      aria-label={`${cell.type === "code" ? "Code" : "Text"} cell ${index + 1}`}
+      aria-label={`${cell.type === 'code' ? 'Code' : 'Text'} cell ${index + 1}`}
     >
       <div className="nb-gutter">
         {python ? (
           live ? (
-            <button
-              type="button"
-              className="nb-run is-busy"
-              onClick={() => void interruptColab()}
-              title="Interrupt the kernel"
-              aria-label="Stop"
-            >
+            <button type="button" className="nb-run is-busy" onClick={() => void interruptColab()} title="Interrupt the kernel" aria-label="Stop">
               ■
             </button>
           ) : (
-            <button
-              type="button"
-              className="nb-run"
-              disabled={!canRun || busy}
-              onClick={() => onRun("stay")}
-              title={
-                canRun
-                  ? "Run this cell in your Colab runtime (Shift-Enter runs and moves on)"
-                  : "Running cells needs a Google client ID and the reader’s proxy"
-              }
-              aria-label="Run"
-            >
+            <button type="button" className="nb-run" disabled={!canRun || busy} onClick={() => onRun('stay')} title={canRun ? 'Run this cell in your Colab runtime (Shift-Enter runs and moves on)' : 'Running cells needs a Google client ID and the reader’s proxy'} aria-label="Run">
               ▶
             </button>
           )
@@ -344,110 +202,38 @@ function Cell({
             ¶
           </span>
         )}
-        <span className="nb-count">
-          {python
-            ? live
-              ? "[*]"
-              : `[${run?.executionCount ?? cell.count ?? " "}]`
-            : ""}
-        </span>
+        <span className="nb-count">{python ? (live ? '[*]' : `[${run?.executionCount ?? cell.count ?? ' '}]`) : ''}</span>
+        {status ? <span className={`nb-ran is-${status}`} role="img" aria-label={`This cell: ${statusText}`} title={statusText} /> : null}
       </div>
       <div className="nb-body">
         {cell.fresh ? (
-          <span
-            className="revised-pill nb-fresh"
-            title="From the ask bar; the mark goes when the cell is edited or run"
-          >
-            {cell.fresh === "new"
-              ? "New · from the ask bar"
-              : "Rewritten at your request"}
+          <span className="revised-pill nb-fresh" title="From the ask bar; the mark goes when the cell is edited or run">
+            {cell.fresh === 'new' ? 'New · from the ask bar' : 'Rewritten at your request'}
           </span>
         ) : null}
-        {cell.type === "code" || editing ? (
-          <Editor
-            value={cell.source}
-            python={python}
-            autoFocus={editing}
-            onChange={(next) => setSource(paperId, cell.id, next)}
-            onKeyDown={keys}
-            placeholder={
-              python ? "# Python, on your Colab runtime" : "Markdown"
-            }
-            onBlur={() => (python ? onEdit(false) : undefined)}
-          />
+        {cell.type === 'code' || editing ? (
+          <Editor value={cell.source} python={python} autoFocus={editing} onChange={(next) => setSource(paperId, cell.id, next)} onKeyDown={keys} placeholder={python ? '# Python, on your Colab runtime' : 'Markdown'} onBlur={() => (python ? onEdit(false) : undefined)} />
         ) : (
-          <div
-            className="nb-markdown explain-prose"
-            onDoubleClick={() => onEdit(true)}
-            dangerouslySetInnerHTML={{
-              __html: cell.source.trim()
-                ? mdHtml(cell.source)
-                : '<p class="nb-empty">Empty text cell — double-click to write</p>',
-            }}
-          />
+          <div className="nb-markdown explain-prose" onDoubleClick={() => onEdit(true)} dangerouslySetInnerHTML={{ __html: cell.source.trim() ? mdHtml(cell.source) : '<p class="nb-empty">Empty text cell — double-click to write</p>' }} />
         )}
         {python && run ? <RunState run={run} /> : null}
-        {python && shown ? (
-          <CellRunOutput
-            run={shown}
-            onAsk={
-              onAsk
-                ? (request) => onAsk(request, cell.source.slice(0, 1500))
-                : undefined
-            }
-            onForget={() => setOutputs(paperId, cell.id, [], null, undefined)}
-          />
-        ) : null}
+        {python && shown ? <CellRunOutput run={shown} onAsk={onAsk ? (request) => onAsk(request, cell.source.slice(0, 1500)) : undefined} onForget={() => setOutputs(paperId, cell.id, [], null, undefined)} /> : null}
       </div>
       <div className="nb-tools" role="toolbar" aria-label="Cell">
-        <button
-          type="button"
-          onClick={() => moveCell(paperId, cell.id, -1)}
-          title="Move up"
-          aria-label="Move up"
-        >
+        {status ? <span className={`nb-tools-state is-${status}`}>{statusText}</span> : null}
+        <button type="button" onClick={() => moveCell(paperId, cell.id, -1)} title="Move up" aria-label="Move up">
           ↑
         </button>
-        <button
-          type="button"
-          onClick={() => moveCell(paperId, cell.id, 1)}
-          title="Move down"
-          aria-label="Move down"
-        >
+        <button type="button" onClick={() => moveCell(paperId, cell.id, 1)} title="Move down" aria-label="Move down">
           ↓
         </button>
-        <button
-          type="button"
-          onClick={() =>
-            setType(
-              paperId,
-              cell.id,
-              cell.type === "code" ? "markdown" : "code",
-            )
-          }
-          title={
-            cell.type === "code"
-              ? "Make it a text cell (M)"
-              : "Make it a code cell (Y)"
-          }
-        >
-          {cell.type === "code" ? "Text" : "Code"}
+        <button type="button" onClick={() => setType(paperId, cell.id, cell.type === 'code' ? 'markdown' : 'code')} title={cell.type === 'code' ? 'Make it a text cell (M)' : 'Make it a code cell (Y)'}>
+          {cell.type === 'code' ? 'Text' : 'Code'}
         </button>
-        <button
-          type="button"
-          onClick={() => insertCell(paperId, cell.id, "below")}
-          title="A code cell below (B)"
-          aria-label="Add a cell below"
-        >
+        <button type="button" onClick={() => insertCell(paperId, cell.id, 'below')} title="A code cell below (B)" aria-label="Add a cell below">
           +
         </button>
-        <button
-          type="button"
-          className="is-danger"
-          onClick={() => removeCell(paperId, cell.id)}
-          title="Delete the cell (D D)"
-          aria-label="Delete"
-        >
+        <button type="button" className="is-danger" onClick={() => removeCell(paperId, cell.id)} title="Delete the cell (D D)" aria-label="Delete">
           <CloseIcon size={13} />
         </button>
       </div>
@@ -461,12 +247,9 @@ function Cell({
 
 function FilesPane() {
   const colab = useColab();
-  const connected = colab.status === "idle" || colab.status === "busy";
-  const [path, setPath] = useState("");
-  const [listing, setListing] = useState<{
-    path: string;
-    entries: RuntimeEntry[];
-  } | null>(null);
+  const connected = colab.status === 'idle' || colab.status === 'busy';
+  const [path, setPath] = useState('');
+  const [listing, setListing] = useState<{ path: string; entries: RuntimeEntry[] } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const load = async (at: string) => {
@@ -490,23 +273,13 @@ function FilesPane() {
     <aside className="nb-files" aria-label="Files on the runtime">
       <header>
         <b>Files</b>
-        <span className="nb-files-path">/content{path ? `/${path}` : ""}</span>
-        <button
-          type="button"
-          className="icon-btn sm"
-          onClick={() => void load(path)}
-          disabled={!connected || loading}
-          title="Read the disk again"
-          aria-label="Refresh"
-        >
+        <span className="nb-files-path">/content{path ? `/${path}` : ''}</span>
+        <button type="button" className="icon-btn sm" onClick={() => void load(path)} disabled={!connected || loading} title="Read the disk again" aria-label="Refresh">
           ↻
         </button>
       </header>
       {!connected ? (
-        <p className="nb-files-note">
-          Connect a runtime and its disk is listed here: what the cells wrote,
-          the data they fetched, the checkpoints.
-        </p>
+        <p className="nb-files-note">Connect a runtime and its disk is listed here: what the cells wrote, the data they fetched, the checkpoints.</p>
       ) : problem ? (
         <p className="nb-files-note is-problem">{problem}</p>
       ) : !listing ? (
@@ -517,42 +290,29 @@ function FilesPane() {
         <ul>
           {path ? (
             <li>
-              <button
-                type="button"
-                onClick={() =>
-                  void load(path.split("/").slice(0, -1).join("/"))
-                }
-              >
+              <button type="button" onClick={() => void load(path.split('/').slice(0, -1).join('/'))}>
                 <span className="nb-file-icon">↰</span> ..
               </button>
             </li>
           ) : null}
           {listing.entries.map((entry) => (
             <li key={entry.path} className={`is-${entry.type}`}>
-              {entry.type === "directory" ? (
+              {entry.type === 'directory' ? (
                 <button type="button" onClick={() => void load(entry.path)}>
                   <span className="nb-file-icon">▸</span> {entry.name}/
                 </button>
               ) : (
                 <span>
-                  <span className="nb-file-icon">
-                    {entry.type === "notebook" ? "▤" : "·"}
-                  </span>{" "}
-                  {entry.name}
+                  <span className="nb-file-icon">{entry.type === 'notebook' ? '▤' : '·'}</span> {entry.name}
                   <small>{bytes(entry.size)}</small>
                 </span>
               )}
             </li>
           ))}
-          {!listing.entries.length ? (
-            <li className="nb-files-note">Nothing here yet.</li>
-          ) : null}
+          {!listing.entries.length ? <li className="nb-files-note">Nothing here yet.</li> : null}
         </ul>
       )}
-      <p className="nb-files-foot">
-        The runtime's disk goes when the runtime does; keep what matters in
-        Drive or a commit.
-      </p>
+      <p className="nb-files-foot">The runtime's disk goes when the runtime does; keep what matters in Drive or a commit.</p>
     </aside>
   );
 }
@@ -561,38 +321,20 @@ function FilesPane() {
 // The page
 // ---------------------------------------------------------------------------
 
-type Push =
-  | { state: "idle" }
-  | { state: "pushing" }
-  | { state: "pushed"; url: string }
-  | { state: "error"; message: string };
+type Push = { state: 'idle' } | { state: 'pushing' } | { state: 'pushed'; url: string } | { state: 'error'; message: string };
 
-export default function NotebookPage({
-  paperId,
-  title,
-  screen,
-  sections,
-  planSections,
-}: {
-  paperId: string;
-  title: string;
-  screen: () => Promise<Screen>;
-  sections: Section[];
-  planSections?: () => Section[] | null;
-}) {
+export default function NotebookPage({ paperId, title, screen, sections, planSections }: { paperId: string; title: string; screen: () => Promise<Screen>; sections: Section[]; planSections?: () => Section[] | null }) {
   const nb = useNotebook(paperId);
   const colab = useColab();
   const { settings } = useStore();
   const assistant = useSyncExternalStore(subscribeAssistant, assistantState);
-  const nbAsk = useSyncExternalStore(subscribeNotebookAsk, () =>
-    notebookAskFor(paperId),
-  );
-  const [ask, setAsk] = useState("");
+  const nbAsk = useSyncExternalStore(subscribeNotebookAsk, () => notebookAskFor(paperId));
+  const [ask, setAsk] = useState('');
   const [askBar, setAskBar] = useState<boolean>(readAskBar);
   const showAskBar = (on: boolean) => {
     setAskBar(on);
     try {
-      localStorage.setItem(ASK_BAR_KEY, on ? "shown" : "hidden");
+      localStorage.setItem(ASK_BAR_KEY, on ? 'shown' : 'hidden');
     } catch {
       // private mode
     }
@@ -605,11 +347,11 @@ export default function NotebookPage({
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   /** The pane on the right: the runtime, the files, or nothing. It opens on its own when a runtime connects, and folds when it ends. */
-  const [side, setSide] = useState<"runtime" | "files" | null>(null);
+  const [side, setSide] = useState<'runtime' | 'files' | 'metrics' | null>(null);
   const closedByHand = useRef(false);
   const [card, setCard] = useState<{ then: () => void } | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
-  const [push, setPush] = useState<Push>({ state: "idle" });
+  const [push, setPush] = useState<Push>({ state: 'idle' });
   const [note, setNote] = useState<string | null>(null);
   const lastKey = useRef<{ key: string; at: number } | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -622,21 +364,18 @@ export default function NotebookPage({
   }, [paperId]);
   const cells = nb?.cells ?? [];
   // The ask bar: the model the pages are written with, or the one Rewrite last picked here; a key for it; nothing being answered.
-  const model =
-    nbAsk.model ?? assistant.prefs.explainModel ?? assistant.prefs.model;
+  const model = nbAsk.model ?? assistant.prefs.explainModel ?? assistant.prefs.model;
   const writer = PROVIDERS[modelSpec(model).provider].name;
   const asking = Boolean(nbAsk.pending && !nbAsk.pending.error);
-  const canAsk = Boolean(
-    nb && assistant.keys[modelSpec(model).provider] && !asking,
-  );
+  const canAsk = Boolean(nb && assistant.keys[modelSpec(model).provider] && !asking);
   const thought = lastThought(nbAsk.pending?.thinking);
   const available = colabAvailable(settings.googleClientId);
-  const connected = colab.status === "idle" || colab.status === "busy";
+  const connected = colab.status === 'idle' || colab.status === 'busy';
   useEffect(() => {
     if (connected) {
-      if (!closedByHand.current) setSide((current) => current ?? "runtime");
+      if (!closedByHand.current) setSide((current) => current ?? 'runtime');
     } else {
-      setSide((current) => (current === "runtime" ? null : current));
+      setSide((current) => (current === 'runtime' ? null : current));
       closedByHand.current = false;
     }
   }, [connected]);
@@ -650,53 +389,33 @@ export default function NotebookPage({
     return plan ? computeOf(plan) : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [side, nb?.updated]);
-  const codeCells = useMemo(
+  const codeCells = useMemo(() => cells.map((cell, index) => ({ cell, index })).filter(({ cell }) => cell.type === 'code').map(({ cell, index }) => ({ key: runKey(cell.id), id: cell.id, label: `cell ${index + 1}` })), [cells]);
+  // What each code cell printed, for the Metrics tab: live from the run while there is one.
+  const metricCells = useMemo(
     () =>
       cells
         .map((cell, index) => ({ cell, index }))
-        .filter(({ cell }) => cell.type === "code")
-        .map(({ cell, index }) => ({
-          key: runKey(cell.id),
-          id: cell.id,
-          label: `cell ${index + 1}`,
-        })),
-    [cells],
+        .filter(({ cell }) => cell.type === 'code')
+        .map(({ cell, index }) => {
+          const run = colab.runs[runKey(cell.id)];
+          return { key: runKey(cell.id), id: cell.id, label: `cell ${index + 1}`, text: outputText(cell, run), at: run?.startedAt || cell.ranAt || 0 };
+        }),
+    [cells, colab.runs],
   );
   const goTo = (id: string) => {
     setSelected(id);
-    root.current
-      ?.querySelector<HTMLElement>(`[data-cell="${id}"]`)
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    root.current?.querySelector<HTMLElement>(`[data-cell="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
-  const selectedIndex = selected
-    ? cells.findIndex((cell) => cell.id === selected)
-    : -1;
+  const selectedIndex = selected ? cells.findIndex((cell) => cell.id === selected) : -1;
   /** A request to the bar: about the cell picked, and the passage taken, unless the caller says otherwise. */
-  const submit = async (
-    request = ask,
-    scope: AskScope = {
-      cell: selectedIndex >= 0 ? selectedIndex + 1 : undefined,
-      quote,
-    },
-  ) => {
+  const submit = async (request = ask, scope: AskScope = { cell: selectedIndex >= 0 ? selectedIndex + 1 : undefined, quote }) => {
     if (!request.trim() || !canAsk) return;
     if (!askBar) showAskBar(true);
     const read = await screen();
-    setAsk("");
+    setAsk('');
     setQuote(undefined);
     setJustAsked(true);
-    await askNotebook({
-      paperId,
-      screen: read,
-      model,
-      request,
-      scope,
-      runs: colab.runs,
-      pages: {
-        explanation: explanationFor(paperId)?.content,
-        plan: implementationFor(paperId)?.content,
-      },
-    });
+    await askNotebook({ paperId, screen: read, model, request, scope, runs: colab.runs, pages: { explanation: explanationFor(paperId)?.content, plan: implementationFor(paperId)?.content } });
   };
   // A reply landed: the first cell it wrote or changed comes into view, picked.
   const lastAt = nbAsk.last?.at;
@@ -708,54 +427,40 @@ export default function NotebookPage({
   /** Runs the cells the last reply wrote, in order. */
   const runFresh = () => {
     const touched = new Set(nbAsk.last?.touched ?? []);
-    const fresh = cells.filter(
-      (cell) =>
-        touched.has(cell.id) && cell.type === "code" && cell.source.trim(),
-    );
+    const fresh = cells.filter((cell) => touched.has(cell.id) && cell.type === 'code' && cell.source.trim());
     if (!fresh.length) return;
-    const go = () =>
-      void runAll(
-        fresh.map((cell) => ({ key: runKey(cell.id), code: cell.source })),
-      );
-    if (colab.status === "off" && !colabGranted()) setCard({ then: go });
+    const go = () => void runAll(fresh.map((cell) => ({ key: runKey(cell.id), code: cell.source })));
+    if (colab.status === 'off' && !colabGranted()) setCard({ then: go });
     else go();
   };
-  const busy = Boolean(colab.running) || colab.status === "connecting";
+  const busy = Boolean(colab.running) || colab.status === 'connecting';
   const target = targetFrom(settings);
-  const ranCount = useMemo(
-    () =>
-      cells.filter(
-        (cell) =>
-          cell.type === "code" &&
-          (colab.runs[runKey(cell.id)]?.state === "ran" || cell.count !== null),
-      ).length,
-    [cells, colab.runs],
-  );
+  const ranCount = useMemo(() => cells.filter((cell) => cell.type === 'code' && (colab.runs[runKey(cell.id)]?.state === 'ran' || cell.count !== null)).length, [cells, colab.runs]);
 
   /** Runs a cell; the first time in a tab that never connected, the card says what will happen first. */
-  const runOne = (cell: NbCell, then: "stay" | "next" | "insert") => {
-    if (cell.type !== "code") return;
+  const runOne = (cell: NbCell, then: 'stay' | 'next' | 'insert') => {
+    if (cell.type !== 'code') return;
     const go = () => {
       void runCell(runKey(cell.id), cell.source).catch(() => undefined);
       const at = cells.findIndex((c) => c.id === cell.id);
-      if (then === "insert") {
-        const id = insertCell(paperId, cell.id, "below");
+      if (then === 'insert') {
+        const id = insertCell(paperId, cell.id, 'below');
         setSelected(id);
         setEditing(id);
-      } else if (then === "next") {
+      } else if (then === 'next') {
         const next = cells[at + 1];
         if (next) {
           // On to the next: into its editor when it is code; a text cell is picked, not opened, so typing does not land in rendered prose.
           setSelected(next.id);
-          setEditing(next.type === "code" ? next.id : null);
+          setEditing(next.type === 'code' ? next.id : null);
         } else {
-          const id = insertCell(paperId, cell.id, "below");
+          const id = insertCell(paperId, cell.id, 'below');
           setSelected(id);
           setEditing(id);
         }
       }
     };
-    if (colab.status === "off" && !colabGranted()) {
+    if (colab.status === 'off' && !colabGranted()) {
       setCard({ then: go });
       return;
     }
@@ -763,22 +468,14 @@ export default function NotebookPage({
   };
   const runEverything = () => {
     setConfirmAll(false);
-    void runAll(
-      cells
-        .filter((cell) => cell.type === "code" && cell.source.trim())
-        .map((cell) => ({ key: runKey(cell.id), code: cell.source })),
-    );
+    void runAll(cells.filter((cell) => cell.type === 'code' && cell.source.trim()).map((cell) => ({ key: runKey(cell.id), code: cell.source })));
   };
 
   // Command mode: the keys Colab and Jupyter share, when no cell is being typed in.
   const onKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
-    if (
-      target.isContentEditable ||
-      /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)
-    )
-      return;
-    if (event.key === "Escape" && !selected) {
+    if (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+    if (event.key === 'Escape' && !selected) {
       // Nothing picked: the next Escape is the page's, and closes Explain.
       root.current?.blur();
       return;
@@ -789,42 +486,36 @@ export default function NotebookPage({
     if (!cell) return;
     const key = event.key;
     const now = Date.now();
-    const twice =
-      lastKey.current?.key === key && now - lastKey.current.at < 600;
+    const twice = lastKey.current?.key === key && now - lastKey.current.at < 600;
     lastKey.current = { key, at: now };
-    if (key === "Enter") {
+    if (key === 'Enter') {
       event.preventDefault();
-      if (event.shiftKey) runOne(cell, "next");
+      if (event.shiftKey) runOne(cell, 'next');
       else setEditing(cell.id);
-    } else if (key === "ArrowUp" || key === "k") {
+    } else if (key === 'ArrowUp' || key === 'k') {
       event.preventDefault();
       if (at > 0) setSelected(cells[at - 1].id);
-    } else if (key === "ArrowDown" || key === "j") {
+    } else if (key === 'ArrowDown' || key === 'j') {
       event.preventDefault();
       if (at < cells.length - 1) setSelected(cells[at + 1].id);
-    } else if (key === "a" || key === "b") {
+    } else if (key === 'a' || key === 'b') {
       event.preventDefault();
-      setSelected(
-        insertCell(paperId, cell.id, key === "a" ? "above" : "below"),
-      );
-    } else if (key === "m" || key === "y") {
+      setSelected(insertCell(paperId, cell.id, key === 'a' ? 'above' : 'below'));
+    } else if (key === 'm' || key === 'y') {
       event.preventDefault();
-      setType(paperId, cell.id, key === "m" ? "markdown" : "code");
-    } else if (key === "d" && twice) {
+      setType(paperId, cell.id, key === 'm' ? 'markdown' : 'code');
+    } else if (key === 'd' && twice) {
       event.preventDefault();
       const next = cells[at + 1] ?? cells[at - 1];
       removeCell(paperId, cell.id);
       setSelected(next?.id ?? cell.id);
       lastKey.current = null;
-    } else if (key === "Escape") {
+    } else if (key === 'Escape') {
       setSelected(null);
     }
   };
 
-  const addFromSections = (
-    from: Section[] | null | undefined,
-    what: string,
-  ) => {
+  const addFromSections = (from: Section[] | null | undefined, what: string) => {
     if (!from?.length) {
       setNote(`There is no ${what} yet.`);
       return;
@@ -845,23 +536,13 @@ export default function NotebookPage({
   };
   const commit = async () => {
     if (!nb || !target) return;
-    setPush({ state: "pushing" });
+    setPush({ state: 'pushing' });
     try {
       const path = `notebooks/${notebookFileName(title)}`;
-      await commitFiles(
-        target,
-        { [path]: toIpynb(nb) },
-        `Notebook for “${title.slice(0, 72)}”, from Reader`,
-      );
-      setPush({
-        state: "pushed",
-        url: `https://colab.research.google.com/github/${target.owner}/${target.repo}/blob/${target.branch}/${path}`,
-      });
+      await commitFiles(target, { [path]: toIpynb(nb) }, `Notebook for “${title.slice(0, 72)}”, from Reader`);
+      setPush({ state: 'pushed', url: `https://colab.research.google.com/github/${target.owner}/${target.repo}/blob/${target.branch}/${path}` });
     } catch (error) {
-      setPush({
-        state: "error",
-        message: error instanceof Error ? error.message : String(error),
-      });
+      setPush({ state: 'error', message: error instanceof Error ? error.message : String(error) });
     }
   };
   useEffect(() => {
@@ -870,9 +551,7 @@ export default function NotebookPage({
     return () => window.clearTimeout(timer);
   }, [note]);
 
-  const menu = (label: string, items: ReactNode) => (
-    <NbMenu label={label}>{items}</NbMenu>
-  );
+  const menu = (label: string, items: ReactNode) => <NbMenu label={label}>{items}</NbMenu>;
 
   return (
     <div className="nb-page" ref={root} onKeyDown={onKey} tabIndex={-1}>
@@ -881,397 +560,221 @@ export default function NotebookPage({
         <span className="nb-title">
           <b>Your notebook</b>
           <span>
-            {connected && colab.runtime
-              ? `on your ${machineLabel(colab.runtime)} runtime — the kernel the pages' cells run in`
-              : available
-                ? `runs on your own Colab, from here — the first Run starts a ${machineLabel(colab.machine)} runtime`
-                : "running cells needs Settings → Google and Settings → Paper proxy"}
-            {" · "}
-            {cells.length} {cells.length === 1 ? "cell" : "cells"}, {ranCount}{" "}
-            run
+            {connected && colab.runtime ? `on your ${machineLabel(colab.runtime)} runtime — the kernel the pages' cells run in` : available ? `runs on your own Colab, from here — the first Run starts a ${machineLabel(colab.machine)} runtime` : 'running cells needs Settings → Google and Settings → Paper proxy'}
+            {' · '}
+            {cells.length} {cells.length === 1 ? 'cell' : 'cells'}, {ranCount} run
           </span>
         </span>
-        <button
-          type="button"
-          className="btn sm"
-          onClick={() =>
-            setSelected(insertCell(paperId, selected, "below", "code"))
-          }
-        >
+        <button type="button" className="btn sm" onClick={() => setSelected(insertCell(paperId, selected, 'below', 'code'))}>
           + Code
         </button>
-        <button
-          type="button"
-          className="btn sm"
-          onClick={() =>
-            setSelected(insertCell(paperId, selected, "below", "markdown"))
-          }
-        >
+        <button type="button" className="btn sm" onClick={() => setSelected(insertCell(paperId, selected, 'below', 'markdown'))}>
           + Text
         </button>
         {colab.running ? (
-          <button
-            type="button"
-            className="btn sm colab-stop"
-            onClick={() => void interruptColab()}
-          >
+          <button type="button" className="btn sm colab-stop" onClick={() => void interruptColab()}>
             ■ Stop
           </button>
         ) : confirmAll ? (
           <span className="nb-confirm">
-            Run every code cell, top to bottom? It stops at the first that
-            fails.
-            <button
-              type="button"
-              className="btn sm primary"
-              onClick={runEverything}
-            >
+            Run every code cell, top to bottom? It stops at the first that fails.
+            <button type="button" className="btn sm primary" onClick={runEverything}>
               Run all
             </button>
-            <button
-              type="button"
-              className="btn sm ghost"
-              onClick={() => setConfirmAll(false)}
-            >
+            <button type="button" className="btn sm ghost" onClick={() => setConfirmAll(false)}>
               Not now
             </button>
           </span>
         ) : (
-          <button
-            type="button"
-            className="btn sm colab"
-            disabled={
-              !available || busy || !cells.some((cell) => cell.type === "code")
-            }
-            onClick={() =>
-              colab.status === "off" && !colabGranted()
-                ? setCard({ then: runEverything })
-                : setConfirmAll(true)
-            }
-            title="Every code cell in order; asks first, stops at the first error"
-          >
+          <button type="button" className="btn sm colab" disabled={!available || busy || !cells.some((cell) => cell.type === 'code')} onClick={() => (colab.status === 'off' && !colabGranted() ? setCard({ then: runEverything }) : setConfirmAll(true))} title="Every code cell in order; asks first, stops at the first error">
             ▶ Run all
           </button>
         )}
         {menu(
-          "Cells",
+          'Cells',
           <>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => addFromSections(sections, "explanation")}
-            >
+            <button type="button" role="menuitem" onClick={() => addFromSections(sections, 'explanation')}>
               Add the explanation's cells
             </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => addFromSections(planSections?.(), "plan")}
-            >
+            <button type="button" role="menuitem" onClick={() => addFromSections(planSections?.(), 'plan')}>
               Add the plan's cells
             </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => filePick.current?.click()}
-            >
+            <button type="button" role="menuitem" onClick={() => filePick.current?.click()}>
               Add the cells of a .ipynb…
             </button>
             <hr />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => clearOutputs(paperId)}
-            >
+            <button type="button" role="menuitem" onClick={() => clearOutputs(paperId)}>
               Clear every output
             </button>
           </>,
         )}
         {menu(
-          "Notebook",
+          'Notebook',
           <>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() =>
-                nb &&
-                download(
-                  notebookFileName(title),
-                  new Blob([toIpynb(nb)], { type: "application/x-ipynb+json" }),
-                )
-              }
-            >
+            <button type="button" role="menuitem" onClick={() => nb && download(notebookFileName(title), new Blob([toIpynb(nb)], { type: 'application/x-ipynb+json' }))}>
               Download as .ipynb
             </button>
-            <button
-              type="button"
-              role="menuitem"
-              disabled={!target || push.state === "pushing"}
-              onClick={() => void commit()}
-              title={
-                target
-                  ? `notebooks/ in ${target.owner}/${target.repo}`
-                  : "Settings → Git repository first"
-              }
-            >
-              {push.state === "pushing"
-                ? "Committing…"
-                : "Commit to GitHub, and open in Colab"}
+            <button type="button" role="menuitem" disabled={!target || push.state === 'pushing'} onClick={() => void commit()} title={target ? `notebooks/ in ${target.owner}/${target.repo}` : 'Settings → Git repository first'}>
+              {push.state === 'pushing' ? 'Committing…' : 'Commit to GitHub, and open in Colab'}
             </button>
             {colab.runtime ? (
-              <a
-                role="menuitem"
-                href={attachUrl(colab.runtime.endpoint)}
-                target="_blank"
-                rel="noreferrer noopener"
-              >
+              <a role="menuitem" href={attachUrl(colab.runtime.endpoint)} target="_blank" rel="noreferrer noopener">
                 Open this runtime in Colab's own page ↗
               </a>
             ) : null}
           </>,
         )}
-        <button
-          type="button"
-          className={`btn sm ghost${askBar ? " is-on" : ""}`}
-          aria-pressed={askBar}
-          onClick={() => showAskBar(!askBar)}
-          title={
-            askBar
-              ? "Hide the ask bar"
-              : "Show the ask bar: cells written, changed and fixed for you"
-          }
-        >
+        <button type="button" className={`btn sm ghost${askBar ? ' is-on' : ''}`} aria-pressed={askBar} onClick={() => showAskBar(!askBar)} title={askBar ? 'Hide the ask bar' : 'Show the ask bar: cells written, changed and fixed for you'}>
           Ask
         </button>
-        <button
-          type="button"
-          className={`btn sm ghost${side === "runtime" ? " is-on" : ""}`}
-          aria-pressed={side === "runtime"}
-          onClick={() =>
-            side === "runtime" ? closeSide() : setSide("runtime")
-          }
-          title="The machine: how busy it is, the last ten minutes, what is left of the session"
-        >
+        <button type="button" className={`btn sm ghost${side === 'runtime' ? ' is-on' : ''}`} aria-pressed={side === 'runtime'} onClick={() => (side === 'runtime' ? closeSide() : setSide('runtime'))} title="The machine: how busy it is, the last ten minutes, what is left of the session">
           Runtime
         </button>
-        <button
-          type="button"
-          className={`btn sm ghost${side === "files" ? " is-on" : ""}`}
-          aria-pressed={side === "files"}
-          onClick={() => (side === "files" ? closeSide() : setSide("files"))}
-          title="What is on the runtime's disk"
-        >
+        <button type="button" className={`btn sm ghost${side === 'metrics' ? ' is-on' : ''}`} aria-pressed={side === 'metrics'} onClick={() => (side === 'metrics' ? closeSide() : setSide('metrics'))} title="Training metrics, read off what the cells print: loss, accuracy, lr… a chart a metric, live">
+          Metrics
+        </button>
+        <button type="button" className={`btn sm ghost${side === 'files' ? ' is-on' : ''}`} aria-pressed={side === 'files'} onClick={() => (side === 'files' ? closeSide() : setSide('files'))} title="What is on the runtime's disk">
           Files
         </button>
-        <input
-          ref={filePick}
-          type="file"
-          accept=".ipynb,application/x-ipynb+json,application/json"
-          hidden
-          onChange={(event) =>
-            void addFromFile(event.target.files?.[0]).then(
-              () => (event.target.value = ""),
-            )
-          }
-        />
+        <input ref={filePick} type="file" accept=".ipynb,application/x-ipynb+json,application/json" hidden onChange={(event) => void addFromFile(event.target.files?.[0]).then(() => (event.target.value = ''))} />
       </div>
       {askBar ? (
         <div className="explain-ask nb-ask">
           <div className="ask-column">
-            <form
-              className={`ask-field${asking ? " is-busy" : ""}${askFocused ? " is-focused" : ""}${!canAsk ? " is-off" : ""}`}
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submit();
-              }}
-            >
-              <SparkleIcon size={16} />
-              {selectedIndex >= 0 ? (
-                <span
-                  className="ask-chip"
-                  title={`About cell ${selectedIndex + 1}: a new cell goes after it, a change is to it`}
-                >
-                  cell {selectedIndex + 1}
-                  <button
-                    type="button"
-                    aria-label="Not about this cell"
-                    onClick={() => setSelected(null)}
-                  >
-                    ×
-                  </button>
-                </span>
-              ) : null}
-              {quote ? (
-                <span className="ask-chip quote" title={quote}>
-                  “{quote.length > 42 ? `${quote.slice(0, 42)}…` : quote}”
-                  <button
-                    type="button"
-                    aria-label="Not about this passage"
-                    onClick={() => setQuote(undefined)}
-                  >
-                    ×
-                  </button>
-                </span>
-              ) : null}
-              <input
-                ref={askRef}
-                value={ask}
-                disabled={!canAsk}
-                onChange={(event) => {
-                  setAsk(event.target.value);
-                  setJustAsked(false);
-                }}
-                onFocus={() => {
-                  setAskFocused(true);
-                  setJustAsked(false);
-                }}
-                onBlur={() =>
-                  window.setTimeout(() => setAskFocused(false), 150)
-                }
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") event.currentTarget.blur();
-                  event.stopPropagation();
-                }}
-                placeholder={
-                  !assistant.keys[modelSpec(model).provider]
-                    ? `Ask ${writer} to write or change cells here, once its key is in Settings`
-                    : selectedIndex >= 0
-                      ? `Ask ${writer} to write a cell after cell ${selectedIndex + 1}, or to change it…`
-                      : `Ask ${writer} to write code from the paper, change a cell, or fix one…`
-                }
-                aria-label="Ask for a cell, or a change to one"
-              />
-              {asking ? (
-                <button
-                  type="button"
-                  className="btn sm"
-                  onClick={stopNotebookAsk}
-                >
-                  Stop
+          <form
+            className={`ask-field${asking ? ' is-busy' : ''}${askFocused ? ' is-focused' : ''}${!canAsk ? ' is-off' : ''}`}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submit();
+            }}
+          >
+            <SparkleIcon size={16} />
+            {selectedIndex >= 0 ? (
+              <span className="ask-chip" title={`About cell ${selectedIndex + 1}: a new cell goes after it, a change is to it`}>
+                cell {selectedIndex + 1}
+                <button type="button" aria-label="Not about this cell" onClick={() => setSelected(null)}>
+                  ×
                 </button>
-              ) : (
-                <button
-                  type="submit"
-                  className="btn sm primary"
-                  disabled={!canAsk || !ask.trim()}
-                >
-                  Ask
-                </button>
-              )}
-              <button
-                type="button"
-                className="icon-btn sm nb-ask-hide"
-                onClick={() => showAskBar(false)}
-                aria-label="Hide the ask bar"
-                title="Hide the ask bar — Ask in the toolbar brings it back"
-              >
-                <CloseIcon size={13} />
-              </button>
-            </form>
-            {nbAsk.pending && !nbAsk.pending.error ? (
-              <div className="ask-status is-live">
-                <span className="spinner" />
-                <span className="ask-note" title={thought || undefined}>
-                  {nbAsk.pending.reply
-                    ? "Writing the cells"
-                    : thought
-                      ? `Thinking — ${thought}`
-                      : "Reading the notebook and the paper"}{" "}
-                  — <em>{nbAsk.pending.request}</em>
-                </span>
-              </div>
-            ) : nbAsk.pending?.error ? (
-              <div className="ask-status is-error">
-                <span className="ask-note">{nbAsk.pending.error}</span>
-                <button
-                  type="button"
-                  className="btn sm ghost"
-                  onClick={() => dismissNotebookAsk(paperId)}
-                >
-                  Dismiss
-                </button>
-              </div>
-            ) : askFocused && !ask && canAsk && !justAsked ? (
-              <div className="ask-suggestions">
-                {(selectedIndex >= 0
-                  ? [
-                      `Rewrite cell ${selectedIndex + 1} in PyTorch, on the GPU`,
-                      `Explain what cell ${selectedIndex + 1} does in a text cell above it`,
-                      `Make cell ${selectedIndex + 1} print a check that it is right`,
-                      `Split cell ${selectedIndex + 1} into smaller steps`,
-                      `Fix the error in cell ${selectedIndex + 1}`,
-                    ]
-                  : [
-                      "Write the paper's core method as a runnable cell",
-                      "Write a cell that trains a small version on a toy dataset",
-                      "Add a cell that plots the loss curve",
-                      "Reproduce the main table on a tiny scale",
-                      "Rewrite the code in JAX",
-                      "Add a cell that times a forward pass on this GPU",
-                    ]
-                ).map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    className="ask-suggestion"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => void submit(suggestion)}
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            ) : nbAsk.last ? (
-              <div className="ask-status is-done">
-                <span className="check">✓</span>
-                <span className="ask-note">
-                  {nbAsk.last.note || `Done: ${nbAsk.last.request}`}
-                  {nbAsk.last.touched.length
-                    ? ` · ${nbAsk.last.touched.length} ${nbAsk.last.touched.length === 1 ? "cell" : "cells"}`
-                    : ""}
-                </span>
-                {nbAsk.last.touched.some(
-                  (id) => cells.find((cell) => cell.id === id)?.type === "code",
-                ) ? (
-                  <button
-                    type="button"
-                    className="btn sm ghost"
-                    disabled={!available || busy}
-                    onClick={runFresh}
-                    title="Run the cells it wrote, in order"
-                  >
-                    Run them
-                  </button>
-                ) : null}
-                {nbAsk.last.touched.length ? (
-                  <button
-                    type="button"
-                    className="btn sm ghost"
-                    onClick={() => undoNotebookReply(paperId)}
-                    title={`Put the cells back as they were before “${nbAsk.last.request}”`}
-                  >
-                    Undo
-                  </button>
-                ) : null}
-              </div>
+              </span>
             ) : null}
+            {quote ? (
+              <span className="ask-chip quote" title={quote}>
+                “{quote.length > 42 ? `${quote.slice(0, 42)}…` : quote}”
+                <button type="button" aria-label="Not about this passage" onClick={() => setQuote(undefined)}>
+                  ×
+                </button>
+              </span>
+            ) : null}
+            <input
+              ref={askRef}
+              value={ask}
+              disabled={!canAsk}
+              onChange={(event) => {
+                setAsk(event.target.value);
+                setJustAsked(false);
+              }}
+              onFocus={() => {
+                setAskFocused(true);
+                setJustAsked(false);
+              }}
+              onBlur={() => window.setTimeout(() => setAskFocused(false), 150)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') event.currentTarget.blur();
+                event.stopPropagation();
+              }}
+              placeholder={
+                !assistant.keys[modelSpec(model).provider]
+                  ? `Ask ${writer} to write or change cells here, once its key is in Settings`
+                  : selectedIndex >= 0
+                    ? `Ask ${writer} to write a cell after cell ${selectedIndex + 1}, or to change it…`
+                    : `Ask ${writer} to write code from the paper, change a cell, or fix one…`
+              }
+              aria-label="Ask for a cell, or a change to one"
+            />
+            {asking ? (
+              <button type="button" className="btn sm" onClick={stopNotebookAsk}>
+                Stop
+              </button>
+            ) : (
+              <button type="submit" className="btn sm primary" disabled={!canAsk || !ask.trim()}>
+                Ask
+              </button>
+            )}
+            <button type="button" className="icon-btn sm nb-ask-hide" onClick={() => showAskBar(false)} aria-label="Hide the ask bar" title="Hide the ask bar — Ask in the toolbar brings it back">
+              <CloseIcon size={13} />
+            </button>
+          </form>
+          {nbAsk.pending && !nbAsk.pending.error ? (
+            <div className="ask-status is-live">
+              <span className="spinner" />
+              <span className="ask-note" title={thought || undefined}>
+                {nbAsk.pending.reply ? 'Writing the cells' : thought ? `Thinking — ${thought}` : 'Reading the notebook and the paper'} — <em>{nbAsk.pending.request}</em>
+              </span>
+            </div>
+          ) : nbAsk.pending?.error ? (
+            <div className="ask-status is-error">
+              <span className="ask-note">{nbAsk.pending.error}</span>
+              <button type="button" className="btn sm ghost" onClick={() => dismissNotebookAsk(paperId)}>
+                Dismiss
+              </button>
+            </div>
+          ) : askFocused && !ask && canAsk && !justAsked ? (
+            <div className="ask-suggestions">
+              {(selectedIndex >= 0
+                ? [
+                    `Rewrite cell ${selectedIndex + 1} in PyTorch, on the GPU`,
+                    `Explain what cell ${selectedIndex + 1} does in a text cell above it`,
+                    `Make cell ${selectedIndex + 1} print a check that it is right`,
+                    `Split cell ${selectedIndex + 1} into smaller steps`,
+                    `Fix the error in cell ${selectedIndex + 1}`,
+                  ]
+                : [
+                    "Write the paper's core method as a runnable cell",
+                    'Write a cell that trains a small version on a toy dataset',
+                    'Add a cell that plots the loss curve',
+                    'Reproduce the main table on a tiny scale',
+                    'Rewrite the code in JAX',
+                    'Add a cell that times a forward pass on this GPU',
+                  ]
+              ).map((suggestion) => (
+                <button key={suggestion} type="button" className="ask-suggestion" onMouseDown={(event) => event.preventDefault()} onClick={() => void submit(suggestion)}>
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          ) : nbAsk.last ? (
+            <div className="ask-status is-done">
+              <span className="check">✓</span>
+              <span className="ask-note">
+                {nbAsk.last.note || `Done: ${nbAsk.last.request}`}
+                {nbAsk.last.touched.length ? ` · ${nbAsk.last.touched.length} ${nbAsk.last.touched.length === 1 ? 'cell' : 'cells'}` : ''}
+              </span>
+              {nbAsk.last.touched.some((id) => cells.find((cell) => cell.id === id)?.type === 'code') ? (
+                <button type="button" className="btn sm ghost" disabled={!available || busy} onClick={runFresh} title="Run the cells it wrote, in order">
+                  Run them
+                </button>
+              ) : null}
+              {nbAsk.last.touched.length ? (
+                <button type="button" className="btn sm ghost" onClick={() => undoNotebookReply(paperId)} title={`Put the cells back as they were before “${nbAsk.last.request}”`}>
+                  Undo
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           </div>
         </div>
       ) : null}
-      {note || push.state === "pushed" || push.state === "error" ? (
-        <div
-          className={`nb-note${push.state === "error" ? " is-problem" : ""}`}
-          role="status"
-        >
+      {note || push.state === 'pushed' || push.state === 'error' ? (
+        <div className={`nb-note${push.state === 'error' ? ' is-problem' : ''}`} role="status">
           {note ??
-            (push.state === "pushed" ? (
+            (push.state === 'pushed' ? (
               <>
-                Committed.{" "}
+                Committed.{' '}
                 <a href={push.url} target="_blank" rel="noreferrer noopener">
                   Open it in Colab ↗
                 </a>
               </>
-            ) : push.state === "error" ? (
+            ) : push.state === 'error' ? (
               push.message
             ) : null)}
         </div>
@@ -1280,7 +783,7 @@ export default function NotebookPage({
         <div className="nb-card">
           <ConnectCard
             onClose={() => setCard(null)}
-            busy={colab.status === "connecting"}
+            busy={colab.status === 'connecting'}
             onConnect={(machine) => {
               void connectColab(machine)
                 .then(() => {
@@ -1292,13 +795,8 @@ export default function NotebookPage({
           />
         </div>
       ) : null}
-      <div className={`nb-split${side ? " has-side" : ""}`}>
-        <div
-          className="nb-cells"
-          onMouseDown={(event) =>
-            event.target === event.currentTarget ? setSelected(null) : undefined
-          }
-        >
+      <div className={`nb-split${side ? ' has-side' : ''}`}>
+        <div className="nb-cells" onMouseDown={(event) => (event.target === event.currentTarget ? setSelected(null) : undefined)}>
           {!nb ? (
             <p className="nb-loading">
               <span className="spinner" /> Opening the notebook…
@@ -1316,78 +814,41 @@ export default function NotebookPage({
                 canRun={available}
                 busy={busy}
                 onSelect={() => setSelected(cell.id)}
-                onEdit={(on) =>
-                  setEditing((current) =>
-                    on ? cell.id : current === cell.id ? null : current,
-                  )
-                }
+                onEdit={(on) => setEditing((current) => (on ? cell.id : current === cell.id ? null : current))}
                 onRun={(then) => runOne(cell, then)}
-                onAsk={
-                  canAsk
-                    ? (request, cellQuote) =>
-                        void submit(request, {
-                          cell: index + 1,
-                          quote: cellQuote,
-                        })
-                    : undefined
-                }
+                onAsk={canAsk ? (request, cellQuote) => void submit(request, { cell: index + 1, quote: cellQuote }) : undefined}
               />
             ))
           )}
-          <button
-            type="button"
-            className="nb-add"
-            onClick={() => setSelected(insertCell(paperId, null, "below"))}
-          >
+          <button type="button" className="nb-add" onClick={() => setSelected(insertCell(paperId, null, 'below'))}>
             + Code
           </button>
           <p className="nb-hint">
-            Shift-Enter runs a cell and moves on; Alt-Enter runs and adds one.
-            With a cell picked and nothing being typed: <kbd>A</kbd> and{" "}
-            <kbd>B</kbd> add above and below, <kbd>M</kbd> and <kbd>Y</kbd> make
-            it text or code, <kbd>D D</kbd> deletes, <kbd>↑</kbd> <kbd>↓</kbd>{" "}
-            move. The cells share the kernel with the Explanation and
-            Implementation pages; the runtime's menu is the chip in the bar.
-            Kept in this browser{nb ? `, last changed ${time(nb.updated)}` : ""}
-            .
+            Shift-Enter runs a cell and moves on; Alt-Enter runs and adds one. With a cell picked and nothing being typed: <kbd>A</kbd> and <kbd>B</kbd> add above and below, <kbd>M</kbd> and <kbd>Y</kbd> make it text or code, <kbd>D D</kbd> deletes, <kbd>↑</kbd> <kbd>↓</kbd> move. The cells share the kernel with the Explanation and
+            Implementation pages; the runtime's menu is the chip in the bar. Kept in this browser{nb ? `, last changed ${time(nb.updated)}` : ''}.
           </p>
         </div>
         {side ? (
-          <aside
-            className="nb-side"
-            aria-label={
-              side === "runtime" ? "The runtime" : "Files on the runtime"
-            }
-          >
+          <aside className="nb-side" aria-label={side === 'runtime' ? 'The runtime' : side === 'metrics' ? 'Training metrics' : 'Files on the runtime'}>
             <div className="nb-side-tabs" role="tablist">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={side === "runtime"}
-                onClick={() => setSide("runtime")}
-              >
+              <button type="button" role="tab" aria-selected={side === 'runtime'} onClick={() => setSide('runtime')}>
                 Runtime
               </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={side === "files"}
-                onClick={() => setSide("files")}
-              >
+              <button type="button" role="tab" aria-selected={side === 'metrics'} onClick={() => setSide('metrics')}>
+                Metrics
+              </button>
+              <button type="button" role="tab" aria-selected={side === 'files'} onClick={() => setSide('files')}>
                 Files
               </button>
               <span className="spacer" />
-              <button
-                type="button"
-                className="icon-btn sm"
-                onClick={closeSide}
-                aria-label="Close the pane"
-              >
+              <button type="button" className="icon-btn sm" onClick={closeSide} aria-label="Close the pane">
                 <CloseIcon size={14} />
               </button>
             </div>
-            {side === "runtime" ? (
-              <RuntimePane cells={codeCells} compute={compute} onGoTo={goTo} />
+            {side === 'runtime' ? (
+              <RuntimePane cells={codeCells} compute={compute} onGoTo={goTo} onRunAll={available ? runEverything : undefined} picked={selectedIndex >= 0 && cells[selectedIndex]?.type === 'code' && available && !busy ? { label: `cell ${selectedIndex + 1}`, run: () => runOne(cells[selectedIndex], 'stay') } : undefined} />
+            ) : side === 'metrics' ? (
+              <MetricsPane cells={metricCells} running={colab.running} onGoTo={goTo} colabUrl={colab.runtime ? attachUrl(colab.runtime.endpoint) : undefined} />
             ) : (
               <FilesPane />
             )}
@@ -1407,29 +868,20 @@ function NbMenu({ label, children }: { label: string; children: ReactNode }) {
     const away = (event: MouseEvent) => {
       if (!box.current?.contains(event.target as Node)) setOpen(false);
     };
-    window.addEventListener("mousedown", away);
-    return () => window.removeEventListener("mousedown", away);
+    window.addEventListener('mousedown', away);
+    return () => window.removeEventListener('mousedown', away);
   }, [open]);
   return (
     <div className="menu-wrap" ref={box}>
-      <button
-        type="button"
-        className="btn sm"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-      >
+      <button type="button" className="btn sm" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
         {label} ▾
       </button>
       {open ? (
-        <div
-          className="menu nb-menu"
-          role="menu"
-          onClick={() => setOpen(false)}
-        >
+        <div className="menu nb-menu" role="menu" onClick={() => setOpen(false)}>
           {children}
         </div>
       ) : null}
     </div>
   );
 }
+

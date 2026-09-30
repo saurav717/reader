@@ -52,6 +52,8 @@ const send = (socket, type, content, parent, channel = 'iopub') => socket.send(J
 
 /** Whether a cell is running, so the probe's numbers rise while one does. */
 let busySince = 0;
+/** Set by the interrupt route; the running cell ends with a KeyboardInterrupt at its next line, as a kernel's would. */
+let interruptAsked = false;
 function probeLine() {
   const t = busySince ? (Date.now() - busySince) / 1000 : 0;
   const busy = busySince ? Math.min(1, t / 3) : 0;
@@ -91,15 +93,25 @@ kernels.on('connection', (socket) => {
       busySince = Date.now();
     }
     send(socket, 'status', { execution_state: 'busy' }, parent);
+    let cut = false;
+    if (!probe) interruptAsked = false;
     for (const line of lines) {
+      if (!probe && interruptAsked) {
+        cut = true;
+        break;
+      }
       send(socket, 'stream', { name: 'stdout', text: `${line}\n` }, parent);
       await sleep(every);
     }
     if (!probe) {
       executionCount += 1;
       busySince = 0;
+      interruptAsked = false;
     }
-    send(socket, 'execute_reply', { status: 'ok', execution_count: probe ? undefined : executionCount }, parent, 'shell');
+    if (cut) {
+      send(socket, 'error', { ename: 'KeyboardInterrupt', evalue: '', traceback: ['KeyboardInterrupt'] }, parent);
+      send(socket, 'execute_reply', { status: 'error', ename: 'KeyboardInterrupt', evalue: '', traceback: ['KeyboardInterrupt'], execution_count: executionCount }, parent, 'shell');
+    } else send(socket, 'execute_reply', { status: 'ok', execution_count: probe ? undefined : executionCount }, parent, 'shell');
     send(socket, 'status', { execution_state: 'idle' }, parent);
   });
 });
@@ -186,7 +198,11 @@ await context.route('**/api/colab/**', (route) => {
     kernelCount += 1;
     return json({ kernel: { id: `kernel-${kernelCount}` } });
   }
-  if (path === '/colab/kernels/interrupt' || path === '/colab/kernels/restart') return json({ ok: true });
+  if (path === '/colab/kernels/interrupt') {
+    interruptAsked = true;
+    return json({ ok: true });
+  }
+  if (path === '/colab/kernels/restart') return json({ ok: true });
   if (path === '/colab/contents') {
     const { path: dir } = JSON.parse(route.request().postData() || '{}');
     contentsAsked.push(dir);
@@ -366,6 +382,17 @@ await pane.locator('.rt-ruler-run').first().click();
 await page.waitForTimeout(600);
 check('a segment of the ruler goes to its cell', (await page.locator('.nb-cell.is-selected').count()) === 1 && /attention weights/.test(await page.locator('.nb-cell.is-selected').textContent()));
 
+console.log('\n== the Metrics tab: what the cells print as they train ==');
+await pane.getByRole('tab', { name: 'Metrics' }).click();
+await page.waitForSelector('.rt-metrics .cell-chart', { timeout: 10000 });
+const metricLabels = await pane.locator('.rt-metric .rt-part-label').allTextContents();
+check('the loss the slow cell printed is a chart, a line for that cell, with its last value', metricLabels.length === 1 && /^loss · cell \d+ 0\.\d+/.test(metricLabels[0].replace(/\s+/g, ' ').trim()), metricLabels.join(' | '));
+check('the chart is by step, and a button goes to the cell', /step/.test(await pane.locator('.rt-metrics .cell-chart svg .axis').textContent()) && (await pane.locator('.rt-metric-cells-go .rt-peak').count()) === 1);
+check('and it says how to reach TensorBoard itself', /%tensorboard/.test(await pane.locator('.rt-metric-note').textContent()) && (await pane.locator('.rt-metric-note a').count()) === 1);
+await page.screenshot({ path: `${OUT}/colab-notebook-12-metrics-dark.png` });
+await pane.getByRole('tab', { name: 'Runtime' }).click();
+await page.waitForTimeout(300);
+
 console.log('\n== typing a cell, and the keys ==');
 // The + Code at the foot adds at the end; the toolbar's adds below the cell picked.
 await page.locator('.nb-add').click();
@@ -396,6 +423,19 @@ await page.keyboard.press('d');
 await page.keyboard.press('d');
 await page.waitForTimeout(200);
 check('D D deletes it', !(await note.evaluate((el) => el.previousElementSibling?.classList.contains('is-code') && !el.previousElementSibling.textContent.trim())));
+
+console.log('\n== every cell says whether it ran ==');
+check('a cell that ran carries a green mark in its gutter, with the time', (await typed.locator('.nb-ran.is-ran').count()) === 1 && /^ran \d/.test(await typed.locator('.nb-ran').getAttribute('title')), await typed.locator('.nb-ran').getAttribute('title'));
+check('a cell never run carries an empty one, and a text cell none', (await page.locator('.nb-cell.is-code .nb-ran.is-never').count()) >= 1 && (await page.locator('.nb-cell.is-markdown .nb-ran').count()) === 0);
+await typed.hover();
+await page.waitForTimeout(200);
+check('the tools name it on hover', /^ran \d/.test(await typed.locator('.nb-tools-state').textContent()));
+await typed.locator('.nb-text').click();
+await page.keyboard.press('Control+End');
+await page.keyboard.type('\n# edited since');
+await page.waitForTimeout(300);
+check('an edit since it ran turns the mark amber: changed since it ran', (await typed.locator('.nb-ran.is-changed').count()) === 1 && (await typed.locator('.nb-tools-state').textContent()) === 'changed since it ran');
+await page.keyboard.press('Escape');
 await note.scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/colab-notebook-3-typed-dark.png` });
 
@@ -488,6 +528,36 @@ check('the question went with the Colab notebook: its cells numbered, with their
 await page.keyboard.press('Control+j');
 await page.waitForSelector('.assistant-win', { state: 'detached', timeout: 5000 }).catch(() => undefined);
 await page.waitForTimeout(300);
+
+console.log('\n== run, pause and stop, from the pane ==');
+await pane.getByRole('tab', { name: 'Runtime' }).click();
+const strip = pane.locator('.rt-run');
+check('the pane has Run all, and Pause and Stop wait for a run', (await strip.getByRole('button', { name: /Run all/ }).isEnabled()) && (await strip.getByRole('button', { name: /Pause/ }).isDisabled()) && (await strip.getByRole('button', { name: /Stop/ }).isDisabled()));
+await page.locator('.nb-cells').click({ position: { x: 4, y: 4 } });
+await strip.getByRole('button', { name: /Run all/ }).click();
+await strip.getByRole('button', { name: 'Run all', exact: true }).click();
+await page.waitForSelector('.nb-cell.is-running:has-text("time.sleep")', { timeout: 30000 });
+await page.waitForTimeout(300);
+check('Run all queues every code cell and runs them in order', (await page.locator('.nb-cell.is-queued').count()) >= 1 && /running cell \d+ · \d+ queued/.test(await strip.locator('.rt-run-state').textContent()), await strip.locator('.rt-run-state').textContent());
+await strip.getByRole('button', { name: /Stop/ }).click();
+await page.waitForSelector('.nb-cell.is-running', { state: 'detached', timeout: 15000 });
+await page.waitForTimeout(600);
+check('Stop interrupts the cell running and drops the rest', (await page.locator('.nb-cell.is-queued').count()) === 0 && (await page.locator('.nb-cell.is-running').count()) === 0 && (await page.locator('.nb-cell.is-failed:has-text("time.sleep")').count()) === 1 && (await strip.getByRole('button', { name: /Run all/ }).count()) === 1);
+await strip.getByRole('button', { name: /Run all/ }).click();
+await strip.getByRole('button', { name: 'Run all', exact: true }).click();
+await page.waitForSelector('.nb-cell.is-running:has-text("time.sleep")', { timeout: 30000 });
+await strip.getByRole('button', { name: /Pause/ }).click();
+await page.waitForTimeout(200);
+check('Pause lets the cell running finish', /pauses after this cell/.test(await strip.locator('.rt-run-state').textContent()) && (await page.locator('.nb-cell.is-running').count()) === 1);
+await page.screenshot({ path: `${OUT}/colab-notebook-13-paused-dark.png` });
+await page.waitForSelector('.nb-cell.is-running', { state: 'detached', timeout: 30000 });
+await page.waitForTimeout(1500);
+check('and holds the rest until Resume', (await page.locator('.nb-cell.is-running').count()) === 0 && (await page.locator('.nb-cell.is-queued').count()) >= 1 && /paused/.test(await strip.locator('.rt-run-state').textContent()) && (await strip.getByRole('button', { name: /Resume/ }).count()) === 1);
+await strip.getByRole('button', { name: /Resume/ }).click();
+await page.waitForFunction(() => document.querySelectorAll('.nb-cell.is-queued').length === 0 && document.querySelectorAll('.nb-cell.is-running').length === 0, null, { timeout: 30000 });
+await page.waitForTimeout(400);
+check('Resume runs the rest, and the pane is back to Run all', (await strip.getByRole('button', { name: /Run all/ }).count()) === 1 && (await page.locator('.nb-cell.is-code .nb-ran.is-ran').count()) >= 4, `${await page.locator('.nb-cell.is-code .nb-ran.is-ran').count()} ran`);
+check('the toolbar’s Run all is the same queue', (await page.locator('.nb-toolbar').getByRole('button', { name: /Run all/ }).count()) === 1);
 
 console.log('\n== the runtime’s disk ==');
 await pane.getByRole('tab', { name: 'Files' }).click();

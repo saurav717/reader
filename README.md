@@ -2866,6 +2866,45 @@ request half-way, with nothing changed.
 
 ![the notebook rewritten: three new cells, every one marked as the model's](docs/colab-notebook-rewritten.png)
 
+#### Metrics: what the cells print as they train
+
+The pane's third tab, **Metrics**, is the notebook's TensorBoard for
+scalars: every metric a cell prints as it trains — the loss, but also
+accuracy, the learning rate, perplexity, BLEU, F1, a gradient norm, a
+reward — read off the cells' outputs and drawn one chart a metric, a line a
+cell (and a split: `train_loss`, `val/loss`), by step where the log names
+one, live while the cell runs, with the last value beside each line and a
+button to the cell. Nothing is installed on the runtime and nothing is
+written to it; a cell that prints `step 100 loss=0.42 val_loss=0.51
+acc=0.88 lr=3e-4` is all it takes. When several cells print the same
+metric, a row of chips narrows the charts to one. For TensorBoard itself,
+with its event files, the tab points at the runtime in Colab's own page,
+where `%tensorboard` works against the same disk. The reading is
+`metricSeries` in `src/lib/telemetry.ts`; the tab is
+`src/components/MetricsPane.tsx`.
+
+![the Metrics tab: the loss a cell printed, by step, with its last value](docs/colab-notebook-metrics.png)
+
+#### Whether a cell ran, and running the notebook from the pane
+
+Every code cell carries a mark in its gutter, under its count: green when
+it ran, red when it failed, grey when it was stopped, amber when it has
+been **edited since it ran** (so the output under it is from other code),
+hollow when it never ran, and orange while it runs or waits its turn; the
+tools that appear on the cell name the state in words, with the time it
+ran. `cellStatus` in `src/lib/notebook.ts` decides it.
+
+The Runtime pane starts with the runs: **Run cell N** for the cell picked,
+**Run all** (it asks first), **Pause** and **Stop**. Run all is a queue —
+every code cell marked *Queued* at once, then run one after another, as
+in Colab. Pause lets the cell running finish and holds the rest for
+**Resume**; Stop interrupts the cell running and drops the rest. A single
+cell running on its own can be stopped but not paused, and the pane says
+so. The toolbar's Run all is the same queue. `runAll`, `pauseRuns`,
+`resumeRuns` and `stopRuns` in `src/lib/colab.ts`.
+
+![the pane while Run all is paused: running cell 19, one queued, pauses after this cell, with Resume and Stop](docs/colab-notebook-paused.png)
+
 The Ask AI window sees the notebook too. While the Colab tab is open, a
 question there goes with `<colab_notebook>`: the cells numbered, what each
 printed, the tracebacks, and which runtime it is on — so *what does cell 3

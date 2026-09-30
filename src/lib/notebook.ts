@@ -11,7 +11,7 @@
 //  model and the store are here; the page is src/components/Notebook.tsx.
 // ===========================================================================
 
-import type { Output } from './colab';
+import type { Output, RunState } from './colab';
 import { db } from './db';
 import { notebook as pageNotebook } from './explain';
 import type { Section } from './explain';
@@ -28,6 +28,8 @@ export interface NbCell {
   count: number | null;
   /** When it last ran here, for the label under the output. */
   ranAt?: number;
+  /** The source as it was when it last ran here, so an edit since shows. */
+  ranSource?: string;
   /** Written or rewritten by the model from the ask bar, and not yet edited or run since. */
   fresh?: 'new' | 'changed';
 }
@@ -207,10 +209,10 @@ function update(paperId: string, change: (cells: NbCell[]) => NbCell[]) {
 }
 
 export const setSource = (paperId: string, id: string, source: string) => update(paperId, (cells) => cells.map((cell) => (cell.id === id ? { ...cell, source, fresh: undefined } : cell)));
-export const setType = (paperId: string, id: string, type: CellType) => update(paperId, (cells) => cells.map((cell) => (cell.id === id ? { ...cell, type, outputs: [], count: null } : cell)));
+export const setType = (paperId: string, id: string, type: CellType) => update(paperId, (cells) => cells.map((cell) => (cell.id === id ? { ...cell, type, outputs: [], count: null, ranAt: undefined, ranSource: undefined } : cell)));
 export const setOutputs = (paperId: string, id: string, outputs: Output[], count: number | null, ranAt: number | undefined = Date.now()) =>
-  update(paperId, (cells) => cells.map((cell) => (cell.id === id ? { ...cell, outputs, count, ranAt, fresh: undefined } : cell)));
-export const clearOutputs = (paperId: string) => update(paperId, (cells) => cells.map((cell) => ({ ...cell, outputs: [], count: null, ranAt: undefined })));
+  update(paperId, (cells) => cells.map((cell) => (cell.id === id ? { ...cell, outputs, count, ranAt, ranSource: ranAt ? cell.source : undefined, fresh: undefined } : cell)));
+export const clearOutputs = (paperId: string) => update(paperId, (cells) => cells.map((cell) => ({ ...cell, outputs: [], count: null, ranAt: undefined, ranSource: undefined })));
 export const removeCell = (paperId: string, id: string) => update(paperId, (cells) => (cells.length > 1 ? cells.filter((cell) => cell.id !== id) : cells.map((cell) => (cell.id === id ? { ...cell, source: '', outputs: [], count: null } : cell))));
 export const appendCells = (paperId: string, more: NbCell[]) => update(paperId, (cells) => [...cells, ...more]);
 
@@ -250,7 +252,7 @@ export function resolveEdits(cells: NbCell[], edits: NbEdit[], scopeIndex: numbe
     const edit = edits.find((e): e is Extract<NbEdit, { kind: 'replace' }> => e.kind === 'replace' && e.cell === index + 1);
     if (!edit) return cell;
     touched.push(cell.id);
-    return { ...cell, type: edit.type, source: edit.source, outputs: [], count: null, ranAt: undefined, fresh: 'changed' as const };
+    return { ...cell, type: edit.type, source: edit.source, outputs: [], count: null, ranAt: undefined, ranSource: undefined, fresh: 'changed' as const };
   });
   const after = new Map<number, NbCell[]>();
   for (const edit of edits) {
@@ -288,6 +290,30 @@ export function replaceCells(paperId: string, next: NbCell[]): { before: NbCell[
 
 /** The cells put back as they were: Undo of a reply. */
 export const restoreCells = (paperId: string, cells: NbCell[]) => update(paperId, () => cells.map((cell) => ({ ...cell, fresh: undefined })));
+
+export type CellStatus = 'queued' | 'running' | 'ran' | 'failed' | 'stopped' | 'changed' | 'earlier' | 'never';
+
+/**
+ * Whether a cell has run, for the mark in its gutter: running or queued
+ * now; ran, failed or stopped the last time; changed since it ran; ran
+ * earlier, elsewhere (a count from an .ipynb with no run here); or never.
+ * `run` is the Colab store's run for it, if it has one this session.
+ */
+export function cellStatus(cell: Pick<NbCell, 'type' | 'source' | 'outputs' | 'count' | 'ranAt' | 'ranSource'>, run?: { state: RunState; outputs?: Output[] }): CellStatus | null {
+  if (cell.type !== 'code') return null;
+  if (run?.state === 'running' || run?.state === 'queued') return run.state;
+  const changed = cell.ranSource !== undefined && cell.ranSource !== cell.source;
+  if (run?.state === 'failed') return changed ? 'changed' : 'failed';
+  if (run?.state === 'interrupted') return changed ? 'changed' : 'stopped';
+  if (run?.state === 'ran') return changed ? 'changed' : 'ran';
+  const ranHere = cell.ranAt !== undefined;
+  if (ranHere) {
+    if (changed) return 'changed';
+    return cell.outputs.some((output) => output.type === 'error') ? 'failed' : 'ran';
+  }
+  if (cell.count !== null || cell.outputs.length) return 'earlier';
+  return 'never';
+}
 
 /** The key a cell's run is kept under in the Colab store: the cell's own, so an edited cell keeps its last run until it runs again. */
 export const runKey = (id: string) => `nb:${id}`;

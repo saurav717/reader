@@ -117,6 +117,10 @@ export interface ColabState {
   via?: 'direct' | 'proxy';
   /** The kernel's socket dropped and is being opened again; the runtime and the kernel are still there. */
   reconnecting?: boolean;
+  /** The cells still to run from Run all, by key, in order. */
+  queue: string[];
+  /** Run all is paused: the cell running finishes, and the rest wait for Resume. */
+  paused: boolean;
 }
 
 // ------------------------------------------------------------ the store ----
@@ -176,7 +180,7 @@ const savedPulse = (): Pulse => {
   const saved = read<unknown>(local(), PULSE_KEY);
   return isPulse(saved) ? saved : 'live';
 };
-let state: ColabState = { status: 'off', machine: savedMachine(), runs: {}, gpuWatch: read<boolean>(local(), GPU_KEY) !== false, history: [], pulse: savedPulse() };
+let state: ColabState = { status: 'off', machine: savedMachine(), runs: {}, gpuWatch: read<boolean>(local(), GPU_KEY) !== false, history: [], pulse: savedPulse(), queue: [], paused: false };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<ColabState>) => {
   state = { ...state, ...patch };
@@ -831,8 +835,13 @@ const closeKernels = () => {
 const lost = (reason: string) => {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
-  const runs = Object.fromEntries(Object.entries(state.runs).map(([key, run]) => [key, run.state === 'running' || run.state === 'queued' ? { ...run, state: 'interrupted' as RunState, stale: true, ms: Date.now() - run.startedAt } : { ...run, stale: true }]));
-  set({ status: 'lost', kernel: undefined, running: undefined, runs, error: reason, sample: undefined, reconnecting: false });
+  const runs = Object.fromEntries(
+    Object.entries(state.runs)
+      .filter(([, run]) => run.state !== 'queued')
+      .map(([key, run]) => [key, run.state === 'running' ? { ...run, state: 'interrupted' as RunState, stale: true, ms: Date.now() - run.startedAt } : { ...run, stale: true }]),
+  );
+  set({ status: 'lost', kernel: undefined, running: undefined, runs, error: reason, sample: undefined, reconnecting: false, queue: [], paused: false });
+  wake();
 };
 
 /** A ticket for the proxy to carry a kernel's socket: asked for as the page connects, with the person's own token. */
@@ -952,13 +961,61 @@ export async function runCell(key: string, code: string): Promise<void> {
   }
 }
 
+// ------------------------------------------------------------ run all -----
+//
+// Run all is a queue: every cell marked as queued at once, then run one
+// after another. Pause lets the cell running finish and holds the rest for
+// Resume; Stop interrupts the cell running and drops the rest. A cell that
+// fails or is stopped ends the queue, as in Colab.
+
+let resume: (() => void) | null = null;
+const wake = () => {
+  resume?.();
+  resume = null;
+};
+
+/** Drops what is still queued, and their queued marks. */
+function dropQueue() {
+  const runs = { ...state.runs };
+  for (const key of state.queue) if (runs[key]?.state === 'queued') delete runs[key];
+  set({ runs, queue: [], paused: false });
+  wake();
+}
+
 /** Runs cells one after another, in the order given, and stops at the first that fails. */
 export async function runAll(cells: { key: string; code: string }[]): Promise<void> {
+  if (!cells.length || state.running || state.queue.length) return;
+  const where = state.runtime ? whereOf(state.runtime) : 'Colab';
+  const runs = { ...state.runs };
+  for (const cell of cells) runs[cell.key] = { state: 'queued', outputs: [], startedAt: 0, where };
+  set({ runs, queue: cells.map((cell) => cell.key), paused: false });
   for (const cell of cells) {
+    if (state.paused) await new Promise<void>((resolveResume) => (resume = resolveResume));
+    // Stopped, or the runtime went, while this one waited.
+    if (!state.queue.includes(cell.key)) break;
+    set({ queue: state.queue.filter((key) => key !== cell.key) });
     await runCell(cell.key, cell.code);
     const run = state.runs[cell.key];
     if (!run || run.state !== 'ran') break;
   }
+  dropQueue();
+}
+
+/** Pauses Run all: the cell running finishes; the rest wait. Nothing to pause when one cell runs on its own — Stop is for that. */
+export function pauseRuns() {
+  if (state.queue.length) set({ paused: true });
+}
+
+export function resumeRuns() {
+  if (!state.paused) return;
+  set({ paused: false });
+  wake();
+}
+
+/** Stops the runs: the rest of the queue is dropped, and the cell running is interrupted. */
+export async function stopRuns(): Promise<void> {
+  dropQueue();
+  if (state.running) await interrupt();
 }
 
 /** Interrupts the cell running now; the kernel answers the cell's request with an error, which ends the run. */
@@ -991,7 +1048,8 @@ export async function stopRuntime(): Promise<void> {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
   const runs = Object.fromEntries(Object.entries(state.runs).map(([key, run]) => [key, { ...run, stale: true }]));
-  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, runs, error: undefined, sample: undefined, specs: undefined, history: [], reconnecting: false });
+  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, runs, error: undefined, sample: undefined, specs: undefined, history: [], reconnecting: false, queue: [], paused: false });
+  wake();
   if (!runtime) return;
   try {
     const googleToken = await tokenOrConnect();
@@ -1006,7 +1064,8 @@ export function disconnect(): void {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
   dropColab();
-  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, error: undefined, units: undefined, sample: undefined, specs: undefined, history: [], reconnecting: false });
+  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, error: undefined, units: undefined, sample: undefined, specs: undefined, history: [], reconnecting: false, queue: [], paused: false });
+  wake();
 }
 
 export interface RuntimeEntry {

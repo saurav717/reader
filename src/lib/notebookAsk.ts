@@ -116,7 +116,8 @@ export function parseNotebookReply(text: string): NotebookReply {
 
 const clip = (text: string | undefined, max: number) => (!text ? '' : text.length > max ? `${text.slice(0, max)}\n[…cut at ${max.toLocaleString('en')} characters]` : text);
 
-const outputText = (cell: NbCell, run: CellRun | undefined): string => {
+/** What a cell printed, as text: the run in the Colab store while there is one, else what the notebook kept. */
+export const outputText = (cell: NbCell, run: CellRun | undefined): string => {
   const outputs = run && run.state !== 'running' && run.state !== 'queued' ? run.outputs : cell.outputs;
   return outputs
     .map((output) => (output.type === 'stream' ? output.text : output.type === 'text' ? output.text : output.type === 'error' ? output.traceback || `${output.ename}: ${output.evalue}` : `[${output.mime} image]`))
