@@ -43,7 +43,7 @@ import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ColabIcon, ExplainIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon } from './icons';
 import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, PlanContext, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
 import { CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
-import ColabPage from './ColabPage';
+import NotebookPage from './Notebook';
 import { cellKey, colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, runCell, useClient as useColabClient } from '../lib/colab';
 import { KeepButton, KeepContext, tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
@@ -133,7 +133,7 @@ const STORES: Record<WrittenPage, PageStore> = {
 const PAGES: { id: ExplainPage; label: string; note: string }[] = [
   { id: 'explain', label: 'Explanation', note: 'What the paper says: the problem, the method, why it works, and what has changed since' },
   { id: 'implement', label: 'Implementation', note: 'How to build it: what to reproduce, the datasets, the repository, the starter files, and what it costs on your machine' },
-  { id: 'colab', label: 'Colab', note: "Colab's own notebook page on your runtime, inside the reader — opened in the proxy's browser, with the same kernel the cells here run in" },
+  { id: 'colab', label: 'Colab', note: 'A notebook of your own on your Colab runtime: cells to write and run in the same kernel the pages’ cells run in, kept here, out as an .ipynb' },
 ];
 
 const VERDICT_CELL = /<td>(Still holds|Holds|Refined(?: since)?|Superseded|Disputed|Disproved)<\/td>/gi;
@@ -873,7 +873,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !document.activeElement?.closest('.assistant-win, .explain-ask') && !document.querySelector('.scrim')) onClose();
+      // Not from the ask bar, the assistant, or the notebook, where Escape leaves an editor or drops a picked cell first.
+      if (event.key === 'Escape' && !document.activeElement?.closest('.assistant-win, .explain-ask, .nb-page') && !document.querySelector('.scrim')) onClose();
       // "/" goes to the bar at the top, as it does to a search box.
       if (event.key === '/' && !(event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable="true"]')) {
         event.preventDefault();
@@ -1039,7 +1040,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
   };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || layout === 'beside') return;
+      if (event.metaKey || event.ctrlKey || event.altKey || layout === 'beside' || page === 'colab') return;
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
       if (event.key.toLowerCase() === 's') {
@@ -1052,7 +1053,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [layout, snipping]);
+  }, [layout, snipping, page]);
   const keepSection = (section: Section, element: HTMLElement) => {
     // Its rows, not the section itself: a copy that called itself a section of the page would be taken for one.
     const rows = document.createDocumentFragment();
@@ -1283,7 +1284,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
       <ColabBanner />
 
       {page === 'colab' ? (
-        <ColabPage />
+        <NotebookPage paperId={paperId} title={title} sections={STORES.explain.get(paperId)?.content ? parseExplanation(STORES.explain.get(paperId)!.content) : sections} planSections={() => (implementationFor(paperId)?.content ? parseExplanation(implementationFor(paperId)!.content) : null)} />
       ) : (
         <>
       <div className="explain-ask">

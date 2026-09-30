@@ -254,6 +254,34 @@ export async function restartKernel(proxy, id) {
   return { ok: true };
 }
 
+/** A path on the runtime's disk as the contents API takes it: relative, no climbing, nothing odd. */
+export function contentsPath(value) {
+  const path = String(value ?? '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+|\/+$/g, '');
+  if (path.length > 400 || path.split('/').some((part) => part === '..' || part === '.') || /[\0-\x1f]/.test(path)) throw new ColabRefused(400, 'that is not a path on the runtime');
+  return path;
+}
+
+/**
+ * What is on the runtime's disk under `path`, from its Jupyter contents API
+ * — the notebook page's Files pane. Directories only: a file's content is
+ * not fetched here, since a big one would be; the name, the size and the
+ * date are what the pane shows.
+ */
+export async function listContents(proxy, path) {
+  const dir = contentsPath(path);
+  const listing = await runtimeFetch(proxy, `api/contents/${dir.split('/').map(encodeURIComponent).join('/')}?type=directory&content=1`);
+  const entries = Array.isArray(listing?.content) ? listing.content : [];
+  return {
+    path: dir,
+    entries: entries
+      .filter((entry) => entry && typeof entry === 'object' && typeof entry.name === 'string')
+      .map((entry) => ({ name: entry.name, path: String(entry.path || `${dir ? `${dir}/` : ''}${entry.name}`), type: entry.type === 'directory' ? 'directory' : entry.type === 'notebook' ? 'notebook' : 'file', size: typeof entry.size === 'number' ? entry.size : null, modified: typeof entry.last_modified === 'string' ? entry.last_modified : null }))
+      .sort((a, b) => (a.type === 'directory') === (b.type === 'directory') ? a.name.localeCompare(b.name) : a.type === 'directory' ? -1 : 1),
+  };
+}
+
 // -------------------------------------------------------- the socket bridge ---
 //
 // Colab's runtime proxy takes a kernel's WebSocket from Colab's own page and
@@ -346,6 +374,7 @@ export async function handleColab(path, method, googleToken, body, { secret = ''
     if (path === '/colab/kernels' && method === 'POST') return { status: 200, body: { kernel: await startKernel(body?.proxy) } };
     if (path === '/colab/kernels/interrupt' && method === 'POST') return { status: 200, body: await interruptKernel(body?.proxy, body?.kernel) };
     if (path === '/colab/kernels/restart' && method === 'POST') return { status: 200, body: await restartKernel(body?.proxy, body?.kernel) };
+    if (path === '/colab/contents' && method === 'POST') return { status: 200, body: await listContents(body?.proxy, body?.path) };
     if (path === '/colab/socket/ticket' && method === 'POST') return { status: 200, body: { ticket: await issueSocketTicket(secret, { url: body?.proxy?.url, kernel: body?.kernel, session: body?.session }) } };
     return { status: 404, body: { error: 'not found' } };
   } catch (error) {

@@ -2719,60 +2719,55 @@ proxies' is `server/colab.js`. The Colab API is in beta and allowlisted per
 Google Cloud project; a client ID whose project is not on the list gets a
 `403` from Colab, which the page says as much.
 
-### Colab's own page, as a tab
+### A notebook of your own, on the runtime
 
-The bar's third tab, **Colab**, is Colab's own notebook page — the whole
-thing, menus, cells, the runtime chip — inside the reader, attached to the
-runtime the chip in the bar holds. It is the same kernel the cells on the
-Explanation and Implementation pages run in, so a variable a cell here set
-is there in Colab's notebook, and what you do there is seen here. It is the
-one route to mounting Drive, on purpose, from Colab's own menu.
+The bar's third tab, **Colab**, is a notebook: cells of your own, run in
+the Colab runtime the chip holds — the same kernel the cells on the
+Explanation and Implementation pages run in, so a variable a cell there
+set is here, and the other way round. Colab's API gives the reader the
+runtime and the page speaks the Jupyter protocol to its kernel, so the
+notebook needs nothing of Colab's page: it is the reader's, drawn the way
+the pages draw their cells, kept in this browser like the explanation and
+the plan, one a paper.
 
-Google does not let Colab's page be shown inside another site's frame, so
-the tab does not frame it. It opens the page in **the browser inside the
-reader** — the proxy's own headless Chromium, the one the paper's copies
-sign in through (see [A browser inside the reader](#a-browser-inside-the-reader-sign-in-without-a-screen-on-the-proxy))
-— and shows its picture, with your clicks, keys, scrolling and paste sent
-back. The first time, Google asks you to sign in inside the pane; the
-sign-in is kept in the proxy's browser profile, as a publisher's is, and
-Colab then opens as you. With no runtime yet the tab shows Colab's front
-page and says so; start one from the chip, or run a cell, and the tab
-attaches Colab's notebook to it. Leaving the tab closes the page on the
-proxy; the runtime stays. **Open in a new tab ↗** is the same page in a tab
-of your own.
+![the Colab tab: the notebook seeded from the explanation, its first cell run in the T4 runtime with what it printed under it, and a cell typed in and run](docs/colab-notebook.png)
 
-Colab's page is not left as Colab draws it. **Reader's look**, on by
-default in the tab's strip, dresses the page in the reader's own colours and
-type — the dark theme's paper and ink when the reader is dark, the light
-theme's when it is light, glass and all — and puts Colab's own top bar
-away, since the strip already names the notebook and the runtime. Colab
-themes itself through its `--colab-*` variables on the page (that is what
-its light, dark and adaptive settings set), so the reader's tokens are put
-onto those, the page is told to follow the reader's colour scheme, and the
-cells are drawn as the reader draws its own: rounded, bordered, the focused
-one in the accent. The sheet is placed into the page in the proxy's browser
-as a `look` input — one `<style>`, replaced in place, put back after every
-navigation — by both proxies (`server/browseShared.js`); it is built in
-`src/lib/colabLook.ts` from the reader's tokens as they stand. Switch it
-off and Colab is Colab again. The variables are Colab's own theme surface;
-the few ids beside them are Colab's page as it is today.
+- **Seeded from the page.** The first time it opens it holds the
+  explanation's cells and text, the way *Notebook ↓* writes them, with
+  Claude's expected outputs left out — the point is to run them. **Cells ▾**
+  adds the explanation's or the plan's cells again, or the cells of any
+  `.ipynb`.
+- **Cells to write and run.** `▶` on a cell, or <kbd>Shift</kbd>+<kbd>Enter</kbd>,
+  runs it and moves on (a new cell when it was the last); <kbd>Alt</kbd>+<kbd>Enter</kbd>
+  runs and adds one; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> runs in place. With a cell
+  picked and nothing being typed, the keys Colab and Jupyter share:
+  <kbd>A</kbd> and <kbd>B</kbd> add above and below, <kbd>M</kbd> and <kbd>Y</kbd>
+  make it text or code, <kbd>D</kbd> <kbd>D</kbd> deletes, <kbd>↑</kbd> <kbd>↓</kbd>
+  move. Text cells are Markdown, rendered as the page renders it; double-click
+  to edit. **Run all** asks first and stops at the first error; **Stop**
+  interrupts the kernel. Nothing runs without a click or a Shift-Enter on
+  that cell.
+- **What a cell printed stays.** Its output, its loss curve and the machine's
+  use while it ran are drawn under it as under a page cell, the verdict
+  aside (there is nothing expected to compare with); the output and the
+  count are kept with the notebook, so they are there after a reload and go
+  into the file.
+- **Files.** The runtime's disk, from its Jupyter contents API through the
+  proxy (`/colab/contents`): what the cells wrote, the data they fetched,
+  the checkpoints, a folder at a time. It goes when the runtime does.
+- **Out, and in.** **Notebook ▾** downloads it as an `.ipynb`, commits it to
+  the Git repository from Settings under `notebooks/` and opens it in Colab
+  from there, or opens the runtime in Colab's own page for what only that
+  page has — Drive, on purpose. An `.ipynb` from elsewhere is added cell by
+  cell; HTML outputs are dropped on the way in, as kernel output is
+  everywhere on the page.
 
-![the Colab tab: Colab's notebook attached to the T4 runtime, in the proxy's browser, dressed in the reader's dark look, with a cell run there and its output](docs/colab-tab.png)
+![the files pane beside the notebook: the runtime's disk, folders first](docs/colab-notebook-files.png)
 
-![the same notebook as Colab draws it, with Reader's look switched off](docs/colab-tab-own-look.png)
-
-A proxy without a browser — the Worker with no Browser Rendering bound, a
-Node proxy whose `npm install` skipped Chromium — gets a card in the tab's
-place: what it would show, why it cannot be framed, what to set up, and the
-runtime one click away in a tab of your own.
-
-![the Colab tab where the proxy has no browser: what it would show, and what to set up](docs/colab-tab-no-browser.png)
-
-The tab is `src/components/ColabPage.tsx` over a plain browser pane,
-`src/components/BrowserPane.tsx`, which is the sign-in pane's frames and
-input without the PDF hunting. `scripts/colab-tab-smoke.mjs` runs it
-against a stand-in for Colab's page, driven as the proxy's browser would be,
-and photographs it.
+The model and the store are `src/lib/notebook.ts`; the page is
+`src/components/Notebook.tsx`. `scripts/colab-notebook-smoke.mjs` drives it
+against a stand-in runtime — the tab, a cell run, the typing and the keys,
+the files, the download, a reload — and photographs it.
 
 ### Asking about it, or changing it
 

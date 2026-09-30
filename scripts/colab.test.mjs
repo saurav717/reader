@@ -12,7 +12,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { cleanup, load } from './bundle.mjs';
+import { cleanup, load, loadTogether } from './bundle.mjs';
 
 process.env.READER_SCHOLAR_PROFILE_DIR = join(tmpdir(), `reader-no-scholar-profile-${process.pid}`);
 process.env.READER_PROFILE_DIR = join(tmpdir(), `reader-no-profile-${process.pid}`);
@@ -20,7 +20,7 @@ delete process.env.READER_TOKEN;
 
 const lib = await load('src/lib/colab.ts');
 const telemetry = await load('src/lib/telemetry.ts');
-const look = await load('src/lib/colabLook.ts');
+const nbLib = await loadTogether(['src/lib/notebook.ts', 'src/lib/explain.ts'], { external: ['@anthropic-ai/sdk'] });
 const relay = await import('../server/colab.js');
 const { default: apiRouter } = await import('../server/api.js');
 
@@ -221,6 +221,28 @@ describe('the Node proxy’s /colab routes', () => {
   after(() => {
     globalThis.fetch = realFetch;
     server.close();
+  });
+
+  it('lists the runtime’s disk through the contents API, and refuses a path that climbs', async () => {
+    await ready;
+    const saved = globalThis.fetch;
+    globalThis.fetch = async (input, init = {}) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.startsWith(base)) return saved(input, init);
+      sent.push({ url });
+      return new Response(JSON.stringify({ content: [{ name: 'models', path: 'models', type: 'directory' }, { name: 'PLAN.md', path: 'PLAN.md', type: 'file', size: 2048, last_modified: '2026-09-30T10:00:00Z' }, { name: 'a.ipynb', path: 'a.ipynb', type: 'notebook', size: 10 }] }), { status: 200 });
+    };
+    try {
+      const proxy = { url: 'https://abc.prod.colab.dev/', token: 'tok' };
+      const ok = await (await saved(`${base}/colab/contents`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-google-token': 'g' }, body: JSON.stringify({ proxy, path: '' }) })).json();
+      assert.equal(ok.path, '', JSON.stringify(ok));
+      assert.deepEqual(ok.entries.map((e) => [e.name, e.type, e.size]), [['models', 'directory', null], ['a.ipynb', 'notebook', 10], ['PLAN.md', 'file', 2048]]);
+      assert.match(sent.at(-1).url, /\/api\/contents\/\?type=directory&content=1&colab-runtime-proxy-token=tok/);
+      const bad = await saved(`${base}/colab/contents`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-google-token': 'g' }, body: JSON.stringify({ proxy, path: '../etc' }) });
+      assert.equal(bad.status, 400);
+    } finally {
+      globalThis.fetch = saved;
+    }
   });
 
   it('says in /health that cells can be run through it', async () => {
@@ -466,22 +488,41 @@ describe('the Node proxy carries a kernel’s socket', async () => {
   });
 });
 
-describe('the reader’s look for Colab', () => {
-  const tokens = { paper: '#15161a', surface: '#1d1f25', panel: '#1a1c21', ink: '#eae7df', ink2: '#c3bfb4', muted: '#9b978c', border: '#2c2f36', accent: '#57a98f', accentSoft: '#1e3a33', sans: "'IBM Plex Sans', sans-serif", mono: "'IBM Plex Mono', monospace" };
-  it('puts the reader’s tokens onto Colab’s theme variables, hides Colab’s own header, and asks for the scheme', () => {
-    const { scheme, css } = look.colabLook('dark', tokens);
-    assert.equal(scheme, 'dark');
-    assert.match(css, /--colab-primary-surface-color: #15161a;/);
-    assert.match(css, /--colab-primary-text-color: #eae7df;/);
-    assert.match(css, /--colab-anchor-color: #57a98f;/);
-    assert.match(css, /--colab-code-font-family: 'IBM Plex Mono', monospace;/);
-    assert.match(css, /color-scheme: dark;/);
-    assert.match(css, /#header, header#header[^{]*\{ display: none !important; \}/);
-    assert.match(css, /\.cell\.focused \{ border-color: #57a98f/);
+describe('a notebook of the reader’s own', () => {
+  const { seedCells, toIpynb, fromIpynb, notebookFileName, newCell } = nbLib;
+  const sections = nbLib.parseExplanation('## At a glance\n\nA line.\n\n```python title="Two"\nprint(1 + 1)\n```\n\n```output\n2\n```\n\n## More\n\nText.');
+  it('is seeded from the page’s cells, with Claude’s expected outputs left out', () => {
+    const cells = seedCells('A paper', sections);
+    assert.deepEqual(cells.map((c) => c.type), ['markdown', 'markdown', 'code', 'markdown']);
+    assert.match(cells[0].source, /^# A paper/);
+    assert.equal(cells[2].source, '# Two\nprint(1 + 1)', 'the cell’s title rides along as a comment');
+    assert.deepEqual(cells[2].outputs, []);
+    assert.equal(cells[2].count, null);
+    assert.ok(cells.every((c) => /^[\w-]{8}$/.test(c.id)));
   });
-  it('lets nothing through a token that would break out of the sheet', () => {
-    const { css } = look.colabLook('light', { ...tokens, paper: '#fff; } body { display: none } /*' });
-    assert.ok(!/display: none \} \/\*/.test(css));
-    assert.match(css, /--colab-primary-surface-color: #fff {2}body {2}display: none;/);
+  it('goes out as an .ipynb Colab reads, and comes back the same', () => {
+    const cells = [
+      { ...newCell('markdown', '## Hello'), id: 'm1' },
+      { ...newCell('code', 'print("hi")'), id: 'c1', count: 3, outputs: [{ type: 'stream', name: 'stdout', text: 'hi\n' }, { type: 'text', text: '42' }, { type: 'image', mime: 'image/png', data: 'AAAA' }, { type: 'error', ename: 'E', evalue: 'v', traceback: 'a\nb' }] },
+    ];
+    const text = toIpynb({ title: 'T', cells });
+    const book = JSON.parse(text);
+    assert.equal(book.nbformat, 4);
+    assert.equal(book.metadata.kernelspec.name, 'python3');
+    assert.deepEqual(book.cells[1].outputs.map((o) => o.output_type), ['stream', 'execute_result', 'display_data', 'error']);
+    assert.equal(book.cells[1].execution_count, 3);
+    const back = fromIpynb(text);
+    assert.deepEqual(back.map((c) => [c.type, c.source, c.count]), [['markdown', '## Hello', null], ['code', 'print("hi")', 3]]);
+    assert.deepEqual(back[1].outputs, cells[1].outputs);
+    // A notebook from elsewhere: HTML outputs are dropped, raw cells become text, sources as arrays are joined.
+    const foreign = fromIpynb(JSON.stringify({ cells: [{ cell_type: 'raw', source: ['a\n', 'b'] }, { cell_type: 'code', source: 'x', outputs: [{ output_type: 'display_data', data: { 'text/html': '<b>no</b>', 'text/plain': 'yes' } }], execution_count: null }] }));
+    assert.deepEqual(foreign.map((c) => [c.type, c.source]), [['markdown', 'a\nb'], ['code', 'x']]);
+    assert.deepEqual(foreign[1].outputs, [{ type: 'text', text: 'yes' }]);
+    assert.equal(fromIpynb('not json'), null);
+    assert.equal(fromIpynb('{"cells": 3}'), null);
+  });
+  it('names the file from the title', () => {
+    assert.equal(notebookFileName('Attention Is All You Need'), 'attention-is-all-you-need.ipynb');
+    assert.equal(notebookFileName('!!!'), 'notebook.ipynb');
   });
 });

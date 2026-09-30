@@ -1,0 +1,246 @@
+// ===========================================================================
+//  A notebook of the reader's own, on the Colab runtime.
+//
+//  Colab's API assigns a runtime and the page already speaks the Jupyter
+//  protocol to its kernel (colab.ts), so a notebook needs no page of
+//  Colab's: it is cells — code and text — kept here, run in that kernel,
+//  with what they printed kept under them. One notebook a paper, in
+//  IndexedDB like the explanation and the plan; seeded from the page's own
+//  cells the first time it opens, and the same shape as an .ipynb, so it
+//  goes out to Colab's page, GitHub or a file and comes back from one. The
+//  model and the store are here; the page is src/components/Notebook.tsx.
+// ===========================================================================
+
+import type { Output } from './colab';
+import { db } from './db';
+import { notebook as pageNotebook } from './explain';
+import type { Section } from './explain';
+
+export type CellType = 'code' | 'markdown';
+
+export interface NbCell {
+  id: string;
+  type: CellType;
+  source: string;
+  /** What it printed the last time it ran here, kept with the notebook. */
+  outputs: Output[];
+  /** In [n], from the kernel; null before it has run. */
+  count: number | null;
+  /** When it last ran here, for the label under the output. */
+  ranAt?: number;
+}
+
+export interface Notebook {
+  paperId: string;
+  title: string;
+  cells: NbCell[];
+  updated: number;
+}
+
+const uuid = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10));
+
+export const newCell = (type: CellType, source = ''): NbCell => ({ id: uuid(), type, source, outputs: [], count: null });
+
+// ------------------------------------------------------------- .ipynb ----
+
+interface IpynbOutput {
+  output_type: string;
+  name?: string;
+  text?: string | string[];
+  data?: Record<string, string | string[]>;
+  ename?: string;
+  evalue?: string;
+  traceback?: string[];
+}
+
+interface IpynbCell {
+  cell_type: string;
+  source: string | string[];
+  outputs?: IpynbOutput[];
+  execution_count?: number | null;
+  metadata?: Record<string, unknown>;
+}
+
+const joined = (value: string | string[] | undefined) => (Array.isArray(value) ? value.join('') : typeof value === 'string' ? value : '');
+
+/** Outputs as an .ipynb keeps them: streams, data with a MIME type, errors. */
+function outputsOut(outputs: Output[]): IpynbOutput[] {
+  return outputs.map((output) =>
+    output.type === 'stream'
+      ? { output_type: 'stream', name: output.name, text: output.text }
+      : output.type === 'text'
+        ? { output_type: 'execute_result', data: { 'text/plain': output.text }, metadata: {}, execution_count: null } as IpynbOutput
+        : output.type === 'image'
+          ? { output_type: 'display_data', data: { [output.mime]: output.data }, metadata: {} } as IpynbOutput
+          : { output_type: 'error', ename: output.ename, evalue: output.evalue, traceback: output.traceback.split('\n') },
+  );
+}
+
+/** Outputs as the page shows them, read off an .ipynb: text and pictures, never markup. */
+function outputsIn(outputs: IpynbOutput[] | undefined): Output[] {
+  const out: Output[] = [];
+  for (const output of outputs ?? []) {
+    if (!output || typeof output !== 'object') continue;
+    if (output.output_type === 'stream') out.push({ type: 'stream', name: output.name === 'stderr' ? 'stderr' : 'stdout', text: joined(output.text) });
+    else if (output.output_type === 'error') out.push({ type: 'error', ename: String(output.ename ?? 'Error'), evalue: String(output.evalue ?? ''), traceback: (output.traceback ?? []).join('\n') });
+    else if (output.output_type === 'execute_result' || output.output_type === 'display_data') {
+      const data = output.data ?? {};
+      const image = ['image/png', 'image/jpeg', 'image/gif'].find((mime) => data[mime] !== undefined);
+      if (image) out.push({ type: 'image', mime: image, data: joined(data[image]).replace(/\s+/g, '') });
+      else if (data['text/plain'] !== undefined) out.push({ type: 'text', text: joined(data['text/plain']) });
+    }
+  }
+  return out;
+}
+
+const lines = (text: string) => text.split(/(?<=\n)/);
+
+/** The notebook as a Jupyter file, the shape Colab, GitHub and Jupyter read. */
+export function toIpynb(nb: Pick<Notebook, 'title' | 'cells'>): string {
+  const cells = nb.cells.map((cell) =>
+    cell.type === 'markdown'
+      ? { cell_type: 'markdown', metadata: {}, source: lines(cell.source) }
+      : { cell_type: 'code', execution_count: cell.count, metadata: {}, outputs: outputsOut(cell.outputs), source: lines(cell.source) },
+  );
+  return JSON.stringify(
+    {
+      nbformat: 4,
+      nbformat_minor: 5,
+      metadata: { kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' }, language_info: { name: 'python' }, colab: { name: `${nb.title.slice(0, 80)}.ipynb`, provenance: [{ source: 'Reader' }] } },
+      cells,
+    },
+    null,
+    1,
+  );
+}
+
+/** The cells of a Jupyter file, as the notebook keeps them; null for a file that is not one. */
+export function fromIpynb(text: string): NbCell[] | null {
+  let raw: { cells?: unknown };
+  try {
+    raw = JSON.parse(text) as { cells?: unknown };
+  } catch {
+    return null;
+  }
+  if (!raw || !Array.isArray(raw.cells)) return null;
+  return (raw.cells as IpynbCell[])
+    .filter((cell) => cell && typeof cell === 'object' && (cell.cell_type === 'code' || cell.cell_type === 'markdown' || cell.cell_type === 'raw'))
+    .map((cell) => ({
+      id: uuid(),
+      type: cell.cell_type === 'code' ? 'code' : 'markdown',
+      source: joined(cell.source).replace(/\n$/, ''),
+      outputs: cell.cell_type === 'code' ? outputsIn(cell.outputs) : [],
+      count: cell.cell_type === 'code' && typeof cell.execution_count === 'number' ? cell.execution_count : null,
+    }));
+}
+
+/**
+ * The page's own cells as a notebook: the explanation's or the plan's, the
+ * way Notebook ↓ writes them, with the expected outputs left out — those
+ * were written by Claude, and the point of the notebook is to run them.
+ */
+export function seedCells(title: string, sections: Section[]): NbCell[] {
+  return fromIpynb(pageNotebook(title, sections)) ?? [];
+}
+
+// ------------------------------------------------------------- the store ---
+
+const KEY = (paperId: string) => `notebook:${paperId}`;
+const cache = new Map<string, Notebook>();
+const listeners = new Set<() => void>();
+const notify = () => listeners.forEach((listener) => listener());
+const timers = new Map<string, number>();
+
+export function subscribeNotebook(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+export const notebookFor = (paperId: string) => cache.get(paperId);
+
+/** Written a moment after the last change, so typing does not write a notebook a keystroke. */
+function persist(nb: Notebook) {
+  const held = timers.get(nb.paperId);
+  if (held !== undefined) window.clearTimeout(held);
+  timers.set(
+    nb.paperId,
+    window.setTimeout(() => {
+      timers.delete(nb.paperId);
+      void db.setKv(KEY(nb.paperId), cache.get(nb.paperId)).catch(() => undefined);
+    }, 400),
+  );
+}
+
+/** The paper's notebook from IndexedDB, or a new one from `seed` when there is none yet. */
+export async function loadNotebook(paperId: string, title: string, seed: () => NbCell[]): Promise<Notebook> {
+  const held = cache.get(paperId);
+  if (held) return held;
+  let kept: Notebook | undefined;
+  try {
+    kept = await db.getKv<Notebook>(KEY(paperId));
+  } catch {
+    // no IndexedDB: kept for the page load only
+  }
+  const again = cache.get(paperId);
+  if (again) return again;
+  const nb: Notebook = kept && Array.isArray(kept.cells) ? { ...kept, title } : { paperId, title, cells: seed(), updated: Date.now() };
+  cache.set(paperId, nb);
+  notify();
+  if (!kept) persist(nb);
+  return nb;
+}
+
+function update(paperId: string, change: (cells: NbCell[]) => NbCell[]) {
+  const nb = cache.get(paperId);
+  if (!nb) return;
+  const next = { ...nb, cells: change(nb.cells), updated: Date.now() };
+  cache.set(paperId, next);
+  notify();
+  persist(next);
+}
+
+export const setSource = (paperId: string, id: string, source: string) => update(paperId, (cells) => cells.map((cell) => (cell.id === id ? { ...cell, source } : cell)));
+export const setType = (paperId: string, id: string, type: CellType) => update(paperId, (cells) => cells.map((cell) => (cell.id === id ? { ...cell, type, outputs: [], count: null } : cell)));
+export const setOutputs = (paperId: string, id: string, outputs: Output[], count: number | null, ranAt: number | undefined = Date.now()) =>
+  update(paperId, (cells) => cells.map((cell) => (cell.id === id ? { ...cell, outputs, count, ranAt } : cell)));
+export const clearOutputs = (paperId: string) => update(paperId, (cells) => cells.map((cell) => ({ ...cell, outputs: [], count: null, ranAt: undefined })));
+export const removeCell = (paperId: string, id: string) => update(paperId, (cells) => (cells.length > 1 ? cells.filter((cell) => cell.id !== id) : cells.map((cell) => (cell.id === id ? { ...cell, source: '', outputs: [], count: null } : cell))));
+export const appendCells = (paperId: string, more: NbCell[]) => update(paperId, (cells) => [...cells, ...more]);
+
+/** A new cell before or after `id` (at the end when `id` is null), and its id. */
+export function insertCell(paperId: string, id: string | null, where: 'above' | 'below', type: CellType = 'code'): string {
+  const cell = newCell(type);
+  update(paperId, (cells) => {
+    const at = id ? cells.findIndex((c) => c.id === id) : -1;
+    if (at < 0) return [...cells, cell];
+    const index = where === 'above' ? at : at + 1;
+    return [...cells.slice(0, index), cell, ...cells.slice(index)];
+  });
+  return cell.id;
+}
+
+export function moveCell(paperId: string, id: string, direction: -1 | 1) {
+  update(paperId, (cells) => {
+    const at = cells.findIndex((cell) => cell.id === id);
+    const to = at + direction;
+    if (at < 0 || to < 0 || to >= cells.length) return cells;
+    const next = cells.slice();
+    [next[at], next[to]] = [next[to], next[at]];
+    return next;
+  });
+}
+
+/** The key a cell's run is kept under in the Colab store: the cell's own, so an edited cell keeps its last run until it runs again. */
+export const runKey = (id: string) => `nb:${id}`;
+
+/** A folder name for the file: from the title, cut at a word. */
+export function notebookFileName(title: string): string {
+  const base = title
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-|-$/g, '');
+  const cut = base.length > 60 ? base.slice(0, 60).replace(/-[^-]*$/, '') : base;
+  return `${cut || 'notebook'}.ipynb`;
+}

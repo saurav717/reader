@@ -5054,32 +5054,83 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
   .colab-step { grid-template-columns: 26px minmax(0, 1fr); grid-template-areas: 'n body' 'n actions' 'n code' 'n output'; }
 }
 
-/* ---- The Colab tab: Colab's own page, in the proxy's browser ----------------------
-   A strip that says what is shown and on which runtime, the browser pane
-   filling the rest, and a line at the foot about the sign-in. */
-.colab-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.colab-page-head { display: flex; align-items: center; gap: 12px; padding: 10px 20px; border-bottom: 1px solid var(--border-soft); background: color-mix(in srgb, var(--panel) 45%, var(--paper)); }
-.colab-page-head > .colab-mark { flex: none; }
-.colab-page-what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.colab-page-what b { font-size: 13px; font-weight: 600; }
-.colab-page-what span { font-size: 12px; line-height: 1.45; color: var(--ink-2); }
-.colab-page-head .btn { flex: none; }
-.colab-page .mini-browser { flex: 1; min-height: 0; }
-.colab-page .mini-browser-screen { flex: 1; min-height: 0; }
-.browser-pane-address { display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; overflow: hidden; color: var(--ink-2); }
-.browser-pane-url { font: 11.5px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.colab-page-runtime { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
-.colab-page-foot { margin: 0; padding: 8px 20px; border-top: 1px solid var(--border-soft); font-size: 11.5px; line-height: 1.45; color: var(--muted); background: color-mix(in srgb, var(--panel) 45%, var(--paper)); }
-.colab-page-foot .is-problem { color: var(--danger); }
-.colab-page-card { max-width: 720px; margin: 40px auto; padding: 0 24px; font-size: 14px; line-height: 1.6; color: var(--ink-2); }
-.colab-page-card h2 { margin: 0 0 12px; font: 600 20px/1.3 var(--sans); color: var(--ink); letter-spacing: -0.01em; }
-.colab-page-card p { margin: 0 0 12px; }
-.colab-page-card b { color: var(--ink); font-weight: 600; }
-.colab-page-card code { font: 12px var(--mono); padding: 1px 5px; border-radius: 5px; background: var(--panel); }
-.colab-page-card ul { margin: 0 0 12px; padding-left: 20px; }
-.colab-page-card li { margin-bottom: 6px; }
-.colab-page-reason { padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--danger) 8%, transparent); }
-.colab-page-card a { color: var(--accent); font-weight: 600; text-decoration: none; }
-.colab-page-card a:hover { text-decoration: underline; }
-.colab-look-switch { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 12px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
-.colab-look-switch input { accent-color: var(--accent); margin: 0; }
+/* ---- The Colab tab: a notebook of your own, on the runtime ---------------------
+   A toolbar, the cells down the middle — each a gutter with Run and In [n],
+   the editor or the rendered text, the output as a page cell shows it, and
+   its tools on the right when pointed at — and the runtime's files beside
+   them when asked for. */
+.nb-page { flex: 1; min-height: 0; display: flex; flex-direction: column; outline: 0; }
+.nb-toolbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 20px; border-bottom: 1px solid var(--border-soft); background: color-mix(in srgb, var(--panel) 45%, var(--paper)); flex-wrap: wrap; }
+.nb-toolbar > .colab-mark { flex: none; }
+.nb-title { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 1px; }
+.nb-title b { font-size: 13px; font-weight: 600; }
+.nb-title span { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nb-toolbar .btn.is-on { background: var(--accent-soft); color: var(--accent-ink); }
+.nb-confirm { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+.nb-menu { min-width: 260px; }
+.nb-menu a { display: block; padding: 7px 10px; color: inherit; text-decoration: none; font-size: 13px; border-radius: 6px; }
+.nb-menu a:hover { background: var(--accent-soft); color: var(--accent-ink); }
+.nb-note { flex: none; padding: 6px 20px; font-size: 12.5px; color: var(--ink); background: color-mix(in srgb, var(--v-holds) 12%, transparent); border-bottom: 1px solid var(--border-soft); }
+.nb-note.is-problem { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.nb-note a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.nb-card { position: relative; height: 0; z-index: 42; }
+.nb-card .colab-connect { position: absolute; right: 20px; top: 8px; }
+.nb-split { flex: 1; min-height: 0; display: flex; }
+.nb-cells { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; padding: 22px 28px 120px; }
+.nb-loading { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.nb-cell { position: relative; display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; max-width: 980px; margin: 0 auto 10px; padding: 6px 8px 6px 0; border: 1px solid transparent; border-radius: 12px; }
+.nb-cell:hover { border-color: var(--border-soft); }
+.nb-cell.is-selected { border-color: var(--border); background: color-mix(in srgb, var(--panel) 40%, transparent); }
+.nb-cell.is-editing, .nb-cell.is-selected.is-code { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.nb-cell.is-running { border-color: #e8710a; }
+.nb-cell.is-failed { border-color: color-mix(in srgb, var(--danger) 55%, var(--border)); }
+.nb-gutter { display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 8px; }
+.nb-run { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--accent); font-size: 10px; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.nb-run:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); }
+.nb-run:disabled { opacity: 0.4; cursor: not-allowed; }
+.nb-run.is-busy { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.nb-mark { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; color: var(--muted); font: 600 13px var(--sans); }
+.nb-count { font: 500 10.5px var(--mono); color: var(--accent); white-space: nowrap; }
+.nb-body { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.nb-body .cell-state { padding: 0 2px; }
+.nb-body .cell-output { border: 1px solid var(--border-soft); border-radius: 10px; overflow: hidden; }
+.nb-editor { display: grid; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+.nb-editor > * { grid-area: 1 / 1; }
+.nb-editor .cell-code { padding: 12px 14px; font: 12.5px/1.6 var(--mono); tab-size: 4; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; overflow: hidden; }
+.nb-shadow { pointer-events: none; margin: 0; }
+.nb-text { display: block; width: 100%; border: 0; outline: 0; resize: none; background: transparent; color: transparent; caret-color: var(--ink); box-sizing: border-box; }
+.nb-text::placeholder { color: var(--muted); }
+.nb-text::selection { background: color-mix(in srgb, var(--accent) 25%, transparent); }
+.nb-cell.is-editing .nb-editor, .nb-editor:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.nb-markdown { padding: 6px 12px; min-height: 30px; cursor: text; }
+.nb-markdown > :first-child { margin-top: 0; }
+.nb-markdown > :last-child { margin-bottom: 0; }
+.nb-empty { color: var(--muted); font-style: italic; }
+.nb-tools { position: absolute; top: -12px; right: 10px; display: none; gap: 2px; padding: 2px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-sm); }
+.nb-cell:hover .nb-tools, .nb-cell.is-selected .nb-tools { display: inline-flex; }
+.nb-tools button { height: 22px; min-width: 22px; padding: 0 6px; border: 0; border-radius: 5px; background: transparent; color: var(--ink-2); font: 500 11px var(--sans); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.nb-tools button:hover { background: var(--accent-soft); color: var(--accent-ink); }
+.nb-tools button.is-danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+.nb-add { display: block; margin: 4px auto 18px; padding: 6px 14px; border: 1px dashed var(--border); border-radius: 999px; background: transparent; color: var(--muted); font: 500 12px var(--sans); cursor: pointer; }
+.nb-add:hover { color: var(--accent); border-color: var(--accent); }
+.nb-hint { max-width: 980px; margin: 0 auto; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.nb-hint kbd { font: 10.5px var(--mono); padding: 1px 4px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel); }
+.nb-files { flex: none; width: 280px; display: flex; flex-direction: column; border-left: 1px solid var(--border-soft); background: color-mix(in srgb, var(--panel) 45%, var(--paper)); }
+.nb-files header { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; }
+.nb-files header b { font-weight: 600; }
+.nb-files-path { flex: 1; min-width: 0; font: 11px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nb-files ul { list-style: none; margin: 0; padding: 6px 8px; overflow-y: auto; flex: 1; }
+.nb-files li { font: 12.5px var(--sans); }
+.nb-files li > button, .nb-files li > span { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; text-align: left; }
+.nb-files li > button { cursor: pointer; }
+.nb-files li > button:hover { background: var(--accent-soft); color: var(--accent-ink); }
+.nb-files li small { margin-left: auto; color: var(--muted); font-size: 11px; }
+.nb-file-icon { width: 14px; color: var(--muted); text-align: center; }
+.nb-files-note { margin: 0; padding: 12px; font-size: 12.5px; color: var(--muted); line-height: 1.5; display: flex; gap: 8px; align-items: center; }
+.nb-files-note.is-problem { color: var(--danger); }
+.nb-files-foot { margin: 0; padding: 10px 12px; border-top: 1px solid var(--border-soft); font-size: 11px; color: var(--muted); line-height: 1.45; }
+@media (max-width: 900px) {
+  .nb-cells { padding: 14px 10px 100px; }
+  .nb-cell { grid-template-columns: 40px minmax(0, 1fr); }
+  .nb-files { position: fixed; right: 0; top: 0; bottom: 0; width: min(320px, 90vw); z-index: 40; }
+}

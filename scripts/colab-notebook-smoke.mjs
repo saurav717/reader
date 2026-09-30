@@ -1,0 +1,341 @@
+/**
+ * The Colab tab — a notebook of the reader's own on the Colab runtime —
+ * against a stand-in runtime: a paper is opened and explained from the
+ * fixture, the tab opens the notebook seeded from the explanation's cells,
+ * a cell is run in the stand-in kernel (the proxy's Colab routes are
+ * answered here, the kernel is a WebSocket server in this script), cells
+ * are added, typed into, made text, moved and deleted with the keys the
+ * notebook takes, the runtime's disk is listed, the notebook is downloaded
+ * as an .ipynb and survives a reload. Each state is photographed, dark and
+ * light.
+ *
+ *   npm run build && npm start &
+ *   node scripts/colab-notebook-smoke.mjs        # SMOKE_BASE=http://localhost:8080
+ */
+import { readFile, mkdir } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { chromium } from 'playwright';
+import { WebSocketServer } from 'ws';
+
+const BASE = process.env.SMOKE_BASE || 'http://localhost:8080';
+const OUT = process.env.SMOKE_OUT || new URL('../.smoke/', import.meta.url).pathname;
+await mkdir(OUT, { recursive: true });
+const fixture = (name) => readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
+const EXPLANATION = await fixture('explain-attention.md');
+
+const TITLE = 'Compact Language Models via Pruning and Knowledge Distillation';
+const W = 1440;
+const H = 900;
+const COLAB_SCOPE = 'https://www.googleapis.com/auth/colaboratory';
+
+const problems = [];
+function check(label, condition, detail = '') {
+  if (!condition) problems.push(`${label}${detail ? ` — ${detail}` : ''}`);
+  console.log(`  ${condition ? 'PASS' : 'FAIL'}  ${label}${detail ? ` — ${detail}` : ''}`);
+}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// ---------------------------------------------------------------------------
+// The stand-in runtime: a Jupyter kernel over a WebSocket, and a disk
+// ---------------------------------------------------------------------------
+
+const runtime = createServer((_request, response) => response.end('runtime'));
+const kernels = new WebSocketServer({ server: runtime });
+let kernelCount = 0;
+let executionCount = 0;
+const ran = [];
+const header = (type) => ({ msg_id: `k-${Math.random().toString(36).slice(2)}`, msg_type: type, session: 'kernel', username: 'kernel', version: '5.3', date: new Date().toISOString() });
+const send = (socket, type, content, parent, channel = 'iopub') => socket.send(JSON.stringify({ header: header(type), parent_header: { msg_id: parent }, metadata: {}, content, channel, buffers: [] }));
+
+/** What a cell prints, for the code the page sent. */
+function answer(code) {
+  if (code.startsWith('import json, os, shutil, subprocess, time')) return { lines: ['{"gpu": "Tesla T4, 4, 412, 15360", "cpu": 7, "cpus": 2, "ram": [1900, 13012], "disk": [71, 78]}'], probe: true };
+  if (/import numpy as np/.test(code) && /attention weights \(rows sum to 1\)/.test(code)) return { lines: ['attention weights (rows sum to 1):', '    the [0.6 0.1 0.2 0.1]', '    cat [0.02 0.89 0.04 0.05]', '    sat [0.15 0.2  0.56 0.1 ]', '   down [0.08 0.3  0.11 0.51]', 'output shape: (4, 8)'] };
+  const printed = [...code.matchAll(/^print\((["'])(.*?)\1\)$/gm)].map((m) => m[2]);
+  if (printed.length) return { lines: printed };
+  if (/^\s*$/.test(code)) return { lines: [] };
+  return { lines: ['ok'] };
+}
+kernels.on('connection', (socket) => {
+  socket.on('message', async (data) => {
+    let message;
+    try {
+      message = JSON.parse(String(data));
+    } catch {
+      return;
+    }
+    if (message?.header?.msg_type !== 'execute_request') return;
+    const parent = message.header.msg_id;
+    const code = String(message.content?.code ?? '');
+    const { lines, probe } = answer(code);
+    if (!probe) ran.push(code);
+    send(socket, 'status', { execution_state: 'busy' }, parent);
+    for (const line of lines) {
+      send(socket, 'stream', { name: 'stdout', text: `${line}\n` }, parent);
+      await sleep(30);
+    }
+    if (!probe) executionCount += 1;
+    send(socket, 'execute_reply', { status: 'ok', execution_count: probe ? undefined : executionCount }, parent, 'shell');
+    send(socket, 'status', { execution_state: 'idle' }, parent);
+  });
+});
+await new Promise((resolve) => runtime.listen(0, '127.0.0.1', resolve));
+const RUNTIME_URL = `http://127.0.0.1:${runtime.address().port}/`;
+/** The runtime's disk, as the contents API would list it. */
+const DISK = {
+  '': [
+    { name: 'data', path: 'data', type: 'directory', size: null, modified: null },
+    { name: 'models', path: 'models', type: 'directory', size: null, modified: null },
+    { name: 'minitron', path: 'minitron', type: 'directory', size: null, modified: null },
+    { name: 'sample_data', path: 'sample_data', type: 'directory', size: null, modified: null },
+    { name: 'Makefile', path: 'Makefile', type: 'file', size: 1180, modified: '2026-09-30T11:02:00Z' },
+    { name: 'PLAN.md', path: 'PLAN.md', type: 'file', size: 48211, modified: '2026-09-30T11:02:00Z' },
+    { name: 'train.log', path: 'train.log', type: 'file', size: 913402, modified: '2026-09-30T11:40:00Z' },
+  ],
+  data: [{ name: 'fineweb_edu_1b.bin', path: 'data/fineweb_edu_1b.bin', type: 'file', size: 2_147_483_648, modified: '2026-09-30T11:10:00Z' }],
+  models: [{ name: 'teacher', path: 'models/teacher', type: 'directory', size: null, modified: null }, { name: 'pruned_0.8b', path: 'models/pruned_0.8b', type: 'directory', size: null, modified: null }],
+};
+console.log(`stand-in runtime at ${RUNTIME_URL}`);
+
+// ---------------------------------------------------------------------------
+// The browser
+// ---------------------------------------------------------------------------
+
+function sse(text, size = 600) {
+  const event = (name, data) => `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
+  const body = [];
+  body.push(event('message_start', { type: 'message_start', message: { id: 'msg_smoke', type: 'message', role: 'assistant', model: 'claude-opus-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 9000, output_tokens: 1 } } }));
+  body.push(event('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }));
+  for (let i = 0; i < text.length; i += size) body.push(event('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: text.slice(i, i + size) } }));
+  body.push(event('content_block_stop', { type: 'content_block_stop', index: 0 }));
+  body.push(event('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 9000 } }));
+  body.push(event('message_stop', { type: 'message_stop' }));
+  return body;
+}
+
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+
+console.log('\n== print a paper ==');
+const printer = await browser.newPage();
+const para =
+  'Large language models targeting different deployment scales and sizes are currently produced by training each variant from scratch; this is extremely compute-intensive. We investigate whether pruning an existing LLM and then re-training it with a fraction of the original training data can be a suitable alternative. ';
+const section = (n, name) => `<section style="break-after: page"><h2>${n}. ${name}</h2>${`<p>${para.repeat(3)}</p>`.repeat(5)}</section>`;
+await printer.setContent(
+  `<!doctype html><html><body style="font-family: serif; font-size: 11pt; margin: 0.8in">
+    <h1 style="text-align:center">${TITLE}</h1>
+    <p style="text-align:center">Saurav Muralidharan, Sharath Turuvekere Sreenivas, Raviraj Joshi, Marcin Chochowski, Mostofa Patwary, Mohammad Shoeybi, Bryan Catanzaro, Jan Kautz, Pavlo Molchanov</p>
+    <h3>Abstract</h3><p>${para.repeat(2)}</p>
+    ${section(1, 'Introduction')}${section(2, 'Pruning Methodology')}${section(3, 'Retraining')}${section(4, 'Experiments and Analysis')}
+  </body></html>`,
+);
+const PDF = await printer.pdf({ format: 'Letter', printBackground: true });
+await printer.close();
+
+const context = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 2 });
+await context.route('**/pdf?*', (route) => route.fulfill({ status: 200, contentType: 'application/pdf', body: PDF }));
+for (const host of ['api.crossref.org', 'api.semanticscholar.org', 'dblp.org', 'wikidata.org', 'api.openalex.org']) {
+  await context.route(`**/${host}/**`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"results":[],"data":[],"message":{"items":[]},"result":{"hits":{}}}' }));
+}
+await context.route('**/scholar/search*', (route) =>
+  route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      results: [{ id: '3001', clusterId: '3001', title: TITLE, url: 'https://arxiv.org/abs/2407.14679', pdfUrl: 'https://example.org/minitron.pdf', authors: ['S Muralidharan', 'ST Sreenivas', 'R Joshi', 'M Chochowski'], year: 2024, snippet: 'We investigate whether pruning an existing LLM and then re-training it can be a suitable alternative.' }],
+    }),
+  }),
+);
+await context.route('**/scholar/{authors,person,paper-authors,cluster}*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"results":[]}' }));
+// The proxy's Colab routes, answered here: one runtime on a T4, and its disk.
+const contentsAsked = [];
+await context.route('**/api/colab/**', (route) => {
+  const url = new URL(route.request().url());
+  const path = url.pathname.replace(/^.*\/api\/colab/, '/colab');
+  const method = route.request().method();
+  const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+  if (!route.request().headers()['x-google-token']) return json({ error: 'no token' }, 401);
+  if (path === '/colab/runtimes' && method === 'POST') return json({ runtime: { endpoint: 'm-s-1a2b3c4d5e6f', accelerator: 'T4', highMem: false, proxy: { url: RUNTIME_URL, token: 'proxy-token', expiresAt: Date.now() + 3_600_000 } } });
+  if (path === '/colab/runtimes/stop') return json({ ok: true });
+  if (path === '/colab/units') return json({ balance: 0 });
+  if (path === '/colab/kernels/list') return json({ kernels: Array.from({ length: kernelCount }, (_, i) => ({ id: `kernel-${i + 1}` })) });
+  if (path === '/colab/kernels' && method === 'POST') {
+    kernelCount += 1;
+    return json({ kernel: { id: `kernel-${kernelCount}` } });
+  }
+  if (path === '/colab/kernels/interrupt' || path === '/colab/kernels/restart') return json({ ok: true });
+  if (path === '/colab/contents') {
+    const { path: dir } = JSON.parse(route.request().postData() || '{}');
+    contentsAsked.push(dir);
+    return json({ path: dir, entries: DISK[dir] ?? [] });
+  }
+  return json({ error: `unexpected ${method} ${path}` }, 500);
+});
+await context.addInitScript(
+  ({ explanation, scope }) => {
+    sessionStorage.setItem('reader.google.session', JSON.stringify({ accessToken: 'ya29.smoke', expiresAt: Date.now() + 3_600_000, scopes: ['openid', 'email', scope], user: { email: 'reader@example.org', name: 'Reader' } }));
+    const real = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input.url;
+      if (!url.startsWith('https://api.anthropic.com')) return real(input, init);
+      const stream = new ReadableStream({
+        async start(controller) {
+          for (const event of explanation) controller.enqueue(new TextEncoder().encode(event));
+          controller.close();
+        },
+      });
+      return new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream', 'request-id': 'req_smoke' } });
+    };
+  },
+  { explanation: sse(EXPLANATION), scope: COLAB_SCOPE },
+);
+
+const page = await context.newPage();
+const errors = [];
+page.on('pageerror', (error) => errors.push(String(error)));
+process.on('uncaughtException', async (error) => {
+  console.error(error);
+  await page.screenshot({ path: `${OUT}/colab-notebook-failed.png` }).catch(() => undefined);
+  process.exit(2);
+});
+
+console.log('\n== open a paper ==');
+await page.goto(BASE, { waitUntil: 'networkidle' });
+await page.evaluate(() => {
+  localStorage.setItem('reader.anthropic-key', 'sk-ant-smoke');
+  localStorage.setItem('reader.explain.layout', 'margin');
+  localStorage.setItem('reader.explain.page', 'explain');
+  localStorage.setItem('reader.colab.machine', JSON.stringify({ accelerator: 'T4', highMem: false }));
+  const saved = JSON.parse(localStorage.getItem('reader.settings') || '{}');
+  localStorage.setItem('reader.settings', JSON.stringify({ ...saved, googleClientId: 'smoke-client-id.apps.googleusercontent.com', theme: 'dark', glass: false }));
+});
+await page.reload({ waitUntil: 'networkidle' });
+await page.getByRole('button', { name: /Not now — keep everything in this browser/i }).click();
+const chips = page.locator('.find-options .chip');
+for (let index = 0; index < (await chips.count()); index += 1) {
+  const chip = chips.nth(index);
+  const wanted = /Scholar/.test((await chip.textContent()) || '');
+  if (wanted !== ((await chip.getAttribute('aria-pressed')) === 'true')) await chip.click();
+}
+await page.getByLabel('Search for papers').fill('compact language models pruning distillation');
+await page.getByLabel('Search for papers').press('Enter');
+await page.locator('.find-row .find-title').first().waitFor({ timeout: 15000 });
+await page.locator('.find-row .find-title').first().click();
+await page.locator('.find-detail-actions').waitFor({ timeout: 5000 });
+await page.locator('.find-detail-actions').getByRole('button', { name: /Save to/ }).click();
+await page.waitForTimeout(400);
+await page.locator('.find-detail-actions').getByRole('button', { name: /^(Read|Open)$/ }).click();
+await page.locator('.segmented button', { hasText: 'Reflow' }).click({ timeout: 20000 });
+await page.waitForSelector('.paper-body h2', { timeout: 30000 });
+await page.waitForTimeout(500);
+
+async function withSettings(patch) {
+  await page.evaluate((next) => {
+    const saved = JSON.parse(localStorage.getItem('reader.settings') || '{}');
+    localStorage.setItem('reader.settings', JSON.stringify({ ...saved, ...next }));
+  }, patch);
+  await page.reload({ waitUntil: 'networkidle' });
+  const notNow = page.getByRole('button', { name: /Not now — keep everything in this browser/i });
+  if (await notNow.isVisible().catch(() => false)) await notNow.click();
+  await page.waitForSelector('.explain', { timeout: 15000 });
+  await page.waitForTimeout(600);
+}
+
+console.log('\n== E, then the Colab tab: the notebook, seeded from the explanation ==');
+await page.mouse.move(W / 2, H / 2);
+await page.keyboard.press('e');
+await page.waitForSelector('.explain .explain-empty');
+await page.getByRole('button', { name: 'Explain this paper' }).click();
+await page.waitForSelector('.explain-section h2', { timeout: 20000 });
+await page.waitForFunction(() => !document.querySelector('.explain-writing'), null, { timeout: 30000 });
+await page.getByRole('tab', { name: 'Colab' }).click();
+await page.waitForSelector('.nb-cell', { timeout: 15000 });
+const cells = page.locator('.nb-cell');
+const codeCells = page.locator('.nb-cell.is-code');
+check('the notebook is seeded from the explanation: its text as text cells, its four cells as code', (await codeCells.count()) === 4 && (await cells.count()) > 8, `${await codeCells.count()} code of ${await cells.count()}`);
+check('the text cells are rendered', (await page.locator('.nb-cell.is-markdown .nb-markdown h4').count()) === 1 && (await page.locator('.nb-cell.is-markdown .nb-markdown h5').count()) >= 6, `the page's Markdown sets # as h4 and ## as h5: h4 ${await page.locator('.nb-markdown h4').count()}, h5 ${await page.locator('.nb-markdown h5').count()}`);
+check('no cell has run', (await page.locator('.nb-cell .cell-output').count()) === 0);
+check('the ask bar and the outline are put away', (await page.locator('.explain-ask').count()) === 0 && (await page.locator('.explain-outline').count()) === 0);
+await page.screenshot({ path: `${OUT}/colab-notebook-1-seeded-dark.png` });
+
+console.log('\n== a cell runs in the runtime ==');
+const first = codeCells.first();
+await first.scrollIntoViewIfNeeded();
+await first.locator('.nb-run').click();
+await page.waitForSelector('.nb-cell.is-ran', { timeout: 30000 });
+await page.waitForTimeout(800);
+check('the first code cell ran in the stand-in kernel, and printed what it prints', /attention weights \(rows sum to 1\)/.test(await first.locator('.cell-output').textContent()));
+check('the gutter counts it', (await first.locator('.nb-count').textContent()) === '[1]');
+check('the chip in the bar holds the runtime', /T4 · idle/.test(await page.locator('.colab-chip').textContent()));
+check('exactly the cell’s code went to the kernel', ran[0] === (await first.locator('.nb-text').inputValue()));
+await page.locator('.nb-cells').evaluate((el) => (el.scrollTop = 0));
+await page.waitForTimeout(300);
+await page.screenshot({ path: `${OUT}/colab-notebook-2-ran-dark.png` });
+
+console.log('\n== typing a cell, and the keys ==');
+// The + Code at the foot adds at the end; the toolbar's adds below the cell picked.
+await page.locator('.nb-add').click();
+await page.waitForTimeout(200);
+let picked = page.locator('.nb-cell.is-selected');
+check('+ Code adds a code cell at the end and picks it', (await picked.count()) === 1 && (await picked.locator('.nb-text').inputValue()) === '' && (await picked.evaluate((el) => !el.nextElementSibling?.classList?.contains('nb-cell'))));
+await picked.locator('.nb-text').click();
+await page.keyboard.type('x = 6 * 7\nprint("the answer is 42")');
+await page.keyboard.press('Shift+Enter');
+await page.waitForFunction(() => document.querySelectorAll('.nb-cell.is-ran').length >= 2, null, { timeout: 30000 });
+await page.waitForTimeout(600);
+const typed = page.locator('.nb-cell', { hasText: 'the answer is 42' }).first();
+check('Shift-Enter runs what was typed, and the output comes back', /the answer is 42/.test(await typed.locator('.cell-output').textContent()) && ran.some((code) => /x = 6 \* 7\nprint\("the answer is 42"\)/.test(code)));
+picked = page.locator('.nb-cell.is-selected');
+check('and moves on to a fresh cell below, in the editor', (await picked.count()) === 1 && (await picked.locator('.nb-text').inputValue()) === '' && (await picked.evaluate((el) => el.contains(document.activeElement))), `selected ${await picked.count()}, value ${JSON.stringify(await picked.locator('.nb-text').inputValue().catch(() => null))}, focused ${await picked.evaluate((el) => el.contains(document.activeElement)).catch(() => null)}, cells ${await page.locator('.nb-cell').count()}`);
+await page.keyboard.type('## A note of my own\n\nThe *weights* row sums to one.');
+await picked.locator('.nb-tools button', { hasText: 'Text' }).click();
+await page.waitForTimeout(200);
+check('the tools make it a text cell, rendered', (await page.locator('.nb-cell.is-markdown .nb-markdown h5', { hasText: 'A note of my own' }).count()) === 1);
+const note = page.locator('.nb-cell.is-markdown', { hasText: 'A note of my own' });
+await note.click();
+await page.keyboard.press('Escape');
+await note.click();
+await page.keyboard.press('a');
+await page.waitForTimeout(200);
+check('A adds a cell above the one picked', (await page.locator('.nb-cell').count()) > 0 && (await note.evaluate((el) => el.previousElementSibling?.classList.contains('is-selected'))));
+await page.keyboard.press('d');
+await page.keyboard.press('d');
+await page.waitForTimeout(200);
+check('D D deletes it', !(await note.evaluate((el) => el.previousElementSibling?.classList.contains('is-code') && !el.previousElementSibling.textContent.trim())));
+await note.scrollIntoViewIfNeeded();
+await page.screenshot({ path: `${OUT}/colab-notebook-3-typed-dark.png` });
+
+console.log('\n== the runtime’s disk ==');
+await page.getByRole('button', { name: 'Files' }).click();
+await page.waitForSelector('.nb-files li', { timeout: 10000 });
+const listed = await page.locator('.nb-files li').allTextContents();
+check('the files pane lists the runtime’s disk, folders first', /data\//.test(listed[0]) && listed.some((l) => /PLAN\.md/.test(l) && /47 KB/.test(l)), listed.join(' | '));
+await page.locator('.nb-files li button', { hasText: 'models/' }).click();
+await page.waitForFunction(() => /\/content\/models/.test(document.querySelector('.nb-files-path')?.textContent ?? ''), null, { timeout: 5000 });
+check('a folder opens', contentsAsked.at(-1) === 'models' && /pruned_0\.8b/.test(await page.locator('.nb-files').textContent()));
+await page.locator('.nb-files li button', { hasText: '..' }).click();
+await page.waitForTimeout(400);
+await page.screenshot({ path: `${OUT}/colab-notebook-4-files-dark.png` });
+await page.locator('.nb-files').getByRole('button', { name: 'Close the files' }).click();
+
+console.log('\n== out as an .ipynb, and kept across a reload ==');
+await page.getByRole('button', { name: /^Notebook ▾$/ }).click();
+const [file] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /Download as \.ipynb/ }).click()]);
+const ipynb = JSON.parse(await readFile(await file.path(), 'utf8'));
+check('the download is a Jupyter notebook with the cells, the typed one and its output among them', ipynb.nbformat === 4 && ipynb.cells.some((c) => c.cell_type === 'code' && c.source.join('').includes('the answer is 42') && c.outputs.some((o) => /the answer is 42/.test(o.text))));
+check('and the text cell of my own', ipynb.cells.some((c) => c.cell_type === 'markdown' && /A note of my own/.test(c.source.join(''))));
+const before = await page.locator('.nb-cell').count();
+await withSettings({ theme: 'light' });
+await page.waitForSelector('.nb-cell', { timeout: 15000 });
+await page.waitForTimeout(500);
+check('after a reload the notebook is as it was, outputs and all', (await page.locator('.nb-cell').count()) === before && (await page.locator('.nb-cell', { hasText: 'the answer is 42' }).locator('.cell-output').count()) === 1);
+check('the tab is remembered', (await page.evaluate(() => localStorage.getItem('reader.explain.page'))) === 'colab');
+await page.locator('.nb-cell', { hasText: 'the answer is 42' }).scrollIntoViewIfNeeded();
+await page.waitForTimeout(300);
+await page.screenshot({ path: `${OUT}/colab-notebook-5-light.png` });
+
+check('no page errors', errors.length === 0, errors.join(' | '));
+console.log(`\n${problems.length ? `${problems.length} problem(s):\n  ${problems.join('\n  ')}` : 'all good'}\n`);
+await browser.close();
+kernels.close();
+runtime.close();
+process.exit(problems.length ? 1 : 0);

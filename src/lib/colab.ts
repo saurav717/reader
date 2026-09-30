@@ -842,6 +842,22 @@ export function disconnect(): void {
   set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, error: undefined, units: undefined, sample: undefined, specs: undefined });
 }
 
+export interface RuntimeEntry {
+  name: string;
+  path: string;
+  type: 'directory' | 'notebook' | 'file';
+  size: number | null;
+  modified: string | null;
+}
+
+/** What is on the runtime's disk under `path` — the notebook page's Files pane. Needs a runtime. */
+export async function listContents(path = ''): Promise<{ path: string; entries: RuntimeEntry[] }> {
+  const runtime = state.runtime;
+  if (!runtime || state.status === 'off' || state.status === 'lost') throw new Error('No runtime is connected.');
+  const googleToken = await tokenOrConnect();
+  return relay<{ path: string; entries: RuntimeEntry[] }>('/colab/contents', googleToken, { method: 'POST', body: { proxy: runtime.proxy, path } });
+}
+
 /** Forgets one cell's run — for a cell whose code has changed, or on request. */
 export function forgetRun(key: string) {
   if (!(key in state.runs)) return;

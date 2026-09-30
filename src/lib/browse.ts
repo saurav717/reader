@@ -138,9 +138,7 @@ export type BrowseInput =
   | { type: 'keydown' | 'keyup'; key: string }
   | { type: 'insert'; text: string }
   | { type: 'navigate'; url: string }
-  | { type: 'back' | 'forward' | 'reload' }
-  /** The reader's look onto the page: a colour scheme to emulate, and a stylesheet of the reader's placed into it (server/browseShared.js). */
-  | { type: 'look'; scheme: 'dark' | 'light' | null; css: string };
+  | { type: 'back' | 'forward' | 'reload' };
 
 const UNAVAILABLE: BrowseStatus = {
   available: false,
