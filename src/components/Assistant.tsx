@@ -1,3 +1,4 @@
+import { linkCells, showNotebookCell } from '../lib/notebookNav';
 import DOMPurify from 'dompurify';
 import { createPortal } from 'react-dom';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
@@ -469,6 +470,8 @@ function TurnView({ turn, index, actions, question }: { turn: Turn; index: numbe
       </div>
     );
   }
+  // Cell mentions link to the notebook while the Explain page is open, where the Colab tab is a click away.
+  const explainOpen = typeof document !== 'undefined' && Boolean(document.querySelector('.explain'));
   const show = (key: string) => {
     const mention = Array.from(textRef.current?.querySelectorAll<HTMLElement>('.chat-mention') ?? []).find(
       (el) => paperKey(el.dataset.paper ?? '') === key,
@@ -500,12 +503,20 @@ function TurnView({ turn, index, actions, question }: { turn: Turn; index: numbe
           ref={textRef}
           className="chat-text"
           onClick={(event) => {
-            const link = (event.target as HTMLElement).closest<HTMLElement>('.chat-passage');
+            const target = event.target as HTMLElement;
+            const cell = target.closest<HTMLElement>('.chat-cell');
+            if (cell) {
+              // A cell named in the answer: the notebook brings it into view, on the Colab tab.
+              event.preventDefault();
+              showNotebookCell(Number(cell.dataset.cell));
+              return;
+            }
+            const link = target.closest<HTMLElement>('.chat-passage');
             if (!link) return;
             event.preventDefault();
             showAt(Number(link.dataset.passage) - 1);
           }}
-          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(markdown(text), { ADD_ATTR: ['target'] }) }} />
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(explainOpen ? linkCells(markdown(text)) : markdown(text), { ADD_ATTR: ['target'] }) }} />
       ) : null}
       {passages.length && !turn.streaming ? <PassageList passages={passages} shown={shown} onShow={showAt} onPage={onPage} /> : null}
       {papers.length && !turn.streaming ? <ReadingList papers={papers} actions={actions} onShow={show} /> : null}

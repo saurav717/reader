@@ -45,6 +45,8 @@ import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, Lo
 import { CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
 import NotebookPage from './Notebook';
 import { notebookAskFor, rewriteCells, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk } from '../lib/notebookAsk';
+import { holdCell, SHOW_CELL } from '../lib/notebookNav';
+import type { ShowCell } from '../lib/notebookNav';
 import { colabNow } from '../lib/colab';
 import { cellKey, colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, runCell, useClient as useColabClient } from '../lib/colab';
 import { KeepButton, KeepContext, tableText, useKept, useKeeper } from './Keep';
@@ -954,6 +956,16 @@ export default function Explain({ paperId, title, authors, published, screen, on
   useEffect(() => {
     if (page === 'colab') setSnipping(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+  // A cell named in the Ask AI window, from another page: the Colab tab opens, and the notebook takes the cell as it mounts.
+  useEffect(() => {
+    const onShow = (event: Event) => {
+      if (page === 'colab') return;
+      holdCell((event as CustomEvent<ShowCell>).detail.cell);
+      setPage('colab');
+    };
+    window.addEventListener(SHOW_CELL, onShow);
+    return () => window.removeEventListener(SHOW_CELL, onShow);
   }, [page]);
   const setNbRewrite = (mode: NotebookRewrite) => {
     setNbRewriteState(mode);
