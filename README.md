@@ -2978,6 +2978,13 @@ kept.
   page or, with a chip, for that section.
 - **/** jumps to the bar; **Esc** in it clears the chips, then leaves it.
 - A changed section keeps a **Revised at your request** mark.
+- **Which model answers.** The chooser before **Ask** names the model that
+  answers the bar: the page's own writer until another is picked, and then
+  that one — on the Explanation, Implementation and Colab bars alike — until
+  it is changed back. A page DeepSeek wrote can be tweaked by Claude, and the
+  other way round. A model without a key is listed but cannot be picked.
+- The header's **◑** sets how see-through the page is; the sun or moon beside
+  it switches the whole app between light and dark mode, as Settings does.
 
 Under the hood, the page as written goes back to Claude as its own earlier
 turn, behind the same cached system prompt, so the paper is not paid for
