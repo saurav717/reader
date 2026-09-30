@@ -1898,7 +1898,7 @@ same way, so either mode shows what was marked in the other, and both are saved
 with the paper to Drive (and GitHub) as one annotation list.
 
 In the reader, in Reflow or PDF mode: select text, then click a colour or press
-`1`–`4`; `U` (or the **U** button) switches the colours to underlining and back;
+`1`–`4`; `U` (or the **U** button) underlines it with a plain black line — no colour to pick;
 `N` highlights and opens a note. A mark's **U** in the highlights pane turns a
 highlight into an underline and back. `H` — or `⌘⇧\`, which works while typing too — opens and
 closes the highlights and notes; see
@@ -2097,8 +2097,8 @@ What to know about DeepSeek:
   (low when Explain asks for low), or `{"type": "disabled"}` for the entry that
   answers at once. The reasoning streams as `reasoning_content` and is folded
   under *Reasoning*, the way Claude's thinking is.
-- **Pictures.** The pages in view in PDF mode and screenshots go as
-  `image_url` parts holding base64 data URLs. DeepSeek bills each picture at no
+- **Pictures.** The pages in view in PDF mode, the figures in view in Reflow
+  mode and screenshots go as `image_url` parts holding base64 data URLs. DeepSeek bills each picture at no
   more than 384 tokens, so it sees a page at a lower resolution than Claude:
   small print in an equation can be lost, though the paper's text still goes
   along with every question.
@@ -2195,6 +2195,18 @@ Each answer is labelled with the model that wrote it, and the History keeps that
     - **PDF as a book**: the page is turned to and the text layer marked.
     - **The browser's own PDF viewer**: nothing can be drawn over it, so the
       viewer is sent to the page with `#page=N` and the caption names the page.
+    - **The Colab tab**: a passage with `"in": "notebook"` and a `cell` number
+      quotes a cell's code or output; the tab scrolls to the cell, lights it,
+      and marks the lines. Asked while another page is open, the Explain page
+      switches to the Colab tab first.
+  - **Pictures in the answer**: an answer can show a figure or table of the
+    paper, or a page of the PDF, as `![caption](figure:3)`, `(table:2)` or
+    `(page:4)`; the window looks it up on the page — the figure's image in
+    Reflow mode or on the Explain page, the page's canvas in PDF mode — or
+    among the pictures that went with the question, and draws it under the
+    caption, held to the window's width and a modest height. A click opens
+    it at full size. Ordinary Markdown images (`![alt](https://…)`) draw the
+    same way.
 
   ![Ask Claude pointing at a passage: the paper scrolled to it, the passage marked, its caption above it, and the list of passages under the answer](docs/locate.png)
 
@@ -2966,6 +2978,13 @@ kept.
   page or, with a chip, for that section.
 - **/** jumps to the bar; **Esc** in it clears the chips, then leaves it.
 - A changed section keeps a **Revised at your request** mark.
+- **Which model answers.** The chooser before **Ask** names the model that
+  answers the bar: the page's own writer until another is picked, and then
+  that one — on the Explanation, Implementation and Colab bars alike — until
+  it is changed back. A page DeepSeek wrote can be tweaked by Claude, and the
+  other way round. A model without a key is listed but cannot be picked.
+- The header's **◑** sets how see-through the page is; the sun or moon beside
+  it switches the whole app between light and dark mode, as Settings does.
 
 Under the hood, the page as written goes back to Claude as its own earlier
 turn, behind the same cached system prompt, so the paper is not paid for

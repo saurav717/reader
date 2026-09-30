@@ -12,6 +12,7 @@
  * a figure — is found by its longest run of words that is.
  */
 import { buildIndex, rangeFromOffsets, squash } from './anchor';
+import { SHOW_CELL } from './notebookNav';
 
 export { squash };
 
@@ -74,8 +75,10 @@ export interface LocateRequest {
   page?: number;
   /** Its number in the answer's list. */
   n?: number;
-  /** Where the words are: the paper (the default), or its Explain page. */
-  source?: 'paper' | 'explanation';
+  /** Where the words are: the paper (the default), its Explain page, or the notebook on its Colab tab. */
+  source?: 'paper' | 'explanation' | 'notebook';
+  /** The notebook cell, numbered from 1, for a passage of the notebook. */
+  cell?: number;
 }
 
 /** Sent by the reader when a passage is marked (its quote) and when the mark goes (null). */
@@ -108,8 +111,49 @@ export function setExplainLocator(locate: ExplainLocator): () => void {
   };
 }
 
-/** Asks the open paper — or its Explain page, when that is open — to scroll to the passage and mark it. Answers once it has, or could not. */
+/**
+ * The notebook on the Colab tab, while that tab is open: it takes the
+ * passages that point at the notebook. When the tab is not open, the passage
+ * is held, the Explain page is asked to switch to the tab (as it does for a
+ * cell named in an answer), and the notebook takes the passage as it mounts.
+ */
+type NotebookLocator = (request: LocateRequest) => Promise<LocateResult>;
+let notebookLocator: NotebookLocator | null = null;
+let heldPassage: { request: LocateRequest; reply: (result: LocateResult) => void } | null = null;
+
+/** Set by the notebook page while it is open; returns the function that takes it away again. */
+export function setNotebookLocator(locate: NotebookLocator): () => void {
+  notebookLocator = locate;
+  return () => {
+    if (notebookLocator === locate) notebookLocator = null;
+  };
+}
+
+/** A passage asked for while the Colab tab was not open, taken by the notebook page as it mounts. */
+export function takeHeldPassage(): { request: LocateRequest; reply: (result: LocateResult) => void } | null {
+  const held = heldPassage;
+  heldPassage = null;
+  return held;
+}
+
+async function showInNotebook(request: LocateRequest): Promise<LocateResult> {
+  if (notebookLocator) return notebookLocator(request);
+  if (!document.querySelector('.explain')) return { found: false, reason: 'Open the paper’s Explain page, and its Colab tab, to see the notebook.' };
+  return new Promise((resolve) => {
+    heldPassage = { request, reply: resolve };
+    window.dispatchEvent(new CustomEvent(SHOW_CELL, { detail: { cell: request.cell ?? 1 } }));
+    // The tab did not open — the paper has no notebook, or the page did not listen.
+    window.setTimeout(() => {
+      if (heldPassage?.request !== request) return;
+      heldPassage = null;
+      resolve({ found: false, reason: 'The Colab tab did not open. Open it to see the notebook.' });
+    }, 5000);
+  });
+}
+
+/** Asks the open paper — or its Explain page, or the notebook on its Colab tab — to scroll to the passage and mark it. Answers once it has, or could not. */
 export async function showPassage(request: LocateRequest): Promise<LocateResult> {
+  if (request.source === 'notebook') return showInNotebook(request);
   if (explainLocator) {
     const shown = await explainLocator(request);
     if (shown) return shown;

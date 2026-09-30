@@ -40,7 +40,7 @@ import type { NoteSource } from '../lib/notes';
 import { selectedText } from '../lib/screen';
 import { useStore } from '../lib/store';
 import { typesetMath } from '../lib/typesetMath';
-import { CloseIcon, ColabIcon, ExplainIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon } from './icons';
+import { CloseIcon, ColabIcon, ExplainIcon, MoonIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon, SunIcon } from './icons';
 import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, PlanContext, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
 import { CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
 import NotebookPage from './Notebook';
@@ -105,7 +105,7 @@ interface PageStore {
   driveState: (paperId: string) => DriveState | undefined;
   load: (paperId: string) => Promise<unknown>;
   generate: (screen: Screen, model: string) => Promise<void>;
-  revise: (screen: Screen, request: string, scope: RevisionScope) => Promise<void>;
+  revise: (screen: Screen, request: string, scope: RevisionScope, model?: string) => Promise<void>;
   undo: (paperId: string) => void;
   dismiss: (paperId: string) => void;
   stop: () => void;
@@ -1366,6 +1366,15 @@ export default function Explain({ paperId, title, authors, published, screen, on
           ✂ Snip
         </button>
         <OpacityControl value={opacity} fallback={defaultOpacity} onChange={(value) => updateSettings({ explainOpacity: value })} />
+        <button
+          type="button"
+          className="icon-btn sm"
+          onClick={() => updateSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' })}
+          aria-label={settings.theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          title={settings.theme === 'dark' ? 'Light mode — the whole app, as in Settings' : 'Dark mode — the whole app, as in Settings'}
+        >
+          {settings.theme === 'dark' ? <SunIcon size={16} /> : <MoonIcon size={16} />}
+        </button>
         <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the explanation (Esc)" title="Back to the paper (Esc or E)">
           <CloseIcon size={17} />
         </button>

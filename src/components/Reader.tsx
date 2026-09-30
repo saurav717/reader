@@ -35,8 +35,8 @@ import {
   unpaint,
   type Selector,
 } from '../lib/anchor';
-import { type Highlight, type HighlightColor, type ReadingMode } from '../types';
-import MarkPicker, { markKey, useMarkStyle } from './MarkPicker';
+import { type Highlight, type ReadingMode } from '../types';
+import MarkPicker, { highlightIn, markKey, type Mark } from './MarkPicker';
 import LookupPopover, { type LookupTarget } from './LookupPopover';
 import HoverCard, { type CitedEntry, type HoverTarget } from './HoverCard';
 import { pdfPageTexts, showPdf } from '../lib/screen';
@@ -1189,7 +1189,6 @@ export default function Reader({
     return true;
   }, [selectionTarget]);
 
-  const [markStyle, setMarkStyle] = useMarkStyle();
 
   /** After a passage is marked, in either mode: its note opened, or the highlights pane following along. */
   const marked = useCallback(
@@ -1206,12 +1205,12 @@ export default function Reader({
   );
 
   const applyHighlight = useCallback(
-    async (color: HighlightColor, withNote: boolean) => {
+    async (mark: Mark, withNote: boolean) => {
       if (!pending || !paper) return;
       const created = await addHighlight({
         paperId: paper.id,
-        color,
-        style: markStyle,
+        color: mark.color,
+        style: mark.style,
         exact: pending.selector.exact,
         prefix: pending.selector.prefix,
         suffix: pending.selector.suffix,
@@ -1224,15 +1223,15 @@ export default function Reader({
       setPending(null);
       marked(created, withNote);
     },
-    [addHighlight, marked, markStyle, paper, pending],
+    [addHighlight, marked, paper, pending],
   );
 
-  // Number keys apply a colour to the live selection without the mouse, and U
-  // switches between highlighting and underlining.
+  // Number keys highlight the live selection in a colour without the mouse,
+  // and U underlines it.
   useEffect(() => {
     if (!pending) return;
     const onKey = (event: KeyboardEvent) => {
-      if (markKey(event, markStyle, setMarkStyle, (color, withNote) => void applyHighlight(color, withNote))) {
+      if (markKey(event, (mark, withNote) => void applyHighlight(mark, withNote))) {
         event.preventDefault();
       } else if (event.key === 'Escape') {
         setPending(null);
@@ -1240,7 +1239,7 @@ export default function Reader({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [applyHighlight, pending, markStyle, setMarkStyle]);
+  }, [applyHighlight, pending]);
 
   // A passage Ask Claude points at: scrolled to, and marked with its caption
   // for a few seconds (PassageFlash). In the browser's own PDF viewer only the
@@ -2005,7 +2004,7 @@ export default function Reader({
         <p style={{ margin: 0, padding: '8px 16px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)' }}>
           {pdfBlob ? (
             <>
-              Select text to highlight or underline it (keys 1–4, U to switch) — the same marks show in Reflow mode and are saved with the paper. Anything can be snipped into your notes with ✂ Snip (or S), a sticky pinned with a double-click, and the pages {layout === 'book' ? 'turned' : 'stepped through'} with the arrow keys.
+              Select text to highlight or underline it (keys 1–4, U to underline) — the same marks show in Reflow mode and are saved with the paper. Anything can be snipped into your notes with ✂ Snip (or S), a sticky pinned with a double-click, and the pages {layout === 'book' ? 'turned' : 'stepped through'} with the arrow keys.
               {pdfObjectUrl ? (
                 <>
                   {' '}
@@ -2035,7 +2034,7 @@ export default function Reader({
 
       {pending && !lookup ? (
         <div className="selection-toolbar" style={{ top: pending.top, left: pending.left }} role="toolbar" aria-label="Highlight the selection">
-          <MarkPicker style={markStyle} onStyle={setMarkStyle} onPick={(color) => void applyHighlight(color, false)} />
+          <MarkPicker onPick={(mark) => void applyHighlight(mark, false)} />
           <span className="divider" />
           <button
             type="button"
@@ -2045,7 +2044,7 @@ export default function Reader({
           >
             <BookIcon size={15} /> Look up
           </button>
-          <button type="button" className="wide" onClick={() => void applyHighlight('yellow', true)} title="Highlight and write a note — N">
+          <button type="button" className="wide" onClick={() => void applyHighlight(highlightIn('yellow'), true)} title="Highlight and write a note — N">
             <NoteIcon size={15} /> Note
           </button>
           <button

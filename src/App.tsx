@@ -6,7 +6,7 @@ import { HIGHLIGHT_COLORS } from './types';
 import type { Screen } from './lib/assistant';
 import { setQuote } from './lib/assistant';
 import { followLight } from './lib/glassLight';
-import { clearSelection, currentSelection, currentSelectionIn, explanationOnScreen, paperText, pdfPageImages, pdfPagesInView, pdfPageTexts, trackSelection, visiblePassage } from './lib/screen';
+import { clearSelection, currentSelection, currentSelectionIn, explanationOnScreen, figureImages, paperText, pdfPageImages, pdfPagesInView, pdfPageTexts, trackSelection, visiblePassage } from './lib/screen';
 import Assistant from './components/Assistant';
 import Explain from './components/Explain';
 import { RailProgress } from './components/ExplainProgress';
@@ -638,6 +638,8 @@ export default function App() {
         const explainPage = explainOpen ? explanationOnScreen() : null;
         const explained = explainPage ? explanationFor(paper.id)?.content : '';
         const explanation = explainPage && explained ? { text: explained, visible: explainPage.visible, layout: explainPage.layout, covers: explainPage.covers } : undefined;
+        // Reflow mode: the figures and tables on screen go along as pictures, as a PDF's pages do — the paper's unless the explanation covers it, and the Explain page's own.
+        if (fullText && !pdf) images = await figureImages({ paper: !explainPage?.covers });
         // The paper's notebook, whenever it has one: cell by cell, the runtime it is on, which cell runs now, and whether the Colab tab is the one on screen.
         const nb = explainOpen ? notebookFor(paper.id) : undefined;
         const colab = colabNow();

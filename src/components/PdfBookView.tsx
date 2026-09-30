@@ -7,12 +7,12 @@ import { useKept } from './Keep';
 import PdfSnip from './PdfSnip';
 import { addClip, addText, useNotes } from '../lib/notes';
 import PagePins, { stickiesOf } from './PdfPins';
-import MarkPicker, { markKey, useMarkStyle } from './MarkPicker';
+import MarkPicker, { highlightIn, markKey, type Mark } from './MarkPicker';
 import { NoteIcon } from './icons';
 import { useStore } from '../lib/store';
 import { buildIndex, offsetOf, rangeFromOffsets, resolveSelector, type Selector } from '../lib/anchor';
 import { mergeBoxes, pdfText, placeMarks, readable, selectorIn, type Box, type PageMark, type PdfText } from '../lib/pdfMarks';
-import type { Highlight, HighlightColor } from '../types';
+import type { Highlight } from '../types';
 
 type Engine = typeof import('../lib/pdfReflow');
 
@@ -334,14 +334,13 @@ export default function PdfBookView({
     return { exact: readable(shown), prefix: '', suffix: '', hint: 0 };
   };
   const { addHighlight } = useStore();
-  const [markStyle, setMarkStyle] = useMarkStyle();
   const markSelection = useCallback(
-    async (color: HighlightColor, withNote: boolean) => {
+    async (mark: Mark, withNote: boolean) => {
       if (!picked?.selector.exact) return;
       const created = await addHighlight({
         paperId,
-        color,
-        style: markStyle,
+        color: mark.color,
+        style: mark.style,
         ...picked.selector,
         tags: [],
         note: withNote ? '' : undefined,
@@ -350,18 +349,18 @@ export default function PdfBookView({
       setPicked(null);
       onMarked(created, withNote);
     },
-    [addHighlight, markStyle, onMarked, paperId, picked],
+    [addHighlight, onMarked, paperId, picked],
   );
-  // With text selected, 1–4 mark it, U switches to underlining and back, N marks it with a note.
+  // With text selected, 1–4 highlight it in a colour, U underlines it, N highlights it with a note.
   useEffect(() => {
     if (!picked) return;
     const onKey = (event: KeyboardEvent) => {
-      if (markKey(event, markStyle, setMarkStyle, (color, withNote) => void markSelection(color, withNote))) event.preventDefault();
+      if (markKey(event, (mark, withNote) => void markSelection(mark, withNote))) event.preventDefault();
       else if (event.key === 'Escape') setPicked(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [picked, markStyle, setMarkStyle, markSelection]);
+  }, [picked, markSelection]);
   /** A click on a marked passage brings its card up among the highlights. */
   const pickMark = (clientX: number, clientY: number) => {
     if (window.getSelection()?.isCollapsed === false) return false;
@@ -600,9 +599,9 @@ export default function PdfBookView({
       </div>
       {picked ? (
         <div className="selection-toolbar" style={{ top: picked.top, left: picked.left }} role="toolbar" aria-label="The selection">
-          <MarkPicker style={markStyle} onStyle={setMarkStyle} onPick={(color) => void markSelection(color, false)} />
+          <MarkPicker onPick={(mark) => void markSelection(mark, false)} />
           <span className="divider" />
-          <button type="button" className="wide" onMouseDown={(event) => event.preventDefault()} onClick={() => void markSelection('yellow', true)} title="Highlight and write a note — N">
+          <button type="button" className="wide" onMouseDown={(event) => event.preventDefault()} onClick={() => void markSelection(highlightIn('yellow'), true)} title="Highlight and write a note — N">
             <NoteIcon size={15} /> Note
           </button>
           <button type="button" className="wide" onMouseDown={(event) => event.preventDefault()} onClick={keepSelection} title="Keep this passage in your notes">

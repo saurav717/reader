@@ -413,3 +413,39 @@ describe('a link to a passage', () => {
     assert.equal(inline('see [they call it oracle selection](passage:1).'), 'see <a class="chat-passage" href="#passage-1" data-passage="1">they call it oracle selection</a>.');
   });
 });
+
+describe('a picture in an answer', () => {
+  it('draws a web image, sized by the window, under its caption', () => {
+    const html = inline('see ![The loss curve](https://example.org/loss.png) here');
+    assert.match(html, /^see <span class="chat-picture"><img class="chat-image" src="https:\/\/example.org\/loss.png" alt="The loss curve" loading="lazy" decoding="async"><span class="chat-picture-caption">The loss curve<\/span><\/span> here$/);
+  });
+  it('names a figure, table or page of the paper for the window to look up on the page', () => {
+    assert.match(inline('![Figure 3: ablations](figure:3)'), /<img class="chat-image chat-figure" data-figure="figure:3" alt="Figure 3: ablations">/);
+    assert.match(inline('![Table 2](table: 2)'), /data-figure="table:2"/);
+    assert.match(inline('![Page 4](page:4)'), /data-figure="page:4"/);
+    assert.match(inline('![Fig 3](fig:3)'), /data-figure="figure:3"/);
+  });
+  it('is not a link', () => {
+    assert.doesNotMatch(inline('![alt](https://example.org/a.png)'), /<a /);
+    assert.equal(inline('![alt](javascript:alert(1))'), '![alt](javascript:alert(1))');
+  });
+  it('tells the model how', () => {
+    assert.match(assistant.SYSTEM, /!\[Figure 3: the ablation results\]\(figure:3\)/);
+    assert.match(assistant.SYSTEM, /In\s+Reflow mode the figures and tables on screen come the same way/);
+  });
+});
+
+describe('a passage of the notebook', () => {
+  it('is read from the passages block with its cell', () => {
+    const { passages } = assistant.splitPassages('Cell 3 fails.\n\n```passages\n{"quote": "x = torch.zeros(3)", "label": "The line that fails", "in": "notebook", "cell": 3, "show": true}\n{"quote": "We train for 10 epochs", "label": "The paper"}\n```');
+    assert.equal(passages.length, 2);
+    assert.equal(passages[0].source, 'notebook');
+    assert.equal(passages[0].cell, 3);
+    assert.equal(passages[0].show, true);
+    assert.equal(passages[1].source, undefined);
+    assert.equal(passages[1].cell, undefined);
+  });
+  it('is described to the model', () => {
+    assert.match(assistant.SYSTEM, /"in": "notebook" and "cell": 3/);
+  });
+});
