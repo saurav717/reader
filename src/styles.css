@@ -5069,6 +5069,8 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 /* The ask bar of the notebook: the pages' bar, across the page, with no margin column to skip. */
 .nb-ask { grid-template-columns: minmax(0, 1fr); padding: 10px 20px 8px; }
 .nb-ask .ask-column { grid-column: 1; max-width: 980px; margin: 0 auto; width: 100%; }
+.nb-ask-hide { flex: none; color: var(--muted); }
+.nb-ask-hide:hover { color: var(--ink); }
 /* A cell the bar wrote or rewrote: a mark on it, and a line at its edge, until it is edited or run. */
 .nb-fresh { align-self: flex-start; margin: 2px 0 0; }
 .nb-cell.is-fresh::before { content: ''; position: absolute; left: -1px; top: 10px; bottom: 10px; width: 3px; border-radius: 2px; background: var(--accent); animation: fresh-in 0.6s ease-out; }

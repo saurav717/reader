@@ -440,6 +440,16 @@ await page.waitForSelector('.nb-cell.is-running', { state: 'detached', timeout: 
 await page.waitForTimeout(500);
 check('Run them runs the cells it wrote, and a run takes the mark off', (await added.locator('.cell-output').count()) === 1 && (await added.locator('.nb-fresh').count()) === 0 && (await rewritten.locator('.nb-fresh').count()) === 0);
 check('Undo is on the bar for the reply', (await bar.getByRole('button', { name: 'Undo' }).count()) === 1);
+// The bar can be put away, and comes back from the toolbar; the choice is remembered.
+const askToggle = page.locator('.nb-toolbar').getByRole('button', { name: 'Ask', exact: true });
+check('the toolbar’s Ask is on while the bar is shown', (await askToggle.getAttribute('aria-pressed')) === 'true');
+await bar.getByRole('button', { name: 'Hide the ask bar' }).click();
+await page.waitForTimeout(200);
+check('the bar hides from its own button, and the toolbar says so', (await page.locator('.nb-ask').count()) === 0 && (await askToggle.getAttribute('aria-pressed')) === 'false' && (await page.evaluate(() => localStorage.getItem('reader.colab.ask-bar'))) === 'hidden');
+await page.screenshot({ path: `${OUT}/colab-notebook-11-ask-hidden-dark.png` });
+await askToggle.click();
+await page.waitForTimeout(200);
+check('and comes back from the toolbar, with its status still there', (await page.locator('.nb-ask').count()) === 1 && (await bar.getByRole('button', { name: 'Undo' }).count()) === 1 && (await page.evaluate(() => localStorage.getItem('reader.colab.ask-bar'))) === 'shown');
 
 console.log('\n== Rewrite, on this tab, rewrites the notebook ==');
 await page.evaluate(

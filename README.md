@@ -2848,7 +2848,10 @@ own: **Run them** under the bar runs the cells it wrote, in order, and
 it — a *cell 5* chip, suggestions for that cell, a new cell lands right
 after it — and the **Fix this cell** button under a failed cell takes the
 traceback to the bar the same way. The bar's suggestions show when it is
-focused and empty.
+focused and empty. The bar is open to begin with; the × at its end puts it
+away, **Ask** in the toolbar brings it back, and the choice is remembered.
+A request from a cell's own button shows the bar again, so its answer is
+seen.
 
 ![a cell rewritten in place and a new cell after it, both marked, with Run them and Undo under the bar](docs/colab-notebook-ask.png)
 
