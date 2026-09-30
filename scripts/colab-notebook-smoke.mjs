@@ -394,6 +394,7 @@ const runBox = await longCell.locator('.nb-run').boundingBox();
 const scrollerBox = await page.locator('.nb-cells').boundingBox();
 const cellBox = await longCell.boundingBox();
 check('the gutter with Run sticks to the top of the notebook while a long cell scrolls', cellBox.y < scrollerBox.y - 100 && runBox.y >= scrollerBox.y && runBox.y < scrollerBox.y + 40, `cell top ${Math.round(cellBox.y)}, run ${Math.round(runBox.y)}, scroller ${Math.round(scrollerBox.y)}`);
+await page.screenshot({ path: `${OUT}/colab-notebook-15-sticky-run-dark.png` });
 await page.locator('.nb-cells').evaluate((el) => (el.scrollTop = 0));
 
 console.log('\n== the Metrics tab: what the cells print as they train ==');
