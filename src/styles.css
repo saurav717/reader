@@ -1845,11 +1845,15 @@ mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-s
   flex-shrink: 0; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
   padding: 6px 8px; border-bottom: 1px solid rgb(var(--win-edge) / 0.07);
 }
+.chat-toolbar-name { padding: 0 4px; font-size: 12px; font-weight: 600; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Which model answers: beside the box, so it can change between one question and the next. */
 .chat-model {
-  min-width: 0; max-width: 190px; height: 28px; padding: 0 8px;
+  min-width: 0; max-width: 150px; height: 34px; padding: 0 6px; flex: none;
   border: 1px solid var(--border); border-radius: 8px;
   background: rgb(var(--win-rgb) / 0.5); color: var(--ink); font: 12px var(--sans);
 }
+.chat-model:focus { outline: none; border-color: var(--accent); }
+@media (max-width: 520px) { .chat-model { max-width: 96px; } }
 .chat-toolbar .btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
 .is-sheet .chat-model { max-width: 150px; }
 .chat-count {

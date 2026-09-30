@@ -144,6 +144,7 @@ function Cell({
   onRun,
   onAsk,
   lit,
+  asker,
 }: {
   paperId: string;
   cell: NbCell;
@@ -160,6 +161,8 @@ function Cell({
   onAsk?: (request: string, quote: string) => void;
   /** Brought into view from the Ask AI window: lit for a moment. */
   lit?: boolean;
+  /** Who the ask bar answers with, for the buttons under a failed cell. */
+  asker?: string;
 }) {
   const live = run?.state === 'running' || run?.state === 'queued';
   // What is shown under the cell: the run in the Colab store while there is one, else what the notebook kept.
@@ -228,7 +231,7 @@ function Cell({
           <div className="nb-markdown explain-prose" onDoubleClick={() => onEdit(true)} dangerouslySetInnerHTML={{ __html: cell.source.trim() ? mdHtml(cell.source) : '<p class="nb-empty">Empty text cell — double-click to write</p>' }} />
         )}
         {python && run ? <RunState run={run} /> : null}
-        {python && shown ? <CellRunOutput run={shown} onAsk={onAsk ? (request) => onAsk(request, cell.source.slice(0, 1500)) : undefined} onForget={() => setOutputs(paperId, cell.id, [], null, undefined)} /> : null}
+        {python && shown ? <CellRunOutput run={shown} asker={asker} onAsk={onAsk ? (request) => onAsk(request, cell.source.slice(0, 1500)) : undefined} onForget={() => setOutputs(paperId, cell.id, [], null, undefined)} /> : null}
       </div>
       <div className="nb-tools" role="toolbar" aria-label="Cell">
         {status ? <span className={`nb-tools-state is-${status}`}>{statusText}</span> : null}
@@ -941,6 +944,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
                 onRun={(then) => runOne(cell, then)}
                 onAsk={canAsk ? (request, cellQuote) => void submit(request, { cell: index + 1, quote: cellQuote }) : undefined}
                 lit={shown === cell.id}
+                asker={writer}
               />
             ))
           )}

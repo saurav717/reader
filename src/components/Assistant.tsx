@@ -931,24 +931,9 @@ export default function Assistant({ onClose, screen, reading }: Props) {
       </header>
 
       <div className="chat-toolbar">
-        <select
-          className="chat-model"
-          value={model.id}
-          disabled={s.live}
-          onChange={(event) => setModel(event.target.value)}
-          title="Which model answers — Claude, DeepSeek or Gemini"
-          aria-label="Model"
-        >
-          {PROVIDER_IDS.map((id) => (
-            <optgroup key={id} label={`${PROVIDERS[id].company}${s.keys[id] ? '' : PROVIDERS[id].viaProxy ? ` — ${geminiNote(s.gemini).short}` : ' — no key yet'}`}>
-              {MODELS.filter((m) => m.provider === id).map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label} — {m.note}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+        <span className="chat-toolbar-name" title={`${model.label} answers — change it beside the box below`}>
+          {model.label}
+        </span>
         <span style={{ flexGrow: 1 }} />
         <button
           type="button"
@@ -1164,6 +1149,24 @@ export default function Assistant({ onClose, screen, reading }: Props) {
             }
           }}
         />
+        <select
+          className="chat-model"
+          value={model.id}
+          disabled={s.live}
+          onChange={(event) => setModel(event.target.value)}
+          title={`Which model answers the next question — ${model.label} now. The conversation so far goes with it.`}
+          aria-label="Which model answers"
+        >
+          {PROVIDER_IDS.map((id) => (
+            <optgroup key={id} label={`${PROVIDERS[id].company}${s.keys[id] ? '' : PROVIDERS[id].viaProxy ? ` — ${geminiNote(s.gemini).short}` : ' — no key yet'}`}>
+              {MODELS.filter((m) => m.provider === id).map((m) => (
+                <option key={m.id} value={m.id} title={m.note}>
+                  {m.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
         {s.live ? (
           <button type="button" className="btn sm" onClick={stop}>
             Stop

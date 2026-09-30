@@ -430,7 +430,13 @@ function OutputView({ output, marked, offset }: { output: Output; marked: Set<nu
  * compares with what Claude wrote as the expected output, and the two
  * things to do about a difference — ask, or see the expectation.
  */
-export function CellRunOutput({ run, expected, onAsk, onForget }: { run: CellRun; expected?: string; onAsk?: (request: string) => void; onForget: () => void }) {
+/**
+ * What a cell printed when it ran, with the verdict against the expected
+ * output the page's writer gave it. `asker` names the model the ask bar
+ * answers with — whoever wrote the page — and `writer` the one that wrote
+ * the expected output; both default to Claude, as the pages once always were.
+ */
+export function CellRunOutput({ run, expected, onAsk, onForget, asker = 'Claude', writer = 'Claude' }: { run: CellRun; expected?: string; onAsk?: (request: string) => void; onForget: () => void; asker?: string; writer?: string }) {
   const [showExpected, setShowExpected] = useState(false);
   const live = run.state === 'running' || run.state === 'queued';
   const verdict = live ? 'none' : compareOutput(expected, run.outputs);
@@ -457,9 +463,9 @@ export function CellRunOutput({ run, expected, onAsk, onForget }: { run: CellRun
           failed ? (
             <span className="cell-verdict is-bad">✕ Error</span>
           ) : verdict === 'match' ? (
-            <span className="cell-verdict is-ok">✓ Matches what Claude expected</span>
+            <span className="cell-verdict is-ok">✓ Matches what {writer} expected</span>
           ) : verdict === 'differs' ? (
-            <span className="cell-verdict is-diff">◐ Differs from what Claude expected</span>
+            <span className="cell-verdict is-diff">◐ Differs from what {writer} expected</span>
           ) : null
         ) : null}
       </div>
@@ -471,16 +477,16 @@ export function CellRunOutput({ run, expected, onAsk, onForget }: { run: CellRun
         <div className="cell-actions">
           {onAsk && failed ? (
             <button type="button" className="btn sm" onClick={() => onAsk(`This cell fails when run in Colab. The traceback:\n\n\`\`\`\n${actual.slice(0, 4000)}\n\`\`\`\n\nFix the cell so it runs, keep it short, and keep its expected output and explanation in step with the fix.`)}>
-              Ask Claude to fix this cell
+              Ask {asker} to fix this cell
             </button>
           ) : onAsk && verdict === 'differs' ? (
             <button type="button" className="btn sm" onClick={() => onAsk(`This cell was run in Colab and printed something other than the expected output you wrote. What it printed:\n\n\`\`\`\n${actual.slice(0, 4000)}\n\`\`\`\n\nExplain the difference in a sentence or two where the cell is, and if your expected output was wrong, correct it to what the code prints.`)}>
-              Ask Claude why it differs
+              Ask {asker} why it differs
             </button>
           ) : null}
           {expected ? (
             <button type="button" className="btn sm ghost" onClick={() => setShowExpected(!showExpected)}>
-              {showExpected ? 'Hide what Claude expected' : 'Show what Claude expected'}
+              {showExpected ? `Hide what ${writer} expected` : `Show what ${writer} expected`}
             </button>
           ) : null}
           <button type="button" className="btn sm ghost" onClick={onForget} title="Put the expected output back, as if the cell had not run">

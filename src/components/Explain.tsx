@@ -197,7 +197,7 @@ export function highlightPython(code: string): string {
 // The blocks
 // ---------------------------------------------------------------------------
 
-function CodeCell({ block, index, onAsk }: { block: Extract<Block, { kind: 'code' }>; index: number; onAsk?: (request: string, quote: string) => void }) {
+function CodeCell({ block, index, onAsk, asker, writer }: { block: Extract<Block, { kind: 'code' }>; index: number; onAsk?: (request: string, quote: string) => void; asker?: string; writer?: string }) {
   const [copied, setCopied] = useState(false);
   const python = block.lang === 'python';
   const shell = block.lang === 'bash';
@@ -297,7 +297,7 @@ function CodeCell({ block, index, onAsk }: { block: Extract<Block, { kind: 'code
         {block.open ? <span className="caret" aria-hidden="true" /> : null}
       </pre>
       {run ? (
-        <CellRunOutput run={run} expected={block.output} onAsk={onAsk ? (request) => onAsk(request, block.code.slice(0, 1500)) : undefined} onForget={() => forgetRun(key)} />
+        <CellRunOutput run={run} expected={block.output} asker={asker} writer={writer} onAsk={onAsk ? (request) => onAsk(request, block.code.slice(0, 1500)) : undefined} onForget={() => forgetRun(key)} />
       ) : block.output !== undefined ? (
         <div className="cell-output">
           <div className="cell-output-label">Expected output · written by Claude, not run yet</div>
@@ -431,6 +431,8 @@ function SectionView({
   onAsk,
   onKeep,
   state,
+  asker,
+  writer,
 }: {
   section: Section;
   number: number;
@@ -438,6 +440,9 @@ function SectionView({
   onAdjust?: (title: string) => void;
   /** A question about one of this section's cells — its output, or its error — for the bar. */
   onAsk?: (section: string, request: string, quote: string) => void;
+  /** Who the bar answers with, and who wrote the page, for the labels under a cell's output. */
+  asker?: string;
+  writer?: string;
   /** Keep the whole section in your notes. */
   onKeep?: (section: Section, element: HTMLElement) => void;
   /** Being rewritten now, just rewritten, or changed by an earlier request. */
@@ -460,7 +465,7 @@ function SectionView({
     ) : block.kind === 'figure' ? (
       <Figure key={key} block={block} />
     ) : block.kind === 'code' ? (
-      <CodeCell key={key} block={block} index={cells.get(block) ?? 0} onAsk={onAsk ? (request, quote) => onAsk(section.title, request, quote) : undefined} />
+      <CodeCell key={key} block={block} index={cells.get(block) ?? 0} asker={asker} writer={writer} onAsk={onAsk ? (request, quote) => onAsk(section.title, request, quote) : undefined} />
     ) : block.kind === 'tree' ? (
       <TreeBlock key={key} block={block} />
     ) : block.kind === 'file' ? (
@@ -663,14 +668,14 @@ export function AskModelPicker({ value, writer, keys, disabled, onChange }: { va
       disabled={disabled}
       onChange={(event) => onChange(event.target.value === writer ? '' : event.target.value)}
       aria-label="Which model answers what you ask here"
-      title={`Which model answers what you ask here${writerSpec ? ` — the page was written by ${writerSpec.label}` : ''}${chosen && !keys[chosen.provider] ? `. ${chosen.label} needs its key in Settings` : ''}`}
+      title={`Which model answers what you ask here${writerSpec ? ` — ✎ marks ${writerSpec.label}, which wrote the page` : ''}${chosen && !keys[chosen.provider] ? `. ${chosen.label} needs its key in Settings` : ''}`}
     >
       {(Object.keys(PROVIDERS) as Provider[]).map((provider) => (
         <optgroup key={provider} label={PROVIDERS[provider].company}>
           {MODELS.filter((m) => m.provider === provider).map((m) => (
             <option key={m.id} value={m.id} disabled={!keys[provider]}>
               {m.label}
-              {m.id === writer ? ' · wrote this' : ''}
+              {m.id === writer ? ' ✎' : ''}
               {keys[provider] ? '' : ' · needs a key'}
             </option>
           ))}
@@ -1725,6 +1730,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
                     onAsk={canAsk && !busy ? askCell : undefined}
                     onKeep={!streaming && section.title ? keepSection : undefined}
                     state={stateOf(section)}
+                    asker={asker}
+                    writer={writer}
                   />
                 </Fragment>
               ))}

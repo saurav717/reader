@@ -2046,6 +2046,10 @@ screen before it answers, so there is nothing to paste.
 
 ![the Ask AI window over a paper, answering a question about a selected sentence](docs/ask-claude.png)
 
+The chooser beside the box names the model that answers the next question —
+any Claude, DeepSeek or Gemini model with a key — and can be changed between
+one question and the next; the conversation so far goes to whichever answers.
+
 ### Choosing a model: Claude, DeepSeek or Gemini
 
 The picker at the top of the window lists every model, grouped by who runs it:
@@ -2989,7 +2993,9 @@ kept.
   answers the bar: the page's own writer until another is picked, and then
   that one — on the Explanation, Implementation and Colab bars alike — until
   it is changed back. A page DeepSeek wrote can be tweaked by Claude, and the
-  other way round. A model without a key is listed but cannot be picked.
+  other way round. A model without a key is listed but cannot be picked. The
+  buttons under a cell's output — *Ask … to fix this cell*, *Ask … why it
+  differs* — name that model, and *what … expected* names the page's writer.
 - The header's **◑** sets how see-through the page is; the sun or moon beside
   it switches the whole app between light and dark mode, as Settings does.
 
