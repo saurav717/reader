@@ -28,7 +28,12 @@ export interface NbCell {
   count: number | null;
   /** When it last ran here, for the label under the output. */
   ranAt?: number;
+  /** Written or rewritten by the model from the ask bar, and not yet edited or run since. */
+  fresh?: 'new' | 'changed';
 }
+
+/** One change the ask bar's reply asks of the notebook: a cell replaced, or a new one after another (null: where the request was about, else the end). */
+export type NbEdit = { kind: 'replace'; cell: number; type: CellType; source: string } | { kind: 'insert'; after: number | 'end' | null; type: CellType; source: string };
 
 export interface Notebook {
   paperId: string;
@@ -201,10 +206,10 @@ function update(paperId: string, change: (cells: NbCell[]) => NbCell[]) {
   persist(next);
 }
 
-export const setSource = (paperId: string, id: string, source: string) => update(paperId, (cells) => cells.map((cell) => (cell.id === id ? { ...cell, source } : cell)));
+export const setSource = (paperId: string, id: string, source: string) => update(paperId, (cells) => cells.map((cell) => (cell.id === id ? { ...cell, source, fresh: undefined } : cell)));
 export const setType = (paperId: string, id: string, type: CellType) => update(paperId, (cells) => cells.map((cell) => (cell.id === id ? { ...cell, type, outputs: [], count: null } : cell)));
 export const setOutputs = (paperId: string, id: string, outputs: Output[], count: number | null, ranAt: number | undefined = Date.now()) =>
-  update(paperId, (cells) => cells.map((cell) => (cell.id === id ? { ...cell, outputs, count, ranAt } : cell)));
+  update(paperId, (cells) => cells.map((cell) => (cell.id === id ? { ...cell, outputs, count, ranAt, fresh: undefined } : cell)));
 export const clearOutputs = (paperId: string) => update(paperId, (cells) => cells.map((cell) => ({ ...cell, outputs: [], count: null, ranAt: undefined })));
 export const removeCell = (paperId: string, id: string) => update(paperId, (cells) => (cells.length > 1 ? cells.filter((cell) => cell.id !== id) : cells.map((cell) => (cell.id === id ? { ...cell, source: '', outputs: [], count: null } : cell))));
 export const appendCells = (paperId: string, more: NbCell[]) => update(paperId, (cells) => [...cells, ...more]);
@@ -231,6 +236,58 @@ export function moveCell(paperId: string, id: string, direction: -1 | 1) {
     return next;
   });
 }
+
+/**
+ * The cells after a reply's edits, and which cells it touched: replacements
+ * first, then insertions — each after the cell it names as the notebook was
+ * numbered before the reply, so two cells after the same one keep their
+ * order, and an unplaced one goes after `scopeIndex` (the cell the request
+ * was about) or at the end. A replacement naming no cell is left out.
+ */
+export function resolveEdits(cells: NbCell[], edits: NbEdit[], scopeIndex: number | null = null): { cells: NbCell[]; touched: string[] } {
+  const touched: string[] = [];
+  const replaced = cells.map((cell, index) => {
+    const edit = edits.find((e): e is Extract<NbEdit, { kind: 'replace' }> => e.kind === 'replace' && e.cell === index + 1);
+    if (!edit) return cell;
+    touched.push(cell.id);
+    return { ...cell, type: edit.type, source: edit.source, outputs: [], count: null, ranAt: undefined, fresh: 'changed' as const };
+  });
+  const after = new Map<number, NbCell[]>();
+  for (const edit of edits) {
+    if (edit.kind !== 'insert') continue;
+    const at = edit.after === 'end' ? cells.length : edit.after === null ? (scopeIndex === null ? cells.length : scopeIndex + 1) : Math.max(0, Math.min(cells.length, edit.after));
+    const made = { ...newCell(edit.type, edit.source), fresh: 'new' as const };
+    after.set(at, [...(after.get(at) ?? []), made]);
+  }
+  const out: NbCell[] = [...(after.get(0) ?? [])];
+  replaced.forEach((cell, index) => out.push(cell, ...(after.get(index + 1) ?? [])));
+  const order = new Set(touched);
+  for (const cell of out) if (cell.fresh === 'new') order.add(cell.id);
+  return { cells: out, touched: out.filter((cell) => order.has(cell.id)).map((cell) => cell.id) };
+}
+
+/** Applies a reply's edits; what the cells were goes back with Undo. */
+export function applyEdits(paperId: string, edits: NbEdit[], scopeIndex: number | null = null): { before: NbCell[]; touched: string[] } {
+  const before = cache.get(paperId)?.cells ?? [];
+  let touched: string[] = [];
+  update(paperId, (cells) => {
+    const resolved = resolveEdits(cells, edits, scopeIndex);
+    touched = resolved.touched;
+    return resolved.cells;
+  });
+  return { before, touched };
+}
+
+/** The notebook written again: every cell replaced by `cells`, marked as the model's. */
+export function replaceCells(paperId: string, next: NbCell[]): { before: NbCell[]; touched: string[] } {
+  const before = cache.get(paperId)?.cells ?? [];
+  const marked = next.map((cell) => ({ ...cell, fresh: 'new' as const }));
+  update(paperId, () => (marked.length ? marked : [newCell('code')]));
+  return { before, touched: marked.map((cell) => cell.id) };
+}
+
+/** The cells put back as they were: Undo of a reply. */
+export const restoreCells = (paperId: string, cells: NbCell[]) => update(paperId, () => cells.map((cell) => ({ ...cell, fresh: undefined })));
 
 /** The key a cell's run is kept under in the Colab store: the cell's own, so an edited cell keeps its last run until it runs again. */
 export const runKey = (id: string) => `nb:${id}`;

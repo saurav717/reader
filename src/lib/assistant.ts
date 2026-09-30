@@ -159,6 +159,8 @@ const MAX_TOKENS = 16000;
  */
 export const FULL_TEXT_MAX_CHARS = 200_000;
 const VISIBLE_MAX_CHARS = 6000;
+/** How much of the Colab notebook goes with a question: its cells and what they printed. */
+const NOTEBOOK_MAX_CHARS = 24_000;
 const SELECTION_MAX_CHARS = 6000;
 
 export const SYSTEM = `You are a reading companion inside a web app for reading research papers. The
@@ -236,7 +238,16 @@ When the Explain page is open:
   quote from the prose of <explanation_text> — a sentence or clause without maths, code or
   Markdown marks in it, 8 to 40 words. The app highlights it on the explanation. Lines without
   "in" are passages of the paper. Point at the explanation when the reader is asking about what
-  it says; point at the paper when they want the source.`;
+  it says; point at the paper when they want the source.
+
+When the Colab tab is open:
+- <colab_notebook> in the <screen> block is the reader's own notebook, on their Google Colab runtime:
+  its cells numbered from 1, each with the code or text and what it printed when it last ran, tracebacks
+  included. "This cell", "cell 3", "the error" and "what it printed" mean that notebook.
+- Answer from it: read the code and the outputs, say what a traceback means and what to change, judge
+  whether an output bears out the paper. Show code as a fenced python block the reader can paste into a
+  cell. The tab has an ask bar of its own that writes and changes cells in place, so when the reader wants
+  cells written rather than explained, say they can ask that bar and it will put them in the notebook.`;
 
 // ---------------------------------------------------------------------------
 // Passages an answer points at in the open paper
@@ -421,6 +432,8 @@ export interface Screen {
   explanation?: ScreenExplanation;
   /** Where the selection was made. */
   selectionIn?: 'paper' | 'explanation';
+  /** The Colab tab, when it is open: the reader's own notebook on their runtime, cell by cell with what each printed. */
+  notebook?: { text: string; runtime?: string };
 }
 
 export interface ScreenExplanation {
@@ -999,6 +1012,12 @@ export function screenBlock(screen: Screen, on: Record<ContextKey, boolean>): st
       ),
     );
     parts.push(tag('explanation_in_view', clip(explanation.visible, VISIBLE_MAX_CHARS)));
+  }
+  // The Colab tab goes with the explanation's switch: the notebook is the reader's own work on the paper, and what is on screen.
+  if (on.explanation && screen.notebook) {
+    parts.push(tag('colab_notebook', `Open, in the Colab tab: the reader's own notebook${screen.notebook.runtime ? `, on their ${screen.notebook.runtime} runtime` : ', with no runtime connected yet'}. Its cells, numbered, with what each printed when it last ran:
+
+${clip(screen.notebook.text, NOTEBOOK_MAX_CHARS)}`));
   }
   // The paper behind an explanation that covers it is not what is in view.
   if (on.visible && !explanation?.covers) parts.push(tag('passage_in_view', clip(screen.visible, VISIBLE_MAX_CHARS)));

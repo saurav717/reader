@@ -198,12 +198,18 @@ await context.addInitScript(
   ({ explanation, scope }) => {
     sessionStorage.setItem('reader.google.session', JSON.stringify({ accessToken: 'ya29.smoke', expiresAt: Date.now() + 3_600_000, scopes: ['openid', 'email', scope], user: { email: 'reader@example.org', name: 'Reader' } }));
     const real = window.fetch.bind(window);
+    // Every request to the model, kept for the checks; a request from the notebook's bar is answered with what the test set in window.__nbReply.
+    window.__requests = [];
     window.fetch = async (input, init) => {
       const url = typeof input === 'string' ? input : input.url;
       if (!url.startsWith('https://api.anthropic.com')) return real(input, init);
+      const body = typeof init?.body === 'string' ? init.body : '';
+      window.__requests.push(body);
+      const forNotebook = /writing cells for a Jupyter notebook/.test(body) && window.__nbReply;
+      const events = forNotebook || explanation;
       const stream = new ReadableStream({
         async start(controller) {
-          for (const event of explanation) controller.enqueue(new TextEncoder().encode(event));
+          for (const event of events) controller.enqueue(new TextEncoder().encode(event));
           controller.close();
         },
       });
@@ -278,7 +284,7 @@ const codeCells = page.locator('.nb-cell.is-code');
 check('the notebook is seeded from the explanation: its text as text cells, its four cells as code', (await codeCells.count()) === 4 && (await cells.count()) > 8, `${await codeCells.count()} code of ${await cells.count()}`);
 check('the text cells are rendered', (await page.locator('.nb-cell.is-markdown .nb-markdown h4').count()) === 1 && (await page.locator('.nb-cell.is-markdown .nb-markdown h5').count()) >= 6, `the page's Markdown sets # as h4 and ## as h5: h4 ${await page.locator('.nb-markdown h4').count()}, h5 ${await page.locator('.nb-markdown h5').count()}`);
 check('no cell has run', (await page.locator('.nb-cell .cell-output').count()) === 0);
-check('the ask bar and the outline are put away', (await page.locator('.explain-ask').count()) === 0 && (await page.locator('.explain-outline').count()) === 0);
+check('the page’s ask bar and the outline are put away; the notebook has a bar of its own', (await page.locator('.explain-ask:not(.nb-ask)').count()) === 0 && (await page.locator('.explain-outline').count()) === 0 && (await page.locator('.nb-ask input').count()) === 1);
 await page.screenshot({ path: `${OUT}/colab-notebook-1-seeded-dark.png` });
 
 console.log('\n== a cell runs in the runtime ==');
@@ -392,6 +398,86 @@ await page.waitForTimeout(200);
 check('D D deletes it', !(await note.evaluate((el) => el.previousElementSibling?.classList.contains('is-code') && !el.previousElementSibling.textContent.trim())));
 await note.scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/colab-notebook-3-typed-dark.png` });
+
+console.log('\n== the ask bar writes cells ==');
+const bar = page.locator('.nb-ask');
+const askInput = bar.locator('input');
+check('the bar is under the toolbar, and says who writes', /^Ask Claude to write/.test(await askInput.getAttribute('placeholder')), await askInput.getAttribute('placeholder'));
+const firstCode = page.locator('.nb-cell.is-code').first();
+await firstCode.scrollIntoViewIfNeeded();
+await firstCode.locator('.nb-count').click();
+await page.waitForTimeout(200);
+const chip = await bar.locator('.ask-chip').first().textContent();
+const n = Number(chip.match(/cell (\d+)/)?.[1]);
+check('picking a cell puts it on the bar as what the request is about', Number.isInteger(n) && n > 1, chip);
+await askInput.focus();
+await page.waitForTimeout(250);
+const suggestions = await bar.locator('.ask-suggestion').allTextContents();
+check('and the suggestions are about that cell', suggestions.includes(`Rewrite cell ${n} in PyTorch, on the GPU`) && suggestions.includes(`Fix the error in cell ${n}`), suggestions.join(' | '));
+await page.screenshot({ path: `${OUT}/colab-notebook-9-ask-suggestions-dark.png` });
+const cellsBeforeAsk = await page.locator('.nb-cell').count();
+await page.evaluate(
+  (events) => {
+    window.__nbReply = events;
+  },
+  sse(`Cell ${n} again, seeded, and a timing cell after it.\n\n\`\`\`python cell=${n}\nimport numpy as np\nnp.random.seed(0)\nprint("attention weights (rows sum to 1):")\nprint(np.ones((2, 2)) / 2)\n\`\`\`\n\n\`\`\`python after=${n}\nimport time\nt = time.perf_counter()\nprint("forward pass in", round((time.perf_counter() - t) * 1000, 2), "ms")\n\`\`\``),
+);
+await askInput.fill('Seed it, and add a cell after it that times a forward pass');
+await page.keyboard.press('Enter');
+await page.waitForSelector('.nb-ask .ask-status.is-done', { timeout: 20000 });
+await page.waitForTimeout(400);
+const asked = await page.evaluate(() => window.__requests.at(-1));
+check('the request carried the notebook, numbered, with what ran, and which cell it is about', /writing cells for a Jupyter notebook/.test(asked) && new RegExp(`### Cell ${n} \\(code, ran\\)`).test(asked) && /attention weights/.test(asked) && new RegExp(`The request is about cell ${n}\\.`).test(asked) && /<explanation>/.test(asked));
+check('the note under the bar says what was done, and how many cells', /Cell \d+ again, seeded, and a timing cell after it\. · 2 cells/.test(await bar.locator('.ask-status.is-done .ask-note').textContent()), await bar.locator('.ask-status.is-done .ask-note').textContent());
+const rewritten = page.locator('.nb-cell').nth(n - 1);
+const added = page.locator('.nb-cell').nth(n);
+check('the cell asked about is rewritten in place, and marked', /np\.random\.seed\(0\)/.test(await rewritten.locator('.nb-text').inputValue()) && (await rewritten.locator('.nb-fresh').textContent()) === 'Rewritten at your request');
+check('the new cell is right after it, marked as new, and picked', (await page.locator('.nb-cell').count()) === cellsBeforeAsk + 1 && /perf_counter/.test(await added.locator('.nb-text').inputValue()) && (await added.locator('.nb-fresh').textContent()) === 'New · from the ask bar' && (await rewritten.evaluate((el) => el.classList.contains('is-selected'))));
+await page.screenshot({ path: `${OUT}/colab-notebook-9-ask-dark.png` });
+await bar.getByRole('button', { name: 'Run them' }).click();
+await page.waitForFunction((count) => document.querySelectorAll('.nb-cell.is-fresh').length < count, 2, { timeout: 30000 });
+await page.waitForSelector('.nb-cell.is-running', { state: 'detached', timeout: 30000 });
+await page.waitForTimeout(500);
+check('Run them runs the cells it wrote, and a run takes the mark off', (await added.locator('.cell-output').count()) === 1 && (await added.locator('.nb-fresh').count()) === 0 && (await rewritten.locator('.nb-fresh').count()) === 0);
+check('Undo is on the bar for the reply', (await bar.getByRole('button', { name: 'Undo' }).count()) === 1);
+
+console.log('\n== Rewrite, on this tab, rewrites the notebook ==');
+await page.evaluate(
+  (events) => {
+    window.__nbReply = events;
+  },
+  sse('The notebook again: the method, then an experiment.\n\n```markdown after=end\n# Attention, from scratch\n```\n\n```python after=end\nimport numpy as np\nprint("scaled dot-product attention")\n```\n\n```python after=end\nprint("a small experiment")\n```'),
+);
+const cellsBeforeRewrite = await page.locator('.nb-cell').count();
+await page.getByRole('button', { name: /^Rewrite/ }).click();
+await page.waitForSelector('.rewrite-menu');
+check('the menu says it is the notebook that is rewritten', /Rewrite the notebook with/.test(await page.locator('.rewrite-menu .rw-head b').textContent()));
+await page.locator('.rewrite-menu .rw-card:not([disabled])').first().click();
+await page.waitForSelector('.nb-ask .ask-status.is-live', { timeout: 5000 }).catch(() => undefined);
+await page.waitForSelector('.nb-ask .ask-status.is-done', { timeout: 20000 });
+await page.waitForTimeout(400);
+const rewriteAsk = await page.evaluate(() => window.__requests.at(-1));
+check('the model was asked for the notebook again, not the explanation', /Write this notebook again from scratch/.test(rewriteAsk) && /<notebook>/.test(rewriteAsk));
+check('every cell is the model’s now, three of them, and the old ones are gone', (await page.locator('.nb-cell').count()) === 3 && (await page.locator('.nb-cell.is-fresh').count()) === 3 && (await page.locator('.nb-cell', { hasText: 'the answer is 42' }).count()) === 0, `${await page.locator('.nb-cell').count()} cells, ${await page.locator('.nb-cell.is-fresh').count()} fresh`);
+await page.screenshot({ path: `${OUT}/colab-notebook-10-rewritten-dark.png` });
+await bar.getByRole('button', { name: 'Undo' }).click();
+await page.waitForTimeout(300);
+check('Undo brings the notebook back as it was', (await page.locator('.nb-cell').count()) === cellsBeforeRewrite && (await page.locator('.nb-cell', { hasText: 'the answer is 42' }).count()) === 1 && (await page.locator('.nb-cell.is-fresh').count()) === 0);
+
+console.log('\n== Ask AI sees the notebook ==');
+// The app bar's button is under the Explain page; its shortcut is not.
+await page.locator('.nb-cells').click({ position: { x: 4, y: 4 } });
+await page.keyboard.press('Control+j');
+await page.waitForSelector('.assistant-win textarea', { timeout: 10000 });
+await page.locator('.assistant-win textarea').fill(`What does cell ${n} print?`);
+await page.keyboard.press('Enter');
+await page.waitForFunction((count) => window.__requests.length > count, await page.evaluate(() => window.__requests.length) - 1, { timeout: 15000 });
+await page.waitForTimeout(600);
+const assistantAsk = await page.evaluate(() => window.__requests.at(-1));
+check('the question went with the Colab notebook: its cells numbered, with their outputs, and the runtime', /<colab_notebook>/.test(assistantAsk) && /on their T4 runtime/.test(assistantAsk) && new RegExp(`### Cell ${n} \\(code`).test(assistantAsk) && /the answer is 42/.test(assistantAsk) && /with its Colab notebook open/.test(assistantAsk));
+await page.keyboard.press('Control+j');
+await page.waitForSelector('.assistant-win', { state: 'detached', timeout: 5000 }).catch(() => undefined);
+await page.waitForTimeout(300);
 
 console.log('\n== the runtime’s disk ==');
 await pane.getByRole('tab', { name: 'Files' }).click();

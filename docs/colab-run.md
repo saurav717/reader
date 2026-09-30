@@ -225,7 +225,10 @@ sends a keep-alive frame down every kernel socket while nothing else goes,
 and opens a dropped one again to the same kernel (a few tries, a growing
 wait apart) before it says the runtime is gone — the tunnel, the Worker's
 bridge and the browser may each close a silent connection well before
-Colab's own idle limit.
+Colab's own idle limit. The notebook tab has since gained an ask bar of
+its own that writes, changes and fixes cells (`src/lib/notebookAsk.ts`),
+Rewrite on that tab rewrites the notebook rather than the page, and the Ask
+AI window is shown the notebook while the tab is open.
 
 ---
 

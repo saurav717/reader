@@ -20,7 +20,7 @@ delete process.env.READER_TOKEN;
 
 const lib = await load('src/lib/colab.ts');
 const telemetry = await load('src/lib/telemetry.ts');
-const nbLib = await loadTogether(['src/lib/notebook.ts', 'src/lib/explain.ts'], { external: ['@anthropic-ai/sdk'] });
+const nbLib = await loadTogether(['src/lib/notebook.ts', 'src/lib/explain.ts', 'src/lib/notebookAsk.ts'], { external: ['@anthropic-ai/sdk'] });
 const rt = await loadTogether(['src/lib/runtime.ts', 'src/lib/colabRun.ts', 'src/lib/hardware.ts'], { external: ['@anthropic-ai/sdk'] });
 const relay = await import('../server/colab.js');
 const { default: apiRouter } = await import('../server/api.js');
@@ -525,6 +525,63 @@ describe('a notebook of the reader’s own', () => {
   it('names the file from the title', () => {
     assert.equal(notebookFileName('Attention Is All You Need'), 'attention-is-all-you-need.ipynb');
     assert.equal(notebookFileName('!!!'), 'notebook.ipynb');
+  });
+});
+
+describe('the notebook’s ask bar', () => {
+  const { parseNotebookReply, resolveEdits, cellsBlock, requestText, newCell, REWRITE_REQUEST } = nbLib;
+  const cells = [
+    { ...newCell('markdown', '# Title'), id: 'm1' },
+    { ...newCell('code', 'import numpy as np\nprint(np.ones(2))'), id: 'c1', count: 1, outputs: [{ type: 'stream', name: 'stdout', text: '[1. 1.]\n' }] },
+    { ...newCell('code', 'raise ValueError("no")'), id: 'c2' },
+  ];
+  it('reads the reply: cells with where they go, and the prose as the note', () => {
+    const reply = 'Two cells: the attention in PyTorch, and a check.\n\n```python after=2\nimport torch\nprint(torch.__version__)\n```\n\n```markdown after=2\n**A note.**\n```\n\n```python cell=3\nprint("fixed")\n```\n\n```bash\nls\n```\nThat is all.';
+    const { note, edits } = parseNotebookReply(reply);
+    assert.equal(note, 'Two cells: the attention in PyTorch, and a check.\nThat is all.');
+    assert.deepEqual(edits, [
+      { kind: 'insert', after: 2, type: 'code', source: 'import torch\nprint(torch.__version__)' },
+      { kind: 'insert', after: 2, type: 'markdown', source: '**A note.**' },
+      { kind: 'replace', cell: 3, type: 'code', source: 'print("fixed")' },
+    ]);
+    assert.deepEqual(parseNotebookReply('```python\nx = 1\n```').edits, [{ kind: 'insert', after: null, type: 'code', source: 'x = 1' }], 'a fence with no place is placed as it is applied');
+    assert.deepEqual(parseNotebookReply('```py after=end\nx = 1\n```').edits[0].after, 'end');
+    assert.deepEqual(parseNotebookReply('```python cell="2" title="Two"\nx = 1\n```').edits[0], { kind: 'replace', cell: 2, type: 'code', source: 'x = 1' });
+    assert.deepEqual(parseNotebookReply('Just an answer, no code.'), { note: 'Just an answer, no code.', edits: [] });
+  });
+  it('applies the edits: replacements in place, new cells after the cell named as it was numbered, unplaced ones after the cell asked about', () => {
+    const edits = [
+      { kind: 'replace', cell: 3, type: 'code', source: 'print("fixed")' },
+      { kind: 'insert', after: 1, type: 'markdown', source: 'After the title' },
+      { kind: 'insert', after: 1, type: 'code', source: 'second after the title' },
+      { kind: 'insert', after: null, type: 'code', source: 'after the one asked about' },
+      { kind: 'insert', after: 'end', type: 'code', source: 'last' },
+      { kind: 'replace', cell: 9, type: 'code', source: 'nowhere' },
+    ];
+    const out = resolveEdits(cells, edits, 1);
+    assert.deepEqual(
+      out.cells.map((c) => c.source),
+      ['# Title', 'After the title', 'second after the title', 'import numpy as np\nprint(np.ones(2))', 'after the one asked about', 'print("fixed")', 'last'],
+    );
+    assert.deepEqual(out.cells.map((c) => c.fresh), [undefined, 'new', 'new', undefined, 'new', 'changed', 'new']);
+    assert.equal(out.cells[5].id, 'c2', 'a replaced cell keeps its id, so its run stays with it');
+    assert.deepEqual(out.cells[5].outputs, [], 'and loses its old output');
+    assert.deepEqual(out.touched, out.cells.filter((c) => c.fresh).map((c) => c.id), 'touched, in notebook order');
+    assert.equal(resolveEdits(cells, [{ kind: 'insert', after: null, type: 'code', source: 'x' }], null).cells.at(-1).source, 'x', 'with no cell asked about, an unplaced cell goes last');
+  });
+  it('shows the model the notebook numbered, with what each cell printed and how it went', () => {
+    const runs = { 'nb:c2': { state: 'failed', outputs: [{ type: 'error', ename: 'ValueError', evalue: 'no', traceback: 'Traceback…\nValueError: no' }], startedAt: 1, where: 'Colab' } };
+    const block = cellsBlock(cells, runs);
+    assert.match(block, /### Cell 1 \(text\)\n# Title/);
+    assert.match(block, /### Cell 2 \(code, ran earlier\)\n```python\nimport numpy as np/);
+    assert.match(block, /Output:\n```\n\[1\. 1\.\]\n```/);
+    assert.match(block, /### Cell 3 \(code, FAILED\)[\s\S]*ValueError: no/);
+    const text = requestText('Fix it', { cell: 3, quote: 'ValueError: no' }, cells, runs, { explanation: '## At a glance\nx', plan: undefined });
+    assert.match(text, /<explanation>\n## At a glance/);
+    assert.ok(!/<implementation_plan>/.test(text), 'no plan, no tag');
+    assert.match(text, /<about>\nValueError: no\n<\/about>/);
+    assert.match(text, /The request is about cell 3\.[\s\S]*Request: Fix it$/);
+    assert.match(REWRITE_REQUEST, /after=end/);
   });
 });
 
