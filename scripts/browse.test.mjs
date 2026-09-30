@@ -157,6 +157,30 @@ describe('the page the person sees', () => {
 
 const { browseSites, InputQueue, keyName, siteFromInput, streamUrl, toPagePoint } = await load('src/lib/browse.ts');
 
+describe('a look for the page', () => {
+  it('reads a look off the event, bounded, and nothing off anything else', async () => {
+    const { lookOf, LOOK_CSS_MAX } = await import('../server/browseShared.js');
+    assert.deepEqual(lookOf({ type: 'look', scheme: 'dark', css: 'body{}' }), { scheme: 'dark', css: 'body{}' });
+    assert.deepEqual(lookOf({ type: 'look', scheme: 'sepia', css: 42 }), { scheme: null, css: '' });
+    assert.deepEqual(lookOf({ type: 'look', css: 'x'.repeat(LOOK_CSS_MAX + 1) }), { scheme: null, css: '' });
+    assert.equal(lookOf({ type: 'move', x: 1, y: 1 }), null);
+    assert.equal(lookOf(null), null);
+  });
+  it('is applied with whichever media emulation the page has, and one sheet replaced in place', async () => {
+    const { applyLook } = await import('../server/browseShared.js');
+    const calls = [];
+    const sheets = [];
+    const playwrightish = { emulateMedia: async (o) => calls.push(['pw', o.colorScheme]), evaluate: async (fn, css) => sheets.push(css) };
+    await applyLook(playwrightish, { scheme: 'dark', css: 'a{}' });
+    const puppeteerish = { emulateMediaFeatures: async (f) => calls.push(['pp', f]), evaluate: async (fn, css) => sheets.push(css) };
+    await applyLook(puppeteerish, { scheme: null, css: '' });
+    assert.deepEqual(calls, [['pw', 'dark'], ['pp', []]]);
+    assert.deepEqual(sheets, ['a{}', '']);
+    // A page mid-navigation refusing both is not an error.
+    await applyLook({ emulateMedia: async () => { throw new Error('navigating'); }, evaluate: async () => { throw new Error('navigating'); } }, { scheme: 'light', css: 'b{}' });
+  });
+});
+
 describe('input from the pane, queued', () => {
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 

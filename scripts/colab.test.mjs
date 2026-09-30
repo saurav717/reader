@@ -20,6 +20,7 @@ delete process.env.READER_TOKEN;
 
 const lib = await load('src/lib/colab.ts');
 const telemetry = await load('src/lib/telemetry.ts');
+const look = await load('src/lib/colabLook.ts');
 const relay = await import('../server/colab.js');
 const { default: apiRouter } = await import('../server/api.js');
 
@@ -462,5 +463,25 @@ describe('the Node proxy carries a kernel’s socket', async () => {
     process.env.READER_TOKEN = 'the-token';
     assert.equal(socketSecret(), 'the-token');
     delete process.env.READER_TOKEN;
+  });
+});
+
+describe('the reader’s look for Colab', () => {
+  const tokens = { paper: '#15161a', surface: '#1d1f25', panel: '#1a1c21', ink: '#eae7df', ink2: '#c3bfb4', muted: '#9b978c', border: '#2c2f36', accent: '#57a98f', accentSoft: '#1e3a33', sans: "'IBM Plex Sans', sans-serif", mono: "'IBM Plex Mono', monospace" };
+  it('puts the reader’s tokens onto Colab’s theme variables, hides Colab’s own header, and asks for the scheme', () => {
+    const { scheme, css } = look.colabLook('dark', tokens);
+    assert.equal(scheme, 'dark');
+    assert.match(css, /--colab-primary-surface-color: #15161a;/);
+    assert.match(css, /--colab-primary-text-color: #eae7df;/);
+    assert.match(css, /--colab-anchor-color: #57a98f;/);
+    assert.match(css, /--colab-code-font-family: 'IBM Plex Mono', monospace;/);
+    assert.match(css, /color-scheme: dark;/);
+    assert.match(css, /#header, header#header[^{]*\{ display: none !important; \}/);
+    assert.match(css, /\.cell\.focused \{ border-color: #57a98f/);
+  });
+  it('lets nothing through a token that would break out of the sheet', () => {
+    const { css } = look.colabLook('light', { ...tokens, paper: '#fff; } body { display: none } /*' });
+    assert.ok(!/display: none \} \/\*/.test(css));
+    assert.match(css, /--colab-primary-surface-color: #fff {2}body {2}display: none;/);
   });
 });

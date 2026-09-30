@@ -2741,7 +2741,25 @@ attaches Colab's notebook to it. Leaving the tab closes the page on the
 proxy; the runtime stays. **Open in a new tab ↗** is the same page in a tab
 of your own.
 
-![the Colab tab: Colab's notebook attached to the T4 runtime, in the proxy's browser, with a cell run there and its output](docs/colab-tab.png)
+Colab's page is not left as Colab draws it. **Reader's look**, on by
+default in the tab's strip, dresses the page in the reader's own colours and
+type — the dark theme's paper and ink when the reader is dark, the light
+theme's when it is light, glass and all — and puts Colab's own top bar
+away, since the strip already names the notebook and the runtime. Colab
+themes itself through its `--colab-*` variables on the page (that is what
+its light, dark and adaptive settings set), so the reader's tokens are put
+onto those, the page is told to follow the reader's colour scheme, and the
+cells are drawn as the reader draws its own: rounded, bordered, the focused
+one in the accent. The sheet is placed into the page in the proxy's browser
+as a `look` input — one `<style>`, replaced in place, put back after every
+navigation — by both proxies (`server/browseShared.js`); it is built in
+`src/lib/colabLook.ts` from the reader's tokens as they stand. Switch it
+off and Colab is Colab again. The variables are Colab's own theme surface;
+the few ids beside them are Colab's page as it is today.
+
+![the Colab tab: Colab's notebook attached to the T4 runtime, in the proxy's browser, dressed in the reader's dark look, with a cell run there and its output](docs/colab-tab.png)
+
+![the same notebook as Colab draws it, with Reader's look switched off](docs/colab-tab-own-look.png)
 
 A proxy without a browser — the Worker with no Browser Rendering bound, a
 Node proxy whose `npm install` skipped Chromium — gets a card in the tab's

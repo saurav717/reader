@@ -14,9 +14,17 @@ import { ArrowLeftIcon } from './icons';
 
 export type PaneStage = 'opening' | 'open' | 'closed';
 
+/** The reader's look onto the page: a colour scheme for it to follow, and a stylesheet placed into it. */
+export interface Look {
+  scheme: 'dark' | 'light' | null;
+  css: string;
+}
+
 interface Props {
   /** The page to open; a new URL opens a new page. */
   url: string;
+  /** The reader's look, sent as the page opens, again after each navigation, and whenever it changes; null for the page's own. */
+  look?: Look | null;
   /** Between the navigation buttons and the address: the pane's own buttons. */
   actions?: ReactNode;
   /** Told where the browser is, as it moves. */
@@ -27,7 +35,7 @@ interface Props {
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export default function BrowserPane({ url, actions, onStatus, onStage }: Props) {
+export default function BrowserPane({ url, look, actions, onStatus, onStage }: Props) {
   const [stage, setStage] = useState<PaneStage>('opening');
   const [status, setStatus] = useState<BrowseStatus | null>(null);
   const [frame, setFrame] = useState<string | null>(null);
@@ -41,6 +49,14 @@ export default function BrowserPane({ url, actions, onStatus, onStage }: Props) 
   told.current = onStage;
   const heard = useRef(onStatus);
   heard.current = onStatus;
+  const wanted = useRef<Look | null | undefined>(look);
+  wanted.current = look;
+  /** Where the page last was, and whether it was loading — a navigation, or a load ending, is a page to dress again. */
+  const seen = useRef<{ url?: string; loading?: boolean }>({});
+  const dress = () => {
+    const current = wanted.current;
+    queue.push({ type: 'look', scheme: current?.scheme ?? null, css: current?.css ?? '' });
+  };
 
   useEffect(() => {
     told.current?.(stage, problem);
@@ -59,7 +75,9 @@ export default function BrowserPane({ url, actions, onStatus, onStage }: Props) 
         setStatus(opened);
         heard.current?.(opened);
         if (opened.frame) setFrame(opened.frame);
+        seen.current = { url: opened.url, loading: opened.loading };
         setStage('open');
+        if (wanted.current) dress();
       } catch (error) {
         if (!live) return;
         setProblem(message(error));
@@ -85,6 +103,10 @@ export default function BrowserPane({ url, actions, onStatus, onStage }: Props) 
       setStatus(next);
       heard.current?.(next);
       if (next.frame) setFrame(next.frame);
+      // A new page, or the page done loading: the look goes on again, since a navigation takes the old sheet with it.
+      const moved = next.url !== seen.current.url || (seen.current.loading && !next.loading);
+      seen.current = { url: next.url, loading: next.loading };
+      if (moved && next.open && wanted.current) dress();
       if (!next.open) {
         done = true;
         setProblem(next.ended || 'The browser closed on the proxy.');
@@ -130,6 +152,12 @@ export default function BrowserPane({ url, actions, onStatus, onStage }: Props) 
     // Only opening and closing the page starts and stops the frames.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage === 'open']);
+
+  // The look changing — the switch, the theme — goes onto the page that is open.
+  useEffect(() => {
+    if (stage === 'open') dress();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [look?.css, look?.scheme]);
 
   // Leaving the pane closes the page on the proxy too.
   useEffect(

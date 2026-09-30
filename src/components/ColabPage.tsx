@@ -8,16 +8,18 @@
 // notebook, and the other way round. Without a proxy that has a browser,
 // the tab says what it would show and what to set up, and links out.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { browseStatus } from '../lib/browse';
 import type { BrowseStatus } from '../lib/browse';
 import { machineLabel } from '../lib/colab';
+import { colabLook, readerTokens, schemeOf } from '../lib/colabLook';
 import { useStore } from '../lib/store';
 import BrowserPane from './BrowserPane';
 import type { PaneStage } from './BrowserPane';
 import { attachUrl, ColabMark, useColab } from './Colab';
 
 export const COLAB_HOME = 'https://colab.research.google.com/';
+const LOOK_KEY = 'reader.colab.look';
 
 export default function ColabPage() {
   const colab = useColab();
@@ -25,6 +27,24 @@ export default function ColabPage() {
   const [browse, setBrowse] = useState<BrowseStatus | null>(null);
   const [pane, setPane] = useState<{ stage: PaneStage; problem: string | null }>({ stage: 'opening', problem: null });
   const [where, setWhere] = useState<BrowseStatus | null>(null);
+  // The reader's look on Colab's page: on unless switched off, remembered.
+  const [dressed, setDressed] = useState(() => {
+    try {
+      return localStorage.getItem(LOOK_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const toggleLook = (on: boolean) => {
+    setDressed(on);
+    try {
+      localStorage.setItem(LOOK_KEY, on ? 'on' : 'off');
+    } catch {
+      // private mode
+    }
+  };
+  // Built from the reader's tokens as they stand, so the theme and glass carry over; again when the theme changes.
+  const look = useMemo(() => (dressed ? colabLook(schemeOf(), readerTokens()) : null), [dressed, settings.theme, settings.glass]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     let live = true;
     void browseStatus().then((answer) => {
@@ -58,6 +78,10 @@ export default function ColabPage() {
               : `No runtime yet, so this is Colab's front page. Start a ${machine} runtime from the chip in the bar — or run a cell on the Explanation page — and this tab attaches Colab's notebook to it.`}
           </span>
         </div>
+        <label className="colab-look-switch" title="Colab's page in the reader's colours and type, its own top bar put away — or as Colab draws it">
+          <input type="checkbox" checked={dressed} onChange={(event) => toggleLook(event.target.checked)} disabled={browse ? !browse.available : true} />
+          <span>Reader's look</span>
+        </label>
         <a className="btn sm" href={url} target="_blank" rel="noreferrer noopener" title="The same page in a tab of your own, signed in as you are there">
           Open in a new tab ↗
         </a>
@@ -96,6 +120,7 @@ export default function ColabPage() {
         <BrowserPane
           key={url}
           url={url}
+          look={look}
           onStage={(stage, problem) => setPane({ stage, problem })}
           onStatus={setWhere}
           actions={
@@ -118,6 +143,7 @@ export default function ColabPage() {
           ) : (
             <span>
               The first time, Google asks you to sign in inside the pane; the sign-in stays in the proxy's browser profile. Everything here is done as you, in your own Colab — Drive can be mounted from Colab's own menu, on purpose.
+              {dressed ? ' Colab is drawn in the reader\u2019s colours and type, with its own top bar put away; the switch above shows it as Colab draws it.' : ''}
             </span>
           )}
         </p>

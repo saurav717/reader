@@ -5081,3 +5081,5 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .colab-page-reason { padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--danger) 8%, transparent); }
 .colab-page-card a { color: var(--accent); font-weight: 600; text-decoration: none; }
 .colab-page-card a:hover { text-decoration: underline; }
+.colab-look-switch { display: inline-flex; align-items: center; gap: 6px; flex: none; font-size: 12px; color: var(--ink-2); cursor: pointer; white-space: nowrap; }
+.colab-look-switch input { accent-color: var(--accent); margin: 0; }

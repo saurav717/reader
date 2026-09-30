@@ -41,7 +41,7 @@ import {
 import { grabTargets } from './pdfLinks.js';
 import { isPrivateHost, MAX_PDF_BYTES, rejectUrl, worded } from './fetchPdf.js';
 import { resolvesPrivately } from './guard.js';
-import { acceptKey, BUTTONS, challengedHost, checkAfter, clamp, clicks, closedError, fetchFileInPage, isMainDocument, VIEWPORT } from './browseShared.js';
+import { acceptKey, applyLook, BUTTONS, challengedHost, checkAfter, clamp, clicks, closedError, fetchFileInPage, isMainDocument, lookOf, VIEWPORT } from './browseShared.js';
 
 export { acceptKey, VIEWPORT };
 /** How long a frame poll waits before answering with nothing new. */
@@ -160,6 +160,8 @@ export async function open(url) {
     changed: 0,
     pdf: null,
     check: null,
+    /** The reader's look, when the page was given one: put back after every load. */
+    look: null,
     /** Whether the person has done something to the page since it last arrived — the box ticked, say. */
     acted: false,
     lastSeen: Date.now(),
@@ -233,6 +235,7 @@ async function attach(page) {
       if (session?.page === page) {
         session.loading = false;
         changed();
+        if (session.look) void applyLook(page, session.look);
       }
     });
     // The page itself arriving — as the site's check for a person, or as
@@ -393,6 +396,12 @@ export async function input(event) {
       session.loading = true;
       changed();
       return page.reload({ waitUntil: 'commit', timeout: 30_000 }).catch(() => undefined);
+    case 'look': {
+      // Kept on the session, so the page gets it back after every load.
+      const look = lookOf(event);
+      session.look = look?.css || look?.scheme ? look : null;
+      return applyLook(page, look);
+    }
     default:
       throw worded(`unknown input: ${String(event.type)}`);
   }

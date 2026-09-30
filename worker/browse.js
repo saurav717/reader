@@ -37,7 +37,7 @@ import { connectToCDPBrowser } from '@cloudflare/puppeteer/internal/cloudflare/u
 import { BROWSER_UA } from '../server/scholar.js';
 import { fetchChecked, MAX_PDF_BYTES, rejectUrl } from '../server/fetchPdf.js';
 import { grabTargets, pdfCandidates, pdfLinksIn } from '../server/pdfLinks.js';
-import { acceptKey, BUTTONS, clamp, clicks, closedError, fetchFileInPage, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
+import { acceptKey, applyLook, BUTTONS, clamp, clicks, closedError, fetchFileInPage, lookOf, startsWithPdf, VIEWPORT } from '../server/browseShared.js';
 import * as browserless from './browserless.js';
 
 /**
@@ -359,6 +359,9 @@ export async function apply(page, event) {
       return page.goForward(navigation).catch(() => undefined);
     case 'reload':
       return page.reload(navigation).catch(() => undefined);
+    case 'look':
+      // The pane sends it again after each load, so nothing is kept here.
+      return applyLook(page, lookOf(event));
     default:
       throw new Error(`unknown input: ${String(event.type)}`);
   }

@@ -17,6 +17,7 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { chromium } from 'playwright';
 import { WebSocketServer } from 'ws';
+import { applyLook, lookOf } from '../server/browseShared.js';
 
 const BASE = process.env.SMOKE_BASE || 'http://localhost:8080';
 const OUT = process.env.SMOKE_OUT || new URL('../.smoke/', import.meta.url).pathname;
@@ -140,6 +141,11 @@ const browseStatus = async (withFrame) => ({
   ...(browserAvailable ? {} : { reason: 'Playwright is installed on the proxy but its Chromium is not. Run `npx playwright install chromium` there, or set READER_BROWSER_CHANNEL=chrome to use the Chrome you already have.' }),
 });
 const inputs = [];
+/** The look the pane last sent, put back after a load as the Node proxy does. */
+let look = null;
+driven.on('load', () => {
+  if (look) void applyLook(driven, look);
+});
 async function applyInput(events) {
   for (const event of events) {
     inputs.push(event.type);
@@ -152,6 +158,11 @@ async function applyInput(events) {
     else if (event.type === 'insert') await driven.keyboard.insertText(event.text);
     else if (event.type === 'navigate') await driven.goto(standInFor(event.url)).catch(() => undefined);
     else if (event.type === 'reload') await driven.reload().catch(() => undefined);
+    else if (event.type === 'look') {
+      // As the proxies do it: the shared helper, kept for the next load.
+      look = lookOf(event);
+      await applyLook(driven, look);
+    }
   }
   await driven.waitForLoadState('domcontentloaded').catch(() => undefined);
   browsing.seq += 1;
@@ -330,23 +341,43 @@ await page.screenshot({ path: `${OUT}/colab-tab-2-signin-dark.png` });
 
 console.log('\n== signing in inside the pane, then running a cell there ==');
 const screen = page.locator('.colab-page .mini-browser-screen img');
-const box = await screen.boundingBox();
-// The stand-in sign-in's Next button, at the page's own coordinates (1280 × 800 → the picture's box).
-const at = (x, y) => ({ x: box.x + (x / 1280) * box.width, y: box.y + (y / 800) * box.height });
-const next = await driven.locator('.next').boundingBox();
-await page.mouse.click(at(next.x + next.width / 2, next.y + next.height / 2).x, at(next.x + next.width / 2, next.y + next.height / 2).y);
+// A point on the driven page (1280 × 800), as a point on the picture — measured each time, since the picture's box moves as the strip and the foot change.
+const clickThrough = async (target) => {
+  const box = await screen.boundingBox();
+  const spot = await driven.locator(target).boundingBox();
+  await page.mouse.click(box.x + ((spot.x + spot.width / 2) / 1280) * box.width, box.y + ((spot.y + spot.height / 2) / 800) * box.height);
+};
+await clickThrough('.next');
 await driven.waitForURL(/attached=1/, { timeout: 10000 });
 await page.waitForFunction(() => /notebooks\/standin\?attached=1/.test(document.querySelector('.browser-pane-url')?.textContent ?? ''), null, { timeout: 15000 });
 await page.waitForTimeout(1200);
 check('a click in the pane lands on the page in the proxy’s browser', inputs.includes('down') && inputs.includes('up') && /attached=1/.test(driven.url()));
 check('and the foot goes back to the general note once Google is done asking', !/Google is asking/.test(await page.locator('.colab-page-foot').textContent()));
-const run = await driven.locator('#run1').boundingBox();
-await page.mouse.click(at(run.x + run.width / 2, run.y + run.height / 2).x, at(run.x + run.width / 2, run.y + run.height / 2).y);
+// The look lands a poll after the page does, and moves the page up (Colab's header goes): measure after it.
+await driven.waitForFunction(() => Boolean(document.getElementById('reader-look')), null, { timeout: 15000 });
+await page.waitForTimeout(1500);
+await clickThrough('#run1');
 await driven.waitForFunction(() => /Tesla T4/.test(document.getElementById('out1')?.textContent ?? ''), null, { timeout: 5000 });
 // The frame that shows the output is a poll away; a few seconds is enough for two.
 await page.waitForTimeout(4000);
 check('the cell ran in Colab’s page, and its output came back as a picture', /Tesla T4/.test(await driven.locator('#out1').textContent()));
+const bodyColour = () => driven.evaluate(() => getComputedStyle(document.body).backgroundColor);
+const headerShown = () => driven.evaluate(() => getComputedStyle(document.getElementById('header')).display !== 'none');
+check('the reader’s look went onto Colab’s page: the dark theme’s paper, on Colab’s own variables', inputs.includes('look') && (await bodyColour()) === 'rgb(21, 22, 26)', await bodyColour());
+check('Colab’s own top bar is put away, since the strip names the notebook and the runtime', !(await headerShown()));
+check('and the page is told to follow the dark scheme', (await driven.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches)) === true);
+check('the sheet is one, replaced in place', (await driven.evaluate(() => document.querySelectorAll('#reader-look').length)) === 1);
 await page.screenshot({ path: `${OUT}/colab-tab-3-notebook-dark.png` });
+console.log('\n== Colab’s own look, on the switch ==');
+await page.getByLabel("Reader's look").uncheck();
+await driven.waitForFunction(() => !document.getElementById('reader-look'), null, { timeout: 5000 });
+await page.waitForTimeout(2500);
+check('the switch takes the look off: Colab’s white, its header back', (await bodyColour()) === 'rgb(255, 255, 255)' && (await headerShown()));
+await page.screenshot({ path: `${OUT}/colab-tab-3b-colab-look-dark.png` });
+await page.getByLabel("Reader's look").check();
+await driven.waitForFunction(() => Boolean(document.getElementById('reader-look')), null, { timeout: 5000 });
+await page.waitForTimeout(1500);
+check('and puts it back', (await bodyColour()) === 'rgb(21, 22, 26)');
 // Keys go too: the stand-in runs the cell on Shift-Enter.
 await driven.evaluate(() => (document.getElementById('out1').textContent = ''));
 await page.locator('.colab-page .mini-browser').focus();
@@ -366,7 +397,9 @@ console.log('\n== in light, and where the proxy has no browser ==');
 await withSettings({ theme: 'light' });
 await page.getByRole('tab', { name: 'Colab' }).click();
 await page.waitForSelector('.colab-page .mini-browser-screen img', { timeout: 20000 });
-await page.waitForTimeout(1000);
+await driven.waitForFunction(() => Boolean(document.getElementById('reader-look')), null, { timeout: 10000 }).catch(() => undefined);
+await page.waitForTimeout(2000);
+check('in light, the look is the light theme’s paper', (await driven.evaluate(() => getComputedStyle(document.body).backgroundColor)) === 'rgb(251, 250, 246)', await driven.evaluate(() => getComputedStyle(document.body).backgroundColor));
 await page.screenshot({ path: `${OUT}/colab-tab-4-notebook-light.png` });
 browserAvailable = false;
 await page.getByRole('tab', { name: 'Explanation' }).click();

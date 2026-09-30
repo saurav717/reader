@@ -1,57 +1,78 @@
 <!doctype html>
 <!--
   A stand-in for Colab's notebook page, for scripts/colab-tab-smoke.mjs: the
-  look of a notebook attached to a runtime — the menu, the toolbar, the
-  runtime chip, a cell with its output — drawn here so the Colab tab can be
+  look of a notebook attached to a runtime — the header, the toolbar, the
+  runtime chip, cells with an output — drawn here so the Colab tab can be
   photographed and driven where colab.research.google.com cannot be reached
   and no Google account is at hand. Nothing of Google's is used; it is a
-  page in Colab's colours. The query string says what it stands for:
-  ?attached=1 for a notebook on a runtime, nothing for the front page;
-  ?signin=1 for Google's sign-in page in front of it.
+  page in Colab's colours, themed the way Colab themes itself — through
+  `--colab-*` custom properties on <body>, with the same ids (#header,
+  #top-toolbar) and classes (.notebook-cell-list, .cell, .focused, .output)
+  the reader's look (src/lib/colabLook.ts) reaches for — so the look put
+  into it does what it would do on Colab's page. The query string says
+  what it stands for: ?attached=1 for a notebook on a runtime, nothing for
+  the front page; ?signin=1 for Google's sign-in page in front of it.
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <title>Untitled0.ipynb - Colab (stand-in)</title>
 <style>
-  :root { --ink: #202124; --muted: #5f6368; --line: #dadce0; --accent: #1a73e8; --paper: #fff; --panel: #f8f9fa; --orange: #f9ab00; }
+  body {
+    --colab-primary-surface-color: #fff;
+    --colab-secondary-surface-color: #f7f7f7;
+    --colab-highlighted-surface-color: #f8f9fa;
+    --colab-primary-text-color: #202124;
+    --colab-secondary-text-color: #5f6368;
+    --colab-border-color: #dadce0;
+    --colab-bold-border-color: #bdc1c6;
+    --colab-icon-color: #5f6368;
+    --colab-anchor-color: #1a73e8;
+    --colab-title-color: #202124;
+    --colab-logo-dark: #f9ab00;
+    --colab-chrome-font-family: Roboto, "Segoe UI", Helvetica, Arial, sans-serif;
+    --colab-code-font-family: "Roboto Mono", Menlo, monospace;
+    --colab-chrome-font-size: 14px;
+    --colab-code-font-size: 13px;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.4 Roboto, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--ink); background: var(--paper); }
-  header { display: flex; align-items: center; gap: 14px; height: 56px; padding: 0 16px; border-bottom: 1px solid var(--line); }
-  .co { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 24px; border-radius: 12px; background: var(--orange); color: #fff; font: 700 11px sans-serif; letter-spacing: 0.02em; }
-  .name { font-size: 18px; }
-  .name small { display: block; font-size: 12px; color: var(--muted); }
-  .menu { display: flex; gap: 18px; margin-left: 8px; font-size: 13px; color: var(--ink); }
+  body { margin: 0; font: var(--colab-chrome-font-size)/1.4 var(--colab-chrome-font-family); color: var(--colab-primary-text-color); background: var(--colab-primary-surface-color); }
+  #header { display: flex; align-items: center; gap: 14px; height: 56px; padding: 0 16px; border-bottom: 1px solid var(--colab-border-color); background: var(--colab-primary-surface-color); }
+  .co { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 24px; border-radius: 12px; background: var(--colab-logo-dark); color: #fff; font: 700 11px sans-serif; letter-spacing: 0.02em; }
+  .name { font-size: 18px; color: var(--colab-title-color); }
+  .name small { display: block; font-size: 12px; color: var(--colab-secondary-text-color); }
+  .menu { display: flex; gap: 18px; margin-left: 8px; font-size: 13px; }
   .spacer { flex: 1; }
-  .share { padding: 8px 18px; border-radius: 4px; background: var(--accent); color: #fff; font-weight: 500; }
+  .share { padding: 8px 18px; border-radius: 4px; background: var(--colab-anchor-color); color: #fff; font-weight: 500; }
   .avatar { width: 32px; height: 32px; border-radius: 50%; background: #34a853; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; }
-  .toolbar { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 13px; }
-  .toolbar button { padding: 6px 12px; border: 1px solid var(--line); border-radius: 4px; background: #fff; font: inherit; color: var(--accent); font-weight: 500; }
-  .runtime { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 4px; background: #fff; font-size: 12px; }
+  #top-toolbar { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 16px; border-bottom: 1px solid var(--colab-border-color); background: var(--colab-highlighted-surface-color); font-size: 13px; }
+  #top-toolbar button { padding: 6px 12px; border: 1px solid var(--colab-border-color); border-radius: 4px; background: var(--colab-primary-surface-color); font: inherit; color: var(--colab-anchor-color); font-weight: 500; }
+  .runtime { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border: 1px solid var(--colab-border-color); border-radius: 4px; background: var(--colab-primary-surface-color); font-size: 12px; color: var(--colab-primary-text-color); }
   .runtime .bars { display: inline-flex; gap: 3px; }
   .runtime .bars i { display: inline-block; width: 4px; height: 12px; background: #34a853; border-radius: 1px; }
-  .runtime .bars i.dim { background: #dadce0; }
+  .runtime .bars i.dim { background: var(--colab-border-color); }
   .runtime .tick { color: #34a853; font-weight: 700; }
-  .connect { color: var(--accent); font-weight: 500; }
+  .connect { color: var(--colab-anchor-color); font-weight: 500; }
   main { display: flex; }
-  aside { width: 48px; border-right: 1px solid var(--line); min-height: calc(100vh - 100px); display: flex; flex-direction: column; align-items: center; gap: 18px; padding-top: 18px; color: var(--muted); }
+  aside { width: 48px; border-right: 1px solid var(--colab-border-color); min-height: calc(100vh - 100px); display: flex; flex-direction: column; align-items: center; gap: 18px; padding-top: 18px; color: var(--colab-icon-color); }
   aside span { display: block; width: 18px; height: 18px; border: 2px solid currentColor; border-radius: 3px; }
-  .cells { flex: 1; padding: 20px 40px; max-width: 980px; }
-  .cell { display: flex; gap: 10px; margin-bottom: 14px; border: 1px solid transparent; border-radius: 6px; padding: 6px; }
-  .cell.focus { border-color: var(--accent); }
-  .run { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line); background: #fff; color: var(--ink); font-size: 10px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
-  .run.busy { border-color: var(--accent); color: var(--accent); }
-  .code { flex: 1; }
-  pre { margin: 0; padding: 10px 12px; border-radius: 4px; background: var(--panel); font: 13px/1.5 "Roboto Mono", Menlo, monospace; white-space: pre-wrap; }
-  .out { margin: 6px 0 0 34px; font: 12.5px/1.5 "Roboto Mono", Menlo, monospace; color: var(--ink); white-space: pre; }
-  .k { color: #188038; } .s { color: #c5221f; } .n { color: #1967d2; } .c { color: #5f6368; font-style: italic; }
+  .notebook-cell-list { flex: 1; padding: 20px 40px; max-width: 980px; }
+  .cell { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; border: 1px solid transparent; border-radius: 6px; padding: 6px; background: var(--colab-secondary-surface-color); }
+  .cell.focused { border-color: var(--colab-anchor-color); }
+  colab-run-button { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--colab-border-color); background: var(--colab-primary-surface-color); color: var(--colab-primary-text-color); font-size: 10px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+  colab-run-button.busy { border-color: var(--colab-anchor-color); color: var(--colab-anchor-color); }
+  .inputarea { flex: 1; }
+  pre { margin: 0; padding: 10px 12px; border-radius: 4px; font: var(--colab-code-font-size)/1.5 var(--colab-code-font-family); white-space: pre-wrap; color: var(--colab-primary-text-color); }
+  .output { flex-basis: calc(100% - 34px); margin: 0 0 0 34px; box-sizing: border-box; padding: 6px 12px; font: 12.5px/1.5 var(--colab-code-font-family); color: var(--colab-primary-text-color); white-space: pre; }
+  .output:empty { display: none; }
+  .k { color: #188038; } .s { color: #c5221f; } .n { color: #1967d2; } .c { color: var(--colab-secondary-text-color); font-style: italic; }
   .text { margin: 0 0 14px 34px; font-size: 15px; }
-  .text h1 { margin: 0 0 6px; font-size: 22px; }
-  .signin { max-width: 450px; margin: 60px auto; padding: 40px; border: 1px solid var(--line); border-radius: 8px; text-align: center; }
+  .text h1 { margin: 0 0 6px; font-size: 22px; color: var(--colab-title-color); }
+  .signin { max-width: 450px; margin: 60px auto; padding: 40px; border: 1px solid var(--colab-border-color); border-radius: 8px; text-align: center; background: var(--colab-primary-surface-color); }
   .signin h1 { font: 400 24px/1.3 sans-serif; margin: 12px 0 6px; }
-  .signin p { color: var(--muted); margin: 0 0 24px; }
-  .signin input { width: 100%; padding: 13px; border: 1px solid var(--line); border-radius: 4px; font: inherit; margin-bottom: 20px; }
-  .signin .next { float: right; padding: 9px 24px; border-radius: 4px; background: var(--accent); color: #fff; font-weight: 500; border: 0; }
+  .signin p { color: var(--colab-secondary-text-color); margin: 0 0 24px; }
+  .signin input { width: 100%; padding: 13px; border: 1px solid var(--colab-border-color); border-radius: 4px; font: inherit; margin-bottom: 20px; background: transparent; color: inherit; }
+  .signin .next { float: right; padding: 9px 24px; border-radius: 4px; background: var(--colab-anchor-color); color: #fff; font-weight: 500; border: 0; }
   .g { font: 700 24px sans-serif; color: #4285f4; }
 </style>
 </head>
@@ -71,7 +92,7 @@
       </div>`);
   } else {
     document.write(`
-      <header>
+      <header id="header">
         <span class="co">CO</span>
         <div class="name">${attached ? 'Untitled0.ipynb' : 'Welcome To Colab'} <small>${attached ? 'attached to the runtime from Reader' : 'colab.research.google.com'}</small></div>
         <nav class="menu"><span>File</span><span>Edit</span><span>View</span><span>Insert</span><span>Runtime</span><span>Tools</span><span>Help</span></nav>
@@ -79,7 +100,7 @@
         <span class="share">Share</span>
         <span class="avatar">R</span>
       </header>
-      <div class="toolbar">
+      <div id="top-toolbar">
         <button>+ Code</button><button>+ Text</button>
         <span class="spacer"></span>
         ${attached
@@ -88,20 +109,20 @@
       </div>
       <main>
         <aside><span></span><span></span><span></span><span></span></aside>
-        <div class="cells">
+        <div class="notebook-cell-list">
           ${attached ? '' : '<div class="text"><h1>Welcome to Colab!</h1>If you are already familiar with Colab, check out this video to learn about interactive tables, the executed code history view, and the command palette.</div>'}
-          <div class="cell focus" id="cell1">
-            <span class="run" id="run1" title="Run cell" onclick="runIt()">▶</span>
-            <div class="code"><pre><span class="c"># the same kernel the reader's cells ran in: what they set is here</span>
+          <div class="cell focused" id="cell1">
+            <colab-run-button id="run1" title="Run cell" onclick="runIt()">▶</colab-run-button>
+            <div class="inputarea"><pre><span class="c"># the same kernel the reader's cells ran in: what they set is here</span>
 <span class="k">import</span> numpy <span class="k">as</span> np
 <span class="k">print</span>(<span class="s">"tokens:"</span>, tokens)
 <span class="k">print</span>(<span class="s">"attention weights:"</span>, np.round(w, <span class="n">2</span>).tolist())
 !nvidia-smi --query-gpu=name,memory.used,memory.total --format=csv,noheader</pre></div>
+            <div class="output" id="out1"></div>
           </div>
-          <div class="out" id="out1">${attached ? '' : ''}</div>
           <div class="cell">
-            <span class="run" title="Run cell">▶</span>
-            <div class="code"><pre><span class="k">from</span> google.colab <span class="k">import</span> drive
+            <colab-run-button title="Run cell">▶</colab-run-button>
+            <div class="inputarea"><pre><span class="k">from</span> google.colab <span class="k">import</span> drive
 drive.mount(<span class="s">"/content/drive"</span>)   <span class="c"># Drive, on purpose, from Colab's own page</span></pre></div>
           </div>
         </div>
@@ -112,7 +133,7 @@ drive.mount(<span class="s">"/content/drive"</span>)   <span class="c"># Drive, 
     run.classList.add('busy');
     run.textContent = '■';
     setTimeout(() => {
-      document.getElementById('out1').textContent = "tokens: ['the', 'cat', 'sat', 'down']\\nattention weights: [[0.6, 0.1, 0.2, 0.1], [0.02, 0.89, 0.04, 0.05], [0.15, 0.2, 0.56, 0.1], [0.08, 0.3, 0.11, 0.51]]\\nTesla T4, 412 MiB, 15360 MiB";
+      document.getElementById('out1').textContent = "tokens: ['the', 'cat', 'sat', 'down']\nattention weights: [[0.6, 0.1, 0.2, 0.1], [0.02, 0.89, 0.04, 0.05], [0.15, 0.2, 0.56, 0.1], [0.08, 0.3, 0.11, 0.51]]\nTesla T4, 412 MiB, 15360 MiB";
       run.classList.remove('busy');
       run.textContent = '▶';
     }, 600);
