@@ -20,7 +20,8 @@ import { db } from './db';
 import type { CellType, NbCell, NbEdit } from './notebook';
 import { applyEdits, newCell, notebookFor, replaceCells, restoreCells, runKey } from './notebook';
 
-const MAX_TOKENS = 16000;
+/** Room for the answer — and, on a model that reasons first, for the reasoning, which comes out of the same budget. */
+const MAX_TOKENS = 32000;
 /** How much of the explanation and of the plan go with a request; the paper's own text goes in full, cached. */
 const PAGE_MAX_CHARS = 40_000;
 const OUTPUT_MAX_CHARS = 2_500;
@@ -69,7 +70,10 @@ export interface NotebookReply {
   edits: NbEdit[];
 }
 
-const FENCE = /^```[ \t]*([A-Za-z0-9_+-]*)([^\n]*)\n([\s\S]*?)^```[ \t]*$/gm;
+/** A fenced block: three or more backticks or tildes, closed by the same; the language, the rest of the info string, the body. */
+const FENCE = /^(`{3,}|~{3,})[ \t]*([A-Za-z0-9_+-]*)([^\n]*)\n([\s\S]*?)^\1[ \t]*$/gm;
+/** An opening fence with no close: the answer was cut before the cell was whole. */
+const OPEN_FENCE = /^(`{3,}|~{3,})[ \t]*[A-Za-z0-9_+-]*[^\n]*\n(?![\s\S]*?^\1[ \t]*$)/m;
 
 const asType = (lang: string): CellType | null => {
   const l = lang.toLowerCase();
@@ -95,7 +99,7 @@ const where = (info: string): { cell?: number; after?: number | 'end' } => {
  */
 export function parseNotebookReply(text: string): NotebookReply {
   const edits: NbEdit[] = [];
-  const prose = text.replace(FENCE, (_match, lang: string, info: string, body: string) => {
+  const prose = text.replace(FENCE, (_match, _fence: string, lang: string, info: string, body: string) => {
     const type = asType(lang);
     if (type === null) return '';
     const source = body.replace(/\n$/, '');
@@ -112,11 +116,23 @@ export function parseNotebookReply(text: string): NotebookReply {
   return { note, edits };
 }
 
+/** Why an answer gave the notebook nothing, in words the reader can act on. */
+export function nothingTaken(writer: string, reply: string, thinking: string | undefined, stop: string | null): string {
+  const cut = stop === 'max_tokens';
+  if (!reply.trim()) {
+    if (cut || thinking) return `${writer} ran out of room before it wrote a cell${thinking ? ' — its reasoning used up the answer' : ''}. Ask for less at once: one cell, or Rewrite cell by cell.`;
+    return `${writer} sent an empty answer. Try again, or ask for one cell at a time.`;
+  }
+  if (cut || OPEN_FENCE.test(reply)) return `${writer}'s answer was cut off before the cell was complete, so nothing was changed. Ask for less at once: one cell, or Rewrite cell by cell.`;
+  return `${writer} answered without a cell the notebook could take. It said: “${reply.trim().slice(0, 160)}${reply.trim().length > 160 ? '…' : ''}”`;
+}
+
 // ------------------------------------------------------------ the context --
 
 const clip = (text: string | undefined, max: number) => (!text ? '' : text.length > max ? `${text.slice(0, max)}\n[…cut at ${max.toLocaleString('en')} characters]` : text);
 
-const outputText = (cell: NbCell, run: CellRun | undefined): string => {
+/** What a cell printed, as text: the run in the Colab store while there is one, else what the notebook kept. */
+export const outputText = (cell: NbCell, run: CellRun | undefined): string => {
   const outputs = run && run.state !== 'running' && run.state !== 'queued' ? run.outputs : cell.outputs;
   return outputs
     .map((output) => (output.type === 'stream' ? output.text : output.type === 'text' ? output.text : output.type === 'error' ? output.traceback || `${output.ename}: ${output.evalue}` : `[${output.mime} image]`))
@@ -179,6 +195,8 @@ export interface NbPending {
   thinking?: string;
   started: number;
   error?: string;
+  /** Cell by cell: how far along, and which cell is being written now. */
+  progress?: { done: number; total: number; label: string };
 }
 
 export interface NbReplyRecord {
@@ -295,7 +313,8 @@ export async function askNotebook(params: { paperId: string; screen: Screen; mod
           ? applyEdits(paperId, parsed.edits, scopeIndex)
           : null;
     const note = parsed.note || (applied ? `${applied.touched.length} ${applied.touched.length === 1 ? 'cell' : 'cells'} written` : '');
-    if (!applied && !note) throw new Error(`${PROVIDERS[modelSpec(model).provider].name} sent nothing the notebook could take.`);
+    // A rewrite that changed nothing is a failure whatever it said; an ask may be answered in prose alone.
+    if (!applied && (!note || mode === 'rewrite')) throw new Error(nothingTaken(PROVIDERS[modelSpec(model).provider].name, pending.reply, pending.thinking, final.stop_reason));
     const now = notebookAskFor(paperId);
     update(paperId, {
       pending: undefined,
@@ -314,6 +333,96 @@ export async function askNotebook(params: { paperId: string; screen: Screen; mod
 /** The whole notebook written again by `model` — Rewrite, from the bar's menu, on the Colab tab. */
 export const rewriteNotebook = (params: { paperId: string; screen: Screen; model: string; runs?: Record<string, CellRun>; pages?: { explanation?: string; plan?: string } }) =>
   askNotebook({ ...params, request: 'Rewrite the notebook', mode: 'rewrite' });
+
+/** Rewrite, cell by cell: what each code cell is asked for, in turn. */
+export const cellRewriteRequest = (n: number) =>
+  `Rewrite cell ${n} in place: the same purpose and the same place in the notebook, written again by you — correct, clear, idiomatic,
+faithful to the paper, self-contained or relying only on the cells above it, and printing something comparable to what it prints now.
+Answer with ONE fenced block, \`\`\`python cell=${n}, holding the whole new cell, and at most one sentence outside it. Change no other cell.`;
+
+/**
+ * Every code cell written again by `model`, one at a time, each in place —
+ * Rewrite's other choice on the Colab tab. The notebook keeps its shape;
+ * each cell lands as its answer comes, marked as rewritten; Stop keeps the
+ * cells done so far; one Undo puts every cell back.
+ */
+export async function rewriteCells(params: { paperId: string; screen: Screen; model: string; runs?: Record<string, CellRun>; pages?: { explanation?: string; plan?: string } }): Promise<void> {
+  const { paperId, screen, model, runs = {}, pages = {} } = params;
+  const nb = notebookFor(paperId);
+  if (!nb || running) return;
+  const targets = nb.cells.filter((cell) => cell.type === 'code' && cell.source.trim());
+  if (!targets.length) return;
+  const writer = PROVIDERS[modelSpec(model).provider].name;
+  const request = `Rewrite every code cell, one by one, with ${writer}`;
+  const before = nb.cells;
+  const touched: string[] = [];
+  const pending: NbPending = { request, reply: '', started: Date.now(), progress: { done: 0, total: targets.length, label: 'cell 1' } };
+  update(paperId, { pending: { ...pending }, model });
+  let SDK: SDK | null = null;
+  const settle = (note: string) => {
+    const now = notebookAskFor(paperId);
+    update(paperId, { pending: undefined, last: { request, note, before, touched: [...touched], at: Date.now() }, requests: [...now.requests, request].slice(-REPLIES_KEPT) });
+    persist(paperId);
+  };
+  try {
+    if (modelSpec(model).provider === 'anthropic') SDK = await sdk();
+    for (const target of targets) {
+      const current = notebookFor(paperId);
+      const at = current ? current.cells.findIndex((cell) => cell.id === target.id) : -1;
+      if (!current || at < 0) continue;
+      const n = at + 1;
+      pending.progress = { done: touched.length, total: targets.length, label: `cell ${n}` };
+      pending.reply = '';
+      pending.thinking = undefined;
+      update(paperId, { pending: { ...pending } });
+      const stream = await streamModel({
+        model,
+        maxTokens: MAX_TOKENS,
+        system: systemFor(screen),
+        messages: [{ role: 'user', content: requestText(cellRewriteRequest(n), { cell: n }, current.cells, runs, pages) }],
+        effort: 'medium',
+      });
+      running = { paperId, abort: () => stream.abort() };
+      let frame = 0;
+      const paint = () => {
+        if (frame) return;
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          update(paperId, { pending: { ...pending } });
+        });
+      };
+      stream.on('thinking', (delta: string) => {
+        pending.thinking = `${pending.thinking ?? ''}${delta}`;
+        paint();
+      });
+      stream.on('text', (delta: string) => {
+        pending.reply += delta;
+        pending.thinking = undefined;
+        paint();
+      });
+      const final = await stream.finalMessage();
+      if (frame) cancelAnimationFrame(frame);
+      if (final.stop_reason === 'refusal') throw new Error(`${writer} declined to rewrite cell ${n}.`);
+      const parsed = parseNotebookReply(pending.reply);
+      // The cell asked for, first; else the one replacement it sent; else its one new cell, taken as the rewrite.
+      const edit = parsed.edits.find((e) => e.kind === 'replace' && e.cell === n) ?? parsed.edits.find((e) => e.kind === 'replace') ?? (parsed.edits.length === 1 ? parsed.edits[0] : undefined);
+      if (!edit || !edit.source.trim()) {
+        // The first cell it cannot write says why and stops the round; the cells done so far stay.
+        if (!touched.length) throw new Error(nothingTaken(writer, pending.reply, pending.thinking, final.stop_reason));
+        continue;
+      }
+      applyEdits(paperId, [{ kind: 'replace', cell: n, type: 'code', source: edit.source }], at);
+      touched.push(target.id);
+    }
+    settle(`${touched.length} of ${targets.length} code ${targets.length === 1 ? 'cell' : 'cells'} rewritten with ${writer}, each in place`);
+  } catch (error) {
+    const message = explainError(error, SDK);
+    if (message === 'Stopped.') settle(touched.length ? `Stopped after ${touched.length} of ${targets.length} code cells; those are rewritten, the rest as they were` : 'Stopped before any cell was rewritten');
+    else update(paperId, { pending: { ...pending, error: touched.length ? `${message} ${touched.length} of ${targets.length} cells were rewritten before that.` : message } });
+  } finally {
+    running = null;
+  }
+}
 
 export function stopNotebookAsk() {
   running?.abort();

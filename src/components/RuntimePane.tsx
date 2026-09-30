@@ -15,7 +15,7 @@
 // history — and the sums are src/lib/runtime.ts.
 
 import { useEffect, useMemo, useState } from 'react';
-import { connect, HISTORY_MS, interrupt, machineLabel, probeMachine, PULSE_MS, restartKernel, setGpuWatch, setMachine, setPulse, stopRuntime } from '../lib/colab';
+import { connect, HISTORY_MS, machineLabel, pauseRuns, probeMachine, PULSE_MS, restartKernel, resumeRuns, setGpuWatch, setMachine, setPulse, stopRuns, stopRuntime } from '../lib/colab';
 import type { CellRun, Pulse } from '../lib/colab';
 import { bins, nearFull, needMarkers, peakOf, peaksByCell, recent, rulerSegments, sessionLeft, spanText, timeline, unitsLeft } from '../lib/runtime';
 import type { RulerSegment } from '../lib/runtime';
@@ -50,6 +50,10 @@ interface Props {
   /** The plan's compute block, when the paper has a plan: its needs become ticks and headroom on the memory. */
   compute?: Compute | null;
   onGoTo?: (id: string) => void;
+  /** Run every code cell, from the pane's own button (it asks first). */
+  onRunAll?: () => void;
+  /** The cell picked in the notebook, when it is a code cell: its label, and how to run it. */
+  picked?: { label: string; run: () => void };
 }
 
 const clock = (since: number | undefined, now: number) => {
@@ -197,12 +201,13 @@ function Budget({ label, used, total, need, hue }: { label: string; used?: numbe
 // The pane
 // ---------------------------------------------------------------------------
 
-export default function RuntimePane({ cells, compute, onGoTo }: Props) {
+export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }: Props) {
   const colab = useColab();
   const [now, setNow] = useState(Date.now());
   const [style, setStyleState] = useState<PaneStyle>(readStyle);
   const [changing, setChanging] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
+  const [confirmAll, setConfirmAll] = useState(false);
   useEffect(() => {
     const tick = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(tick);
@@ -308,6 +313,64 @@ export default function RuntimePane({ cells, compute, onGoTo }: Props) {
           <span className={`colab-dot is-${colab.status === 'busy' ? 'busy' : 'on'}`} aria-hidden="true" />
           {colab.status === 'busy' ? `running ${labelOf(colab.running ?? '')}` : 'idle'} · up {clock(colab.startedAt, now)}
         </span>
+      </div>
+      <div className="rt-run" role="group" aria-label="Runs">
+        {colab.status === 'busy' || colab.queue.length ? (
+          <>
+            <span className="rt-run-state">
+              <span className={`colab-dot is-${colab.running ? 'busy' : 'on'}`} aria-hidden="true" />
+              {colab.running ? `running ${labelOf(colab.running)}` : colab.paused ? 'paused' : 'starting'}
+              {colab.queue.length ? ` · ${colab.queue.length} queued` : ''}
+              {colab.paused ? (colab.running ? ' · pauses after this cell' : '') : ''}
+            </span>
+            {colab.paused ? (
+              <button type="button" className="btn sm primary" onClick={resumeRuns} title="Goes on with the cells that wait">
+                ▶ Resume
+              </button>
+            ) : (
+              <button type="button" className="btn sm" disabled={!colab.queue.length} onClick={pauseRuns} title={colab.queue.length ? 'The cell running finishes; the rest wait for Resume' : 'One cell runs on its own: a running cell cannot be paused, only stopped'}>
+                ⏸ Pause
+              </button>
+            )}
+            <button type="button" className="btn sm colab-stop" onClick={() => void stopRuns()} title="Interrupts the cell running and drops the rest">
+              ■ Stop
+            </button>
+          </>
+        ) : confirmAll ? (
+          <span className="rt-confirm">
+            Run every code cell, top to bottom? It stops at the first that fails.
+            <button
+              type="button"
+              className="btn sm primary"
+              onClick={() => {
+                setConfirmAll(false);
+                onRunAll?.();
+              }}
+            >
+              Run all
+            </button>
+            <button type="button" className="btn sm ghost" onClick={() => setConfirmAll(false)}>
+              Not now
+            </button>
+          </span>
+        ) : (
+          <>
+            {picked ? (
+              <button type="button" className="btn sm colab" onClick={picked.run} title="Runs the cell picked in the notebook">
+                ▶ Run {picked.label}
+              </button>
+            ) : null}
+            <button type="button" className="btn sm colab" disabled={!onRunAll || !cells.length} onClick={() => setConfirmAll(true)} title="Every code cell in order; asks first">
+              ▶ Run all
+            </button>
+            <button type="button" className="btn sm" disabled title="Nothing is running">
+              ⏸ Pause
+            </button>
+            <button type="button" className="btn sm" disabled title="Nothing is running">
+              ■ Stop
+            </button>
+          </>
+        )}
       </div>
       <div className="segmented rt-styles" role="radiogroup" aria-label="How the machine is shown">
         {STYLES.map((option) => (
@@ -484,11 +547,6 @@ export default function RuntimePane({ cells, compute, onGoTo }: Props) {
 
       <div className="rt-part-label">The runtime</div>
       <div className="rt-actions">
-        {colab.status === 'busy' ? (
-          <button type="button" className="btn sm colab-stop" onClick={() => void interrupt()}>
-            ■ Stop the cell
-          </button>
-        ) : null}
         <button type="button" className="btn sm" disabled={colab.status === 'busy'} onClick={() => void restartKernel()} title="Forgets every variable; keeps the machine and the files on it">
           Restart the kernel
         </button>

@@ -309,6 +309,21 @@ describe('what a running cell says about itself', () => {
     assert.ok(series.points.length <= telemetry.MAX_POINTS + 1);
     assert.equal(series.points[series.points.length - 1].x, 4999);
   });
+  it('reads every metric a training loop prints, a series a split, for the Metrics tab', () => {
+    const log = ['step 100: train_loss=1.2 val/loss=1.5 acc 0.61 lr=3e-4', 'step 200: train_loss=0.9 val/loss=1.3 acc 0.72 lr=2.5e-4', 'epoch 1 done, ppl 12.5', 'step 300: train_loss=0.7 val/loss=1.2 acc 0.8 lr=2e-4 grad_norm=0.9'].join('\n');
+    const metrics = telemetry.metricSeries(log);
+    assert.deepEqual(metrics.map((m) => m.name), ['loss', 'accuracy', 'lr', 'perplexity', 'grad norm']);
+    const loss = metrics[0];
+    assert.deepEqual(loss.series.map((s) => [s.name, s.stepped, s.points.length]), [['train', true, 3], ['val', true, 3]]);
+    assert.deepEqual(loss.series[1].points[2], { x: 300, y: 1.2 });
+    assert.deepEqual(metrics[1].series, [{ name: '', stepped: true, points: [{ x: 100, y: 0.61 }, { x: 200, y: 0.72 }, { x: 300, y: 0.8 }] }]);
+    assert.deepEqual(metrics[2].series[0].points[0], { x: 100, y: 0.0003 });
+    assert.deepEqual(metrics[3].series[0].points, [{ x: 1, y: 12.5 }], 'an epoch line with no step counts by epoch');
+    assert.deepEqual(telemetry.metricSeries('attention weights (rows sum to 1):\n  the [0.6 0.1 0.2 0.1]\nrow 3 of 4'), [], 'numbers with no metric name are not metrics');
+    assert.deepEqual(telemetry.metricSeries('the loss function is cross-entropy; accuracy matters'), []);
+    const bar = ' 10%|█ | 5/50 loss=1.8 acc=0.5\r 20%|██ | 10/50 loss=1.4 acc=0.6';
+    assert.deepEqual(telemetry.metricSeries(bar).map((m) => [m.name, m.series[0].points.map((p) => p.x)]), [['loss', [5, 10]], ['accuracy', [5, 10]]]);
+  });
   it('reads nvidia-smi’s numbers, and nothing else', () => {
     assert.deepEqual(telemetry.parseGpuSample('63, 3012, 15360\n', 4.2), { t: 4.2, util: 63, memUsedMb: 3012, memTotalMb: 15360 });
     assert.deepEqual(telemetry.parseGpuSample('63, 3012, 15360\n12, 100, 15360\n', 1), { t: 1, util: 63, memUsedMb: 3112, memTotalMb: 30720 });
@@ -528,6 +543,26 @@ describe('a notebook of the reader’s own', () => {
   });
 });
 
+describe('whether a cell has run', () => {
+  const { cellStatus, newCell } = nbLib;
+  it('says so from the run this session, else from what the notebook kept', () => {
+    const fresh = newCell('code', 'x = 1');
+    assert.equal(cellStatus(fresh), 'never');
+    assert.equal(cellStatus(fresh, { state: 'queued' }), 'queued');
+    assert.equal(cellStatus(fresh, { state: 'running' }), 'running');
+    assert.equal(cellStatus(fresh, { state: 'ran' }), 'ran');
+    assert.equal(cellStatus(fresh, { state: 'failed' }), 'failed');
+    assert.equal(cellStatus(fresh, { state: 'interrupted' }), 'stopped');
+    const ran = { ...fresh, count: 2, ranAt: 1000, ranSource: 'x = 1', outputs: [{ type: 'stream', name: 'stdout', text: '1\n' }] };
+    assert.equal(cellStatus(ran), 'ran');
+    assert.equal(cellStatus({ ...ran, source: 'x = 2' }), 'changed', 'edited since it ran');
+    assert.equal(cellStatus({ ...ran, source: 'x = 2' }, { state: 'ran' }), 'changed', 'even with the run still shown');
+    assert.equal(cellStatus({ ...ran, outputs: [{ type: 'error', ename: 'E', evalue: 'v', traceback: 't' }] }), 'failed', 'a kept traceback is a failure');
+    assert.equal(cellStatus({ ...fresh, count: 4 }), 'earlier', 'a count from an .ipynb, with no run here');
+    assert.equal(cellStatus(newCell('markdown', 'hi')), null);
+  });
+});
+
 describe('the notebook’s ask bar', () => {
   const { parseNotebookReply, resolveEdits, cellsBlock, requestText, newCell, REWRITE_REQUEST } = nbLib;
   const cells = [
@@ -548,6 +583,17 @@ describe('the notebook’s ask bar', () => {
     assert.deepEqual(parseNotebookReply('```py after=end\nx = 1\n```').edits[0].after, 'end');
     assert.deepEqual(parseNotebookReply('```python cell="2" title="Two"\nx = 1\n```').edits[0], { kind: 'replace', cell: 2, type: 'code', source: 'x = 1' });
     assert.deepEqual(parseNotebookReply('Just an answer, no code.'), { note: 'Just an answer, no code.', edits: [] });
+    assert.deepEqual(parseNotebookReply('~~~python cell=2\nx = 1\n~~~').edits, [{ kind: 'replace', cell: 2, type: 'code', source: 'x = 1' }], 'tilde fences');
+    assert.deepEqual(parseNotebookReply('````python after=end\nprint("```")\n````').edits, [{ kind: 'insert', after: 'end', type: 'code', source: 'print("```")' }], 'four backticks around three');
+    assert.deepEqual(parseNotebookReply('```python cell=2\nx = 1\n').edits, [], 'an open fence is not a cell');
+  });
+  it('says why an answer gave the notebook nothing', () => {
+    const { nothingTaken } = nbLib;
+    assert.match(nothingTaken('DeepSeek', '', 'thought and thought', 'max_tokens'), /ran out of room.*reasoning used up the answer.*Rewrite cell by cell/);
+    assert.match(nothingTaken('DeepSeek', '', undefined, 'end_turn'), /empty answer/);
+    assert.match(nothingTaken('Claude', 'Here it is:\n```python cell=2\nx = 1\n', undefined, 'max_tokens'), /cut off before the cell was complete/);
+    assert.match(nothingTaken('Claude', 'Here it is:\n```python cell=2\nx = 1\n', undefined, 'end_turn'), /cut off/);
+    assert.match(nothingTaken('Claude', 'I would rather not.', undefined, 'end_turn'), /answered without a cell.*I would rather not/);
   });
   it('applies the edits: replacements in place, new cells after the cell named as it was numbered, unplaced ones after the cell asked about', () => {
     const edits = [

@@ -2848,20 +2848,74 @@ own: **Run them** under the bar runs the cells it wrote, in order, and
 it — a *cell 5* chip, suggestions for that cell, a new cell lands right
 after it — and the **Fix this cell** button under a failed cell takes the
 traceback to the bar the same way. The bar's suggestions show when it is
-focused and empty.
+focused and empty. The bar is open to begin with; the × at its end puts it
+away, **Ask** in the toolbar brings it back, and the choice is remembered.
+A request from a cell's own button shows the bar again, so its answer is
+seen.
 
 ![a cell rewritten in place and a new cell after it, both marked, with Run them and Undo under the bar](docs/colab-notebook-ask.png)
 
 ![the bar with a cell picked: suggestions for that cell](docs/colab-notebook-ask-suggestions.png)
 
 **Rewrite** in the page's bar, on this tab, rewrites the notebook rather
-than the explanation under it: the model picked writes the notebook again
-from scratch — the paper's method as a small faithful implementation, an
-experiment sized for the runtime, a text cell before each step — and every
-cell is replaced, with Undo bringing the old ones back. **Stop** ends a
-request half-way, with nothing changed.
+than the explanation under it, with the model picked in its menu, and the
+menu offers two ways. **Cell by cell** — the default — asks for each code
+cell in turn and replaces it in its place: the text cells and the order
+stay, each cell lands as its answer comes, marked, the bar counts them
+down, Stop keeps the cells done so far, and one Undo puts every cell back.
+**Whole notebook** writes the notebook again from scratch — the paper's
+method as a small faithful implementation, an experiment sized for the
+runtime, a text cell before each step — and every cell is replaced, with
+Undo bringing the old ones back. The header on this tab reads *Notebook
+with …* after whichever model writes it.
+
+When an answer gives the notebook nothing, the bar says why: a model that
+reasons first (DeepSeek's thinking models, say) can spend the whole answer
+reasoning on a big request and send no cell, or its answer can be cut off
+before the cell is whole — in both cases, ask for less at once, one cell or
+Rewrite cell by cell. The answer's room is 32,000 tokens, reasoning
+included.
 
 ![the notebook rewritten: three new cells, every one marked as the model's](docs/colab-notebook-rewritten.png)
+
+#### Metrics: what the cells print as they train
+
+The pane's third tab, **Metrics**, is the notebook's TensorBoard for
+scalars: every metric a cell prints as it trains — the loss, but also
+accuracy, the learning rate, perplexity, BLEU, F1, a gradient norm, a
+reward — read off the cells' outputs and drawn one chart a metric, a line a
+cell (and a split: `train_loss`, `val/loss`), by step where the log names
+one, live while the cell runs, with the last value beside each line and a
+button to the cell. Nothing is installed on the runtime and nothing is
+written to it; a cell that prints `step 100 loss=0.42 val_loss=0.51
+acc=0.88 lr=3e-4` is all it takes. When several cells print the same
+metric, a row of chips narrows the charts to one. For TensorBoard itself,
+with its event files, the tab points at the runtime in Colab's own page,
+where `%tensorboard` works against the same disk. The reading is
+`metricSeries` in `src/lib/telemetry.ts`; the tab is
+`src/components/MetricsPane.tsx`.
+
+![the Metrics tab: the loss a cell printed, by step, with its last value](docs/colab-notebook-metrics.png)
+
+#### Whether a cell ran, and running the notebook from the pane
+
+Every code cell carries a mark in its gutter, under its count: green when
+it ran, red when it failed, grey when it was stopped, amber when it has
+been **edited since it ran** (so the output under it is from other code),
+hollow when it never ran, and orange while it runs or waits its turn; the
+tools that appear on the cell name the state in words, with the time it
+ran. `cellStatus` in `src/lib/notebook.ts` decides it.
+
+The Runtime pane starts with the runs: **Run cell N** for the cell picked,
+**Run all** (it asks first), **Pause** and **Stop**. Run all is a queue —
+every code cell marked *Queued* at once, then run one after another, as
+in Colab. Pause lets the cell running finish and holds the rest for
+**Resume**; Stop interrupts the cell running and drops the rest. A single
+cell running on its own can be stopped but not paused, and the pane says
+so. The toolbar's Run all is the same queue. `runAll`, `pauseRuns`,
+`resumeRuns` and `stopRuns` in `src/lib/colab.ts`.
+
+![the pane while Run all is paused: running cell 19, one queued, pauses after this cell, with Resume and Stop](docs/colab-notebook-paused.png)
 
 The Ask AI window sees the notebook too. While the Colab tab is open, a
 question there goes with `<colab_notebook>`: the cells numbered, what each

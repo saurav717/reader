@@ -21,18 +21,29 @@ import { explanationFor } from '../lib/explain';
 import type { Section } from '../lib/explain';
 import { commitFiles, targetFrom } from '../lib/github';
 import { computeOf, implementationFor } from '../lib/implement';
-import { askNotebook, dismissNotebookAsk, loadNotebookAsk, notebookAskFor, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
+import { askNotebook, dismissNotebookAsk, loadNotebookAsk, notebookAskFor, outputText, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
 import type { AskScope } from '../lib/notebookAsk';
 import { markdown } from '../lib/markdown';
-import { appendCells, clearOutputs, fromIpynb, insertCell, loadNotebook, moveCell, notebookFileName, notebookFor, removeCell, runKey, seedCells, setOutputs, setSource, setType, subscribeNotebook, toIpynb } from '../lib/notebook';
+import { appendCells, cellStatus, clearOutputs, fromIpynb, insertCell, loadNotebook, moveCell, notebookFileName, notebookFor, removeCell, runKey, seedCells, setOutputs, setSource, setType, subscribeNotebook, toIpynb } from '../lib/notebook';
 import type { NbCell } from '../lib/notebook';
 import { useStore } from '../lib/store';
 import { attachUrl, CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Colab';
 import { highlightPython, lastThought } from './Explain';
 import { CloseIcon, SparkleIcon } from './icons';
+import MetricsPane from './MetricsPane';
 import RuntimePane from './RuntimePane';
 
 const useNotebook = (paperId: string) => useSyncExternalStore(subscribeNotebook, () => notebookFor(paperId));
+
+/** Whether the ask bar is shown: open unless hidden, and remembered. */
+const ASK_BAR_KEY = 'reader.colab.ask-bar';
+const readAskBar = (): boolean => {
+  try {
+    return localStorage.getItem(ASK_BAR_KEY) !== 'hidden';
+  } catch {
+    return true;
+  }
+};
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const mdHtml = (md: string) => DOMPurify.sanitize(markdown(md), { ADD_ATTR: ['target'] });
@@ -165,6 +176,9 @@ function Cell({
     }
   };
   const python = cell.type === 'code';
+  const status = cellStatus(cell, run);
+  const statusText =
+    status === 'running' ? 'running' : status === 'queued' ? 'queued' : status === 'ran' ? `ran${cell.ranAt ? ` ${time(cell.ranAt)}` : ''}` : status === 'failed' ? 'failed' : status === 'stopped' ? 'stopped' : status === 'changed' ? 'changed since it ran' : status === 'earlier' ? 'ran earlier, elsewhere' : status === 'never' ? 'not run yet' : '';
   return (
     <section
       className={`nb-cell is-${cell.type}${selected ? ' is-selected' : ''}${editing ? ' is-editing' : ''}${run ? ` is-${run.state}` : ''}${cell.fresh ? ' is-fresh' : ''}`}
@@ -189,6 +203,7 @@ function Cell({
           </span>
         )}
         <span className="nb-count">{python ? (live ? '[*]' : `[${run?.executionCount ?? cell.count ?? ' '}]`) : ''}</span>
+        {status ? <span className={`nb-ran is-${status}`} role="img" aria-label={`This cell: ${statusText}`} title={statusText} /> : null}
       </div>
       <div className="nb-body">
         {cell.fresh ? (
@@ -205,6 +220,7 @@ function Cell({
         {python && shown ? <CellRunOutput run={shown} onAsk={onAsk ? (request) => onAsk(request, cell.source.slice(0, 1500)) : undefined} onForget={() => setOutputs(paperId, cell.id, [], null, undefined)} /> : null}
       </div>
       <div className="nb-tools" role="toolbar" aria-label="Cell">
+        {status ? <span className={`nb-tools-state is-${status}`}>{statusText}</span> : null}
         <button type="button" onClick={() => moveCell(paperId, cell.id, -1)} title="Move up" aria-label="Move up">
           ↑
         </button>
@@ -314,6 +330,15 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
   const assistant = useSyncExternalStore(subscribeAssistant, assistantState);
   const nbAsk = useSyncExternalStore(subscribeNotebookAsk, () => notebookAskFor(paperId));
   const [ask, setAsk] = useState('');
+  const [askBar, setAskBar] = useState<boolean>(readAskBar);
+  const showAskBar = (on: boolean) => {
+    setAskBar(on);
+    try {
+      localStorage.setItem(ASK_BAR_KEY, on ? 'shown' : 'hidden');
+    } catch {
+      // private mode
+    }
+  };
   const [askFocused, setAskFocused] = useState(false);
   const [justAsked, setJustAsked] = useState(false);
   /** A passage the next request is about: an output, a traceback, a bit of code. The cell it is about is the one picked. */
@@ -322,7 +347,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   /** The pane on the right: the runtime, the files, or nothing. It opens on its own when a runtime connects, and folds when it ends. */
-  const [side, setSide] = useState<'runtime' | 'files' | null>(null);
+  const [side, setSide] = useState<'runtime' | 'files' | 'metrics' | null>(null);
   const closedByHand = useRef(false);
   const [card, setCard] = useState<{ then: () => void } | null>(null);
   const [confirmAll, setConfirmAll] = useState(false);
@@ -365,6 +390,18 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [side, nb?.updated]);
   const codeCells = useMemo(() => cells.map((cell, index) => ({ cell, index })).filter(({ cell }) => cell.type === 'code').map(({ cell, index }) => ({ key: runKey(cell.id), id: cell.id, label: `cell ${index + 1}` })), [cells]);
+  // What each code cell printed, for the Metrics tab: live from the run while there is one.
+  const metricCells = useMemo(
+    () =>
+      cells
+        .map((cell, index) => ({ cell, index }))
+        .filter(({ cell }) => cell.type === 'code')
+        .map(({ cell, index }) => {
+          const run = colab.runs[runKey(cell.id)];
+          return { key: runKey(cell.id), id: cell.id, label: `cell ${index + 1}`, text: outputText(cell, run), at: run?.startedAt || cell.ranAt || 0 };
+        }),
+    [cells, colab.runs],
+  );
   const goTo = (id: string) => {
     setSelected(id);
     root.current?.querySelector<HTMLElement>(`[data-cell="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -373,6 +410,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
   /** A request to the bar: about the cell picked, and the passage taken, unless the caller says otherwise. */
   const submit = async (request = ask, scope: AskScope = { cell: selectedIndex >= 0 ? selectedIndex + 1 : undefined, quote }) => {
     if (!request.trim() || !canAsk) return;
+    if (!askBar) showAskBar(true);
     const read = await screen();
     setAsk('');
     setQuote(undefined);
@@ -586,16 +624,23 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
             ) : null}
           </>,
         )}
+        <button type="button" className={`btn sm ghost${askBar ? ' is-on' : ''}`} aria-pressed={askBar} onClick={() => showAskBar(!askBar)} title={askBar ? 'Hide the ask bar' : 'Show the ask bar: cells written, changed and fixed for you'}>
+          Ask
+        </button>
         <button type="button" className={`btn sm ghost${side === 'runtime' ? ' is-on' : ''}`} aria-pressed={side === 'runtime'} onClick={() => (side === 'runtime' ? closeSide() : setSide('runtime'))} title="The machine: how busy it is, the last ten minutes, what is left of the session">
           Runtime
+        </button>
+        <button type="button" className={`btn sm ghost${side === 'metrics' ? ' is-on' : ''}`} aria-pressed={side === 'metrics'} onClick={() => (side === 'metrics' ? closeSide() : setSide('metrics'))} title="Training metrics, read off what the cells print: loss, accuracy, lr… a chart a metric, live">
+          Metrics
         </button>
         <button type="button" className={`btn sm ghost${side === 'files' ? ' is-on' : ''}`} aria-pressed={side === 'files'} onClick={() => (side === 'files' ? closeSide() : setSide('files'))} title="What is on the runtime's disk">
           Files
         </button>
         <input ref={filePick} type="file" accept=".ipynb,application/x-ipynb+json,application/json" hidden onChange={(event) => void addFromFile(event.target.files?.[0]).then(() => (event.target.value = ''))} />
       </div>
-      <div className="explain-ask nb-ask">
-        <div className="ask-column">
+      {askBar ? (
+        <div className="explain-ask nb-ask">
+          <div className="ask-column">
           <form
             className={`ask-field${asking ? ' is-busy' : ''}${askFocused ? ' is-focused' : ''}${!canAsk ? ' is-off' : ''}`}
             onSubmit={(event) => {
@@ -655,12 +700,15 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
                 Ask
               </button>
             )}
+            <button type="button" className="icon-btn sm nb-ask-hide" onClick={() => showAskBar(false)} aria-label="Hide the ask bar" title="Hide the ask bar — Ask in the toolbar brings it back">
+              <CloseIcon size={13} />
+            </button>
           </form>
           {nbAsk.pending && !nbAsk.pending.error ? (
             <div className="ask-status is-live">
               <span className="spinner" />
               <span className="ask-note" title={thought || undefined}>
-                {nbAsk.pending.reply ? 'Writing the cells' : thought ? `Thinking — ${thought}` : 'Reading the notebook and the paper'} — <em>{nbAsk.pending.request}</em>
+                {nbAsk.pending.progress ? `Rewriting ${nbAsk.pending.progress.label} — ${nbAsk.pending.progress.done} of ${nbAsk.pending.progress.total} done` : nbAsk.pending.reply ? 'Writing the cells' : thought ? `Thinking — ${thought}` : 'Reading the notebook and the paper'} — <em>{nbAsk.pending.request}</em>
               </span>
             </div>
           ) : nbAsk.pending?.error ? (
@@ -713,8 +761,9 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
               ) : null}
             </div>
           ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
       {note || push.state === 'pushed' || push.state === 'error' ? (
         <div className={`nb-note${push.state === 'error' ? ' is-problem' : ''}`} role="status">
           {note ??
@@ -780,10 +829,13 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
           </p>
         </div>
         {side ? (
-          <aside className="nb-side" aria-label={side === 'runtime' ? 'The runtime' : 'Files on the runtime'}>
+          <aside className="nb-side" aria-label={side === 'runtime' ? 'The runtime' : side === 'metrics' ? 'Training metrics' : 'Files on the runtime'}>
             <div className="nb-side-tabs" role="tablist">
               <button type="button" role="tab" aria-selected={side === 'runtime'} onClick={() => setSide('runtime')}>
                 Runtime
+              </button>
+              <button type="button" role="tab" aria-selected={side === 'metrics'} onClick={() => setSide('metrics')}>
+                Metrics
               </button>
               <button type="button" role="tab" aria-selected={side === 'files'} onClick={() => setSide('files')}>
                 Files
@@ -793,7 +845,13 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
                 <CloseIcon size={14} />
               </button>
             </div>
-            {side === 'runtime' ? <RuntimePane cells={codeCells} compute={compute} onGoTo={goTo} /> : <FilesPane />}
+            {side === 'runtime' ? (
+              <RuntimePane cells={codeCells} compute={compute} onGoTo={goTo} onRunAll={available ? runEverything : undefined} picked={selectedIndex >= 0 && cells[selectedIndex]?.type === 'code' && available && !busy ? { label: `cell ${selectedIndex + 1}`, run: () => runOne(cells[selectedIndex], 'stay') } : undefined} />
+            ) : side === 'metrics' ? (
+              <MetricsPane cells={metricCells} running={colab.running} onGoTo={goTo} colabUrl={colab.runtime ? attachUrl(colab.runtime.endpoint) : undefined} />
+            ) : (
+              <FilesPane />
+            )}
           </aside>
         ) : null}
       </div>

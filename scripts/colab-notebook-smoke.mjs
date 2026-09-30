@@ -52,6 +52,8 @@ const send = (socket, type, content, parent, channel = 'iopub') => socket.send(J
 
 /** Whether a cell is running, so the probe's numbers rise while one does. */
 let busySince = 0;
+/** Set by the interrupt route; the running cell ends with a KeyboardInterrupt at its next line, as a kernel's would. */
+let interruptAsked = false;
 function probeLine() {
   const t = busySince ? (Date.now() - busySince) / 1000 : 0;
   const busy = busySince ? Math.min(1, t / 3) : 0;
@@ -91,15 +93,25 @@ kernels.on('connection', (socket) => {
       busySince = Date.now();
     }
     send(socket, 'status', { execution_state: 'busy' }, parent);
+    let cut = false;
+    if (!probe) interruptAsked = false;
     for (const line of lines) {
+      if (!probe && interruptAsked) {
+        cut = true;
+        break;
+      }
       send(socket, 'stream', { name: 'stdout', text: `${line}\n` }, parent);
       await sleep(every);
     }
     if (!probe) {
       executionCount += 1;
       busySince = 0;
+      interruptAsked = false;
     }
-    send(socket, 'execute_reply', { status: 'ok', execution_count: probe ? undefined : executionCount }, parent, 'shell');
+    if (cut) {
+      send(socket, 'error', { ename: 'KeyboardInterrupt', evalue: '', traceback: ['KeyboardInterrupt'] }, parent);
+      send(socket, 'execute_reply', { status: 'error', ename: 'KeyboardInterrupt', evalue: '', traceback: ['KeyboardInterrupt'], execution_count: executionCount }, parent, 'shell');
+    } else send(socket, 'execute_reply', { status: 'ok', execution_count: probe ? undefined : executionCount }, parent, 'shell');
     send(socket, 'status', { execution_state: 'idle' }, parent);
   });
 });
@@ -186,7 +198,11 @@ await context.route('**/api/colab/**', (route) => {
     kernelCount += 1;
     return json({ kernel: { id: `kernel-${kernelCount}` } });
   }
-  if (path === '/colab/kernels/interrupt' || path === '/colab/kernels/restart') return json({ ok: true });
+  if (path === '/colab/kernels/interrupt') {
+    interruptAsked = true;
+    return json({ ok: true });
+  }
+  if (path === '/colab/kernels/restart') return json({ ok: true });
   if (path === '/colab/contents') {
     const { path: dir } = JSON.parse(route.request().postData() || '{}');
     contentsAsked.push(dir);
@@ -205,7 +221,19 @@ await context.addInitScript(
       if (!url.startsWith('https://api.anthropic.com')) return real(input, init);
       const body = typeof init?.body === 'string' ? init.body : '';
       window.__requests.push(body);
-      const forNotebook = /writing cells for a Jupyter notebook/.test(body) && window.__nbReply;
+      const sseOf = (text) => {
+        const event = (name, data) => `event: ${name}\ndata: ${JSON.stringify(data)}\n\n`;
+        return [
+          event('message_start', { type: 'message_start', message: { id: 'msg_cell', type: 'message', role: 'assistant', model: 'claude-opus-5', content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 900, output_tokens: 1 } } }),
+          event('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+          event('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }),
+          event('content_block_stop', { type: 'content_block_stop', index: 0 }),
+          event('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 90 } }),
+          event('message_stop', { type: 'message_stop' }),
+        ];
+      };
+      const cellAsked = body.match(/Rewrite cell (\d+) in place/);
+      const forNotebook = /writing cells for a Jupyter notebook/.test(body) && (cellAsked ? sseOf(`Cell ${cellAsked[1]} again.\n\n\`\`\`python cell=${cellAsked[1]}\n# rewritten by the stand-in\nprint("cell ${cellAsked[1]} rewritten")\n\`\`\``) : window.__nbReply);
       const events = forNotebook || explanation;
       const stream = new ReadableStream({
         async start(controller) {
@@ -366,6 +394,32 @@ await pane.locator('.rt-ruler-run').first().click();
 await page.waitForTimeout(600);
 check('a segment of the ruler goes to its cell', (await page.locator('.nb-cell.is-selected').count()) === 1 && /attention weights/.test(await page.locator('.nb-cell.is-selected').textContent()));
 
+console.log('\n== Run stays in reach on a long cell ==');
+// The first code cell is a long one: scrolled so that its top is well above the fold, its Run button is still on screen, stuck to the top.
+const longCell = page.locator('.nb-cell.is-code').first();
+await longCell.evaluate((el) => {
+  const scroller = el.closest('.nb-cells');
+  scroller.scrollTop = el.offsetTop - scroller.offsetTop + 160;
+});
+await page.waitForTimeout(300);
+const runBox = await longCell.locator('.nb-run').boundingBox();
+const scrollerBox = await page.locator('.nb-cells').boundingBox();
+const cellBox = await longCell.boundingBox();
+check('the gutter with Run sticks to the top of the notebook while a long cell scrolls', cellBox.y < scrollerBox.y - 100 && runBox.y >= scrollerBox.y && runBox.y < scrollerBox.y + 40, `cell top ${Math.round(cellBox.y)}, run ${Math.round(runBox.y)}, scroller ${Math.round(scrollerBox.y)}`);
+await page.screenshot({ path: `${OUT}/colab-notebook-15-sticky-run-dark.png` });
+await page.locator('.nb-cells').evaluate((el) => (el.scrollTop = 0));
+
+console.log('\n== the Metrics tab: what the cells print as they train ==');
+await pane.getByRole('tab', { name: 'Metrics' }).click();
+await page.waitForSelector('.rt-metrics .cell-chart', { timeout: 10000 });
+const metricLabels = await pane.locator('.rt-metric .rt-part-label').allTextContents();
+check('the loss the slow cell printed is a chart, a line for that cell, with its last value', metricLabels.length === 1 && /^loss · cell \d+ 0\.\d+/.test(metricLabels[0].replace(/\s+/g, ' ').trim()), metricLabels.join(' | '));
+check('the chart is by step, and a button goes to the cell', /step/.test(await pane.locator('.rt-metrics .cell-chart svg .axis').textContent()) && (await pane.locator('.rt-metric-cells-go .rt-peak').count()) === 1);
+check('and it says how to reach TensorBoard itself', /%tensorboard/.test(await pane.locator('.rt-metric-note').textContent()) && (await pane.locator('.rt-metric-note a').count()) === 1);
+await page.screenshot({ path: `${OUT}/colab-notebook-12-metrics-dark.png` });
+await pane.getByRole('tab', { name: 'Runtime' }).click();
+await page.waitForTimeout(300);
+
 console.log('\n== typing a cell, and the keys ==');
 // The + Code at the foot adds at the end; the toolbar's adds below the cell picked.
 await page.locator('.nb-add').click();
@@ -396,6 +450,19 @@ await page.keyboard.press('d');
 await page.keyboard.press('d');
 await page.waitForTimeout(200);
 check('D D deletes it', !(await note.evaluate((el) => el.previousElementSibling?.classList.contains('is-code') && !el.previousElementSibling.textContent.trim())));
+
+console.log('\n== every cell says whether it ran ==');
+check('a cell that ran carries a green mark in its gutter, with the time', (await typed.locator('.nb-ran.is-ran').count()) === 1 && /^ran \d/.test(await typed.locator('.nb-ran').getAttribute('title')), await typed.locator('.nb-ran').getAttribute('title'));
+check('a cell never run carries an empty one, and a text cell none', (await page.locator('.nb-cell.is-code .nb-ran.is-never').count()) >= 1 && (await page.locator('.nb-cell.is-markdown .nb-ran').count()) === 0);
+await typed.hover();
+await page.waitForTimeout(200);
+check('the tools name it on hover', /^ran \d/.test(await typed.locator('.nb-tools-state').textContent()));
+await typed.locator('.nb-text').click();
+await page.keyboard.press('Control+End');
+await page.keyboard.type('\n# edited since');
+await page.waitForTimeout(300);
+check('an edit since it ran turns the mark amber: changed since it ran', (await typed.locator('.nb-ran.is-changed').count()) === 1 && (await typed.locator('.nb-tools-state').textContent()) === 'changed since it ran');
+await page.keyboard.press('Escape');
 await note.scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/colab-notebook-3-typed-dark.png` });
 
@@ -440,6 +507,16 @@ await page.waitForSelector('.nb-cell.is-running', { state: 'detached', timeout: 
 await page.waitForTimeout(500);
 check('Run them runs the cells it wrote, and a run takes the mark off', (await added.locator('.cell-output').count()) === 1 && (await added.locator('.nb-fresh').count()) === 0 && (await rewritten.locator('.nb-fresh').count()) === 0);
 check('Undo is on the bar for the reply', (await bar.getByRole('button', { name: 'Undo' }).count()) === 1);
+// The bar can be put away, and comes back from the toolbar; the choice is remembered.
+const askToggle = page.locator('.nb-toolbar').getByRole('button', { name: 'Ask', exact: true });
+check('the toolbar’s Ask is on while the bar is shown', (await askToggle.getAttribute('aria-pressed')) === 'true');
+await bar.getByRole('button', { name: 'Hide the ask bar' }).click();
+await page.waitForTimeout(200);
+check('the bar hides from its own button, and the toolbar says so', (await page.locator('.nb-ask').count()) === 0 && (await askToggle.getAttribute('aria-pressed')) === 'false' && (await page.evaluate(() => localStorage.getItem('reader.colab.ask-bar'))) === 'hidden');
+await page.screenshot({ path: `${OUT}/colab-notebook-11-ask-hidden-dark.png` });
+await askToggle.click();
+await page.waitForTimeout(200);
+check('and comes back from the toolbar, with its status still there', (await page.locator('.nb-ask').count()) === 1 && (await bar.getByRole('button', { name: 'Undo' }).count()) === 1 && (await page.evaluate(() => localStorage.getItem('reader.colab.ask-bar'))) === 'shown');
 
 console.log('\n== Rewrite, on this tab, rewrites the notebook ==');
 await page.evaluate(
@@ -449,9 +526,28 @@ await page.evaluate(
   sse('The notebook again: the method, then an experiment.\n\n```markdown after=end\n# Attention, from scratch\n```\n\n```python after=end\nimport numpy as np\nprint("scaled dot-product attention")\n```\n\n```python after=end\nprint("a small experiment")\n```'),
 );
 const cellsBeforeRewrite = await page.locator('.nb-cell').count();
+check('the header names who writes the notebook on this tab', /Notebook with Claude/.test(await page.locator('.explain-brand').textContent()), await page.locator('.explain-brand').textContent());
 await page.getByRole('button', { name: /^Rewrite/ }).click();
 await page.waitForSelector('.rewrite-menu');
-check('the menu says it is the notebook that is rewritten', /Rewrite the notebook with/.test(await page.locator('.rewrite-menu .rw-head b').textContent()));
+check('the menu says it is the notebook that is rewritten, cell by cell to begin with', /Rewrite the notebook with/.test(await page.locator('.rewrite-menu .rw-head b').textContent()) && (await page.locator('.rw-nb-mode [aria-checked="true"]').textContent()) === 'Cell by cell');
+const codeWithSource = await page.locator('.nb-cell.is-code').evaluateAll((els) => els.filter((el) => el.querySelector('.nb-text')?.value.trim()).length);
+const requestsBeforeCells = await page.evaluate(() => window.__requests.length);
+await page.locator('.rewrite-menu .rw-card:not([disabled])').first().click();
+await page.waitForSelector('.nb-ask .ask-status.is-done', { timeout: 60000 });
+await page.waitForTimeout(400);
+const cellAsks = await page.evaluate((from) => window.__requests.slice(from), requestsBeforeCells);
+check('cell by cell: one request a code cell, each naming its cell', cellAsks.length === codeWithSource && cellAsks.every((body) => /Rewrite cell \d+ in place/.test(body)), `${cellAsks.length} requests for ${codeWithSource} code cells`);
+check('every code cell is rewritten in its place, marked, and the text cells stay', (await page.locator('.nb-cell').count()) === cellsBeforeRewrite && (await page.locator('.nb-cell.is-code .nb-fresh', { hasText: 'Rewritten at your request' }).count()) === codeWithSource && (await page.locator('.nb-cell.is-code .nb-text').evaluateAll((els) => els.filter((el) => /rewritten by the stand-in/.test(el.value)).length)) === codeWithSource && (await page.locator('.nb-cell.is-markdown', { hasText: 'A note of my own' }).count()) === 1);
+check('the note says so', new RegExp(`${codeWithSource} of ${codeWithSource} code cells rewritten with Claude, each in place`).test(await bar.locator('.ask-status.is-done .ask-note').textContent()), await bar.locator('.ask-status.is-done .ask-note').textContent());
+await page.screenshot({ path: `${OUT}/colab-notebook-16-rewritten-cells-dark.png` });
+await bar.getByRole('button', { name: 'Undo' }).click();
+await page.waitForTimeout(300);
+check('one Undo puts every cell back', (await page.locator('.nb-cell.is-fresh').count()) === 0 && (await page.locator('.nb-cell', { hasText: 'the answer is 42' }).count()) === 1 && (await page.locator('.nb-cell.is-code .nb-text').evaluateAll((els) => els.filter((el) => /rewritten by the stand-in/.test(el.value)).length)) === 0);
+// The other way: the whole notebook from scratch.
+await page.getByRole('button', { name: /^Rewrite/ }).click();
+await page.waitForSelector('.rewrite-menu');
+await page.locator('.rw-nb-mode').getByRole('radio', { name: 'Whole notebook' }).click();
+check('the choice is remembered', (await page.evaluate(() => localStorage.getItem('reader.colab.rewrite'))) === 'notebook');
 await page.locator('.rewrite-menu .rw-card:not([disabled])').first().click();
 await page.waitForSelector('.nb-ask .ask-status.is-live', { timeout: 5000 }).catch(() => undefined);
 await page.waitForSelector('.nb-ask .ask-status.is-done', { timeout: 20000 });
@@ -462,6 +558,7 @@ check('every cell is the model’s now, three of them, and the old ones are gone
 await page.screenshot({ path: `${OUT}/colab-notebook-10-rewritten-dark.png` });
 await bar.getByRole('button', { name: 'Undo' }).click();
 await page.waitForTimeout(300);
+await page.evaluate(() => localStorage.setItem('reader.colab.rewrite', 'cells'));
 check('Undo brings the notebook back as it was', (await page.locator('.nb-cell').count()) === cellsBeforeRewrite && (await page.locator('.nb-cell', { hasText: 'the answer is 42' }).count()) === 1 && (await page.locator('.nb-cell.is-fresh').count()) === 0);
 
 console.log('\n== Ask AI sees the notebook ==');
@@ -478,6 +575,36 @@ check('the question went with the Colab notebook: its cells numbered, with their
 await page.keyboard.press('Control+j');
 await page.waitForSelector('.assistant-win', { state: 'detached', timeout: 5000 }).catch(() => undefined);
 await page.waitForTimeout(300);
+
+console.log('\n== run, pause and stop, from the pane ==');
+await pane.getByRole('tab', { name: 'Runtime' }).click();
+const strip = pane.locator('.rt-run');
+check('the pane has Run all, and Pause and Stop wait for a run', (await strip.getByRole('button', { name: /Run all/ }).isEnabled()) && (await strip.getByRole('button', { name: /Pause/ }).isDisabled()) && (await strip.getByRole('button', { name: /Stop/ }).isDisabled()));
+await page.locator('.nb-cells').click({ position: { x: 4, y: 4 } });
+await strip.getByRole('button', { name: /Run all/ }).click();
+await strip.getByRole('button', { name: 'Run all', exact: true }).click();
+await page.waitForSelector('.nb-cell.is-running:has-text("time.sleep")', { timeout: 30000 });
+await page.waitForTimeout(300);
+check('Run all queues every code cell and runs them in order', (await page.locator('.nb-cell.is-queued').count()) >= 1 && /running cell \d+ · \d+ queued/.test(await strip.locator('.rt-run-state').textContent()), await strip.locator('.rt-run-state').textContent());
+await strip.getByRole('button', { name: /Stop/ }).click();
+await page.waitForSelector('.nb-cell.is-running', { state: 'detached', timeout: 15000 });
+await page.waitForTimeout(600);
+check('Stop interrupts the cell running and drops the rest', (await page.locator('.nb-cell.is-queued').count()) === 0 && (await page.locator('.nb-cell.is-running').count()) === 0 && (await page.locator('.nb-cell.is-failed:has-text("time.sleep")').count()) === 1 && (await strip.getByRole('button', { name: /Run all/ }).count()) === 1);
+await strip.getByRole('button', { name: /Run all/ }).click();
+await strip.getByRole('button', { name: 'Run all', exact: true }).click();
+await page.waitForSelector('.nb-cell.is-running:has-text("time.sleep")', { timeout: 30000 });
+await strip.getByRole('button', { name: /Pause/ }).click();
+await page.waitForTimeout(200);
+check('Pause lets the cell running finish', /pauses after this cell/.test(await strip.locator('.rt-run-state').textContent()) && (await page.locator('.nb-cell.is-running').count()) === 1);
+await page.screenshot({ path: `${OUT}/colab-notebook-13-paused-dark.png` });
+await page.waitForSelector('.nb-cell.is-running', { state: 'detached', timeout: 30000 });
+await page.waitForTimeout(1500);
+check('and holds the rest until Resume', (await page.locator('.nb-cell.is-running').count()) === 0 && (await page.locator('.nb-cell.is-queued').count()) >= 1 && /paused/.test(await strip.locator('.rt-run-state').textContent()) && (await strip.getByRole('button', { name: /Resume/ }).count()) === 1);
+await strip.getByRole('button', { name: /Resume/ }).click();
+await page.waitForFunction(() => document.querySelectorAll('.nb-cell.is-queued').length === 0 && document.querySelectorAll('.nb-cell.is-running').length === 0, null, { timeout: 30000 });
+await page.waitForTimeout(400);
+check('Resume runs the rest, and the pane is back to Run all', (await strip.getByRole('button', { name: /Run all/ }).count()) === 1 && (await page.locator('.nb-cell.is-code .nb-ran.is-ran').count()) >= 4, `${await page.locator('.nb-cell.is-code .nb-ran.is-ran').count()} ran`);
+check('the toolbar’s Run all is the same queue', (await page.locator('.nb-toolbar').getByRole('button', { name: /Run all/ }).count()) === 1);
 
 console.log('\n== the runtime’s disk ==');
 await pane.getByRole('tab', { name: 'Files' }).click();
@@ -523,6 +650,24 @@ await page.waitForTimeout(300);
 await page.screenshot({ path: `${OUT}/colab-notebook-5-light.png` });
 
 check('the page kept the sockets alive with a frame every fifteen seconds while nothing ran', keepalives.length >= 1, `${keepalives.length} keep-alive frames`);
+console.log('\n== and on the Explanation page, a cell’s header with Run in Colab ==');
+await page.getByRole('tab', { name: 'Explanation' }).click();
+await page.waitForSelector('.explain-scroll .explain-cell', { timeout: 10000 });
+const pageCell = page.locator('.explain-doc .explain-cell').first();
+await pageCell.evaluate((el) => {
+  const scroller = el.closest('.explain-scroll');
+  const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  scroller.scrollTop = top + 160;
+});
+await page.waitForTimeout(300);
+const headBox = await pageCell.locator('header').boundingBox();
+const pageScroller = await page.locator('.explain-scroll').boundingBox();
+const pageCellBox = await pageCell.boundingBox();
+check('the header, with Run in Colab, sticks to the top of the page while a long cell scrolls', pageCellBox.y < pageScroller.y - 100 && headBox.y >= pageScroller.y - 1 && headBox.y < pageScroller.y + 12, `cell top ${Math.round(pageCellBox.y)}, header ${Math.round(headBox.y)}, scroller ${Math.round(pageScroller.y)}`);
+await page.screenshot({ path: `${OUT}/colab-notebook-14-sticky-header-light.png` });
+await page.getByRole('tab', { name: 'Colab' }).click();
+await page.waitForTimeout(300);
+
 check('no page errors', errors.length === 0, errors.join(' | '));
 console.log(`\n${problems.length ? `${problems.length} problem(s):\n  ${problems.join('\n  ')}` : 'all good'}\n`);
 await browser.close();
