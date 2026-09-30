@@ -4944,3 +4944,112 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .colab-switch b { display: block; font-weight: 600; }
 .colab-switch small { color: var(--muted); font-size: 11px; }
 .colab-switch code { font: 10px var(--mono); }
+
+/* ---- "Add to notes", in a header ---------------------------------------------
+   A code cell, a starter file and the budget carry the button in their own
+   header, beside Copy, where the hover button on the corner would otherwise
+   land on Run in Colab. Muted until the header is pointed at; the label goes
+   on a narrow screen and the icon stays. */
+.keep-btn { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
+.keep-btn:hover, .keep-btn:focus-visible { color: var(--ink); }
+.explain-cell > header .keep-btn, .impl-file > header .keep-btn, .impl-budget > header .keep-btn, .impl-colab > header .keep-btn { opacity: 0.55; }
+.explain-cell:hover > header .keep-btn, .impl-file:hover > header .keep-btn, .impl-budget:hover > header .keep-btn, .impl-colab:hover > header .keep-btn,
+.explain-cell > header .keep-btn:focus-visible, .impl-file > header .keep-btn:focus-visible, .impl-budget > header .keep-btn:focus-visible { opacity: 1; }
+.note-clip .keep-btn { display: none; }
+/* In a cell or a file card the label needs room the margin column does not have: the icon alone there, the label once the card is wide (the Notebook layout, a starter file). */
+.explain-cell, .impl-file { container-type: inline-size; }
+@container (max-width: 620px) {
+  .keep-btn span { display: none; }
+}
+@media (max-width: 760px) {
+  .keep-btn span { display: none; }
+}
+.outline-hardware .hw-change + .hw-change { margin-left: 12px; }
+
+/* ---- The runtime's machine, and its use ------------------------------------------
+   What the probe read as the runtime connected, in the runtime menu; the probe
+   itself, on request; and the charts under a cell that ran. */
+.colab-specs { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 8px 8px; font-size: 11.5px; color: var(--ink-2); }
+.colab-specs b { font-weight: 600; color: var(--ink); }
+.colab-specs-now { color: var(--muted); }
+.colab-switch small .link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.colab-probe { margin: 0 8px 8px; padding: 8px 10px; max-height: 180px; overflow: auto; border-radius: 8px; background: var(--panel); border: 1px solid var(--border-soft); font: 10.5px/1.45 var(--mono); color: var(--ink-2); white-space: pre; }
+.cell-machine { display: grid; gap: 6px; }
+
+/* ---- Run it on Colab: the panel under the compute budget --------------------------
+   Four parts, each under a small label: Colab's machines as cards with the
+   budget on each; what the plan needs against what the machine has, as bars;
+   the steps, numbered, each a cell with Run; and the machine as it runs —
+   tiles, and the same charts a cell earns. */
+.impl-colab { margin: 14px 0 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.impl-colab > header { display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 12px; border-bottom: 1px solid var(--border-soft); background: var(--panel); }
+.impl-colab:not(.is-open) > header { border-bottom: 0; }
+.impl-colab > header .cell-index { display: inline-flex; }
+.impl-colab .cell-title { font-weight: 600; }
+.colab-title-note { font-weight: 400; color: var(--muted); }
+.colab-lede { margin: 0; padding: 12px 14px 4px; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+.colab-lede b { color: var(--danger); font-weight: 500; }
+.colab-part-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 14px 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.colab-part-label .btn { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.colab-run-all { display: inline-flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--ink-2); }
+
+.colab-machines { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; padding: 0 14px; }
+.colab-machine { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 11px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); text-align: left; font: inherit; color: var(--ink); cursor: pointer; }
+.colab-machine:hover:not(:disabled) { border-color: var(--muted); }
+.colab-machine:disabled { cursor: default; }
+.colab-machine.is-on { border-color: #e8710a; box-shadow: 0 0 0 1px #e8710a inset; background: color-mix(in srgb, #e8710a 7%, var(--surface)); }
+.colab-machine .machine-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.colab-machine b { font-size: 13px; font-weight: 600; }
+.colab-machine small { font-size: 11px; color: var(--muted); }
+.machine-best { font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--v-holds) 16%, transparent); color: var(--v-holds); white-space: nowrap; }
+.machine-est { display: flex; flex-wrap: wrap; gap: 4px 8px; font: 12px var(--mono); color: var(--ink-2); }
+
+.colab-needs { display: grid; gap: 6px; padding: 0 14px; }
+.need-row { display: grid; grid-template-columns: 150px minmax(80px, 1fr) minmax(170px, auto) auto; grid-template-areas: 'label bar numbers fit' 'note note note note'; align-items: center; column-gap: 12px; row-gap: 2px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--panel) 70%, transparent); font-size: 12.5px; }
+.need-label { grid-area: label; font-weight: 500; }
+.need-bar { grid-area: bar; display: block; height: 8px; border-radius: 4px; background: color-mix(in srgb, var(--muted) 22%, transparent); overflow: hidden; }
+.need-fill { display: block; height: 100%; border-radius: 4px; background: var(--v-holds); transition: width 0.3s ease; }
+.need-fill.is-tight { background: #e8710a; }
+.need-fill.is-over { background: var(--danger); }
+.need-numbers { grid-area: numbers; color: var(--ink-2); white-space: nowrap; }
+.need-numbers b { font-weight: 600; color: var(--ink); }
+.need-measured { margin-left: 6px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--v-holds); }
+.need-row .fit-chip { grid-area: fit; justify-self: end; }
+.need-note { grid-area: note; font-size: 11.5px; color: var(--muted); }
+.need-row.fit-no .need-note, .need-row.fit-tight .need-note { color: var(--ink-2); }
+
+.colab-steps { list-style: none; margin: 0; padding: 0 14px; display: grid; gap: 6px; }
+.colab-step { position: relative; display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; grid-template-areas: 'n body actions' 'n code code' 'n output output'; column-gap: 10px; row-gap: 6px; align-items: start; padding: 9px 10px; border: 1px solid var(--border-soft); border-radius: 10px; background: color-mix(in srgb, var(--panel) 55%, transparent); }
+.colab-step.is-done, .colab-step.is-ran { border-color: color-mix(in srgb, var(--v-holds) 45%, var(--border-soft)); }
+.colab-step.is-failed { border-color: color-mix(in srgb, var(--danger) 45%, var(--border-soft)); }
+.colab-step.is-empty { display: block; color: var(--muted); font-size: 12.5px; }
+.step-number { grid-area: n; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: var(--panel); border: 1px solid var(--border); font: 600 11.5px var(--mono); color: var(--ink-2); }
+.colab-step.is-done .step-number, .colab-step.is-ran .step-number { background: color-mix(in srgb, var(--v-holds) 16%, transparent); border-color: transparent; color: var(--v-holds); }
+.colab-step.is-running .step-number { border-color: #e8710a; }
+.step-number .spinner { width: 12px; height: 12px; }
+.step-body { grid-area: body; display: flex; flex-direction: column; gap: 3px; min-width: 0; padding-top: 3px; }
+.step-body b { font-size: 13px; font-weight: 600; }
+.step-note { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.step-note .link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.step-actions { grid-area: actions; position: relative; display: flex; gap: 6px; align-items: center; }
+.step-actions .colab-connect { position: absolute; right: 0; top: calc(100% + 6px); z-index: 42; }
+.step-code { grid-area: code; margin: 0; max-height: 320px; overflow: auto; border-radius: 8px; border: 1px solid var(--border-soft); }
+.step-output { grid-area: output; min-width: 0; }
+.step-output .cell-output { border-radius: 8px; border: 1px solid var(--border-soft); }
+
+.colab-live { margin: 0 14px 14px; padding: 10px; border-radius: 10px; border: 1px dashed var(--border); }
+.colab-live.is-on { border-style: solid; }
+.live-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; }
+.live-tile { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--panel); border: 1px solid var(--border-soft); }
+.live-tile .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.live-tile b { font: 600 18px/1.15 var(--sans); letter-spacing: -0.01em; color: var(--ink); }
+.colab-live:not(.is-on) .live-tile b { color: var(--muted); }
+.live-tile small { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.colab-live .cell-machine { margin-top: 8px; }
+.colab-live .cell-chart { margin: 0; }
+.live-empty { margin-top: 8px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--panel) 70%, transparent); font-size: 12.5px; color: var(--muted); }
+.live-note { margin-top: 8px; font-size: 11px; line-height: 1.45; color: var(--muted); }
+@media (max-width: 760px) {
+  .need-row { grid-template-columns: 1fr auto; grid-template-areas: 'label fit' 'bar bar' 'numbers numbers' 'note note'; }
+  .colab-step { grid-template-columns: 26px minmax(0, 1fr); grid-template-areas: 'n body' 'n actions' 'n code' 'n output'; }
+}

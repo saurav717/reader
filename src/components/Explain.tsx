@@ -41,10 +41,10 @@ import { selectedText } from '../lib/screen';
 import { useStore } from '../lib/store';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ExplainIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon } from './icons';
-import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
+import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, PlanContext, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
 import { CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
 import { cellKey, colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, runCell, useClient as useColabClient } from '../lib/colab';
-import { tableText, useKept, useKeeper } from './Keep';
+import { KeepButton, KeepContext, tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
 import type { Flash } from './PassageFlash';
 import PassageFlash from './PassageFlash';
@@ -227,6 +227,8 @@ function CodeCell({ block, index, onAsk }: { block: Extract<Block, { kind: 'code
         <span className={`cell-index${live ? ' is-busy' : ''}`}>{python ? (live ? 'In [*]' : `In [${run?.executionCount ?? index}]`) : shell ? '$' : 'Out'}</span>
         <span className="cell-title">{block.title}</span>
         {run ? <RunState run={run} /> : null}
+        {/* In the header, beside Copy — a button on the corner would sit on Run in Colab. */}
+        <KeepButton selector=".explain-cell" what="cell" />
         {python || shell ? (
           <>
             {!live ? (
@@ -322,10 +324,13 @@ function Caveat({ block }: { block: Extract<Block, { kind: 'caveat' }> }) {
 // ---------------------------------------------------------------------------
 
 /** What on the page can be kept whole, by pointing at it. */
-const KEEPABLE = '.explain-figure, .explain-cell, .explain-caveat, .impl-tree, .impl-file, .impl-budget, .explain-prose table, .explain-prose pre, .explain-prose .chat-math-block';
+const KEEPABLE = '.explain-figure, .explain-cell, .explain-caveat, .impl-tree, .impl-file, .impl-budget, .impl-colab, .explain-prose table, .explain-prose pre, .explain-prose .chat-math-block';
+
+/** The pieces whose header holds the button itself (a KeepButton), so the corner button keeps off them. */
+const OWN_BUTTON = '.explain-cell, .impl-file, .impl-budget, .impl-colab';
 
 /** What a box dragged over the page keeps, whole: each piece of it the box touches. */
-const SNIPPABLE = '.explain-prose > *, .explain-figure, .explain-cell, .explain-caveat, .impl-tree, .impl-file, .impl-budget';
+const SNIPPABLE = '.explain-prose > *, .explain-figure, .explain-cell, .explain-caveat, .impl-tree, .impl-file, .impl-budget, .impl-colab';
 
 const firstLine = (text: string) => text.split('\n').map((line) => line.trim()).find(Boolean);
 
@@ -364,6 +369,10 @@ function describe(element: HTMLElement): { label: string; text: string; quote?: 
     const table = element.querySelector('table');
     const machine = element.querySelector('.cell-title')?.textContent?.trim();
     return { label: machine ?? 'Compute budget', text: table ? tableText(table) : element.textContent ?? '' };
+  }
+  if (element.matches('.impl-colab')) {
+    const rows = Array.from(element.querySelectorAll('.need-row, .colab-step, .live-tile')).map((row) => (row.textContent ?? '').replace(/\s+/g, ' ').trim());
+    return { label: 'Run it on Colab', text: rows.join('\n') || (element.textContent ?? '') };
   }
   if (element.matches('table')) {
     const cell = element.querySelector('tr:nth-child(2) > *, td');
@@ -1009,7 +1018,9 @@ export default function Explain({ paperId, title, authors, published, screen, on
     const { label, text, quote } = describe(element);
     void keep({ label, html: copyOf(element), text, source: { from: 'explain', section: sectionOf(element), quote } });
   };
-  const keeper = useKeeper({ root: docRef, selector: KEEPABLE, onKeep: keepElement });
+  const keeper = useKeeper({ root: docRef, selector: KEEPABLE, onKeep: keepElement, own: OWN_BUTTON });
+  // The plan, for the Colab panel under its budget: the title and the sections, as one value so the panel is not redrawn for nothing.
+  const plan = useMemo(() => (implementing ? { title, sections } : null), [implementing, title, sections]);
   // ✂ Snip, or S while this covers the paper: a box dragged over the page
   // keeps every piece of it the box touches, as it is set.
   const [snipping, setSnipping] = useState(false);
@@ -1431,6 +1442,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
           ) : null}
         </nav>
 
+        <KeepContext.Provider value={keepElement}>
+        <PlanContext.Provider value={plan}>
         <article
           className="explain-doc"
           ref={docRef}
@@ -1533,6 +1546,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
             </>
           )}
         </article>
+        </PlanContext.Provider>
+        </KeepContext.Provider>
       </div>
 
       {picked ? (

@@ -289,8 +289,29 @@ describe('what a running cell says about itself', () => {
     assert.deepEqual(telemetry.parseGpuSample('63, 3012, 15360\n', 4.2), { t: 4.2, util: 63, memUsedMb: 3012, memTotalMb: 15360 });
     assert.deepEqual(telemetry.parseGpuSample('63, 3012, 15360\n12, 100, 15360\n', 1), { t: 1, util: 63, memUsedMb: 3112, memTotalMb: 30720 });
     assert.equal(telemetry.parseGpuSample('nvidia-smi: command not found', 1), null);
-    assert.match(telemetry.GPU_PROBE, /nvidia-smi/);
     assert.equal(telemetry.gigabytes(15360), '15 GB');
+  });
+  it('reads the machine probe’s line: the GPU by name, the CPU, the memory, the disk', () => {
+    assert.match(telemetry.MACHINE_PROBE, /nvidia-smi/);
+    assert.match(telemetry.MACHINE_PROBE, /\/proc\/stat/);
+    assert.match(telemetry.MACHINE_PROBE, /json\.dumps/);
+    const line = '{"gpu": "Tesla T4, 63, 3012, 15360", "cpu": 41, "cpus": 2, "ram": [5200, 13000], "disk": [71, 78]}';
+    const sample = telemetry.parseMachineSample(`some warning first\n${line}\n`, 4.2);
+    assert.deepEqual(sample, { t: 4.2, gpu: { t: 4.2, name: 'Tesla T4', util: 63, memUsedMb: 3012, memTotalMb: 15360 }, cpu: 41, cpus: 2, ramUsedMb: 5200, ramTotalMb: 13000, diskFreeGb: 71, diskTotalGb: 78 });
+    assert.deepEqual(telemetry.specsOf(sample), { gpuName: 'Tesla T4', vramMb: 15360, cpus: 2, ramTotalMb: 13000, diskTotalGb: 78, diskFreeGb: 71 });
+    // A CPU runtime: no GPU line, the rest as before.
+    const cpuOnly = telemetry.parseMachineSample('{"gpu": "", "cpu": 12, "cpus": 2, "ram": [1200, 13000], "disk": [100, 107]}', 0);
+    assert.equal(cpuOnly.gpu, undefined);
+    assert.equal(cpuOnly.cpu, 12);
+    assert.equal(cpuOnly.ramTotalMb, 13000);
+    // Two cards are named once, with the count; the numbers are summed as before.
+    const two = telemetry.parseMachineSample('{"gpu": "NVIDIA A100-SXM4-40GB, 90, 30000, 40960\\nNVIDIA A100-SXM4-40GB, 10, 100, 40960", "cpu": null, "cpus": 12, "ram": null, "disk": null}', 1);
+    assert.deepEqual(two.gpu, { t: 1, name: '2× NVIDIA A100-SXM4-40GB', util: 90, memUsedMb: 30100, memTotalMb: 81920 });
+    assert.equal(two.cpu, undefined);
+    assert.equal(two.ramUsedMb, undefined);
+    // Not the probe's line at all.
+    assert.equal(telemetry.parseMachineSample('Traceback (most recent call last):\n  NameError', 1), null);
+    assert.equal(telemetry.parseMachineSample('{"weights": [1, 2]}', 1), null);
   });
   it('picks clean ticks and short numbers for the axes', () => {
     assert.deepEqual(telemetry.ticks(0, 100, 3), [0, 50, 100]);

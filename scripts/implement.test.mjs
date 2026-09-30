@@ -11,7 +11,7 @@ import { readFile } from 'node:fs/promises';
 
 import { cleanup, loadTogether } from './bundle.mjs';
 
-const lib = await loadTogether(['src/lib/explain.ts', 'src/lib/implement.ts', 'src/lib/hardware.ts', 'src/lib/zip.ts'], { external: ['@anthropic-ai/sdk'] });
+const lib = await loadTogether(['src/lib/explain.ts', 'src/lib/implement.ts', 'src/lib/hardware.ts', 'src/lib/zip.ts', 'src/lib/colabRun.ts'], { external: ['@anthropic-ai/sdk'] });
 const PAGE = await readFile(new URL('./fixtures/implement-minitron.md', import.meta.url), 'utf8');
 const REVISION = await readFile(new URL('./fixtures/implement-revise-dataset.md', import.meta.url), 'utf8');
 
@@ -246,5 +246,90 @@ describe('a request from the bar', () => {
     assert.match(shell.code, /--streaming/);
     assert.match(shell.output, /41 min/);
     assert.equal(sections.length, 10);
+  });
+});
+
+describe('run it on Colab', () => {
+  const sections = lib.parseExplanation(PAGE);
+  const compute = lib.computeOf(sections);
+  it('works the budget out on each of Colab’s machines and marks the smallest that fits', () => {
+    const choices = lib.colabChoices(compute, lib.DEFAULT_HARDWARE);
+    assert.deepEqual(
+      choices.map((c) => c.machine.accelerator),
+      ['NONE', 'T4', 'L4', 'A100'],
+    );
+    // 22 GB needed: no on the CPU, tight on a T4 and on an L4 (85% of 24 GB is 20.4), fits on an A100 — the one to pick.
+    assert.deepEqual(
+      choices.map((c) => c.est.fit),
+      ['no', 'tight', 'tight', 'fits'],
+    );
+    assert.deepEqual(
+      choices.map((c) => c.recommended),
+      [false, false, false, true],
+    );
+    assert.deepEqual(
+      choices.map((c) => c.est.sessions),
+      [undefined, 20, 6, 1],
+    );
+    // When nothing fits outright, the smallest that fits with tricks is marked; when nothing does at all, none is.
+    const heavy = { ...compute, minVramGb: 38, phases: compute.phases.map((p) => ({ ...p, memoryGb: 38 })) };
+    assert.deepEqual(lib.colabChoices(heavy, lib.DEFAULT_HARDWARE).map((c) => c.recommended), [false, false, true, false]);
+    const huge = { ...compute, minVramGb: 500, phases: compute.phases.map((p) => ({ ...p, memoryGb: 500 })) };
+    assert.deepEqual(lib.colabChoices(huge, lib.DEFAULT_HARDWARE).map((c) => c.recommended), [false, false, false, false]);
+    assert.equal(lib.colabMachineOf({ ...lib.DEFAULT_HARDWARE, gpu: 'colab-l4' }).accelerator, 'L4');
+    assert.equal(lib.colabMachineOf({ ...lib.DEFAULT_HARDWARE, gpu: 'h100' }), null);
+  });
+  it('sets the plan’s needs against the machine, from the catalogue or as measured', () => {
+    const [, t4] = lib.colabChoices(compute, lib.DEFAULT_HARDWARE);
+    const needs = lib.needsOn(compute, t4);
+    assert.deepEqual(
+      needs.map((n) => [n.id, n.needed, n.have, n.fit, n.measured]),
+      [
+        ['vram', 22, 16, 'tight', false],
+        ['ram', 16, 12.7, 'no', false],
+        ['disk', 40, 78, 'fits', false],
+        ['time', 20, 1, 'tight', false],
+      ],
+    );
+    assert.match(needs[0].note, /8-bit AdamW/);
+    assert.match(needs[3].note, /20 sessions of up to 12 h/);
+    const measured = lib.needsOn(compute, t4, { vramMb: 15360, ramTotalMb: 52000, diskFreeGb: 30 });
+    assert.deepEqual(
+      measured.map((n) => [n.id, n.have, n.fit, n.measured]),
+      [
+        ['vram', 15, 'tight', true],
+        ['ram', 50.8, 'fits', true],
+        ['disk', 30, 'no', true],
+        ['time', 1, 'tight', false],
+      ],
+    );
+  });
+  it('writes one cell that lays the starter files out, exactly as shown', () => {
+    const cell = lib.scaffoldCell(sections);
+    assert.match(cell, /^# Lay the repository out here/);
+    assert.match(cell, /"minitron\/distill\.py": "/);
+    assert.match(cell, /os\.makedirs\(os\.path\.dirname\(path\) or "\.", exist_ok=True\)/);
+    // A JSON string is a Python string: every file's text is in the cell, escaped.
+    const files = lib.starterFiles(sections);
+    for (const [path, text] of Object.entries(files)) assert.ok(cell.includes(`${JSON.stringify(path)}: ${JSON.stringify(text)}`), path);
+    assert.equal(lib.scaffoldCell(lib.parseExplanation('## A\ntext only')), null);
+  });
+  it('lists the steps in order: the scaffold, the shell cells, the Makefile’s targets, the Python cells', () => {
+    const steps = lib.colabSteps(sections);
+    assert.deepEqual(
+      steps.map((s) => s.kind),
+      ['scaffold', 'shell', 'shell', 'make', 'make', 'make', 'make', 'make', 'make', 'python'],
+    );
+    assert.deepEqual(
+      steps.filter((s) => s.kind === 'make').map((s) => s.title),
+      ['make data', 'make teacher', 'make prune', 'make search', 'make distill', 'make eval'],
+    );
+    assert.equal(steps[0].title, 'Lay the repository out');
+    assert.match(steps[0].note, /6 starter files/);
+    assert.match(steps[1].code, /^%%bash\n/);
+    assert.ok(!steps.some((s) => s.title === 'make all' || s.title === 'make clean'));
+    assert.equal(steps[3].code, '%%bash\nmake data\n');
+    assert.equal(steps.at(-1).kind, 'python');
+    assert.ok(!steps.at(-1).code.startsWith('%%'), 'a Python cell goes as it is');
   });
 });

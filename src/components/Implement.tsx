@@ -7,8 +7,12 @@
 //  and the Colab menu that takes the scaffold out of the page.
 // ===========================================================================
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
+import { cellKey, colabAvailable, colabGranted, connect as connectColab, probeMachine, runAll, runCell, setMachine } from '../lib/colab';
+import type { Accelerator } from '../lib/colab';
+import { colabChoices, colabMachine, colabMachineOf, colabSteps, needsOn } from '../lib/colabRun';
+import type { ColabStep } from '../lib/colabRun';
 import type { Block, Section } from '../lib/explain';
 import { commitFiles, targetFrom } from '../lib/github';
 import type { RepoFiles } from '../lib/github';
@@ -18,8 +22,15 @@ import { colabUrl, computeOf, hardwareNow, parseTree, scaffold, scaffoldNotebook
 import { useStore } from '../lib/store';
 import { runInWorkspace, workspaceStatus, writeScaffold } from '../lib/workspace';
 import type { WorkspaceStatus, Written } from '../lib/workspace';
+import { gigabytes } from '../lib/telemetry';
+import { MachineChart } from './Charts';
+import { CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Colab';
 import { CloseIcon, ColabIcon, ExplainIcon, LocalIcon } from './icons';
 import { highlightPython } from './Explain';
+import { KeepButton } from './Keep';
+
+/** The plan the page is showing — its title and sections — for the pieces that need more than their own block, such as the Colab panel under the budget. */
+export const PlanContext = createContext<{ title: string; sections: Section[] } | null>(null);
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -151,6 +162,7 @@ export function FileBlock({ block }: { block: Extract<Block, { kind: 'file' }> }
         <span className="file-meta">
           {block.lang} · {lines} {lines === 1 ? 'line' : 'lines'}
         </span>
+        <KeepButton selector=".impl-file" what="file" />
         <button
           type="button"
           className="btn sm ghost"
@@ -324,7 +336,12 @@ export function ComputeBlock({ block }: { block: Extract<Block, { kind: 'compute
       </figure>
     );
   }
-  return <Budget compute={compute} hardware={hardware} />;
+  return (
+    <>
+      <Budget compute={compute} hardware={hardware} />
+      <ColabRunPanel compute={compute} hardware={hardware} />
+    </>
+  );
 }
 
 function Budget({ compute, hardware }: { compute: Compute; hardware: Hardware }) {
@@ -340,6 +357,7 @@ function Budget({ compute, hardware }: { compute: Compute; hardware: Hardware })
         <span className="cell-title">
           Compute budget on <b>{machine}</b>
         </span>
+        <KeepButton selector=".impl-budget" what="budget" />
         <button type="button" className="btn sm ghost" aria-expanded={editing} onClick={() => setEditing(!editing)}>
           {editing ? 'Done' : 'Change machine'}
         </button>
@@ -458,8 +476,28 @@ export function HardwareSummary({ sections }: { sections: Section[] }) {
       >
         Change machine
       </a>
+      {est ? (
+        <a
+          href="#run-on-colab"
+          className="hw-change"
+          onClick={(event) => {
+            event.preventDefault();
+            openColabPanel();
+          }}
+        >
+          Run it on Colab
+        </a>
+      ) : null}
     </div>
   );
+}
+
+/** Brings the Colab panel under the budget into view, opened. */
+export function openColabPanel() {
+  const target = document.getElementById('run-on-colab');
+  if (!target) return;
+  target.querySelector<HTMLButtonElement>('button[aria-expanded="false"].colab-panel-toggle')?.click();
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // ---------------------------------------------------------------------------
@@ -604,6 +642,18 @@ export function ColabMenu({ title, content, sections }: { title: string; content
           <div className="menu-label">
             {fileCount} starter {fileCount === 1 ? 'file' : 'files'}, the plan, and a notebook that writes them
           </div>
+          <button
+            type="button"
+            role="menuitem"
+            className="colab-action is-primary"
+            onClick={() => {
+              setOpen(false);
+              openColabPanel();
+            }}
+          >
+            <b>Run it on Colab, from this page</b>
+            <span>Pick the machine, run the steps in order in your own runtime, and watch the GPU and CPU as they run — under the compute budget</span>
+          </button>
           {target ? (
             <>
               <button type="button" role="menuitem" className="colab-action" disabled={push.state === 'pushing'} onClick={() => void pushToGitHub()}>
@@ -651,7 +701,7 @@ export function ColabMenu({ title, content, sections }: { title: string; content
             <span className="colab-mark" aria-hidden="true">
               co
             </span>
-            Running a cell here, in place, waits on a Colab connection; the notebook is the same cells.
+            The notebook is the same cells for Colab's own page, and the one route to mounting Drive there.
           </div>
         </div>
       ) : null}
@@ -871,5 +921,313 @@ export function RunConsole({ sections }: { sections: Section[] }) {
         {state.output || (state.running ? '' : 'Nothing has run yet.')}
       </pre>
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Run it on Colab: the plan, run in the reader's own runtime from the page,
+// with the machine watched while it does
+// ---------------------------------------------------------------------------
+
+const PANEL_KEY = 'reader.implement.colab-panel';
+
+const bar = (needed: number | undefined, have: number | undefined) => {
+  if (needed === undefined || !have) return 0;
+  return Math.min(100, Math.round((needed / have) * 100));
+};
+
+/**
+ * Under the compute budget: which of Colab's machines the plan fits on, what
+ * it needs against what the machine has (measured, once a runtime is
+ * connected), the steps to run in order — each a cell the kernel takes
+ * exactly as shown — and the GPU, CPU, memory and disk as they run.
+ */
+export function ColabRunPanel({ compute, hardware }: { compute: Compute; hardware: Hardware }) {
+  const plan = useContext(PlanContext);
+  const colab = useColab();
+  const { settings } = useStore();
+  const [open, setOpen] = useState(() => {
+    try {
+      return localStorage.getItem(PANEL_KEY) !== 'closed';
+    } catch {
+      return true;
+    }
+  });
+  const [confirmAll, setConfirmAll] = useState(false);
+  const [card, setCard] = useState(false);
+  const [showing, setShowing] = useState<string | null>(null);
+  const toggle = () => {
+    setOpen(!open);
+    try {
+      localStorage.setItem(PANEL_KEY, open ? 'closed' : 'open');
+    } catch {
+      // private mode
+    }
+  };
+  const choices = useMemo(() => colabChoices(compute, hardware), [compute, hardware]);
+  const steps = useMemo(() => (plan ? colabSteps(plan.sections) : []), [plan]);
+  // The machine: the runtime's while there is one, else the picker's when it is Colab's, else what the first-run card would start.
+  const connected = colab.status === 'idle' || colab.status === 'busy';
+  const accelerator: Accelerator = connected && colab.runtime ? (colab.runtime.accelerator ?? 'NONE') : (colabMachineOf(hardware)?.accelerator ?? colab.machine.accelerator);
+  const choice = choices.find((c) => c.machine.accelerator === accelerator) ?? choices[0];
+  const measured = connected && colab.specs && colab.runtime?.accelerator === (accelerator === 'NONE' ? null : accelerator) ? colab.specs : undefined;
+  const needs = useMemo(() => needsOn(compute, choice, measured), [compute, choice, measured]);
+  const available = colabAvailable(settings.googleClientId);
+  const pick = (next: Accelerator) => {
+    setMachine({ ...colab.machine, accelerator: next });
+    setHardware(normaliseHardware({ ...hardware, gpu: colabMachine(next).gpu, count: 1 }));
+  };
+  const connectIt = () => {
+    if (colab.status === 'off' && !colabGranted()) {
+      setCard(true);
+      return;
+    }
+    void connectColab({ ...colab.machine, accelerator }).catch(() => undefined);
+  };
+  const runStep = (step: ColabStep) => {
+    if (colab.status === 'off' && !colabGranted()) {
+      setCard(true);
+      return;
+    }
+    void runCell(cellKey(step.code), step.code).catch(() => undefined);
+  };
+  const runs = steps.map((step) => colab.runs[cellKey(step.code)]);
+  const done = runs.filter((run) => run?.state === 'ran').length;
+  // The chart: the step running now, else the last one that ran with the machine watched.
+  const charted = runs.filter((run) => run && run.samples && run.samples.length >= 2).sort((a, b) => (b!.startedAt ?? 0) - (a!.startedAt ?? 0))[0];
+  const sample = colab.sample;
+  const specs = colab.specs;
+  return (
+    <figure className={`impl-colab${open ? ' is-open' : ''}`} id="run-on-colab">
+      <header>
+        <span className="cell-index">
+          <ColabMark />
+        </span>
+        <span className="cell-title">
+          Run it on Colab{connected && colab.runtime ? <span className="colab-title-note"> · connected to {choice.machine.label.split(' · ')[0]}</span> : null}
+        </span>
+        <KeepButton selector=".impl-colab" what="panel" />
+        <button type="button" className="btn sm ghost colab-panel-toggle" aria-expanded={open} onClick={toggle}>
+          {open ? 'Hide' : 'Show'}
+        </button>
+      </header>
+      {open ? (
+        <>
+          <p className="colab-lede">
+            The plan, run in a Colab runtime of your own, from here: pick the machine, and the steps below run in order — each on its click, exactly as shown — with the GPU and the CPU watched while they do.
+            {!available ? <b> Running cells needs a Google client ID and the reader's proxy (Settings → Google, Settings → Paper proxy).</b> : null}
+          </p>
+
+          <div className="colab-part-label">The machine</div>
+          <div className="colab-machines" role="radiogroup" aria-label="Colab machine">
+            {choices.map((c) => (
+              <button
+                key={c.machine.accelerator}
+                type="button"
+                role="radio"
+                aria-checked={c.machine.accelerator === accelerator}
+                className={`colab-machine${c.machine.accelerator === accelerator ? ' is-on' : ''}${c.recommended ? ' is-best' : ''}`}
+                disabled={connected}
+                title={connected ? 'Change machine from the runtime menu in the bar: a new runtime is started' : `Plan and run on a ${c.machine.label}`}
+                onClick={() => pick(c.machine.accelerator)}
+              >
+                <span className="machine-head">
+                  <b>{c.machine.label}</b>
+                  {c.recommended ? <span className="machine-best">Smallest that fits</span> : null}
+                </span>
+                <small>{c.machine.tier}</small>
+                <span className="machine-est">
+                  <span>{hoursText(c.est.hours)}</span>
+                  <span>{usdText(c.est.usd)}</span>
+                  {c.est.sessions !== undefined && c.est.sessions > 1 ? <span>{c.est.sessions} sessions</span> : null}
+                </span>
+                <FitChip fit={c.est.fit} />
+              </button>
+            ))}
+          </div>
+
+          <div className="colab-part-label">What it needs, and what the {choice.machine.label.split(' · ')[0]} has{measured ? ' — measured' : ''}</div>
+          <div className="colab-needs">
+            {needs.map((need) => (
+              <div key={need.id} className={`need-row fit-${need.fit}`}>
+                <span className="need-label">{need.label}</span>
+                <span className="need-bar" aria-hidden="true">
+                  <span className={`need-fill${need.fit === 'no' ? ' is-over' : need.fit === 'tight' ? ' is-tight' : ''}`} style={{ width: `${need.id === 'time' ? Math.min(100, (need.needed ?? 1) * 25) : bar(need.needed, need.have)}%` }} />
+                </span>
+                <span className="need-numbers">
+                  {need.id === 'time' ? (
+                    <b>{need.needed}</b>
+                  ) : need.needed !== undefined ? (
+                    <>
+                      <b>{need.needed} {need.unit}</b> needed · {need.have ? `${need.have} ${need.unit}` : 'none'}
+                      {need.measured ? <span className="need-measured">measured</span> : null}
+                    </>
+                  ) : (
+                    <>not said · {need.have ? `${need.have} ${need.unit}` : 'none'}</>
+                  )}
+                </span>
+                {need.id === 'time' ? <span className={`fit-chip fit-${need.fit}`}>{(need.needed ?? 1) > 1 ? 'Checkpoint between them' : 'One session'}</span> : <FitChip fit={need.fit} />}
+                <span className="need-note">{need.note}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="colab-part-label">
+            <span>
+              How to run it, in order{steps.length ? ` · ${done} of ${steps.length} ${done === 1 ? 'has' : 'have'} run` : ''}
+            </span>
+            {steps.length > 1 && connected ? (
+              confirmAll ? (
+                <span className="colab-run-all">
+                  Run all {steps.length} steps, top to bottom? It stops at the first that fails.
+                  <button
+                    type="button"
+                    className="btn sm primary"
+                    onClick={() => {
+                      setConfirmAll(false);
+                      void runAll(steps.map((step) => ({ key: cellKey(step.code), code: step.code })));
+                    }}
+                  >
+                    Run all
+                  </button>
+                  <button type="button" className="btn sm ghost" onClick={() => setConfirmAll(false)}>
+                    Not now
+                  </button>
+                </span>
+              ) : (
+                <button type="button" className="btn sm ghost" disabled={colab.status === 'busy'} onClick={() => setConfirmAll(true)}>
+                  Run all steps
+                </button>
+              )
+            ) : null}
+          </div>
+          <ol className="colab-steps">
+            <li className={`colab-step is-connect${connected ? ' is-done' : ''}`}>
+              <span className="step-number">{connected ? '✓' : '1'}</span>
+              <div className="step-body">
+                <b>{connected ? `Connected to your ${choice.machine.label.split(' · ')[0]} runtime` : `Connect a ${choice.machine.label.split(' · ')[0]} runtime`}</b>
+                <span className="step-note">
+                  {connected
+                    ? specs
+                      ? [specs.gpuName ? `${specs.gpuName} · ${specs.vramMb ? gigabytes(specs.vramMb) : ''}` : 'no GPU', specs.cpus ? `${specs.cpus} CPUs` : '', specs.ramTotalMb ? `${gigabytes(specs.ramTotalMb)} RAM` : '', specs.diskFreeGb !== undefined ? `${specs.diskFreeGb} GB disk free` : ''].filter(Boolean).join(' · ')
+                      : colab.gpuWatch
+                        ? 'Reading what the machine is…'
+                        : 'The machine watch is off (runtime menu), so nothing is measured'
+                    : colab.status === 'connecting'
+                      ? 'Google’s window, then the runtime, then the kernel — about fifteen seconds the first time'
+                      : 'Starts a runtime in your own Colab account, on your tier; the first time, a card says what will happen before anything does'}
+                </span>
+              </div>
+              <div className="step-actions">
+                {connected ? (
+                  <button type="button" className="btn sm ghost" disabled={colab.status === 'busy' || !colab.gpuWatch} onClick={() => void probeMachine()} title="Read the machine again: its use now, and the disk free">
+                    Measure again
+                  </button>
+                ) : (
+                  <button type="button" className={`btn sm colab${available ? ' is-go' : ''}`} disabled={!available || colab.status === 'connecting'} onClick={connectIt}>
+                    <ColabMark />
+                    {colab.status === 'connecting' ? 'Connecting…' : colab.status === 'lost' ? '▶ Start a new runtime' : '▶ Connect'}
+                  </button>
+                )}
+                {card ? (
+                  <ConnectCard
+                    busy={colab.status === 'connecting'}
+                    onClose={() => setCard(false)}
+                    onConnect={(machine) => {
+                      void connectColab(machine)
+                        .then(() => setCard(false))
+                        .catch(() => undefined);
+                    }}
+                  />
+                ) : null}
+              </div>
+            </li>
+            {steps.map((step, index) => {
+              const key = cellKey(step.code);
+              const run = colab.runs[key];
+              const live = run?.state === 'running' || run?.state === 'queued';
+              return (
+                <li key={key} className={`colab-step is-${step.kind}${run ? ` has-run is-${run.state}` : ''}`}>
+                  <span className="step-number">{run?.state === 'ran' ? '✓' : live ? <span className="spinner" /> : index + 2}</span>
+                  <div className="step-body">
+                    <b>{step.title}</b>
+                    <span className="step-note">
+                      {step.note}
+                      {' · '}
+                      <button type="button" className="link" onClick={() => setShowing(showing === key ? null : key)}>
+                        {showing === key ? 'Hide the cell' : 'Show the cell'}
+                      </button>
+                    </span>
+                    {run ? <RunState run={run} /> : null}
+                  </div>
+                  <div className="step-actions">
+                    <button type="button" className={`btn sm colab${connected && !run ? ' is-go' : ''}`} disabled={!available || colab.status === 'connecting' || Boolean(colab.running)} onClick={() => runStep(step)} title={connected ? 'Run exactly this cell in your runtime' : 'Connects first, then runs this cell'}>
+                      <ColabMark />
+                      {run ? '▶ Run again' : '▶ Run'}
+                    </button>
+                  </div>
+                  {showing === key ? (
+                    <pre className="cell-code step-code">
+                      <code dangerouslySetInnerHTML={{ __html: step.kind === 'python' || step.kind === 'scaffold' ? highlightPython(step.code) : esc(step.code) }} />
+                    </pre>
+                  ) : null}
+                  {run ? (
+                    <div className="step-output">
+                      <CellRunOutput run={run} onForget={() => undefined} />
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+            {!steps.length ? <li className="colab-step is-empty">No cells on the plan yet — the steps come from its shell cells, its Makefile and its Python cells.</li> : null}
+          </ol>
+
+          <div className="colab-part-label">The machine, as it runs</div>
+          <div className={`colab-live${connected ? ' is-on' : ''}`}>
+            <div className="live-tiles">
+              <div className="live-tile">
+                <span className="k">GPU</span>
+                <b>{sample?.gpu ? `${sample.gpu.util}%` : specs?.gpuName ? '—' : accelerator === 'NONE' ? 'none' : '—'}</b>
+                <small>{specs?.gpuName ?? (accelerator === 'NONE' ? 'CPU runtime' : choice.machine.label.split(' · ')[0])}</small>
+              </div>
+              <div className="live-tile">
+                <span className="k">VRAM</span>
+                <b>{sample?.gpu ? gigabytes(sample.gpu.memUsedMb) : '—'}</b>
+                <small>of {specs?.vramMb ? gigabytes(specs.vramMb) : accelerator === 'NONE' ? 'none' : `${gpuById(choice.machine.gpu).vramGb} GB`}</small>
+              </div>
+              <div className="live-tile">
+                <span className="k">CPU</span>
+                <b>{sample?.cpu !== undefined ? `${sample.cpu}%` : '—'}</b>
+                <small>{specs?.cpus ? `${specs.cpus} cores` : 'not measured yet'}</small>
+              </div>
+              <div className="live-tile">
+                <span className="k">RAM</span>
+                <b>{sample?.ramUsedMb !== undefined ? gigabytes(sample.ramUsedMb) : '—'}</b>
+                <small>of {specs?.ramTotalMb ? gigabytes(specs.ramTotalMb) : `about ${choice.machine.ramGb} GB`}</small>
+              </div>
+              <div className="live-tile">
+                <span className="k">Disk free</span>
+                <b>{sample?.diskFreeGb !== undefined ? `${sample.diskFreeGb} GB` : specs?.diskFreeGb !== undefined ? `${specs.diskFreeGb} GB` : '—'}</b>
+                <small>of {specs?.diskTotalGb !== undefined ? `${specs.diskTotalGb} GB` : `about ${choice.machine.diskGb} GB`}</small>
+              </div>
+            </div>
+            {charted?.samples ? (
+              <MachineChart samples={charted.samples} live={charted.state === 'running'} />
+            ) : (
+              <div className="live-empty">
+                {connected
+                  ? colab.gpuWatch
+                    ? 'Run a step and its use is drawn here, every two seconds, as the loss curve is under a training cell.'
+                    : 'Turn on “Watch the machine while cells run” in the runtime menu and its use is drawn here as steps run.'
+                  : 'Connect a runtime and the tiles fill with what it is; run a step and its use is drawn here as it runs.'}
+              </div>
+            )}
+            <div className="live-note">
+              Read by a few lines of the reader's own — <code>nvidia-smi</code>, <code>/proc/stat</code>, <code>/proc/meminfo</code>, the disk — in a second kernel, every two seconds while a step runs and once as the runtime connects. Shown in the runtime menu; nothing runs unseen.
+            </div>
+          </div>
+        </>
+      ) : null}
+    </figure>
   );
 }

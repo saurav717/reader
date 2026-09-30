@@ -24,7 +24,14 @@ app's own colours and type; the sources are in
 > own socket, so the proxy carries it on a signed one-minute ticket —
 > `server/colabSocket.js` and `worker/colabSocket.js`, the fallback this
 > document names under *Where the calls run*. See the README's *Running the cells
-> in Colab*. The rest of this document is the design as written.
+> in Colab*. The GPU watch has since become a watch of the whole
+machine — GPU, CPU, RAM and disk, one probe shown in the runtime menu
+(`src/lib/telemetry.ts`) — and the Implementation page has a *Run it on
+Colab* panel under its budget (`src/lib/colabRun.ts`, `ColabRunPanel` in
+`src/components/Implement.tsx`): Colab's machines with the budget on each, the
+plan's needs against the machine as measured, the steps as cells, and the
+machine drawn as they run; the README's *Run it on Colab, from the page* has
+the pictures. The rest of this document is the design as written.
 
 **Short answer: yes.** The API does the two things the page needs — start a
 runtime in the reader's own Colab account, and hand back a Jupyter server to

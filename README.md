@@ -2654,12 +2654,24 @@ under the cell's code. Variables persist between cells, as in a notebook, so
 
 A cell that prints its losses — `loss=0.53`, `train_loss: 0.4 val_loss: 0.5`,
 a progress bar redrawing itself — earns a **loss curve** under its output,
-drawn as it runs, by step when the log names one. On a GPU runtime, **the GPU
-is watched while a cell runs**: one line of the reader's own (`nvidia-smi`,
-named in the runtime menu, in a second kernel so it never waits on the cell)
-every two seconds, drawn as utilisation over the run with the memory in the
-caption, and shown live in the bar's chip. The switch for it is in the
-runtime menu. Both charts have a table view.
+drawn as it runs, by step when the log names one. **The machine is watched
+while a cell runs**: a few lines of the reader's own — `nvidia-smi` when there
+is a GPU, `/proc/stat` for the CPUs, `/proc/meminfo` for the memory, the disk —
+shown in full in the runtime menu, run in a second kernel so they never wait
+on the cell, every two seconds. Under the cell they are drawn as GPU and CPU
+utilisation over the run and as VRAM and RAM in use, and the bar's chip
+carries the numbers live (*T4 · GPU 62% · CPU 54%*). The same probe runs once
+as the runtime connects, so the runtime menu says what the machine is — the
+card by name, the CPUs, the RAM, the disk free — before anything has run. The
+switch for it is in the runtime menu. All the charts have a table view.
+
+![the runtime menu: the machine as the probe read it — Tesla T4, 15 GB, 2 CPUs, 13 GB RAM, 71 GB disk free — the watch switch, and the probe shown in full](docs/colab-runtime-machine.png)
+
+Every Python cell's header holds **Copy**, **Run in Colab** and an
+**Add to notes** button of its own, side by side, so the button that comes up
+on the corner of a diagram or a table never lands on a cell's buttons.
+
+![a cell's header: the index, the title, Add to notes, Copy and Run in Colab in a row](docs/colab-cell-header.png)
 
 The chip in the bar — the Colab mark, a dot, the machine, how long it has
 been up — opens to the runtime: what it is, what it has cost, what has run;
@@ -2763,8 +2775,10 @@ toolbar.
 What Claude writes is often worth keeping: a worked example, a code cell, a
 table, a diagram, a caveat. Any of it goes into your notes:
 
-- **Point at it.** A diagram, a code cell (with its expected output), a table,
-  an equation or a caveat shows **Add to notes** on its corner.
+- **Point at it.** A diagram, a table, an equation or a caveat shows
+  **Add to notes** on its corner. A code cell (with its expected output), a
+  starter file and the compute budget carry the button in their own header
+  instead, beside *Copy*, where a corner button would sit on *Run in Colab*.
 - **Select it.** Any selection on the page — a sentence, a list, a paragraph
   with maths in it — has **Add to notes** in its toolbar, beside **Ask Claude**.
 - **A whole section.** Its heading has **Add to notes** beside *Ask or adjust*.
@@ -2920,6 +2934,44 @@ follow — so running it top to bottom lays the repository out and runs it.
 
 ![the Colab menu: commit and open, or download the notebook or the zip](docs/implement-colab.png)
 
+### Run it on Colab, from the page
+
+The first item in that menu, **Run it on Colab, from this page**, and the
+**Run it on Colab** link under *Your machine* in the outline, go to a panel
+under the compute budget that runs the plan in a Colab runtime of your own
+without leaving the page — the same runtime the Explain page's cells use, on
+the same rules. It has four parts:
+
+- **The machine.** Colab's four machines — CPU, T4, L4, A100 — as cards, each
+  with the budget worked out on it (hours, cost, sessions) and whether the plan
+  fits; the smallest that fits is marked. Picking one sets the hardware picker
+  too, so the budget follows.
+- **What it needs, and what the machine has.** Accelerator memory, RAM, disk
+  and sessions, each a bar of the plan's need against the machine — from the
+  catalogue at first, and **measured** once a runtime is connected: the card's
+  memory as `nvidia-smi` reports it, the RAM, the disk free now. A need that
+  does not fit says what to do about it: the budget's *shrink* line, a
+  high-RAM runtime, checkpoints between sessions.
+- **How to run it, in order.** Connect a runtime (the first time, the card
+  that says what will happen), then the steps as cells the kernel takes
+  exactly as shown: one that lays the starter files out in the runtime's
+  disk, the plan's shell cells as `%%bash` cells, the Makefile's targets, and
+  the plan's Python cells. Each runs on its click, with its output, its loss
+  curve and its verdict under it, as a cell on the page does; **Run all
+  steps** asks first and stops at the first that fails.
+- **The machine, as it runs.** Tiles for the GPU, VRAM, CPU, RAM and disk,
+  filled by the probe every two seconds while a step runs, and the two charts
+  under them — utilisation, and memory in use — for the step running now, or
+  the last one that ran.
+
+![the panel: the four machines with the budget on each, the needs against the T4 as measured, and the steps with Connect and Run](docs/implement-colab-run.png)
+
+![a step running: the tiles and the GPU, CPU, VRAM and RAM drawn as it runs, with the chip in the bar carrying the numbers](docs/implement-colab-live.png)
+
+The choices, the needs, the scaffold cell and the steps are
+`src/lib/colabRun.ts`; the panel is `ColabRunPanel` in
+`src/components/Implement.tsx`.
+
 ### Your own machine
 
 A paper that wants days of training on a GPU under the desk is the other
@@ -2966,6 +3018,10 @@ several machines, and checks the zip, the notebook and the commit's files;
 `scripts/implement-smoke.mjs` runs the whole page in a browser against a
 stand-in for `api.anthropic.com` (`scripts/fixtures/implement-minitron.md`),
 with `READER_WORKSPACE` set on the server, and photographs every state.
+`scripts/colab-run-smoke.mjs` does the same for Colab with a stand-in
+runtime — a small Jupyter server in the script, and the proxy's Colab routes
+answered in the browser — so a cell's run, the probe, the runtime menu and the
+*Run it on Colab* panel are photographed live, without a Google account.
 
 ## Layout
 

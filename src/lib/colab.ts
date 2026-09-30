@@ -20,8 +20,8 @@
 
 import { api, apiFetch, hasProxy } from './api';
 import { colabToken, connectColab, dropColab, hasColabAccess } from './google';
-import type { GpuSample } from './telemetry';
-import { GPU_PROBE, parseGpuSample } from './telemetry';
+import type { MachineSample, MachineSpecs } from './telemetry';
+import { MACHINE_PROBE, parseMachineSample, specsOf } from './telemetry';
 
 // ---------------------------------------------------------------- types ----
 
@@ -76,8 +76,8 @@ export interface CellRun {
   where: string;
   /** Set when the runtime it ran on has since gone. */
   stale?: boolean;
-  /** The GPU's use while it ran, sampled every couple of seconds, when the machine has one and the watch is on. */
-  gpu?: GpuSample[];
+  /** The machine's use while it ran — GPU, CPU, memory, disk — sampled every couple of seconds while the watch is on. */
+  samples?: MachineSample[];
 }
 
 export type Status =
@@ -103,10 +103,12 @@ export interface ColabState {
   error?: string;
   /** Compute units, as Colab last reported them. */
   units?: { balance?: number; ratePerHour?: number };
-  /** Whether the GPU is watched while a cell runs (the runtime menu's switch); on unless turned off. */
+  /** Whether the machine is watched while a cell runs (the runtime menu's switch); on unless turned off. */
   gpuWatch: boolean;
-  /** The last GPU sample taken, while a cell runs. */
-  gpu?: GpuSample;
+  /** The last sample taken: while a cell runs, or the one reading taken as the runtime connected. */
+  sample?: MachineSample;
+  /** What the runtime's machine is, read off the first sample: the GPU by name, the CPUs, the memory, the disk. */
+  specs?: MachineSpecs;
   /** How the kernel's socket is carried: straight to the runtime, or by the proxy when the runtime refused the page's own. */
   via?: 'direct' | 'proxy';
 }
@@ -176,10 +178,10 @@ export function subscribeColab(listener: () => void) {
 /** Whether cells can be run at all here: a proxy to reach Colab through, and a client ID to sign in with. */
 export const colabAvailable = (clientId: string) => hasProxy() && Boolean(clientId.trim());
 
-/** The GPU watch: nvidia-smi every couple of seconds in a second kernel while a cell runs, shown under the cell. */
+/** The machine watch: the probe every couple of seconds in a second kernel while a cell runs, shown under the cell and in the chip. */
 export function setGpuWatch(on: boolean) {
   write(local(), GPU_KEY, on);
-  set({ gpuWatch: on, gpu: on ? state.gpu : undefined });
+  set({ gpuWatch: on, sample: on ? state.sample : undefined });
   if (!on) stopWatching();
 }
 
@@ -549,61 +551,95 @@ class Kernel {
 // ------------------------------------------------------------ the actions --
 
 let kernel: Kernel | null = null;
-/** A second, small kernel on the same machine for the GPU watch, so the probe never waits on the cell. */
+/** A second, small kernel on the same machine for the watch, so the probe never waits on the cell. */
 let monitor: Kernel | null = null;
 let watching: number | null = null;
 let clientIdNow = '';
 
-const GPU_EVERY_MS = 2000;
+const SAMPLE_EVERY_MS = 2000;
 
 function stopWatching() {
   if (watching !== null) window.clearTimeout(watching);
   watching = null;
 }
 
-/**
- * While `key` runs on a machine with a GPU: nvidia-smi in the monitor kernel
- * every couple of seconds, each sample onto the run and into the chip. Any
- * failure ends the watch quietly — it is a reading, not the work.
- */
-async function watchGpu(key: string, runtime: Runtime, googleToken: string, started: number) {
-  if (!state.gpuWatch || !runtime.accelerator) return;
+/** The monitor kernel, started on first need. Null when it could not be had — the watch is a reading, not the work. */
+async function ensureMonitor(runtime: Runtime, googleToken: string): Promise<Kernel | null> {
+  if (monitor) return monitor;
   try {
-    if (!monitor) {
-      const made = await relay<{ kernel: { id: string } }>('/colab/kernels', googleToken, { method: 'POST', body: { proxy: runtime.proxy } });
-      const attached = new Kernel(
-        runtime.proxy,
-        made.kernel.id,
-        () => {
-          if (monitor === attached) monitor = null;
-        },
-        ticketFor(runtime),
-      );
-      await attached.connect();
-      monitor = attached;
-    }
+    const made = await relay<{ kernel: { id: string } }>('/colab/kernels', googleToken, { method: 'POST', body: { proxy: runtime.proxy } });
+    const attached = new Kernel(
+      runtime.proxy,
+      made.kernel.id,
+      () => {
+        if (monitor === attached) monitor = null;
+      },
+      ticketFor(runtime),
+    );
+    await attached.connect();
+    monitor = attached;
+    return attached;
   } catch {
-    return;
+    return null;
   }
+}
+
+/** One reading of the machine from the monitor kernel; null when the probe could not run or printed nothing readable. */
+async function takeSample(t: number): Promise<MachineSample | null> {
+  if (!monitor) return null;
+  let text = '';
+  try {
+    await monitor.execute(MACHINE_PROBE, (incoming) => {
+      if (incoming.header.msg_type === 'stream') text += asText(incoming.content.text);
+    });
+  } catch {
+    return null;
+  }
+  return parseMachineSample(text, t);
+}
+
+/** A sample onto the store: the last reading, and the machine's specs from it. */
+const keepSample = (sample: MachineSample) => set({ sample, specs: { ...state.specs, ...specsOf(sample) } });
+
+/**
+ * While `key` runs: the probe in the monitor kernel every couple of seconds,
+ * each sample onto the run and into the chip. Any failure ends the watch
+ * quietly.
+ */
+async function watchMachine(key: string, runtime: Runtime, googleToken: string, started: number) {
+  if (!state.gpuWatch) return;
+  if (!(await ensureMonitor(runtime, googleToken))) return;
   const tick = async () => {
     if (state.running !== key || !monitor) return;
-    let text = '';
-    try {
-      await monitor.execute(GPU_PROBE, (incoming) => {
-        if (incoming.header.msg_type === 'stream') text += asText(incoming.content.text);
-      });
-    } catch {
-      return;
-    }
-    const sample = parseGpuSample(text, Math.round((Date.now() - started) / 100) / 10);
+    const sample = await takeSample(Math.round((Date.now() - started) / 100) / 10);
     if (sample && state.running === key) {
       const run = state.runs[key];
-      if (run) setRun(key, { ...run, gpu: [...(run.gpu ?? []), sample] });
-      set({ gpu: sample });
+      if (run) setRun(key, { ...run, samples: [...(run.samples ?? []), sample] });
+      keepSample(sample);
     }
-    if (state.running === key) watching = window.setTimeout(() => void tick(), GPU_EVERY_MS);
+    if (state.running === key) watching = window.setTimeout(() => void tick(), SAMPLE_EVERY_MS);
   };
   watching = window.setTimeout(() => void tick(), 400);
+}
+
+/**
+ * One reading of the runtime's machine now, between cells: what it is and
+ * how busy it is. Taken as the runtime connects when the watch is on, and
+ * on request from the Implementation page's Colab panel. Nothing while a
+ * cell runs — the watch is already sampling.
+ */
+export async function probeMachine(): Promise<MachineSample | null> {
+  const runtime = state.runtime;
+  if (!runtime || !state.gpuWatch || state.running || state.status !== 'idle') return null;
+  try {
+    const googleToken = await colabToken(clientIdNow);
+    if (!googleToken || !(await ensureMonitor(runtime, googleToken))) return null;
+    const sample = await takeSample(0);
+    if (sample) keepSample(sample);
+    return sample;
+  } catch {
+    return null;
+  }
 }
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
@@ -635,7 +671,7 @@ const lost = (reason: string) => {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
   const runs = Object.fromEntries(Object.entries(state.runs).map(([key, run]) => [key, run.state === 'running' || run.state === 'queued' ? { ...run, state: 'interrupted' as RunState, stale: true, ms: Date.now() - run.startedAt } : { ...run, stale: true }]));
-  set({ status: 'lost', kernel: undefined, running: undefined, runs, error: reason });
+  set({ status: 'lost', kernel: undefined, running: undefined, runs, error: reason, sample: undefined });
 };
 
 /** A ticket for the proxy to carry a kernel's socket: asked for as the page connects, with the person's own token. */
@@ -684,6 +720,8 @@ export async function connect(machine: Machine = state.machine): Promise<void> {
     write(session(), RUNTIME_KEY, runtime);
     set({ status: 'idle', runtime, kernel: kernel.id, via: kernel.via, startedAt: state.runtime?.endpoint === runtime.endpoint && state.startedAt ? state.startedAt : Date.now(), error: undefined });
     void refreshUnits(googleToken);
+    // What the machine is, read once as it connects, so the page can say so before anything runs.
+    void probeMachine();
   } catch (error) {
     const flags = error instanceof ColabRequestError ? error.flags : {};
     if (flags.gone) {
@@ -720,9 +758,9 @@ export async function runCell(key: string, code: string): Promise<void> {
   if (!kernel || !runtime) return;
   const started = Date.now();
   const where = whereOf(runtime);
-  set({ status: 'busy', running: key, gpu: undefined });
+  set({ status: 'busy', running: key });
   setRun(key, { state: 'running', outputs: [], startedAt: started, where });
-  if (runtime.accelerator && state.gpuWatch) void colabToken(clientIdNow).then((googleToken) => (googleToken ? watchGpu(key, runtime, googleToken, started) : undefined)).catch(() => undefined);
+  if (state.gpuWatch) void colabToken(clientIdNow).then((googleToken) => (googleToken ? watchMachine(key, runtime, googleToken, started) : undefined)).catch(() => undefined);
   let outputs: Output[] = [];
   let cut = false;
   try {
@@ -786,7 +824,7 @@ export async function stopRuntime(): Promise<void> {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
   const runs = Object.fromEntries(Object.entries(state.runs).map(([key, run]) => [key, { ...run, stale: true }]));
-  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, runs, error: undefined, gpu: undefined });
+  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, runs, error: undefined, sample: undefined, specs: undefined });
   if (!runtime) return;
   try {
     const googleToken = await tokenOrConnect();
@@ -801,7 +839,7 @@ export function disconnect(): void {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
   dropColab();
-  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, error: undefined, units: undefined });
+  set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, error: undefined, units: undefined, sample: undefined, specs: undefined });
 }
 
 /** Forgets one cell's run — for a cell whose code has changed, or on request. */
