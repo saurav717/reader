@@ -2793,15 +2793,28 @@ the plan, one a paper.
   picked and nothing being typed, the keys Colab and Jupyter share:
   <kbd>A</kbd> and <kbd>B</kbd> add above and below, <kbd>M</kbd> and <kbd>Y</kbd>
   make it text or code, <kbd>D</kbd> <kbd>D</kbd> deletes, <kbd>↑</kbd> <kbd>↓</kbd>
-  move. Text cells are Markdown, rendered as the page renders it; double-click
-  to edit. **Run all** runs every code cell at once, top to bottom, and stops
+  move. Text cells are Markdown, rendered as the page renders it, maths
+  included — `$…$` inline and `$$…$$` on its own lines are typeset with
+  KaTeX once the cell is on screen; double-click to edit. **Run all** runs every code cell at once, top to bottom, and stops
   at the first error; **Stop** interrupts the kernel. Nothing runs without a click or a Shift-Enter on
   that cell.
-- **What a cell printed stays.** Its output, its loss curve and the machine's
-  use while it ran are drawn under it as under a page cell, the verdict
-  aside (there is nothing expected to compare with); the output and the
-  count are kept with the notebook, so they are there after a reload and go
-  into the file.
+- **A cell rewritten where it is, as the answer comes.** Ask the bar to
+  change or fix a cell — or click **Ask … to fix this cell** under a
+  traceback — and the cell itself shows the model's answer streaming in, in
+  place of its code, coloured as code with a caret at the end, and the view
+  moves to that cell and stays there rather than jumping to the top. The
+  cell changes only when the answer is whole, so nothing half-written is
+  ever a cell; the traceback from the code it replaced goes with that code,
+  and **Undo** on the bar puts the old cell back.
+
+![a failing cell far down the notebook, its ValueError traceback replaced in place by the model's fix as it streams: coloured code, a caret at the end, and "Claude Opus 5 is rewriting this cell…" on the cell](docs/colab-notebook-fixing-live.png)
+
+- **What a cell printed stays.** Its output and its loss curve are drawn
+  under it as under a page cell, the verdict aside (there is nothing
+  expected to compare with); the machine's use while it ran is the Runtime
+  pane's to show, not drawn under the cell. The output and the count are
+  kept with the notebook, so they are there after a reload and go into the
+  file.
 - **Files.** The runtime's disk, from its Jupyter contents API through the
   proxy (`/colab/contents`): what the cells wrote, the data they fetched,
   the checkpoints, a folder at a time. It goes when the runtime does.

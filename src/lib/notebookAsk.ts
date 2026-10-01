@@ -213,6 +213,42 @@ export interface NbPending {
   error?: string;
   /** Cell by cell: how far along, and which cell is being written now. */
   progress?: { done: number; total: number; label: string };
+  /** The cell the request is about, when it is about one: a fence naming no cell is drafted there while cell by cell rewrites it. */
+  scope?: AskScope;
+}
+
+/** A cell as the reply has it so far: the one it names, what it holds, and whether the fence has closed. */
+export interface NbDraft {
+  cell: number;
+  type: CellType;
+  source: string;
+  done: boolean;
+}
+
+/**
+ * What a reply still streaming says about the cells it replaces, so the
+ * notebook can show each one being written where it is, as the words come.
+ * Only replacements can be drafted in place — a new cell has nowhere to go
+ * until the answer is whole — and a fence naming no cell is the one being
+ * rewritten only when `fallback` says which that is (cell by cell).
+ */
+export function draftsOf(reply: string, fallback?: number): NbDraft[] {
+  const drafts: NbDraft[] = [];
+  const take = (lang: string, info: string, body: string, done: boolean) => {
+    const type = asType(lang);
+    if (type === null) return;
+    const at = where(info);
+    const cell = at.cell ?? (at.after === undefined && fallback ? fallback : undefined);
+    if (cell === undefined) return;
+    drafts.push({ cell, type, source: body.replace(/\n$/, ''), done });
+  };
+  const rest = reply.replace(FENCE, (_match, _fence: string, lang: string, info: string, body: string) => {
+    take(lang, info, body, true);
+    return '';
+  });
+  const open = /^(`{3,}|~{3,})[ \t]*([A-Za-z0-9_+-]*)([^\n]*)\n([\s\S]*)$/m.exec(rest);
+  if (open) take(open[2], open[3], open[4], false);
+  return drafts;
 }
 
 export interface NbReplyRecord {
@@ -295,7 +331,7 @@ export async function askNotebook(params: { paperId: string; screen: Screen; mod
   // A request for the whole notebook again is the rewrite, with the reader's words steering it; the reply then replaces every cell.
   const mode: 'ask' | 'rewrite' = params.mode === 'rewrite' || wantsWholeNotebook(request) ? 'rewrite' : 'ask';
   const rewriteAsk = `${REWRITE_REQUEST}${params.mode === 'rewrite' ? '' : `\n\nThe reader asks, in their words: “${request}”. Follow that — it decides what the notebook is for, the framework, the scale, the data.`}`;
-  const pending: NbPending = { request, reply: '', started: Date.now() };
+  const pending: NbPending = { request, reply: '', started: Date.now(), scope: mode === 'rewrite' ? undefined : scope };
   update(paperId, { pending: { ...pending }, model });
   let SDK: SDK | null = null;
   try {
@@ -398,6 +434,7 @@ export async function rewriteCells(params: { paperId: string; screen: Screen; mo
       if (!current || at < 0) continue;
       const n = at + 1;
       pending.progress = { done: touched.length, total: targets.length, label: `cell ${n}` };
+      pending.scope = { cell: n };
       pending.reply = '';
       pending.thinking = undefined;
       update(paperId, { pending: { ...pending } });

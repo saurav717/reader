@@ -258,12 +258,37 @@ await page.locator('.nb-ask .ask-status button', { hasText: 'Undo' }).click();
 await page.waitForSelector('.nb-start', { timeout: 5000 });
 check('the one cell and the start are back, DeepSeek still picked', (await page.locator('.nb-cell').count()) === 1 && (await start.locator('.model-pick [aria-checked="true"] b').textContent()) === 'DeepSeek Flash');
 
-console.log('\n== in light ==');
+console.log('\n== in light — and a notebook an earlier build kept, saying Claude, is seeded again ==');
 // The notebook is written a moment after its last change; give Undo's the moment before the reload.
 await page.waitForTimeout(800);
+// What an earlier build kept for a paper opened on the Colab tab before anything was written: the one header cell, signed Claude whatever was picked.
+const planted = await page.evaluate(
+  () =>
+    new Promise((resolve, reject) => {
+      const open = indexedDB.open('reader');
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result;
+        const store = db.transaction('kv', 'readwrite').objectStore('kv');
+        const cursor = store.openCursor(IDBKeyRange.bound('notebook:', 'notebook:\uffff'));
+        cursor.onerror = () => reject(cursor.error);
+        cursor.onsuccess = () => {
+          const at = cursor.result;
+          if (!at) return resolve(null);
+          const nb = at.value;
+          const stale = { ...nb, cells: [{ id: 'old-head', type: 'markdown', source: `# ${nb.title}\n\n*Explained by Claude in Reader. The outputs under each cell were written by Claude, not run — run them to check.*`, outputs: [], count: null }] };
+          const put = at.update(stale);
+          put.onsuccess = () => resolve(String(at.key));
+          put.onerror = () => reject(put.error);
+        };
+      };
+    }),
+);
+check('the old header is planted in the browser’s store', typeof planted === 'string' && planted.startsWith('notebook:'), String(planted));
 await withSettings({ theme: 'light' });
 await page.waitForSelector('.nb-start', { timeout: 15000 });
 check('after a reload the pick is kept with the notebook, and the header still names it', (await page.locator('.nb-start .model-pick [aria-checked="true"] b').textContent()) === 'DeepSeek Flash' && /Notebook with DeepSeek Flash/.test(await page.locator('.explain-brand').textContent()));
+check('the kept notebook that was only the old build’s header is seeded again: one cell, naming no model', (await page.locator('.nb-cell').count()) === 1 && /A notebook of your own in Reader/.test(await page.locator('.nb-cell .nb-markdown').textContent()) && !/Claude/.test(await page.locator('.nb-cell').textContent()), (await page.locator('.nb-cell .nb-markdown').textContent()).slice(0, 120));
 await page.screenshot({ path: `${OUT}/colab-notebook-start-6-light.png` });
 
 console.log('\n== a page explained by DeepSeek seeds a notebook signed by DeepSeek ==');

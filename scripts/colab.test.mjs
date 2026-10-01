@@ -532,6 +532,14 @@ describe('a notebook of the reader’s own', () => {
     assert.ok(!nbLib.isSeedOnly([{ ...cells[0], source: `${cells[0].source}\n\nMy notes.` }]), 'until it is written in');
     assert.ok(!nbLib.isSeedOnly(seedCells('A paper', sections)), 'cells from a page are not it');
   });
+  it('knows the one-cell header an earlier build kept, which always said Claude, so it can be seeded again', () => {
+    const stale = [{ ...newCell('markdown', '# A paper\n\n*Explained by Claude in Reader. The outputs under each cell were written by Claude, not run — run them to check.*') }];
+    assert.ok(nbLib.isStaleSeed(stale));
+    assert.ok(!nbLib.isStaleSeed([{ ...stale[0], source: `${stale[0].source}\n\nMy notes.` }]), 'not once written in');
+    assert.ok(!nbLib.isStaleSeed([...stale, newCell('code', 'print(1)')]), 'not with code');
+    assert.ok(!nbLib.isStaleSeed(seedCells('A paper', sections)), 'not a notebook seeded from a page');
+    assert.ok(!nbLib.isStaleSeed(seedCells('A paper', [])), 'not the blank notebook');
+  });
   it('goes out as an .ipynb Colab reads, and comes back the same', () => {
     const cells = [
       { ...newCell('markdown', '## Hello'), id: 'm1' },
@@ -556,6 +564,29 @@ describe('a notebook of the reader’s own', () => {
   it('names the file from the title', () => {
     assert.equal(notebookFileName('Attention Is All You Need'), 'attention-is-all-you-need.ipynb');
     assert.equal(notebookFileName('!!!'), 'notebook.ipynb');
+  });
+});
+
+describe('a reply still streaming, drafted into its cells', () => {
+  const { draftsOf } = nbLib;
+  it('shows a replacement where it is, as the words come, and knows when its fence has closed', () => {
+    const open = draftsOf('Cell 3 again.\n\n```python cell=3\nimport torch\nprint(');
+    assert.deepEqual(open, [{ cell: 3, type: 'code', source: 'import torch\nprint(', done: false }]);
+    const closed = draftsOf('Cell 3 again.\n\n```python cell=3\nimport torch\nprint(1)\n```\n');
+    assert.deepEqual(closed, [{ cell: 3, type: 'code', source: 'import torch\nprint(1)', done: true }]);
+  });
+  it('drafts nothing for a new cell, which has nowhere to go until the answer is whole', () => {
+    assert.deepEqual(draftsOf('```python after=3\nx = 1\n```\n```python after=end\ny = 2'), []);
+    assert.deepEqual(draftsOf('A line of prose, no fence yet'), []);
+  });
+  it('takes a fence naming no cell as the one being rewritten, cell by cell, and only then', () => {
+    assert.deepEqual(draftsOf('```python\nprint("again")', 4), [{ cell: 4, type: 'code', source: 'print("again")', done: false }]);
+    assert.deepEqual(draftsOf('```python\nprint("again")'), []);
+    assert.deepEqual(draftsOf('```python after=2\nprint("new")', 4), [], 'a placed new cell is not the rewrite');
+  });
+  it('keeps every cell a reply names, a text cell included', () => {
+    const drafts = draftsOf('```markdown cell=1\n## Setup\n```\n```python cell=2\nimport os');
+    assert.deepEqual(drafts.map((d) => [d.cell, d.type, d.done]), [[1, 'markdown', true], [2, 'code', false]]);
   });
 });
 

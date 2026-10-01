@@ -185,7 +185,14 @@ function persist(nb: Notebook) {
   );
 }
 
-/** The paper's notebook from IndexedDB, or a new one from `seed` when there is none yet. */
+/**
+ * A notebook an earlier build seeded with nothing but its header, which
+ * then always said Claude whatever model was picked: one text cell, no code,
+ * nothing of the reader's in it. Seeded again, so the header is right.
+ */
+export const isStaleSeed = (cells: NbCell[]) => cells.length === 1 && cells[0].type === 'markdown' && /^# [^\n]*\n\n\*Explained by Claude in Reader\. The outputs under each cell were written by Claude, not run — run them to check\.\*\s*$/.test(cells[0].source);
+
+/** The paper's notebook from IndexedDB, or a new one from `seed` when there is none yet — or when what is kept is only an old build's header. */
 export async function loadNotebook(paperId: string, title: string, seed: () => NbCell[]): Promise<Notebook> {
   const held = cache.get(paperId);
   if (held) return held;
@@ -197,10 +204,11 @@ export async function loadNotebook(paperId: string, title: string, seed: () => N
   }
   const again = cache.get(paperId);
   if (again) return again;
-  const nb: Notebook = kept && Array.isArray(kept.cells) ? { ...kept, title } : { paperId, title, cells: seed(), updated: Date.now() };
+  const fresh = !kept || !Array.isArray(kept.cells) || isStaleSeed(kept.cells);
+  const nb: Notebook = fresh ? { paperId, title, cells: seed(), updated: Date.now() } : { ...kept!, title };
   cache.set(paperId, nb);
   notify();
-  if (!kept) persist(nb);
+  if (fresh) persist(nb);
   return nb;
 }
 

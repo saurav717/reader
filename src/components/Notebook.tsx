@@ -15,19 +15,20 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import DOMPurify from 'dompurify';
 import { getState as assistantState, geminiNote, looksLikeKey, modelSpec, MODELS, PROVIDERS, saveKey, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
 import type { GeminiReadiness, Screen } from '../lib/assistant';
-import { colabAvailable, colabGranted, connect as connectColab, interrupt as interruptColab, listContents, machineLabel, runAll, runCell } from '../lib/colab';
+import { colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, listContents, machineLabel, runAll, runCell } from '../lib/colab';
 import type { CellRun, RuntimeEntry } from '../lib/colab';
 import { explanationFor } from '../lib/explain';
 import type { Section } from '../lib/explain';
 import { commitFiles, targetFrom } from '../lib/github';
 import { computeOf, implementationFor } from '../lib/implement';
-import { askNotebook, dismissNotebookAsk, loadNotebookAsk, notebookAskFor, outputText, pickNotebookModel, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
-import type { AskScope } from '../lib/notebookAsk';
+import { askNotebook, dismissNotebookAsk, draftsOf, loadNotebookAsk, notebookAskFor, outputText, pickNotebookModel, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
+import type { AskScope, NbDraft } from '../lib/notebookAsk';
 import { findPassage, findSquashed, FLASH_EVENT, setNotebookLocator, squash, takeHeldPassage } from '../lib/locate';
 import type { LocateRequest, LocateResult } from '../lib/locate';
 import { SHOW_CELL, takeHeldCell } from '../lib/notebookNav';
 import type { ShowCell } from '../lib/notebookNav';
 import { markdown } from '../lib/markdown';
+import { typesetMath } from '../lib/typesetMath';
 import { appendCells, cellStatus, clearOutputs, fromIpynb, insertCell, isSeedOnly, loadNotebook, moveCell, notebookFileName, notebookFor, removeCell, runKey, seedCells, setCells, setOutputs, setSource, setType, subscribeNotebook, toIpynb } from '../lib/notebook';
 import type { NbCell } from '../lib/notebook';
 import { useStore } from '../lib/store';
@@ -146,6 +147,7 @@ function Cell({
   onAsk,
   lit,
   asker,
+  draft,
 }: {
   paperId: string;
   cell: NbCell;
@@ -164,8 +166,20 @@ function Cell({
   lit?: boolean;
   /** Who the ask bar answers with, for the buttons under a failed cell. */
   asker?: string;
+  /** The cell as the model is writing it now, word by word, in place of the code until the answer is whole. */
+  draft?: NbDraft;
 }) {
   const live = run?.state === 'running' || run?.state === 'queued';
+  // A text cell's maths, typeset once it is on screen — again whenever its text changes or its editor closes.
+  const prose = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (cell.type === 'markdown' && !editing) void typesetMath(prose.current);
+  }, [cell.type, cell.source, editing]);
+  // A cell the model has just rewritten has not run: the run kept for the old code — its traceback, say — goes with the code.
+  useEffect(() => {
+    if (cell.fresh === 'changed' && run && !live) forgetRun(runKey(cell.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cell.fresh]);
   // What is shown under the cell: the run in the Colab store while there is one, else what the notebook kept.
   const shown: CellRun | undefined = run ?? (cell.outputs.length || cell.count !== null ? { state: 'ran', outputs: cell.outputs, startedAt: cell.ranAt ?? 0, where: cell.ranAt ? 'Colab · kept with the notebook' : 'kept with the notebook', executionCount: cell.count ?? undefined } : undefined);
   // A run that has ended goes into the notebook, so it is there after a reload.
@@ -191,12 +205,12 @@ function Cell({
     }
   };
   const python = cell.type === 'code';
-  const status = cellStatus(cell, run);
+  const status = draft ? null : cellStatus(cell, run);
   const statusText =
     status === 'running' ? 'running' : status === 'queued' ? 'queued' : status === 'ran' ? `ran${cell.ranAt ? ` ${time(cell.ranAt)}` : ''}` : status === 'failed' ? 'failed' : status === 'stopped' ? 'stopped' : status === 'changed' ? 'changed since it ran' : status === 'earlier' ? 'ran earlier, elsewhere' : status === 'never' ? 'not run yet' : '';
   return (
     <section
-      className={`nb-cell is-${cell.type}${selected ? ' is-selected' : ''}${editing ? ' is-editing' : ''}${run ? ` is-${run.state}` : ''}${cell.fresh ? ' is-fresh' : ''}${lit ? ' is-shown' : ''}`}
+      className={`nb-cell is-${cell.type}${selected ? ' is-selected' : ''}${editing ? ' is-editing' : ''}${run ? ` is-${run.state}` : ''}${cell.fresh ? ' is-fresh' : ''}${lit ? ' is-shown' : ''}${draft ? ' is-drafting' : ''}`}
       data-cell={cell.id}
       onMouseDown={onSelect}
       aria-label={`${cell.type === 'code' ? 'Code' : 'Text'} cell ${index + 1}`}
@@ -221,18 +235,40 @@ function Cell({
         {status ? <span className={`nb-ran is-${status}`} role="img" aria-label={`This cell: ${statusText}`} title={statusText} /> : null}
       </div>
       <div className="nb-body">
-        {cell.fresh ? (
+        {draft ? (
+          <span className="revised-pill nb-fresh nb-drafting" title="The model's answer, as it comes; the cell changes when the answer is whole, and Undo on the bar puts it back">
+            <span className="spinner" /> {asker ?? 'The model'} is {draft.done ? 'finishing' : 'rewriting'} this cell…
+          </span>
+        ) : cell.fresh ? (
           <span className="revised-pill nb-fresh" title="From the ask bar; the mark goes when the cell is edited or run">
             {cell.fresh === 'new' ? 'New · from the ask bar' : 'Rewritten at your request'}
           </span>
         ) : null}
-        {cell.type === 'code' || editing ? (
+        {draft ? (
+          // The draft where the code is, coloured as the code is, with a caret at the end while it streams; the cell's own text waits under it.
+          <div className="nb-editor nb-draft" aria-live="polite" aria-label={`Cell ${index + 1}, being rewritten`}>
+            <pre className="cell-code nb-shadow">
+              <code dangerouslySetInnerHTML={{ __html: (draft.type === 'code' ? highlightPython(draft.source) : esc(draft.source)) + (draft.done ? '\n' : '') }} />
+              {draft.done ? null : <span className="caret" aria-hidden="true" />}
+            </pre>
+          </div>
+        ) : cell.type === 'code' || editing ? (
           <Editor value={cell.source} python={python} autoFocus={editing} onChange={(next) => setSource(paperId, cell.id, next)} onKeyDown={keys} placeholder={python ? '# Python, on your Colab runtime' : 'Markdown'} onBlur={() => (python ? onEdit(false) : undefined)} />
         ) : (
-          <div className="nb-markdown explain-prose" onDoubleClick={() => onEdit(true)} dangerouslySetInnerHTML={{ __html: cell.source.trim() ? mdHtml(cell.source) : '<p class="nb-empty">Empty text cell — double-click to write</p>' }} />
+          <div ref={prose} className="nb-markdown explain-prose" onDoubleClick={() => onEdit(true)} dangerouslySetInnerHTML={{ __html: cell.source.trim() ? mdHtml(cell.source) : '<p class="nb-empty">Empty text cell — double-click to write</p>' }} />
         )}
-        {python && run ? <RunState run={run} /> : null}
-        {python && shown ? <CellRunOutput run={shown} asker={asker} onAsk={onAsk ? (request) => onAsk(request, cell.source.slice(0, 1500)) : undefined} onForget={() => setOutputs(paperId, cell.id, [], null, undefined)} /> : null}
+        {python && run && !draft ? <RunState run={run} /> : null}
+        {python && shown && !draft ? (
+          <CellRunOutput
+            run={shown}
+            asker={asker}
+            onAsk={onAsk ? (request) => onAsk(request, cell.source.slice(0, 1500)) : undefined}
+            onForget={() => {
+              forgetRun(runKey(cell.id));
+              setOutputs(paperId, cell.id, [], null, undefined);
+            }}
+          />
+        ) : null}
       </div>
       <div className="nb-tools" role="toolbar" aria-label="Cell">
         {status ? <span className={`nb-tools-state is-${status}`}>{statusText}</span> : null}
@@ -538,6 +574,26 @@ export default function NotebookPage({
     setJustAsked(true);
     await askNotebook({ paperId, screen: read, model, request, scope, runs: colab.runs, pages: { explanation: explanationFor(paperId)?.content, plan: implementationFor(paperId)?.content } });
   };
+  // While a reply streams, the cells it is rewriting show it as it comes, each where it is; the first time a cell is drafted it comes into view.
+  const pendingReply = nbAsk.pending && !nbAsk.pending.error ? nbAsk.pending.reply : '';
+  const pendingFallback = nbAsk.pending?.progress ? nbAsk.pending.scope?.cell : undefined;
+  const drafts = useMemo(() => (pendingReply ? draftsOf(pendingReply, pendingFallback) : []), [pendingReply, pendingFallback]);
+  const draftFor = (index: number) => {
+    const mine = drafts.filter((draft) => draft.cell === index + 1);
+    return mine.length ? mine[mine.length - 1] : undefined;
+  };
+  const drafted = useRef<string | null>(null);
+  useEffect(() => {
+    const latest = drafts.length ? cells[drafts[drafts.length - 1].cell - 1] : undefined;
+    if (!latest) {
+      if (!drafts.length) drafted.current = null;
+      return;
+    }
+    if (drafted.current === latest.id) return;
+    drafted.current = latest.id;
+    goTo(latest.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drafts]);
   // A reply landed: the first cell it wrote or changed comes into view, picked.
   const lastAt = nbAsk.last?.at;
   useEffect(() => {
@@ -954,6 +1010,7 @@ export default function NotebookPage({
                 onAsk={canAsk ? (request, cellQuote) => void submit(request, { cell: index + 1, quote: cellQuote }) : undefined}
                 lit={shown === cell.id}
                 asker={writer}
+                draft={draftFor(index)}
               />
             ))
           )}

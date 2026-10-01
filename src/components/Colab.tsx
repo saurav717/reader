@@ -10,7 +10,7 @@ import { colabAvailable, colabNow, compareOutput, connect, differingLines, disco
 import { useStore } from '../lib/store';
 import type { MachineSample, MachineSpecs } from '../lib/telemetry';
 import { gigabytes, hasCurve, lossSeries, MACHINE_PROBE } from '../lib/telemetry';
-import { LossChart, MachineChart } from './Charts';
+import { LossChart } from './Charts';
 
 export const useColab = () => useSyncExternalStore(subscribeColab, colabNow);
 
@@ -257,7 +257,7 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
                 <small>
                   A few lines of the reader's own, in a second kernel, every two seconds: {colab.runtime?.accelerator ? <code>nvidia-smi</code> : null}
                   {colab.runtime?.accelerator ? ', ' : ''}
-                  <code>/proc/stat</code>, <code>/proc/meminfo</code> and the disk. Drawn under the cell as GPU and CPU use, VRAM and RAM.{' '}
+                  <code>/proc/stat</code>, <code>/proc/meminfo</code> and the disk. Drawn in the Runtime pane as GPU and CPU use, VRAM and RAM — not under the cells.{' '}
                   <button type="button" className="link" onClick={() => setProbe(!probe)}>
                     {probe ? 'Hide the probe' : 'Show the probe'}
                   </button>
@@ -429,7 +429,7 @@ export function CellRunOutput({ run, expected, onAsk, onForget, asker = 'Claude'
   const actual = outputText(run.outputs);
   const marked = verdict === 'differs' ? differingLines(expected, actual) : new Set<number>();
   const failed = run.outputs.some((output) => output.type === 'error');
-  // A training loop that prints its losses earns a curve; a GPU that was watched, its use.
+  // A training loop that prints its losses earns a curve. The machine's use while it ran is the Runtime pane's, not the cell's: under every cell it was only in the way.
   const losses = useMemo(() => lossSeries(actual), [actual]);
   const curve = hasCurve(losses);
   // Line offsets so the tint lands on the right line across several stream outputs.
@@ -458,7 +458,6 @@ export function CellRunOutput({ run, expected, onAsk, onForget, asker = 'Claude'
       {run.outputs.length ? run.outputs.map((output, index) => <OutputView key={index} output={output} marked={marked} offset={offsets[index]} />) : !live ? <pre className="is-empty">(nothing printed)</pre> : null}
       {live && run.outputs.length ? <span className="caret" aria-hidden="true" /> : null}
       {curve ? <LossChart series={losses} live={live} /> : null}
-      {run.samples && run.samples.length >= 2 ? <MachineChart samples={run.samples} live={live} /> : null}
       {!live ? (
         <div className="cell-actions">
           {onAsk && failed ? (
