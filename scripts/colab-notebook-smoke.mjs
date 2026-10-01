@@ -68,6 +68,9 @@ function answer(code) {
   const printed = [...code.matchAll(/^print\((["'])(.*?)\1\)$/gm)].map((m) => m[2]);
   if (printed.length) return { lines: printed };
   if (/^\s*$/.test(code)) return { lines: [] };
+  // A cell that raises: the traceback a kernel sends, after whatever it printed first.
+  const raised = /raise (\w+)\((["'])(.*?)\2\)/.exec(code);
+  if (raised) return { lines: printed, error: { ename: raised[1], evalue: raised[3] } };
   return { lines: ['ok'] };
 }
 kernels.on('connection', (socket) => {
@@ -86,7 +89,7 @@ kernels.on('connection', (socket) => {
     if (message?.header?.msg_type !== 'execute_request') return;
     const parent = message.header.msg_id;
     const code = String(message.content?.code ?? '');
-    const { lines, probe, every = 30 } = answer(code);
+    const { lines, probe, every = 30, error } = answer(code);
     if (probe) probes.push(Date.now());
     else {
       ran.push(code);
@@ -111,6 +114,10 @@ kernels.on('connection', (socket) => {
     if (cut) {
       send(socket, 'error', { ename: 'KeyboardInterrupt', evalue: '', traceback: ['KeyboardInterrupt'] }, parent);
       send(socket, 'execute_reply', { status: 'error', ename: 'KeyboardInterrupt', evalue: '', traceback: ['KeyboardInterrupt'], execution_count: executionCount }, parent, 'shell');
+    } else if (error) {
+      const traceback = ['Traceback (most recent call last):', '  File "<cell>", line 2, in <module>', `${error.ename}: ${error.evalue}`];
+      send(socket, 'error', { ...error, traceback }, parent);
+      send(socket, 'execute_reply', { status: 'error', ...error, traceback, execution_count: executionCount }, parent, 'shell');
     } else send(socket, 'execute_reply', { status: 'ok', execution_count: probe ? undefined : executionCount }, parent, 'shell');
     send(socket, 'status', { execution_state: 'idle' }, parent);
   });
@@ -248,9 +255,14 @@ await context.addInitScript(
       }
       const forNotebook = /writing cells for a Jupyter notebook/.test(body) && (cellAsked ? sseOf(`Cell ${cellAsked[1]} again.\n\n\`\`\`python cell=${cellAsked[1]}\n# rewritten by the stand-in\nprint("cell ${cellAsked[1]} rewritten")\n\`\`\``) : window.__nbReply);
       const events = forNotebook || explanation;
+      // A notebook reply streams at the pace the test set in window.__nbReplyDelay, so what the page does mid-answer can be seen.
+      const delay = forNotebook && !cellAsked ? window.__nbReplyDelay || 0 : 0;
       const stream = new ReadableStream({
         async start(controller) {
-          for (const event of events) controller.enqueue(new TextEncoder().encode(event));
+          for (const event of events) {
+            controller.enqueue(new TextEncoder().encode(event));
+            if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+          }
           controller.close();
         },
       });
@@ -573,6 +585,76 @@ await page.screenshot({ path: `${OUT}/colab-notebook-11-ask-hidden-dark.png` });
 await askToggle.click();
 await page.waitForTimeout(200);
 check('and comes back from the toolbar, with its status still there', (await page.locator('.nb-ask').count()) === 1 && (await bar.getByRole('button', { name: 'Undo' }).count()) === 1 && (await page.evaluate(() => localStorage.getItem('reader.colab.ask-bar'))) === 'shown');
+
+console.log('\n== a cell that fails, fixed by the model where it is, as the answer streams ==');
+// A cell that raises, at the end of the notebook, far down the page.
+await page.locator('.nb-cells').click({ position: { x: 4, y: 4 } });
+await page.locator('.nb-add').click();
+await page.waitForTimeout(200);
+await page.locator('.nb-cell.is-selected .nb-text').click();
+await page.keyboard.type('shape = (3, 4)\nraise ValueError("bad shape")');
+await page.keyboard.press('Control+Enter');
+await page.waitForSelector('.nb-cell.is-failed', { timeout: 15000 });
+await page.waitForTimeout(400);
+const failing = page.locator('.nb-cell.is-failed').first();
+const failingIndex = await failing.evaluate((el) => Array.from(document.querySelectorAll('.nb-cell')).indexOf(el) + 1);
+check('the cell failed, with its traceback under it and a button to have the model fix it', /ValueError: bad shape/.test(await failing.locator('.cell-error').textContent()) && (await failing.getByRole('button', { name: /fix this cell/ }).count()) === 1, `cell ${failingIndex}`);
+await failing.scrollIntoViewIfNeeded();
+const scroller = page.locator('.nb-cells');
+const scrolledBefore = await scroller.evaluate((el) => el.scrollTop);
+check('the cell is far down the notebook', scrolledBefore > 400, `scrollTop ${Math.round(scrolledBefore)}`);
+const inView = async (locator) => {
+  const box = await locator.boundingBox();
+  const frame = await scroller.boundingBox();
+  return box && frame && box.y + 40 < frame.y + frame.height && box.y + box.height > frame.y + 40;
+};
+await page.evaluate(
+  (events) => {
+    window.__nbReply = events;
+    window.__nbReplyDelay = 150;
+  },
+  sse(`The shape was fine; the raise was the bug.\n\n\`\`\`python cell=${failingIndex}\nimport numpy as np\nshape = (3, 4)\nx = np.zeros(shape)\nprint("shape ok:", x.shape)\n\`\`\``, 16),
+);
+await failing.getByRole('button', { name: /fix this cell/ }).click();
+await page.waitForSelector('.nb-cell.is-drafting', { timeout: 15000 });
+const drafting = page.locator('.nb-cell.is-drafting');
+check('while the answer streams, the failing cell itself shows it being rewritten, in place', (await drafting.count()) === 1 && (await drafting.evaluate((el) => Array.from(document.querySelectorAll('.nb-cell')).indexOf(el) + 1)) === failingIndex && /is rewriting this cell/.test(await drafting.locator('.nb-drafting').textContent()));
+const partial = await drafting.locator('.nb-draft code').textContent();
+await page.waitForTimeout(500);
+const later = await drafting.locator('.nb-draft code').textContent();
+check('the code lands word by word, with a caret at its end', later.length > partial.length && (await drafting.locator('.nb-draft .caret').count()) === 1, `${partial.length} → ${later.length} characters`);
+check('and the view stays on that cell, not the top of the notebook', (await inView(drafting)) && (await scroller.evaluate((el) => el.scrollTop)) > 400, `scrollTop ${Math.round(await scroller.evaluate((el) => el.scrollTop))}`);
+await page.screenshot({ path: `${OUT}/colab-notebook-18-fixing-live-dark.png` });
+await page.waitForSelector('.nb-ask .ask-status.is-done', { timeout: 30000 });
+await page.waitForTimeout(500);
+const fixed = page.locator('.nb-cell').nth(failingIndex - 1);
+check('when the answer is whole the cell is the fix, marked as rewritten, with the old traceback gone', /np\.zeros\(shape\)/.test(await fixed.locator('.nb-text').inputValue()) && (await fixed.locator('.nb-fresh').textContent()) === 'Rewritten at your request' && (await fixed.locator('.cell-error').count()) === 0 && (await page.locator('.nb-cell.is-drafting').count()) === 0 && (await fixed.locator('.nb-ran.is-never').count()) === 1);
+check('and the view is still on it', (await inView(fixed)) && (await scroller.evaluate((el) => el.scrollTop)) > 400, `scrollTop ${Math.round(await scroller.evaluate((el) => el.scrollTop))}`);
+await page.evaluate(() => {
+  window.__nbReplyDelay = 0;
+});
+await bar.getByRole('button', { name: 'Undo' }).click();
+await page.waitForTimeout(300);
+check('Undo puts the failing cell back', /raise ValueError/.test(await fixed.locator('.nb-text').inputValue()));
+await fixed.hover();
+await fixed.locator('.nb-tools button[aria-label="Delete"]').click();
+await page.waitForTimeout(200);
+
+console.log('\n== a text cell with maths ==');
+await page.locator('.nb-cells').click({ position: { x: 4, y: 4 } });
+await page.locator('.nb-add').click();
+await page.waitForTimeout(200);
+await page.locator('.nb-cell.is-selected .nb-text').click();
+await page.keyboard.type('Scaled attention is $\\mathrm{softmax}(QK^\\top / \\sqrt{d_k})\\,V$, and in full:\n\n$$\\mathrm{Attention}(Q, K, V) = \\mathrm{softmax}\\left(\\frac{QK^\\top}{\\sqrt{d_k}}\\right) V$$');
+await page.locator('.nb-cell.is-selected .nb-tools button', { hasText: 'Text' }).click();
+await page.waitForFunction(() => document.querySelectorAll('.nb-cell.is-markdown .katex').length >= 2, null, { timeout: 15000 });
+const mathCell = page.locator('.nb-cell.is-markdown', { hasText: 'Scaled attention is' });
+check('the maths in a text cell is typeset — inline and as a display line — not left as TeX', (await mathCell.locator('.chat-math .katex').count()) === 1 && (await mathCell.locator('.chat-math-block .katex-display').count()) === 1 && !/\\sqrt/.test(await mathCell.locator('.nb-markdown').innerText()));
+await mathCell.scrollIntoViewIfNeeded();
+await page.screenshot({ path: `${OUT}/colab-notebook-19-maths-dark.png` });
+await mathCell.hover();
+await mathCell.locator('.nb-tools button[aria-label="Delete"]').click();
+await page.waitForTimeout(200);
 
 console.log('\n== the bar, asked for the whole notebook again ==');
 await page.locator('.nb-cells').click({ position: { x: 4, y: 4 } });

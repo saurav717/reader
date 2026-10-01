@@ -567,6 +567,29 @@ describe('a notebook of the reader’s own', () => {
   });
 });
 
+describe('a reply still streaming, drafted into its cells', () => {
+  const { draftsOf } = nbLib;
+  it('shows a replacement where it is, as the words come, and knows when its fence has closed', () => {
+    const open = draftsOf('Cell 3 again.\n\n```python cell=3\nimport torch\nprint(');
+    assert.deepEqual(open, [{ cell: 3, type: 'code', source: 'import torch\nprint(', done: false }]);
+    const closed = draftsOf('Cell 3 again.\n\n```python cell=3\nimport torch\nprint(1)\n```\n');
+    assert.deepEqual(closed, [{ cell: 3, type: 'code', source: 'import torch\nprint(1)', done: true }]);
+  });
+  it('drafts nothing for a new cell, which has nowhere to go until the answer is whole', () => {
+    assert.deepEqual(draftsOf('```python after=3\nx = 1\n```\n```python after=end\ny = 2'), []);
+    assert.deepEqual(draftsOf('A line of prose, no fence yet'), []);
+  });
+  it('takes a fence naming no cell as the one being rewritten, cell by cell, and only then', () => {
+    assert.deepEqual(draftsOf('```python\nprint("again")', 4), [{ cell: 4, type: 'code', source: 'print("again")', done: false }]);
+    assert.deepEqual(draftsOf('```python\nprint("again")'), []);
+    assert.deepEqual(draftsOf('```python after=2\nprint("new")', 4), [], 'a placed new cell is not the rewrite');
+  });
+  it('keeps every cell a reply names, a text cell included', () => {
+    const drafts = draftsOf('```markdown cell=1\n## Setup\n```\n```python cell=2\nimport os');
+    assert.deepEqual(drafts.map((d) => [d.cell, d.type, d.done]), [[1, 'markdown', true], [2, 'code', false]]);
+  });
+});
+
 describe('the model picked to write the notebook', () => {
   const { pickNotebookModel, notebookAskFor } = nbLib;
   it('is kept with the notebook’s requests, so the header and the bar name it before anything is asked', () => {

@@ -5192,6 +5192,13 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .nb-tools button.is-danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
 .nb-add { display: block; margin: 4px auto 18px; padding: 6px 14px; border: 1px dashed var(--border); border-radius: 999px; background: transparent; color: var(--muted); font: 500 12px var(--sans); cursor: pointer; }
 .nb-add:hover { color: var(--accent); border-color: var(--accent); }
+/* A cell being rewritten by the model: the answer drawn where the code is, as it streams. */
+.nb-cell.is-drafting { border-color: rgb(var(--accent-rgb) / 0.45); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12); }
+.nb-drafting { display: inline-flex; align-items: center; gap: 6px; }
+.nb-drafting .spinner { width: 10px; height: 10px; border-width: 1.5px; }
+.nb-draft .nb-shadow { position: static; visibility: visible; color: var(--ink); pointer-events: none; }
+.nb-draft .caret { display: inline-block; width: 7px; height: 1.1em; margin-left: 2px; vertical-align: text-bottom; background: var(--accent); animation: nb-caret 1s steps(2) infinite; }
+@keyframes nb-caret { 50% { opacity: 0; } }
 /* The start: which model writes the notebook, under the one cell a blank notebook has. */
 .nb-start { max-width: 980px; margin: 6px auto 22px; padding: 18px 20px 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); }
 .nb-start-head h2 { font: 500 24px/1.2 var(--serif); letter-spacing: -0.01em; margin: 10px 0 8px; color: var(--ink); }
