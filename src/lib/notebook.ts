@@ -144,10 +144,15 @@ export function fromIpynb(text: string): NbCell[] | null {
 /**
  * The page's own cells as a notebook: the explanation's or the plan's, the
  * way Colab → Download the notebook writes them, with the expected outputs left out — those
- * were written by Claude, and the point of the notebook is to run them.
+ * were written by the model, and the point of the notebook is to run them.
+ * `writer` is that model's name, for the header; with no page written yet
+ * there are no cells to seed, and the one cell says whose the notebook is:
+ * the reader's, with the model to write it still to be picked.
  */
-export function seedCells(title: string, sections: Section[]): NbCell[] {
-  return fromIpynb(pageNotebook(title, sections)) ?? [];
+const BLANK_LINE = '*A notebook of your own in Reader. Its cells run on your Colab runtime, and what they print is kept under them.*';
+export function seedCells(title: string, sections: Section[], writer?: string): NbCell[] {
+  if (!sections.length) return [newCell('markdown', `# ${title}\n\n${BLANK_LINE}`)];
+  return fromIpynb(pageNotebook(title, sections, writer)) ?? [];
 }
 
 // ------------------------------------------------------------- the store ---
@@ -215,6 +220,9 @@ export const setOutputs = (paperId: string, id: string, outputs: Output[], count
 export const clearOutputs = (paperId: string) => update(paperId, (cells) => cells.map((cell) => ({ ...cell, outputs: [], count: null, ranAt: undefined, ranSource: undefined })));
 export const removeCell = (paperId: string, id: string) => update(paperId, (cells) => (cells.length > 1 ? cells.filter((cell) => cell.id !== id) : cells.map((cell) => (cell.id === id ? { ...cell, source: '', outputs: [], count: null } : cell))));
 export const appendCells = (paperId: string, more: NbCell[]) => update(paperId, (cells) => [...cells, ...more]);
+/** Whether the notebook is still just the one cell a blank notebook opens with, untouched: then cells added take its place. */
+export const isSeedOnly = (cells: NbCell[]) => cells.length === 1 && cells[0].type === 'markdown' && new RegExp(`^# [^\\n]*\\n\\n${BLANK_LINE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`).test(cells[0].source);
+export const setCells = (paperId: string, next: NbCell[]) => update(paperId, () => next);
 
 /** A new cell before or after `id` (at the end when `id` is null), and its id. */
 export function insertCell(paperId: string, id: string | null, where: 'above' | 'below', type: CellType = 'code'): string {

@@ -524,7 +524,7 @@ await page.screenshot({ path: `${OUT}/colab-notebook-3-typed-dark.png` });
 console.log('\n== the ask bar writes cells ==');
 const bar = page.locator('.nb-ask');
 const askInput = bar.locator('input');
-check('the bar is under the toolbar, and says who writes', /^Ask Claude to write/.test(await askInput.getAttribute('placeholder')), await askInput.getAttribute('placeholder'));
+check('the bar is under the toolbar, and says who writes, by the model’s name', /^Ask Claude Opus 5 to write/.test(await askInput.getAttribute('placeholder')), await askInput.getAttribute('placeholder'));
 const firstCode = page.locator('.nb-cell.is-code').first();
 await firstCode.scrollIntoViewIfNeeded();
 await firstCode.locator('.nb-count').click();
@@ -695,8 +695,8 @@ await pane.getByRole('tab', { name: 'Runtime' }).click();
 const strip = pane.locator('.rt-run');
 check('the pane has Run all, and Pause and Stop wait for a run', (await strip.getByRole('button', { name: /Run all/ }).isEnabled()) && (await strip.getByRole('button', { name: /Pause/ }).isDisabled()) && (await strip.getByRole('button', { name: /Stop/ }).isDisabled()));
 await page.locator('.nb-cells').click({ position: { x: 4, y: 4 } });
+// One click: Run all runs at once, with no confirmation step.
 await strip.getByRole('button', { name: /Run all/ }).click();
-await strip.getByRole('button', { name: 'Run all', exact: true }).click();
 await page.waitForSelector('.nb-cell.is-running:has-text("time.sleep")', { timeout: 30000 });
 await page.waitForTimeout(300);
 check('Run all queues every code cell and runs them in order', (await page.locator('.nb-cell.is-queued').count()) >= 1 && /running cell \d+ · \d+ queued/.test(await strip.locator('.rt-run-state').textContent()), await strip.locator('.rt-run-state').textContent());
@@ -705,7 +705,6 @@ await page.waitForSelector('.nb-cell.is-running', { state: 'detached', timeout: 
 await page.waitForTimeout(600);
 check('Stop interrupts the cell running and drops the rest', (await page.locator('.nb-cell.is-queued').count()) === 0 && (await page.locator('.nb-cell.is-running').count()) === 0 && (await page.locator('.nb-cell.is-failed:has-text("time.sleep")').count()) === 1 && (await strip.getByRole('button', { name: /Run all/ }).count()) === 1);
 await strip.getByRole('button', { name: /Run all/ }).click();
-await strip.getByRole('button', { name: 'Run all', exact: true }).click();
 await page.waitForSelector('.nb-cell.is-running:has-text("time.sleep")', { timeout: 30000 });
 await strip.getByRole('button', { name: /Pause/ }).click();
 await page.waitForTimeout(200);

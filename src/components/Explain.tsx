@@ -1008,9 +1008,9 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const nb = useSyncExternalStore(subscribeNotebook, () => notebookFor(paperId));
   const bundle = useMemo(() => {
     if (page === 'colab') return nb ? notebookBundle(`notebooks/${notebookFileName(title)}`, toIpynb(nb)) : null;
-    return explanation?.content && !streaming ? bundleOf(title, shown, sections, implementing ? 'plan' : 'page') : null;
+    return explanation?.content && !streaming ? bundleOf(title, shown, sections, implementing ? 'plan' : 'page', writer) : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, nb?.updated, explanation?.content, streaming, shown, sections, implementing, title]);
+  }, [page, nb?.updated, explanation?.content, streaming, shown, sections, implementing, title, writer]);
   const [nbRewrite, setNbRewriteState] = useState<NotebookRewrite>(readNotebookRewrite);
   // Snip is the pages' own; on the Colab tab its layer would only sit over the cells.
   useEffect(() => {
