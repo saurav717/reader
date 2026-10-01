@@ -8,7 +8,7 @@
 // disk a pane away. It is seeded from the page's own cells the first time,
 // goes out as an .ipynb — to a file, to GitHub, to Colab's own page — and
 // takes one in. The model and the store are src/lib/notebook.ts. Nothing
-// runs without a click or a Shift-Enter on that cell; Run all asks first.
+// runs without a click or a Shift-Enter on that cell; Run all runs every code cell at once.
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
@@ -353,7 +353,26 @@ export function FilesPane() {
 
 type Push = { state: 'idle' } | { state: 'pushing' } | { state: 'pushed'; url: string } | { state: 'error'; message: string };
 
-export default function NotebookPage({ paperId, title, screen, sections, planSections }: { paperId: string; title: string; screen: () => Promise<Screen>; sections: Section[]; planSections?: () => Section[] | null }) {
+export type NbSide = 'runtime' | 'files' | 'metrics' | null;
+
+export default function NotebookPage({
+  paperId,
+  title,
+  screen,
+  side,
+  onSide,
+  sections,
+  planSections,
+}: {
+  paperId: string;
+  title: string;
+  screen: () => Promise<Screen>;
+  /** The pane on the right — the runtime, the metrics, the files — or nothing: the header's Runtime and Metrics open it, and the page's own Files. */
+  side: NbSide;
+  onSide: (next: NbSide) => void;
+  sections: Section[];
+  planSections?: () => Section[] | null;
+}) {
   const nb = useNotebook(paperId);
   const colab = useColab();
   const { settings } = useStore();
@@ -376,11 +395,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
   const askRef = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
-  /** The pane on the right: the runtime, the files, or nothing. It opens on its own when a runtime connects, and folds when it ends. */
-  const [side, setSide] = useState<'runtime' | 'files' | 'metrics' | null>(null);
-  const closedByHand = useRef(false);
   const [card, setCard] = useState<{ then: () => void } | null>(null);
-  const [confirmAll, setConfirmAll] = useState(false);
   const [push, setPush] = useState<Push>({ state: 'idle' });
   const [note, setNote] = useState<string | null>(null);
   const lastKey = useRef<{ key: string; at: number } | null>(null);
@@ -402,18 +417,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
   const thought = lastThought(nbAsk.pending?.thinking);
   const available = colabAvailable(settings.googleClientId);
   const connected = colab.status === 'idle' || colab.status === 'busy';
-  useEffect(() => {
-    if (connected) {
-      if (!closedByHand.current) setSide((current) => current ?? 'runtime');
-    } else {
-      setSide((current) => (current === 'runtime' ? null : current));
-      closedByHand.current = false;
-    }
-  }, [connected]);
-  const closeSide = () => {
-    closedByHand.current = true;
-    setSide(null);
-  };
+  const closeSide = () => onSide(null);
   // The plan's compute block, for the ticks on the pane's meters, when the paper has a plan.
   const compute = useMemo(() => {
     const plan = planSections?.();
@@ -582,7 +586,6 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
     go();
   };
   const runEverything = () => {
-    setConfirmAll(false);
     void runAll(cells.filter((cell) => cell.type === 'code' && cell.source.trim()).map((cell) => ({ key: runKey(cell.id), code: cell.source })));
   };
 
@@ -700,18 +703,8 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
           <button type="button" className="btn sm colab-stop" onClick={() => void interruptColab()}>
             ■ Stop
           </button>
-        ) : confirmAll ? (
-          <span className="nb-confirm">
-            Run every code cell, top to bottom? It stops at the first that fails.
-            <button type="button" className="btn sm primary" onClick={runEverything}>
-              Run all
-            </button>
-            <button type="button" className="btn sm ghost" onClick={() => setConfirmAll(false)}>
-              Not now
-            </button>
-          </span>
         ) : (
-          <button type="button" className="btn sm colab" disabled={!available || busy || !cells.some((cell) => cell.type === 'code')} onClick={() => (colab.status === 'off' && !colabGranted() ? setCard({ then: runEverything }) : setConfirmAll(true))} title="Every code cell in order; asks first, stops at the first error">
+          <button type="button" className="btn sm colab" disabled={!available || busy || !cells.some((cell) => cell.type === 'code')} onClick={() => (colab.status === 'off' && !colabGranted() ? setCard({ then: runEverything }) : runEverything())} title="Every code cell in order, at once; stops at the first error">
             ▶ Run all
           </button>
         )}
@@ -752,13 +745,7 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
         <button type="button" className={`btn sm ghost${askBar ? ' is-on' : ''}`} aria-pressed={askBar} onClick={() => showAskBar(!askBar)} title={askBar ? 'Hide the ask bar' : 'Show the ask bar: cells written, changed and fixed for you'}>
           Ask
         </button>
-        <button type="button" className={`btn sm ghost${side === 'runtime' ? ' is-on' : ''}`} aria-pressed={side === 'runtime'} onClick={() => (side === 'runtime' ? closeSide() : setSide('runtime'))} title="The machine: how busy it is, the last ten minutes, what is left of the session">
-          Runtime
-        </button>
-        <button type="button" className={`btn sm ghost${side === 'metrics' ? ' is-on' : ''}`} aria-pressed={side === 'metrics'} onClick={() => (side === 'metrics' ? closeSide() : setSide('metrics'))} title="Training metrics, read off what the cells print: loss, accuracy, lr… a chart a metric, live">
-          Metrics
-        </button>
-        <button type="button" className={`btn sm ghost${side === 'files' ? ' is-on' : ''}`} aria-pressed={side === 'files'} onClick={() => (side === 'files' ? closeSide() : setSide('files'))} title="What is on the runtime's disk">
+        <button type="button" className={`btn sm ghost${side === 'files' ? ' is-on' : ''}`} aria-pressed={side === 'files'} onClick={() => (side === 'files' ? closeSide() : onSide('files'))} title="What is on the runtime's disk; Runtime and Metrics are in the header">
           Files
         </button>
         <input ref={filePick} type="file" accept=".ipynb,application/x-ipynb+json,application/json" hidden onChange={(event) => void addFromFile(event.target.files?.[0]).then(() => (event.target.value = ''))} />
@@ -960,13 +947,13 @@ export default function NotebookPage({ paperId, title, screen, sections, planSec
         {side ? (
           <aside className="nb-side" aria-label={side === 'runtime' ? 'The runtime' : side === 'metrics' ? 'Training metrics' : 'Files on the runtime'}>
             <div className="nb-side-tabs" role="tablist">
-              <button type="button" role="tab" aria-selected={side === 'runtime'} onClick={() => setSide('runtime')}>
+              <button type="button" role="tab" aria-selected={side === 'runtime'} onClick={() => onSide('runtime')}>
                 Runtime
               </button>
-              <button type="button" role="tab" aria-selected={side === 'metrics'} onClick={() => setSide('metrics')}>
+              <button type="button" role="tab" aria-selected={side === 'metrics'} onClick={() => onSide('metrics')}>
                 Metrics
               </button>
-              <button type="button" role="tab" aria-selected={side === 'files'} onClick={() => setSide('files')}>
+              <button type="button" role="tab" aria-selected={side === 'files'} onClick={() => onSide('files')}>
                 Files
               </button>
               <span className="spacer" />

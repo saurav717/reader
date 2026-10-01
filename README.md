@@ -2610,8 +2610,11 @@ What it writes, in this order:
   run. **Run in Colab** runs exactly that code in a Colab runtime of your own
   and puts what it printed under the cell, with a verdict against what Claude
   expected — see [Running the cells in Colab](#running-the-cells-in-colab).
-  **Notebook ↓** in the bar downloads every cell and its explanation as an
-  `.ipynb`, which Colab opens under *File → Upload notebook*.
+  **Colab** in the bar downloads every cell and its explanation as an
+  `.ipynb`, which Colab opens under *File → Upload notebook*, or commits
+  the page as `EXPLANATION.md` and the notebook under `explanations/<paper>/`
+  in your Git repository and opens it in Colab from there; **Local** writes
+  them onto your own machine through the reader's proxy.
 - **Caveats**: a paper does not update itself, so each claim that has aged is
   flagged where it is made: *Still holds*, *Refined since*, *Superseded*,
   *Disputed* or *Disproved*. The outline counts them under **How it has
@@ -2692,8 +2695,8 @@ on the corner of a diagram or a table never lands on a cell's buttons.
 
 The chip in the bar — the Colab mark, a dot, the machine, how long it has
 been up — opens to the runtime: what it is, what it has cost, what has run;
-**Run all** (asks first, stops at the first error), **Open this runtime in
-Colab** (Colab's own page on the same machine, the one route to Drive, on
+**Run all** (every cell at once, stopping at the first error), **Open this
+runtime in Colab** (Colab's own page on the same machine, the one route to Drive, on
 purpose), **Restart the kernel**, **Change machine**, **Stop the runtime**,
 and **Forget Colab in this tab**. When Colab ends an idle runtime the cells
 keep what they printed, marked as from a runtime that has ended, and a line
@@ -2763,7 +2766,7 @@ the plan, one a paper.
 ![the Colab tab: the notebook seeded from the explanation, its first cell run in the T4 runtime with what it printed under it, and a cell typed in and run](docs/colab-notebook.png)
 
 - **Seeded from the page.** The first time it opens it holds the
-  explanation's cells and text, the way *Notebook ↓* writes them, with
+  explanation's cells and text, the way *Colab → Download the notebook* writes them, with
   Claude's expected outputs left out — the point is to run them. **Cells ▾**
   adds the explanation's or the plan's cells again, or the cells of any
   `.ipynb`.
@@ -2774,8 +2777,8 @@ the plan, one a paper.
   <kbd>A</kbd> and <kbd>B</kbd> add above and below, <kbd>M</kbd> and <kbd>Y</kbd>
   make it text or code, <kbd>D</kbd> <kbd>D</kbd> deletes, <kbd>↑</kbd> <kbd>↓</kbd>
   move. Text cells are Markdown, rendered as the page renders it; double-click
-  to edit. **Run all** asks first and stops at the first error; **Stop**
-  interrupts the kernel. Nothing runs without a click or a Shift-Enter on
+  to edit. **Run all** runs every code cell at once, top to bottom, and stops
+  at the first error; **Stop** interrupts the kernel. Nothing runs without a click or a Shift-Enter on
   that cell.
 - **What a cell printed stays.** Its output, its loss curve and the machine's
   use while it ran are drawn under it as under a page cell, the verdict
@@ -2935,7 +2938,7 @@ tools that appear on the cell name the state in words, with the time it
 ran. `cellStatus` in `src/lib/notebook.ts` decides it.
 
 The Runtime pane starts with the runs: **Run cell N** for the cell picked,
-**Run all** (it asks first), **Pause** and **Stop**. Run all is a queue —
+**Run all** (at once, no question asked), **Pause** and **Stop**. Run all is a queue —
 every code cell marked *Queued* at once, then run one after another, as
 in Colab. Pause lets the cell running finish and holds the rest for
 **Resume**; Stop interrupts the cell running and drops the rest. A single
@@ -2951,6 +2954,11 @@ open it, with the runtime's meters, the metrics the page's cells print and
 the files on the runtime, and the text moves left to make room. It opens by
 itself when a runtime connects and folds when the runtime goes, unless it
 was opened or closed by hand; a cell named in the pane scrolls the page to it.
+The header is the same on every tab — Runtime, Metrics, Colab, Local and
+Rewrite in the same places — so on the Colab tab those two buttons open the
+notebook's pane (the toolbar keeps **Files**), and **Colab** and **Local**
+there take the notebook itself: a commit under `notebooks/` opened in Colab,
+the `.ipynb` downloaded, or written onto your machine.
 
 The Ask AI window sees the notebook too. Whenever the paper has one, a
 question there goes with `<colab_notebook>`: the cells numbered, what each
@@ -3185,7 +3193,9 @@ and the sums are `src/lib/hardware.ts`.
 
 ### Colab
 
-**Colab** in the bar takes the scaffold out of the page. With a Git repository
+**Colab** in the bar takes the scaffold out of the plan (on the Explanation
+page, the same menu takes the page and its cells; on the Colab tab, the
+notebook). With a Git repository
 connected (Settings → Git repository), one click commits the starter files,
 the plan as `PLAN.md` and a notebook under `implementations/<paper>/` and
 opens the notebook in Colab straight from GitHub. Without one, the notebook

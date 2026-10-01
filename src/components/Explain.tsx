@@ -14,7 +14,6 @@ import {
   explanationFor,
   generateExplanation,
   loadExplanation,
-  notebook,
   parseExplanation,
   reviseExplanation,
   stopExplaining,
@@ -30,7 +29,8 @@ import {
   implementationFor,
   loadImplementation,
   reviseImplementation,
-  scaffoldNotebook,
+  bundleOf,
+  notebookBundle,
   stopImplementing,
   subscribeImplement,
   undoImplementRevision,
@@ -48,6 +48,7 @@ import { attachUrl, CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCar
 import MetricsPane from './MetricsPane';
 import RuntimePane from './RuntimePane';
 import NotebookPage, { FilesPane } from './Notebook';
+import { notebookFileName, notebookFor, subscribeNotebook, toIpynb } from '../lib/notebook';
 import { notebookAskFor, rewriteCells, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk } from '../lib/notebookAsk';
 import { holdCell, SHOW_CELL } from '../lib/notebookNav';
 import type { ShowCell } from '../lib/notebookNav';
@@ -970,12 +971,13 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const sideByHand = useRef(false);
   const connected = colab.status === 'idle' || colab.status === 'busy';
   useEffect(() => {
-    if (connected && hasCode) {
+    if (connected && (hasCode || page === 'colab')) {
       if (!sideByHand.current) setSide((current) => current ?? 'runtime');
     } else if (!connected) {
       setSide((current) => (current === 'runtime' && !sideByHand.current ? null : current));
+      sideByHand.current = false;
     }
-  }, [connected, hasCode]);
+  }, [connected, hasCode, page]);
   const pickSide = (next: 'runtime' | 'metrics' | 'files' | null) => {
     sideByHand.current = true;
     setSide(next);
@@ -1002,6 +1004,13 @@ export default function Explain({ paperId, title, authors, published, screen, on
   // The Colab tab's own request, for the header's Rewrite and Stop while that tab is the one open.
   const nbAsk = useSyncExternalStore(subscribeNotebookAsk, () => notebookAskFor(paperId));
   const nbBusy = Boolean(nbAsk.pending && !nbAsk.pending.error);
+  // What Colab and Local in the header take out of the tab: the plan's scaffold, the explanation and its cells, or the Colab tab's notebook.
+  const nb = useSyncExternalStore(subscribeNotebook, () => notebookFor(paperId));
+  const bundle = useMemo(() => {
+    if (page === 'colab') return nb ? notebookBundle(`notebooks/${notebookFileName(title)}`, toIpynb(nb)) : null;
+    return explanation?.content && !streaming ? bundleOf(title, shown, sections, implementing ? 'plan' : 'page') : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, nb?.updated, explanation?.content, streaming, shown, sections, implementing, title]);
   const [nbRewrite, setNbRewriteState] = useState<NotebookRewrite>(readNotebookRewrite);
   // Snip is the pages' own; on the Colab tab its layer would only sit over the cells.
   useEffect(() => {
@@ -1246,15 +1255,6 @@ export default function Explain({ paperId, title, authors, published, screen, on
     await store.generate(read, id);
   };
 
-  const download = () => {
-    const blob = new Blob([implementing ? scaffoldNotebook(title, sections) : notebook(title, sections)], { type: 'application/x-ipynb+json' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = `${title.slice(0, 80).replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'paper'}${implementing ? '-implementation' : ''}.ipynb`;
-    link.click();
-    window.setTimeout(() => URL.revokeObjectURL(link.href), 2000);
-  };
-
   // Which model, and the button — or the key, first. The same on both pages' empty states.
   const startControls = (
     <>
@@ -1347,8 +1347,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
         </div>
         {/* The runtime the page's Python cells run in, when there is one to show or one could be started. */}
         <ColabChip cells={runnable} />
-        {/* The same actions on both pages, always in the same places: shown but off while there is nothing for them to act on. */}
-        {page !== 'colab' && hasCode ? (
+        {/* The same actions on every tab, always in the same places: shown but off while there is nothing for them to act on. */}
+        {page === 'colab' || hasCode ? (
           <>
             <button type="button" className={`btn sm ghost${side === 'runtime' ? ' is-on' : ''}`} aria-pressed={side === 'runtime'} onClick={() => pickSide(side === 'runtime' ? null : 'runtime')} title="The machine: how busy it is, the last ten minutes, what is left of the session">
               Runtime
@@ -1358,28 +1358,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
             </button>
           </>
         ) : null}
-        {implementing && explanation?.content && !streaming ? (
-          <>
-            <ColabMenu title={title} content={shown} sections={sections} />
-            <LocalMenu title={title} content={shown} sections={sections} />
-          </>
-        ) : (
-          <button
-            type="button"
-            className="btn sm"
-            onClick={download}
-            disabled={!hasCode || streaming}
-            title={
-              hasCode && !streaming
-                ? 'Every cell and its explanation as a Jupyter notebook — File → Upload notebook in Colab opens it'
-                : streaming
-                  ? 'Ready once the page is written'
-                  : `No code cells on this ${implementing ? 'plan' : 'page'} yet`
-            }
-          >
-            Notebook ↓
-          </button>
-        )}
+        <ColabMenu title={title} bundle={bundle} />
+        <LocalMenu title={title} bundle={bundle} sections={page === 'colab' ? [] : sections} />
         {page === 'colab' ? (
           nbBusy ? (
             <button type="button" className="btn sm" onClick={stopNotebookAsk}>
@@ -1443,7 +1423,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
       <ColabBanner />
 
       {page === 'colab' ? (
-        <NotebookPage paperId={paperId} title={title} screen={screen} sections={STORES.explain.get(paperId)?.content ? parseExplanation(STORES.explain.get(paperId)!.content) : sections} planSections={() => (implementationFor(paperId)?.content ? parseExplanation(implementationFor(paperId)!.content) : null)} />
+        <NotebookPage paperId={paperId} title={title} screen={screen} side={side} onSide={pickSide} sections={STORES.explain.get(paperId)?.content ? parseExplanation(STORES.explain.get(paperId)!.content) : sections} planSections={() => (implementationFor(paperId)?.content ? parseExplanation(implementationFor(paperId)!.content) : null)} />
       ) : (
         <>
       <div className="explain-ask">
