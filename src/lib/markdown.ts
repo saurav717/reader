@@ -17,9 +17,15 @@ export function inline(src: string): string {
   });
   // Maths, `$…$` or `\(…\)`: set aside like code, and typeset after it is on
   // screen (typesetMath). A `$` that opens on a space or closes before a digit
-  // is money, not maths.
-  s = s.replace(/\\\((.+?)\\\)|\$(?!\s)([^$\n]+?)(?<!\s)\$(?!\d)/g, (_, paren: string | undefined, dollar: string | undefined) => {
-    const tex = (paren ?? dollar ?? '').trim();
+  // is money, not maths. A formula may run over a line break — a model wraps a
+  // long one — but never over a blank line. `$$…$$` inside a paragraph is a
+  // displayed equation all the same, set on a line of its own.
+  s = s.replace(/\$\$(?!\s*\$)((?:[^$]|\$(?!\$))+?)\$\$/g, (_, tex: string) => {
+    codes.push(`<span class="chat-math-block" data-tex="${esc(tex.trim())}">${esc(tex.trim())}</span>`);
+    return `\u0000${codes.length - 1}\u0000`;
+  });
+  s = s.replace(/\\\(([^]+?)\\\)|\$(?!\s)((?:[^$\n]|\n(?!\s*\n))+?)(?<!\s)\$(?!\d)/g, (_, paren: string | undefined, dollar: string | undefined) => {
+    const tex = (paren ?? dollar ?? '').replace(/\s*\n\s*/g, ' ').trim();
     codes.push(`<span class="chat-math" data-tex="${esc(tex)}">${esc(tex)}</span>`);
     return `\u0000${codes.length - 1}\u0000`;
   });
@@ -62,6 +68,8 @@ export function inline(src: string): string {
   s = s.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
   s = s.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1<em>$2</em>');
   s = s.replace(/(^|[^_\w])_([^_\n]+)_(?!\w)/g, '$1<em>$2</em>');
+  // A paragraph's lines, kept as the hard breaks they were — after the spans set aside, so a formula over two lines is one span.
+  s = s.replace(/\n/g, '<br>');
   return s.replace(/\u0000(\d+)\u0000/g, (_, i: string) => codes[Number(i)]);
 }
 
@@ -186,7 +194,8 @@ export function markdown(src: string): string {
       // A line no rule above claimed — never loop on it.
       para.push(lines[i++]);
     }
-    out.push(`<p>${para.map(inline).join('<br>')}</p>`);
+    // The paragraph as one text, so a `$…$` that wraps over two lines is still maths; the line breaks come back as <br>.
+    out.push(`<p>${inline(para.join('\n'))}</p>`);
   }
   return out.join('');
 }

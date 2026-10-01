@@ -3798,7 +3798,7 @@ body.win-moving .assistant-win { transition: none; }
 .chat-math:not([data-set]) { font: 12.5px var(--mono); color: var(--ink-2); }
 .chat-math .katex { font-size: 1.08em; }
 .chat-math-block {
-  margin: 4px 0 12px; padding: 12px 14px; overflow-x: auto; text-align: center;
+  display: block; margin: 4px 0 12px; padding: 12px 14px; overflow-x: auto; text-align: center;
   border-radius: 10px; background: rgb(var(--accent-rgb) / 0.05); border: 1px solid rgb(var(--accent-rgb) / 0.12);
 }
 .chat-math-block:not([data-set]) { font: 12.5px var(--mono); white-space: pre-wrap; text-align: left; }
