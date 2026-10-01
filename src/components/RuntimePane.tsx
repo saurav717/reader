@@ -50,7 +50,7 @@ interface Props {
   /** The plan's compute block, when the paper has a plan: its needs become ticks and headroom on the memory. */
   compute?: Compute | null;
   onGoTo?: (id: string) => void;
-  /** Run every code cell, from the pane's own button (it asks first). */
+  /** Run every code cell, from the pane's own button, at once. */
   onRunAll?: () => void;
   /** The cell picked in the notebook, when it is a code cell: its label, and how to run it. */
   picked?: { label: string; run: () => void };
@@ -207,7 +207,6 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }
   const [style, setStyleState] = useState<PaneStyle>(readStyle);
   const [changing, setChanging] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
-  const [confirmAll, setConfirmAll] = useState(false);
   useEffect(() => {
     const tick = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(tick);
@@ -336,23 +335,6 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }
               ■ Stop
             </button>
           </>
-        ) : confirmAll ? (
-          <span className="rt-confirm">
-            Run every code cell, top to bottom? It stops at the first that fails.
-            <button
-              type="button"
-              className="btn sm primary"
-              onClick={() => {
-                setConfirmAll(false);
-                onRunAll?.();
-              }}
-            >
-              Run all
-            </button>
-            <button type="button" className="btn sm ghost" onClick={() => setConfirmAll(false)}>
-              Not now
-            </button>
-          </span>
         ) : (
           <>
             {picked ? (
@@ -360,7 +342,7 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }
                 ▶ Run {picked.label}
               </button>
             ) : null}
-            <button type="button" className="btn sm colab" disabled={!onRunAll || !cells.length} onClick={() => setConfirmAll(true)} title="Every code cell in order; asks first">
+            <button type="button" className="btn sm colab" disabled={!onRunAll || !cells.length} onClick={() => onRunAll?.()} title="Every code cell in order, at once; stops at the first error">
               ▶ Run all
             </button>
             <button type="button" className="btn sm" disabled title="Nothing is running">

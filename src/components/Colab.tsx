@@ -154,7 +154,7 @@ export function ConnectCard({ cellLabel, onConnect, onClose, busy }: { cellLabel
       )}
       <div className="colab-hint">
         <ColabMark />
-        The code was written by a model, from the paper. Read it before you run it: it runs as you, on your Colab quota. <b>Notebook ↓</b> in the bar is the same cells for Colab's own page instead.
+        The code was written by a model, from the paper. Read it before you run it: it runs as you, on your Colab quota. <b>Colab → Download the notebook</b> in the bar is the same cells for Colab's own page instead.
       </div>
     </div>
   );
@@ -169,14 +169,12 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
   const colab = useColab();
   const { settings, user } = useStore();
   const [open, setOpen] = useState(false);
-  const [confirmAll, setConfirmAll] = useState(false);
   const [changing, setChanging] = useState(false);
   const [probe, setProbe] = useState(false);
   const [now, setNow] = useState(Date.now());
   const box = useRef<HTMLDivElement>(null);
   const close = () => {
     setOpen(false);
-    setConfirmAll(false);
     setChanging(false);
   };
   useAway(open, close, box);
@@ -268,31 +266,19 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
             </label>
             {probe ? <pre className="colab-probe">{MACHINE_PROBE}</pre> : null}
             <hr />
-            {confirmAll ? (
-              <div className="colab-status">
-                Run all {cells.length} cells, top to bottom? It stops at the first that fails.
-                <div className="colab-row">
-                  <button
-                    type="button"
-                    className="btn sm primary"
-                    onClick={() => {
-                      close();
-                      void runAll(cells);
-                    }}
-                  >
-                    Run all
-                  </button>
-                  <button type="button" className="btn sm" onClick={() => setConfirmAll(false)}>
-                    Not now
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button type="button" role="menuitem" className="colab-action" disabled={colab.status === 'busy' || !cells.length} onClick={() => setConfirmAll(true)}>
-                <b>Run all cells, top to bottom</b>
-                <span>Asks first; stops at the first error</span>
-              </button>
-            )}
+            <button
+              type="button"
+              role="menuitem"
+              className="colab-action"
+              disabled={colab.status === 'busy' || !cells.length}
+              onClick={() => {
+                close();
+                void runAll(cells);
+              }}
+            >
+              <b>Run all {cells.length} {cells.length === 1 ? 'cell' : 'cells'}, top to bottom</b>
+              <span>At once; stops at the first error</span>
+            </button>
             {colab.runtime ? (
               <a className="colab-action" role="menuitem" href={attachUrl(colab.runtime.endpoint)} target="_blank" rel="noreferrer noopener">
                 <b>Open this runtime in Colab ↗</b>

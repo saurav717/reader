@@ -227,6 +227,24 @@ describe('the scaffold', () => {
     const text = new TextDecoder().decode(bytes);
     assert.ok(text.includes('compact-language-models-via-pruning-and-knowledge/Makefile'), 'paths lose the implementations/ prefix');
   });
+  it('bundles the explanation as Markdown and a notebook, and the Colab tab\'s notebook on its own', () => {
+    const plan = lib.bundleOf(title, PAGE, sections, 'plan');
+    assert.equal(plan.kind, 'plan');
+    assert.equal(plan.notebookPath, `${plan.folder}/compact-language-models-via-pruning-and-knowledge.ipynb`);
+    assert.match(plan.what, /^6 starter files, the plan/);
+    const page = lib.bundleOf(title, PAGE, sections, 'page');
+    assert.equal(page.folder, 'explanations/compact-language-models-via-pruning-and-knowledge');
+    assert.deepEqual(Object.keys(page.files).sort(), [`${page.folder}/EXPLANATION.md`, page.notebookPath].sort());
+    assert.ok(page.files[`${page.folder}/EXPLANATION.md`].startsWith('# Compact Language Models'));
+    assert.equal(JSON.parse(page.files[page.notebookPath]).cells[0].cell_type, 'markdown');
+    const bytes = lib.bundleZip(page);
+    const text = new TextDecoder().decode(bytes);
+    assert.ok(text.includes('compact-language-models-via-pruning-and-knowledge/EXPLANATION.md'), 'paths lose the explanations/ prefix');
+    const nb = lib.notebookBundle('notebooks/paper.ipynb', '{"cells":[]}');
+    assert.equal(nb.kind, 'notebook');
+    assert.equal(nb.folder, 'notebooks');
+    assert.deepEqual(nb.files, { 'notebooks/paper.ipynb': '{"cells":[]}' });
+  });
   it('checks CRC-32 the standard way', () => {
     assert.equal(lib.crc32(new TextEncoder().encode('123456789')).toString(16), 'cbf43926');
   });

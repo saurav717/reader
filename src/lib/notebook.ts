@@ -143,7 +143,7 @@ export function fromIpynb(text: string): NbCell[] | null {
 
 /**
  * The page's own cells as a notebook: the explanation's or the plan's, the
- * way Notebook ↓ writes them, with the expected outputs left out — those
+ * way Colab → Download the notebook writes them, with the expected outputs left out — those
  * were written by Claude, and the point of the notebook is to run them.
  */
 export function seedCells(title: string, sections: Section[]): NbCell[] {

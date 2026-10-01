@@ -18,7 +18,8 @@ import { commitFiles, targetFrom } from '../lib/github';
 import type { RepoFiles } from '../lib/github';
 import { DEFAULT_HARDWARE, estimate, FIT_TEXT, flopsText, GPUS, gpuById, hoursText, matchGpu, normaliseHardware, parseCompute, usdText } from '../lib/hardware';
 import type { Compute, Estimate, Fit, Hardware } from '../lib/hardware';
-import { colabUrl, computeOf, hardwareNow, parseTree, scaffold, scaffoldNotebook, scaffoldZip, setHardware, slugOf, subscribeHardware } from '../lib/implement';
+import { bundleZip, colabUrl, computeOf, hardwareNow, parseTree, setHardware, slugOf, subscribeHardware } from '../lib/implement';
+import type { Bundle } from '../lib/implement';
 import { useStore } from '../lib/store';
 import { runInWorkspace, workspaceStatus, writeScaffold } from '../lib/workspace';
 import type { WorkspaceStatus, Written } from '../lib/workspace';
@@ -584,13 +585,15 @@ function download(name: string, blob: Blob) {
 }
 
 /**
- * The menu under "Colab" in the bar. Colab opens a notebook it can fetch —
- * from GitHub, or uploaded by hand — so the surest route is the reader's own
- * Git mirror: the starter files, the plan and the notebook go there as one
- * commit, and Colab is opened on the notebook. Without a repository, the
- * notebook and the zip download, and Colab's upload takes them.
+ * The menu under "Colab" in the bar, on every tab. Colab opens a notebook it
+ * can fetch — from GitHub, or uploaded by hand — so the surest route is the
+ * reader's own Git mirror: the bundle (the plan's scaffold, the explanation
+ * and its cells, or the Colab tab's notebook) goes there as one commit, and
+ * Colab is opened on the notebook. Without a repository, the notebook and
+ * the zip download, and Colab's upload takes them. With nothing written yet
+ * the button is there but off, so the bar keeps its shape.
  */
-export function ColabMenu({ title, content, sections }: { title: string; content: string; sections: Section[] }) {
+export function ColabMenu({ title, bundle }: { title: string; bundle: Bundle | null }) {
   const { settings } = useStore();
   const target = targetFrom(settings);
   const [open, setOpen] = useState(false);
@@ -614,16 +617,16 @@ export function ColabMenu({ title, content, sections }: { title: string; content
       window.removeEventListener('keydown', key, true);
     };
   }, [open]);
-  const files = useMemo(() => scaffold(title, content, sections), [title, content, sections]);
-  const fileCount = Object.keys(files.files).length - 2;
   const slug = slugOf(title);
+  const plan = bundle?.kind === 'plan';
 
   const pushToGitHub = async () => {
-    if (!target) return;
+    if (!target || !bundle) return;
     setPush({ state: 'pushing' });
     try {
-      const result = await commitFiles(target, files.files as RepoFiles, `Implementation scaffold for “${title.slice(0, 72)}”, planned by Claude in Reader`);
-      const url = colabUrl(target.owner, target.repo, target.branch, `${files.folder}/${slug}.ipynb`);
+      const message = plan ? `Implementation scaffold for “${title.slice(0, 72)}”, planned by Claude in Reader` : bundle.kind === 'page' ? `Explanation of “${title.slice(0, 72)}”, from Reader` : `Notebook for “${title.slice(0, 72)}”, from Reader`;
+      const result = await commitFiles(target, bundle.files, message);
+      const url = colabUrl(target.owner, target.repo, target.branch, bundle.notebookPath);
       setPush({ state: 'pushed', url, commit: result.commit });
       // The window opens from the click when the commit is quick; when it is not, the link in the menu is there.
       window.open(url, '_blank', 'noopener');
@@ -634,32 +637,40 @@ export function ColabMenu({ title, content, sections }: { title: string; content
 
   return (
     <div className="menu-wrap" ref={box}>
-      <button type="button" className="btn sm colab-open" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title="Take the scaffold to Google Colab, a zip, or your Git repository">
+      <button
+        type="button"
+        className="btn sm colab-open"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={!bundle}
+        onClick={() => setOpen(!open)}
+        title={bundle ? `Take ${plan ? 'the scaffold' : bundle.kind === 'page' ? 'the page and its cells' : 'the notebook'} to Google Colab, a zip, or your Git repository` : 'Ready once the page is written'}
+      >
         <ColabIcon size={15} /> Colab
       </button>
-      {open ? (
+      {open && bundle ? (
         <div className="menu right colab-menu" role="menu" aria-label="Colab">
-          <div className="menu-label">
-            {fileCount} starter {fileCount === 1 ? 'file' : 'files'}, the plan, and a notebook that writes them
-          </div>
-          <button
-            type="button"
-            role="menuitem"
-            className="colab-action is-primary"
-            onClick={() => {
-              setOpen(false);
-              openColabPanel();
-            }}
-          >
-            <b>Run it on Colab, from this page</b>
-            <span>Pick the machine, run the steps in order in your own runtime, and watch the GPU and CPU as they run — under the compute budget</span>
-          </button>
+          <div className="menu-label">{bundle.what}</div>
+          {plan ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="colab-action is-primary"
+              onClick={() => {
+                setOpen(false);
+                openColabPanel();
+              }}
+            >
+              <b>Run it on Colab, from this page</b>
+              <span>Pick the machine, run the steps in order in your own runtime, and watch the GPU and CPU as they run — under the compute budget</span>
+            </button>
+          ) : null}
           {target ? (
             <>
               <button type="button" role="menuitem" className="colab-action" disabled={push.state === 'pushing'} onClick={() => void pushToGitHub()}>
                 <b>{push.state === 'pushing' ? 'Committing…' : 'Commit to GitHub and open in Colab'}</b>
                 <span>
-                  {files.folder}/ in {target.owner}/{target.repo} on {target.branch}
+                  {bundle.folder}/ in {target.owner}/{target.repo} on {target.branch}
                 </span>
               </button>
               {push.state === 'pushed' ? (
@@ -683,20 +694,17 @@ export function ColabMenu({ title, content, sections }: { title: string; content
             type="button"
             role="menuitem"
             className="colab-action"
-            onClick={() => download(`${slug}.ipynb`, new Blob([scaffoldNotebook(title, sections)], { type: 'application/x-ipynb+json' }))}
+            onClick={() => download(bundle.notebookPath.split('/').pop() ?? `${slug}.ipynb`, new Blob([bundle.files[bundle.notebookPath]], { type: 'application/x-ipynb+json' }))}
           >
             <b>Download the notebook</b>
-            <span>.ipynb — its first cells write the starter files, then the page's cells run</span>
+            <span>{plan ? '.ipynb — its first cells write the starter files, then the page\'s cells run' : bundle.kind === 'page' ? '.ipynb — every cell and its explanation' : '.ipynb — the cells and what they printed'}</span>
           </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="colab-action"
-            onClick={() => download(`${slug}.zip`, new Blob([scaffoldZip(title, content, sections) as BlobPart], { type: 'application/zip' }))}
-          >
-            <b>Download the scaffold</b>
-            <span>.zip — the directories and files, the plan as PLAN.md, the notebook</span>
-          </button>
+          {bundle.kind !== 'notebook' ? (
+            <button type="button" role="menuitem" className="colab-action" onClick={() => download(`${slug}.zip`, new Blob([bundleZip(bundle) as BlobPart], { type: 'application/zip' }))}>
+              <b>{plan ? 'Download the scaffold' : 'Download the folder'}</b>
+              <span>{plan ? '.zip — the directories and files, the plan as PLAN.md, the notebook' : '.zip — the explanation as EXPLANATION.md, and the notebook'}</span>
+            </button>
+          ) : null}
           <div className="colab-hint">
             <span className="colab-mark" aria-hidden="true">
               co
@@ -720,7 +728,7 @@ export function ColabMenu({ title, content, sections }: { title: string; content
  * the output in a console at the bottom of the page. Without the proxy, or
  * without READER_WORKSPACE, it says what to set.
  */
-export function LocalMenu({ title, content, sections }: { title: string; content: string; sections: Section[] }) {
+export function LocalMenu({ title, bundle, sections }: { title: string; bundle: Bundle | null; sections: Section[] }) {
   const { status, checking, project } = useLocal();
   const [open, setOpen] = useState(false);
   const [writing, setWriting] = useState<'idle' | 'writing' | 'error'>('idle');
@@ -747,18 +755,19 @@ export function LocalMenu({ title, content, sections }: { title: string; content
       window.removeEventListener('keydown', key, true);
     };
   }, [open]);
-  const files = useMemo(() => scaffold(title, content, sections), [title, content, sections]);
   const slug = slugOf(title);
   const mine = project?.slug === slug ? project : undefined;
   const commands = useMemo(() => suggestedCommands(sections), [sections]);
+  const what = bundle?.kind === 'plan' ? 'the scaffold' : bundle?.kind === 'page' ? 'the page' : 'the notebook';
 
   const write = async (overwrite = false) => {
+    if (!bundle) return;
     setWriting('writing');
     setError('');
     try {
-      // The files without the implementations/ folder: the workspace has one folder a paper already.
+      // The files without their folder (implementations/<paper>/, notebooks/): the workspace has one folder a paper already.
       const flat: RepoFiles = {};
-      for (const [path, text] of Object.entries(files.files)) flat[path.replace(/^implementations\/[^/]+\//, '')] = text;
+      for (const [path, text] of Object.entries(bundle.files)) flat[bundle.folder && path.startsWith(`${bundle.folder}/`) ? path.slice(bundle.folder.length + 1) : path] = text;
       const written = await writeScaffold(slug, flat, overwrite);
       setLocal({ project: { slug, dir: written.dir, written } });
       setWriting('idle');
@@ -771,10 +780,18 @@ export function LocalMenu({ title, content, sections }: { title: string; content
 
   return (
     <div className="menu-wrap" ref={box}>
-      <button type="button" className={`btn sm local-open${mine ? ' is-on' : ''}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title="Write the scaffold onto this machine, through the reader's proxy, and run it there">
+      <button
+        type="button"
+        className={`btn sm local-open${mine ? ' is-on' : ''}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={!bundle}
+        onClick={() => setOpen(!open)}
+        title={bundle ? `Write ${what} onto this machine, through the reader's proxy, and run it there` : 'Ready once the page is written'}
+      >
         <LocalIcon size={15} /> Local
       </button>
-      {open ? (
+      {open && bundle ? (
         <div className="menu right local-menu" role="menu" aria-label="Local workspace">
           {checking && !status ? (
             <div className="colab-status">Asking the proxy about this machine…</div>
@@ -798,9 +815,9 @@ export function LocalMenu({ title, content, sections }: { title: string; content
                 </span>
               </div>
               <button type="button" role="menuitem" className="colab-action" disabled={writing === 'writing'} onClick={() => void write(false)}>
-                <b>{writing === 'writing' ? 'Writing…' : mine ? 'Write the scaffold again' : 'Write the scaffold here'}</b>
+                <b>{writing === 'writing' ? 'Writing…' : mine ? `Write ${what} again` : `Write ${what} here`}</b>
                 <span>
-                  {status.root}/{slug}/ — {Object.keys(files.files).length} files; one you have changed is left alone
+                  {status.root}/{slug}/ — {Object.keys(bundle.files).length} {Object.keys(bundle.files).length === 1 ? 'file' : 'files'}; one you have changed is left alone
                 </span>
               </button>
               {mine ? (

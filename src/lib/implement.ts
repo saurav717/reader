@@ -212,8 +212,53 @@ export function scaffold(title: string, content: string, sections: Section[]): {
 }
 
 export function scaffoldZip(title: string, content: string, sections: Section[]): Uint8Array {
-  const { files } = scaffold(title, content, sections);
-  return zip(Object.entries(files).map(([path, text]) => ({ path: path.replace(/^implementations\//, ''), content: text })));
+  return bundleZip(bundleOf(title, content, sections, 'plan'));
+}
+
+/**
+ * What the Colab and Local menus in the bar take out of a page: a folder of
+ * files for a commit, a zip or the reader's machine, and the notebook among
+ * them for Colab. The plan's is the scaffold; the explanation's is the page
+ * as Markdown and its cells as a notebook; the Colab tab's is the notebook
+ * itself.
+ */
+export interface Bundle {
+  kind: 'plan' | 'page' | 'notebook';
+  /** The folder the files sit under in a repository: implementations/<paper>, explanations/<paper>, notebooks. */
+  folder: string;
+  files: RepoFiles;
+  /** The notebook's path among the files. */
+  notebookPath: string;
+  /** What the files are, in a line: "3 starter files, the plan, and a notebook that writes them". */
+  what: string;
+}
+
+/** The page itself as Markdown, beside the notebook of its cells. */
+export function pageMarkdown(title: string, content: string): string {
+  return `# ${title} — explained\n\n*Explained by Claude in Reader. The notebook beside this holds the page's cells.*\n\n${content.trim()}\n`;
+}
+
+export function bundleOf(title: string, content: string, sections: Section[], kind: 'plan' | 'page'): Bundle {
+  const slug = slugOf(title);
+  if (kind === 'plan') {
+    const { folder, files } = scaffold(title, content, sections);
+    const count = Object.keys(files).length - 2;
+    return { kind, folder, files, notebookPath: `${folder}/${slug}.ipynb`, what: `${count} starter ${count === 1 ? 'file' : 'files'}, the plan, and a notebook that writes them` };
+  }
+  const folder = `explanations/${slug}`;
+  const files: RepoFiles = { [`${folder}/EXPLANATION.md`]: pageMarkdown(title, content), [`${folder}/${slug}.ipynb`]: notebook(title, sections) };
+  return { kind, folder, files, notebookPath: `${folder}/${slug}.ipynb`, what: 'The explanation as Markdown, and a notebook of its cells' };
+}
+
+/** The Colab tab's notebook, already an .ipynb, as the one file of its bundle. */
+export function notebookBundle(path: string, ipynb: string): Bundle {
+  return { kind: 'notebook', folder: path.split('/').slice(0, -1).join('/'), files: { [path]: ipynb }, notebookPath: path, what: 'Your notebook, cells and outputs, as an .ipynb' };
+}
+
+/** The bundle's files zipped, without the top folder (implementations/, explanations/) a repository keeps them under. */
+export function bundleZip(bundle: Bundle): Uint8Array {
+  const top = bundle.folder.includes('/') ? `${bundle.folder.split('/')[0]}/` : '';
+  return zip(Object.entries(bundle.files).map(([path, text]) => ({ path: top && path.startsWith(top) ? path.slice(top.length) : path, content: text })));
 }
 
 /** Colab opens a notebook straight from GitHub, if it can read the repository. */
