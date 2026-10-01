@@ -532,6 +532,14 @@ describe('a notebook of the reader’s own', () => {
     assert.ok(!nbLib.isSeedOnly([{ ...cells[0], source: `${cells[0].source}\n\nMy notes.` }]), 'until it is written in');
     assert.ok(!nbLib.isSeedOnly(seedCells('A paper', sections)), 'cells from a page are not it');
   });
+  it('knows the one-cell header an earlier build kept, which always said Claude, so it can be seeded again', () => {
+    const stale = [{ ...newCell('markdown', '# A paper\n\n*Explained by Claude in Reader. The outputs under each cell were written by Claude, not run — run them to check.*') }];
+    assert.ok(nbLib.isStaleSeed(stale));
+    assert.ok(!nbLib.isStaleSeed([{ ...stale[0], source: `${stale[0].source}\n\nMy notes.` }]), 'not once written in');
+    assert.ok(!nbLib.isStaleSeed([...stale, newCell('code', 'print(1)')]), 'not with code');
+    assert.ok(!nbLib.isStaleSeed(seedCells('A paper', sections)), 'not a notebook seeded from a page');
+    assert.ok(!nbLib.isStaleSeed(seedCells('A paper', [])), 'not the blank notebook');
+  });
   it('goes out as an .ipynb Colab reads, and comes back the same', () => {
     const cells = [
       { ...newCell('markdown', '## Hello'), id: 'm1' },
