@@ -2797,11 +2797,12 @@ the plan, one a paper.
   to edit. **Run all** runs every code cell at once, top to bottom, and stops
   at the first error; **Stop** interrupts the kernel. Nothing runs without a click or a Shift-Enter on
   that cell.
-- **What a cell printed stays.** Its output, its loss curve and the machine's
-  use while it ran are drawn under it as under a page cell, the verdict
-  aside (there is nothing expected to compare with); the output and the
-  count are kept with the notebook, so they are there after a reload and go
-  into the file.
+- **What a cell printed stays.** Its output and its loss curve are drawn
+  under it as under a page cell, the verdict aside (there is nothing
+  expected to compare with); the machine's use while it ran is the Runtime
+  pane's to show, not drawn under the cell. The output and the count are
+  kept with the notebook, so they are there after a reload and go into the
+  file.
 - **Files.** The runtime's disk, from its Jupyter contents API through the
   proxy (`/colab/contents`): what the cells wrote, the data they fetched,
   the checkpoints, a folder at a time. It goes when the runtime does.

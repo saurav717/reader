@@ -445,6 +445,7 @@ await page.waitForTimeout(300);
 await page.waitForSelector('.nb-cell.is-running', { state: 'detached', timeout: 30000 });
 await page.waitForTimeout(600);
 check('the loss curve is under the cell, as under a page cell', (await page.locator('.nb-cell.is-ran .cell-chart').count()) >= 1);
+check('the machine’s use while it ran is the Runtime pane’s, not drawn under the cell', (await page.locator('.nb-cell .cell-machine').count()) === 0 && (await pane.locator('.rt-tile, .rt-meter, .rt-ring').count()) >= 1, `${await page.locator('.nb-cell .cell-machine').count()} under cells`);
 await pane.locator('.rt-ruler-run').first().click();
 await page.waitForTimeout(600);
 check('a segment of the ruler goes to its cell', (await page.locator('.nb-cell.is-selected').count()) === 1 && /attention weights/.test(await page.locator('.nb-cell.is-selected').textContent()));
