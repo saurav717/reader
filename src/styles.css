@@ -1846,11 +1846,16 @@ mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-s
   padding: 6px 8px; border-bottom: 1px solid rgb(var(--win-edge) / 0.07);
 }
 /* Which model answers: the pill under the box (ModelChip), so it can change between one question and the next. */
-.chat-compose-row { display: flex; gap: 6px; align-items: flex-end; }
-.chat-compose-foot { display: flex; align-items: center; gap: 8px; padding: 0 2px; }
-.chat-compose-hint { margin-left: auto; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
 .chat-toolbar .btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
-.is-sheet .chat-model { max-width: 150px; }
+/* Which model answers, in the toolbar with the conversation's other controls: quiet — no fill, no edge — until pointed at,
+   so the box below is only the box. The box's own placeholder names the model too. */
+.chat-toolbar .model-chip { height: 26px; max-width: 170px; padding: 0 8px 0 4px; font-size: 11.5px; border-color: transparent; background: transparent; }
+.chat-toolbar .model-chip:hover:not(:disabled), .chat-toolbar .model-chip:focus-visible, .chat-toolbar .model-chip[aria-expanded='true'] {
+  border-color: color-mix(in srgb, var(--maker) 32%, var(--border)); background: color-mix(in srgb, var(--maker) 9%, var(--surface)); box-shadow: none;
+}
+.chat-toolbar .model-chip.is-keyless { border-color: color-mix(in srgb, var(--maker) 32%, var(--border)); }
+.chat-toolbar .model-chip .rw-mark { width: 16px; height: 16px; font-size: 9.5px; }
+.is-sheet .chat-toolbar .model-chip { max-width: 140px; }
 .chat-count {
   margin-left: 5px; padding: 0 6px; border-radius: 99px; font-size: 10.5px;
   background: rgb(var(--win-edge) / 0.09);
@@ -1977,7 +1982,7 @@ mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-s
 .chat-picture-caption { display: block; margin-top: 4px; font-size: 11.5px; line-height: 1.4; color: var(--muted); text-align: center; }
 .chat-picture-missing { display: block; padding: 6px 10px; font-size: 12px; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; }
 .chat-compose .chat-shot-btn { width: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
-.chat-compose { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 8px; }
+.chat-compose { flex-shrink: 0; display: flex; gap: 6px; align-items: flex-end; padding: 8px 10px 8px; }
 .chat-compose textarea {
   flex-grow: 1; min-width: 0; resize: none; overflow-y: auto; max-height: 160px;
   padding: 7px 11px; border: 1px solid var(--border); border-radius: 10px;
@@ -3269,8 +3274,6 @@ body.win-moving .assistant-win { transition: none; }
 .model-menu.is-list { width: 340px; }
 .rw-wrote { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; color: var(--maker); background: color-mix(in srgb, var(--maker) 14%, transparent); }
 .rw-model .rw-wrote { margin-left: auto; }
-.chat-compose .model-chip { height: 26px; font-size: 11.5px; }
-.chat-compose .model-chip .rw-mark { width: 16px; height: 16px; font-size: 9.5px; }
 .rw-head-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
 .rw-nb-mode { margin-top: 6px; align-self: flex-start; }
 .rw-views { display: flex; flex: none; padding: 2px; gap: 2px; border-radius: 9px; background: var(--rail); border: 1px solid var(--border); }

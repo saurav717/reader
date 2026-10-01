@@ -1114,6 +1114,7 @@ export default function App() {
 
       {explainOpen && explained && !showWelcome ? (
         <Explain
+          key={explained.id}
           paperId={explained.id}
           title={explained.title}
           authors={explained.authors}

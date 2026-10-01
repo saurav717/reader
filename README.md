@@ -2046,10 +2046,13 @@ screen before it answers, so there is nothing to paste.
 
 ![the Ask AI window over a paper, answering a question about a selected sentence](docs/ask-claude.png)
 
-The pill under the box — the maker's mark and the model's name — names the
-model that answers the next question. It opens a menu of every model as
-cards, greyed where a key is missing, and can be changed between one question
-and the next; the conversation so far goes to whichever answers.
+The pill in the row above the conversation — the maker's mark and the model's
+name, beside **History** and **New chat** — names the model that answers the
+next question. It opens a menu of every model as cards, greyed where a key is
+missing, and can be changed between one question and the next; the
+conversation so far goes to whichever answers. It is quiet until pointed at,
+and nothing sits under the box but the box, which names the model itself —
+*Ask DeepSeek Flash about this paper…*; ↵ sends, ⇧↵ makes a new line.
 
 ### Choosing a model: Claude, DeepSeek or Gemini
 
@@ -2769,7 +2772,12 @@ the plan, one a paper.
   explanation's cells and text, the way *Colab → Download the notebook* writes them, with
   the model's expected outputs left out — the point is to run them. Its
   header is signed by the model that wrote the page — *Explained by DeepSeek
-  Flash in Reader* when DeepSeek did — not by Claude whoever wrote it. **Cells ▾**
+  Flash in Reader* when DeepSeek did — not by Claude whoever wrote it. Opened
+  before the page is written, it opens blank and takes the page's cells when
+  the page is whole — not a page half streamed — so long as nothing of yours
+  is in it yet. It is the paper's own: kept under the paper's id and stamped
+  with it, never shown for another paper, and the tab starts afresh with each
+  paper you open. **Cells ▾**
   adds the explanation's or the plan's cells again, or the cells of any
   `.ipynb`.
 - **Or written by the model you pick.** Opened before the paper is explained,
