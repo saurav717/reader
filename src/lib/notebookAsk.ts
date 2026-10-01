@@ -52,6 +52,11 @@ FORMAT — the notebook applies your answer, so keep to it exactly:
   calls for it; check torch.cuda.is_available() and fall back to the CPU with a smaller size rather than fail.
 - Nothing that mounts Drive, asks for input, or needs credentials. Keep a cell under about 80 lines; split
   longer work across cells. Never delete cells; say so if a cell should go, and the reader will.
+- A text cell is for reading: a short heading, then a sentence or two in plain words — what the next cell does and
+  why, what to look for in its output. Maths as LaTeX, which the notebook typesets: inline between single dollars,
+  $\\nabla \\cdot u = 0$; an equation that carries the argument displayed on lines of its own between double dollars,
+  with a "where …" line naming its symbols. Keep a formula on one line, never in a \`code\` span, never as Unicode
+  approximations, and prefer a displayed equation to a long inline one.
 - The whole notebook again: when the reader asks for the notebook, or all of its code, written again, from
   scratch, or regenerated, put notebook=new on the FIRST fence — \`\`\`python notebook=new — and then every
   fence in your answer is a new cell, in order; the current cells are all replaced by yours. Text cells as

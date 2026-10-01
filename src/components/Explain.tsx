@@ -957,7 +957,6 @@ export default function Explain({ paperId, title, authors, published, screen, on
     for (const section of sections) for (const block of section.blocks) if (block.kind === 'code' && block.lang === 'python') numbers.set(block, ++n);
     return numbers;
   }, [sections]);
-  const hasCode = cells.size > 0;
   // The Python cells in the order they read, for Run all; a run is kept under the cell's code.
   const runnable = useMemo(() => Array.from(cells.entries()).map(([block, n]) => ({ key: cellKey((block as Extract<Block, { kind: 'code' }>).code), code: (block as Extract<Block, { kind: 'code' }>).code, label: `In [${n}]` })), [cells]);
   useColabClient(settings.googleClientId);
@@ -971,13 +970,13 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const sideByHand = useRef(false);
   const connected = colab.status === 'idle' || colab.status === 'busy';
   useEffect(() => {
-    if (connected && (hasCode || page === 'colab')) {
+    if (connected) {
       if (!sideByHand.current) setSide((current) => current ?? 'runtime');
-    } else if (!connected) {
+    } else {
       setSide((current) => (current === 'runtime' && !sideByHand.current ? null : current));
       sideByHand.current = false;
     }
-  }, [connected, hasCode, page]);
+  }, [connected]);
   const pickSide = (next: 'runtime' | 'metrics' | 'files' | null) => {
     sideByHand.current = true;
     setSide(next);
@@ -1347,17 +1346,13 @@ export default function Explain({ paperId, title, authors, published, screen, on
         </div>
         {/* The runtime the page's Python cells run in, when there is one to show or one could be started. */}
         <ColabChip cells={runnable} />
-        {/* The same actions on every tab, always in the same places: shown but off while there is nothing for them to act on. */}
-        {page === 'colab' || hasCode ? (
-          <>
-            <button type="button" className={`btn sm ghost${side === 'runtime' ? ' is-on' : ''}`} aria-pressed={side === 'runtime'} onClick={() => pickSide(side === 'runtime' ? null : 'runtime')} title="The machine: how busy it is, the last ten minutes, what is left of the session">
-              Runtime
-            </button>
-            <button type="button" className={`btn sm ghost${side === 'metrics' ? ' is-on' : ''}`} aria-pressed={side === 'metrics'} onClick={() => pickSide(side === 'metrics' ? null : 'metrics')} title="Training metrics, read off what the cells print: loss, accuracy, lr… a chart a metric, live">
-              Metrics
-            </button>
-          </>
-        ) : null}
+        {/* The same actions on every tab, always in the same places: Runtime and Metrics open the pane whatever the page holds — the machine is the same machine, and the plan's steps print metrics as the cells do. */}
+        <button type="button" className={`btn sm ghost${side === 'runtime' ? ' is-on' : ''}`} aria-pressed={side === 'runtime'} onClick={() => pickSide(side === 'runtime' ? null : 'runtime')} title="The machine: how busy it is, the last ten minutes, what is left of the session">
+          Runtime
+        </button>
+        <button type="button" className={`btn sm ghost${side === 'metrics' ? ' is-on' : ''}`} aria-pressed={side === 'metrics'} onClick={() => pickSide(side === 'metrics' ? null : 'metrics')} title="Training metrics, read off what the cells print: loss, accuracy, lr… a chart a metric, live">
+          Metrics
+        </button>
         <ColabMenu title={title} bundle={bundle} />
         <LocalMenu title={title} bundle={bundle} sections={page === 'colab' ? [] : sections} />
         {page === 'colab' ? (

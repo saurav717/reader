@@ -406,6 +406,16 @@ describe('maths in answers', () => {
   it('keeps \\( \\) inline, and escapes what is inside', () => {
     assert.equal(inline('see \\(a<b\\)'), 'see <span class="chat-math" data-tex="a&lt;b">a&lt;b</span>');
   });
+  it('keeps a formula that wraps over a line break as one span, with the break folded', () => {
+    const html = markdown('The loss is $\\mathcal{L}=\\mathcal{L}_{pred}\n+\\lambda_{inv}\\|\\hat e_t\\|^2$, with $x_i$ after.');
+    assert.equal(html, '<p>The loss is <span class="chat-math" data-tex="\\mathcal{L}=\\mathcal{L}_{pred} +\\lambda_{inv}\\|\\hat e_t\\|^2">\\mathcal{L}=\\mathcal{L}_{pred} +\\lambda_{inv}\\|\\hat e_t\\|^2</span>, with <span class="chat-math" data-tex="x_i">x_i</span> after.</p>');
+    assert.doesNotMatch(html, /<em>/, 'the underscores inside are not italics');
+    assert.equal(markdown('one $a\n\nb$ two'), '<p>one $a</p><p>b$ two</p>', 'but never over a blank line');
+  });
+  it('sets $$…$$ inside a paragraph apart as a displayed equation', () => {
+    assert.equal(inline('so $$E = mc^2$$ holds'), 'so <span class="chat-math-block" data-tex="E = mc^2">E = mc^2</span> holds');
+    assert.equal(markdown('it costs $5 and $10\nor $20'), '<p>it costs $5 and $10<br>or $20</p>', 'money stays money');
+  });
 });
 
 describe('a link to a passage', () => {

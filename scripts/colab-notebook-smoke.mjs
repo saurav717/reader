@@ -645,11 +645,12 @@ await page.locator('.nb-cells').click({ position: { x: 4, y: 4 } });
 await page.locator('.nb-add').click();
 await page.waitForTimeout(200);
 await page.locator('.nb-cell.is-selected .nb-text').click();
-await page.keyboard.type('Scaled attention is $\\mathrm{softmax}(QK^\\top / \\sqrt{d_k})\\,V$, and in full:\n\n$$\\mathrm{Attention}(Q, K, V) = \\mathrm{softmax}\\left(\\frac{QK^\\top}{\\sqrt{d_k}}\\right) V$$');
+// The inline formula is wrapped over two lines, as a model wraps a long one; it is still one formula.
+await page.keyboard.type('Scaled attention is $\\mathrm{softmax}(QK^\\top / \\sqrt{d_k})\n\\,V + \\lambda_{inv}\\|\\hat e_t\\|^2$, and in full:\n\n$$\\mathrm{Attention}(Q, K, V) = \\mathrm{softmax}\\left(\\frac{QK^\\top}{\\sqrt{d_k}}\\right) V$$');
 await page.locator('.nb-cell.is-selected .nb-tools button', { hasText: 'Text' }).click();
 await page.waitForFunction(() => document.querySelectorAll('.nb-cell.is-markdown .katex').length >= 2, null, { timeout: 15000 });
 const mathCell = page.locator('.nb-cell.is-markdown', { hasText: 'Scaled attention is' });
-check('the maths in a text cell is typeset — inline and as a display line — not left as TeX', (await mathCell.locator('.chat-math .katex').count()) === 1 && (await mathCell.locator('.chat-math-block .katex-display').count()) === 1 && !/\\sqrt/.test(await mathCell.locator('.nb-markdown').innerText()));
+check('the maths in a text cell is typeset — inline, over its line break, and as a display line — not left as TeX', (await mathCell.locator('.chat-math .katex').count()) === 1 && (await mathCell.locator('.chat-math-block .katex-display').count()) === 1 && !/\\sqrt|\\lambda/.test(await mathCell.locator('.nb-markdown').innerText()) && (await mathCell.locator('.nb-markdown em').count()) === 0, (await mathCell.locator('.nb-markdown').innerText()).slice(0, 120));
 await mathCell.scrollIntoViewIfNeeded();
 await page.screenshot({ path: `${OUT}/colab-notebook-19-maths-dark.png` });
 await mathCell.hover();
