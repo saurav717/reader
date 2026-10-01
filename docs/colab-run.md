@@ -228,7 +228,11 @@ bridge and the browser may each close a silent connection well before
 Colab's own idle limit. The notebook tab has since gained an ask bar of
 its own that writes, changes and fixes cells (`src/lib/notebookAsk.ts`),
 Rewrite on that tab rewrites the notebook rather than the page, and the Ask
-AI window is shown the notebook while the tab is open.
+AI window is shown the notebook while the tab is open. A notebook with no
+code yet opens on a start that asks which model writes it and writes it
+with that one, and a notebook seeded from a page is signed by the model that
+wrote the page — "Claude" in the mockups above stands for whichever model
+the reader picked.
 
 ---
 

@@ -508,7 +508,7 @@ describe('the Node proxy carries a kernel’s socket', async () => {
 describe('a notebook of the reader’s own', () => {
   const { seedCells, toIpynb, fromIpynb, notebookFileName, newCell } = nbLib;
   const sections = nbLib.parseExplanation('## At a glance\n\nA line.\n\n```python title="Two"\nprint(1 + 1)\n```\n\n```output\n2\n```\n\n## More\n\nText.');
-  it('is seeded from the page’s cells, with Claude’s expected outputs left out', () => {
+  it('is seeded from the page’s cells, with the model’s expected outputs left out', () => {
     const cells = seedCells('A paper', sections);
     assert.deepEqual(cells.map((c) => c.type), ['markdown', 'markdown', 'code', 'markdown']);
     assert.match(cells[0].source, /^# A paper/);
@@ -516,6 +516,21 @@ describe('a notebook of the reader’s own', () => {
     assert.deepEqual(cells[2].outputs, []);
     assert.equal(cells[2].count, null);
     assert.ok(cells.every((c) => /^[\w-]{8}$/.test(c.id)));
+  });
+  it('signs the header with the model that wrote the page, Claude when nothing says', () => {
+    assert.match(seedCells('A paper', sections, 'DeepSeek Flash')[0].source, /Explained by DeepSeek Flash in Reader\. The outputs under each cell were written by DeepSeek Flash, not run/);
+    assert.match(seedCells('A paper', sections)[0].source, /Explained by Claude in Reader/);
+    assert.doesNotMatch(seedCells('A paper', sections, 'Gemini 3.8 Flash')[0].source, /Claude/);
+  });
+  it('with no page written yet, is one text cell that names no model: the model is picked on the tab', () => {
+    const cells = seedCells('A paper', []);
+    assert.equal(cells.length, 1);
+    assert.equal(cells[0].type, 'markdown');
+    assert.match(cells[0].source, /^# A paper\n\n\*A notebook of your own in Reader/);
+    assert.doesNotMatch(cells[0].source, /Claude|Explained by/);
+    assert.ok(nbLib.isSeedOnly(cells), 'and is known as the blank notebook’s one cell');
+    assert.ok(!nbLib.isSeedOnly([{ ...cells[0], source: `${cells[0].source}\n\nMy notes.` }]), 'until it is written in');
+    assert.ok(!nbLib.isSeedOnly(seedCells('A paper', sections)), 'cells from a page are not it');
   });
   it('goes out as an .ipynb Colab reads, and comes back the same', () => {
     const cells = [
@@ -541,6 +556,17 @@ describe('a notebook of the reader’s own', () => {
   it('names the file from the title', () => {
     assert.equal(notebookFileName('Attention Is All You Need'), 'attention-is-all-you-need.ipynb');
     assert.equal(notebookFileName('!!!'), 'notebook.ipynb');
+  });
+});
+
+describe('the model picked to write the notebook', () => {
+  const { pickNotebookModel, notebookAskFor } = nbLib;
+  it('is kept with the notebook’s requests, so the header and the bar name it before anything is asked', () => {
+    assert.equal(notebookAskFor('p-pick').model, undefined);
+    pickNotebookModel('p-pick', 'deepseek-flash');
+    assert.equal(notebookAskFor('p-pick').model, 'deepseek-flash');
+    pickNotebookModel('p-pick', 'gemini-3.8-flash');
+    assert.equal(notebookAskFor('p-pick').model, 'gemini-3.8-flash');
   });
 });
 

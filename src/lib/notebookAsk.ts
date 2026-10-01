@@ -265,6 +265,13 @@ function persist(paperId: string) {
   void db.setKv(KEY(paperId), kept).catch(() => undefined);
 }
 
+/** The model picked to write the notebook — from the start panel, before any request — so the header, the bar and Rewrite name it. */
+export function pickNotebookModel(paperId: string, model: string) {
+  if (notebookAskFor(paperId).model === model) return;
+  update(paperId, { model });
+  persist(paperId);
+}
+
 export async function loadNotebookAsk(paperId: string) {
   if (state.has(paperId)) return;
   try {

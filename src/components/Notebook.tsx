@@ -13,22 +13,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import DOMPurify from 'dompurify';
-import { getState as assistantState, modelSpec, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
-import type { Screen } from '../lib/assistant';
+import { getState as assistantState, geminiNote, looksLikeKey, modelSpec, MODELS, PROVIDERS, saveKey, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
+import type { GeminiReadiness, Screen } from '../lib/assistant';
 import { colabAvailable, colabGranted, connect as connectColab, interrupt as interruptColab, listContents, machineLabel, runAll, runCell } from '../lib/colab';
 import type { CellRun, RuntimeEntry } from '../lib/colab';
 import { explanationFor } from '../lib/explain';
 import type { Section } from '../lib/explain';
 import { commitFiles, targetFrom } from '../lib/github';
 import { computeOf, implementationFor } from '../lib/implement';
-import { askNotebook, dismissNotebookAsk, loadNotebookAsk, notebookAskFor, outputText, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
+import { askNotebook, dismissNotebookAsk, loadNotebookAsk, notebookAskFor, outputText, pickNotebookModel, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
 import type { AskScope } from '../lib/notebookAsk';
 import { findPassage, findSquashed, FLASH_EVENT, setNotebookLocator, squash, takeHeldPassage } from '../lib/locate';
 import type { LocateRequest, LocateResult } from '../lib/locate';
 import { SHOW_CELL, takeHeldCell } from '../lib/notebookNav';
 import type { ShowCell } from '../lib/notebookNav';
 import { markdown } from '../lib/markdown';
-import { appendCells, cellStatus, clearOutputs, fromIpynb, insertCell, loadNotebook, moveCell, notebookFileName, notebookFor, removeCell, runKey, seedCells, setOutputs, setSource, setType, subscribeNotebook, toIpynb } from '../lib/notebook';
+import { appendCells, cellStatus, clearOutputs, fromIpynb, insertCell, isSeedOnly, loadNotebook, moveCell, notebookFileName, notebookFor, removeCell, runKey, seedCells, setCells, setOutputs, setSource, setType, subscribeNotebook, toIpynb } from '../lib/notebook';
 import type { NbCell } from '../lib/notebook';
 import { useStore } from '../lib/store';
 import { attachUrl, CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Colab';
@@ -401,8 +401,10 @@ export default function NotebookPage({
   const lastKey = useRef<{ key: string; at: number } | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const filePick = useRef<HTMLInputElement>(null);
+  /** The model that wrote a page, by name, for the header of the cells seeded from it; Claude when the page does not say. */
+  const writerOf = (page: { model?: string } | undefined) => (page?.model ? modelSpec(page.model).label : undefined);
   useEffect(() => {
-    void loadNotebook(paperId, title, () => seedCells(title, sections));
+    void loadNotebook(paperId, title, () => seedCells(title, sections, writerOf(explanationFor(paperId))));
     void loadNotebookAsk(paperId);
     // Seeded once; the cells are the notebook's from then on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -588,6 +590,19 @@ export default function NotebookPage({
   const runEverything = () => {
     void runAll(cells.filter((cell) => cell.type === 'code' && cell.source.trim()).map((cell) => ({ key: runKey(cell.id), code: cell.source })));
   };
+  // The start: a notebook with no code yet asks which model writes it, and
+  // writes it with that one — the whole notebook, from the paper, the way
+  // Rewrite does. Choosing records the model, so the header, the bar and
+  // Rewrite name it from then on.
+  const blank = Boolean(nb) && !cells.some((cell) => cell.type === 'code' && cell.source.trim());
+  const [keyDraft, setKeyDraft] = useState('');
+  const writeNotebook = async () => {
+    if (!nb || asking || !assistant.keys[modelSpec(writerModel).provider]) return;
+    if (!askBar) showAskBar(true);
+    setJustAsked(true);
+    const read = await screen();
+    await rewriteNotebook({ paperId, screen: read, model: writerModel, runs: colab.runs, pages: { explanation: explanationFor(paperId)?.content, plan: implementationFor(paperId)?.content } });
+  };
 
   // Command mode: the keys Colab and Jupyter share, when no cell is being typed in.
   const onKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -633,12 +648,18 @@ export default function NotebookPage({
     }
   };
 
-  const addFromSections = (from: Section[] | null | undefined, what: string) => {
+  const addFromSections = (from: Section[] | null | undefined, what: string, writer?: string) => {
     if (!from?.length) {
       setNote(`There is no ${what} yet.`);
       return;
     }
-    const more = seedCells(title, from);
+    const more = seedCells(title, from, writer);
+    // Into a blank notebook, the page's cells are the notebook — its header in place of the blank one's; otherwise they go at the end.
+    if (isSeedOnly(cells)) {
+      setCells(paperId, more);
+      setNote(`${more.length} cells from the ${what}.`);
+      return;
+    }
     appendCells(paperId, more);
     setNote(`${more.length} cells from the ${what} added at the end.`);
   };
@@ -711,10 +732,10 @@ export default function NotebookPage({
         {menu(
           'Cells',
           <>
-            <button type="button" role="menuitem" onClick={() => addFromSections(sections, 'explanation')}>
+            <button type="button" role="menuitem" onClick={() => addFromSections(sections, 'explanation', writerOf(explanationFor(paperId)))}>
               Add the explanation's cells
             </button>
-            <button type="button" role="menuitem" onClick={() => addFromSections(planSections?.(), 'plan')}>
+            <button type="button" role="menuitem" onClick={() => addFromSections(planSections?.(), 'plan', writerOf(implementationFor(paperId)))}>
               Add the plan's cells
             </button>
             <button type="button" role="menuitem" onClick={() => filePick.current?.click()}>
@@ -936,6 +957,25 @@ export default function NotebookPage({
               />
             ))
           )}
+          {blank && !asking ? (
+            <NotebookStart
+              model={writerModel}
+              keys={assistant.keys}
+              gemini={assistant.gemini}
+              hasExplanation={sections.length > 0}
+              hasPlan={Boolean(planSections?.()?.length)}
+              keyDraft={keyDraft}
+              onKeyDraft={setKeyDraft}
+              onPick={(id) => pickNotebookModel(paperId, id)}
+              onWrite={() => void writeNotebook()}
+              onOwnCell={() => {
+                const id = insertCell(paperId, null, 'below');
+                setSelected(id);
+                setEditing(id);
+              }}
+              onFromExplanation={() => addFromSections(sections, 'explanation', writerOf(explanationFor(paperId)))}
+            />
+          ) : null}
           <button type="button" className="nb-add" onClick={() => setSelected(insertCell(paperId, null, 'below'))}>
             + Code
           </button>
@@ -972,6 +1012,123 @@ export default function NotebookPage({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * What a notebook with no code yet shows under its cells: which model
+ * writes it — the same cards as the pages' empty states — and the button
+ * that has it write the notebook from the paper, with a key for the model
+ * asked for first when there is none. The other ways in are a line under.
+ */
+function NotebookStart({
+  model,
+  keys,
+  gemini,
+  hasExplanation,
+  hasPlan,
+  keyDraft,
+  onKeyDraft,
+  onPick,
+  onWrite,
+  onOwnCell,
+  onFromExplanation,
+}: {
+  model: string;
+  keys: Record<string, unknown>;
+  gemini: GeminiReadiness;
+  hasExplanation: boolean;
+  hasPlan: boolean;
+  keyDraft: string;
+  onKeyDraft: (next: string) => void;
+  onPick: (model: string) => void;
+  onWrite: () => void;
+  onOwnCell: () => void;
+  onFromExplanation: () => void;
+}) {
+  const chosen = modelSpec(model);
+  const provider = PROVIDERS[chosen.provider];
+  const hasKey = Boolean(keys[chosen.provider]);
+  const reads = ['the paper', hasExplanation ? 'your explanation' : '', hasPlan ? 'your plan' : ''].filter(Boolean);
+  const readsText = reads.length > 1 ? `${reads.slice(0, -1).join(', ')} and ${reads[reads.length - 1]}` : reads[0];
+  return (
+    <section className="nb-start" aria-label="Write the notebook">
+      <div className="nb-start-head">
+        <span className="explain-kicker pill">
+          <SparkleIcon size={15} /> Nothing written yet
+        </span>
+        <h2>Which model writes this notebook?</h2>
+        <p>
+          It reads {readsText} and writes the cells: the paper's method as a small, runnable implementation, then an experiment sized for your Colab runtime, with a line of text before each step. Every cell is yours to edit, and
+          nothing runs until you click.
+        </p>
+      </div>
+      <div className="explain-start">
+        <div className="model-pick" role="radiogroup" aria-label="Model">
+          {MODELS.map((m) => (
+            <button key={m.id} type="button" role="radio" aria-checked={chosen.id === m.id} onClick={() => onPick(m.id)}>
+              <b>{m.label}</b>
+              <span>
+                {m.note}
+                {keys[m.provider] ? '' : PROVIDERS[m.provider].viaProxy ? ` · ${geminiNote(gemini).short}` : ' · needs a key'}
+              </span>
+            </button>
+          ))}
+        </div>
+        {hasKey ? (
+          <button type="button" className="btn primary cta" onClick={onWrite}>
+            <SparkleIcon size={17} /> Write the notebook with {chosen.label}
+          </button>
+        ) : null}
+      </div>
+      {hasKey ? (
+        <p className="hint">
+          <b>Written once</b>, as new cells here; <b>Rewrite</b> in the bar writes it again later, with any model, and the ask bar changes a cell at a time.
+        </p>
+      ) : provider.viaProxy ? (
+        <p className="hint">{geminiNote(gemini).long}</p>
+      ) : (
+        <>
+          <form
+            className="explain-start"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const key = keyDraft.trim();
+              if (!looksLikeKey(key, provider.id) && !confirm(`That does not look like one of ${provider.company}’s API keys (they start with "${provider.keyPrefix}"). Save it anyway?`)) return;
+              saveKey(key, provider.id);
+              onKeyDraft('');
+            }}
+          >
+            <input type="password" placeholder={provider.placeholder} value={keyDraft} onChange={(event) => onKeyDraft(event.target.value)} aria-label={`${provider.company} API key`} />
+            <button type="submit" className="btn primary cta" disabled={!keyDraft.trim()}>
+              Use this {provider.company} key
+            </button>
+          </form>
+          <p className="hint">
+            <b>The same {provider.company} key as the rest of the reader.</b> Get one at{' '}
+            <a href={provider.consoleUrl} target="_blank" rel="noopener noreferrer">
+              {provider.consoleUrl.replace(/^https:\/\//, '')}
+            </a>
+            . It stays in this browser and goes only to {provider.host}.
+          </p>
+        </>
+      )}
+      <p className="hint nb-start-other">
+        Or start another way:{' '}
+        {hasExplanation ? (
+          <>
+            <button type="button" className="link" onClick={onFromExplanation}>
+              add the explanation's cells
+            </button>
+            {' · '}
+          </>
+        ) : null}
+        <button type="button" className="link" onClick={onOwnCell}>
+          write a cell of your own
+        </button>
+        {hasExplanation ? '' : ' · or explain the paper first, on the Explanation tab, and its cells come here'}.
+      </p>
+    </section>
   );
 }
 

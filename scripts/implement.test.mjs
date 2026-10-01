@@ -245,6 +245,15 @@ describe('the scaffold', () => {
     assert.equal(nb.folder, 'notebooks');
     assert.deepEqual(nb.files, { 'notebooks/paper.ipynb': '{"cells":[]}' });
   });
+  it('signs the files with the model that wrote the page', () => {
+    const plan = lib.bundleOf(title, PAGE, sections, 'plan', 'DeepSeek Flash');
+    assert.match(plan.files[`${plan.folder}/PLAN.md`], /^# .*— implementation plan\n\n\*Planned by DeepSeek Flash in Reader/);
+    assert.match(JSON.parse(plan.files[plan.notebookPath]).cells[0].source.join(''), /Planned by DeepSeek Flash in Reader.*written by DeepSeek Flash, not run/);
+    const page = lib.bundleOf(title, PAGE, sections, 'page', 'Gemini 3.8 Flash');
+    assert.match(page.files[`${page.folder}/EXPLANATION.md`], /\*Explained by Gemini 3.8 Flash in Reader\./);
+    assert.match(JSON.parse(page.files[page.notebookPath]).cells[0].source.join(''), /Explained by Gemini 3.8 Flash in Reader/);
+    assert.match(lib.bundleOf(title, PAGE, sections, 'page').files[`${page.folder}/EXPLANATION.md`], /Explained by Claude in Reader/, 'Claude when nothing says');
+  });
   it('checks CRC-32 the standard way', () => {
     assert.equal(lib.crc32(new TextEncoder().encode('123456789')).toString(16), 'cbf43926');
   });

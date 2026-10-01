@@ -222,10 +222,14 @@ export const caveatsOf = (sections: Section[]) =>
 // A notebook of the whole explanation, for Colab until the page can run cells
 // ---------------------------------------------------------------------------
 
-export function notebook(title: string, sections: Section[]): string {
+/**
+ * `writer` is the model that wrote the page — named in the header, so a page
+ * DeepSeek or Gemini wrote is not signed by Claude. Claude, when nothing says.
+ */
+export function notebook(title: string, sections: Section[], writer = 'Claude'): string {
   const cells: object[] = [];
   const md = (text: string) => cells.push({ cell_type: 'markdown', metadata: {}, source: text.split(/(?<=\n)/) });
-  md(`# ${title}\n\n*Explained by Claude in Reader. The outputs under each cell were written by Claude, not run — run them to check.*`);
+  md(`# ${title}\n\n*Explained by ${writer} in Reader. The outputs under each cell were written by ${writer}, not run — run them to check.*`);
   for (const section of sections) {
     const parts: string[] = section.title ? [`## ${section.title}`] : [];
     const push = () => {

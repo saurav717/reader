@@ -181,13 +181,13 @@ export function starterFiles(sections: Section[]): RepoFiles {
 }
 
 /** The page itself as Markdown, so the plan travels with the code. */
-export function planMarkdown(title: string, content: string): string {
-  return `# ${title} — implementation plan\n\n*Planned by Claude in Reader. The starter files beside this are the ones it wrote; the compute budget was worked out for the hardware picked when it was written.*\n\n${content.trim()}\n`;
+export function planMarkdown(title: string, content: string, writer = 'Claude'): string {
+  return `# ${title} — implementation plan\n\n*Planned by ${writer} in Reader. The starter files beside this are the ones it wrote; the compute budget was worked out for the hardware picked when it was written.*\n\n${content.trim()}\n`;
 }
 
 /** A notebook that lays the repository out (a cell a file), then runs the page's cells. */
-export function scaffoldNotebook(title: string, sections: Section[]): string {
-  const book = JSON.parse(notebook(title, sections)) as { cells: { cell_type: string; source: string[] }[] };
+export function scaffoldNotebook(title: string, sections: Section[], writer = 'Claude'): string {
+  const book = JSON.parse(notebook(title, sections, writer)) as { cells: { cell_type: string; source: string[] }[] };
   const paths = Object.keys(starterFiles(sections));
   const dirs = Array.from(new Set(paths.map((path) => path.split('/').slice(0, -1).join('/')).filter(Boolean)));
   if (dirs.length) {
@@ -197,22 +197,22 @@ export function scaffoldNotebook(title: string, sections: Section[]): string {
       ...{ execution_count: null, metadata: {}, outputs: [] },
     } as never);
   }
-  book.cells[0].source = `# ${title} — implementation\n\n*Planned by Claude in Reader. Run the cells in order: the first ones write the starter files into this session's disk, the rest are the page's own cells. Outputs shown under a cell were written by Claude, not run.*\n`.split(/(?<=\n)/);
+  book.cells[0].source = `# ${title} — implementation\n\n*Planned by ${writer} in Reader. Run the cells in order: the first ones write the starter files into this session's disk, the rest are the page's own cells. Outputs shown under a cell were written by ${writer}, not run.*\n`.split(/(?<=\n)/);
   return JSON.stringify(book, null, 1);
 }
 
 /** The files a commit or a zip holds: the starter files, the plan, and the notebook, under one folder. */
-export function scaffold(title: string, content: string, sections: Section[]): { folder: string; files: RepoFiles } {
+export function scaffold(title: string, content: string, sections: Section[], writer = 'Claude'): { folder: string; files: RepoFiles } {
   const folder = `implementations/${slugOf(title)}`;
   const files: RepoFiles = {};
   for (const [path, text] of Object.entries(starterFiles(sections))) files[`${folder}/${path}`] = text;
-  files[`${folder}/PLAN.md`] = planMarkdown(title, content);
-  files[`${folder}/${slugOf(title)}.ipynb`] = scaffoldNotebook(title, sections);
+  files[`${folder}/PLAN.md`] = planMarkdown(title, content, writer);
+  files[`${folder}/${slugOf(title)}.ipynb`] = scaffoldNotebook(title, sections, writer);
   return { folder, files };
 }
 
-export function scaffoldZip(title: string, content: string, sections: Section[]): Uint8Array {
-  return bundleZip(bundleOf(title, content, sections, 'plan'));
+export function scaffoldZip(title: string, content: string, sections: Section[], writer = 'Claude'): Uint8Array {
+  return bundleZip(bundleOf(title, content, sections, 'plan', writer));
 }
 
 /**
@@ -220,7 +220,7 @@ export function scaffoldZip(title: string, content: string, sections: Section[])
  * files for a commit, a zip or the reader's machine, and the notebook among
  * them for Colab. The plan's is the scaffold; the explanation's is the page
  * as Markdown and its cells as a notebook; the Colab tab's is the notebook
- * itself.
+ * itself. `writer` names the model that wrote the page, in the files' bylines.
  */
 export interface Bundle {
   kind: 'plan' | 'page' | 'notebook';
@@ -234,19 +234,19 @@ export interface Bundle {
 }
 
 /** The page itself as Markdown, beside the notebook of its cells. */
-export function pageMarkdown(title: string, content: string): string {
-  return `# ${title} — explained\n\n*Explained by Claude in Reader. The notebook beside this holds the page's cells.*\n\n${content.trim()}\n`;
+export function pageMarkdown(title: string, content: string, writer = 'Claude'): string {
+  return `# ${title} — explained\n\n*Explained by ${writer} in Reader. The notebook beside this holds the page's cells.*\n\n${content.trim()}\n`;
 }
 
-export function bundleOf(title: string, content: string, sections: Section[], kind: 'plan' | 'page'): Bundle {
+export function bundleOf(title: string, content: string, sections: Section[], kind: 'plan' | 'page', writer = 'Claude'): Bundle {
   const slug = slugOf(title);
   if (kind === 'plan') {
-    const { folder, files } = scaffold(title, content, sections);
+    const { folder, files } = scaffold(title, content, sections, writer);
     const count = Object.keys(files).length - 2;
     return { kind, folder, files, notebookPath: `${folder}/${slug}.ipynb`, what: `${count} starter ${count === 1 ? 'file' : 'files'}, the plan, and a notebook that writes them` };
   }
   const folder = `explanations/${slug}`;
-  const files: RepoFiles = { [`${folder}/EXPLANATION.md`]: pageMarkdown(title, content), [`${folder}/${slug}.ipynb`]: notebook(title, sections) };
+  const files: RepoFiles = { [`${folder}/EXPLANATION.md`]: pageMarkdown(title, content, writer), [`${folder}/${slug}.ipynb`]: notebook(title, sections, writer) };
   return { kind, folder, files, notebookPath: `${folder}/${slug}.ipynb`, what: 'The explanation as Markdown, and a notebook of its cells' };
 }
 

@@ -2767,9 +2767,26 @@ the plan, one a paper.
 
 - **Seeded from the page.** The first time it opens it holds the
   explanation's cells and text, the way *Colab → Download the notebook* writes them, with
-  Claude's expected outputs left out — the point is to run them. **Cells ▾**
+  the model's expected outputs left out — the point is to run them. Its
+  header is signed by the model that wrote the page — *Explained by DeepSeek
+  Flash in Reader* when DeepSeek did — not by Claude whoever wrote it. **Cells ▾**
   adds the explanation's or the plan's cells again, or the cells of any
   `.ipynb`.
+- **Or written by the model you pick.** Opened before the paper is explained,
+  the notebook is one text cell that names no model, and under it the start:
+  *Which model writes this notebook?*, every model as a card — the same cards
+  as the pages' empty states — and **Write the notebook with …**, which has
+  the one picked write the whole notebook from the paper the way Rewrite
+  does: the method as a small, runnable implementation, then an experiment
+  sized for the runtime, a line of text before each step, every cell marked
+  as new and nothing run. Picking a card is enough for the header, the ask
+  bar and Rewrite to name that model; a model without a key asks for one
+  there. The start stays while the notebook has no code — so Undo brings it
+  back — and goes once it has, whoever wrote it.
+
+![the Colab tab before anything is written: the one cell naming no model, and under it the start — which model writes this notebook, eight model cards, and Write the notebook with Claude Opus 5](docs/colab-notebook-start.png)
+
+![the same tab a moment later: Notebook with DeepSeek Flash in the bar, the ask bar's pill on Flash, and six new cells DeepSeek wrote — a text cell and a code cell for each of three steps, each marked New · from the ask bar, with Run them and Undo under the bar](docs/colab-notebook-start-written.png)
 - **Cells to write and run.** `▶` on a cell, or <kbd>Shift</kbd>+<kbd>Enter</kbd>,
   runs it and moves on (a new cell when it was the last); <kbd>Alt</kbd>+<kbd>Enter</kbd>
   runs and adds one; <kbd>Ctrl</kbd>+<kbd>Enter</kbd> runs in place. With a cell
