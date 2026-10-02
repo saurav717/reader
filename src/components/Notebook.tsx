@@ -21,7 +21,7 @@ import { explanationFor } from '../lib/explain';
 import type { Section } from '../lib/explain';
 import { commitFiles, targetFrom } from '../lib/github';
 import { computeOf, implementationFor } from '../lib/implement';
-import { askNotebook, dismissNotebookAsk, draftsOf, loadNotebookAsk, notebookAskFor, outputText, pickNotebookModel, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
+import { askNotebook, dismissNotebookAsk, draftsOf, isAskingNotebook, loadNotebookAsk, notebookAskFor, outputText, pickNotebookModel, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
 import type { AskScope, NbDraft } from '../lib/notebookAsk';
 import { findPassage, findSquashed, FLASH_EVENT, setNotebookLocator, squash, takeHeldPassage } from '../lib/locate';
 import type { LocateRequest, LocateResult } from '../lib/locate';
@@ -29,7 +29,7 @@ import { SHOW_CELL, takeHeldCell } from '../lib/notebookNav';
 import type { ShowCell } from '../lib/notebookNav';
 import { markdown } from '../lib/markdown';
 import { typesetMath } from '../lib/typesetMath';
-import { appendCells, cellStatus, clearOutputs, fromIpynb, insertCell, isSeedOnly, loadNotebook, moveCell, notebookFileName, notebookFor, removeCell, runKey, seedCells, setCells, setOutputs, setSource, setType, subscribeNotebook, toIpynb } from '../lib/notebook';
+import { appendCells, cellStatus, clearOutputs, fillBlank, fromIpynb, insertCell, isSeedOnly, loadNotebook, moveCell, notebookFileName, notebookFor, removeCell, runKey, seedCells, setCells, setOutputs, setSource, setType, subscribeNotebook, toIpynb } from '../lib/notebook';
 import type { NbCell } from '../lib/notebook';
 import { useStore } from '../lib/store';
 import { attachUrl, CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Colab';
@@ -440,11 +440,23 @@ export default function NotebookPage({
   /** The model that wrote a page, by name, for the header of the cells seeded from it; Claude when the page does not say. */
   const writerOf = (page: { model?: string } | undefined) => (page?.model ? modelSpec(page.model).label : undefined);
   useEffect(() => {
-    void loadNotebook(paperId, title, () => seedCells(title, sections, writerOf(explanationFor(paperId))));
+    // Seeded from the page as it stands — not from one still being written, which fills the notebook below once it is whole.
+    void loadNotebook(paperId, title, () => {
+      const page = explanationFor(paperId);
+      return seedCells(title, page?.streaming ? [] : sections, writerOf(page));
+    });
     void loadNotebookAsk(paperId);
     // Seeded once; the cells are the notebook's from then on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
+  // A page that comes after the notebook opened blank — written then, or read back from Drive — seeds it then, as it would have had it been there first. Only while nothing is being written into the notebook.
+  useEffect(() => {
+    if (!nb || nb.paperId !== paperId || !sections.length || !isSeedOnly(nb.cells)) return;
+    const page = explanationFor(paperId);
+    if (!page?.content || page.streaming || page.pending || isAskingNotebook(paperId)) return;
+    fillBlank(paperId, seedCells(title, sections, writerOf(page)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paperId, nb, sections]);
   const cells = nb?.cells ?? [];
   // The ask bar: the model picked for the ask bars, else the one Rewrite last picked here, else the pages'; a key for it; nothing being answered.
   const writerModel = nbAsk.model ?? assistant.prefs.explainModel ?? assistant.prefs.model;

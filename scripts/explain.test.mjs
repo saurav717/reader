@@ -125,6 +125,11 @@ describe('the copy in Drive', async () => {
     assert.equal(back.updated, page.updated);
     assert.deepEqual(back.requests, page.requests);
   });
+  it('does not take a file that names another paper, whichever folder it was found in', () => {
+    const other = { ...paper, id: 'arxiv:2402.00001' };
+    assert.equal(file.fromMarkdownFile(file.toMarkdownFile(other, { ...page, paperId: other.id }), paper.id), null);
+    assert.ok(file.fromMarkdownFile(file.toMarkdownFile(paper, page), paper.id), 'a file that names this paper is read');
+  });
   it('takes a file edited by hand, with no front matter', () => {
     const back = file.fromMarkdownFile('## At a glance\nhello', paper.id);
     assert.equal(back.content, '## At a glance\nhello');

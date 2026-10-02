@@ -931,6 +931,8 @@ export default function Assistant({ onClose, screen, reading }: Props) {
       </header>
 
       <div className="chat-toolbar">
+        {/* Which model answers: a setting of the conversation, so it sits with History and New chat, not under the box. */}
+        <ModelChip value={model.id} keys={s.keys} disabled={s.live} what="Answers with" align="left" view="list" onChange={setModel} />
         <span style={{ flexGrow: 1 }} />
         <button
           type="button"
@@ -1115,7 +1117,6 @@ export default function Assistant({ onClose, screen, reading }: Props) {
       ) : null}
 
       <form className="chat-compose" onSubmit={submit}>
-        <div className="chat-compose-row">
         {canCapture() ? (
           <button
             type="button"
@@ -1135,6 +1136,7 @@ export default function Assistant({ onClose, screen, reading }: Props) {
           disabled={!s.hasKey}
           placeholder={s.hasKey ? (reading ? `Ask ${model.label} about this paper…` : `Ask ${model.label}…`) : provider.viaProxy ? `${provider.name} is not available yet — see above` : `Add a ${provider.company} API key above to start`}
           aria-label={ASSISTANT_NAME}
+          title="↵ sends · ⇧↵ makes a new line"
           onChange={(event) => {
             setInput(event.target.value);
             grow();
@@ -1152,15 +1154,10 @@ export default function Assistant({ onClose, screen, reading }: Props) {
             Stop
           </button>
         ) : (
-          <button type="submit" className="btn primary sm" disabled={!s.hasKey || !input.trim()}>
+          <button type="submit" className="btn primary sm" disabled={!s.hasKey || !input.trim()} title="Send (↵) — ⇧↵ makes a new line">
             Send
           </button>
         )}
-        </div>
-        <div className="chat-compose-foot">
-          <ModelChip value={model.id} keys={s.keys} disabled={s.live} what="Answers with" up align="left" view="list" onChange={setModel} />
-          <span className="chat-compose-hint">↵ sends · ⇧↵ new line</span>
-        </div>
       </form>
 
       {grips.map(({ key, ...grip }) => (

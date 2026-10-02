@@ -69,6 +69,8 @@ export function fromMarkdownFile(text: string, paperId: string): Explanation | n
   }
   content = content.trim();
   if (!content) return null;
+  // A file that says which paper it explains, and names another, is not this paper's — whichever folder it was found in.
+  if (typeof fields.paperId === 'string' && fields.paperId !== paperId) return null;
   const time = (key: string) => {
     const parsed = Date.parse(String(fields[key] ?? ''));
     return Number.isFinite(parsed) ? parsed : undefined;

@@ -5,10 +5,13 @@
 //  protocol to its kernel (colab.ts), so a notebook needs no page of
 //  Colab's: it is cells — code and text — kept here, run in that kernel,
 //  with what they printed kept under them. One notebook a paper, in
-//  IndexedDB like the explanation and the plan; seeded from the page's own
-//  cells the first time it opens, and the same shape as an .ipynb, so it
-//  goes out to Colab's page, GitHub or a file and comes back from one. The
-//  model and the store are here; the page is src/components/Notebook.tsx.
+//  IndexedDB like the explanation and the plan, under the paper's id and
+//  stamped with it, so a record is only ever shown for the paper it names;
+//  seeded from the page's own cells the first time it opens (or when the
+//  page comes, if the notebook opened first), and the same shape as an
+//  .ipynb, so it goes out to Colab's page, GitHub or a file and comes back
+//  from one. The model and the store are here; the page is
+//  src/components/Notebook.tsx.
 // ===========================================================================
 
 import type { Output, RunState } from './colab';
@@ -192,24 +195,52 @@ function persist(nb: Notebook) {
  */
 export const isStaleSeed = (cells: NbCell[]) => cells.length === 1 && cells[0].type === 'markdown' && /^# [^\n]*\n\n\*Explained by Claude in Reader\. The outputs under each cell were written by Claude, not run — run them to check\.\*\s*$/.test(cells[0].source);
 
-/** The paper's notebook from IndexedDB, or a new one from `seed` when there is none yet — or when what is kept is only an old build's header. */
+/**
+ * The record kept under a paper's key, when it is that paper's notebook and
+ * whole: null for nothing, for a record with no cells, for a notebook that
+ * says it is another paper's — whatever key it was found under, it is not
+ * shown for this one — and for the header an earlier build kept alone (see
+ * `isStaleSeed`). Each of those is seeded again.
+ */
+export function takeKept(kept: unknown, paperId: string): Notebook | null {
+  if (!kept || typeof kept !== 'object') return null;
+  const nb = kept as Partial<Notebook>;
+  if (!Array.isArray(nb.cells) || nb.paperId !== paperId || isStaleSeed(nb.cells)) return null;
+  return nb as Notebook;
+}
+
+/** The paper's notebook from IndexedDB, or a new one from `seed` when there is none yet — or when what is kept is not this paper's, or only an old build's header. */
 export async function loadNotebook(paperId: string, title: string, seed: () => NbCell[]): Promise<Notebook> {
   const held = cache.get(paperId);
   if (held) return held;
-  let kept: Notebook | undefined;
+  let kept: unknown;
   try {
-    kept = await db.getKv<Notebook>(KEY(paperId));
+    kept = await db.getKv<unknown>(KEY(paperId));
   } catch {
     // no IndexedDB: kept for the page load only
   }
   const again = cache.get(paperId);
   if (again) return again;
-  const fresh = !kept || !Array.isArray(kept.cells) || isStaleSeed(kept.cells);
-  const nb: Notebook = fresh ? { paperId, title, cells: seed(), updated: Date.now() } : { ...kept!, title };
+  const mine = takeKept(kept, paperId);
+  const nb: Notebook = mine ? { ...mine, title } : { paperId, title, cells: seed(), updated: Date.now() };
   cache.set(paperId, nb);
   notify();
-  if (fresh) persist(nb);
+  if (!mine) persist(nb);
   return nb;
+}
+
+/**
+ * The page's cells into a notebook that is still only its blank header —
+ * opened before the page was written, or before it had been read back — the
+ * way a notebook opened after the page is seeded from it. A notebook with
+ * anything of the reader's in it is left as it is, and so is one offered
+ * nothing but another blank header. Whether the cells went in.
+ */
+export function fillBlank(paperId: string, cells: NbCell[]): boolean {
+  const nb = cache.get(paperId);
+  if (!nb || !cells.length || isSeedOnly(cells) || !isSeedOnly(nb.cells)) return false;
+  update(paperId, () => cells);
+  return true;
 }
 
 function update(paperId: string, change: (cells: NbCell[]) => NbCell[]) {

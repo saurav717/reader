@@ -505,6 +505,38 @@ describe('the Node proxy carries a kernel’s socket', async () => {
   });
 });
 
+describe('one notebook a paper', () => {
+  const { loadNotebook, takeKept, fillBlank, seedCells, setSource, notebookFor, newCell, isSeedOnly } = nbLib;
+  const sections = nbLib.parseExplanation('## At a glance\n\nA line.\n\n```python\nprint(1)\n```');
+  it('takes a kept record only when it is this paper’s, and whole', () => {
+    const mine = { paperId: 'arxiv:1', title: 'A', cells: [newCell('code', 'print(1)')], updated: 1 };
+    assert.equal(takeKept(mine, 'arxiv:1'), mine);
+    assert.equal(takeKept(mine, 'arxiv:2'), null, 'another paper’s notebook is not shown for this one, whatever key it was found under');
+    assert.equal(takeKept({ paperId: 'arxiv:1', title: 'A' }, 'arxiv:1'), null, 'nor a record with no cells');
+    assert.equal(takeKept(undefined, 'arxiv:1'), null);
+    const stale = { paperId: 'arxiv:1', title: 'A', cells: [newCell('markdown', '# A\n\n*Explained by Claude in Reader. The outputs under each cell were written by Claude, not run — run them to check.*')], updated: 1 };
+    assert.equal(takeKept(stale, 'arxiv:1'), null, 'nor the header an earlier build kept alone');
+  });
+  it('opened before its page, takes the page’s cells when the page comes — once, and never over the reader’s own', async () => {
+    // The store writes a moment later through window.setTimeout, and finds no IndexedDB here: nothing is kept between tests.
+    globalThis.window ??= globalThis;
+    const nb = await loadNotebook('test:fill', 'A paper', () => seedCells('A paper', []));
+    assert.ok(isSeedOnly(nb.cells), 'blank: one header cell');
+    assert.ok(!fillBlank('test:fill', seedCells('A paper', [])), 'another blank header is nothing to take');
+    assert.ok(fillBlank('test:fill', seedCells('A paper', sections, 'DeepSeek Flash')));
+    const filled = notebookFor('test:fill');
+    assert.deepEqual(filled.cells.map((c) => c.type), ['markdown', 'markdown', 'code']);
+    assert.match(filled.cells[0].source, /Explained by DeepSeek Flash/);
+    assert.ok(!fillBlank('test:fill', seedCells('A paper', sections)), 'not again: the cells are the notebook’s now');
+    const own = await loadNotebook('test:own', 'B paper', () => seedCells('B paper', []));
+    setSource('test:own', own.cells[0].id, `${own.cells[0].source}\n\nMy notes.`);
+    assert.ok(!fillBlank('test:own', seedCells('B paper', sections)), 'a notebook written in is left alone');
+    assert.equal(notebookFor('test:own').cells.length, 1);
+    assert.equal(notebookFor('test:fill').paperId, 'test:fill', 'and each is its own paper’s');
+    assert.equal(notebookFor('test:own').paperId, 'test:own');
+  });
+});
+
 describe('a notebook of the reader’s own', () => {
   const { seedCells, toIpynb, fromIpynb, notebookFileName, newCell } = nbLib;
   const sections = nbLib.parseExplanation('## At a glance\n\nA line.\n\n```python title="Two"\nprint(1 + 1)\n```\n\n```output\n2\n```\n\n## More\n\nText.');
