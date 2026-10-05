@@ -2640,11 +2640,13 @@ What it writes, in this order:
 
 - **Scenes, on the stage.** A figure that shows something happening in
   stages — a pass through a model, a loss that compares two things, a
-  quantity that changes with a knob — can be animated. Claude marks the two
-  or three figures a page where motion would help with **▶ Animate this
-  figure** under them; the outline shows those sections with a hollow play
-  mark. Press it (or ask the bar to *animate the key figure in this
-  section*) and Claude writes a `motion` block right after the figure: not
+  quantity that changes with a knob — can be animated. Whichever model
+  wrote the page marks the two or three figures where motion would help
+  with **▶ Animate this figure** under them; the outline shows those
+  sections with a hollow play mark. Press it (or ask the bar to *animate
+  the key figure in this section*) and the model the bar answers with —
+  Claude, DeepSeek or Gemini, picked in its chip like any other request —
+  writes a `motion` block right after the figure: not
   SVG and not code, a small JSON scene of nodes (a stack of layers, a
   distribution, a curve, a grid, a slider, a timeline…), edges (packets
   flowing forward or back, a dashed comparison with its label) and steps,

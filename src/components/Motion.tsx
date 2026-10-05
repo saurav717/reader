@@ -263,8 +263,11 @@ export function MotionView({
   held,
   onHeld,
   compact,
+  writer,
 }: {
   block: MotionBlock;
+  /** Who wrote the scene — the model asked for it — for what the card says when it cannot be drawn. */
+  writer?: string;
   /** The step the reading has reached, when the card follows it (the stage). */
   followStep?: number;
   /** The reader took the steps in hand; `onHeld` lets them hand back. */
@@ -345,7 +348,7 @@ export function MotionView({
       ) : block.open ? (
         <div className="motion-art drawing">Drawing the scene…</div>
       ) : (
-        <div className="motion-art drawing">The block Claude wrote is not a scene the page can draw. Ask for it again, or redraw it.</div>
+        <div className="motion-art drawing">The block {writer ?? 'the model'} wrote is not a scene the page can draw. Ask for it again, or redraw it.</div>
       )}
     </figure>
   );
@@ -360,7 +363,7 @@ export function MotionView({
  * of the way down the scroller — the one the outline follows — picks the
  * step, until the reader picks one by hand.
  */
-export function Stage({ block, section }: { block: MotionBlock; section: RefObject<HTMLElement> }) {
+export function Stage({ block, section, writer }: { block: MotionBlock; section: RefObject<HTMLElement>; writer?: string }) {
   const [followStep, setFollowStep] = useState(0);
   const [held, setHeld] = useState(false);
   const spec = block.spec;
@@ -387,7 +390,7 @@ export function Stage({ block, section }: { block: MotionBlock; section: RefObje
   }, [section, spec]);
   return (
     <div className="explain-stage">
-      <MotionView block={block} followStep={followStep} held={held} onHeld={setHeld} />
+      <MotionView block={block} followStep={followStep} held={held} onHeld={setHeld} writer={writer} />
     </div>
   );
 }

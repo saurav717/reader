@@ -1,7 +1,7 @@
 // ===========================================================================
 //  Motion — a scene: a section's figure with steps, drawn by the page.
 //
-//  Claude writes the explanation's figures as SVG. A scene is different: it
+//  The model writes the explanation's figures as SVG. A scene is different: it
 //  is a small JSON description of nodes (a stack of layers, a distribution, a
 //  curve, a slider…), edges between them (a flow of packets, a comparison)
 //  and steps (a caption each, with what to highlight, dim, show or change),

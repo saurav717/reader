@@ -323,7 +323,7 @@ function CodeCell({ block, index, onAsk, asker, writer }: { block: Extract<Block
   );
 }
 
-function Figure({ block, onAnimate }: { block: Extract<Block, { kind: 'figure' }>; /** Offer to animate it: Claude marked it as worth a scene, and the page can show one. */ onAnimate?: (caption: string) => void }) {
+function Figure({ block, onAnimate, writer }: { block: Extract<Block, { kind: 'figure' }>; /** Offer to animate it: the model that wrote the page marked it as worth a scene, and the page can show one. */ onAnimate?: (caption: string) => void; /** Who wrote the page, and so the mark. */ writer?: string }) {
   const svg = useMemo(
     () => (block.open ? '' : cleanFigure(block.svg)),
     [block.svg, block.open],
@@ -337,7 +337,7 @@ function Figure({ block, onAnimate }: { block: Extract<Block, { kind: 'figure' }
           <button type="button" className="btn sm" onClick={() => onAnimate(block.caption)} title="Ask for this figure as a scene: the same drawing with a step for each paragraph, kept in view while you read the section">
             ▶ Animate this figure
           </button>
-          <span>Motion would help here, Claude thinks: the scene follows the paragraphs as you read.</span>
+          <span>Motion would help here, {writer ?? 'the model'} thinks: the scene follows the paragraphs as you read.</span>
         </div>
       ) : null}
     </figure>
@@ -469,7 +469,7 @@ function SectionView({
   section: Section;
   number: number;
   cells: Map<Block, number>;
-  /** Ask for a figure as a scene, when Claude marked it as worth one. */
+  /** Ask for a figure as a scene, when the model that wrote the page marked it as worth one. */
   onAnimate?: (section: string, caption: string) => void;
   /** Where a scene goes: beside the prose and kept in view (the margin layout), in the flow with everything else, or nowhere. */
   stage: 'margin' | 'inline' | 'off';
@@ -504,9 +504,9 @@ function SectionView({
     block.kind === 'prose' ? (
       <div key={key} className="explain-prose" dangerouslySetInnerHTML={{ __html: html(block.md) }} />
     ) : block.kind === 'figure' ? (
-      <Figure key={key} block={block} onAnimate={onAnimate && stage !== 'off' && !motion && state !== 'revising' ? (caption) => onAnimate(section.title, caption) : undefined} />
+      <Figure key={key} block={block} writer={writer} onAnimate={onAnimate && stage !== 'off' && !motion && state !== 'revising' ? (caption) => onAnimate(section.title, caption) : undefined} />
     ) : block.kind === 'motion' ? (
-      <MotionView key={key} block={block} compact={stage === 'inline'} />
+      <MotionView key={key} block={block} compact={stage === 'inline'} writer={asker ?? writer} />
     ) : block.kind === 'code' ? (
       <CodeCell key={key} block={block} index={cells.get(block) ?? 0} asker={asker} writer={writer} onAsk={onAsk ? (request, quote) => onAsk(section.title, request, quote) : undefined} />
     ) : block.kind === 'tree' ? (
@@ -556,7 +556,7 @@ function SectionView({
         <div className="stage-grid">
           <div className="stage-main">{rows.flatMap((row, index) => row.prose.map((block, i) => draw(block, index * 100 + i)))}</div>
           <div className="stage-side">
-            <Stage block={motion} section={ref} />
+            <Stage block={motion} section={ref} writer={asker ?? writer} />
             {rows.flatMap((row, index) => row.side.map((block, i) => draw(block, index * 100 + 50 + i)))}
           </div>
         </div>
@@ -1412,7 +1412,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           className={`btn sm ghost stage-toggle${stage ? ' is-on' : ''}`}
           aria-pressed={stage}
           onClick={() => setStage(!stage)}
-          title={stage ? 'Scenes are on: a figure Claude animated plays beside its section as you read. Off, the page is its figures and nothing moves.' : 'Scenes are off: the page is its figures, as always. On, a figure Claude animated plays beside its section as you read.'}
+          title={stage ? `Scenes are on: a figure ${asker} animated plays beside its section as you read. Off, the page is its figures and nothing moves.` : `Scenes are off: the page is its figures, as always. On, a figure ${asker} animated plays beside its section as you read.`}
         >
           ▶ Stage
         </button>
@@ -1637,7 +1637,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
                         {marks.map((mark, i) => (
                           <span key={i} className={`dot v-${mark.verdict}`} title={`${VERDICTS[mark.verdict]}: ${mark.title}`} />
                         ))}
-                        {scene ? <span className={`play ${scene}`} title={scene === 'has' ? 'This section has a scene on the stage' : 'Claude marked a figure here as worth animating'} /> : null}
+                        {scene ? <span className={`play ${scene}`} title={scene === 'has' ? 'This section has a scene on the stage' : `${writer} marked a figure here as worth animating`} /> : null}
                       </a>
                     </li>
                   );
