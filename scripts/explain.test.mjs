@@ -17,6 +17,11 @@ const PAGE = await readFile(new URL('./fixtures/explain-attention.md', import.me
 after(cleanup);
 
 describe('the instructions', () => {
+  it('marks figures worth animating, and writes a scene only when asked', () => {
+    assert.match(explain.EXPLAIN_SYSTEM, /animate="yes"/);
+    assert.match(explain.EXPLAIN_SYSTEM, /Do NOT write\s+a scene unless the reader asks/);
+    assert.match(explain.EXPLAIN_SYSTEM, /SCENES — a figure can be animated on request/);
+  });
   it('asks for maths as LaTeX, explained, never as code', () => {
     assert.match(explain.EXPLAIN_SYSTEM, /write every formula, symbol and variable name as LaTeX/);
     assert.match(explain.EXPLAIN_SYSTEM, /Never put maths in `code` spans/);
@@ -40,6 +45,30 @@ describe('reading the page', () => {
   it('reads caveats with their verdicts', () => {
     const verdicts = explain.caveatsOf(sections).map((c) => c.verdict);
     assert.deepEqual(verdicts, ['refined', 'holds', 'refined', 'superseded', 'superseded', 'refined']);
+  });
+  it('reads a figure marked as worth animating, and the scene written for it', () => {
+    const page = `## A\n\`\`\`figure caption="The loss" animate="yes"\n<svg viewBox="0 0 10 10"></svg>\n\`\`\`\n\`\`\`motion title="The loss, in motion" figure="The loss"\n{"nodes":[{"id":"a","kind":"box","label":"a"}],"steps":[{"caption":"one"},{"caption":"two"}]}\n\`\`\`\nText.`;
+    const [section] = explain.parseExplanation(page);
+    assert.equal(section.blocks[0].kind, 'figure');
+    assert.equal(section.blocks[0].animate, true);
+    const scene = section.blocks[1];
+    assert.equal(scene.kind, 'motion');
+    assert.equal(scene.title, 'The loss, in motion');
+    assert.equal(scene.figure, 'The loss');
+    assert.equal(scene.spec.steps.length, 2);
+    assert.equal(explain.motionOf(section), scene);
+    const plain = explain.parseExplanation('## A\n```figure caption="x"\n<svg/>\n```')[0].blocks[0];
+    assert.equal(plain.animate, undefined);
+  });
+  it('has no scene for a motion block still streaming', () => {
+    const [section] = explain.parseExplanation('## A\n```motion title="x"\n{"nodes":[{"id":"a","kind":"bo');
+    assert.equal(section.blocks[0].kind, 'motion');
+    assert.equal(section.blocks[0].open, true);
+    assert.equal(section.blocks[0].spec, null);
+  });
+  it('asks for a scene as a request the bar could take', () => {
+    assert.match(explain.sceneRequest('The loss', 'Two networks'), /^Animate the figure “Two networks” in the section “The loss”: add a motion block/);
+    assert.match(explain.sceneRequest('The loss'), /Animate the key figure in the section/);
   });
   it('keeps a fence still streaming open', () => {
     const [section] = explain.parseExplanation('## A\n```python title="x"\nprint(1)');

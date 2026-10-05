@@ -14,9 +14,21 @@ pictures are re-rendered with `node docs/mockups/stage-src/render.mjs`.
 The mock-up can be scrolled at
 [saurav717.github.io/reader-mockups/stage/mock.html](https://saurav717.github.io/reader-mockups/stage/mock.html).
 
-**Not built.** This is the design as decided after four rounds of
-mock-ups. What the rounds settled is below under *The design*, with the
-options that were considered after it.
+> **Built.** The design below is in the app: `src/lib/motion.ts` (the
+> scene: its JSON, the layout, the state at a step, and what the prompt
+> says about scenes), `src/components/Motion.tsx` (the drawing, the card
+> with its caption and controls, and the stage that follows the reading),
+> the `motion` block and the `animate="yes"` mark in `src/lib/explain.ts`,
+> and the stage, the switch, the offer under a figure and the outline's
+> marks in `src/components/Explain.tsx`. Two things were decided by
+> building. The block holds JSON rather than the YAML-like lines sketched
+> below, because every model writes JSON reliably and the page can tell a
+> half-streamed block from a finished one. And a scene is not kept in a
+> tab row with Cell and Paper tabs: the still of a scene is its first step,
+> the cell sits in the margin as it always did, and a snip of the paper's
+> own figure is left for later, as is the video export. See the README's
+> *Scenes, on the stage*. The rest of this document is the design as
+> written, with the mock-ups it was decided on.
 
 ## The design
 

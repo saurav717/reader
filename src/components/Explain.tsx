@@ -14,8 +14,10 @@ import {
   explanationFor,
   generateExplanation,
   loadExplanation,
+  motionOf,
   parseExplanation,
   reviseExplanation,
+  sceneRequest,
   stopExplaining,
   subscribeExplain,
   undoRevision,
@@ -41,6 +43,8 @@ import { SHOW_IN_EXPLAIN, addClip, copyOf } from '../lib/notes';
 import type { NoteSource } from '../lib/notes';
 import { selectedText } from '../lib/screen';
 import { useStore } from '../lib/store';
+import { motionText } from '../lib/motion';
+import { MotionView, Stage } from './Motion';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ColabIcon, ExplainIcon, MoonIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon, SunIcon } from './icons';
 import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, PlanContext, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
@@ -66,6 +70,16 @@ const LAYOUTS: { id: ExplainLayout; label: string; note: string }[] = [
   { id: 'notebook', label: 'Notebook', note: 'One column of text and cells, the way a Colab notebook reads' },
   { id: 'beside', label: 'Beside the paper', note: 'The explanation over the right of the window, the paper still readable on the left' },
 ];
+
+/** Scenes on the stage, where a section has one; off, the page is its figures and nothing moves. */
+const STAGE_KEY = 'reader.explain.stage';
+const readStage = (): boolean => {
+  try {
+    return localStorage.getItem(STAGE_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+};
 
 const readLayout = (): ExplainLayout => {
   try {
@@ -309,7 +323,7 @@ function CodeCell({ block, index, onAsk, asker, writer }: { block: Extract<Block
   );
 }
 
-function Figure({ block }: { block: Extract<Block, { kind: 'figure' }> }) {
+function Figure({ block, onAnimate }: { block: Extract<Block, { kind: 'figure' }>; /** Offer to animate it: Claude marked it as worth a scene, and the page can show one. */ onAnimate?: (caption: string) => void }) {
   const svg = useMemo(
     () => (block.open ? '' : cleanFigure(block.svg)),
     [block.svg, block.open],
@@ -318,6 +332,14 @@ function Figure({ block }: { block: Extract<Block, { kind: 'figure' }> }) {
     <figure className="explain-figure">
       {svg ? <div className="figure-art" dangerouslySetInnerHTML={{ __html: svg }} /> : <div className="figure-art drawing">Drawing…</div>}
       {block.caption ? <figcaption>{block.caption}</figcaption> : null}
+      {onAnimate && block.animate && !block.open ? (
+        <div className="figure-animate">
+          <button type="button" className="btn sm" onClick={() => onAnimate(block.caption)} title="Ask for this figure as a scene: the same drawing with a step for each paragraph, kept in view while you read the section">
+            ▶ Animate this figure
+          </button>
+          <span>Motion would help here, Claude thinks: the scene follows the paragraphs as you read.</span>
+        </div>
+      ) : null}
     </figure>
   );
 }
@@ -339,13 +361,13 @@ function Caveat({ block }: { block: Extract<Block, { kind: 'caveat' }> }) {
 // ---------------------------------------------------------------------------
 
 /** What on the page can be kept whole, by pointing at it. */
-const KEEPABLE = '.explain-figure, .explain-cell, .explain-caveat, .impl-tree, .impl-file, .impl-budget, .impl-colab, .explain-prose table, .explain-prose pre, .explain-prose .chat-math-block';
+const KEEPABLE = '.explain-figure, .explain-motion, .explain-cell, .explain-caveat, .impl-tree, .impl-file, .impl-budget, .impl-colab, .explain-prose table, .explain-prose pre, .explain-prose .chat-math-block';
 
 /** The pieces whose header holds the button itself (a KeepButton), so the corner button keeps off them. */
 const OWN_BUTTON = '.explain-cell, .impl-file, .impl-budget, .impl-colab';
 
 /** What a box dragged over the page keeps, whole: each piece of it the box touches. */
-const SNIPPABLE = '.explain-prose > *, .explain-figure, .explain-cell, .explain-caveat, .impl-tree, .impl-file, .impl-budget, .impl-colab';
+const SNIPPABLE = '.explain-prose > *, .explain-figure, .explain-motion, .explain-cell, .explain-caveat, .impl-tree, .impl-file, .impl-budget, .impl-colab';
 
 const firstLine = (text: string) => text.split('\n').map((line) => line.trim()).find(Boolean);
 
@@ -354,6 +376,11 @@ function describe(element: HTMLElement): { label: string; text: string; quote?: 
   if (element.matches('.explain-figure')) {
     const caption = element.querySelector('figcaption')?.textContent?.trim();
     return { label: 'Diagram', text: caption ? `[Diagram: ${caption}]` : '[Diagram]', quote: caption };
+  }
+  if (element.matches('.explain-motion')) {
+    const text = element.getAttribute('data-text') ?? '[Scene]';
+    const caption = element.querySelector('.motion-caption')?.textContent?.trim();
+    return { label: 'Scene', text, quote: caption };
   }
   if (element.matches('.explain-cell')) {
     const code = element.querySelector('.cell-code')?.textContent ?? '';
@@ -406,6 +433,8 @@ function sectionText(section: Section): string {
         ? block.md
         : block.kind === 'figure'
           ? `[Diagram${block.caption ? `: ${block.caption}` : ''}]`
+          : block.kind === 'motion'
+            ? motionText(block.title, block.spec)
           : block.kind === 'code'
             ? `\`\`\`\n${block.code}\n\`\`\`${block.output !== undefined ? `\n\nExpected output:\n\`\`\`\n${block.output}\n\`\`\`` : ''}`
             : block.kind === 'tree'
@@ -431,6 +460,8 @@ function SectionView({
   onAdjust,
   onAsk,
   onKeep,
+  onAnimate,
+  stage,
   state,
   asker,
   writer,
@@ -438,6 +469,10 @@ function SectionView({
   section: Section;
   number: number;
   cells: Map<Block, number>;
+  /** Ask for a figure as a scene, when Claude marked it as worth one. */
+  onAnimate?: (section: string, caption: string) => void;
+  /** Where a scene goes: beside the prose and kept in view (the margin layout), in the flow with everything else, or nowhere. */
+  stage: 'margin' | 'inline' | 'off';
   onAdjust?: (title: string) => void;
   /** A question about one of this section's cells — its output, or its error — for the bar. */
   onAsk?: (section: string, request: string, quote: string) => void;
@@ -449,10 +484,15 @@ function SectionView({
   /** Being rewritten now, just rewritten, or changed by an earlier request. */
   state?: 'revising' | 'fresh' | 'revised';
 }) {
+  const ref = useRef<HTMLElement>(null);
   const rows: { prose: Block[]; side: Block[]; wide?: boolean }[] = [];
   // A tree, a starter file or the budget is a table's width: it goes in the reading column, not the margin.
   const wide = (block: Block) => block.kind === 'prose' || block.kind === 'tree' || block.kind === 'file' || block.kind === 'compute';
+  const motion = stage === 'off' ? undefined : motionOf(section);
+  // The scene on the stage beside the whole section, not in a row of its own; with the stage off, not at all.
+  const staged = stage === 'margin' && motion;
   for (const block of section.blocks) {
+    if (block.kind === 'motion' && (staged || stage === 'off')) continue;
     const row = rows[rows.length - 1];
     if (wide(block)) {
       if (row && !row.side.length && block.kind === 'prose') row.prose.push(block);
@@ -464,7 +504,9 @@ function SectionView({
     block.kind === 'prose' ? (
       <div key={key} className="explain-prose" dangerouslySetInnerHTML={{ __html: html(block.md) }} />
     ) : block.kind === 'figure' ? (
-      <Figure key={key} block={block} />
+      <Figure key={key} block={block} onAnimate={onAnimate && stage !== 'off' && !motion && state !== 'revising' ? (caption) => onAnimate(section.title, caption) : undefined} />
+    ) : block.kind === 'motion' ? (
+      <MotionView key={key} block={block} compact={stage === 'inline'} />
     ) : block.kind === 'code' ? (
       <CodeCell key={key} block={block} index={cells.get(block) ?? 0} asker={asker} writer={writer} onAsk={onAsk ? (request, quote) => onAsk(section.title, request, quote) : undefined} />
     ) : block.kind === 'tree' ? (
@@ -477,7 +519,7 @@ function SectionView({
       <Caveat key={key} block={block} />
     );
   return (
-    <section className={`explain-section${state ? ` is-${state}` : ''}`} id={`explain-${section.id}`} data-section={section.id} data-title={section.title}>
+    <section ref={ref} className={`explain-section${state ? ` is-${state}` : ''}${staged ? ' has-stage' : ''}`} id={`explain-${section.id}`} data-section={section.id} data-title={section.title}>
       {section.title ? (
         <header className="explain-section-head">
           <span className="section-number">{String(number).padStart(2, '0')}</span>
@@ -509,12 +551,23 @@ function SectionView({
           ) : null}
         </header>
       ) : null}
-      {rows.map((row, index) => (
-        <div key={index} className={`explain-row${row.wide ? ' is-wide' : ''}`}>
-          <div className="row-main">{row.prose.map(draw)}</div>
-          {row.side.length ? <div className="row-side">{row.side.map(draw)}</div> : null}
+      {staged ? (
+        // Two columns for the whole section: the prose, and beside it the stage with the rest of the margin under it.
+        <div className="stage-grid">
+          <div className="stage-main">{rows.flatMap((row, index) => row.prose.map((block, i) => draw(block, index * 100 + i)))}</div>
+          <div className="stage-side">
+            <Stage block={motion} section={ref} />
+            {rows.flatMap((row, index) => row.side.map((block, i) => draw(block, index * 100 + 50 + i)))}
+          </div>
         </div>
-      ))}
+      ) : (
+        rows.map((row, index) => (
+          <div key={index} className={`explain-row${row.wide ? ' is-wide' : ''}`}>
+            <div className="row-main">{row.prose.map(draw)}</div>
+            {row.side.length ? <div className="row-side">{row.side.map(draw)}</div> : null}
+          </div>
+        ))
+      )}
     </section>
   );
 }
@@ -866,6 +919,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const explanation = useSyncExternalStore(store.subscribe, () => store.get(paperId));
   const driveState = useSyncExternalStore(store.subscribe, () => store.driveState(paperId));
   const [layout, setLayout] = useState<ExplainLayout>(readLayout);
+  const [stage, setStage] = useState<boolean>(readStage);
   // Kept with the chat's preferences, so Settings and this page pick the same one.
   const model = assistant.prefs.explainModel ?? assistant.prefs.model;
   const setModel = setExplainModel;
@@ -916,6 +970,13 @@ export default function Explain({ paperId, title, authors, published, screen, on
       // private mode
     }
   }, [layout]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(STAGE_KEY, stage ? 'on' : 'off');
+    } catch {
+      // private mode
+    }
+  }, [stage]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -1222,6 +1283,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
     setScope({ section: sectionTitle });
     askRef.current?.focus();
   };
+  // A figure's Animate button: the request the bar could have been given, about that section.
+  const animate = (sectionTitle: string, caption: string) => void submitWith(sceneRequest(sectionTitle, caption), { section: sectionTitle || undefined });
   // A passage selected on the page becomes what the next request is about.
   const takeSelection = () => {
     const selection = window.getSelection();
@@ -1344,6 +1407,15 @@ export default function Explain({ paperId, title, authors, published, screen, on
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          className={`btn sm ghost stage-toggle${stage ? ' is-on' : ''}`}
+          aria-pressed={stage}
+          onClick={() => setStage(!stage)}
+          title={stage ? 'Scenes are on: a figure Claude animated plays beside its section as you read. Off, the page is its figures and nothing moves.' : 'Scenes are off: the page is its figures, as always. On, a figure Claude animated plays beside its section as you read.'}
+        >
+          ▶ Stage
+        </button>
         {/* The runtime the page's Python cells run in, when there is one to show or one could be started. */}
         <ColabChip cells={runnable} />
         {/* The same actions on every tab, always in the same places: Runtime and Metrics open the pane whatever the page holds — the machine is the same machine, and the plan's steps print metrics as the cells do. */}
@@ -1517,7 +1589,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
                       'Add a Dockerfile and a Makefile',
                     ]
                 : scope.section || scope.quote
-                  ? ['Explain this more simply', 'Go deeper into the maths', 'Add a figure for this', 'Add a PyTorch version of the code', 'Is this still true today?']
+                  ? ['Explain this more simply', 'Go deeper into the maths', 'Add a figure for this', 'Animate the key figure in this section', 'Add a PyTorch version of the code', 'Is this still true today?']
                   : ['Make the whole page simpler, for a beginner', 'Add a section on how to implement it today', 'Use PyTorch instead of numpy', 'What has changed in the last two years?', 'Typeset the maths, and walk through it step by step', 'Fewer figures, more intuition']
               ).map((suggestion) => (
                 <button key={suggestion} type="button" className="ask-suggestion" onMouseDown={(event) => event.preventDefault()} onClick={() => void submit(suggestion)}>
@@ -1550,6 +1622,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
                 .filter((s) => s.title)
                 .map((section, index) => {
                   const marks = section.blocks.filter((b) => b.kind === 'caveat') as Extract<Block, { kind: 'caveat' }>[];
+                  const scene = stage && !implementing ? (motionOf(section) ? 'has' : section.blocks.some((b) => b.kind === 'figure' && b.animate) ? 'offered' : '') : '';
                   return (
                     <li key={section.id} className={active === section.id ? 'active' : ''}>
                       <a
@@ -1564,6 +1637,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
                         {marks.map((mark, i) => (
                           <span key={i} className={`dot v-${mark.verdict}`} title={`${VERDICTS[mark.verdict]}: ${mark.title}`} />
                         ))}
+                        {scene ? <span className={`play ${scene}`} title={scene === 'has' ? 'This section has a scene on the stage' : 'Claude marked a figure here as worth animating'} /> : null}
                       </a>
                     </li>
                   );
@@ -1673,6 +1747,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
                     onAdjust={canAsk && !busy && section.title ? adjust : undefined}
                     onAsk={canAsk && !busy ? askCell : undefined}
                     onKeep={!streaming && section.title ? keepSection : undefined}
+                    onAnimate={canAsk && !busy && !implementing && section.title ? animate : undefined}
+                    stage={implementing || !stage ? 'off' : layout === 'margin' ? 'margin' : 'inline'}
                     state={stateOf(section)}
                     asker={asker}
                     writer={writer}
