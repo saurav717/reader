@@ -250,7 +250,7 @@ export function sizeOf(node: MotionNode): { w: number; h: number } {
     case 'timeline':
       return { w: 300, h: 56 };
     default:
-      return { w: Math.max(56, Math.min(120, 18 + 6.4 * (node.label?.length ?? 6))), h: 26 };
+      return { w: Math.max(56, Math.min(170, 18 + 6.4 * (node.label?.length ?? 6))), h: 26 };
   }
 }
 
