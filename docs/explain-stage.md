@@ -116,6 +116,21 @@ consumer of the same run.
 
 ![Section 07: a static figure that says "curves from In [3], ran on T4", and its cell under it](mockups/stage-9-static-with-cell-chip.png)
 
+### Off, if you want it off
+
+**Stage** in the Explain bar, beside the layout switch and remembered the
+same way, turns every part of this off. With it off the page is the page
+as it is today: no stage in any section, no suggestion under any figure, no
+marks in the outline or the section heads, every section with its figure
+in the margin beside its paragraph. Scenes already written stay in the
+page's Markdown and come back when it is switched on again, so turning it
+off costs nothing and loses nothing. The same choice is in Settings, for a
+reader who never wants to be offered a scene.
+
+![The Explain bar with Stage switched off: the outline has no marks and section 02 has no Animate button](mockups/stage-13-stage-off.png)
+
+![Section 04 with Stage off: its figure in the margin beside its paragraph, nothing else](mockups/stage-14-stage-off-section.png)
+
 ### Video is an export
 
 Nothing is generated as a video file. The stage's menu renders the scene to
@@ -230,6 +245,10 @@ renders the scene to a GIF belongs in the exported notebook.
   column) for sections with a scene only.
 - **`src/styles.css`**: the stage, the suggestion row, the outline's two
   marks, the phone strip.
+- **The switch**: `Stage` in the bar beside the layout switch, kept in
+  `localStorage` the way the layout is (`readLayout` in `Explain.tsx`),
+  and the same setting in Settings. Off hides the stage, the suggestion
+  rows and the marks; the parsed `motion` blocks stay in the document.
 - **Keep and the notes**: a kept scene is its still, SVG, with the caption
   of the current step.
 - **Export**: WebM through `MediaRecorder` on a canvas copy of the SVG, GIF

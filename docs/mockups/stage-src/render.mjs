@@ -50,6 +50,13 @@ await toStep(p, 'layers', 1); await p.click('#tabs [data-tab="figure"]'); await 
 await p.click('#tabs [data-tab="anim"]'); await p.waitForTimeout(200);
 await toStep(p, 'train', 1); await shot(p, '9-static-with-cell-chip');
 await toStep(p, 'loss', 3); await p.click('#menu-btn'); await p.waitForTimeout(300); await shot(p, '10-menu');
+await p.keyboard.press('Escape'); await p.evaluate(() => document.getElementById('pop').classList.remove('open'));
+// The switch off: the same section with its figure in the margin and nothing else.
+await p.click('#stage-switch');
+await p.evaluate(() => document.querySelector('.mock').scrollIntoView()); await p.waitForTimeout(400);
+await p.evaluate(() => window.scrollBy(0, 120)); await p.waitForTimeout(600); await shot(p, '13-stage-off');
+await toStep(p, 'temp', 1); await shot(p, '14-stage-off-section');
+await p.click('#stage-switch');
 await p.close();
 
 p = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
