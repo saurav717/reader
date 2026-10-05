@@ -286,7 +286,6 @@ await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => {
   localStorage.setItem('reader.anthropic-key', 'sk-ant-smoke');
   localStorage.setItem('reader.explain.layout', 'margin');
-  localStorage.setItem('reader.explain.page', 'explain');
   localStorage.setItem('reader.colab.machine', JSON.stringify({ accelerator: 'T4', highMem: false }));
   const saved = JSON.parse(localStorage.getItem('reader.settings') || '{}');
   localStorage.setItem('reader.settings', JSON.stringify({ ...saved, googleClientId: 'smoke-client-id.apps.googleusercontent.com', theme: 'dark', glass: false }));
@@ -841,7 +840,7 @@ await page.locator('.colab-connect').getByRole('button', { name: /Connect/ }).cl
 await page.waitForSelector('.nb-side .rt-pane', { timeout: 30000 });
 await page.waitForFunction(() => /Tesla T4/.test(document.querySelector('.rt-head')?.textContent ?? ''), null, { timeout: 10000 });
 await page.waitForTimeout(800);
-check('the tab is remembered', (await page.evaluate(() => localStorage.getItem('reader.explain.page'))) === 'colab');
+check('the tab is not kept: Explain opens on the Explanation tab next time', (await page.evaluate(() => localStorage.getItem('reader.explain.page'))) === null);
 await page.locator('.nb-cell', { hasText: 'the answer is 42' }).scrollIntoViewIfNeeded();
 await page.waitForTimeout(300);
 await page.screenshot({ path: `${OUT}/colab-notebook-5-light.png` });

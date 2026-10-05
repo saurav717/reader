@@ -2764,7 +2764,9 @@ set is here, and the other way round. Colab's API gives the reader the
 runtime and the page speaks the Jupyter protocol to its kernel, so the
 notebook needs nothing of Colab's page: it is the reader's, drawn the way
 the pages draw their cells, kept in this browser like the explanation and
-the plan, one a paper.
+the plan, one a paper. Explain opens on the Explanation tab every time; the
+tab you leave it on is not kept, so Colab is a click away rather than where
+the next paper lands.
 
 ![the Colab tab: the notebook seeded from the explanation, its first cell run in the T4 runtime with what it printed under it, and a cell typed in and run](docs/colab-notebook.png)
 

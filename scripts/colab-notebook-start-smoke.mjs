@@ -170,7 +170,6 @@ await page.evaluate(() => {
   // A Claude key only: the DeepSeek key is given on the tab itself.
   localStorage.setItem('reader.anthropic-key', 'sk-ant-smoke');
   localStorage.setItem('reader.explain.layout', 'margin');
-  localStorage.setItem('reader.explain.page', 'explain');
   localStorage.setItem('reader.colab.machine', JSON.stringify({ accelerator: 'T4', highMem: false }));
   const saved = JSON.parse(localStorage.getItem('reader.settings') || '{}');
   localStorage.setItem('reader.settings', JSON.stringify({ ...saved, googleClientId: 'smoke-client-id.apps.googleusercontent.com', theme: 'dark', glass: false }));

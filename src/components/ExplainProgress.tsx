@@ -147,7 +147,7 @@ export function RailProgress({ showing, onOpen }: Props) {
   if (!jobs.length) return null;
   const titleOf = (id: string) => papers.find((p) => p.id === id)?.title;
   const open = (job: Job) => {
-    openExplainOn(job.page);
+    openExplainOn(job.entry.paperId, job.page);
     onOpen(job.entry.paperId);
   };
   return (
