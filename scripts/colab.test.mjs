@@ -506,7 +506,7 @@ describe('the Node proxy carries a kernel’s socket', async () => {
 });
 
 describe('one notebook a paper', () => {
-  const { loadNotebook, takeKept, fillBlank, seedCells, setSource, notebookFor, newCell, isSeedOnly } = nbLib;
+  const { loadNotebook, takeKept, seedCells, setSource, setCells, appendCells, notebookFor, newCell, isSeedOnly } = nbLib;
   const sections = nbLib.parseExplanation('## At a glance\n\nA line.\n\n```python\nprint(1)\n```');
   it('takes a kept record only when it is this paper’s, and whole', () => {
     const mine = { paperId: 'arxiv:1', title: 'A', cells: [newCell('code', 'print(1)')], updated: 1 };
@@ -517,20 +517,22 @@ describe('one notebook a paper', () => {
     const stale = { paperId: 'arxiv:1', title: 'A', cells: [newCell('markdown', '# A\n\n*Explained by Claude in Reader. The outputs under each cell were written by Claude, not run — run them to check.*')], updated: 1 };
     assert.equal(takeKept(stale, 'arxiv:1'), null, 'nor the header an earlier build kept alone');
   });
-  it('opened before its page, takes the page’s cells when the page comes — once, and never over the reader’s own', async () => {
+  it('opens blank whatever the pages hold, and takes a page’s cells only when asked — in place of the blank header, else at the end', async () => {
     // The store writes a moment later through window.setTimeout, and finds no IndexedDB here: nothing is kept between tests.
     globalThis.window ??= globalThis;
     const nb = await loadNotebook('test:fill', 'A paper', () => seedCells('A paper', []));
-    assert.ok(isSeedOnly(nb.cells), 'blank: one header cell');
-    assert.ok(!fillBlank('test:fill', seedCells('A paper', [])), 'another blank header is nothing to take');
-    assert.ok(fillBlank('test:fill', seedCells('A paper', sections, 'DeepSeek Flash')));
+    assert.ok(isSeedOnly(nb.cells), 'blank: one header cell, though the paper has an explanation');
+    assert.ok(!('fillBlank' in nbLib), 'nothing fills a blank notebook from a page on its own');
+    // What the start's "add the explanation's cells" and Cells ▾ do (addFromSections in Notebook.tsx).
+    setCells('test:fill', seedCells('A paper', sections, 'DeepSeek Flash'));
     const filled = notebookFor('test:fill');
     assert.deepEqual(filled.cells.map((c) => c.type), ['markdown', 'markdown', 'code']);
     assert.match(filled.cells[0].source, /Explained by DeepSeek Flash/);
-    assert.ok(!fillBlank('test:fill', seedCells('A paper', sections)), 'not again: the cells are the notebook’s now');
+    appendCells('test:fill', seedCells('A paper', sections));
+    assert.equal(notebookFor('test:fill').cells.length, 6, 'asked again, the cells go at the end');
     const own = await loadNotebook('test:own', 'B paper', () => seedCells('B paper', []));
     setSource('test:own', own.cells[0].id, `${own.cells[0].source}\n\nMy notes.`);
-    assert.ok(!fillBlank('test:own', seedCells('B paper', sections)), 'a notebook written in is left alone');
+    assert.ok(!isSeedOnly(notebookFor('test:own').cells), 'a notebook written in is no longer the blank one');
     assert.equal(notebookFor('test:own').cells.length, 1);
     assert.equal(notebookFor('test:fill').paperId, 'test:fill', 'and each is its own paper’s');
     assert.equal(notebookFor('test:own').paperId, 'test:own');

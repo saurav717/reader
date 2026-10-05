@@ -5,7 +5,7 @@
  * names no model, the model cards, the button — DeepSeek Flash is picked
  * (the header follows), a DeepSeek key is given, and the notebook is
  * written by a stand-in DeepSeek answering as the API does. Then a page is
- * explained by DeepSeek and the tab seeded from it is signed by DeepSeek,
+ * explained by DeepSeek and the cells added from it are signed by DeepSeek,
  * not Claude. Each state is photographed, dark and light.
  *
  *   npm run build && npm start &

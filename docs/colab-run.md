@@ -230,16 +230,17 @@ its own that writes, changes and fixes cells (`src/lib/notebookAsk.ts`),
 Rewrite on that tab rewrites the notebook rather than the page, and the Ask
 AI window is shown the notebook while the tab is open. A notebook with no
 code yet opens on a start that asks which model writes it and writes it
-with that one, and a notebook seeded from a page is signed by the model that
+with that one, and the cells added from a page are signed by the model that
 wrote the page — "Claude" in the mockups above stands for whichever model
 the reader picked. The notebook is one a paper, kept under the paper's id and
 stamped with it (`takeKept` in `src/lib/notebook.ts` shows a record only for
 the paper it names), and the Explain overlay is mounted afresh for each paper,
 so nothing of one paper's tab — its cells, a picked cell, a request half
-typed — carries to another. A page that comes after the notebook opened blank
-(written then, or read back from Drive) seeds it then (`fillBlank`), and a
-page found in Drive whose front matter names another paper is not taken
-(`fromMarkdownFile` in `src/lib/explainDrive.ts`).
+typed — carries to another. The notebook opens blank whatever the pages hold, and
+takes a page's cells only when the reader asks (the start under a blank
+notebook, or Cells ▾): explaining the paper fills the Explanation page, not
+the notebook. A page found in Drive whose front matter names another paper
+is not taken (`fromMarkdownFile` in `src/lib/explainDrive.ts`).
 
 ---
 

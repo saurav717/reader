@@ -2766,20 +2766,21 @@ notebook needs nothing of Colab's page: it is the reader's, drawn the way
 the pages draw their cells, kept in this browser like the explanation and
 the plan, one a paper.
 
-![the Colab tab: the notebook seeded from the explanation, its first cell run in the T4 runtime with what it printed under it, and a cell typed in and run](docs/colab-notebook.png)
+![the Colab tab: the notebook with the explanation's cells added to it, its first cell run in the T4 runtime with what it printed under it, and a cell typed in and run](docs/colab-notebook.png)
 
-- **Seeded from the page.** The first time it opens it holds the
-  explanation's cells and text, the way *Colab → Download the notebook* writes them, with
-  the model's expected outputs left out — the point is to run them. Its
-  header is signed by the model that wrote the page — *Explained by DeepSeek
-  Flash in Reader* when DeepSeek did — not by Claude whoever wrote it. Opened
-  before the page is written, it opens blank and takes the page's cells when
-  the page is whole — not a page half streamed — so long as nothing of yours
-  is in it yet. It is the paper's own: kept under the paper's id and stamped
+- **Yours, and blank until you say.** It opens as one text cell of its own,
+  whatever is written on the Explanation and Implementation pages — writing
+  or rewriting a page never puts anything in the notebook. *Add the
+  explanation's cells* under it, or **Cells ▾** in the bar, brings in the
+  explanation's or the plan's cells and text, the way *Colab → Download the
+  notebook* writes them, with the model's expected outputs left out — the
+  point is to run them. Their header is signed by the model that wrote the
+  page — *Explained by DeepSeek Flash in Reader* when DeepSeek did — not by
+  Claude whoever wrote it; into a blank notebook they take the place of its
+  one cell, otherwise they go at the end. **Cells ▾** also takes the cells of
+  any `.ipynb`. It is the paper's own: kept under the paper's id and stamped
   with it, never shown for another paper, and the tab starts afresh with each
-  paper you open. **Cells ▾**
-  adds the explanation's or the plan's cells again, or the cells of any
-  `.ipynb`.
+  paper you open.
 - **Or written by the model you pick.** Opened before the paper is explained,
   the notebook is one text cell that names no model, and under it the start:
   *Which model writes this notebook?*, every model as a card — the same cards
