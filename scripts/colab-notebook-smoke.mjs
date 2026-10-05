@@ -1,7 +1,7 @@
 /**
  * The Colab tab — a notebook of the reader's own on the Colab runtime —
  * against a stand-in runtime: a paper is opened and explained from the
- * fixture, the tab opens the notebook seeded from the explanation's cells,
+ * fixture, the tab opens a blank notebook that takes the explanation's cells when asked,
  * a cell is run in the stand-in kernel (the proxy's Colab routes are
  * answered here, the kernel is a WebSocket server in this script), cells
  * are added, typed into, made text, moved and deleted with the keys the
@@ -323,7 +323,7 @@ async function withSettings(patch) {
   await page.waitForTimeout(600);
 }
 
-console.log('\n== E, then the Colab tab: the notebook, seeded from the explanation ==');
+console.log('\n== E, then the Colab tab: the notebook opens blank, and takes the explanation’s cells when asked ==');
 await page.mouse.move(W / 2, H / 2);
 await page.keyboard.press('e');
 await page.waitForSelector('.explain .explain-empty');
@@ -334,7 +334,10 @@ await page.getByRole('tab', { name: 'Colab' }).click();
 await page.waitForSelector('.nb-cell', { timeout: 15000 });
 const cells = page.locator('.nb-cell');
 const codeCells = page.locator('.nb-cell.is-code');
-check('the notebook is seeded from the explanation: its text as text cells, its four cells as code', (await codeCells.count()) === 4 && (await cells.count()) > 8, `${await codeCells.count()} code of ${await cells.count()}`);
+check('explaining the paper did not fill the notebook: it opens blank, one cell of its own, no code', (await cells.count()) === 1 && (await codeCells.count()) === 0 && /A notebook of your own in Reader/.test(await cells.first().textContent()), `${await codeCells.count()} code of ${await cells.count()}`);
+await page.locator('.nb-start-other button', { hasText: "add the explanation's cells" }).click();
+await page.waitForFunction(() => document.querySelectorAll('.nb-cell.is-code').length === 4, null, { timeout: 5000 });
+check('asked for, the explanation’s cells come in: its text as text cells, its four cells as code', (await codeCells.count()) === 4 && (await cells.count()) > 8, `${await codeCells.count()} code of ${await cells.count()}`);
 check('the text cells are rendered', (await page.locator('.nb-cell.is-markdown .nb-markdown h4').count()) === 1 && (await page.locator('.nb-cell.is-markdown .nb-markdown h5').count()) >= 6, `the page's Markdown sets # as h4 and ## as h5: h4 ${await page.locator('.nb-markdown h4').count()}, h5 ${await page.locator('.nb-markdown h5').count()}`);
 check('no cell has run', (await page.locator('.nb-cell .cell-output').count()) === 0);
 check('the page’s ask bar and the outline are put away; the notebook has a bar of its own', (await page.locator('.explain-ask:not(.nb-ask)').count()) === 0 && (await page.locator('.explain-outline').count()) === 0 && (await page.locator('.nb-ask input').count()) === 1);
