@@ -2638,6 +2638,35 @@ What it writes, in this order:
 
 ![a displayed equation and inline symbols, typeset, with the "where" list under it](docs/explain-maths.png)
 
+- **Scenes, on the stage.** A figure that shows something happening in
+  stages — a pass through a model, a loss that compares two things, a
+  quantity that changes with a knob — can be animated. Claude marks the two
+  or three figures a page where motion would help with **▶ Animate this
+  figure** under them; the outline shows those sections with a hollow play
+  mark. Press it (or ask the bar to *animate the key figure in this
+  section*) and Claude writes a `motion` block right after the figure: not
+  SVG and not code, a small JSON scene of nodes (a stack of layers, a
+  distribution, a curve, a grid, a slider, a timeline…), edges (packets
+  flowing forward or back, a dashed comparison with its label) and steps,
+  one per paragraph of the section. The page lays it out, draws it in the
+  figure's own colours, and tweens from step to step. In the Margin layout
+  the scene sits on a **stage** at the top of the margin that stays in view
+  while you read that section and steps with the paragraph under the reading
+  line, until you pick a step by hand; the rest of the margin scrolls under
+  it, and the stage leaves with the section. In the other layouts the scene
+  is a card in the flow with its own controls. **▶ Stage** in the bar turns
+  all of it off, and the page is its figures and nothing moves; scenes
+  already written stay in the page and come back when it is switched on.
+  Nothing is written until you ask, so a page is no slower to explain than
+  before. The design, with what was considered and rejected, is in
+  [`docs/explain-stage.md`](docs/explain-stage.md).
+
+![the stage beside a section on the distillation loss: teacher and student stacks with packets flowing up from the input, the two softened outputs joined by a T²·KL link, the caption "2 of 4. Only the two softened outputs are compared", and the figure it animates below it](docs/explain-stage.png)
+
+![the same scene two paragraphs later: the teacher greyed out, the hard label joined by a λ·CE link, packets flowing back down the student](docs/explain-stage-backward.png)
+
+![a figure Claude marked as worth animating, with "Animate this figure" under it, and a scene as a card in the flow](docs/explain-stage-offer.png)
+
 Three layouts, switched in the bar and remembered:
 
 - **Margin** (the default): the prose in a reading column, and its figures,

@@ -3005,6 +3005,83 @@ body.win-moving .assistant-win { transition: none; }
 .figure-art.drawing { height: 140px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
 .explain-figure figcaption { margin-top: 10px; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); }
 
+/* Claude's mark under a figure: motion would help here, and the page offers to draw it. */
+.figure-animate { display: flex; gap: 10px; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border-soft); font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+.figure-animate .btn { flex: none; color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; white-space: nowrap; }
+.figure-animate .btn:hover { background: var(--accent); color: var(--accent-on); }
+
+/* A scene: the figure with steps, drawn by the page (Motion.tsx). Its colours are the page's, by tone. */
+.explain-motion {
+  margin: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: clip;
+  --m-accent: var(--accent); --m-blue: #3b6fb6; --m-yellow: #b8860b; --m-pink: #b7527a; --m-muted: var(--muted);
+}
+:root[data-theme='dark'] .explain-motion { --m-blue: #7ea4e0; --m-yellow: #e0b650; --m-pink: #d57aa0; }
+.motion-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px 7px 12px; border-bottom: 1px solid var(--border-soft); background: var(--panel); font-size: 12px; }
+.motion-kind { font: 500 11px var(--mono); color: var(--accent); white-space: nowrap; }
+.motion-title { flex: 1; min-width: 0; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.motion-state { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.motion-state i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.motion-state.is-live i { animation: motion-blink 1.4s infinite; }
+@keyframes motion-blink { 50% { opacity: 0.25; } }
+.motion-state.as-btn { cursor: pointer; color: var(--accent); background: none; border: 0; padding: 0; font: inherit; font-size: 11.5px; }
+.motion-art { padding: 10px 10px 0; }
+.motion-art svg { display: block; width: 100%; height: auto; max-height: 250px; font-family: var(--sans); overflow: visible; }
+.motion-art text { fill: var(--ink); }
+.motion-art text.t-muted { fill: var(--muted); }
+.motion-art .mono { font-family: var(--mono); }
+.motion-art.drawing { min-height: 120px; display: grid; place-items: center; padding: 20px 16px; color: var(--muted); font-size: 12.5px; text-align: center; }
+.m-accent { --m: var(--m-accent); } .m-blue { --m: var(--m-blue); } .m-yellow { --m: var(--m-yellow); } .m-pink { --m: var(--m-pink); } .m-muted { --m: var(--m-muted); }
+.m-fill { fill: var(--m); }
+.m-soft { fill: color-mix(in srgb, var(--m) 16%, var(--surface)); stroke: var(--m); stroke-width: 1; }
+.m-frozen .m-soft { stroke-dasharray: 3 2; }
+.m-stroke { fill: none; stroke: var(--m); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.m-second { stroke-dasharray: 4 3; }
+.m-dashed { stroke-dasharray: 5 3; }
+.m-axis { stroke: var(--border); stroke-width: 1; }
+.m-track { fill: var(--panel); stroke: var(--border); }
+.m-packet { fill: var(--m-yellow); }
+.m-pill rect { fill: var(--m); }
+.m-pill text { fill: var(--accent-on); }
+.m-pink .m-pill text, .m-blue .m-pill text, .m-yellow .m-pill text { fill: #fff; }
+.m-node, .m-edge { transition: opacity 0.35s; }
+.m-hi .m-soft { fill: color-mix(in srgb, var(--m) 40%, var(--surface)); stroke-width: 1.6; }
+.m-hi .m-stroke { stroke-width: 2.4; }
+.m-hi .m-fill { filter: drop-shadow(0 0 3px color-mix(in srgb, var(--m) 60%, transparent)); }
+.motion-art .m-node text { pointer-events: none; }
+.m-input text, .explain-motion .m-accent circle + text { fill: var(--accent-on); }
+.motion-caption { padding: 8px 14px 2px; font-size: 13px; line-height: 1.45; color: var(--ink-2); min-height: 40px; }
+.motion-caption b { color: var(--ink); font-weight: 600; }
+.motion-steps { display: flex; align-items: center; gap: 10px; padding: 6px 12px 10px; }
+.motion-steps .play { width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--ink); display: inline-grid; place-items: center; cursor: pointer; flex: none; }
+.motion-steps .play svg { width: 10px; height: 10px; fill: currentColor; }
+.motion-steps .dots { display: inline-flex; gap: 5px; }
+.motion-steps .dots button { width: 18px; height: 18px; border-radius: 50%; border: 0; background: none; cursor: pointer; position: relative; padding: 0; }
+.motion-steps .dots button::after { content: ''; position: absolute; inset: 5px; border-radius: 50%; background: var(--border); }
+.motion-steps .dots button[aria-current='step']::after { background: var(--accent); inset: 4px; }
+.motion-steps .dots button.done::after { background: var(--muted); }
+.motion-steps input[type='range'] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.explain-motion.is-compact .motion-art svg { max-height: 220px; }
+.layout-notebook .explain-motion { max-width: 560px; }
+
+/* The stage: the section's scene, kept in view beside its prose while the section is read. */
+.layout-margin .explain-section.has-stage .stage-grid { display: grid; grid-template-columns: minmax(0, 620px) minmax(0, 1fr); column-gap: 44px; align-items: start; }
+.stage-main { min-width: 0; }
+.stage-side { min-width: 0; display: flex; flex-direction: column; gap: 16px; margin: 4px 0 18px; }
+/* A sticky element's rectangle is the scroller's content box, inside its padding, hence the negative part. */
+.explain-stage { position: sticky; top: calc(12px - var(--explain-pad-top, 0px)); z-index: 4; border-radius: 12px; box-shadow: 0 14px 34px -24px rgba(22, 22, 19, 0.55); }
+:root[data-theme='dark'] .explain-stage { box-shadow: 0 14px 34px -22px rgba(0, 0, 0, 0.8); }
+@media (max-width: 1100px) { .layout-margin .explain-section.has-stage .stage-grid { grid-template-columns: minmax(0, 1fr); } .explain-stage { position: static; box-shadow: none; } }
+.stage-toggle { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.stage-toggle.is-on { color: var(--accent); }
+/* The outline's marks: a scene on the stage, or a figure Claude marked as worth one. */
+.explain-outline .play { flex: none; align-self: center; width: 14px; height: 10px; border-radius: 2px; border: 1px solid var(--muted); position: relative; opacity: 0.85; }
+.explain-outline .play::after { content: ''; position: absolute; left: 4px; top: 2px; border-left: 4px solid var(--muted); border-top: 2.5px solid transparent; border-bottom: 2.5px solid transparent; }
+.explain-outline .play.offered { border-style: dashed; }
+.explain-outline .play.offered::after { display: none; }
+.explain-outline li.active .play { border-color: var(--accent); }
+.explain-outline li.active .play::after { border-left-color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .motion-state.is-live i { animation: none; } .m-node, .m-edge { transition: none; } }
+
 /* A code cell, dressed like a notebook's. */
 .explain-cell { margin: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: clip; }
 /* The header, with Run in Colab, keeps to the top of what is on screen while a long cell scrolls; `clip` above, not `hidden`, so it can. */
