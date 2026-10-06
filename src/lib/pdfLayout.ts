@@ -190,8 +190,11 @@ export interface PaperByline {
 
 // ------------------------------------------------------------------ fonts --
 
-const BOLD = /bold|black|heavy|semibold|demibold|extrab|ultrab|-medi|medium(?!ital)|cmbx|cmb\d|ptmb|ntxb|txb|sfbx|sfsx|cmssbx|lmssbx|,bold|-bd\b|\bbd\b|\.b$|-b$/i;
-const ITALIC = /italic|oblique|ital\b|-it\b|cmti|cmmi|cmsl|slanted|,italic|\.i$|-i$|\bit$/i;
+// Linux Libertine and Biolinum, which ACM's acmart sets, name their faces
+// by letters after an "O": LinLibertineOB is bold, OI italic, OBI both,
+// OZ semibold, OC small capitals.
+const BOLD = /bold|black|heavy|semibold|demibold|extrab|ultrab|-medi|medium(?!ital)|cmbx|cmb\d|ptmb|ntxb|txb|sfbx|sfsx|cmssbx|lmssbx|,bold|-bd\b|\bbd\b|\.b$|-b$|lin(?:libertine|biolinum)o[bz]/i;
+const ITALIC = /italic|oblique|ital\b|-it\b|cmti|cmmi|cmsl|slanted|,italic|\.i$|-i$|\bit$|lin(?:libertine|biolinum)o[bz]?i\b/i;
 const MONO = /mono|cmtt|courier|typewriter|consolas|menlo|inconsolata|nimbusmon|luximono|lmtt|beramono|dejavusansmono|sourcecodepro|firamono/i;
 /** Fonts that only ever set mathematics. */
 const MATH = /xcharter-?math|newtxmath|newpxmath|zmath|cmmi|cmsy|cmex|cmmib|cmbsy|msam|msbm|rsfs|eufm|eufb|eurm|eusm|txsy|txmi|txex|pxsy|pxmi|pxex|stixmath|cambriamath|mathematica|symbol\b|standardsym|esint|wasy|stmary|mtsy|mtmi|mtex|lmmi|lmsy|lmex|xits-?math|latinmodernmath/i;
@@ -1761,7 +1764,9 @@ interface Paragraph {
   region?: Region;
 }
 
-const BULLET = /^[•◦▪■●○◆◇►▸‣⁃–—-]\s+\S/;
+// A dash set against its item with no space — "—We provide…", as ACM's
+// itemize sets them — is a bullet too; a hyphen is one only with a space after it.
+const BULLET = /^(?:[•◦▪■●○◆◇►▸‣⁃–—-]\s+\S|[–—](?=\p{Lu}))/u;
 const NUMBERED = /^(\(?\d{1,2}[.)]|\(?[a-z][.)]|\(?[ivx]{1,4}[.)])\s+\S/i;
 
 /**
@@ -1770,6 +1775,13 @@ const NUMBERED = /^(\(?\d{1,2}[.)]|\(?[a-z][.)]|\(?[ivx]{1,4}[.)])\s+\S/i;
  * justified text — after a line that stopped short of the column's edge.
  */
 const REFERENCES = /^(\d+(\.\d+)*\.?\s+)?(references|bibliography|literature cited)\s*$/i;
+
+/** Whether the line's first, or last, run of letters is set bold. */
+function boldAt(line: Line, side: 'start' | 'end'): boolean {
+  const worded = line.runs.filter((run) => /\p{L}{2}/u.test(run.str));
+  const run = side === 'start' ? worded[0] : worded[worded.length - 1];
+  return Boolean(run?.bold);
+}
 
 function paragraphs(ordered: Line[], measures: Measures, columns: Map<Line, number>, references: boolean): Paragraph[] {
   const out: Paragraph[] = [];
@@ -1807,7 +1819,17 @@ function paragraphs(ordered: Line[], measures: Measures, columns: Map<Line, numb
       else if (Math.abs(line.size - previous.size) > 0.6) fresh = true;
       // A change of face starts a paragraph — not a run-in heading, bold to
       // the end of a full line, whose sentence carries on in roman.
-      else if (line.allBold !== previous.allBold && /\w{3}/.test(line.text) && /\w{3}/.test(previous.text) && !(previous.allBold && previous.x1 >= columnLeft + measures.columnWidth - em && !/[.:!?]$/.test(previous.text))) fresh = true;
+      // (Nor where a bold phrase runs over the break — "Security and privacy →
+      // Software" / "and application security" — the line before ending in
+      // bold and this one beginning in it.)
+      else if (
+        line.allBold !== previous.allBold &&
+        /\w{3}/.test(line.text) &&
+        /\w{3}/.test(previous.text) &&
+        !(previous.allBold && previous.x1 >= columnLeft + measures.columnWidth - em && !/[.:!?]$/.test(previous.text)) &&
+        !(boldAt(previous, 'end') && boldAt(line, 'start') && previous.x1 >= columnLeft + measures.columnWidth - em)
+      )
+        fresh = true;
       // Two bold headings one over the other — an appendix's title, then
       // its first section's — are set further apart than a heading's own lines.
       else if (previous.allBold && line.allBold && pitch > 1.5 * em) fresh = true;
@@ -2167,9 +2189,20 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
   // lines of their own set tight under them — a review's table of studies
   // — has two pitches: a line's, and a record's.
   const baselineOf = (row: Entry[]) => Math.min(...row.map((entry) => entry.line.baseline));
-  const pitches = grid.slice(1).map((row, index) => (row.length && grid[index].length ? baselineOf(row) - Math.max(...grid[index].map((entry) => entry.bottom)) : 0)).filter((pitch) => pitch > 0);
+  // A label alone in the first column — "Malicious Developer", centred on
+  // the rows of its group, so set between two of them — is no row to
+  // measure the pitch by.
+  const labelRow = (row: Entry[]) => row.length === 1 && row[0].first === 0 && row[0].last === 0 && columns.length > 2;
+  const measured = grid.filter((row) => row.length && !labelRow(row));
+  const pitches = measured.slice(1).map((row, index) => baselineOf(row) - Math.max(...measured[index].map((entry) => entry.bottom))).filter((pitch) => pitch > 0);
   const step = pitches.length ? Math.min(...pitches) : 0;
   const recordGapped = step > 0 && pitches.filter((pitch) => pitch > 1.25 * step).length >= 2 && pitches.filter((pitch) => pitch <= 1.1 * step).length >= 2;
+  // The columns that are figures: those most of whose cells, the first row's apart, are values.
+  const valueColumns = new Set<number>();
+  columns.forEach((_, index) => {
+    const own = grid.slice(1).flat().filter((entry) => entry.first === index && entry.last === index);
+    if (own.length >= 2 && own.filter((entry) => !words(entry)).length >= 0.6 * own.length) valueColumns.add(index);
+  });
   // A table of words has no figure to end its heading at: the rule drawn
   // across the whole table under the heading — booktabs' midrule — ends it.
   const across0 = Math.min(...columns.map((column) => column.x0));
@@ -2210,15 +2243,41 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
     // (Not a row with a cell set across several of those above it: "AdamW(…)"
     // over three stages is a row of its own.)
     const spansAbove = row.some((entry) => above.filter((other) => other.first <= entry.last && other.last >= entry.first).length > 1);
+    // A cell's turnover goes on from the cell over it: in lower case, or
+    // after a cell that stopped without a stop. A cell starting with a
+    // capital under one that ended its sentence — "Adds MCP support…"
+    // under "Implements MCP through OpenCTX." — is the next row's.
+    const overOf = (entry: Entry) => above.find((other) => other.first <= entry.last && other.last >= entry.first);
+    const goesOn = (entry: Entry) => {
+      const over = overOf(entry);
+      if (!over) return false;
+      const text = plain(entry.spans);
+      return /^\p{Ll}/u.test(text) || !/[.!?]["'”’)]?$/.test(plain(over.spans));
+    };
+    const breaksOff = (entry: Entry) => {
+      const over = overOf(entry);
+      return Boolean(over) && /^\p{Lu}/u.test(plain(entry.spans)) && /[.!?]["'”’)]?$/.test(plain(over!.spans));
+    };
+    // A row with a figure in a column of figures — "5.1.2" under "5.1.1"
+    // in a column of section numbers — is a record of its own, as is one
+    // with a cell in every column but the labels': a cell's turnover
+    // wraps a column or two, never the row.
+    const figured = row.some((entry) => entry.first === entry.last && valueColumns.has(entry.first) && !words(entry));
+    const whole = columns.length >= 3 && row.length >= columns.length - 1;
     const turnover =
       recordGapped &&
       !heading &&
       !spansAbove &&
+      !figured &&
+      !whole &&
       row.length > 0 &&
       above.length > 0 &&
+      !labelRow(above) &&
       baselineOf(row) - Math.max(...above.map((entry) => entry.bottom)) <= 1.15 * step &&
       row.length <= Math.max(1, 0.8 * columns.length) &&
-      row.filter(words).length >= Math.max(1, row.length / 2);
+      row.filter(words).length >= Math.max(1, row.length / 2) &&
+      row.some(goesOn) &&
+      !row.some(breaksOff);
     if (turnover) {
       for (const entry of row) {
         const cell = above.find((other) => other.first <= entry.last && other.last >= entry.first);
@@ -2388,13 +2447,25 @@ export function tableFromLines(lines: Line[], caption?: Line, rules: TableRule[]
   // group, as the rules divide them, that have none: it goes on the first
   // of them.
   if (across.length) {
+    // A label set on two lines — "Malicious" over "Developer" — is one label.
+    const labelOf = new Map<number, Entry>();
     for (let row = head; row < grid.length; row += 1) {
       const only = grid[row].length === 1 && grid[row][0].first === 0 && grid[row][0].last === 0 ? grid[row][0] : null;
       if (!only) continue;
       const group = groupOf(row);
+      const placed = labelOf.get(group);
+      if (placed) {
+        placed.spans = cellTurnover(placed.spans, only.spans);
+        grid.splice(row, 1);
+        row -= 1;
+        continue;
+      }
       const members = grid.map((_, index) => index).filter((index) => index >= head && index !== row && grid[index].length && groupOf(index) === group);
-      if (!members.length || members.some((index) => grid[index].some((entry) => entry.first === 0))) continue;
+      // (The label's own second line is no row of the group with a label of its own.)
+      const alone = (index: number) => grid[index].length === 1 && grid[index][0].first === 0 && grid[index][0].last === 0;
+      if (!members.length || members.some((index) => !alone(index) && grid[index].some((entry) => entry.first === 0))) continue;
       grid[members[0]].unshift(only);
+      labelOf.set(group, only);
       grid.splice(row, 1);
       row -= 1;
     }
@@ -2950,8 +3021,9 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
       // the first paragraph of some length under the authors' names.
       if (abstractAt < 0) {
         const named = authorsOnFront(ordered.filter((line) => line.baseline < page.height * 0.5), options.title);
+        // (The names as the page sets them: ACM's in capitals, read as cased names.)
         const bylineAt = named.length
-          ? paras.findIndex((paragraph, index) => index < 20 && named.some((name) => plain(spansOf(paragraph.lines)).includes(name)))
+          ? paras.findIndex((paragraph, index) => index < 20 && named.some((name) => plain(spansOf(paragraph.lines)).toLowerCase().includes(name.toLowerCase())))
           : -1;
         if (bylineAt >= 0) abstractAt = paras.findIndex((paragraph, index) => index > bylineAt && !paragraph.region && paragraph.lines.length >= 3);
       }
@@ -3063,7 +3135,11 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
           : inReferences
             ? indented || /^[a-z]/.test(text)
             : continues || !indented;
-        if (openEnded && runsOn && Math.abs(paragraph.lines[0].size - carryLast.size) <= 0.6) {
+        // A paragraph led by a heading — a line in bold, "ACM Reference
+        // format:", or a heading run into its text — is its own, however
+        // the one before it ended.
+        const headed = paragraph.lines[0].allBold || runInHeading(paragraph.lines[0]);
+        if (openEnded && runsOn && !headed && Math.abs(paragraph.lines[0].size - carryLast.size) <= 0.6) {
           carry.spans = mergeSpans(carry.spans, spans, mendsBreak(last, text));
           carryLast = paragraph.lines[paragraph.lines.length - 1];
           carryColumn = paragraph.columnLeft;
@@ -3264,6 +3340,29 @@ export function looksLikeName(piece: string): boolean {
   }
   // A shouted line — "ABSTRACT", a running head — is not a name.
   return capitals >= 2 && !/^[\p{Lu}\s.'-]{12,}$/u.test(piece);
+}
+
+/**
+ * A line of names followed by where they are, as ACM sets a byline —
+ * "XINYI HOU and YANJIE ZHAO, Huazhong University of Science and
+ * Technology, Wuhan, China" — cut into the names and the place; null
+ * where the line is not set so. The names may be in capitals, as ACM's
+ * small capitals come out of a PDF.
+ */
+export function namesThenPlace(text: string): { names: string[]; place: string } | null {
+  const pieces = bylinePieces(text.replace(/\d+/g, ' '));
+  // Capitals read as a name once cased as one: "XINYI HOU" is Xinyi Hou.
+  const cased = (piece: string) => piece.toLowerCase().replace(/(^|[\s.'’-])(\p{L})/gu, (match) => match.toUpperCase());
+  const nameLike = (piece: string) => looksLikeName(piece) || (/^[\p{Lu}\s.'’-]+$/u.test(piece) && looksLikeName(cased(piece)));
+  let lead = 0;
+  while (lead < pieces.length && nameLike(pieces[lead])) lead += 1;
+  if (!lead || lead === pieces.length) return null;
+  // The place as the line writes it — "Science and Technology", not cut at its "and".
+  const last = pieces[lead - 1];
+  const at = text.indexOf(last);
+  const place = (at >= 0 ? text.slice(at + last.length) : pieces.slice(lead).join(', ')).replace(/^[\s,;]+/, '').trim();
+  if (!INSTITUTION.test(place) || AUTHOR_NOTE.test(place) || /@|\d{3}/.test(place)) return null;
+  return { names: pieces.slice(0, lead).map((piece) => (/^[\p{Lu}\s.'’-]+$/u.test(piece) ? cased(piece) : piece)), place };
 }
 
 /** A byline's line cut into the pieces that could each be a name. */
@@ -3646,7 +3745,7 @@ function bylineParts(line: Line): { spans: Span[]; x0: number; x1: number }[] {
  */
 function frontMatter(lines: Line[], measures: Measures, title?: string): { front: Span[][]; byline?: PaperByline } {
   const wanted = title ? normalTitle(title) : '';
-  type Entry = { spans: Span[]; names: boolean; marked: boolean; parts: { spans: Span[]; x0: number; x1: number }[]; size: number; baseline: number };
+  type Entry = { spans: Span[]; names: boolean; marked: boolean; parts: { spans: Span[]; x0: number; x1: number }[]; size: number; baseline: number; placed?: { names: string[]; place: string } };
   const entries: Entry[] = [];
   // What is set over the title — a licence, a venue's notice — is no part of the byline.
   const over: Span[][] = [];
@@ -3667,8 +3766,17 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): { front
     if (!text || /^arxiv:/i.test(text)) continue;
     const marked = spans.some((span) => span.sup) || /[∗*†‡§¶]/.test(text);
     const pieces = bylinePieces(text.replace(/\d+/g, ' '));
-    const names = pieces.length > 0 && pieces.every(looksLikeName);
+    // Names and then their institution on one line, as ACM sets them.
+    const placed = pieces.every(looksLikeName) ? null : namesThenPlace(text);
+    const names = pieces.length > 0 && (pieces.every(looksLikeName) || Boolean(placed));
     const previous = entries[entries.length - 1];
+    // The institution's name run on to the next line — "…University of
+    // Science and Technology," / "Wuhan, China" — is the same line's.
+    if (previous?.placed && !marked && /,$/.test(previous.placed.place) && !emailsIn(text).length && text.split(' ').length <= 8 && !pieces.every(looksLikeName)) {
+      previous.placed.place = `${previous.placed.place} ${text}`.replace(/,\s*$/, '');
+      previous.spans = mergeSpans(previous.spans, spans, false);
+      continue;
+    }
     // A line running on from the one before — but not an address under an
     // institution, unless it closes a group the line before opened.
     const address = /^[{[(]?[\w.+-]+(?:\s*,\s*[\w.+-]+)*[}\])]?\s*@/.test(text) && !/[{[(][^}\])]*$/.test(plain(previous?.spans ?? []));
@@ -3686,7 +3794,7 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): { front
     const led = spans.find((span) => span.text.trim());
     const leading = led?.sup ? marksOf(led.text) : MARK.test(text.split(/\s+/)[0] ?? '') ? marksOf(text.split(/\s+/)[0]) : [];
     const pointed = leading.length > 0 && entries.some((entry) => entry.names && entry.marked);
-    entries.push({ spans, names: names && !pointed, marked, parts, size: line.size, baseline: line.baseline });
+    entries.push({ spans, names: names && !pointed, marked, parts, size: line.size, baseline: line.baseline, ...(placed ? { placed } : {}) });
   }
 
   // The byline read whole.
@@ -3708,6 +3816,15 @@ function frontMatter(lines: Line[], measures: Measures, title?: string): { front
     // What reads as a name under a name in the grid, with none of the marks
     // every name there carries — "Northfield Brain" — is where they are.
     if (entry.names && row.length && !entry.marked && row.every((cell) => cell.author.marks.length) && gridColumns(entry, row, siblings(entry))) entry.names = false;
+    if (entry.names && entry.placed) {
+      // The names on the line, each at the institution named after them.
+      for (const name of entry.placed.names) {
+        const author: BylineAuthor = { name, marks: [], affiliations: [], notes: [], emails: [] };
+        authors.push(author);
+        places.set(author, [entry.placed.place.replace(/[\s,;]+$/, '')]);
+      }
+      continue;
+    }
     if (entry.names) {
       // Names set a column at a time are one row: each a line of its own.
       if (!after?.names) row = [];
@@ -3878,9 +3995,8 @@ function authorsOnFront(lines: Line[], title?: string): string[] {
     // Lines of anything else are passed over rather than ending the byline:
     // one set as a grid has each row of names followed by their addresses.
     const pieces = bylinePieces(marked);
-    if (pieces.length && pieces.every(looksLikeName)) {
-      for (const name of pieces) if (!names.includes(name)) names.push(name);
-    }
+    const found = pieces.length && pieces.every(looksLikeName) ? pieces : namesThenPlace(marked)?.names ?? [];
+    for (const name of found) if (!names.includes(name)) names.push(name);
   }
   // A collaboration's byline runs to scores of names, DeepSeek's to 86;
   // hundreds of "names" are something else read as names.
@@ -4099,7 +4215,8 @@ export function renderHtml(layout: Layout, imageFor: (crop: Crop) => string | nu
             list = block.list;
             out.push(list === 'bullet' ? '<ul>' : '<ol>');
           }
-          const spans = block.spans.map((span, index) => (index === 0 ? { ...span, text: span.text.replace(list === 'bullet' ? BULLET : NUMBERED, (match) => match.slice(-1)) } : span));
+          // The bullet and the space after it go; a dash set against its item is the whole match.
+          const spans = block.spans.map((span, index) => (index === 0 ? { ...span, text: span.text.replace(list === 'bullet' ? BULLET : NUMBERED, (match) => (match.length === 1 ? '' : match.slice(-1))) } : span));
           out.push(`<li>${spansToHtml(spans)}</li>`);
         } else {
           out.push(`<p>${spansToHtml(block.spans)}</p>`);

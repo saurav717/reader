@@ -1155,13 +1155,20 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   then the other (a recursive XY-cut, which also puts a full-width title
   before the columns under it), and a paragraph that runs from the foot of
   one column to the top of the next, or across a page, is one paragraph —
-  a list item too, where what runs on is set at its text's indent. An
+  a list item too, where what runs on is set at its text's indent — but
+  never one led by a line in bold ("ACM Reference format:") or by a
+  heading run into its text, which is its own however the one before it
+  ended. A dash set against its item, "—We provide…", as ACM's itemize
+  sets them, is a bullet. An
   item set as a paragraph — its bullet indented, its lines turning over
   to the column's edge — is one item, not a line and a paragraph. A
   structured abstract's parts, each led by a heading run into its text
   ("Recent findings", "Summary"), are a paragraph each, even where the
   abstract is set across both columns of a two-column paper.
-  Headings are the lines set larger or bolder than the body — a bold
+  Headings are the lines set larger or bolder than the body — bold and
+  italic read from the font's name, Linux Libertine's and Biolinum's by
+  the letter after their "O" (LinBiolinumOB is bold, LinLibertineOI
+  italic), as ACM's acmart sets them — a bold
   heading broken over two lines, "4.2 Model Input Format and Next
   Sentence" / "Prediction", the second hung in under the first, is one
   heading, and two set one over the other with space between, an
@@ -1203,7 +1210,13 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   the marks stand for and the institutions named ("Nanjing University ·
   ∗Equal contribution · †Corresponding authors"). An institution named
   without a mark is every author's; one with a mark, "¹", is theirs whose
-  names carry it — a line led by a mark, "§Facebook AI", being what the
+  names carry it. A byline set as ACM's journals set one — "XINYI HOU and
+  YANJIE ZHAO, Huazhong University of Science and Technology, Wuhan,
+  China", each line's names in capitals before their institution, which
+  may run on to the next line — is read a line at a time, the names cased
+  as names and each at the institution named after them, and the abstract
+  that follows with no "Abstract" over it is the text's first paragraph.
+  A line led by a mark, "§Facebook AI", is what the
   mark stands for and never a name, and an institution run over two lines
   after a comma ("Paul G. Allen School of Computer Science & Engineering,"
   / "University of Washington") one institution. Addresses on the first page — one by one, written once
@@ -1310,7 +1323,9 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   columns it is set centred over; a label naming a group of rows —
   *Complex* over its *Success* and *Abnormal motion* — covers the rows as
   far as the next rule across the table, rather than leaving blank cells
-  that read as the next group's, and so does a label set sideways, turned
+  that read as the next group's — a label set on two lines between the
+  rows it names, "Malicious" over "Developer", being one label, and no row
+  to measure the table's pitch by — and so does a label set sideways, turned
   up the side of its rows (*Knowledge*, *Logic*, *Coding*). A caption is
   the table's it is nearest: one set under its table, as NeurIPS sets
   them, takes the table above, not the next one below; and two tables set
@@ -1325,7 +1340,10 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   as a column reaches as far as the rules drawn across it; and a line set
   under a table's last rule is its note, not a row. A table of records
   parted by space — a review's table of studies — whose cells run on to
-  lines of their own set tight under them keeps each record one row, and
+  lines of their own set tight under them keeps each record one row — a
+  row with a figure in a column of figures ("5.1.2" in a column of section
+  numbers), or with a cell in every column but the labels', being a record
+  of its own, never a cell's turnover — and
   so does one whose records are parted by rules, a category over a dozen
   datasets a line — kept a line each; a category and its description cover the rows under
   them. A cell set justified keeps its wide spaces in the cell, not as
@@ -1390,7 +1408,10 @@ heading broken over two lines, a footnote carried from one column to the
 next, small capitals broken at a line's end (*BOOKCOR-* / *PUS*), a
 byline whose marks lead its institutions (*§Facebook AI*), a line of text
 that begins "Table 7.", a sentence closed before its footnote's mark, and
-Computer Modern's ϵ; `scripts/pdf-reflow-dvips.test.mjs` writes a
+Computer Modern's ϵ — and what an ACM journal paper set with acmart
+taught it: Libertine's faces, a byline of capitals before an institution,
+itemize's dashes, a bold line at the head of a page, and a table whose
+groups rules part with a label set on two lines; `scripts/pdf-reflow-dvips.test.mjs` writes a
 two-page PDF out by hand with its table's rules drawn as dvips draws them,
 and reads it back with pdf.js — the rules found, the table's heading and
 its italic group label kept, the running head dropped and the heading

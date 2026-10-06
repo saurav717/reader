@@ -1007,3 +1007,129 @@ describe('a paper set with dvips', () => {
     assert.ok(texts(layoutPages([page(runs)])).some((text) => text.includes('Adam with ϵ = 1e-6')));
   });
 });
+
+// What an ACM journal paper set with acmart taught the reflow (Hou et al.,
+// TOSEM 2026): Linux Libertine and Biolinum name their faces by a letter
+// after an "O", the byline sets each line's names in capitals before their
+// institution, itemize's dashes stand against their items, a bold line at
+// the head of a page is never the paragraph before carried on, a table
+// whose groups are parted by rules has a label set on two lines, and its
+// rows each carry a figure in a column of figures.
+describe('a paper set with acmart', () => {
+  const body = (x, top, count = 3) => column(x, top, Array.from({ length: count }, (_, index) => (index === count - 1 ? 'The end of it.' : 'Body text of the column runs on for a while here and then')), { width: 240 });
+
+  it('reads Libertine and Biolinum faces by their letters', () => {
+    assert.deepEqual(faceOf('JQQBID+LinBiolinumOB'), { bold: true, italic: false, mono: false, math: false });
+    assert.deepEqual(faceOf('YEERXL+LinLibertineOI'), { bold: false, italic: true, mono: false, math: false });
+    assert.deepEqual(faceOf('LinLibertineOBI'), { bold: true, italic: true, mono: false, math: false });
+    assert.deepEqual(faceOf('LinLibertineOZ'), { bold: true, italic: false, mono: false, math: false });
+    assert.equal(faceOf('QNYPEQ+LinLibertineO').bold, false);
+    assert.equal(faceOf('URCPWR+LinBiolinumO').italic, false);
+  });
+
+  it('reads a bold Biolinum line as a heading, and an itemize dash set against its item as a bullet', () => {
+    const runs = [
+      line('1', 54, 100, { size: 10, font: 'JQQBID+LinBiolinumOB', width: 5 }),
+      line('Introduction', 69, 100, { size: 10, font: 'JQQBID+LinBiolinumOB', width: 58 }),
+      ...body(54, 115),
+      line('—We provide the first analysis of the MCP ecosystem, detailing its', 66, 150, { width: 228 }),
+      line('architecture.', 74, 160.8, { width: 60 }),
+      line('—We identify the key components of MCP servers.', 66, 171.6, { width: 200 }),
+    ];
+    const layout = layoutPages([page(runs)]);
+    assert.deepEqual(layout.blocks.filter((block) => block.kind === 'heading').map((block) => plain(block.spans)), ['1 Introduction']);
+    const html = renderHtml(layout, () => null);
+    assert.match(html, /<ul>\s*<li>We provide the first analysis.*architecture\.<\/li>\s*<li>We identify the key components of MCP servers\.<\/li>\s*<\/ul>/);
+  });
+
+  it('reads a byline of names in capitals before their institution, run over two lines, with the abstract under it', () => {
+    const runs = [
+      line('A Very Important Paper', 54, 80, { size: 14, font: 'JQQBID+LinBiolinumOB', width: 300 }),
+      line('XINYI HOU and YANJIE ZHAO,', 54, 110, { size: 10.9, font: 'URCPWR+LinBiolinumO', width: 143 }),
+      line('Huazhong University of Science and Technology, Wuhan, China', 200, 110, { size: 9, font: 'QNYPEQ+LinLibertineO', width: 235 }),
+      line('SHENAO WANG and HAOYU WANG,', 54, 123, { size: 10.9, font: 'URCPWR+LinBiolinumO', width: 171 }),
+      line('Huazhong University of Science and Technology,', 228, 123, { size: 9, font: 'QNYPEQ+LinLibertineO', width: 180 }),
+      line('Wuhan, China', 54, 136, { size: 9, font: 'QNYPEQ+LinLibertineO', width: 53 }),
+      ...column(54, 170, ['The Model Context Protocol (MCP) is an emerging open standard that', 'defines a unified protocol between AI models and external tools, and', 'this paper studies it.'], { width: 240 }),
+      ...body(54, 220),
+    ];
+    const layout = layoutPages([page(runs)], { title: 'A Very Important Paper' });
+    assert.deepEqual(layout.authors, ['Xinyi Hou', 'Yanjie Zhao', 'Shenao Wang', 'Haoyu Wang']);
+    assert.deepEqual(
+      layout.byline.authors.map((author) => [author.name, author.affiliations.join('; ')]),
+      [
+        ['Xinyi Hou', 'Huazhong University of Science and Technology, Wuhan, China'],
+        ['Yanjie Zhao', 'Huazhong University of Science and Technology, Wuhan, China'],
+        ['Shenao Wang', 'Huazhong University of Science and Technology, Wuhan, China'],
+        ['Haoyu Wang', 'Huazhong University of Science and Technology, Wuhan, China'],
+      ],
+    );
+    assert.equal(layout.front, undefined);
+    assert.match(texts(layout)[0], /^The Model Context Protocol \(MCP\) is an emerging open standard/);
+  });
+
+  it('does not carry a paragraph on into a bold line at the head of the next page', () => {
+    const first = page([...body(54, 100), ...column(54, 140, ['Additional Key Words and Phrases: Model Context Protocol, MCP,', 'Vision paper, Security'], { width: 240 })], [], 0);
+    const second = page(
+      [
+        line('ACM Reference format:', 54, 100, { font: 'ERHDGH+LinLibertineOB', width: 90 }),
+        ...column(54, 110.8, ['Xinyi Hou, Yanjie Zhao, Shenao Wang, and Haoyu Wang. 2026. Model', 'Context Protocol (MCP): Landscape. ACM Trans. Softw. Eng. Methodol.'], { width: 240 }),
+        ...body(54, 150),
+      ],
+      [],
+      1,
+    );
+    const found = texts(layoutPages([first, second]));
+    assert.ok(found.includes('Additional Key Words and Phrases: Model Context Protocol, MCP, Vision paper, Security'), found.join('\n'));
+    assert.ok(found.some((text) => text.startsWith('ACM Reference format:')), found.join('\n'));
+  });
+
+  it('keeps each row of a table whose groups are parted by rules, and joins a group label set on two lines', () => {
+    const bold = { font: 'ERHDGH+LinLibertineOB', size: 7 };
+    const cell = (str, x, y, options = {}) => line(str, x, y, { size: 7, ...options });
+    const rows = [
+      ['Namespace Typosquatting', '5.1.1', '(1) Metadata Definition', 'Installation of malicious server'],
+      ['Tool Name Conflict', '5.1.2', '(1) Capability Declaration', 'Ambiguity, wrong tool execution'],
+      ['Preference Manipulation', '5.1.3', '(1) Capability Declaration', 'Unsafe defaults exploited'],
+      ['Tool Poisoning', '5.1.4', '(1) Capability Declaration', 'Hidden malicious payload executed'],
+    ];
+    const runs = [
+      cell('Type', 60, 110, bold),
+      cell('Security Risk', 100, 110, bold),
+      cell('Section', 200, 110, bold),
+      cell('Threat Origin', 240, 110, bold),
+      cell('Attack Consequence', 345, 110, bold),
+      ...rows.flatMap((cells, index) => [cell(cells[0], 100, 122 + 8 * index), cell(cells[1], 200, 122 + 8 * index), cell(cells[2], 240, 122 + 8 * index), cell(cells[3], 345, 122 + 8 * index)]),
+      cell('Malicious', 60, 134), // level with the gap between the second and third rows
+      cell('Developer', 60, 142),
+      cell('Installer Spoofing', 100, 164),
+      cell('5.2.1', 200, 164),
+      cell('(2) Installer Deployment', 240, 164),
+      cell('Deployment of compromised server', 345, 164),
+      cell('Indirect Prompt Injection', 100, 172),
+      cell('5.2.2', 200, 172),
+      cell('(3) External Resource Access', 240, 172),
+      cell('Malicious instructions injected', 345, 172),
+      cell('External', 60, 164),
+      cell('Attacker', 60, 172),
+      line('Table 3. Threats, Origins, and Consequences across Different Attacker Types', 100, 95, { size: 8, width: 300 }),
+      ...body(54, 210),
+    ];
+    const graphics = [
+      { x0: 54, y0: 101, x1: 470, y1: 101.5, kind: 'path' },
+      { x0: 54, y0: 113, x1: 470, y1: 113.5, kind: 'path' },
+      { x0: 54, y0: 155, x1: 470, y1: 155.5, kind: 'path' },
+      { x0: 54, y0: 176, x1: 470, y1: 176.5, kind: 'path' },
+    ];
+    const layout = layoutPages([page(runs, graphics)]);
+    const table = layout.blocks.find((block) => block.kind === 'table');
+    assert.ok(table?.rows, JSON.stringify(layout.blocks.map((block) => block.kind)));
+    const cells = table.rows.map((row) => row.map((cell) => plain(cell.spans)));
+    assert.deepEqual(cells[0], ['Type', 'Security Risk', 'Section', 'Threat Origin', 'Attack Consequence']);
+    assert.deepEqual(cells[1], ['Malicious Developer', 'Namespace Typosquatting', '5.1.1', '(1) Metadata Definition', 'Installation of malicious server']);
+    assert.equal(table.rows[1][0].rowspan, 4);
+    assert.deepEqual(cells.slice(2, 5).map((row) => row[0]), ['Tool Name Conflict', 'Preference Manipulation', 'Tool Poisoning']);
+    assert.deepEqual(cells[5], ['External', 'Installer Spoofing', '5.2.1', '(2) Installer Deployment', 'Deployment of compromised server']);
+    assert.deepEqual(cells[6], ['Attacker', 'Indirect Prompt Injection', '5.2.2', '(3) External Resource Access', 'Malicious instructions injected']);
+  });
+});
