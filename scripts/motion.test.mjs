@@ -65,10 +65,63 @@ describe('laying it out', () => {
   it('sizes a stack by its layers', () => {
     assert.ok(boxes.get('teacher').h > boxes.get('student').h);
   });
-  it('spreads nodes with no place of their own along the middle', () => {
+  it('gives nodes with no place of their own the stages in turn', () => {
     const loose = motion.parseMotion('{"nodes":[{"id":"a","kind":"box"},{"id":"b","kind":"box"},{"id":"c","kind":"box"}],"steps":[]}');
+    assert.deepEqual(loose.nodes.map((n) => [n.col, n.row]), [[0, 0], [1, 0], [2, 0]]);
     const placed = motion.layoutMotion(loose);
     assert.ok(placed.get('a').x < placed.get('b').x && placed.get('b').x < placed.get('c').x);
+  });
+  it('turns the older "at" places into columns and rows', () => {
+    // Columns 1, 2, 3 and 4 in use become 0 to 3, so the scene fills its width.
+    assert.deepEqual(spec.nodes.map((n) => [n.id, n.col, n.row]), [['x', 1, 2], ['teacher', 0, 1], ['student', 2, 1], ['p', 0, 0], ['q', 2, 0], ['T', 3, 1]]);
+  });
+  it('lays the pipeline out on a grid, one cell a node, those sharing a cell stacked in it', () => {
+    const grid = motion.parseMotion('{"nodes":[{"id":"a","kind":"box","label":"a","col":0,"row":0},{"id":"b","kind":"box","label":"b","col":0,"row":0},{"id":"c","kind":"stack","layers":6,"col":1,"row":1},{"id":"d","kind":"box","label":"d","col":3,"row":2}],"steps":[]}');
+    assert.deepEqual(grid.nodes.map((n) => n.col), [0, 0, 1, 2], 'an empty column is packed away');
+    const placed = motion.layoutMotion(grid);
+    const [a, b, c, d] = ['a', 'b', 'c', 'd'].map((id) => placed.get(id));
+    assert.equal(motion.overlaps(a, b, 0), false);
+    assert.ok(a.y < b.y && Math.abs(a.x - b.x) < 1, 'a over b in the same cell');
+    assert.ok(a.x + a.w < c.x && c.x + c.w < d.x, 'columns left to right');
+    assert.ok(c.y > a.y && d.y > c.y, 'rows top to bottom');
+    assert.ok(c.h <= motion.SCENE_H / 3, 'a stack keeps to its cell');
+  });
+  it('builds a scene up by column when the model gave nothing a step', () => {
+    const flat = motion.parseMotion('{"nodes":[{"id":"a","kind":"input","col":0},{"id":"b","kind":"box","col":1},{"id":"c","kind":"box","col":2},{"id":"d","kind":"box","col":3},{"id":"e","kind":"box","col":3,"row":2}],"edges":[{"from":"a","to":"b"},{"from":"c","to":"d"}],"steps":[{"caption":"1"},{"caption":"2"},{"caption":"3"}]}');
+    assert.deepEqual(flat.nodes.map((n) => n.step), [0, 0, 1, 2, 2]);
+    assert.equal(motion.charsAcross(60), 8);
+    assert.deepEqual(flat.edges.map((e) => e.step), [0, 2]);
+    assert.equal(motion.stateAt(flat, 0).visible.has('d'), false);
+    assert.equal(motion.stateAt(flat, 2).visible.has('d'), true);
+    const stepped = motion.parseMotion('{"nodes":[{"id":"a","kind":"box","col":0},{"id":"b","kind":"box","col":1,"step":1},{"id":"c","kind":"box","col":2},{"id":"d","kind":"box","col":3},{"id":"e","kind":"box","col":4}],"steps":[{"caption":"1"},{"caption":"2"}]}');
+    assert.deepEqual(stepped.nodes.map((n) => n.step), [undefined, 1, undefined, undefined, undefined]);
+  });
+  it('keeps nodes the model put on top of each other apart', () => {
+    const crowded = motion.parseMotion('{"nodes":[{"id":"a","kind":"box","label":"G_t: KNN edges + features, holistic H_t","at":[50,40]},{"id":"b","kind":"box","label":"TAGCN","at":[55,40]},{"id":"c","kind":"stack","label":"teacher","layers":4,"at":[48,36]},{"id":"d","kind":"box","label":"InfoNCE loss","at":[52,44]}],"steps":[]}');
+    const placed = motion.layoutMotion(crowded);
+    const boxes = Array.from(placed.values());
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) assert.equal(motion.overlaps(boxes[i], boxes[j], 0), false, `${i} and ${j} overlap`);
+    for (const box of boxes) assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.w <= motion.SCENE_W && box.y + box.h <= motion.SCENE_H);
+  });
+  it('wraps a long label onto two lines and cuts what is left', () => {
+    assert.deepEqual(motion.wrapLabel('G_t: KNN edges + features, holistic H_t'), ['G_t: KNN edges +', 'features, holistic H_t']);
+    assert.deepEqual(motion.wrapLabel('a label of many many more words than will ever fit into two short lines'), ['a label of many many', 'more words than will…']);
+    assert.deepEqual(motion.wrapLabel('TAGCN'), ['TAGCN']);
+    const tall = motion.sizeOf({ id: 'x', kind: 'box', label: 'G_t: KNN edges + features, holistic H_t' });
+    assert.equal(tall.h, 40);
+    assert.ok(tall.w <= 160);
+  });
+  it('keeps room above a stack for its label', () => {
+    const labelled = motion.sizeOf({ id: 's', kind: 'stack', label: 'teacher', layers: 3 });
+    const bare = motion.sizeOf({ id: 's', kind: 'stack', layers: 3 });
+    assert.equal(labelled.h - bare.h, motion.LABEL_ROOM);
+  });
+  it('moves an edge label off a node it lands on', () => {
+    const node = { x: 100, y: 100, w: 80, h: 30 };
+    const pill = motion.clearOf({ x: 120, y: 106, w: 40, h: 18 }, [node], { dx: 1, dy: 0 });
+    assert.equal(motion.overlaps(pill, node, 0), false);
+    const clear = motion.clearOf({ x: 300, y: 10, w: 40, h: 18 }, [node], { dx: 1, dy: 0 });
+    assert.deepEqual(clear, { x: 300, y: 10, w: 40, h: 18 });
   });
   it('joins boxes side to side or top to bottom, whichever is nearer', () => {
     const a = { x: 0, y: 0, w: 50, h: 20 }, b = { x: 200, y: 5, w: 50, h: 20 };
@@ -126,6 +179,8 @@ describe('the scene as words', () => {
   it('tells the model the block, the kinds and the rules', () => {
     assert.match(motion.MOTION_FORMAT, /```motion title=/);
     assert.match(motion.MOTION_FORMAT, /Node kinds: box, input, text, stack/);
-    assert.match(motion.MOTION_FORMAT, /Each step is one paragraph of the section/);
+    assert.match(motion.MOTION_FORMAT, /Each step is one paragraph/);
+    assert.match(motion.MOTION_FORMAT, /pipeline read left to right/);
+    assert.match(motion.MOTION_FORMAT, /Labels are names, under 16 characters/);
   });
 });

@@ -3048,7 +3048,7 @@ body.win-moving .assistant-win { transition: none; }
 .m-hi .m-stroke { stroke-width: 2.4; }
 .m-hi .m-fill { filter: drop-shadow(0 0 3px color-mix(in srgb, var(--m) 60%, transparent)); }
 .motion-art .m-node text { pointer-events: none; }
-.m-input text, .explain-motion .m-accent circle + text { fill: var(--accent-on); }
+.motion-art circle + text.mono { fill: var(--accent-on); }
 .motion-caption { padding: 8px 14px 2px; font-size: 13px; line-height: 1.45; color: var(--ink-2); min-height: 40px; }
 .motion-caption b { color: var(--ink); font-weight: 600; }
 .motion-steps { display: flex; align-items: center; gap: 10px; padding: 6px 12px 10px; }
@@ -3069,6 +3069,10 @@ body.win-moving .assistant-win { transition: none; }
 .stage-side { min-width: 0; display: flex; flex-direction: column; gap: 16px; margin: 4px 0 18px; }
 /* A sticky element's rectangle is the scroller's content box, inside its padding, hence the negative part. */
 .explain-stage { position: sticky; top: calc(12px - var(--explain-pad-top, 0px)); z-index: 4; border-radius: 12px; box-shadow: 0 14px 34px -24px rgba(22, 22, 19, 0.55); }
+/* The stage is the one card that sits over others, so it is solid even when the glass makes every surface translucent. */
+.explain-stage .explain-motion { background: var(--paper); }
+:root[data-glass='on'] .explain-stage .explain-motion { background: rgb(var(--float-rgb)); }
+:root[data-glass='on'] .explain-stage .motion-head { background: rgb(var(--float-rgb) / 0.6); }
 :root[data-theme='dark'] .explain-stage { box-shadow: 0 14px 34px -22px rgba(0, 0, 0, 0.8); }
 @media (max-width: 1100px) { .layout-margin .explain-section.has-stage .stage-grid { grid-template-columns: minmax(0, 1fr); } .explain-stage { position: static; box-shadow: none; } }
 .stage-toggle { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }

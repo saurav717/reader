@@ -26,7 +26,13 @@ The mock-up can be scrolled at
 > half-streamed block from a finished one. And a scene is not kept in a
 > tab row with Cell and Paper tabs: the still of a scene is its first step,
 > the cell sits in the margin as it always did, and a snip of the paper's
-> own figure is left for later, as is the video export. See the README's
+> own figure is left for later, as is the video export. The first scenes
+> the models wrote on real papers decided a third thing: free placement
+> ("at" in percent) let a model draw a tangle of boxes and arrows, so a
+> scene is now a pipeline on a grid — a column a stage, a row a path, one
+> node a cell, edges through the gaps, long labels wrapped, and the stages
+> shown one by one as the steps go — and the stage is a solid card even
+> when the glass makes every other surface translucent. See the README's
 > *Scenes, on the stage*. The rest of this document is the design as
 > written, with the mock-ups it was decided on.
 

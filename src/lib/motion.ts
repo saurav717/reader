@@ -27,7 +27,10 @@ export interface MotionNode {
   id: string;
   kind: NodeKind;
   label?: string;
-  /** The centre, in percent of the scene's width and height. Placed in a row when missing. */
+  /** Where it sits: the column is the stage, left to right; the row is the path, top to bottom. Taken from `at` when only that is given. */
+  col?: number;
+  row?: number;
+  /** The centre, in percent of the scene's width and height: the older way of placing a node, turned into a column and a row. */
   at?: [number, number];
   /** stack: how many layers. */
   layers?: number;
@@ -80,24 +83,33 @@ export interface MotionSpec {
 
 /** What the prompt says about scenes: the block, its JSON, and when to mark a figure as worth one. Shared by Explain's instructions and its revision requests. */
 export const MOTION_FORMAT = `SCENES — a figure can be animated on request. A \`\`\`motion title="…" figure="<the caption of the figure it animates>\` block holds ONE JSON
-object the page draws and plays; it has no SVG and no code. For example:
-{"nodes":[{"id":"x","kind":"input","label":"x","at":[50,92]},
-          {"id":"teacher","kind":"stack","label":"teacher","layers":6,"at":[28,52],"frozen":true,"tone":"blue"},
-          {"id":"student","kind":"stack","label":"student","layers":3,"at":[72,58]},
-          {"id":"p","kind":"dist","label":"softmax(z_T / T)","at":[28,12],"values":[0.7,0.2,0.1],"labels":["cat","dog","car"],"tone":"blue"},
-          {"id":"q","kind":"dist","label":"softmax(z_S / T)","at":[72,20],"values":[0.4,0.3,0.3],"labels":["cat","dog","car"]}],
+object the page draws and plays; it has no SVG and no code. A scene is a pipeline read left to right: "col" is the stage
+(0 = the input, then each thing done to it, the last column the output or the loss), "row" is the path (0 the top; the
+teacher above the student, say). One node per cell, four columns and two or three rows at most. For example:
+{"nodes":[{"id":"x","kind":"input","label":"x","col":0,"row":1},
+          {"id":"teacher","kind":"stack","label":"teacher","layers":6,"col":1,"row":0,"frozen":true,"tone":"blue"},
+          {"id":"student","kind":"stack","label":"student","layers":3,"col":1,"row":2},
+          {"id":"p","kind":"dist","label":"teacher's softmax","col":2,"row":0,"values":[0.7,0.2,0.1],"labels":["cat","dog","car"],"tone":"blue"},
+          {"id":"q","kind":"dist","label":"student's softmax","col":2,"row":2,"values":[0.4,0.3,0.3],"labels":["cat","dog","car"]},
+          {"id":"loss","kind":"box","label":"T²·KL + λ·CE","col":3,"row":1,"tone":"pink","step":2}],
  "edges":[{"from":"x","to":"teacher","flow":"forward"},{"from":"x","to":"student","flow":"forward"},
-          {"id":"kl","from":"p","to":"q","kind":"compare","label":"T²·KL","step":1},
-          {"id":"back","from":"q","to":"student","flow":"backward","step":2}],
+          {"from":"teacher","to":"p"},{"from":"student","to":"q"},
+          {"id":"kl","from":"p","to":"q","kind":"compare","label":"KL","step":1},
+          {"from":"p","to":"loss","step":2},{"from":"q","to":"loss","step":2},
+          {"id":"back","from":"loss","to":"student","flow":"backward","step":3}],
  "steps":[{"caption":"The same batch runs through both networks."},
-          {"caption":"Only the two softened outputs are compared.","highlight":["p","q"]},
-          {"caption":"Gradients reach the student only.","dim":["teacher"],"set":{"q.values":[0.65,0.22,0.13]}}]}
+          {"caption":"Only the two softened outputs are compared.","highlight":["p","q","kl"]},
+          {"caption":"A small hard-label term joins the loss.","highlight":["loss"]},
+          {"caption":"Gradients reach the student only.","dim":["teacher","p"],"set":{"q.values":[0.65,0.22,0.13]}}]}
 Node kinds: box, input, text, stack (layers), dist (values, labels), curve (values, labels), grid (values as rows of 0–1),
-slider (min, max, values as the value, label), timeline (events: [{at, label}]). "at" is the centre in percent of the scene;
-"tone" is accent (default), blue, yellow, pink or muted. An edge may have "flow" ("forward" or "backward": packets move along
-it), "kind": "compare" (dashed, labelled) and "step" (visible from that step on). Each step is one paragraph of the section, in
-order, with a one-sentence caption; "highlight", "dim" and "show" name ids; "set" changes a node's values, value or label from
-that step on, and the page tweens it. Four to eight nodes and three to five steps is right; one scene per section at most.`;
+slider (min, max, values as the value, label), timeline (events: [{at, label}]). "tone" is accent (default), blue, yellow,
+pink or muted. An edge joins two nodes, usually in neighbouring columns; "flow" ("forward" or "backward") moves packets
+along it; "kind": "compare" draws it dashed with its label; "step" shows it from that step on. Each step is one paragraph
+of the section, in order, with a one-sentence caption that says what to look at; "highlight", "dim" and "show" name ids;
+"set" changes a node's values, value or label from that step on, and the page tweens it. Give nodes and edges a "step"
+so the pipeline builds up as the reader goes: the first step shows the input and the first stage, the last shows the
+whole. Labels are names, under 16 characters — "teacher", "KL", "memory bank" — and everything else goes in the caption.
+Five to eight nodes, six to ten edges, three to five steps; one scene per section at most.`;
 
 /** The scene's drawing space: the same proportions as a figure in the margin. */
 export const SCENE_W = 360;
@@ -150,6 +162,10 @@ export function parseMotion(text: string): MotionSpec | null {
     const label = asString(n.label);
     if (label !== undefined) node.label = label;
     if (at) node.at = at;
+    if (typeof n.col === 'number') node.col = clamp(Math.round(n.col), 0, MAX_COLS - 1);
+    else if (at) node.col = clamp(Math.round((at[0] / 100) * (MAX_COLS - 1)), 0, MAX_COLS - 1);
+    if (typeof n.row === 'number') node.row = clamp(Math.round(n.row), 0, MAX_ROWS - 1);
+    else if (at) node.row = at[1] < 34 ? 0 : at[1] > 66 ? 2 : 1;
     if (kind === 'stack') node.layers = Math.max(1, Math.min(12, Math.round(asNumber(n.layers, 3))));
     if (n.frozen === true) node.frozen = true;
     const values = asValues(n.values ?? n.value);
@@ -208,8 +224,34 @@ export function parseMotion(text: string): MotionSpec | null {
     steps.push(step);
   }
   if (!steps.length) steps.push({ caption: '' });
-  return { nodes, edges, steps: steps.slice(0, 12) };
+  // Nodes with no column of their own take the stages in turn; with no row, the middle.
+  const placed = nodes.filter((node) => node.col !== undefined);
+  nodes.filter((node) => node.col === undefined).forEach((node, index, loose) => {
+    node.col = placed.length ? Math.min(MAX_COLS - 1, Math.max(...placed.map((p) => p.col!)) + 1 + index) : Math.floor((index * Math.min(MAX_COLS, loose.length)) / loose.length);
+  });
+  for (const node of nodes) if (node.row === undefined) node.row = 1;
+  // The columns and rows in use, packed: a scene placed in the middle three of five columns uses all of its width.
+  const pack = (key: 'col' | 'row') => {
+    const used = Array.from(new Set(nodes.map((n) => n[key]!))).sort((a, b) => a - b);
+    for (const node of nodes) node[key] = used.indexOf(node[key]!);
+  };
+  pack('col');
+  pack('row');
+  const spec: MotionSpec = { nodes, edges: edges.slice(0, 14), steps: steps.slice(0, 12) };
+  // A scene written with no steps on anything builds up column by column as the reader goes.
+  if (nodes.length > 4 && spec.steps.length > 1 && !nodes.some((n) => n.step !== undefined) && !edges.some((e) => e.step !== undefined) && !steps.some((s) => s.show)) {
+    const cols = Math.max(...nodes.map((n) => n.col!)) + 1;
+    const stepOf = (col: number) => Math.min(spec.steps.length - 1, Math.floor((col * spec.steps.length) / cols));
+    for (const node of nodes) node.step = stepOf(node.col!);
+    const by = new Map(nodes.map((n) => [n.id, n.step!]));
+    for (const edge of spec.edges) edge.step = Math.max(by.get(edge.from) ?? 0, by.get(edge.to) ?? 0);
+  }
+  return spec;
 }
+
+/** The pipeline's size: stages across, paths down. */
+export const MAX_COLS = 5;
+export const MAX_ROWS = 3;
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -224,51 +266,129 @@ export interface Box {
   h: number;
 }
 
-/** A node's size, by kind and by how much it holds. */
+/** Room above a node for its label, for the kinds that carry one over the drawing. */
+export const LABEL_ROOM = 14;
+const LABELED: NodeKind[] = ['stack', 'dist', 'grid', 'curve', 'timeline'];
+export const labelRoom = (node: MotionNode) => (LABELED.includes(node.kind) && node.label ? LABEL_ROOM : 0);
+
+/** How many characters of label fit across a box of this width, at the scene's small type. */
+export const charsAcross = (width: number, size = 10) => Math.max(5, Math.floor((width - 8) / (size * 0.58)));
+
+/** A long label on a box, in at most two lines; the rest is cut, and the whole of it goes in the title. */
+export function wrapLabel(label: string | undefined, width = 22, lines = 2): string[] {
+  if (!label) return [];
+  const words = label.split(/\s+/);
+  const out: string[] = [];
+  let line = '';
+  for (const word of words) {
+    if (!line) line = word;
+    else if ((line + ' ' + word).length <= width) line += ' ' + word;
+    else {
+      out.push(line);
+      line = word;
+    }
+  }
+  if (line) out.push(line);
+  if (out.length > lines) {
+    const kept = out.slice(0, lines);
+    kept[lines - 1] = kept[lines - 1].slice(0, width - 1).trimEnd() + '…';
+    return kept;
+  }
+  return out.map((l) => (l.length > width + 6 ? l.slice(0, width + 5) + '…' : l));
+}
+
+/** A node's size, by kind and by how much it holds, the room for its label included. */
 export function sizeOf(node: MotionNode): { w: number; h: number } {
+  const room = labelRoom(node);
   switch (node.kind) {
     case 'input':
-      return { w: 22, h: 22 };
-    case 'text':
-      return { w: Math.min(SCENE_W, 14 + 6.2 * (node.label?.length ?? 4)), h: 16 };
+      return { w: Math.max(22, 6.2 * (node.label?.length ?? 1) + 6), h: (node.label?.length ?? 0) > 2 ? 34 : 22 };
+    case 'text': {
+      const [line] = wrapLabel(node.label, 28, 1);
+      return { w: Math.min(SCENE_W, 14 + 6.2 * (line?.length ?? 4)), h: 16 };
+    }
     case 'stack':
-      return { w: 72, h: (node.layers ?? 3) * 12 + ((node.layers ?? 3) - 1) * 4 };
+      return { w: 72, h: room + (node.layers ?? 3) * 12 + ((node.layers ?? 3) - 1) * 4 };
     case 'dist': {
       const n = Math.max(1, Array.isArray(node.values) ? node.values.length : 3);
-      return { w: Math.min(160, 20 * n + 12), h: 56 };
+      return { w: Math.min(160, 20 * n + 12), h: room + 56 };
     }
     case 'curve':
-      return { w: 124, h: 72 };
+      return { w: 124, h: room + 72 };
     case 'grid': {
       const rows = Array.isArray(node.values) ? node.values.length : 4;
       const cols = Array.isArray(node.values) && Array.isArray(node.values[0]) ? Math.max(...(node.values as number[][]).map((r) => r.length), 1) : rows;
       const cell = Math.min(16, 110 / Math.max(rows, cols, 1));
-      return { w: cols * cell, h: rows * cell };
+      return { w: cols * cell, h: room + rows * cell };
     }
     case 'slider':
       return { w: 120, h: 26 };
     case 'timeline':
-      return { w: 300, h: 56 };
-    default:
-      return { w: Math.max(56, Math.min(170, 18 + 6.4 * (node.label?.length ?? 6))), h: 26 };
+      return { w: 300, h: room + 56 };
+    default: {
+      const lines = wrapLabel(node.label);
+      const longest = Math.max(6, ...lines.map((l) => l.length));
+      return { w: Math.max(56, Math.min(160, 18 + 6.4 * longest)), h: lines.length > 1 ? 40 : 26 };
+    }
   }
 }
 
-/** Every node's box. Nodes without a place of their own are spread along the middle, in order. */
+/** Two boxes too close for comfort: overlapping, or within the gap. */
+const GAP = 6;
+export const overlaps = (a: Box, b: Box, gap = GAP) => a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap;
+
+/**
+ * Every node's box, on a grid: as many columns as the scene's stages, as
+ * many rows as its paths, each node centred in its cell and no larger than
+ * it, nodes that share a cell stacked within it. Nothing can overlap, edges
+ * between stages run through the gaps, and a scene that uses two columns
+ * is not squeezed into the middle of five.
+ */
 export function layoutMotion(spec: MotionSpec): Map<string, Box> {
   const boxes = new Map<string, Box>();
-  const loose = spec.nodes.filter((node) => !node.at);
-  loose.forEach((node, index) => {
-    node.at = [((index + 0.5) / loose.length) * 100, 50];
-  });
+  if (!spec.nodes.length) return boxes;
+  const cols = Math.max(...spec.nodes.map((n) => n.col ?? 0)) + 1;
+  const rows = Math.max(...spec.nodes.map((n) => n.row ?? 1)) + 1;
+  const margin = 6;
+  const cellW = (SCENE_W - 2 * margin) / cols;
+  const cellH = (SCENE_H - 2 * margin) / rows;
+  const cells = new Map<string, MotionNode[]>();
   for (const node of spec.nodes) {
-    const { w, h } = sizeOf(node);
-    const [px, py] = node.at ?? [50, 50];
-    const x = clamp((px / 100) * SCENE_W - w / 2, 4, SCENE_W - w - 4);
-    const y = clamp((py / 100) * SCENE_H - h / 2, 14, SCENE_H - h - 14);
-    boxes.set(node.id, { x, y, w, h });
+    const key = `${node.col ?? 0},${node.row ?? 1}`;
+    cells.set(key, [...(cells.get(key) ?? []), node]);
+  }
+  for (const [key, members] of cells) {
+    const [col, row] = key.split(',').map(Number);
+    const subH = cellH / members.length;
+    members.forEach((node, index) => {
+      const natural = sizeOf(node);
+      const w = Math.min(natural.w, cellW - 10);
+      const h = Math.min(natural.h, subH - 6);
+      const cx = margin + (col + 0.5) * cellW;
+      const cy = margin + row * cellH + (index + 0.5) * subH;
+      boxes.set(node.id, { x: cx - w / 2, y: cy - h / 2, w, h });
+    });
   }
   return boxes;
+}
+
+/** A small rectangle (an edge's label) moved off any node it lands on, perpendicular to the edge it sits on. */
+export function clearOf(rect: Box, boxes: readonly Box[], along: { dx: number; dy: number }): Box {
+  const length = Math.hypot(along.dx, along.dy) || 1;
+  // The normal to the edge, so the label stays beside it rather than sliding along it.
+  const nx = -along.dy / length, ny = along.dx / length;
+  const out = { ...rect };
+  for (let round = 0; round < 6; round++) {
+    const hit = boxes.find((box) => overlaps(out, box, 2));
+    if (!hit) break;
+    const toward = (out.x + out.w / 2 - (hit.x + hit.w / 2)) * nx + (out.y + out.h / 2 - (hit.y + hit.h / 2)) * ny >= 0 ? 1 : -1;
+    const step = Math.min(hit.w, hit.h) / 2 + Math.max(out.w, out.h) / 2 + 4;
+    out.x += toward * nx * step;
+    out.y += toward * ny * step;
+  }
+  out.x = clamp(out.x, 2, SCENE_W - out.w - 2);
+  out.y = clamp(out.y, 2, SCENE_H - out.h - 2);
+  return out;
 }
 
 /** Where a line from one box to another leaves and arrives: the nearest sides, so edges do not cross their own nodes. */
