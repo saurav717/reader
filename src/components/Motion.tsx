@@ -296,6 +296,9 @@ export function MotionScene({ spec, step, playing }: { spec: MotionSpec; step: n
 export type SceneMode = 'hold' | 'play' | 'follow';
 /** How long a step stays while the scene plays itself. */
 export const PLAY_STEP_MS = 3600;
+/** Where each scene was left — its mode and its step — so a card drawn again (a section re-keyed, Explain reopened) comes back as it was. */
+const remembered = new Map<string, { mode: SceneMode; manual: number }>();
+const memoryKey = (block: MotionBlock) => `${block.title}\n${block.src}`;
 
 export function MotionView({
   block,
@@ -314,9 +317,13 @@ export function MotionView({
   const steps = spec?.steps.length ?? 0;
   const canFollow = followStep !== undefined;
   // Held by default: the scene stays on the step the reader left it on, whatever the page does.
-  const [mode, setMode] = useState<SceneMode>('hold');
-  const [manual, setManual] = useState(0);
+  const was = remembered.get(memoryKey(block));
+  const [mode, setMode] = useState<SceneMode>(was?.mode === 'follow' && canFollow ? 'follow' : 'hold');
+  const [manual, setManual] = useState(was?.manual ?? 0);
   const step = Math.max(0, Math.min(steps - 1, mode === 'follow' && canFollow ? followStep : manual));
+  useEffect(() => {
+    remembered.set(memoryKey(block), { mode: mode === 'play' ? 'hold' : mode, manual: mode === 'follow' ? step : manual });
+  }, [block, mode, manual, step]);
   // Playing: a step every few seconds, to the last, where it holds.
   useEffect(() => {
     if (mode !== 'play' || steps < 2) return;
@@ -344,6 +351,11 @@ export function MotionView({
     setManual(next);
     setMode('hold');
   };
+  // Holding keeps the step on screen, whichever way it got there.
+  const hold = () => {
+    setManual(step);
+    setMode('hold');
+  };
   const text = motionText(block.title, spec);
   return (
     <figure className={`explain-motion${compact ? ' is-compact' : ''}`} data-text={text}>
@@ -367,7 +379,7 @@ export function MotionView({
             <i /> follows your reading
           </span>
         ) : (
-          <span className="motion-state">held</span>
+          <span className="motion-state">{steps > 1 ? `held on ${step + 1} of ${steps}` : 'held'}</span>
         )}
         <KeepButton selector=".explain-motion" what="scene" />
       </div>
@@ -404,15 +416,14 @@ export function MotionView({
               </>
             ) : null}
             {canFollow && steps > 1 ? (
-              <button
-                type="button"
-                className="motion-mode"
-                aria-pressed={mode === 'follow'}
-                onClick={() => setMode(mode === 'follow' ? 'hold' : 'follow')}
-                title={mode === 'follow' ? 'Following the paragraph being read; press to hold the step' : 'Step with the paragraph being read'}
-              >
-                {mode === 'follow' ? 'Following' : 'Follow'}
-              </button>
+              <div className="motion-modes" role="group" aria-label="How the scene moves">
+                <button type="button" className="motion-mode" aria-pressed={mode !== 'follow'} onClick={hold} title="Hold: the scene stays on this step while you read">
+                  Hold
+                </button>
+                <button type="button" className="motion-mode" aria-pressed={mode === 'follow'} onClick={() => setMode('follow')} title="Follow: the scene steps with the paragraph under the reading line">
+                  Follow
+                </button>
+              </div>
             ) : null}
           </div>
         </>

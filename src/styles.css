@@ -3025,8 +3025,9 @@ body.win-moving .assistant-win { transition: none; }
 @keyframes motion-blink { 50% { opacity: 0.25; } }
 .motion-head .keep-btn { opacity: 0.55; flex: none; }
 .explain-motion:hover .motion-head .keep-btn, .motion-head .keep-btn:focus-visible { opacity: 1; }
-.motion-mode { flex: none; font-size: 11px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--muted); cursor: pointer; white-space: nowrap; }
-.motion-mode[aria-pressed='true'] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.motion-modes { flex: none; display: inline-flex; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); padding: 2px; gap: 2px; }
+.motion-mode { flex: none; font-size: 11px; padding: 2px 8px; border: 0; border-radius: 4px; background: none; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.motion-mode[aria-pressed='true'] { color: var(--accent); background: var(--accent-soft); }
 .motion-steps .play[aria-pressed='true'] { color: var(--accent); border-color: var(--accent); }
 .motion-art { padding: 10px 10px 0; }
 .motion-art svg { display: block; width: 100%; height: auto; max-height: 250px; font-family: var(--sans); overflow: visible; }

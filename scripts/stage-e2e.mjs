@@ -233,7 +233,7 @@ for (const p of PAPERS) {
     const stage = await count('.explain-stage');
     const state = await text('.explain-stage .motion-state');
     note('the stage appeared, held on its first step', stage === 1 && /held/.test(state), state.trim());
-    await page.locator('.explain-stage .motion-mode').click();
+    await page.getByRole('button', { name: 'Follow', exact: true }).click();
     await page.waitForTimeout(300);
     note('Follow makes it step with the reading', /follows/.test(await text('.explain-stage .motion-state')));
     const caption1 = await text('.explain-stage .motion-caption');
@@ -250,6 +250,12 @@ for (const p of PAPERS) {
     await page.waitForTimeout(1300);
     const caption2 = await text('.explain-stage .motion-caption');
     note('the step moved with the paragraph', caption1 !== caption2, `${caption1.trim()} → ${caption2.trim()}`);
+    await page.getByRole('button', { name: 'Hold', exact: true }).click();
+    await page.waitForTimeout(300);
+    note('Hold keeps the step it was following', /held/.test(await text('.explain-stage .motion-state')) && (await text('.explain-stage .motion-caption')) === caption2);
+    await page.evaluate(() => { document.querySelector('.explain-scroll').scrollTop -= 400; });
+    await page.waitForTimeout(600);
+    note('and scrolling does not move a held scene', (await text('.explain-stage .motion-caption')) === caption2);
     await page.screenshot({ path: `${OUT}/${p.id}-3-last-step.png` });
     // Held by hand, then played through by itself.
     await page.locator('.explain-stage .motion-steps .dots button').first().click();
@@ -263,7 +269,7 @@ for (const p of PAPERS) {
     await page.locator('.explain-stage .motion-steps .play').click();
     await page.waitForTimeout(300);
     note('Pause holds it where it is', /held/.test(await text('.explain-stage .motion-state')));
-    await page.locator('.explain-stage .motion-mode').click();
+    await page.getByRole('button', { name: 'Follow', exact: true }).click();
     await page.waitForTimeout(300);
     note('Follow again on request', /follows/.test(await text('.explain-stage .motion-state')));
     // The switch.
