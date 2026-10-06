@@ -861,6 +861,8 @@ export default function App() {
         },
       }
     : {};
+  /** The rail's book is the paper that is open: nothing to go back to. */
+  const readingReturn = view.kind === 'paper' && returnPaper?.id === view.id && !onUsage;
   return (
     <div
       ref={appRef}
@@ -882,14 +884,19 @@ export default function App() {
         >
           R
         </button>
-        {/* On Home, the way back into the paper, right under the way out of it. */}
-        {view.kind === 'home' && returnPaper && !showWelcome && !onUsage ? (
+        {/* The paper being read, right under Home: the way back into it from
+            anywhere else, and — while it is open — where you are, like R on Home. */}
+        {returnPaper && !showWelcome ? (
           <button
             type="button"
-            className="icon-btn rail-return"
-            aria-label={`Back to reading ${returnPaper.title} (G)`}
-            title={`Back to ${returnPaper.title} — G`}
-            onClick={() => openPaper(returnPaper.id)}
+            className={`icon-btn rail-return${readingReturn ? ' is-active' : ''}`}
+            aria-current={readingReturn ? 'page' : undefined}
+            aria-label={readingReturn ? `Reading ${returnPaper.title} (G goes Home)` : `Back to reading ${returnPaper.title} (G)`}
+            title={readingReturn ? `${returnPaper.title} — G goes Home` : `Back to ${returnPaper.title} — G`}
+            onClick={() => {
+              if (readingReturn) return;
+              openPaper(returnPaper.id);
+            }}
           >
             <OpenBookIcon size={19} />
           </button>
