@@ -119,6 +119,45 @@ function graphicsOf(page: PDFPageProxy, fnArray: number[], argsArray: unknown[],
         if (seen) boxes.push(seen);
         break;
       }
+      // A mask of one solid colour: how a dvips PDF draws every rule of a
+      // table, each one an image a pixel high, stretched. pdf.js paints it
+      // as a filled unit square, and so does this — a filled shape, as a
+      // rule drawn as a path is, not a picture.
+      case OPS.paintSolidColorImageMask: {
+        const box = transformed(state.ctm, 0, 0, 1, 1);
+        const seen = box && narrow({ ...box, kind: 'path' });
+        if (seen) boxes.push(seen);
+        break;
+      }
+      // Several masks drawn in one go, each with its own transform under
+      // the current one — the glyphs of a Type 3 font, the rules of a table.
+      case OPS.paintImageMaskXObjectGroup: {
+        const images = args?.[0] as { transform?: ArrayLike<number> }[] | null | undefined;
+        if (!Array.isArray(images)) break;
+        for (const image of images) {
+          if (!image?.transform || image.transform.length < 6) continue;
+          const box = transformed(multiply(state.ctm, image.transform), 0, 0, 1, 1);
+          const seen = box && narrow({ ...box, kind: 'image' });
+          if (seen) boxes.push(seen);
+        }
+        break;
+      }
+      // One image, or one mask, drawn at several places: the same unit
+      // square scaled and moved to each.
+      case OPS.paintImageXObjectRepeat:
+      case OPS.paintImageMaskXObjectRepeat: {
+        const repeat = fn === OPS.paintImageXObjectRepeat
+          ? { scaleX: Number(args?.[1]), skewX: 0, skewY: 0, scaleY: Number(args?.[2]), positions: args?.[3] as ArrayLike<number> | null | undefined }
+          : { scaleX: Number(args?.[1]), skewX: Number(args?.[2]), skewY: Number(args?.[3]), scaleY: Number(args?.[4]), positions: args?.[5] as ArrayLike<number> | null | undefined };
+        const { positions } = repeat;
+        if (!positions || !Number.isFinite(repeat.scaleX) || !Number.isFinite(repeat.scaleY)) break;
+        for (let at = 0; at + 1 < positions.length; at += 2) {
+          const box = transformed(multiply(state.ctm, [repeat.scaleX, repeat.skewX || 0, repeat.skewY || 0, repeat.scaleY, Number(positions[at]), Number(positions[at + 1])]), 0, 0, 1, 1);
+          const seen = box && narrow({ ...box, kind: 'image' });
+          if (seen) boxes.push(seen);
+        }
+        break;
+      }
       case OPS.constructPath: {
         const op = args?.[0] as number | undefined;
         const minMax = args?.[2] as ArrayLike<number> | null | undefined;
