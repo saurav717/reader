@@ -1739,6 +1739,19 @@ mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-s
 .pdf-book-spread.is-zoomed .book-turn { display: none; }
 .pdf-book-spread.pdf-scroll.is-zoomed { overflow-x: auto; }
 .pdf-book-spread.pdf-scroll.is-zoomed .pdf-scroll-pages { width: max-content; min-width: 100%; }
+/* Filled: the pages corner to corner, the hint under them gone, and the page
+   bar waiting below the bottom edge — out while the pointer is there. */
+.book-view.pdf-book.is-fill { padding: 0; }
+.pdf-book.is-fill .pdf-book-spread { max-width: none; }
+.pdf-book.is-fill > .book-nav {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; margin: 0; max-width: none; padding: 8px 16px; box-sizing: border-box;
+  background: var(--rail); border-top: 1px solid var(--border); translate: 0 100%; transition: translate 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.pdf-book.is-fill.bar-out > .book-nav { translate: 0 0; }
+.pdf-book.is-fill .pdf-minimap { bottom: 14px; }
+.main:has(.pdf-book.is-fill) > .pdf-hint { display: none; }
+.book-nav .fill-btn { flex-shrink: 0; white-space: nowrap; }
+.book-nav .fill-btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
 .pdf-zoom-ctl { display: inline-flex; align-items: center; flex-shrink: 0; }
 .pdf-zoom-ctl .btn { min-width: 26px; padding-inline: 6px; font-variant-numeric: tabular-nums; }
 .book-nav .loupe-btn, .book-nav .closeup-btn { flex-shrink: 0; white-space: nowrap; }

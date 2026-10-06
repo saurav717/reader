@@ -52,6 +52,15 @@ function pagesShownAtFirst(): PagesShown {
 
 /** Space kept round a spread inside the frame, and under it for the pages' shadow. */
 const MARGIN = 16;
+/** Fill: the pages corner to corner, no margins, the page bar waiting at the bottom edge. */
+const FILL_KEY = 'reader.pdf.fill';
+function fillAtFirst(): boolean {
+  try {
+    return localStorage.getItem(FILL_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
 
 const esc = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -207,10 +216,36 @@ export default function PdfBookView({
 
   // Every page drawn at the one scale that fits the spread in the frame.
   // Scrolled, a page is as wide as the column allows, up to a comfortable size.
+  // Filled, there is no margin, no comfortable width, and no page bar in the
+  // way: the pages have the whole frame, corner to corner.
+  const [fill, setFill] = useState(fillAtFirst);
+  const chooseFill = (next: boolean) => {
+    setFill(next);
+    try {
+      localStorage.setItem(FILL_KEY, String(next));
+    } catch {
+      /* kept for this visit only */
+    }
+  };
+  // The page bar, put away while filled, comes back with the pointer at the bottom edge, and stays while it is over it.
+  const [barOut, setBarOut] = useState(false);
+  useEffect(() => {
+    if (!fill) return;
+    const onMove = (event: PointerEvent) => {
+      const fromBottom = window.innerHeight - event.clientY;
+      setBarOut((current) => (current ? fromBottom < 76 : fromBottom < 20));
+    };
+    document.addEventListener('pointermove', onMove);
+    return () => {
+      document.removeEventListener('pointermove', onMove);
+      setBarOut(false);
+    };
+  }, [fill]);
+  const margin = fill ? 0 : MARGIN;
   const fit = pageSize
     ? scrolling
-      ? Math.max(0.1, Math.min((frame.width - MARGIN * 2 - 14) / pageSize.width, 1000 / pageSize.width))
-      : Math.max(0.1, Math.min((frame.width - MARGIN * 2) / (pageSize.width * columns), (frame.height - MARGIN * 2) / pageSize.height))
+      ? Math.max(0.1, Math.min((frame.width - margin * 2 - 14) / pageSize.width, (fill ? Infinity : 1000) / pageSize.width))
+      : Math.max(0.1, Math.min((frame.width - margin * 2) / (pageSize.width * columns), (frame.height - margin * 2) / pageSize.height))
     : 1;
 
   // ---- zoom -----------------------------------------------------------------
@@ -662,7 +697,7 @@ export default function PdfBookView({
 
   return (
     <div
-      className={`book-view pdf-book${scrolling ? ' is-scrolled' : ''}`}
+      className={`book-view pdf-book${scrolling ? ' is-scrolled' : ''}${fill ? ' is-fill' : ''}${fill && barOut ? ' bar-out' : ''}`}
       aria-label={scrolling ? `${title} (PDF), scrolled` : `${title} (PDF), as a book`}
       data-current-page={firstInView}
       data-pages={pages || undefined}
@@ -773,6 +808,15 @@ export default function PdfBookView({
         </button>
         <button type="button" className="btn sm ghost closeup-btn" onClick={() => void openCloseUp()} title="A figure, table or equation blown up to fill the screen — or ⌥-click one (C)">
           Close-up
+        </button>
+        <button
+          type="button"
+          className="btn sm ghost fill-btn"
+          aria-pressed={fill}
+          onClick={() => chooseFill(!fill)}
+          title={fill ? 'Give the pages their margins back' : 'Fill the screen with the pages, corner to corner — this bar comes back with the pointer at the bottom edge'}
+        >
+          ⤢ Fill
         </button>
         <span className="pdf-zoom-ctl" role="group" aria-label="Zoom">
           <button type="button" className="btn sm ghost" onClick={() => zoomTo(zoomNow.current / 1.25)} disabled={zoom <= 1} aria-label="Zoom out" title="Zoom out (−)">

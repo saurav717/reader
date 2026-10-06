@@ -2531,8 +2531,12 @@ leaves both, putting zen back as it was.
 
 ### Closer in on the page
 
-A PDF page, as a book or scrolled, in zen mode or out of it, can be looked at
-closer in three ways, each under its own key:
+**⤢ Fill**, at the end of the page bar, gives the pages the whole frame,
+corner to corner: the margins round the spread go, so does the line of hints
+under it, and the page bar itself waits below the bottom edge — move the
+pointer there and it comes back. With **F** that is the whole screen. It is
+remembered. A PDF page, as a book or scrolled, in zen mode or out of it, can
+also be looked at closer in three ways, each under its own key:
 
 - **Zoom.** A pinch on the trackpad, or <kbd>⌘</kbd> (<kbd>Ctrl</kbd>) with the
   wheel, draws the pages larger round the pointer — drawn afresh at the new

@@ -2001,7 +2001,7 @@ export default function Reader({
       ) : null}
 
       {mode === 'pdf' && !pdfError && pdfLookup !== 'none' ? (
-        <p style={{ margin: 0, padding: '8px 16px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)' }}>
+        <p className="pdf-hint" style={{ margin: 0, padding: '8px 16px', fontSize: 11.5, color: 'var(--muted)', borderTop: '1px solid var(--border-soft)' }}>
           {pdfBlob ? (
             <>
               Select text to highlight or underline it (keys 1–4, U to underline) — the same marks show in Reflow mode and are saved with the paper. Anything can be snipped into your notes with ✂ Snip (or S), a sticky pinned with a double-click, and the pages {layout === 'book' ? 'turned' : 'stepped through'} with the arrow keys. A pinch, or ⌘ with the wheel, zooms in round the pointer (0 fits the page again); L is a loupe over the page, and C a close-up of a figure, table or equation.
