@@ -31,6 +31,7 @@
  */
 
 import { addSnapshot, balanceReport, pruneDays } from './deepseekBalance.js';
+import { addTavilySnapshot, tavilyReport } from './tavilyUsage.js';
 
 export const AI_PROVIDERS = ['claude', 'deepseek', 'gemini'];
 export const COUNTS = [
@@ -197,6 +198,18 @@ export class Usage {
     if (url.pathname === '/balance/report') {
       const days = Math.min(KEEP_DAYS, Math.max(1, Number(url.searchParams.get('days')) || 30));
       return Response.json(balanceReport(await this.state.storage.get('balance:deepseek'), { days }));
+    }
+    // The Tavily account's usage, a snapshot at a time: tavilyUsage.js.
+    if (url.pathname === '/tavily/record' && request.method === 'POST') {
+      const { snapshot, at = Date.now() } = await request.json().catch(() => ({}));
+      if (!snapshot || typeof snapshot.keyUsage !== 'number') return new Response('no snapshot', { status: 400 });
+      const stored = await this.state.storage.get('usage:tavily');
+      await this.state.storage.put('usage:tavily', pruneDays(addTavilySnapshot(stored, snapshot, at), KEEP_DAYS, at));
+      return new Response('ok');
+    }
+    if (url.pathname === '/tavily/report') {
+      const days = Math.min(KEEP_DAYS, Math.max(1, Number(url.searchParams.get('days')) || 30));
+      return Response.json(tavilyReport(await this.state.storage.get('usage:tavily'), { days }));
     }
     return new Response('not found', { status: 404 });
   }

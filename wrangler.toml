@@ -177,8 +177,9 @@ id = "4b383f85f5d041569dc04f04350b1c38"
 # paid accounts, under PERSON_LIMIT above. Without any, the button in the
 # app says the proxy has no search key.
 
-# Once an hour, a snapshot of the DeepSeek account's balance for the Usage
-# page (worker/deepseekBalance.js). Does nothing until DEEPSEEK_KEY is set:
+# Once an hour, a snapshot of the DeepSeek account's balance and of the
+# Tavily key's usage for the Usage page (worker/deepseekBalance.js,
+# worker/tavilyUsage.js). Does nothing until DEEPSEEK_KEY or TAVILY_KEY is set:
 #   npx --yes wrangler@4 secret put DEEPSEEK_KEY
 [triggers]
 crons = ["17 * * * *"]

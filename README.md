@@ -670,7 +670,14 @@ npx --yes wrangler@4 secret put READER_OWNERS   # your Google email(s), comma-se
 Signed in as one of them, you see everyone who has signed in, their totals and
 each day's — asked again every thirty seconds while the page is open and the
 tab in view, never while it is hidden, and at once with **Refresh** — and the
-per-person limit does not apply to you; nobody else sees it. READER_TOKEN reads it too, from a terminal:
+per-person limit does not apply to you; nobody else sees it. Under the table,
+**Web searches** charts what Ask AI's Web button searched through the proxy,
+per day, and — with `TAVILY_KEY` set — what Tavily itself says the key has
+spent this billing cycle against the plan's thousand, as a meter, so you can
+see the month running out before a search fails (`worker/tavilyUsage.js`;
+the Worker asks Tavily when the page does, at most every couple of minutes,
+and once an hour on its own). Then the AI credits. READER_TOKEN reads the
+tally too, from a terminal:
 
 ```bash
 READER_TOKEN=… npm run usage                  # the last 30 days, as a table
@@ -2338,7 +2345,8 @@ TAVILY_KEY=… npm start                        # or the Node proxy, with any of
 Tavily is asked by `POST /search` with the key as a bearer token, a basic
 search of eight results and no generated answer, so a search is one credit;
 its `content` is a passage of the page, which is a better snippet than a
-search engine's. Past the free thousand, a search costs about half a cent
+search engine's. The usage page shows how much of the month's thousand the
+key has spent, from Tavily's own `GET /usage`. Past the free thousand, a search costs about half a cent
 there as on the others — more than the DeepSeek tokens for a typical answer
 — which is why the button is off by default. On
 the Worker each search goes on the usage tally as *Web searches* (and as a
@@ -3471,6 +3479,7 @@ server/scholarBrowser.js  the same, through a real Chromium (SCHOLAR_BROWSER=1),
 server/serpapi.js       Scholar through SerpApi instead, when SERPAPI_KEY is set
 server/serply.js        Scholar through Serply instead, when SERPLY_KEY is set
 server/webSearch.js     The web for Ask AI's Web button: a search (Tavily, Brave, Serply or SerpApi) and a page as text
+worker/tavilyUsage.js   What the Tavily key has spent this cycle, from Tavily's own usage endpoint, for the usage page
 server/profileReader.js DeepSeek reading Serply's profile snippets for a person's affiliation
 server/contributionReader.js  DeepSeek putting a paper's contributions statement to its authors
 src/lib/google.ts       Google Identity Services + Drive REST

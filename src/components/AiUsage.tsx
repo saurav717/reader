@@ -110,7 +110,7 @@ const compact = (value: number) =>
 const aiCost = (counts: object | undefined) => PROVIDERS.reduce((sum, { id }) => sum + get(counts, `${id}_cost`), 0);
 
 /** Every day from `since` to `until`, inclusive, as YYYY-MM-DD (UTC). */
-function daysBetween(since: string, until: string): string[] {
+export function daysBetween(since: string, until: string): string[] {
   const out: string[] = [];
   const end = Date.parse(`${until}T00:00:00Z`);
   for (let at = Date.parse(`${since}T00:00:00Z`); at <= end && out.length < 400; at += 86_400_000) {
@@ -162,7 +162,7 @@ export const cardHead = {
 } as const;
 
 export const cardTitle = { fontSize: 14, fontWeight: 600, margin: 0 } as const;
-const muted = { fontSize: 12.5, color: 'var(--muted)' } as const;
+export const muted = { fontSize: 12.5, color: 'var(--muted)' } as const;
 
 /**
  * Laid out in three parts, top to bottom: each provider at a glance (which
@@ -932,7 +932,7 @@ interface Series {
  * Bars per day, stacked when there is more than one series, on one axis from
  * zero. Hovering a day shows its numbers; a legend names two or more series.
  */
-function BarChart({
+export function BarChart({
   title,
   days,
   series,
