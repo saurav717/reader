@@ -7,7 +7,7 @@ import { addClip, captioned } from '../lib/notes';
 type Engine = typeof import('../lib/pdfReflow');
 
 /** A figure, table or equation found on a page, in points from the page's top left. */
-interface Region {
+export interface Region {
   kind: 'figure' | 'table' | 'equation';
   label: string;
   caption: string;
@@ -33,6 +33,30 @@ const DRAG = 8;
 const WIDTH = 1600;
 
 const esc = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/**
+ * The figures, tables and equations on a page, as the same reading of the
+ * page that reflows it finds them — read as the page stands, so the boxes
+ * lie over it as drawn. What Snip outlines, and what a close-up blows up.
+ */
+export async function findRegions(engine: Engine, doc: PDFDocumentProxy, number: number): Promise<Region[]> {
+  const input = await engine.extractPage(await doc.getPage(number), { turn: false });
+  const layout = engine.layoutPages([input]);
+  const found: Region[] = [];
+  for (const block of layout.blocks) {
+    if (block.kind !== 'figure' && block.kind !== 'table' && block.kind !== 'equation') continue;
+    const caption = block.kind === 'equation' ? '' : engine.plain(block.caption);
+    found.push({
+      kind: block.kind,
+      label: block.kind === 'equation' ? 'Equation' : block.label,
+      caption,
+      captionHtml: block.kind === 'equation' ? '' : engine.spansToHtml(block.caption),
+      rows: block.kind === 'table' ? block.rows : null,
+      box: { x0: block.crop.x0, y0: block.crop.y0, x1: block.crop.x1, y1: block.crop.y1 },
+    });
+  }
+  return found;
+}
 
 interface Props {
   paperId: string;
@@ -69,22 +93,7 @@ export default function PdfSnip({ paperId, doc, engine, pages, scale, holder, an
       if (regions[number]) continue;
       void (async () => {
         try {
-          // Read as the page stands: the boxes are laid over it so.
-          const input = await engine.extractPage(await doc.getPage(number), { turn: false });
-          const layout = engine.layoutPages([input]);
-          const found: Region[] = [];
-          for (const block of layout.blocks) {
-            if (block.kind !== 'figure' && block.kind !== 'table' && block.kind !== 'equation') continue;
-            const caption = block.kind === 'equation' ? '' : engine.plain(block.caption);
-            found.push({
-              kind: block.kind,
-              label: block.kind === 'equation' ? 'Equation' : block.label,
-              caption,
-              captionHtml: block.kind === 'equation' ? '' : engine.spansToHtml(block.caption),
-              rows: block.kind === 'table' ? block.rows : null,
-              box: { x0: block.crop.x0, y0: block.crop.y0, x1: block.crop.x1, y1: block.crop.y1 },
-            });
-          }
+          const found = await findRegions(engine, doc, number);
           if (live) setRegions((current) => ({ ...current, [number]: found }));
         } catch {
           if (live) setRegions((current) => ({ ...current, [number]: [] }));

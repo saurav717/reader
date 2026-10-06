@@ -50,7 +50,8 @@ shown, and whether the library and the dock are put away while you are on Home
 
 **G** goes between Home and the paper you are reading, both ways. On Home the
 paper it goes back to is named in a **Back to reading** button beside the
-greeting, and under R on the rail; in the paper, the top bar has **Home**.
+greeting, and under R on the rail; the book under R stays while you read, as
+where you are, and in the paper the top bar has **Home**.
 
 While you read, **R** opens your **desk**: the papers in progress side by side,
 each at the page and line you left it. <kbd>1</kbd>–<kbd>4</kbd> goes to one there,
@@ -2527,6 +2528,37 @@ in Reflow or PDF mode. It turns zen mode on with it, and **F** or Escape
 leaves both, putting zen back as it was.
 
 ![zen mode over a PDF read as a book: the dock out at the right edge, its shadow falling across the page](docs/zen.png)
+
+### Closer in on the page
+
+**⤢ Fill**, at the end of the page bar, gives the pages the whole frame,
+corner to corner: the margins round the spread go, so does the line of hints
+under it, and the page bar itself waits below the bottom edge — move the
+pointer there and it comes back. With **F** that is the whole screen. It is
+remembered. A PDF page, as a book or scrolled, in zen mode or out of it, can
+also be looked at closer in three ways, each under its own key:
+
+- **Zoom.** A pinch on the trackpad, or <kbd>⌘</kbd> (<kbd>Ctrl</kbd>) with the
+  wheel, draws the pages larger round the pointer — drawn afresh at the new
+  size, so the type stays sharp — and the frame scrolls over them, with the
+  minimap in the corner showing which part of the page is on screen; click or
+  drag on it to go elsewhere. <kbd>+</kbd> and <kbd>−</kbd> step the zoom, and
+  <kbd>0</kbd> fits the pages again. The **−  100%  +** at the end of the
+  page bar does the same. As a book, the arrow keys still turn the page while
+  it is zoomed.
+- **Loupe.** <kbd>L</kbd> (or **🔍 Loupe** in the page bar) is a reading glass
+  that follows the pointer over the page, showing what is under it at 2.2× —
+  the page itself does not move. A pinch, or <kbd>+</kbd> and <kbd>−</kbd>,
+  changes the magnification while it is out; <kbd>L</kbd> or Escape puts it
+  away, and it goes away by itself off the page.
+- **Close-up.** <kbd>C</kbd> (or **Close-up** in the page bar) takes the first
+  figure, table or equation on the pages in view — the same ones ✂ Snip
+  outlines — and draws it from the file at the size that fills the screen, its
+  caption under it and the rest of the page dimmed behind. <kbd>Tab</kbd> and
+  the arrow keys go on to the next one and back, the dots at the top right
+  say how many there are, and Escape, or a click beside it, puts the whole
+  page back. <kbd>⌥</kbd>-click a figure or table on the page for a close-up
+  of that one.
 
 What falls over the page while a side is out is chosen under
 **Settings → Zen mode**:

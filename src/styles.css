@@ -1728,6 +1728,74 @@ mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-s
 }
 .pdf-book-page.left::after { right: 0; background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.09)); }
 .pdf-book-page.right::after { left: 0; background: linear-gradient(270deg, transparent, rgba(0, 0, 0, 0.09)); }
+/* Zoomed: the pages drawn larger than they fit, and the frame scrolled over
+   them. As a book the frame's own scrollbars are kept out of the way — the
+   minimap says where you are; scrolled, the column scrolls sideways too. */
+.pdf-book { position: relative; }
+.pdf-book-slot { position: relative; flex: none; }
+.pdf-book-spread.is-zoomed:not(.pdf-scroll) { overflow: auto; scrollbar-width: none; }
+.pdf-book-spread.is-zoomed:not(.pdf-scroll)::-webkit-scrollbar { display: none; }
+.pdf-book-spread.is-zoomed:not(.pdf-scroll) .pdf-book-pages { position: relative; inset: auto; width: max-content; min-width: 100%; min-height: 100%; }
+.pdf-book-spread.is-zoomed .book-turn { display: none; }
+.pdf-book-spread.pdf-scroll.is-zoomed { overflow-x: auto; }
+.pdf-book-spread.pdf-scroll.is-zoomed .pdf-scroll-pages { width: max-content; min-width: 100%; }
+/* Filled: the pages corner to corner, the hint under them gone, and the page
+   bar waiting below the bottom edge — out while the pointer is there. */
+.book-view.pdf-book.is-fill { padding: 0; }
+.pdf-book.is-fill .pdf-book-spread { max-width: none; }
+.pdf-book.is-fill > .book-nav {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; margin: 0; max-width: none; padding: 8px 16px; box-sizing: border-box;
+  background: var(--rail); border-top: 1px solid var(--border); translate: 0 100%; transition: translate 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.pdf-book.is-fill.bar-out > .book-nav { translate: 0 0; }
+.pdf-book.is-fill .pdf-minimap { bottom: 14px; }
+.main:has(.pdf-book.is-fill) > .pdf-hint { display: none; }
+.book-nav .fill-btn { flex-shrink: 0; white-space: nowrap; }
+.book-nav .fill-btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
+.pdf-zoom-ctl { display: inline-flex; align-items: center; flex-shrink: 0; }
+.pdf-zoom-ctl .btn { min-width: 26px; padding-inline: 6px; font-variant-numeric: tabular-nums; }
+.book-nav .loupe-btn, .book-nav .closeup-btn { flex-shrink: 0; white-space: nowrap; }
+.book-nav .loupe-btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
+/* The minimap: the page small in the corner, the part on screen marked on it. */
+.pdf-minimap {
+  position: absolute; right: 14px; bottom: 52px; z-index: 7; border-radius: 8px; overflow: hidden; background: #fff;
+  box-shadow: var(--shadow-md), 0 0 0 1px var(--border); cursor: crosshair; touch-action: none; user-select: none;
+}
+.pdf-minimap canvas { display: block; }
+.pdf-minimap-shade { position: absolute; inset: 0; background: rgb(0 0 0 / 0.35); }
+.pdf-minimap-window { position: absolute; box-sizing: border-box; border: 2px solid var(--accent); border-radius: 3px; background: rgb(var(--accent-rgb) / 0.18); }
+/* What a zoom's keys are, said in a dark lozenge under the glass or the close-up. */
+.pdf-zoom-chip {
+  position: fixed; z-index: 41; display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 999px; white-space: nowrap; pointer-events: none;
+  background: rgb(22 22 19 / 0.9); color: #f6f3ea; font: 500 12.5px var(--sans); box-shadow: var(--shadow-md);
+}
+.pdf-zoom-chip b { color: #8fd3b8; font-weight: 600; }
+.pdf-zoom-chip .sep { width: 1px; height: 12px; background: rgb(255 255 255 / 0.22); }
+.pdf-zoom-chip kbd { font: 500 10.5px var(--mono); padding: 0 5px; border: 1px solid rgb(255 255 255 / 0.3); border-bottom-width: 2px; border-radius: 4px; }
+/* The loupe: a round glass over the page, the accent round its rim. */
+.pdf-loupe {
+  position: fixed; z-index: 40; border-radius: 50%; overflow: hidden; background: #fff; pointer-events: none;
+  box-shadow: 0 0 0 2px var(--accent), 0 0 0 7px rgb(var(--accent-rgb) / 0.16), 0 24px 50px -12px rgb(0 0 0 / 0.6);
+}
+.pdf-loupe::after { content: ''; position: absolute; inset: 0; border-radius: 50%; box-shadow: inset 0 0 36px rgb(0 0 0 / 0.16); }
+.pdf-loupe canvas { display: block; }
+/* A close-up: the figure, table or equation alone in the middle, the page dimmed behind. */
+.pdf-closeup { position: fixed; inset: 0; z-index: 38; display: flex; align-items: center; justify-content: center; }
+.pdf-closeup-back { position: absolute; inset: 0; background: rgb(8 11 15 / 0.66); backdrop-filter: blur(2px); }
+.pdf-closeup-body { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: calc(100vw - 80px); }
+.pdf-closeup-head { align-self: stretch; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pdf-closeup-title { font: 600 11px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: #8fd3b8; }
+.pdf-closeup-dots { display: inline-flex; gap: 6px; }
+.pdf-closeup-dots i { width: 6px; height: 6px; border-radius: 3px; background: rgb(255 255 255 / 0.35); cursor: pointer; transition: width 0.15s, background 0.15s; }
+.pdf-closeup-dots i.on { width: 18px; background: #8fd3b8; }
+.pdf-closeup-card {
+  border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 30px 80px -20px rgb(0 0 0 / 0.8), 0 0 0 1px rgb(255 255 255 / 0.1);
+  opacity: 0; transform: scale(0.98); transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.pdf-closeup-card.is-drawn { opacity: 1; transform: none; }
+.pdf-closeup-card canvas { display: block; }
+.pdf-closeup-caption { margin: 0; padding: 10px 16px 12px; font: 13.5px/1.45 var(--serif); color: #2a2a26; border-top: 1px solid #e6e3da; max-height: 6em; overflow: auto; }
+.pdf-closeup-chip { position: static; }
 /* pdf.js's text layer, as its own viewer styles it: the words, invisible, over where they are drawn. */
 .pdf-text {
   position: absolute; inset: 0; overflow: clip; text-align: initial; line-height: 1; opacity: 1;
@@ -4987,6 +5055,9 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .home-back-text b { font-family: var(--serif); font-size: 13.5px; font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rail-return { color: var(--accent); position: relative; }
 .rail-return::after { content: ''; position: absolute; right: 7px; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--rail); }
+/* While the paper is open the book is where you are, not a way back: it sits pressed, without the dot. */
+.rail-return[aria-current='page'] { cursor: default; }
+.rail-return[aria-current='page']::after { display: none; }
 .topbar-home {
   display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px 0 10px; flex-shrink: 0;
   border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); font-size: 12px; font-weight: 500; cursor: pointer;
