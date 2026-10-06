@@ -1,5 +1,6 @@
 import DOMPurify from 'dompurify';
 import { cleanFigure } from '../lib/sanitize';
+import { typesetFigureMath } from '../lib/figureMath';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Screen } from '../lib/assistant';
@@ -323,8 +324,9 @@ function CodeCell({ block, index, onAsk, asker, writer }: { block: Extract<Block
 }
 
 function Figure({ block, onAnimate, writer }: { block: Extract<Block, { kind: 'figure' }>; /** Offer to animate it: the model that wrote the page marked it as worth a scene, and the page can show one. */ onAnimate?: (caption: string) => void; /** Who wrote the page, and so the mark. */ writer?: string }) {
+  // Its labels' maths set as maths: SVG text is drawn as written, so `z_hat_{t+1}` would read as just that.
   const svg = useMemo(
-    () => (block.open ? '' : cleanFigure(block.svg)),
+    () => (block.open ? '' : typesetFigureMath(cleanFigure(block.svg))),
     [block.svg, block.open],
   );
   return (
