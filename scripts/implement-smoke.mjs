@@ -96,13 +96,18 @@ await context.route('**/scholar/search*', (route) =>
 await context.route('**/scholar/{authors,person,paper-authors,cluster}*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"results":[]}' }));
 // GitHub, for the Colab menu's commit: a repository with one branch, answered from memory.
 const commits = [];
+/** The blobs the commits were made of: the files, as posted. */
+const blobs = [];
 await context.route('https://api.github.com/**', (route) => {
   const url = route.request().url();
   const method = route.request().method();
   const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   if (url.includes('/git/ref/heads/')) return json({ object: { sha: 'headsha' } });
   if (url.includes('/git/commits/headsha')) return json({ sha: 'headsha', tree: { sha: 'treesha' } });
-  if (url.endsWith('/git/blobs') && method === 'POST') return json({ sha: `blob${commits.length}` }, 201);
+  if (url.endsWith('/git/blobs') && method === 'POST') {
+    blobs.push(JSON.parse(route.request().postData()));
+    return json({ sha: `blob${blobs.length}` }, 201);
+  }
   if (url.endsWith('/git/trees') && method === 'POST') return json({ sha: 'newtree' }, 201);
   if (url.endsWith('/git/commits') && method === 'POST') {
     commits.push(JSON.parse(route.request().postData()));
@@ -264,23 +269,30 @@ await page.waitForSelector('.explain-section h2', { timeout: 20000 });
 check('the plan comes back without asking Claude again', (await page.evaluate(() => window.__asked.length)) === 0);
 check('and on the Implementation tab', (await page.locator('.explain-pages button[aria-pressed="true"]').textContent()) === 'Implementation');
 await scrollTo('#explain-starter-files', 40);
-await page.getByRole('button', { name: 'Colab', exact: true }).click();
-await page.waitForTimeout(200);
-check('the menu offers the commit, the notebook and the zip', (await page.locator('.colab-menu .colab-action').count()) === 3);
-await page.screenshot({ path: `${OUT}/implement-8-colab-menu.png` });
-await page.getByRole('menuitem', { name: /Commit to GitHub and open in Colab/ }).click();
-await page.waitForSelector('.colab-status.is-ok', { timeout: 10000 });
+await page.locator('.explain-bar .btn.colab-open').click();
+await page.waitForSelector('.nb-page', { timeout: 15000 });
+check('Colab in the bar opens the notebook over the plan, and is lit', (await page.locator('.explain-bar .btn.colab-open').getAttribute('aria-pressed')) === 'true' && (await page.locator('.explain-pages [role="tab"]').count()) === 2);
+const exportMenu = page.locator('.nb-toolbar .menu-wrap', { has: page.getByRole('button', { name: /^Export/ }) });
+await exportMenu.getByRole('button', { name: /^Export/ }).click();
+await page.waitForSelector('.nb-menu');
+check('Export ▾ offers the scaffold’s zip and commit, live, under their own heading', (await page.locator('.nb-menu .menu-label', { hasText: 'The plan’s scaffold' }).count()) === 1 && !(await page.getByRole('menuitem', { name: 'Download the scaffold (.zip)' }).isDisabled()) && !(await page.getByRole('menuitem', { name: 'Commit the scaffold, and open in Colab' }).isDisabled()));
+check('and the explanation’s, off until it is written', await page.getByRole('menuitem', { name: 'Download the explanation (.zip)' }).isDisabled());
+await page.screenshot({ path: `${OUT}/implement-8-export-menu.png` });
+await page.getByRole('menuitem', { name: 'Commit the scaffold, and open in Colab' }).click();
+await page.waitForSelector('.nb-note a', { timeout: 10000 });
 check('one commit carries the scaffold', commits.length === 1 && /Implementation scaffold/.test(commits[0].message), JSON.stringify(commits.map((c) => c.message)));
-const opened = await page.evaluate(() => window.__opened);
-check('and Colab opens on the notebook in the repository', /^https:\/\/colab\.research\.google\.com\/github\/saurav717\/papers\/blob\/main\/implementations\/.+\.ipynb$/.test(opened[0] ?? ''), opened[0]);
-await page.screenshot({ path: `${OUT}/implement-9-colab-committed.png` });
-const [notebook] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /Download the notebook/ }).click()]);
-const ipynb = JSON.parse(await readFile(await notebook.path(), 'utf8'));
-check('the notebook writes the files first', ipynb.cells.filter((c) => c.cell_type === 'code' && c.source[0].startsWith('%%writefile')).length === 6);
-const [zipped] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: /Download the scaffold/ }).click()]);
+const opened = await page.locator('.nb-note a').getAttribute('href');
+check('and the note links the notebook in the repository, for Colab', /^https:\/\/colab\.research\.google\.com\/github\/saurav717\/papers\/blob\/main\/implementations\/.+\.ipynb$/.test(opened ?? ''), opened);
+const committedNotebooks = blobs.map((b) => { try { return JSON.parse(b.content); } catch { return null; } }).filter((nb) => nb?.cells);
+check('the committed notebook writes the files first', committedNotebooks.some((nb) => nb.cells.filter((c) => c.cell_type === 'code' && c.source[0].startsWith('%%writefile')).length === 6), `${blobs.length} blobs, ${committedNotebooks.length} notebooks`);
+await page.screenshot({ path: `${OUT}/implement-9-scaffold-committed.png` });
+await exportMenu.getByRole('button', { name: /^Export/ }).click();
+const [zipped] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download the scaffold (.zip)' }).click()]);
 const zipBytes = await readFile(await zipped.path());
 check('the zip is a zip', zipBytes[0] === 0x50 && zipBytes[1] === 0x4b);
-await page.keyboard.press('Escape');
+await page.locator('.explain-bar .btn.colab-open').click();
+await page.waitForSelector('.explain-scroll', { timeout: 10000 });
+check('a second click on Colab comes back to the Implementation page', (await page.locator('.explain-pages button[aria-pressed="true"]').textContent()) === 'Implementation');
 
 console.log('\n== Local: the scaffold on this machine, and a command run there ==');
 await page.getByRole('button', { name: 'Local' }).click();

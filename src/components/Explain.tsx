@@ -47,7 +47,7 @@ import { motionText } from '../lib/motion';
 import { MotionView, Stage } from './Motion';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ColabIcon, ExplainIcon, MoonIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon, SunIcon } from './icons';
-import { ColabMenu, ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, PlanContext, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
+import { ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, PlanContext, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
 import { attachUrl, CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
 import MetricsPane from './MetricsPane';
 import RuntimePane from './RuntimePane';
@@ -149,11 +149,12 @@ const STORES: Record<WrittenPage, PageStore> = {
     stop: stopImplementing,
   },
 };
-const PAGES: { id: ExplainPage; label: string; note: string }[] = [
+/** The two written pages, in the bar's tabs. The notebook is not a tab: Colab, beside Local on the right, opens it over whichever page is on. */
+const PAGES: { id: WrittenPage; label: string; note: string }[] = [
   { id: 'explain', label: 'Explanation', note: 'What the paper says: the problem, the method, why it works, and what has changed since' },
   { id: 'implement', label: 'Implementation', note: 'How to build it: what to reproduce, the datasets, the repository, the starter files, and what it costs on your machine' },
-  { id: 'colab', label: 'Colab', note: 'A notebook of your own on your Colab runtime: cells to write and run in the same kernel the pages’ cells run in, kept here, out as an .ipynb' },
 ];
+const NOTEBOOK_NOTE = 'Your notebook: cells of your own on your Colab runtime, the same kernel the pages’ cells run in, kept here. Its Export menu takes the notebook, the explanation or the plan’s scaffold out — an .ipynb, a zip, or a commit opened in Colab.';
 
 const VERDICT_CELL = /<td>(Still holds|Holds|Refined(?: since)?|Superseded|Disputed|Disproved)<\/td>/gi;
 /** Prose, with a verdict alone in a table cell (the "Since then" table) drawn as its chip. */
@@ -909,6 +910,11 @@ function RewriteMenu({
 export default function Explain({ paperId, title, authors, published, screen, onClose }: Props) {
   const assistant = useSyncExternalStore(subscribe, getState);
   const [page, setPage] = useState<ExplainPage>(() => (askedPage?.paperId === paperId ? askedPage.page : 'explain'));
+  // The written page under the notebook: Colab in the bar opens the notebook over it, and a second click comes back to it.
+  const written = useRef<WrittenPage>('explain');
+  useEffect(() => {
+    if (page !== 'colab') written.current = page;
+  }, [page]);
   useEffect(() => {
     // The asked page is this Explain's now; whatever opens later opens on the explanation.
     if (askedPage?.paperId === paperId) askedPage = null;
@@ -1067,7 +1073,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
   // The Colab tab's own request, for the header's Rewrite and Stop while that tab is the one open.
   const nbAsk = useSyncExternalStore(subscribeNotebookAsk, () => notebookAskFor(paperId));
   const nbBusy = Boolean(nbAsk.pending && !nbAsk.pending.error);
-  // What Colab and Local in the header take out of the tab: the plan's scaffold, the explanation and its cells, or the Colab tab's notebook.
+  // What Local in the header takes out of the page: the plan's scaffold, the explanation and its cells, or the notebook while it is the one open.
   const nb = useSyncExternalStore(subscribeNotebook, () => notebookFor(paperId));
   const bundle = useMemo(() => {
     if (page === 'colab') return nb ? notebookBundle(`notebooks/${notebookFileName(title)}`, toIpynb(nb)) : null;
@@ -1398,7 +1404,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
         <div className="segmented explain-pages" role="tablist" aria-label="Page">
           {PAGES.map((option) => (
             <button key={option.id} type="button" role="tab" aria-selected={page === option.id} aria-pressed={page === option.id} title={option.note} onClick={() => setPage(option.id)}>
-              {option.id === 'implement' ? <PlanIcon size={13} /> : option.id === 'colab' ? <ColabIcon size={13} /> : <ExplainIcon size={13} />}
+              {option.id === 'implement' ? <PlanIcon size={13} /> : <ExplainIcon size={13} />}
               <span>{option.label}</span>
             </button>
           ))}
@@ -1428,7 +1434,15 @@ export default function Explain({ paperId, title, authors, published, screen, on
         <button type="button" className={`btn sm ghost${side === 'metrics' ? ' is-on' : ''}`} aria-pressed={side === 'metrics'} onClick={() => pickSide(side === 'metrics' ? null : 'metrics')} title="Training metrics, read off what the cells print: loss, accuracy, lr… a chart a metric, live">
           Metrics
         </button>
-        <ColabMenu title={title} bundle={bundle} />
+        <button
+          type="button"
+          className={`btn sm colab-open${page === 'colab' ? ' is-on' : ''}`}
+          aria-pressed={page === 'colab'}
+          onClick={() => setPage(page === 'colab' ? written.current : 'colab')}
+          title={page === 'colab' ? `Back to the ${written.current === 'implement' ? 'Implementation' : 'Explanation'} page` : NOTEBOOK_NOTE}
+        >
+          <ColabIcon size={15} /> <span>Colab</span>
+        </button>
         <LocalMenu title={title} bundle={bundle} sections={page === 'colab' ? [] : sections} />
         {page === 'colab' ? (
           nbBusy ? (

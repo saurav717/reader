@@ -1,7 +1,7 @@
 /**
- * The Colab tab — a notebook of the reader's own on the Colab runtime —
+ * The notebook, under Colab in the bar — a notebook of the reader's own on the Colab runtime —
  * against a stand-in runtime: a paper is opened and explained from the
- * fixture, the tab opens a blank notebook that takes the explanation's cells when asked,
+ * fixture, the button opens a blank notebook that takes the explanation's cells when asked,
  * a cell is run in the stand-in kernel (the proxy's Colab routes are
  * answered here, the kernel is a WebSocket server in this script), cells
  * are added, typed into, made text, moved and deleted with the keys the
@@ -322,14 +322,14 @@ async function withSettings(patch) {
   await page.waitForTimeout(600);
 }
 
-console.log('\n== E, then the Colab tab: the notebook opens blank, and takes the explanation’s cells when asked ==');
+console.log('\n== E, then Colab in the bar: the notebook opens blank, and takes the explanation’s cells when asked ==');
 await page.mouse.move(W / 2, H / 2);
 await page.keyboard.press('e');
 await page.waitForSelector('.explain .explain-empty');
 await page.getByRole('button', { name: 'Explain this paper' }).click();
 await page.waitForSelector('.explain-section h2', { timeout: 20000 });
 await page.waitForFunction(() => !document.querySelector('.explain-writing'), null, { timeout: 30000 });
-await page.getByRole('tab', { name: 'Colab' }).click();
+await page.locator('.explain-bar .btn.colab-open').click();
 await page.waitForSelector('.nb-cell', { timeout: 15000 });
 const cells = page.locator('.nb-cell');
 const codeCells = page.locator('.nb-cell.is-code');
@@ -769,7 +769,7 @@ const clickedCell = await page.locator('.assistant-win .chat-cell').last().textC
 await page.locator('.assistant-win .chat-cell').last().click();
 await page.waitForSelector('.nb-page .nb-cell.is-shown', { timeout: 10000 });
 await page.waitForTimeout(500);
-check('a cell clicked from the Explanation tab opens the Colab tab and goes to it', new RegExp(`cell ${clickedCell}$`).test(await page.locator('.nb-cell.is-shown').getAttribute('aria-label')) && (await page.locator('.explain-pages [role="tab"]', { hasText: 'Colab' }).getAttribute('aria-selected')) === 'true', `${await page.locator('.nb-cell.is-shown').getAttribute('aria-label')} / ${await page.locator('.explain-pages [role="tab"]', { hasText: 'Colab' }).getAttribute('aria-selected')}`);
+check('a cell clicked from the Explanation tab opens the notebook and goes to it, with Colab in the bar lit', new RegExp(`cell ${clickedCell}$`).test(await page.locator('.nb-cell.is-shown').getAttribute('aria-label')) && (await page.locator('.explain-bar .btn.colab-open').getAttribute('aria-pressed')) === 'true', `${await page.locator('.nb-cell.is-shown').getAttribute('aria-label')} / ${await page.locator('.explain-bar .btn.colab-open').getAttribute('aria-pressed')}`);
 await page.keyboard.press('Control+j');
 await page.waitForSelector('.assistant-win', { state: 'detached', timeout: 5000 }).catch(() => undefined);
 await page.waitForSelector('.nb-page', { timeout: 10000 });
@@ -864,7 +864,7 @@ const pageScroller = await page.locator('.explain-scroll').boundingBox();
 const pageCellBox = await pageCell.boundingBox();
 check('the header, with Run in Colab, sticks to the top of the page while a long cell scrolls', pageCellBox.y < pageScroller.y - 100 && headBox.y >= pageScroller.y - 1 && headBox.y < pageScroller.y + 12, `cell top ${Math.round(pageCellBox.y)}, header ${Math.round(headBox.y)}, scroller ${Math.round(pageScroller.y)}`);
 await page.screenshot({ path: `${OUT}/colab-notebook-14-sticky-header-light.png` });
-await page.getByRole('tab', { name: 'Colab' }).click();
+await page.locator('.explain-bar .btn.colab-open').click();
 await page.waitForTimeout(300);
 
 check('no page errors', errors.length === 0, errors.join(' | '));

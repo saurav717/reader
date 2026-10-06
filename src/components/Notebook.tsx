@@ -11,17 +11,18 @@
 // GitHub, to Colab's own page — and takes one in. The model and the store are src/lib/notebook.ts. Nothing
 // runs without a click or a Shift-Enter on that cell; Run all runs every code cell at once.
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import DOMPurify from 'dompurify';
 import { getState as assistantState, geminiNote, looksLikeKey, modelSpec, MODELS, PROVIDERS, saveKey, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
 import type { GeminiReadiness, Screen } from '../lib/assistant';
 import { colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, listContents, machineLabel, runAll, runCell } from '../lib/colab';
 import type { CellRun, RuntimeEntry } from '../lib/colab';
-import { explanationFor } from '../lib/explain';
+import { explanationFor, parseExplanation, subscribeExplain } from '../lib/explain';
 import type { Section } from '../lib/explain';
 import { commitFiles, targetFrom } from '../lib/github';
-import { computeOf, implementationFor } from '../lib/implement';
+import { bundleOf, bundleZip, colabUrl, computeOf, implementationFor, notebookBundle, slugOf, subscribeImplement } from '../lib/implement';
+import type { Bundle } from '../lib/implement';
 import { askNotebook, dismissNotebookAsk, draftsOf, loadNotebookAsk, notebookAskFor, outputText, pickNotebookModel, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
 import type { AskScope, NbDraft } from '../lib/notebookAsk';
 import { findPassage, findSquashed, FLASH_EVENT, setNotebookLocator, squash, takeHeldPassage } from '../lib/locate';
@@ -730,24 +731,48 @@ export default function NotebookPage({
     appendCells(paperId, read);
     setNote(`${read.length} cells from ${file.name} added at the end.`);
   };
-  const commit = async () => {
-    if (!nb || !target) return;
+  // Export ▾ takes three things out, the same ways: this notebook, the explanation and its cells, and the plan's scaffold — the latter two were the bar's Colab menu, which this page's button now opens.
+  const explanationDoc = useSyncExternalStore(subscribeExplain, () => explanationFor(paperId));
+  const planDoc = useSyncExternalStore(subscribeImplement, () => implementationFor(paperId));
+  const short = title.slice(0, 72);
+  const outs: { key: 'page' | 'plan'; label: string; zipNote: string; message: string; bundle: (() => Bundle) | null }[] = [
+    {
+      key: 'page',
+      label: 'the explanation',
+      zipNote: '.zip — the explanation as EXPLANATION.md, and a notebook of its cells',
+      message: `Explanation of “${short}”, from Reader`,
+      bundle: explanationDoc?.content && !explanationDoc.streaming ? () => bundleOf(title, explanationDoc.content, parseExplanation(explanationDoc.content), 'page', writerOf(explanationDoc)) : null,
+    },
+    {
+      key: 'plan',
+      label: 'the scaffold',
+      zipNote: '.zip — the directories and starter files, the plan as PLAN.md, and a notebook that writes them',
+      message: `Implementation scaffold for “${short}”, planned in Reader`,
+      bundle: planDoc?.content && !planDoc.streaming ? () => bundleOf(title, planDoc.content, parseExplanation(planDoc.content), 'plan', writerOf(planDoc)) : null,
+    },
+  ];
+  const commitBundle = async (bundle: Bundle, message: string) => {
+    if (!target) return;
     setPush({ state: 'pushing' });
     try {
-      const path = `notebooks/${notebookFileName(title)}`;
-      await commitFiles(target, { [path]: toIpynb(nb) }, `Notebook for “${title.slice(0, 72)}”, from Reader`);
-      setPush({ state: 'pushed', url: `https://colab.research.google.com/github/${target.owner}/${target.repo}/blob/${target.branch}/${path}` });
+      await commitFiles(target, bundle.files, message);
+      setPush({ state: 'pushed', url: colabUrl(target.owner, target.repo, target.branch, bundle.notebookPath) });
     } catch (error) {
       setPush({ state: 'error', message: error instanceof Error ? error.message : String(error) });
     }
   };
+  const commit = () => (nb ? commitBundle(notebookBundle(`notebooks/${notebookFileName(title)}`, toIpynb(nb)), `Notebook for “${short}”, from Reader`) : Promise.resolve());
   useEffect(() => {
     if (!note) return;
     const timer = window.setTimeout(() => setNote(null), 4000);
     return () => window.clearTimeout(timer);
   }, [note]);
 
-  const menu = (label: string, items: ReactNode) => <NbMenu label={label}>{items}</NbMenu>;
+  const menu = (label: string, items: ReactNode, right = false) => (
+    <NbMenu label={label} right={right}>
+      {items}
+    </NbMenu>
+  );
 
   return (
     <div className="nb-page" ref={root} onKeyDown={onKey} tabIndex={-1}>
@@ -805,8 +830,9 @@ export default function NotebookPage({
           </>,
         )}
         {menu(
-          'Notebook',
+          'Export',
           <>
+            <div className="menu-label">This notebook</div>
             <button type="button" role="menuitem" onClick={() => nb && download(notebookFileName(title), new Blob([toIpynb(nb)], { type: 'application/x-ipynb+json' }))}>
               Download as .ipynb
             </button>
@@ -818,7 +844,20 @@ export default function NotebookPage({
                 Open this runtime in Colab's own page ↗
               </a>
             ) : null}
+            {outs.map((item) => (
+              <Fragment key={item.key}>
+                <hr />
+                <div className="menu-label">{item.key === 'page' ? 'The explanation' : 'The plan’s scaffold'}</div>
+                <button type="button" role="menuitem" disabled={!item.bundle} onClick={() => item.bundle && download(`${slugOf(title)}.zip`, new Blob([bundleZip(item.bundle()) as BlobPart], { type: 'application/zip' }))} title={item.bundle ? item.zipNote : `Once ${item.key === 'page' ? 'the explanation' : 'the plan'} is written`}>
+                  Download {item.label} (.zip)
+                </button>
+                <button type="button" role="menuitem" disabled={!item.bundle || !target || push.state === 'pushing'} onClick={() => item.bundle && void commitBundle(item.bundle(), item.message)} title={!item.bundle ? `Once ${item.key === 'page' ? 'the explanation' : 'the plan'} is written` : target ? `${item.key === 'page' ? 'explanations' : 'implementations'}/ in ${target.owner}/${target.repo}` : 'Settings → Git repository first'}>
+                  Commit {item.label}, and open in Colab
+                </button>
+              </Fragment>
+            ))}
           </>,
+          true,
         )}
         <button type="button" className={`btn sm ghost${askBar ? ' is-on' : ''}`} aria-pressed={askBar} onClick={() => showAskBar(!askBar)} title={askBar ? 'Hide the ask bar' : 'Show the ask bar: cells written, changed and fixed for you'}>
           Ask
@@ -1191,7 +1230,7 @@ function NotebookStart({
 }
 
 /** A small menu in the toolbar. */
-function NbMenu({ label, children }: { label: string; children: ReactNode }) {
+function NbMenu({ label, right, children }: { label: string; /** Opened against the button's right edge, for a menu near the window's. */ right?: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1208,7 +1247,7 @@ function NbMenu({ label, children }: { label: string; children: ReactNode }) {
         {label} ▾
       </button>
       {open ? (
-        <div className="menu nb-menu" role="menu" onClick={() => setOpen(false)}>
+        <div className={`menu nb-menu${right ? ' right' : ''}`} role="menu" onClick={() => setOpen(false)}>
           {children}
         </div>
       ) : null}

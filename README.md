@@ -673,10 +673,14 @@ tab in view, never while it is hidden, and at once with **Refresh** — and the
 per-person limit does not apply to you; nobody else sees it. Under the table,
 **Web searches** charts what Ask AI's Web button searched through the proxy,
 per day, and — with `TAVILY_KEY` set — what Tavily itself says the key has
-spent this billing cycle against the plan's thousand, as a meter, so you can
-see the month running out before a search fails (`worker/tavilyUsage.js`;
+spent this billing cycle against the plan's free thousand, as a meter, so you
+can see the month running out before a search fails; and, with pay as you go
+turned on at Tavily, what has been bought past them this cycle and what that
+cost, at $0.008 a credit, against the cap set there — with a second chart of
+Tavily's own count day by day, free and paid apart (`worker/tavilyUsage.js`;
 the Worker asks Tavily when the page does, at most every couple of minutes,
-and once an hour on its own). Then the AI credits. READER_TOKEN reads the
+and once an hour on its own; the rate is `TAVILY_PAYGO_USD` in
+`src/components/WebUsage.tsx`). Then the AI credits. READER_TOKEN reads the
 tally too, from a terminal:
 
 ```bash
@@ -2210,10 +2214,10 @@ Each answer is labelled with the model that wrote it, and the History keeps that
     - **PDF as a book**: the page is turned to and the text layer marked.
     - **The browser's own PDF viewer**: nothing can be drawn over it, so the
       viewer is sent to the page with `#page=N` and the caption names the page.
-    - **The Colab tab**: a passage with `"in": "notebook"` and a `cell` number
-      quotes a cell's code or output; the tab scrolls to the cell, lights it,
-      and marks the lines. Asked while another page is open, the Explain page
-      switches to the Colab tab first.
+    - **The notebook**: a passage with `"in": "notebook"` and a `cell` number
+      quotes a cell's code or output; the notebook scrolls to the cell, lights
+      it, and marks the lines. Asked while a page is open, the Explain page
+      opens the notebook first.
   - **Pictures in the answer**: an answer can show a figure or table of the
     paper, or a page of the PDF, as `![caption](figure:3)`, `(table:2)` or
     `(page:4)`; the window looks it up on the page — the figure's image in
@@ -2346,9 +2350,11 @@ Tavily is asked by `POST /search` with the key as a bearer token, a basic
 search of eight results and no generated answer, so a search is one credit;
 its `content` is a passage of the page, which is a better snippet than a
 search engine's. The usage page shows how much of the month's thousand the
-key has spent, from Tavily's own `GET /usage`. Past the free thousand, a search costs about half a cent
-there as on the others — more than the DeepSeek tokens for a typical answer
-— which is why the button is off by default. On
+key has spent, from Tavily's own `GET /usage`, and what pay as you go has
+bought past them. Past the free thousand, a search costs $0.008 on Tavily's
+pay-as-you-go plan (nothing, and a failure, while that is off), about as the
+others charge — more than the DeepSeek tokens for a typical answer — which is
+why the button is off by default. On
 the Worker each search goes on the usage tally as *Web searches* (and as a
 Serply credit or a SerpApi search when it was one of those), under the
 per-person limit like Scholar. A page is fetched by the proxy as a plain
@@ -2681,11 +2687,12 @@ What it writes, in this order:
   run. **Run in Colab** runs exactly that code in a Colab runtime of your own
   and puts what it printed under the cell, with a verdict against what Claude
   expected — see [Running the cells in Colab](#running-the-cells-in-colab).
-  **Colab** in the bar downloads every cell and its explanation as an
-  `.ipynb`, which Colab opens under *File → Upload notebook*, or commits
-  the page as `EXPLANATION.md` and the notebook under `explanations/<paper>/`
-  in your Git repository and opens it in Colab from there; **Local** writes
-  them onto your own machine through the reader's proxy.
+  **Export ▾** in the notebook (**Colab** in the bar opens it) downloads
+  every cell and its explanation as a zip with an `.ipynb`, which Colab opens
+  under *File → Upload notebook*, or commits the page as `EXPLANATION.md` and
+  the notebook under `explanations/<paper>/` in your Git repository and opens
+  it in Colab from there; **Local** in the bar writes them onto your own
+  machine through the reader's proxy.
 - **Caveats**: a paper does not update itself, so each claim that has aged is
   flagged where it is made: *Still holds*, *Refined since*, *Superseded*,
   *Disputed* or *Disproved*. The outline counts them under **How it has
@@ -2866,18 +2873,19 @@ Google Cloud project; a client ID whose project is not on the list gets a
 
 ### A notebook of your own, on the runtime
 
-The bar's third tab, **Colab**, is a notebook: cells of your own, run in
-the Colab runtime the chip holds — the same kernel the cells on the
-Explanation and Implementation pages run in, so a variable a cell there
-set is here, and the other way round. Colab's API gives the reader the
-runtime and the page speaks the Jupyter protocol to its kernel, so the
-notebook needs nothing of Colab's page: it is the reader's, drawn the way
-the pages draw their cells, kept in this browser like the explanation and
-the plan, one a paper. Explain opens on the Explanation tab every time; the
-tab you leave it on is not kept, so Colab is a click away rather than where
+**Colab** in the bar, beside **Local** on the right, opens a notebook over
+the page: cells of your own, run in the Colab runtime the chip holds — the
+same kernel the cells on the Explanation and Implementation pages run in, so
+a variable a cell there set is here, and the other way round. Colab's API
+gives the reader the runtime and the page speaks the Jupyter protocol to its
+kernel, so the notebook needs nothing of Colab's page: it is the reader's,
+drawn the way the pages draw their cells, kept in this browser like the
+explanation and the plan, one a paper. A second click on **Colab** comes back
+to the page that was under it. Explain opens on the Explanation tab every
+time; the notebook is not kept open, so it is a click away rather than where
 the next paper lands.
 
-![the Colab tab: the notebook with the explanation's cells added to it, its first cell run in the T4 runtime with what it printed under it, and a cell typed in and run](docs/colab-notebook.png)
+![the notebook with the explanation's cells added to it, its first cell run in the T4 runtime with what it printed under it, and a cell typed in and run](docs/colab-notebook.png)
 
 - **Yours, and blank until you say.** It opens as one text cell of its own,
   whatever is written on the Explanation and Implementation pages — writing
@@ -2904,7 +2912,7 @@ the next paper lands.
   there. The start stays while the notebook has no code — so Undo brings it
   back — and goes once it has, whoever wrote it.
 
-![the Colab tab before anything is written: the one cell naming no model, and under it the start — which model writes this notebook, eight model cards, and Write the notebook with Claude Opus 5](docs/colab-notebook-start.png)
+![the notebook before anything is written: the one cell naming no model, and under it the start — which model writes this notebook, eight model cards, and Write the notebook with Claude Opus 5](docs/colab-notebook-start.png)
 
 ![the same tab a moment later: Notebook with DeepSeek Flash in the bar, the ask bar's pill on Flash, and six new cells DeepSeek wrote — a text cell and a code cell for each of three steps, each marked New · from the ask bar, with Run them and Undo under the bar](docs/colab-notebook-start-written.png)
 - **Cells to write and run.** `▶` on a cell, or <kbd>Shift</kbd>+<kbd>Enter</kbd>,
@@ -2938,12 +2946,14 @@ the next paper lands.
 - **Files.** The runtime's disk, from its Jupyter contents API through the
   proxy (`/colab/contents`): what the cells wrote, the data they fetched,
   the checkpoints, a folder at a time. It goes when the runtime does.
-- **Out, and in.** **Notebook ▾** downloads it as an `.ipynb`, commits it to
+- **Out, and in.** **Export ▾** downloads it as an `.ipynb`, commits it to
   the Git repository from Settings under `notebooks/` and opens it in Colab
   from there, or opens the runtime in Colab's own page for what only that
-  page has — Drive, on purpose. An `.ipynb` from elsewhere is added cell by
-  cell; HTML outputs are dropped on the way in, as kernel output is
-  everywhere on the page.
+  page has — Drive, on purpose. The same menu takes the explanation and the
+  plan's scaffold out the same ways — a zip, or a commit opened in Colab —
+  under their own headings, off until each page is written. An `.ipynb`
+  from elsewhere is added cell by cell; HTML outputs are dropped on the way
+  in, as kernel output is everywhere on the page.
 
 The notebook keeps to the left, and the right is a pane that opens on its
 own when a runtime connects and folds when it ends, with two tabs:
@@ -3105,21 +3115,21 @@ meters, the metrics the page's cells print and the files on the runtime, and
 the text moves left to make room. It opens by itself when a runtime connects
 and folds when the runtime goes, unless it was opened or closed by hand; a
 cell named in the pane scrolls the page to it.
-The header is the same on every tab — Runtime, Metrics, Colab, Local and
-Rewrite in the same places — so on the Colab tab those two buttons open the
-notebook's pane (the toolbar keeps **Files**), and **Colab** and **Local**
-there take the notebook itself: a commit under `notebooks/` opened in Colab,
-the `.ipynb` downloaded, or written onto your machine.
+The header is the same on every page — Runtime, Metrics, Colab, Local and
+Rewrite in the same places — so with the notebook open those two buttons
+open the notebook's pane (the toolbar keeps **Files**), **Colab** is lit and
+closes it again, and **Local** there takes the notebook itself, written onto
+your machine.
 
 The Ask AI window sees the notebook too. Whenever the paper has one, a
 question there goes with `<colab_notebook>`: the cells numbered, what each
 printed, the tracebacks, which cell is running now, the runtime, and
-whether the Colab tab is the one on screen — so *which cell is running?*,
+whether the notebook is the one on screen — so *which cell is running?*,
 *which cell has the attention code?*, *why does cell 3 fail?* and *does
 this output bear out the paper?* are answered from the notebook, from any
 tab. It has a switch of its own under **What the model sees** (on by
 default). Every cell an answer names — *cell 5*, *cells 3 and 7* — is a
-link: a click brings that cell into view on the Colab tab, picked and lit
+link: a click brings that cell into view in the notebook, picked and lit
 for a moment, switching to the tab first when another page is open. It
 answers and explains; the tab's own bar is the one that writes cells.
 
@@ -3344,18 +3354,17 @@ and the sums are `src/lib/hardware.ts`.
 
 ### Colab
 
-**Colab** in the bar takes the scaffold out of the plan (on the Explanation
-page, the same menu takes the page and its cells; on the Colab tab, the
-notebook). With a Git repository
+**Colab** in the bar opens the notebook, and the notebook's **Export ▾**
+takes the scaffold out of the plan (the same menu takes the explanation and
+its cells, and the notebook itself). With a Git repository
 connected (Settings → Git repository), one click commits the starter files,
 the plan as `PLAN.md` and a notebook under `implementations/<paper>/` and
-opens the notebook in Colab straight from GitHub. Without one, the notebook
-and a zip of the scaffold download, and Colab's *File → Upload notebook*
-takes the notebook. The notebook's first cells make the directories and write
-every starter file into the Colab session's disk, then the page's own cells
-follow — so running it top to bottom lays the repository out and runs it.
-
-![the Colab menu: commit and open, or download the notebook or the zip](docs/implement-colab.png)
+opens the notebook in Colab straight from GitHub. Without one, a zip of the
+scaffold downloads with the notebook in it, and Colab's *File → Upload
+notebook* takes the notebook. The notebook's first cells make the directories
+and write every starter file into the Colab session's disk, then the page's
+own cells follow — so running it top to bottom lays the repository out and
+runs it.
 
 ### Run it on Colab, from the page
 

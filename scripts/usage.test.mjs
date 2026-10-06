@@ -459,7 +459,17 @@ describe('the Tavily usage', () => {
       return Response.json(answer(42));
     });
     assert.deepEqual(calls, [['https://api.tavily.com/usage', 'Bearer tvly-owner']]);
-    assert.deepEqual(read, { plan: 'Bootstrap', planUsage: 47, planLimit: 1000, keyUsage: 42, keyLimit: null, searches: 42, extracts: 0 });
+    assert.deepEqual(read, { plan: 'Bootstrap', planUsage: 47, planLimit: 1000, keyUsage: 42, keyLimit: null, searches: 42, extracts: 0, paygoUsage: null, paygoLimit: null });
+  });
+
+  it('reads the pay-as-you-go count and cap when the account has it on, and null while it is off', async () => {
+    const on = await tavily.readTavilyUsage('tvly-owner', async () => Response.json(answer(1000, { account: { current_plan: 'Researcher', paygo_usage: 25, paygo_limit: 500 } })));
+    assert.equal(on.plan, 'Researcher');
+    assert.equal(on.paygoUsage, 25);
+    assert.equal(on.paygoLimit, 500);
+    const off = await tavily.readTavilyUsage('tvly-owner', async () => Response.json(answer(10, { account: { paygo_usage: null, paygo_limit: null } })));
+    assert.equal(off.paygoUsage, null);
+    assert.equal(off.paygoLimit, null);
   });
 
   it('says why when Tavily refuses the key', async () => {
@@ -471,18 +481,36 @@ describe('the Tavily usage', () => {
 
   it('counts the rise in the key’s usage as credits used that day, and a fall as a new cycle', () => {
     const at = (hour) => Date.parse(`2026-10-06T${String(hour).padStart(2, '0')}:00:00Z`);
-    const snap = (keyUsage) => ({ plan: 'Bootstrap', planUsage: keyUsage, planLimit: 1000, keyUsage, keyLimit: null, searches: keyUsage, extracts: 0 });
+    const snap = (keyUsage, paygoUsage = null) => ({ plan: 'Bootstrap', planUsage: keyUsage, planLimit: 1000, keyUsage, keyLimit: null, searches: keyUsage, extracts: 0, paygoUsage, paygoLimit: paygoUsage === null ? null : 500 });
     let stored = tavily.addTavilySnapshot(undefined, snap(100), at(1));
     stored = tavily.addTavilySnapshot(stored, snap(130), at(2));
     stored = tavily.addTavilySnapshot(stored, snap(135), at(3));
-    assert.deepEqual(stored.days, { '2026-10-06': { used: 35 } });
+    assert.deepEqual(stored.days, { '2026-10-06': { used: 35, paid: 0 } });
     // The next month: Tavily starts the key over, and what it shows is what was used since.
     stored = tavily.addTavilySnapshot(stored, snap(4), Date.parse('2026-11-01T01:00:00Z'));
     assert.equal(stored.days['2026-11-01'].used, 4);
     assert.equal(stored.last.keyUsage, 4);
     const out = tavily.tavilyReport(stored, { days: 3, now: Date.parse('2026-11-01T12:00:00Z') });
-    assert.deepEqual(out.days.map((row) => [row.day, row.used]), [['2026-10-30', 0], ['2026-10-31', 0], ['2026-11-01', 4]]);
+    assert.deepEqual(out.days.map((row) => [row.day, row.used, row.paid]), [['2026-10-30', 0, 0], ['2026-10-31', 0, 0], ['2026-11-01', 4, 0]]);
     assert.equal(out.account.keyUsage, 4);
+  });
+
+  it('counts the rise in the pay-as-you-go count as the paid credits of the day, from the moment it is turned on', () => {
+    const at = (hour) => Date.parse(`2026-10-20T${String(hour).padStart(2, '0')}:00:00Z`);
+    const snap = (keyUsage, paygoUsage) => ({ plan: 'Researcher', planUsage: Math.min(1000, keyUsage), planLimit: 1000, keyUsage, keyLimit: null, searches: keyUsage, extracts: 0, paygoUsage, paygoLimit: paygoUsage === null ? null : 500 });
+    // The free thousand runs out during the day; pay as you go was off, then on, then counting.
+    let stored = tavily.addTavilySnapshot(undefined, snap(990, null), at(1));
+    stored = tavily.addTavilySnapshot(stored, snap(1000, 0), at(2));
+    stored = tavily.addTavilySnapshot(stored, snap(1012, 12), at(3));
+    stored = tavily.addTavilySnapshot(stored, snap(1030, 30), at(4));
+    assert.deepEqual(stored.days, { '2026-10-20': { used: 40, paid: 30 } });
+    assert.equal(stored.last.paygoUsage, 30);
+    assert.equal(stored.last.paygoLimit, 500);
+    // The next cycle: both counts start over, and the day's paid credits are what the count shows since.
+    stored = tavily.addTavilySnapshot(stored, snap(3, 0), Date.parse('2026-11-01T01:00:00Z'));
+    assert.deepEqual(stored.days['2026-11-01'], { used: 3, paid: 0 });
+    const out = tavily.tavilyReport(stored, { days: 1, now: Date.parse('2026-10-20T23:00:00Z') });
+    assert.deepEqual(out.days, [{ day: '2026-10-20', used: 40, paid: 30 }]);
   });
 });
 

@@ -4,7 +4,7 @@
 //  tab in the bar — and these are what the plan has that the explanation
 //  does not: a directory tree, starter files, a compute budget worked out
 //  for the reader's machine, the picker for that machine, the empty state,
-//  and the Colab menu that takes the scaffold out of the page.
+//  and the Local menu that writes the scaffold onto the reader's machine.
 // ===========================================================================
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -14,11 +14,10 @@ import type { Accelerator } from '../lib/colab';
 import { colabChoices, colabMachine, colabMachineOf, colabSteps, needsOn } from '../lib/colabRun';
 import type { ColabStep } from '../lib/colabRun';
 import type { Block, Section } from '../lib/explain';
-import { commitFiles, targetFrom } from '../lib/github';
 import type { RepoFiles } from '../lib/github';
 import { DEFAULT_HARDWARE, estimate, FIT_TEXT, flopsText, GPUS, gpuById, hoursText, matchGpu, normaliseHardware, parseCompute, usdText } from '../lib/hardware';
 import type { Compute, Estimate, Fit, Hardware } from '../lib/hardware';
-import { bundleZip, colabUrl, computeOf, hardwareNow, parseTree, setHardware, slugOf, subscribeHardware } from '../lib/implement';
+import { computeOf, hardwareNow, parseTree, setHardware, slugOf, subscribeHardware } from '../lib/implement';
 import type { Bundle } from '../lib/implement';
 import { useStore } from '../lib/store';
 import { runInWorkspace, workspaceStatus, writeScaffold } from '../lib/workspace';
@@ -26,7 +25,7 @@ import type { WorkspaceStatus, Written } from '../lib/workspace';
 import { gigabytes } from '../lib/telemetry';
 import { MachineChart } from './Charts';
 import { CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Colab';
-import { CloseIcon, ColabIcon, ExplainIcon, LocalIcon } from './icons';
+import { CloseIcon, ExplainIcon, LocalIcon } from './icons';
 import { highlightPython } from './Explain';
 import { KeepButton } from './Keep';
 
@@ -566,153 +565,6 @@ export function ImplementEmpty({ title, byline, children }: { title: string; byl
         <HardwarePanel />
       </div>
       {children}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Colab: the scaffold out of the page
-// ---------------------------------------------------------------------------
-
-type PushState = { state: 'idle' } | { state: 'pushing' } | { state: 'pushed'; url: string; commit: string | null } | { state: 'error'; message: string };
-
-function download(name: string, blob: Blob) {
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = name;
-  link.click();
-  window.setTimeout(() => URL.revokeObjectURL(link.href), 2000);
-}
-
-/**
- * The menu under "Colab" in the bar, on every tab. Colab opens a notebook it
- * can fetch — from GitHub, or uploaded by hand — so the surest route is the
- * reader's own Git mirror: the bundle (the plan's scaffold, the explanation
- * and its cells, or the Colab tab's notebook) goes there as one commit, and
- * Colab is opened on the notebook. Without a repository, the notebook and
- * the zip download, and Colab's upload takes them. With nothing written yet
- * the button is there but off, so the bar keeps its shape.
- */
-export function ColabMenu({ title, bundle }: { title: string; bundle: Bundle | null }) {
-  const { settings } = useStore();
-  const target = targetFrom(settings);
-  const [open, setOpen] = useState(false);
-  const [push, setPush] = useState<PushState>({ state: 'idle' });
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const away = (event: MouseEvent) => {
-      if (!box.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const key = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        setOpen(false);
-      }
-    };
-    window.addEventListener('mousedown', away);
-    window.addEventListener('keydown', key, true);
-    return () => {
-      window.removeEventListener('mousedown', away);
-      window.removeEventListener('keydown', key, true);
-    };
-  }, [open]);
-  const slug = slugOf(title);
-  const plan = bundle?.kind === 'plan';
-
-  const pushToGitHub = async () => {
-    if (!target || !bundle) return;
-    setPush({ state: 'pushing' });
-    try {
-      const message = plan ? `Implementation scaffold for “${title.slice(0, 72)}”, planned by Claude in Reader` : bundle.kind === 'page' ? `Explanation of “${title.slice(0, 72)}”, from Reader` : `Notebook for “${title.slice(0, 72)}”, from Reader`;
-      const result = await commitFiles(target, bundle.files, message);
-      const url = colabUrl(target.owner, target.repo, target.branch, bundle.notebookPath);
-      setPush({ state: 'pushed', url, commit: result.commit });
-      // The window opens from the click when the commit is quick; when it is not, the link in the menu is there.
-      window.open(url, '_blank', 'noopener');
-    } catch (error) {
-      setPush({ state: 'error', message: error instanceof Error ? error.message : String(error) });
-    }
-  };
-
-  return (
-    <div className="menu-wrap" ref={box}>
-      <button
-        type="button"
-        className="btn sm colab-open"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        disabled={!bundle}
-        onClick={() => setOpen(!open)}
-        title={bundle ? `Take ${plan ? 'the scaffold' : bundle.kind === 'page' ? 'the page and its cells' : 'the notebook'} to Google Colab, a zip, or your Git repository` : 'Ready once the page is written'}
-      >
-        <ColabIcon size={15} /> Colab
-      </button>
-      {open && bundle ? (
-        <div className="menu right colab-menu" role="menu" aria-label="Colab">
-          <div className="menu-label">{bundle.what}</div>
-          {plan ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="colab-action is-primary"
-              onClick={() => {
-                setOpen(false);
-                openColabPanel();
-              }}
-            >
-              <b>Run it on Colab, from this page</b>
-              <span>Pick the machine, run the steps in order in your own runtime, and watch the GPU and CPU as they run — under the compute budget</span>
-            </button>
-          ) : null}
-          {target ? (
-            <>
-              <button type="button" role="menuitem" className="colab-action" disabled={push.state === 'pushing'} onClick={() => void pushToGitHub()}>
-                <b>{push.state === 'pushing' ? 'Committing…' : 'Commit to GitHub and open in Colab'}</b>
-                <span>
-                  {bundle.folder}/ in {target.owner}/{target.repo} on {target.branch}
-                </span>
-              </button>
-              {push.state === 'pushed' ? (
-                <div className="colab-status is-ok">
-                  {push.commit ? 'Committed. ' : 'Already up to date. '}
-                  <a href={push.url} target="_blank" rel="noreferrer noopener">
-                    Open in Colab ↗
-                  </a>
-                </div>
-              ) : push.state === 'error' ? (
-                <div className="colab-status is-error">{push.message}</div>
-              ) : null}
-            </>
-          ) : (
-            <div className="colab-status">
-              <b>No repository connected.</b> Give Settings → Git repository a repo and a token, and one click commits the scaffold and opens it in Colab. Until then, the
-              notebook below opens with <i>File → Upload notebook</i>.
-            </div>
-          )}
-          <button
-            type="button"
-            role="menuitem"
-            className="colab-action"
-            onClick={() => download(bundle.notebookPath.split('/').pop() ?? `${slug}.ipynb`, new Blob([bundle.files[bundle.notebookPath]], { type: 'application/x-ipynb+json' }))}
-          >
-            <b>Download the notebook</b>
-            <span>{plan ? '.ipynb — its first cells write the starter files, then the page\'s cells run' : bundle.kind === 'page' ? '.ipynb — every cell and its explanation' : '.ipynb — the cells and what they printed'}</span>
-          </button>
-          {bundle.kind !== 'notebook' ? (
-            <button type="button" role="menuitem" className="colab-action" onClick={() => download(`${slug}.zip`, new Blob([bundleZip(bundle) as BlobPart], { type: 'application/zip' }))}>
-              <b>{plan ? 'Download the scaffold' : 'Download the folder'}</b>
-              <span>{plan ? '.zip — the directories and files, the plan as PLAN.md, the notebook' : '.zip — the explanation as EXPLANATION.md, and the notebook'}</span>
-            </button>
-          ) : null}
-          <div className="colab-hint">
-            <span className="colab-mark" aria-hidden="true">
-              co
-            </span>
-            The notebook is the same cells for Colab's own page, and the one route to mounting Drive there.
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
