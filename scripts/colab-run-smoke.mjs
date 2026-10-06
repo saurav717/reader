@@ -231,7 +231,6 @@ await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => {
   localStorage.setItem('reader.anthropic-key', 'sk-ant-smoke');
   localStorage.setItem('reader.explain.layout', 'margin');
-  localStorage.setItem('reader.explain.page', 'explain');
   localStorage.removeItem('reader.implement.hardware');
   localStorage.removeItem('reader.implement.colab-panel');
   localStorage.setItem('reader.colab.machine', JSON.stringify({ accelerator: 'T4', highMem: false }));

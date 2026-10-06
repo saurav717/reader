@@ -149,7 +149,6 @@ await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(() => {
   localStorage.setItem('reader.anthropic-key', 'sk-ant-smoke');
   localStorage.setItem('reader.explain.layout', 'margin');
-  localStorage.setItem('reader.explain.page', 'explain');
   localStorage.removeItem('reader.implement.hardware');
 });
 await page.reload({ waitUntil: 'networkidle' });
@@ -180,7 +179,7 @@ await page.waitForSelector('.impl-empty');
 await page.waitForTimeout(400);
 check('before it is planned, it offers to plan it', await page.getByRole('button', { name: 'Plan the implementation' }).isVisible());
 check('the picker is on the empty state', (await page.locator('.impl-empty .hardware-panel').count()) === 1);
-check('the tab is remembered', (await page.evaluate(() => localStorage.getItem('reader.explain.page'))) === 'implement');
+check('the tab is not kept: Explain opens on the Explanation tab next time', (await page.evaluate(() => localStorage.getItem('reader.explain.page'))) === null);
 await page.screenshot({ path: `${OUT}/implement-1-start.png` });
 
 console.log('\n== the machine, from the proxy ==');

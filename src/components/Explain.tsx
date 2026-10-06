@@ -101,22 +101,18 @@ const readLayout = (): ExplainLayout => {
 export type WrittenPage = 'explain' | 'implement';
 /** Those, and the Colab tab, which shows Colab's own page on the runtime rather than anything written. */
 export type ExplainPage = WrittenPage | 'colab';
-const PAGE_KEY = 'reader.explain.page';
-const readPage = (): ExplainPage => {
-  try {
-    const kept = localStorage.getItem(PAGE_KEY);
-    return kept === 'implement' || kept === 'colab' ? kept : 'explain';
-  } catch {
-    return 'explain';
-  }
-};
-/** Which page Explain opens on next: for the progress pill, which opens the one being written. */
-export function openExplainOn(page: ExplainPage) {
-  try {
-    localStorage.setItem(PAGE_KEY, page);
-  } catch {
-    // private mode
-  }
+/**
+ * Explain opens on the explanation. The one exception is the progress pill, which opens a paper on the
+ * page being written: it asks for that page here, once, and the Explain that opens next takes it. An
+ * Explain already open on that paper takes it as it stands, through the event; one open on another
+ * paper leaves it for the Explain that mounts in its place.
+ */
+let askedPage: { paperId: string; page: ExplainPage } | null = null;
+const OPEN_ON = 'reader:explain-open-on';
+/** Which page Explain opens the paper on next: for the progress pill, which opens the one being written. */
+export function openExplainOn(paperId: string, page: ExplainPage) {
+  askedPage = { paperId, page };
+  window.dispatchEvent(new CustomEvent<{ paperId: string; page: ExplainPage }>(OPEN_ON, { detail: { paperId, page } }));
 }
 interface PageStore {
   subscribe: (listener: () => void) => () => void;
@@ -912,7 +908,19 @@ function RewriteMenu({
 
 export default function Explain({ paperId, title, authors, published, screen, onClose }: Props) {
   const assistant = useSyncExternalStore(subscribe, getState);
-  const [page, setPage] = useState<ExplainPage>(readPage);
+  const [page, setPage] = useState<ExplainPage>(() => (askedPage?.paperId === paperId ? askedPage.page : 'explain'));
+  useEffect(() => {
+    // The asked page is this Explain's now; whatever opens later opens on the explanation.
+    if (askedPage?.paperId === paperId) askedPage = null;
+    const onOpenOn = (event: Event) => {
+      const asked = (event as CustomEvent<{ paperId: string; page: ExplainPage }>).detail;
+      if (asked.paperId !== paperId) return;
+      askedPage = null;
+      setPage(asked.page);
+    };
+    window.addEventListener(OPEN_ON, onOpenOn);
+    return () => window.removeEventListener(OPEN_ON, onOpenOn);
+  }, [paperId]);
   // The Colab tab sits over the explanation: what is written, kept and asked about is the explanation's while it is up.
   const store = STORES[page === 'colab' ? 'explain' : page];
   const implementing = page === 'implement';
@@ -953,11 +961,6 @@ export default function Explain({ paperId, title, authors, published, screen, on
     void store.load(paperId).finally(() => setChecked(true));
   }, [paperId, driveConnected, store]);
   useEffect(() => {
-    try {
-      localStorage.setItem(PAGE_KEY, page);
-    } catch {
-      // private mode
-    }
     // A new page: the bar's chips were about the other one.
     setScope({});
     setJustAsked(false);
