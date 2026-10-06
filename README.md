@@ -673,10 +673,14 @@ tab in view, never while it is hidden, and at once with **Refresh** — and the
 per-person limit does not apply to you; nobody else sees it. Under the table,
 **Web searches** charts what Ask AI's Web button searched through the proxy,
 per day, and — with `TAVILY_KEY` set — what Tavily itself says the key has
-spent this billing cycle against the plan's thousand, as a meter, so you can
-see the month running out before a search fails (`worker/tavilyUsage.js`;
+spent this billing cycle against the plan's free thousand, as a meter, so you
+can see the month running out before a search fails; and, with pay as you go
+turned on at Tavily, what has been bought past them this cycle and what that
+cost, at $0.008 a credit, against the cap set there — with a second chart of
+Tavily's own count day by day, free and paid apart (`worker/tavilyUsage.js`;
 the Worker asks Tavily when the page does, at most every couple of minutes,
-and once an hour on its own). Then the AI credits. READER_TOKEN reads the
+and once an hour on its own; the rate is `TAVILY_PAYGO_USD` in
+`src/components/WebUsage.tsx`). Then the AI credits. READER_TOKEN reads the
 tally too, from a terminal:
 
 ```bash
@@ -2346,9 +2350,11 @@ Tavily is asked by `POST /search` with the key as a bearer token, a basic
 search of eight results and no generated answer, so a search is one credit;
 its `content` is a passage of the page, which is a better snippet than a
 search engine's. The usage page shows how much of the month's thousand the
-key has spent, from Tavily's own `GET /usage`. Past the free thousand, a search costs about half a cent
-there as on the others — more than the DeepSeek tokens for a typical answer
-— which is why the button is off by default. On
+key has spent, from Tavily's own `GET /usage`, and what pay as you go has
+bought past them. Past the free thousand, a search costs $0.008 on Tavily's
+pay-as-you-go plan (nothing, and a failure, while that is off), about as the
+others charge — more than the DeepSeek tokens for a typical answer — which is
+why the button is off by default. On
 the Worker each search goes on the usage tally as *Web searches* (and as a
 Serply credit or a SerpApi search when it was one of those), under the
 per-person limit like Scholar. A page is fetched by the proxy as a plain
