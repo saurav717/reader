@@ -444,7 +444,8 @@ export function MotionView({
       </div>
       {spec ? (
         <>
-          <div className="motion-art">
+          {/* Click it, or press Enter on it, and the scene opens close up on this step, in the middle of the window. */}
+          <div className="motion-art" role="button" tabIndex={0} aria-label="See the scene close up, on this step" title="Click for a close-up">
             <MotionScene spec={spec} step={step} playing />
           </div>
           <div className="motion-caption">

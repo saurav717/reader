@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 import { cleanFigure } from '../lib/sanitize';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Screen } from '../lib/assistant';
 import { ASSISTANT_NAME, geminiNote, getState, looksLikeKey, MODELS, modelSpec, PROVIDERS, saveKey, setAskModel, setExplainModel, subscribe } from '../lib/assistant';
@@ -60,6 +60,8 @@ import { colabNow } from '../lib/colab';
 import { cellKey, colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, outputText, runAll, runCell, useClient as useColabClient } from '../lib/colab';
 import { KeepButton, KeepContext, tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
+import FigureCloseUp, { CLOSEUP_ART, closeUpVisuals } from './FigureCloseUp';
+import type { CloseUpVisual } from './FigureCloseUp';
 import type { Flash } from './PassageFlash';
 import PassageFlash from './PassageFlash';
 
@@ -327,7 +329,12 @@ function Figure({ block, onAnimate, writer }: { block: Extract<Block, { kind: 'f
   );
   return (
     <figure className="explain-figure">
-      {svg ? <div className="figure-art" dangerouslySetInnerHTML={{ __html: svg }} /> : <div className="figure-art drawing">Drawing…</div>}
+      {svg ? (
+        // Click it, or press Enter on it, and the drawing opens close up, in the middle of the window.
+        <div className="figure-art" role="button" tabIndex={0} aria-label={`See the figure close up${block.caption ? `: ${block.caption}` : ''}`} title="Click for a close-up" dangerouslySetInnerHTML={{ __html: svg }} />
+      ) : (
+        <div className="figure-art drawing">Drawing…</div>
+      )}
       {block.caption ? <figcaption>{block.caption}</figcaption> : null}
       {onAnimate && block.animate && !block.open ? (
         <div className="figure-animate">
@@ -992,7 +999,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
       // Not from the ask bar, the assistant, or the notebook, where Escape leaves an editor or drops a picked cell first.
       // Judged by where the key was pressed, not where focus is now: an editor that closed on this Escape has already let focus go.
       const from = event.target instanceof Element ? event.target : document.activeElement;
-      if (event.key === 'Escape' && !from?.closest('.assistant-win, .explain-ask, .nb-page') && !document.querySelector('.scrim')) onClose();
+      // Nor while a figure is open close up: its Esc puts the figure back, not the page away.
+      if (event.key === 'Escape' && !from?.closest('.assistant-win, .explain-ask, .nb-page') && !document.querySelector('.scrim, .figure-closeup')) onClose();
       // "/" goes to the bar at the top, as it does to a search box.
       if (event.key === '/' && !(event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable="true"]')) {
         event.preventDefault();
@@ -1219,6 +1227,38 @@ export default function Explain({ paperId, title, authors, published, screen, on
     void keep({ label, html: copyOf(element), text, source: { from: 'explain', section: sectionOf(element), quote } });
   };
   const keeper = useKeeper({ root: docRef, selector: KEEPABLE, onKeep: keepElement, own: OWN_BUTTON });
+
+  // ---- a figure, close up ------------------------------------------------------
+  // A click on a diagram — or a scene, on its step — lifts it off the page to
+  // the middle of the window, as large as the window allows; Tab goes on to
+  // the next, Esc puts it back. Judged from the page itself, so a figure in
+  // the margin, in the flow, on the stage or in a revised section all count.
+  const [closeUp, setCloseUp] = useState<{ visuals: CloseUpVisual[]; index: number } | null>(null);
+  const openCloseUp = (art: HTMLElement) => {
+    const visuals = closeUpVisuals(docRef.current);
+    const index = visuals.findIndex((visual) => visual.art === art);
+    if (index >= 0) setCloseUp({ visuals, index });
+  };
+  const artOf = (target: EventTarget | null): HTMLElement | null => {
+    if (!(target instanceof Element)) return null;
+    // The buttons under a figure, a scene's own controls and the corner button are theirs, not a click on the drawing.
+    if (target.closest('button, a, input, .figure-animate, .motion-steps, .motion-head')) return null;
+    const art = target.closest<HTMLElement>(CLOSEUP_ART);
+    return art && art.querySelector(':scope > svg') ? art : null;
+  };
+  const onDocClick = (event: ReactMouseEvent) => {
+    const art = artOf(event.target);
+    // Dragging across a figure to select the text round it is not a click on it.
+    if (!art || window.getSelection()?.toString()) return;
+    openCloseUp(art);
+  };
+  const onDocKey = (event: ReactKeyboardEvent) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    const art = event.target instanceof HTMLElement && event.target.matches(CLOSEUP_ART) ? artOf(event.target) : null;
+    if (!art) return;
+    event.preventDefault();
+    openCloseUp(art);
+  };
   // The plan, for the Colab panel under its budget: the title and the sections, as one value so the panel is not redrawn for nothing.
   const plan = useMemo(() => (implementing ? { title, sections } : null), [implementing, title, sections]);
   // ✂ Snip, or S while this covers the paper: a box dragged over the page
@@ -1691,6 +1731,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
           onMouseUp={takeSelection}
           onMouseOver={keeper.onMouseOver}
           onMouseLeave={keeper.onMouseLeave}
+          onClick={onDocClick}
+          onKeyDown={onDocKey}
         >
           {!explanation?.content && !checked ? (
             <p className="explain-looking">
@@ -1855,6 +1897,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
       {keeper.button}
       {toast}
       {snipping ? <BoxSnip root={docRef} selector={SNIPPABLE} onKeep={keepBox} /> : null}
+      {closeUp ? <FigureCloseUp visuals={closeUp.visuals} index={closeUp.index} onIndex={(index) => setCloseUp({ visuals: closeUp.visuals, index })} onClose={() => setCloseUp(null)} onKeep={keepElement} /> : null}
 
       {flash ? (
         <PassageFlash
