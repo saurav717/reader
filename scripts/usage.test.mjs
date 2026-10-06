@@ -443,3 +443,99 @@ describe('the Worker, with DEEPSEEK_KEY', () => {
     await worker.scheduled({}, env, { waitUntil() {} }); // nothing to do, and no error
   });
 });
+
+const tavily = await import('../worker/tavilyUsage.js');
+
+describe('the Tavily usage', () => {
+  const answer = (usage, extra = {}) => ({
+    key: { usage, limit: null, search_usage: usage, extract_usage: 0, ...extra.key },
+    account: { current_plan: 'Bootstrap', plan_usage: usage + 5, plan_limit: 1000, ...extra.account },
+  });
+
+  it('reads the key’s and the plan’s credits, with the key as a bearer token', async () => {
+    const calls = [];
+    const read = await tavily.readTavilyUsage('tvly-owner', async (url, init) => {
+      calls.push([url, init.headers.Authorization]);
+      return Response.json(answer(42));
+    });
+    assert.deepEqual(calls, [['https://api.tavily.com/usage', 'Bearer tvly-owner']]);
+    assert.deepEqual(read, { plan: 'Bootstrap', planUsage: 47, planLimit: 1000, keyUsage: 42, keyLimit: null, searches: 42, extracts: 0 });
+  });
+
+  it('says why when Tavily refuses the key', async () => {
+    await assert.rejects(
+      tavily.readTavilyUsage('bad', async () => Response.json({ detail: { error: 'Unauthorized: missing or invalid API key.' } }, { status: 401 })),
+      (error) => error.status === 401 && /invalid API key/.test(error.message),
+    );
+  });
+
+  it('counts the rise in the key’s usage as credits used that day, and a fall as a new cycle', () => {
+    const at = (hour) => Date.parse(`2026-10-06T${String(hour).padStart(2, '0')}:00:00Z`);
+    const snap = (keyUsage) => ({ plan: 'Bootstrap', planUsage: keyUsage, planLimit: 1000, keyUsage, keyLimit: null, searches: keyUsage, extracts: 0 });
+    let stored = tavily.addTavilySnapshot(undefined, snap(100), at(1));
+    stored = tavily.addTavilySnapshot(stored, snap(130), at(2));
+    stored = tavily.addTavilySnapshot(stored, snap(135), at(3));
+    assert.deepEqual(stored.days, { '2026-10-06': { used: 35 } });
+    // The next month: Tavily starts the key over, and what it shows is what was used since.
+    stored = tavily.addTavilySnapshot(stored, snap(4), Date.parse('2026-11-01T01:00:00Z'));
+    assert.equal(stored.days['2026-11-01'].used, 4);
+    assert.equal(stored.last.keyUsage, 4);
+    const out = tavily.tavilyReport(stored, { days: 3, now: Date.parse('2026-11-01T12:00:00Z') });
+    assert.deepEqual(out.days.map((row) => [row.day, row.used]), [['2026-10-30', 0], ['2026-10-31', 0], ['2026-11-01', 4]]);
+    assert.equal(out.account.keyUsage, 4);
+  });
+});
+
+describe('the Worker, with TAVILY_KEY', () => {
+  const realFetch = globalThis.fetch;
+  const SITE = 'https://saurav717.github.io';
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  const setup = (usages) => {
+    const USAGE = usageBinding();
+    const env = { READER_TOKEN: 'owner-token', TAVILY_KEY: 'tvly-owner', USAGE };
+    const asked = [];
+    globalThis.fetch = async (input, init = {}) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url === 'https://api.tavily.com/usage') {
+        asked.push(init.headers?.Authorization);
+        const usage = usages.shift();
+        if (usage === 'refuse') return Response.json({ detail: { error: 'Unauthorized: missing or invalid API key.' } }, { status: 401 });
+        return Response.json({ key: { usage, limit: null, search_usage: usage, extract_usage: 0 }, account: { current_plan: 'Bootstrap', plan_usage: usage, plan_limit: 1000 } });
+      }
+      return Response.json({ error: 'unexpected' }, { status: 500 });
+    };
+    return { env, asked };
+  };
+  const account = (env, token = 'owner-token') =>
+    worker.fetch(new Request('https://proxy.example/usage/tavily?days=7', { headers: { Origin: SITE, ...(token ? { Authorization: `Bearer ${token}` } : {}) } }), env);
+
+  it('shows the owner the credits used, from the cron and the page — and does not ask Tavily again within minutes', async () => {
+    const { env, asked } = setup([10, 25, 31]);
+    await worker.scheduled({}, env, { waitUntil() {} });
+    await worker.scheduled({}, env, { waitUntil() {} });
+    const out = await (await account(env)).json();
+    // The cron asks every time; the page finds a snapshot seconds old and shows that.
+    assert.deepEqual(asked, ['Bearer tvly-owner', 'Bearer tvly-owner']);
+    assert.equal(out.configured, true);
+    assert.equal(out.account.keyUsage, 25);
+    assert.equal(out.account.plan, 'Bootstrap');
+    assert.equal(out.days.length, 7);
+    assert.equal(out.days.at(-1).used, 15);
+    assert.equal(out.error, undefined);
+  });
+
+  it('is the owner’s alone, says when there is no key, and passes on Tavily’s refusal', async () => {
+    const { env } = setup(['refuse']);
+    assert.equal((await account(env, null)).status, 401);
+    const refused = await (await account(env)).json();
+    assert.equal(refused.configured, true);
+    assert.match(refused.error, /invalid API key/);
+    assert.equal(refused.account, null);
+    delete env.TAVILY_KEY;
+    assert.deepEqual(await (await account(env)).json(), { configured: false });
+    await worker.scheduled({}, env, { waitUntil() {} }); // nothing to do, and no error
+  });
+});

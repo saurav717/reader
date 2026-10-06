@@ -38,6 +38,7 @@ import { readPage, searchWeb, webAvailable, WebRefused } from '../server/webSear
 import { handleColab, isColabPath, readSocketTicket } from '../server/colab.js';
 import { bridgeSocket } from './colabSocket.js';
 import { readBalance } from './deepseekBalance.js';
+import { FRESH_MS as TAVILY_FRESH_MS, readTavilyUsage } from './tavilyUsage.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
 
@@ -166,6 +167,29 @@ async function snapshotDeepSeek(env) {
       method: 'POST',
       body: JSON.stringify({ snapshot, at: Date.now() }),
     });
+    return null;
+  } catch (error) {
+    return String(error?.message || error);
+  }
+}
+
+/**
+ * Ask Tavily what the owner's key has used and keep it as a snapshot in the
+ * Usage object — unless the last snapshot is fresher than `minAge`, since
+ * Tavily allows ten such asks in ten minutes. Nothing without TAVILY_KEY;
+ * Tavily's refusal comes back as the reason, never thrown.
+ */
+async function snapshotTavily(env, { minAge = 0 } = {}) {
+  const key = String(env.TAVILY_KEY || '').trim();
+  if (!key || !env.USAGE) return null;
+  const usage = env.USAGE.get(env.USAGE.idFromName('usage'));
+  try {
+    if (minAge) {
+      const { account } = await (await usage.fetch('https://usage/tavily/report?days=1')).json();
+      if (account && Date.now() - account.at < minAge) return null;
+    }
+    const snapshot = await readTavilyUsage(key);
+    await usage.fetch('https://usage/tavily/record', { method: 'POST', body: JSON.stringify({ snapshot, at: Date.now() }) });
     return null;
   } catch (error) {
     return String(error?.message || error);
@@ -339,6 +363,21 @@ export default {
         if (!env.USAGE) return json({ error: 'no USAGE object is bound here — see wrangler.toml' }, 501, headers);
         const error = await snapshotDeepSeek(env);
         const answer = await env.USAGE.get(env.USAGE.idFromName('usage')).fetch(`https://usage/balance/report?days=${days}`);
+        return json({ configured: true, ...(await answer.json()), ...(error ? { error } : {}) }, 200, noStore);
+      }
+
+      // The owner's Tavily account as Tavily itself reports it — the credits
+      // the key and the plan have used this cycle, and what the key used each
+      // day — with TAVILY_KEY set: worker/tavilyUsage.js. The owner's alone.
+      if (path === '/usage/tavily') {
+        const who = await authorized(request, env);
+        if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
+        const days = Math.max(1, Math.min(90, Number(url.searchParams.get('days')) || 30));
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        if (!String(env.TAVILY_KEY || '').trim()) return json({ configured: false }, 200, noStore);
+        if (!env.USAGE) return json({ error: 'no USAGE object is bound here — see wrangler.toml' }, 501, headers);
+        const error = await snapshotTavily(env, { minAge: TAVILY_FRESH_MS });
+        const answer = await env.USAGE.get(env.USAGE.idFromName('usage')).fetch(`https://usage/tavily/report?days=${days}`);
         return json({ configured: true, ...(await answer.json()), ...(error ? { error } : {}) }, 200, noStore);
       }
 
@@ -1059,7 +1098,7 @@ export default {
   // Once an hour (wrangler.toml's cron): a snapshot of the DeepSeek balance,
   // so each day's spend is there even when nobody opens the Usage page.
   async scheduled(event, env = {}, ctx = undefined) {
-    const done = snapshotDeepSeek(env);
+    const done = Promise.all([snapshotDeepSeek(env), snapshotTavily(env)]);
     if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(done);
     await done;
   },
