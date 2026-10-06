@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import type { Block } from '../lib/explain';
-import { anchors, edgeId, layoutMotion, mix, motionText, SCENE_H, SCENE_W, stateAt, stepForParagraph } from '../lib/motion';
+import { anchors, charsAcross, clearOf, edgeId, labelRoom, layoutMotion, mix, motionText, overlaps, SCENE_H, SCENE_W, stateAt, stepForParagraph, wrapLabel } from '../lib/motion';
 import type { Box, MotionNode, MotionSpec, SceneState, Tone, Values } from '../lib/motion';
 
 export type MotionBlock = Extract<Block, { kind: 'motion' }>;
@@ -40,32 +40,45 @@ function Label({ x, y, text, anchor = 'middle', muted, mono, size = 10 }: { x: n
 /** One node at one moment: its box, its values after the tween, and the phase of any flow through it. */
 function Node({ node, box, values, label, phase }: { node: MotionNode; box: Box; values: Values | undefined; label?: string; phase: number | null }) {
   const cls = tone(node.tone);
-  const { x, y, w, h } = box;
+  const room = labelRoom(node);
+  // The body sits under the room kept for the label.
+  const { x, w } = box;
+  const y = box.y + room;
+  const h = box.h - room;
+  const top = box.y + 9;
   switch (node.kind) {
-    case 'input':
+    case 'input': {
+      // A letter or two sits in the circle; a word goes under it.
+      const inside = (label?.length ?? 0) <= 2;
       return (
         <g className={cls}>
-          <circle cx={x + w / 2} cy={y + h / 2} r={w / 2} className="m-fill" />
-          <Label x={x + w / 2} y={y + h / 2 + 3.5} text={label} mono />
-          {/* The label inside; the ink-on-fill colour is the page's. */}
+          <title>{label}</title>
+          <circle cx={x + w / 2} cy={y + 11} r={11} className="m-fill" />
+          {inside ? <Label x={x + w / 2} y={y + 14.5} text={label} mono /> : <Label x={x + w / 2} y={y + 32} text={wrapLabel(label, 14, 1)[0]} muted size={9} />}
         </g>
       );
-    case 'text':
+    }
+    case 'text': {
+      const [line] = wrapLabel(label, 28, 1);
       return (
         <g className={cls}>
-          <Label x={x + w / 2} y={y + h - 4} text={label} muted={node.tone === 'muted'} />
+          <title>{label}</title>
+          <Label x={x + w / 2} y={y + h - 4} text={line} muted={node.tone === 'muted'} />
         </g>
       );
+    }
     case 'stack': {
       const n = node.layers ?? 3;
       const lit = phase === null ? -1 : Math.floor(clamp01(phase) * n);
+      const gap = n > 6 ? 2 : 4;
+      const layer = Math.max(3, Math.min(12, (h - (n - 1) * gap) / n));
       return (
         <g className={`${cls}${node.frozen ? ' m-frozen' : ''}`}>
           {Array.from({ length: n }, (_, i) => {
-            const ly = y + (n - 1 - i) * 16;
-            return <rect key={i} x={x} y={ly} width={w} height={12} rx={3} className={i === lit ? 'm-fill' : 'm-soft'} />;
+            const ly = y + (n - 1 - i) * (layer + gap);
+            return <rect key={i} x={x} y={ly} width={w} height={layer} rx={3} className={i === lit ? 'm-fill' : 'm-soft'} />;
           })}
-          <Label x={x + w / 2} y={y - 5} text={label} muted={node.frozen} />
+          <Label x={x + w / 2} y={top} text={wrapLabel(label, charsAcross(w + 16), 1)[0]} muted={node.frozen} />
         </g>
       );
     }
@@ -84,7 +97,7 @@ function Node({ node, box, values, label, phase }: { node: MotionNode; box: Box;
           {node.labels?.slice(0, n).map((name, i) => (
             <Label key={i} x={x + i * bw + bw / 2} y={y + h - 3} text={name} muted size={8.5} />
           ))}
-          <Label x={x + w / 2} y={y - 5} text={label} muted mono size={8.5} />
+          <Label x={x + w / 2} y={top} text={wrapLabel(label, charsAcross(w + 16, 8.5), 1)[0]} muted mono size={8.5} />
         </g>
       );
     }
@@ -92,7 +105,7 @@ function Node({ node, box, values, label, phase }: { node: MotionNode; box: Box;
       const series = rows(values);
       const all = series.flat();
       const lo = Math.min(...all, 0), hi = Math.max(...all, 1e-9);
-      const plotH = h - 14;
+      const plotH = h - 4;
       const point = (v: number, i: number, len: number) => `${(x + (i / Math.max(len - 1, 1)) * w).toFixed(1)} ${(y + plotH - ((v - lo) / (hi - lo || 1)) * plotH).toFixed(1)}`;
       return (
         <g className={cls}>
@@ -104,7 +117,7 @@ function Node({ node, box, values, label, phase }: { node: MotionNode; box: Box;
           {node.labels?.slice(0, series.length).map((name, k) => (
             <Label key={k} x={x + w} y={y + 9 + k * 11} text={name} anchor="end" muted size={8.5} />
           ))}
-          <Label x={x + w / 2} y={y + h - 2} text={label} muted size={8.5} />
+          <Label x={x + w / 2} y={top} text={wrapLabel(label, 24, 1)[0]} muted size={8.5} />
         </g>
       );
     }
@@ -116,7 +129,7 @@ function Node({ node, box, values, label, phase }: { node: MotionNode; box: Box;
       return (
         <g className={cls}>
           {cells.map((row, i) => row.map((v, j) => <rect key={`${i}-${j}`} x={x + j * cw} y={y + i * ch} width={cw - 1} height={ch - 1} className="m-fill" opacity={0.12 + 0.88 * clamp01(v)} />))}
-          <Label x={x + w / 2} y={y - 5} text={label} muted size={8.5} />
+          <Label x={x + w / 2} y={top} text={wrapLabel(label, charsAcross(w + 16, 8.5), 1)[0]} muted size={8.5} />
         </g>
       );
     }
@@ -153,17 +166,24 @@ function Node({ node, box, values, label, phase }: { node: MotionNode; box: Box;
               </g>
             );
           })}
-          <Label x={x + w / 2} y={y - 2} text={label} muted size={8.5} />
+          <Label x={x + w / 2} y={top} text={wrapLabel(label, 40, 1)[0]} muted size={8.5} />
         </g>
       );
     }
-    default:
+    default: {
+      // The label at the box's own width: a narrow cell gets smaller type and a tighter wrap.
+      const size = w < 70 ? 9 : 10;
+      const lines = wrapLabel(label, charsAcross(w, size), h >= 34 ? 2 : 1);
       return (
         <g className={cls}>
+          <title>{label}</title>
           <rect x={x} y={y} width={w} height={h} rx={5} className="m-soft" />
-          <Label x={x + w / 2} y={y + h / 2 + 3.5} text={label} />
+          {lines.map((line, i) => (
+            <Label key={i} x={x + w / 2} y={y + h / 2 + 3.5 + (i - (lines.length - 1) / 2) * (size + 2)} text={line} size={size} />
+          ))}
         </g>
       );
+    }
   }
 }
 
@@ -214,9 +234,20 @@ export function MotionScene({ spec, step, playing }: { spec: MotionSpec; step: n
         const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
         const compare = edge.kind === 'compare';
         const dx = x2 - x1, dy = y2 - y1;
-        const bend = compare && Math.abs(dx) > 20 && Math.abs(dy) > 20;
-        const d = bend ? `M${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}` : `M${x1} ${y1} L${x2} ${y2}`;
-        const pillW = edge.label ? 14 + 6 * edge.label.length : 0;
+        const sideways = Math.abs(dx) >= Math.abs(dy);
+        const d = sideways && Math.abs(dy) > 4 ? `M${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}` : !sideways && Math.abs(dx) > 4 ? `M${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}` : `M${x1} ${y1} L${x2} ${y2}`;
+        const text = edge.label ? (edge.label.length > 12 ? edge.label.slice(0, 11) + '…' : edge.label) : '';
+        const pillW = text ? 12 + 5.6 * text.length : 0;
+        const c1 = sideways && Math.abs(dy) > 4 ? { x: mx, y: y1 } : !sideways && Math.abs(dx) > 4 ? { x: x1, y: my } : { x: x1 + dx / 3, y: y1 + dy / 3 };
+        const c2 = sideways && Math.abs(dy) > 4 ? { x: mx, y: y2 } : !sideways && Math.abs(dx) > 4 ? { x: x2, y: my } : { x: x1 + (2 * dx) / 3, y: y1 + (2 * dy) / 3 };
+        const at = (q: number) => {
+          const u = 1 - q;
+          return { x: u * u * u * x1 + 3 * u * u * q * c1.x + 3 * u * q * q * c2.x + q * q * q * x2, y: u * u * u * y1 + 3 * u * u * q * c1.y + 3 * u * q * q * c2.y + q * q * q * y2 };
+        };
+        const all = Array.from(boxes.values());
+        const pill = text
+          ? [0.5, 0.3, 0.7].map((q) => { const p = at(q); return { x: p.x - pillW / 2, y: p.y - 9, w: pillW, h: 18 }; }).find((r) => !all.some((box) => overlaps(r, box, 2))) ?? clearOf({ x: mx - pillW / 2, y: my - 9, w: pillW, h: 18 }, all, { dx, dy })
+          : null;
         return (
           <g key={id} className={`m-edge ${tone(edge.tone ?? (compare ? 'pink' : 'muted'))}${target.highlight.has(id) ? ' m-hi' : ''}`} style={{ opacity: opacityOf(id) }}>
             <path d={d} className={compare ? 'm-stroke m-dashed' : 'm-stroke'} />
@@ -224,14 +255,17 @@ export function MotionScene({ spec, step, playing }: { spec: MotionSpec; step: n
               ? [0, 1, 2].map((k) => {
                   const p = (phase + k / 3) % 1;
                   const q = edge.flow === 'backward' ? 1 - p : p;
-                  return <circle key={k} cx={x1 + dx * q} cy={y1 + dy * q} r={3} className="m-packet" />;
+                  // The point at q along the same cubic the line is drawn with.
+                  const { x: px, y: py } = at(q);
+                  return <circle key={k} cx={px} cy={py} r={3} className="m-packet" />;
                 })
               : null}
-            {edge.label ? (
+            {pill ? (
               <g className="m-pill">
-                <rect x={mx - pillW / 2} y={my - 9} width={pillW} height={18} rx={4} />
-                <text x={mx} y={my + 3.5} textAnchor="middle" fontSize={9} className="mono">
-                  {edge.label}
+                <title>{edge.label}</title>
+                <rect x={pill.x} y={pill.y} width={pill.w} height={pill.h} rx={4} />
+                <text x={pill.x + pill.w / 2} y={pill.y + 12.5} textAnchor="middle" fontSize={9} className="mono">
+                  {text}
                 </text>
               </g>
             ) : null}
@@ -263,8 +297,11 @@ export function MotionView({
   held,
   onHeld,
   compact,
+  writer,
 }: {
   block: MotionBlock;
+  /** Who wrote the scene — the model asked for it — for what the card says when it cannot be drawn. */
+  writer?: string;
   /** The step the reading has reached, when the card follows it (the stage). */
   followStep?: number;
   /** The reader took the steps in hand; `onHeld` lets them hand back. */
@@ -345,7 +382,7 @@ export function MotionView({
       ) : block.open ? (
         <div className="motion-art drawing">Drawing the scene…</div>
       ) : (
-        <div className="motion-art drawing">The block Claude wrote is not a scene the page can draw. Ask for it again, or redraw it.</div>
+        <div className="motion-art drawing">The block {writer ?? 'the model'} wrote is not a scene the page can draw. Ask for it again, or redraw it.</div>
       )}
     </figure>
   );
@@ -360,7 +397,7 @@ export function MotionView({
  * of the way down the scroller — the one the outline follows — picks the
  * step, until the reader picks one by hand.
  */
-export function Stage({ block, section }: { block: MotionBlock; section: RefObject<HTMLElement> }) {
+export function Stage({ block, section, writer }: { block: MotionBlock; section: RefObject<HTMLElement>; writer?: string }) {
   const [followStep, setFollowStep] = useState(0);
   const [held, setHeld] = useState(false);
   const spec = block.spec;
@@ -387,7 +424,7 @@ export function Stage({ block, section }: { block: MotionBlock; section: RefObje
   }, [section, spec]);
   return (
     <div className="explain-stage">
-      <MotionView block={block} followStep={followStep} held={held} onHeld={setHeld} />
+      <MotionView block={block} followStep={followStep} held={held} onHeld={setHeld} writer={writer} />
     </div>
   );
 }

@@ -2640,16 +2640,23 @@ What it writes, in this order:
 
 - **Scenes, on the stage.** A figure that shows something happening in
   stages — a pass through a model, a loss that compares two things, a
-  quantity that changes with a knob — can be animated. Claude marks the two
-  or three figures a page where motion would help with **▶ Animate this
-  figure** under them; the outline shows those sections with a hollow play
-  mark. Press it (or ask the bar to *animate the key figure in this
-  section*) and Claude writes a `motion` block right after the figure: not
+  quantity that changes with a knob — can be animated. Whichever model
+  wrote the page marks the two or three figures where motion would help
+  with **▶ Animate this figure** under them; the outline shows those
+  sections with a hollow play mark. Press it (or ask the bar to *animate
+  the key figure in this section*) and the model the bar answers with —
+  Claude, DeepSeek or Gemini, picked in its chip like any other request —
+  writes a `motion` block right after the figure: not
   SVG and not code, a small JSON scene of nodes (a stack of layers, a
   distribution, a curve, a grid, a slider, a timeline…), edges (packets
   flowing forward or back, a dashed comparison with its label) and steps,
-  one per paragraph of the section. The page lays it out, draws it in the
-  figure's own colours, and tweens from step to step. In the Margin layout
+  one per paragraph of the section. A scene is a pipeline: the model puts
+  each node in a column (the stage, left to right) and a row (the path,
+  the teacher above the student, say), and the page lays the grid out so
+  nothing overlaps, runs the edges through the gaps between stages, wraps
+  long labels, and shows the stages one by one as the steps advance. It
+  draws it in the figure's own colours and tweens from step to step. In the
+  Margin layout
   the scene sits on a **stage** at the top of the margin that stays in view
   while you read that section and steps with the paragraph under the reading
   line, until you pick a step by hand; the rest of the margin scrolls under
