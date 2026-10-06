@@ -143,8 +143,11 @@ export class GeminiStream {
     this.done.catch(() => {});
   }
 
-  on(event: 'text' | 'thinking', listener: Listener) {
-    this.listeners[event].push(listener);
+  on(event: 'text' | 'thinking', listener: Listener): this;
+  on(event: 'step', listener: unknown): this;
+  on(event: 'text' | 'thinking' | 'step', listener: unknown) {
+    // No tools go through the relay, so a step never comes; the listener is taken for the interface's sake.
+    if (event !== 'step') this.listeners[event].push(listener as Listener);
     return this;
   }
 

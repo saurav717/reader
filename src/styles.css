@@ -1981,7 +1981,17 @@ mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-s
 .chat-text .chat-picture img:not([src]) { display: none; }
 .chat-picture-caption { display: block; margin-top: 4px; font-size: 11.5px; line-height: 1.4; color: var(--muted); text-align: center; }
 .chat-picture-missing { display: block; padding: 6px 10px; font-size: 12px; color: var(--muted); border: 1px dashed var(--border); border-radius: 8px; }
-.chat-compose .chat-shot-btn { width: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.chat-compose .chat-shot-btn, .chat-compose .chat-web-btn { width: 34px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.chat-compose .chat-web-btn.is-on { color: var(--accent); border-color: rgb(var(--accent-rgb) / 0.5); background: rgb(var(--accent-rgb) / 0.1); }
+/* What the model did on the web for an answer: a search made, a page read. */
+.chat-steps { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.chat-steps li { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.chat-steps svg { flex-shrink: 0; position: relative; top: 2px; }
+.chat-steps span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-steps .chat-step-outcome { flex-shrink: 0; opacity: 0.8; }
+.chat-steps li.is-busy { color: var(--text); }
+.chat-steps li.is-busy svg { animation: chat-step 1s ease-in-out infinite; }
+@keyframes chat-step { 50% { opacity: 0.35; } }
 .chat-compose { flex-shrink: 0; display: flex; gap: 6px; align-items: flex-end; padding: 8px 10px 8px; }
 .chat-compose textarea {
   flex-grow: 1; min-width: 0; resize: none; overflow-y: auto; max-height: 160px;

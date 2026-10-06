@@ -23,6 +23,8 @@ import {
   setModel,
   setQuote,
   setShot,
+  setWeb,
+  webUsable,
   paperKey,
   readingList,
   splitPassages,
@@ -38,7 +40,8 @@ import { stacked, useFloatingWindow, viewport } from './FloatingWindow';
 import { markdown } from '../lib/markdown';
 import { placeFigures } from '../lib/figures';
 import ModelChip from './ModelChip';
-import { CameraIcon, CheckIcon, CloseIcon, PlusIcon, SearchIcon, SparkleIcon } from './icons';
+import { CameraIcon, CheckIcon, CloseIcon, FileIcon, GlobeIcon, PlusIcon, SearchIcon, SparkleIcon } from './icons';
+import { webNote } from '../lib/webTools';
 import { useStore } from '../lib/store';
 import { resolvePaper } from '../lib/recommend';
 import { PAPER_LAYOUTS, markAdds, placeCards, setLayout, useLayout } from './paperCards';
@@ -418,6 +421,15 @@ const togglePicture = (target: HTMLElement): boolean => {
   return true;
 };
 
+/** A page's site, for the line that says it was read. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+}
+
 function TurnView({ turn, index, actions, question, sent }: { turn: Turn; index: number; actions: PaperActions; question?: string; sent?: Turn['images'] }) {
   const textRef = useRef<HTMLDivElement>(null);
   const isClaude = turn.role !== 'user';
@@ -509,6 +521,21 @@ function TurnView({ turn, index, actions, question, sent }: { turn: Turn; index:
         </span>
         {turn.model ? modelSpec(turn.model).label : 'Claude'}
       </div>
+      {turn.steps?.length ? (
+        <ul className="chat-steps" aria-label="What the model looked up">
+          {turn.steps.map((step, at) => {
+            const busy = !step.outcome && turn.streaming;
+            const what = step.tool === 'web_search' ? `${busy ? 'Searching' : 'Searched'} for “${step.what}”` : `${busy ? 'Reading' : 'Read'} ${hostOf(step.what)}`;
+            return (
+              <li key={at} className={busy ? 'is-busy' : undefined} title={step.tool === 'read_page' ? step.what : undefined}>
+                {step.tool === 'web_search' ? <SearchIcon size={12} /> : <FileIcon size={12} />}
+                <span>{what}</span>
+                {step.outcome ? <span className="chat-step-outcome">· {step.outcome}</span> : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
       {turn.thinking?.trim() ? (
         <details className="chat-thinking">
           <summary>Reasoning</summary>
@@ -888,6 +915,9 @@ export default function Assistant({ onClose, screen, reading }: Props) {
 
   const model = modelSpec(s.prefs.model);
   const provider = PROVIDERS[model.provider];
+  // The Web button: whether this model can use the web from here, and whether it is on.
+  const webReady = webUsable(model.id, s.web);
+  const webOn = Boolean(s.prefs.web) && webReady;
   const style = styleAt(win.style);
 
   return (
@@ -1129,6 +1159,25 @@ export default function Assistant({ onClose, screen, reading }: Props) {
             <CameraIcon size={16} />
           </button>
         ) : null}
+        <button
+          type="button"
+          className={`btn sm chat-web-btn${webOn ? ' is-on' : ''}`}
+          aria-pressed={webOn}
+          disabled={!s.hasKey || s.live || !webReady}
+          onClick={() => setWeb(!s.prefs.web)}
+          aria-label="Search the web"
+          title={
+            !webReady
+              ? model.provider === 'gemini'
+                ? `${model.label} cannot search the web from here — pick a Claude or DeepSeek model`
+                : webNote(s.web)
+              : webOn
+                ? `Web search is on: ${model.label} may search the web and read pages as it answers — click to turn it off`
+                : `Let ${model.label} search the web and read pages as it answers — click to turn it on${model.provider === 'anthropic' ? ' (Anthropic bills each search to your key)' : ''}`
+          }
+        >
+          <GlobeIcon size={16} />
+        </button>
         <textarea
           ref={inputRef}
           rows={1}

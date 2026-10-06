@@ -14,6 +14,8 @@ interface Counts {
   serpapi?: number;
   browser?: number;
   pdf?: number;
+  /** Web searches for Ask AI. */
+  web?: number;
   /** Ask AI and Explain: answers, tokens in and out, and cost in millionths of a dollar. */
   claude?: number;
   claude_in?: number;
@@ -101,6 +103,7 @@ const COUNTED = [
   ['serpapi', 'SerpApi searches'],
   ['browser', 'Browser'],
   ['pdf', 'PDFs'],
+  ['web', 'Web searches'],
 ] as const;
 
 /** What the services list can be sorted on: every column. */

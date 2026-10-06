@@ -165,6 +165,17 @@ BROWSER_SESSION_LOCATION = "wnam"
 binding = "SESSIONS"
 id = "4b383f85f5d041569dc04f04350b1c38"
 
+# Ask AI's Web button: with it on, the model may search the web and read
+# pages through this Worker (server/webSearch.js). The search is asked of
+# the first of these keys that is set — Brave's Search API, made for this
+# and the cheapest, or the Serply or SerpApi key Scholar already has:
+#
+#     npx wrangler secret put BRAVE_KEY
+#
+# Each search is metered on that account, for whoever may use this Worker's
+# paid accounts, under PERSON_LIMIT above. Without any, the button in the
+# app says the proxy has no search key.
+
 # Once an hour, a snapshot of the DeepSeek account's balance for the Usage
 # page (worker/deepseekBalance.js). Does nothing until DEEPSEEK_KEY is set:
 #   npx --yes wrangler@4 secret put DEEPSEEK_KEY

@@ -2140,8 +2140,8 @@ What to know about Gemini:
 - **Caching** is Google's own and implicit: a repeated prefix — the paper, at
   the head of the system instruction — is read from the cache at a tenth of the
   price, and the usage tally counts it as a cached read.
-- **No web search here.** Ask AI answers from the paper and what you have on
-  screen; Gemini's Google Search tool is not switched on.
+- **No web search.** Gemini's Google Search tool is not switched on, and the
+  relay lets no tool through, so the Web button (below) is off for its models.
 
 Each answer is labelled with the model that wrote it, and the History keeps that.
 
@@ -2287,6 +2287,61 @@ Each answer is labelled with the model that wrote it, and the History keeps that
 - **Models**: Opus 5, Sonnet 5 or Haiku 4.5, picked in the window. Opus and Sonnet
   think adaptively at medium effort, and the summary of that thinking folds away
   above the answer.
+
+### Searching the web
+
+Ask AI answers from the paper and what is on your screen. The globe button
+beside the box — **Web** — lets the model look things up as well: search the
+web, and read a page it found. It is off by default, and stays as you set it.
+With it on, the model is told when the web earns a search — later work that
+cites the paper, what a cited paper found, a term the paper assumes, a code or
+data release, what has happened since — and when it does not: what the paper
+itself says is in front of it. Each search and each page the model read is
+listed above the answer as it happens — *Searching for “…” · 8 results*, *Read
+arxiv.org · Title* — and the answer links its sources.
+
+How it works depends on who answers:
+
+- **DeepSeek** (the usual choice) has no search of its own. The app declares
+  two functions, `web_search` and `read_page` (`src/lib/webTools.ts`), and
+  runs a loop (`src/lib/deepseek.ts`): the model answers with a tool call,
+  the app runs it, sends the result back as a `tool` turn with the reasoning
+  that led to the call — which DeepSeek insists on — and asks again, until
+  the model answers in text. Eight calls is the most one answer may make;
+  past that the next request is sent with `tool_choice: "none"`, so the model
+  answers with what it has. The calls themselves go to the paper proxy:
+  `GET /web/search?q=` and `GET /web/page?url=` (`server/webSearch.js`),
+  because the search key is the proxy's and a page cannot fetch another
+  site. So the button wants a paper proxy with a search key, and the
+  proxy's token or a Google sign-in; until then the button says what is
+  missing when you point at it.
+- **Claude** has [Anthropic's own web search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool),
+  which runs on Anthropic's side: the app adds the `web_search_20250305`
+  tool to the request, capped at eight searches, and Anthropic searches,
+  reads and cites. Nothing goes through the proxy, and the button works
+  with no proxy at all. Anthropic bills $10 a thousand searches to your
+  key, on top of the tokens.
+- **Gemini** — not here; see above.
+
+The proxy searches with the first key it has of three, and says on `/health`
+(`"web": true`) when it has one:
+
+```bash
+npx --yes wrangler@4 secret put BRAVE_KEY     # Brave Search API, api-dashboard.search.brave.com — made for this, and the cheapest
+npx --yes wrangler@4 secret put SERPLY_KEY    # or Serply's Google endpoint, the key Scholar uses
+npx --yes wrangler@4 secret put SERPAPI_KEY   # or SerpApi's Google engine, likewise
+npm run deploy:worker
+BRAVE_KEY=… npm start                         # or the Node proxy, with any of the three
+```
+
+Each search costs about half a cent on any of them — more than the DeepSeek
+tokens for a typical answer — which is why the button is off by default. On
+the Worker each search goes on the usage tally as *Web searches* (and as a
+Serply credit or a SerpApi search when it was one of those), under the
+per-person limit like Scholar. A page is fetched by the proxy as a plain
+client, reduced to its text and cut at 40,000 characters; only http and
+https, by name, on the public web — never an address inside the proxy's own
+network, since the address is the model's to choose.
 
 ### The key
 
@@ -3410,6 +3465,7 @@ server/scholarBrowser.js  the same, through a real Chromium (SCHOLAR_BROWSER=1),
                         the window a captcha is shown in
 server/serpapi.js       Scholar through SerpApi instead, when SERPAPI_KEY is set
 server/serply.js        Scholar through Serply instead, when SERPLY_KEY is set
+server/webSearch.js     The web for Ask AI's Web button: a search (Brave, Serply or SerpApi) and a page as text
 server/profileReader.js DeepSeek reading Serply's profile snippets for a person's affiliation
 server/contributionReader.js  DeepSeek putting a paper's contributions statement to its authors
 src/lib/google.ts       Google Identity Services + Drive REST

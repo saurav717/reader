@@ -12,6 +12,7 @@
  *   serply   requests Serply was charged for (a credit each)
  *   serpapi  requests SerpApi was charged for (a search each)
  *   browser  the browser inside the reader opened
+ *   web      a web search for Ask AI, with its Web button on
  *   pdf      a file fetched with a pass — through a kept sign-in, or unlimited
  *   claude, deepseek, gemini         answers from Ask AI and Explain, per provider
  *   claude_in, claude_out, …         the tokens they read and wrote
@@ -39,6 +40,7 @@ export const COUNTS = [
   'serpapi',
   'browser',
   'pdf',
+  'web',
   ...AI_PROVIDERS.flatMap((provider) => [provider, `${provider}_in`, `${provider}_out`, `${provider}_cost`]),
 ];
 

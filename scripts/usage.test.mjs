@@ -53,7 +53,7 @@ describe('the tally', () => {
     addTo(days, 'a@gmail.com', { scholar: 1, serply: 2 }, 1000);
     addTo(days, 'a@gmail.com', { scholar: 1, serply: 1, nonsense: 5, pdf: -3 }, 2000);
     const zero = { claude: 0, claude_in: 0, claude_out: 0, claude_cost: 0, deepseek: 0, deepseek_in: 0, deepseek_out: 0, deepseek_cost: 0, gemini: 0, gemini_in: 0, gemini_out: 0, gemini_cost: 0 };
-    assert.deepEqual(days['a@gmail.com'], { signin: 0, scholar: 2, serply: 3, serpapi: 0, browser: 0, pdf: 0, ...zero, last: 2000 });
+    assert.deepEqual(days['a@gmail.com'], { signin: 0, scholar: 2, serply: 3, serpapi: 0, browser: 0, pdf: 0, web: 0, ...zero, last: 2000 });
   });
 
   it('prices an AI answer from its tokens, in millionths of a dollar', () => {

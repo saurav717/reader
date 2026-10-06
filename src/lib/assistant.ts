@@ -25,6 +25,13 @@
 //  the paper that is open, the passage in view, the text you have selected
 //  and the highlights you have made all go along with every question, so
 //  there is nothing to paste. Each part has a switch under ⚙.
+//
+//  With the Web button beside the box on, the model may also look things up
+//  as it answers — search the web, read a page — through the paper proxy
+//  (webTools.ts): DeepSeek by function calling in a loop (deepseek.ts),
+//  Claude by Anthropic's own search tool. Gemini's relay lets no tool
+//  through, so the button is off for its models. Off by default: it spends
+//  the proxy owner's search key, and most questions are about the paper.
 // ===========================================================================
 
 import type AnthropicClient from '@anthropic-ai/sdk';
@@ -34,6 +41,7 @@ import { reportAiUsage } from './aiUsage';
 import { api as proxyUrl, apiHeaders, hasProxy, hasProxyToken, onProxyChange, proxyHealth } from './api';
 import type { DeepSeekError } from './deepseek';
 import type { GeminiError } from './gemini';
+import { checkWeb, MAX_TOOL_CALLS, runWebTool, WEB_TOOLS, type WebReadiness, type WebStep } from './webTools';
 
 /** What the chat window is called — the models behind it are not all Claude. */
 export const ASSISTANT_NAME = 'Ask AI';
@@ -499,6 +507,8 @@ export interface Prefs {
   /** The model that answers the ask bars on the Explain, Implementation and Colab pages; unset, the page's own writer answers. */
   askModel?: string;
   context: Record<ContextKey, boolean>;
+  /** The Web button: whether the model may search the web and read pages as it answers. Off by default. */
+  web?: boolean;
 }
 
 function loadPrefs(): Prefs {
@@ -513,7 +523,7 @@ function loadPrefs(): Prefs {
     const model = known(saved.model) ?? base.model;
     const explainModel = known(saved.explainModel);
     const askModel = known(saved.askModel);
-    return { model, ...(explainModel ? { explainModel } : {}), ...(askModel ? { askModel } : {}), context: { ...base.context, ...(saved.context || {}) } };
+    return { model, ...(explainModel ? { explainModel } : {}), ...(askModel ? { askModel } : {}), context: { ...base.context, ...(saved.context || {}) }, ...(saved.web ? { web: true } : {}) };
   } catch {
     return base;
   }
@@ -547,6 +557,14 @@ const storedKeys = () =>
  * GEMINI_KEY; one that wants its token or a sign-in first; or not yet known.
  */
 export type GeminiReadiness = 'ready' | 'no-proxy' | 'no-key' | 'sign-in' | 'checking';
+
+/** Ask the proxy's /health what it can do for the window: Gemini, and the web. */
+function checkProxy() {
+  void checkGemini();
+  void checkWeb().then((web) => {
+    if (web !== state.web) set({ web });
+  });
+}
 
 /** Ask the proxy's /health whether it has Gemini, and whether this browser may use it. */
 async function checkGemini() {
@@ -594,6 +612,8 @@ export interface Turn {
   role: 'user' | 'assistant';
   content: string;
   thinking?: string;
+  /** What the model looked up on the web for this answer, in order. */
+  steps?: WebStep[];
   streaming?: boolean;
   error?: string;
   truncated?: boolean;
@@ -627,6 +647,8 @@ export interface AssistantState {
   hasKey: boolean;
   /** Whether Gemini can be asked through the proxy, and if not, why not. */
   gemini: GeminiReadiness;
+  /** Whether the proxy can search the web for the Web button, and if not, why not. */
+  web: WebReadiness;
   /** A passage attached to the next question with "Ask Claude" on a selection. */
   quote: string;
   /** A screenshot of the tab (base64 JPEG) attached to the next question. */
@@ -642,6 +664,7 @@ let state: AssistantState = {
   keys: { anthropic: false, deepseek: false, gemini: false },
   hasKey: false,
   gemini: 'checking',
+  web: 'checking',
   quote: '',
   shot: '',
 };
@@ -662,8 +685,8 @@ function ensureLoaded() {
     // no storage: nothing kept
   }
   if (typeof window !== 'undefined') {
-    void checkGemini();
-    onProxyChange(() => void checkGemini());
+    checkProxy();
+    onProxyChange(checkProxy);
   }
 }
 
@@ -721,6 +744,25 @@ export function setAskModel(model: string) {
 
 /** Whether this model's provider has a key. */
 export const hasKeyFor = (model: string) => getState().keys[modelSpec(model).provider];
+
+/** The Web button: let the model search the web and read pages as it answers. */
+export function setWeb(on: boolean) {
+  const { web: _was, ...rest } = state.prefs;
+  set({ prefs: on ? { ...rest, web: true } : rest });
+  savePrefs();
+}
+
+/**
+ * Whether a model can use the web from here: Claude through Anthropic's own
+ * search, DeepSeek through the proxy when it is ready to search; Gemini not
+ * at all, since its relay lets no tool through.
+ */
+export function webUsable(model: string | undefined, web: WebReadiness = state.web): boolean {
+  const provider = modelSpec(model).provider;
+  if (provider === 'anthropic') return true;
+  if (provider === 'deepseek') return web === 'ready';
+  return false;
+}
 
 export function setContext(key: ContextKey, on: boolean) {
   set({ prefs: { ...state.prefs, context: { ...state.prefs.context, [key]: on } } });
@@ -921,6 +963,8 @@ export async function anthropic(): Promise<AnthropicClient> {
 /** What callers hold while an answer streams in, whichever provider is writing it. */
 export interface ModelStream {
   on(event: 'text' | 'thinking', listener: (delta: string) => void): unknown;
+  /** A thing done on the web — a search made, a page read — with the Web button on. */
+  on(event: 'step', listener: (step: WebStep) => void): unknown;
   abort(): void;
   finalMessage(): Promise<{ stop_reason: string | null }>;
 }
@@ -940,8 +984,11 @@ export async function streamModel(params: {
   system: SystemBlock[];
   messages: Message[];
   effort?: 'low' | 'medium' | 'high';
+  /** The Web button: let the model search the web as it answers. Claude and DeepSeek only; see webUsable. */
+  web?: boolean;
 }): Promise<ModelStream> {
   const spec = modelSpec(params.model);
+  const web = Boolean(params.web) && webUsable(spec.id);
   const maxTokens = spec.maxOutput ? Math.min(params.maxTokens, spec.maxOutput) : params.maxTokens;
   if (spec.provider === 'deepseek') {
     return new DeepSeekStream({
@@ -951,6 +998,7 @@ export async function streamModel(params: {
       thinking: !spec.thinks ? 'off' : params.effort === 'low' ? 'low' : 'high',
       system: params.system.map((block) => block.text).join('\n\n'),
       messages: params.messages as ConstructorParameters<typeof DeepSeekStream>[0]['messages'],
+      ...(web ? { tools: WEB_TOOLS, runTool: runWebTool, maxToolCalls: MAX_TOOL_CALLS } : {}),
       onUsage: (usage) => {
         const hit = usage.prompt_cache_hit_tokens || 0;
         const miss = usage.prompt_cache_miss_tokens ?? Math.max(0, (usage.prompt_tokens || 0) - hit);
@@ -980,6 +1028,22 @@ export async function streamModel(params: {
     ...(spec.adaptive
       ? { thinking: { type: 'adaptive' as const, display: 'summarized' as const }, output_config: { effort: params.effort ?? ('medium' as const) } }
       : {}),
+    // Anthropic's own search, run on Anthropic's side; the basic tool, which every Claude model takes. $10 a thousand searches.
+    ...(web ? { tools: [{ type: 'web_search_20250305' as const, name: 'web_search' as const, max_uses: MAX_TOOL_CALLS }] } : {}),
+  });
+  // Each search the server made, as a step: the query when it is asked, how many results when they come.
+  const stepListeners: ((step: WebStep) => void)[] = [];
+  const queries = new Map<string, string>();
+  sdkStream.on('contentBlock', (block) => {
+    if (block.type === 'server_tool_use' && block.name === 'web_search') {
+      const query = String((block.input as { query?: unknown })?.query ?? '');
+      queries.set(block.id, query);
+      stepListeners.forEach((listener) => listener({ tool: 'web_search', what: query }));
+    } else if (block.type === 'web_search_tool_result') {
+      const what = queries.get(block.tool_use_id) ?? '';
+      const outcome = Array.isArray(block.content) ? `${block.content.length} result${block.content.length === 1 ? '' : 's'}` : `failed: ${String((block.content as { error_code?: string })?.error_code ?? 'error').replace(/_/g, ' ')}`;
+      stepListeners.forEach((listener) => listener({ tool: 'web_search', what, outcome }));
+    }
   });
   // Once the answer is in, the tokens it took go on the owner's tally (aiUsage.ts).
   sdkStream.on('finalMessage', (message) => {
@@ -992,9 +1056,10 @@ export async function streamModel(params: {
     }, spec.id);
   });
   return {
-    on(event, listener) {
-      if (event === 'text') sdkStream.on('text', listener);
-      else sdkStream.on('thinking', listener);
+    on(event: 'text' | 'thinking' | 'step', listener: ((delta: string) => void) | ((step: WebStep) => void)) {
+      if (event === 'step') stepListeners.push(listener as (step: WebStep) => void);
+      else if (event === 'text') sdkStream.on('text', listener as (delta: string) => void);
+      else sdkStream.on('thinking', listener as (delta: string) => void);
       return this;
     },
     abort: () => sdkStream.abort(),
@@ -1144,6 +1209,28 @@ export function buildMessages(turns: Turn[], block: string, images: Screen['imag
   });
 }
 
+/**
+ * Said with the Web button on: when to look, when not to, and how to show
+ * what was found. DeepSeek has the two tools by name; Claude has Anthropic's
+ * search, which reads pages for it.
+ */
+export function webInstructions(provider: Provider): string {
+  const tools =
+    provider === 'deepseek'
+      ? 'You have two tools: web_search, which searches the web, and read_page, which reads a page by its URL.'
+      : 'You have a web search tool, which searches the web and returns what it finds, with the sources.';
+  return `Looking things up:
+- The reader has turned the Web button on. ${tools}
+- Use the web for what the paper on screen cannot answer: later work that cites or builds on it,
+  what a cited paper actually found, a term or method the paper assumes, a code or data
+  release, what has happened since it was written — and whenever the reader asks you to look
+  something up. Do not search for what the paper itself says: the paper is in front of you.
+- Keep to a few searches; most questions need none, or one. Search before you answer, not
+  after; then answer in one piece.
+- Say what came from the web. Link each source where you use it, as a Markdown link —
+  [title or site](https://…) — and never present a search result as something the paper says.`;
+}
+
 /** Said to a model that reads text only, in place of the pictures the system prompt mentions. */
 export const TEXT_ONLY = `This model reads text only: no pictures of the pages or screenshots are attached, whatever the
 instructions above say about images. Work from <paper_text> and the <screen> block, and if the answer hangs on a figure,
@@ -1247,16 +1334,28 @@ export async function send(text: string, screenOrPending: Screen | Promise<Scree
     const messages = buildMessages(state.turns.filter((t) => t !== reply), screenBlock(screen, on), images);
     const system = systemBlocks(screen, on);
     if (!model.vision) system.push({ type: 'text', text: TEXT_ONLY });
+    // The Web button, when it is on and this model can use it from here.
+    const web = Boolean(state.prefs.web) && webUsable(model.id);
+    if (web) system.push({ type: 'text', text: webInstructions(model.provider) });
 
     // Adaptive thinking earns its latency on "why does this bound hold";
     // the models that do not take it simply go without.
-    stream = await streamModel({ model: model.id, maxTokens: MAX_TOKENS, system, messages, effort: 'medium' });
+    stream = await streamModel({ model: model.id, maxTokens: MAX_TOKENS, system, messages, effort: 'medium', web });
     stream.on('text', (delta: string) => {
       reply.content += delta;
       schedulePaint();
     });
     stream.on('thinking', (delta: string) => {
       reply.thinking = (reply.thinking ?? '') + delta;
+      schedulePaint();
+    });
+    stream.on('step', (step: WebStep) => {
+      // A search is one step: announced as it is asked, finished when its results come.
+      const steps = reply.steps ?? [];
+      const last = steps[steps.length - 1];
+      if (last && !last.outcome && last.tool === step.tool && last.what === step.what && step.outcome) last.outcome = step.outcome;
+      else steps.push(step);
+      reply.steps = steps;
       schedulePaint();
     });
 

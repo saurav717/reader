@@ -34,6 +34,7 @@ import { contributionsAsked, readContributions } from '../server/contributionRea
 import { PROFILE_MODEL } from '../server/profileReader.js';
 import { aiCounts } from './usage.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini, tokensOf as geminiTokens } from '../server/geminiRelay.js';
+import { readPage, searchWeb, webAvailable, WebRefused } from '../server/webSearch.js';
 import { handleColab, isColabPath, readSocketTicket } from '../server/colab.js';
 import { bridgeSocket } from './colabSocket.js';
 import { readBalance } from './deepseekBalance.js';
@@ -257,6 +258,8 @@ export default {
     // fetches Scholar's own pages, read by the parsers the direct way uses,
     // and is asked first when both are set. See server/serply.js.
     const serplyKey = (env.SERPLY_KEY || '').trim();
+    // The keys Ask AI's Web button searches with, first set first (server/webSearch.js).
+    const webKeys = { brave: (env.BRAVE_KEY || '').trim(), serply: serplyKey, serpapi: serpKey };
     const origin = request.headers.get('Origin') || '';
     const headers = cors(origin);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
@@ -269,7 +272,7 @@ export default {
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(String(env.GEMINI_KEY || '').trim()), colab: true, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(String(env.GEMINI_KEY || '').trim()), web: webAvailable(webKeys), colab: true, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
           200,
           headers,
         );
@@ -725,6 +728,29 @@ export default {
           if (error && error.blocked) {
             return json({ error: error.message, blocked: true, reason: error.reason, url: error.url }, 503, headers);
           }
+          return json({ error: String(error?.message || error) }, 502, headers);
+        }
+      }
+
+      // The web for Ask AI, with its Web button on: a search on this Worker's
+      // key — BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY, the first set — and a page
+      // read as text, for the model to cite (server/webSearch.js). Both for
+      // whoever may use this Worker's paid accounts, and both on the tally.
+      if (path === '/web/search' || path === '/web/page') {
+        const who = await authorized(request, env);
+        if (!who) return needsToken(env, headers);
+        if (await personOverLimit(env, who)) {
+          return json({ error: 'too many web searches at once; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });
+        }
+        try {
+          if (path === '/web/search') {
+            const found = await searchWeb(url.searchParams.get('q'), webKeys);
+            tally(env, ctx, who, { web: 1, ...(found.via === 'serply' ? { serply: 1 } : found.via === 'serpapi' ? { serpapi: 1 } : {}) });
+            return json(found, 200, { ...headers, 'Cache-Control': 'private, max-age=300' });
+          }
+          return json(await readPage(url.searchParams.get('url')), 200, { ...headers, 'Cache-Control': 'private, max-age=300' });
+        } catch (error) {
+          if (error instanceof WebRefused) return json({ error: error.message, ...(error.status === 501 ? { setup: true } : {}) }, error.status, headers);
           return json({ error: String(error?.message || error) }, 502, headers);
         }
       }

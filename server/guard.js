@@ -156,7 +156,7 @@ export async function privateReason(url) {
  * faster is not a person. A request with the token is not counted, since
  * the token already says who it is.
  */
-const DEFAULT_LIMITS = { pdf: 30, scholar: 20, browse: 10 };
+const DEFAULT_LIMITS = { pdf: 30, scholar: 20, browse: 10, web: 30 };
 let limits = { ...DEFAULT_LIMITS };
 const buckets = new Map();
 
