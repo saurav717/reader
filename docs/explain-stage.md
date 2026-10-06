@@ -32,7 +32,10 @@ The mock-up can be scrolled at
 > scene is now a pipeline on a grid — a column a stage, a row a path, one
 > node a cell, edges through the gaps, long labels wrapped, and the stages
 > shown one by one as the steps go — and the stage is a solid card even
-> when the glass makes every other surface translucent. See the README's
+> when the glass makes every other surface translucent. And a scene holds
+> its step by default rather than following the reading: the dots and the
+> slider pick one, Play runs through them by itself, and Follow on the
+> stage is the choice, not the start. See the README's
 > *Scenes, on the stage*. The rest of this document is the design as
 > written, with the mock-ups it was decided on.
 
