@@ -22,6 +22,12 @@ describe('the instructions', () => {
     assert.match(explain.EXPLAIN_SYSTEM, /Do NOT write\s+a scene unless the reader asks/);
     assert.match(explain.EXPLAIN_SYSTEM, /SCENES — a figure can be animated on request/);
   });
+  it('asks for real pictures beside its own diagrams: the paper’s figures, and the web’s', () => {
+    assert.match(explain.EXPLAIN_SYSTEM, /```image` names the picture by/);
+    assert.match(explain.EXPLAIN_SYSTEM, /figure="3" \(or table="2"\)/);
+    assert.match(explain.EXPLAIN_SYSTEM, /wiki="Exact English Wikipedia article title"/);
+    assert.match(explain.EXPLAIN_SYSTEM, /Only use a number whose caption appears in the paper's text/);
+  });
   it('asks for maths as LaTeX, explained, never as code', () => {
     assert.match(explain.EXPLAIN_SYSTEM, /write every formula, symbol and variable name as LaTeX/);
     assert.match(explain.EXPLAIN_SYSTEM, /Never put maths in `code` spans/);
@@ -69,6 +75,37 @@ describe('reading the page', () => {
   it('asks for a scene as a request the bar could take', () => {
     assert.match(explain.sceneRequest('The loss', 'Two networks'), /^Animate the figure “Two networks” in the section “The loss”: add a motion block/);
     assert.match(explain.sceneRequest('The loss'), /Animate the key figure in the section/);
+  });
+  it('reads a real picture: the paper’s own figure, or one from the web', () => {
+    const page = [
+      '## A',
+      '```image figure="Figure 3" caption="The main result"',
+      'The accuracy curves from the paper.',
+      '```',
+      '```image table="2" caption="Ablations"',
+      '```',
+      '```image wiki="Transformer (deep learning architecture)" search="transformer neural network diagram" caption="A transformer"',
+      'The standard diagram.',
+      '```',
+      '```image src="https://upload.wikimedia.org/x.png" caption="Known"',
+      '```',
+    ].join('\n');
+    const [paper, table, web, known] = explain.parseExplanation(page)[0].blocks;
+    assert.deepEqual(paper, { kind: 'image', caption: 'The main result', alt: 'The accuracy curves from the paper.', figure: '3', open: false });
+    assert.equal(table.table, '2');
+    assert.equal(table.figure, undefined);
+    assert.equal(web.wiki, 'Transformer (deep learning architecture)');
+    assert.equal(web.search, 'transformer neural network diagram');
+    assert.equal(known.src, 'https://upload.wikimedia.org/x.png');
+    const streaming = explain.parseExplanation('## A\n```image figure="1" caption="x"\nThe fig')[0].blocks[0];
+    assert.equal(streaming.open, true);
+  });
+  it('puts pictures in the notebook as what they are, and an image whose address is known as itself', () => {
+    const page = '## A\n```image figure="1" caption="Overview"\n```\n```image src="https://upload.wikimedia.org/x.png" caption="Known [one]"\n```\n```image search="a cat" caption="A cat"\n```';
+    const text = JSON.parse(explain.notebook('P', explain.parseExplanation(page))).cells.map((c) => c.source.join('')).join('\n');
+    assert.match(text, /\*Figure 1 of the paper: Overview\*/);
+    assert.match(text, /!\[Known one\]\(https:\/\/upload\.wikimedia\.org\/x\.png\)/);
+    assert.match(text, /\*Picture: A cat — Wikimedia Commons: “a cat”\*/);
   });
   it('keeps a fence still streaming open', () => {
     const [section] = explain.parseExplanation('## A\n```python title="x"\nprint(1)');

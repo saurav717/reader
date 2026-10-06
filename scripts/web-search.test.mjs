@@ -106,6 +106,49 @@ describe('a search', () => {
   });
 });
 
+describe('an image search, for the Explain page', () => {
+  it('asks Google Images through SerpApi first, and reads its originals', async () => {
+    let asked;
+    const fetchImpl = async (url) => {
+      asked = new URL(url);
+      return jsonResponse({
+        images_results: [
+          { original: 'https://example.org/resnet-block.png', thumbnail: 'https://encrypted-tbn0.gstatic.com/x', original_width: 1200, original_height: 800, title: 'Residual block', link: 'https://example.org/resnet', source: 'example.org' },
+          { original: 'http://insecure.example/a.png', title: 'not https' },
+        ],
+      });
+    };
+    const found = await web.searchImages('resnet residual block diagram', { serpapi: 'sk', brave: 'bk', tavily: 'tk' }, { fetchImpl });
+    assert.equal(asked.searchParams.get('engine'), 'google_images');
+    assert.equal(asked.searchParams.get('q'), 'resnet residual block diagram');
+    assert.equal(found.via, 'serpapi');
+    assert.deepEqual(found.images, [{ src: 'https://example.org/resnet-block.png', title: 'Residual block', thumb: 'https://encrypted-tbn0.gstatic.com/x', width: 1200, height: 800, page: 'https://example.org/resnet', source: 'example.org' }]);
+  });
+  it('falls to Brave, then Tavily, when SerpApi has no key', async () => {
+    const brave = await web.searchImages('a', { brave: 'bk', tavily: 'tk' }, {
+      fetchImpl: async (url, init) => {
+        assert.match(url, /\/res\/v1\/images\/search\?/);
+        assert.equal(init.headers['X-Subscription-Token'], 'bk');
+        return jsonResponse({ results: [{ title: 'T', url: 'https://site.org/p', source: 'site.org', properties: { url: 'https://site.org/i.jpg' }, thumbnail: { src: 'https://imgs.search.brave.com/t' } }] });
+      },
+    });
+    assert.equal(brave.via, 'brave');
+    assert.equal(brave.images[0].src, 'https://site.org/i.jpg');
+    const tavily = await web.searchImages('a', { tavily: 'tk', serply: 'sk' }, {
+      fetchImpl: async (url, init) => {
+        assert.equal(JSON.parse(init.body).include_images, true);
+        return jsonResponse({ images: [{ url: 'https://t.org/1.png', description: 'one' }, 'https://t.org/2.png'] });
+      },
+    });
+    assert.equal(tavily.via, 'tavily');
+    assert.deepEqual(tavily.images.map((i) => i.src), ['https://t.org/1.png', 'https://t.org/2.png']);
+  });
+  it('says which keys it wants when it has none — Serply has no image search', async () => {
+    assert.equal(web.imagesAvailable({ serply: 'sk' }), false);
+    await assert.rejects(web.searchImages('a', { serply: 'sk' }), (error) => error.status === 501 && /SERPAPI_KEY \(Google Images\)/.test(error.message));
+  });
+});
+
 describe('a page as text', () => {
   const PAGE = `<!doctype html><html><head><title>Attention &amp; Transformers</title><style>p{}</style><script>track()</script></head>
 <body><nav><a href="/">Home</a> <a href="/x">More</a></nav>

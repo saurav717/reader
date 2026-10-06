@@ -291,6 +291,8 @@ export interface ProxyHealth {
   gemini: boolean;
   /** Whether it has a web search key, for Ask AI's Web button. */
   web: boolean;
+  /** Whether it can search for images — Google Images through SerpApi, or Brave's or Tavily's — for the Explain page's pictures. */
+  images: boolean;
 }
 
 const healthOf = new Map<string, Promise<ProxyHealth | null>>();
@@ -303,7 +305,7 @@ export function proxyHealth(): Promise<ProxyHealth | null> {
   if (!asked) {
     asked = fetch(`${base}/health`)
       .then((response) => (response.ok ? response.json() : null))
-      .then((body) => (body ? { auth: Boolean(body.auth), gemini: Boolean(body.gemini), web: Boolean(body.web) } : null))
+      .then((body) => (body ? { auth: Boolean(body.auth), gemini: Boolean(body.gemini), web: Boolean(body.web), images: Boolean(body.images) } : null))
       .catch(() => {
         // Asked again next time: the proxy may just have been down.
         healthOf.delete(base);

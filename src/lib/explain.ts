@@ -4,10 +4,13 @@
 //  One long answer per paper: what it claims, how it works, why that works
 //  better than what came before, drawn as figures and written as code you can
 //  run, and — because a paper does not update itself — what has happened to
-//  its claims since. It is written in plain Markdown with four kinds of fenced
+//  its claims since. It is written in plain Markdown with these kinds of fenced
 //  block the view draws specially:
 //
 //    ```figure caption="…"      an inline SVG diagram
+//    ```image figure="3" caption="…"   a real picture: the paper's own figure
+//                                      or table, or one from the web by
+//                                      wiki="…" or search="…" (pictures.ts)
 //    ```python title="…"        a runnable cell (Colab is wired up later)
 //    ```output                  what the cell above prints, as Claude expects it
 //    ```caveat verdict="…" title="…"   a claim that has aged: holds, refined,
@@ -40,7 +43,8 @@ Write for a capable reader who is new to this paper — a graduate student or en
 1. Explain what problem the paper solves and why it mattered at the time.
 2. Explain HOW the method works, step by step, with the intuition before the formalism.
 3. Explain WHY it works better than what came before — the mechanism, not just the numbers.
-4. Show it: small diagrams and small runnable Python that make each key idea concrete.
+4. Show it: the paper's own key figures and, where seeing the real thing helps, real pictures; small diagrams of
+   your own; and small runnable Python — whatever makes each key idea concrete.
 5. Be honest about age. Today is ${new Date().toISOString().slice(0, 10)}. Say what later work has confirmed,
    refined, superseded, disputed or disproved, and what the paper's own experiments could not show.
    If you are not sure whether a later result exists, say so rather than inventing one. Never invent citations.
@@ -57,6 +61,27 @@ FORMAT — plain Markdown, with these rules the page depends on:
   sets it inside the drawing with Unicode, italics, subscripts and superscripts. Keep it to what fits on one line —
   symbols, Greek, accents, sub- and superscripts, \\frac as a/b — and never spell it out as z_hat, theta or ->.
   One or two figures per key idea is plenty; skip them where words are clearer.
+- Pictures — real ones, found rather than drawn. Your diagrams are not the only visuals: show the reader the paper's
+  own figures, and real images from the web, where seeing the actual thing helps. A fenced block \`\`\`image\` names the picture by:
+    figure="3" (or table="2") — the paper's own Figure 3 (Table 2), by the number its caption gives it; the page cuts it
+      out of the paper. Show the figures the paper's argument rests on — the overview or architecture figure, the main
+      result, a telling qualitative example — usually two to five per page, each in the section that explains it, and
+      say in the prose what to look at in it. Only use a number whose caption appears in the paper's text below.
+    search="specific words" — an image search (Google Images): write what you would type to find exactly this
+      picture, naming the thing and the kind of picture — "ResNet residual block diagram", "Nvidia A100 GPU board photo",
+      "ImageNet sample images grid", "BERT masked language model diagram". A search for a later paper's figure works
+      too ("Vision Transformer patch embedding figure"). The first result that loads is shown, with its site linked.
+    wiki="Exact English Wikipedia article title" — that article's lead image: a real object, instrument, organism, place
+      or person, or the classic picture of a well-known concept. Give it beside search= as a fallback where one fits.
+    src="https://…" — only for an image address you are certain exists (upload.wikimedia.org, say); search= or wiki=
+      beside it is tried if it does not load.
+  Always give caption="One-line caption", and put one line in the block saying what the picture shows. For example:
+    \`\`\`image figure="1" caption="The Transformer: encoder on the left, decoder on the right"
+    The model architecture figure from the paper.
+    \`\`\`
+  Use a web picture where it shows something your own diagram cannot — what a thing looks like, real data or samples,
+  the apparatus, the standard diagram of a method the paper builds on or that superseded it; two to four per page at
+  most, and none rather than a loosely related one.
 - Code: \`\`\`python title="What this cell shows"\` — short (≤ 40 lines), self-contained, numpy (or torch
   when it matters) only, deterministic (seed it), and it must print something that proves the point.
   Follow each cell with \`\`\`output\` holding what it prints. These cells will be run in Google Colab.
@@ -100,6 +125,9 @@ export const VERDICTS: Record<Verdict, string> = {
 export type Block =
   | { kind: 'prose'; md: string }
   | { kind: 'figure'; svg: string; caption: string; open: boolean; /** Claude's mark that motion would help here: the page offers to animate it. */ animate?: boolean }
+  // A real picture, found by the page (pictures.ts): the paper's own figure or
+  // table by its number, or one from the web. `alt` is the line inside the block.
+  | { kind: 'image'; caption: string; alt: string; figure?: string; table?: string; src?: string; wiki?: string; search?: string; open: boolean }
   // A scene: the figure above it with steps, as motion.ts reads it. `spec` is
   // null while the block is still streaming, or when it is not a scene at all.
   | { kind: 'motion'; title: string; figure: string; src: string; spec: MotionSpec | null; open: boolean }
@@ -188,6 +216,16 @@ export function parseExplanation(src: string): Section[] {
         const figure: Block = { kind: 'figure', svg: text, caption: info.caption ?? '', open };
         if (/^(yes|true|1)$/i.test(info.animate ?? '')) figure.animate = true;
         current.blocks.push(figure);
+      } else if (lang === 'image' || lang === 'picture') {
+        flush();
+        const image: Block = { kind: 'image', caption: info.caption ?? '', alt: text.trim(), open };
+        const ref = (value: string | undefined) => value?.replace(/^(?:figure|fig\.?|table|tab\.?)\s*/i, '').trim() || undefined;
+        if (ref(info.figure)) image.figure = ref(info.figure);
+        else if (ref(info.table)) image.table = ref(info.table);
+        if (info.src?.trim()) image.src = info.src.trim();
+        if (info.wiki?.trim()) image.wiki = info.wiki.trim();
+        if (info.search?.trim()) image.search = info.search.trim();
+        current.blocks.push(image);
       } else if (lang === 'motion' || lang === 'scene') {
         flush();
         current.blocks.push({ kind: 'motion', title: info.title ?? '', figure: info.figure ?? '', src: text, spec: open ? null : parseMotion(text), open });
@@ -234,6 +272,15 @@ export function parseExplanation(src: string): Section[] {
   return sections;
 }
 
+/** A picture as Markdown, for a notebook: the image itself when its address is known, else what it is and where it is. */
+export function imageMarkdown(block: Extract<Block, { kind: 'image' }>): string {
+  const caption = block.caption || block.alt || 'Picture';
+  if (block.figure || block.table) return `*${block.figure ? `Figure ${block.figure}` : `Table ${block.table}`} of the paper: ${caption}*`;
+  if (block.src) return `![${caption.replace(/[[\]]/g, '')}](${block.src})`;
+  const where = block.wiki ? `the picture on Wikipedia's “${block.wiki}”` : block.search ? `Wikimedia Commons: “${block.search}”` : 'the explanation page';
+  return `*Picture: ${caption} — ${where}*`;
+}
+
 export const caveatsOf = (sections: Section[]) =>
   sections.flatMap((section) =>
     section.blocks.filter((b): b is Extract<Block, { kind: 'caveat' }> => b.kind === 'caveat').map((b) => ({ ...b, section: section.id })),
@@ -261,6 +308,7 @@ export function notebook(title: string, sections: Section[], writer = 'Claude'):
       if (block.kind === 'prose') parts.push(block.md);
       else if (block.kind === 'caveat') parts.push(`> **${VERDICTS[block.verdict]}${block.title ? ` — ${block.title}` : ''}.** ${block.md.replace(/\n/g, '\n> ')}`);
       else if (block.kind === 'figure') parts.push(`*Figure: ${block.caption || 'see the explanation page'}*`);
+      else if (block.kind === 'image') parts.push(imageMarkdown(block));
       else if (block.kind === 'motion') parts.push(`*Scene${block.title ? `: ${block.title}` : ''} — played on the explanation page${block.spec ? `. ${block.spec.steps.map((s) => s.caption).filter(Boolean).join(' ')}` : ''}*`);
       else if (block.kind === 'tree') parts.push(`\`\`\`\n${block.text}\n\`\`\``);
       else if (block.kind === 'compute') parts.push('*The compute budget is on the Implementation page, worked out for your hardware.*');
@@ -423,7 +471,7 @@ function revisionRequest(content: string, request: string, scope: RevisionScope)
     `Change the page to satisfy it. If it is a question, answer it inside the page: expand the section it belongs to, or add a
 new section right after that one. If it asks to adjust the content (simpler, deeper, other code, more figures, less maths…),
 rewrite only the sections that must change, and keep every other section exactly as it is. Follow the same format rules
-(figure, python, output, caveat and motion blocks). If you add or change a caveat, keep "Since then" consistent with it.
+(figure, image, python, output, caveat and motion blocks). If you add or change a caveat, keep "Since then" consistent with it.
 If the request is to animate a figure or a section, add ONE motion block right after the figure it animates (keep the
 figure), with a step for each paragraph of the section, and change nothing else in it.
 

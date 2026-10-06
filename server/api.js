@@ -30,7 +30,7 @@ import { askServices, servicesLabel } from './scholarServices.js';
 import { contributionsAsked, readContributions } from './contributionReader.js';
 import * as workspace from './workspace.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini } from './geminiRelay.js';
-import { readPage, searchWeb, webAvailable, WebRefused } from './webSearch.js';
+import { imagesAvailable, readPage, searchImages, searchWeb, webAvailable, WebRefused } from './webSearch.js';
 import { handleColab, isColabPath } from './colab.js';
 import { socketSecret } from './colabSocket.js';
 import { Readable } from 'node:stream';
@@ -759,6 +759,16 @@ async function webSearch(url, res) {
   }
 }
 
+/** Pictures for the Explain page: Google Images through SerpApi, else Brave's or Tavily's. */
+async function webImages(url, res) {
+  try {
+    return send(res, 200, await searchImages(url.searchParams.get('q'), webKeys()), { 'Cache-Control': 'private, max-age=86400' });
+  } catch (error) {
+    if (error instanceof WebRefused) return send(res, error.status, { error: error.message, ...(error.status === 501 ? { setup: true } : {}) });
+    return send(res, 502, { error: said(error, 'could not search for images') });
+  }
+}
+
 async function webPage(url, res) {
   try {
     return send(res, 200, await readPage(url.searchParams.get('url')), { 'Cache-Control': 'private, max-age=300' });
@@ -790,7 +800,7 @@ function costOf(pathname) {
   if (pathname === '/pdf' || pathname === '/asset') return 'pdf';
   if (pathname.startsWith('/scholar/') && !pathname.startsWith('/scholar/captcha')) return 'scholar';
   if (pathname === '/contributions') return 'scholar';
-  if (pathname === '/web/search' || pathname === '/web/page') return 'web';
+  if (pathname === '/web/search' || pathname === '/web/page' || pathname === '/web/images') return 'web';
   if (pathname === '/browse/open') return 'browse';
   return null;
 }
@@ -875,6 +885,8 @@ export default async function apiRouter(req, res, next) {
         return await webSearch(url, res);
       case '/web/page':
         return await webPage(url, res);
+      case '/web/images':
+        return await webImages(url, res);
       case '/workspace/status':
         return send(res, 200, await workspace.status(), { 'Cache-Control': 'no-store' });
       case '/workspace/scaffold':
@@ -901,6 +913,7 @@ export default async function apiRouter(req, res, next) {
           gemini: Boolean(geminiKey()),
           /** Whether Ask AI's Web button has a search service behind it on this proxy. */
           web: webAvailable(webKeys()),
+          images: imagesAvailable(webKeys()),
           /** Whether the sign-in and browser routes want a token — so the app can ask for one. */
           auth: tokenRequired(),
           /** Whether READER_WORKSPACE names a directory the Implementation page can write into and run in. */

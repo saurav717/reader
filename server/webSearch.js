@@ -212,6 +212,100 @@ export async function searchWeb(query, keys = {}, { fetchImpl = (...args) => fet
   return { query: q, via: 'serpapi', results: fromSerpApi(json) };
 }
 
+// ---------------------------------------------------------------- images ----
+//
+// Pictures for the Explain page: `GET /web/images?q=` answers with the
+// images a search finds, each its address, a thumbnail, its size, the page
+// it is on and the site. Google Images first, through SerpApi's
+// `google_images` engine — the closest thing to what a person would find by
+// hand — then Brave's image search, then the images Tavily finds beside its
+// results. Serply has no image search the proxy reads.
+
+/** How many images a search answers with. */
+export const IMAGES = 10;
+
+/** Which services the proxy can search for images with; the first is asked. */
+export function imageServices(keys = {}) {
+  return ['serpapi', 'brave', 'tavily'].filter((name) => str(keys[name]));
+}
+
+export const imagesAvailable = (keys) => imageServices(keys).length > 0;
+
+export function serpApiImagesUrl(query, key) {
+  return `${SERPAPI_HOST}/search.json?${new URLSearchParams({ engine: 'google_images', q: query, hl: 'en', gl: 'us', safe: 'active', api_key: key })}`;
+}
+
+export function braveImagesUrl(query, count = IMAGES) {
+  return `${BRAVE_HOST}/res/v1/images/search?${new URLSearchParams({ q: query, count: String(count), safesearch: 'strict' })}`;
+}
+
+export function tavilyImagesBody(query) {
+  return { query, max_results: 5, search_depth: 'basic', include_answer: false, include_raw_content: false, include_images: true, include_image_descriptions: true };
+}
+
+const https = (value) => (/^https:\/\//i.test(str(value)) ? str(value) : '');
+const num = (value) => (Number.isFinite(Number(value)) && Number(value) > 0 ? Math.round(Number(value)) : undefined);
+
+const image = ({ src, thumb, width, height, title, page, source }) => {
+  const original = https(src);
+  if (!original) return null;
+  const out = { src: original, title: str(title) };
+  if (https(thumb)) out.thumb = https(thumb);
+  if (num(width)) out.width = num(width);
+  if (num(height)) out.height = num(height);
+  if (/^https?:\/\//i.test(str(page))) out.page = str(page);
+  if (str(source)) out.source = str(source);
+  return out;
+};
+
+/** SerpApi's Google Images: `images_results[]`, each the original, a thumbnail, its size and the page it is on. */
+export function imagesFromSerpApi(json) {
+  return list(json?.images_results)
+    .map((entry) => image({ src: entry?.original, thumb: entry?.thumbnail, width: entry?.original_width, height: entry?.original_height, title: entry?.title, page: entry?.link, source: entry?.source }))
+    .filter(Boolean);
+}
+
+/** Brave's image search: `results[]`, the image in `properties.url`, the page in `url`. */
+export function imagesFromBrave(json) {
+  return list(json?.results)
+    .map((entry) => image({ src: entry?.properties?.url, thumb: entry?.thumbnail?.src, width: entry?.properties?.width, height: entry?.properties?.height, title: entry?.title, page: entry?.url, source: entry?.source || entry?.meta_url?.hostname }))
+    .filter(Boolean);
+}
+
+/** Tavily's `images[]`: addresses, or { url, description } with descriptions asked for. */
+export function imagesFromTavily(json) {
+  return list(json?.images)
+    .map((entry) => (typeof entry === 'string' ? image({ src: entry }) : image({ src: entry?.url, title: entry?.description })))
+    .filter(Boolean);
+}
+
+/** Images searched for `query` on the first service the proxy has a key for. */
+export async function searchImages(query, keys = {}, { fetchImpl = (...args) => fetch(...args), signal } = {}) {
+  const q = checkQuery(query);
+  const [service] = imageServices(keys);
+  if (!service) throw new WebRefused(501, 'this proxy has no image search key: set SERPAPI_KEY (Google Images), BRAVE_KEY or TAVILY_KEY');
+  const key = str(keys[service]);
+  let images;
+  if (service === 'serpapi') {
+    const response = await fetchImpl(serpApiImagesUrl(q, key), { signal: signalFor(signal), headers: { Accept: 'application/json' } });
+    const json = await readJson(response, 'SerpApi');
+    if (str(json?.error) && !/hasn't returned any results/i.test(json.error)) throw new WebRefused(502, `SerpApi: ${json.error}`);
+    images = imagesFromSerpApi(json);
+  } else if (service === 'brave') {
+    const response = await fetchImpl(braveImagesUrl(q), { signal: signalFor(signal), headers: { Accept: 'application/json', 'X-Subscription-Token': key } });
+    images = imagesFromBrave(await readJson(response, 'Brave'));
+  } else {
+    const response = await fetchImpl(TAVILY_URL, {
+      method: 'POST',
+      signal: signalFor(signal),
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify(tavilyImagesBody(q)),
+    });
+    images = imagesFromTavily(await readJson(response, 'Tavily'));
+  }
+  return { query: q, via: service, images: images.slice(0, IMAGES) };
+}
+
 // ------------------------------------------------------------------ pages ----
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ndash: '–', mdash: '—', hellip: '…', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”', copy: '©' };
