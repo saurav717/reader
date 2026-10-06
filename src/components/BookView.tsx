@@ -207,7 +207,7 @@ export function usePageTurns(go: (spread: number) => void, current: React.Mutabl
   // Arrow keys, Page Up/Down and the space bar turn the page.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       if (target && (target.closest('input, textarea, select, [contenteditable="true"]') || target.isContentEditable)) return;
       let delta = 0;

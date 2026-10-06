@@ -4,7 +4,8 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { TWO_PAGE_MIN_WIDTH, usePageTurns } from './BookView';
 import { ChevronLeftIcon, ChevronRightIcon, PlusIcon } from './icons';
 import { useKept } from './Keep';
-import PdfSnip from './PdfSnip';
+import PdfSnip, { findRegions, type Region } from './PdfSnip';
+import { PdfCloseUp, PdfLoupe, PdfMinimap, ZOOM_MAX, clampMagnify, clampZoom, zoomByWheel, type CloseUpItem } from './PdfZoom';
 import { addClip, addText, useNotes } from '../lib/notes';
 import PagePins, { stickiesOf } from './PdfPins';
 import MarkPicker, { highlightIn, markKey, type Mark } from './MarkPicker';
@@ -78,6 +79,8 @@ export default function PdfBookView({
   const frameRef = useRef<HTMLDivElement>(null);
   /** In the scrolled column, what the pages are laid in — what snipping measures them against. */
   const columnRef = useRef<HTMLDivElement>(null);
+  /** As a book, what the spread's pages are laid in. */
+  const bookPagesRef = useRef<HTMLDivElement>(null);
   const [opened, setOpened] = useState<{ doc: PDFDocumentProxy; engine: Engine } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [frame, setFrame] = useState({ width: 0, height: 0 });
@@ -204,11 +207,94 @@ export default function PdfBookView({
 
   // Every page drawn at the one scale that fits the spread in the frame.
   // Scrolled, a page is as wide as the column allows, up to a comfortable size.
-  const scale = pageSize
+  const fit = pageSize
     ? scrolling
       ? Math.max(0.1, Math.min((frame.width - MARGIN * 2 - 14) / pageSize.width, 1000 / pageSize.width))
       : Math.max(0.1, Math.min((frame.width - MARGIN * 2) / (pageSize.width * columns), (frame.height - MARGIN * 2) / pageSize.height))
     : 1;
+
+  // ---- zoom -----------------------------------------------------------------
+  // Pinched, ⌘-scrolled, or + and −: the pages drawn larger than they fit,
+  // sharp at that size, and the frame scrolled over them, with the point
+  // under the pointer kept where it is. 0 fits them again.
+  const [zoom, setZoom] = useState(1);
+  const zoomNow = useRef(1);
+  zoomNow.current = zoom;
+  useEffect(() => setZoom(1), [blob]);
+  const scale = fit * zoom;
+  const zoomed = zoom > 1;
+  /** Across a zoom, the page under the pointer, the point of it there — in its pixels at zoom 1 — and where on screen. */
+  const anchor = useRef<{ slot: number; u: number; v: number; x: number; y: number } | null>(null);
+  const slotsOf = () => Array.from((scrolling ? columnRef : bookPagesRef).current?.querySelectorAll<HTMLElement>('[data-slot]') ?? []);
+  const zoomTo = useCallback(
+    (next: number, x?: number, y?: number) => {
+      const element = frameRef.current;
+      const clamped = clampZoom(next);
+      if (!element || clamped === zoomNow.current) return;
+      const seen = element.getBoundingClientRect();
+      const px = x ?? seen.left + seen.width / 2;
+      const py = y ?? seen.top + seen.height / 2;
+      const slots = slotsOf();
+      const slot =
+        slots.find((candidate) => {
+          const rect = candidate.getBoundingClientRect();
+          return px >= rect.left && px <= rect.right && py >= rect.top && py <= rect.bottom;
+        }) ?? slots[0];
+      if (slot) {
+        const rect = slot.getBoundingClientRect();
+        anchor.current = { slot: Number(slot.dataset.slot), u: (px - rect.left) / zoomNow.current, v: (py - rect.top) / zoomNow.current, x: px, y: py };
+      }
+      setZoom(clamped);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scrolling],
+  );
+  useLayoutEffect(() => {
+    const kept = anchor.current;
+    anchor.current = null;
+    const element = frameRef.current;
+    if (!kept || !element) return;
+    const slot = slotsOf().find((candidate) => Number(candidate.dataset.slot) === kept.slot);
+    if (!slot) return;
+    const rect = slot.getBoundingClientRect();
+    element.scrollLeft += rect.left + kept.u * zoom - kept.x;
+    element.scrollTop += rect.top + kept.v * zoom - kept.y;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoom]);
+  // The loupe: a glass over the page, following the pointer (L).
+  const [loupe, setLoupe] = useState(false);
+  const loupeNow = useRef(false);
+  loupeNow.current = loupe;
+  const [magnify, setMagnify] = useState(2.2);
+  useEffect(() => setLoupe(false), [blob]);
+  // A pinch, or ⌘ with the wheel, zooms — the glass when it is out, else the
+  // pages, round the pointer. Pinches come thick and fast: one zoom a frame.
+  useEffect(() => {
+    const element = frameRef.current;
+    if (!element) return;
+    let factor = 1;
+    let at = { x: 0, y: 0 };
+    let raf = 0;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      factor *= Math.exp(-event.deltaY * 0.01);
+      at = { x: event.clientX, y: event.clientY };
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const by = factor;
+        factor = 1;
+        if (loupeNow.current) setMagnify((current) => clampMagnify(current * by));
+        else zoomTo(zoomByWheel(zoomNow.current, 0) * by, at.x, at.y);
+      });
+    };
+    element.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      cancelAnimationFrame(raf);
+      element.removeEventListener('wheel', onWheel);
+    };
+  }, [zoomTo]);
 
   // ---- the scrolled column ----------------------------------------------------
   // Every page has its place from the start, at its size; a page is drawn
@@ -453,9 +539,107 @@ export default function PdfBookView({
     />
   );
 
+  // ---- a close-up -----------------------------------------------------------
+  // C, or ⌥-click on one: a figure, table or equation on the pages in view,
+  // blown up to fill the screen; Tab goes on to the next.
+  const regionsFound = useRef(new Map<number, Region[]>());
+  const [closeUp, setCloseUp] = useState<{ items: CloseUpItem[]; index: number } | null>(null);
+  const [zoomHint, setZoomHint] = useState<string | null>(null);
+  useEffect(() => {
+    regionsFound.current.clear();
+    setCloseUp(null);
+  }, [opened]);
+  useEffect(() => {
+    if (!zoomHint) return;
+    const timer = window.setTimeout(() => setZoomHint(null), 2600);
+    return () => window.clearTimeout(timer);
+  }, [zoomHint]);
+  const shownKey = shown.join(' ');
+  const openCloseUp = useCallback(
+    async (want?: { page: number; x: number; y: number }) => {
+      if (!opened) return;
+      const items: CloseUpItem[] = [];
+      for (const number of shownKey.split(' ').map(Number)) {
+        let found = regionsFound.current.get(number);
+        if (!found) {
+          try {
+            found = await findRegions(opened.engine, opened.doc, number);
+          } catch {
+            found = [];
+          }
+          regionsFound.current.set(number, found);
+        }
+        for (const region of found) items.push({ page: number, region });
+      }
+      let index = 0;
+      if (want) {
+        // The smallest one under the pointer: a figure inside a larger box is the one meant.
+        let area = Infinity;
+        index = -1;
+        items.forEach((item, at) => {
+          if (item.page !== want.page) return;
+          const { x0, y0, x1, y1 } = item.region.box;
+          const inside = want.x >= (x0 - 4) * scale && want.x <= (x1 + 4) * scale && want.y >= (y0 - 4) * scale && want.y <= (y1 + 4) * scale;
+          const size = (x1 - x0) * (y1 - y0);
+          if (inside && size < area) {
+            area = size;
+            index = at;
+          }
+        });
+        if (index < 0) return;
+      } else if (!items.length) {
+        setZoomHint('Nothing to look at close up here — no figure, table or equation was found on the page');
+        return;
+      }
+      setLoupe(false);
+      setCloseUp({ items, index });
+    },
+    [opened, shownKey, scale],
+  );
+  // + and − zoom (the glass, when it is out), 0 fits the page, L is the loupe, C a close-up.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (document.querySelector('.explain:not(.layout-beside), .notes-board:not(.layout-beside), .scrim, .sheet, .palette, .desk-scrim, .pdf-closeup')) return;
+      const key = event.key;
+      if (key === '+' || key === '=') {
+        event.preventDefault();
+        if (loupe) setMagnify((current) => clampMagnify(current + 0.5));
+        else zoomTo(zoomNow.current * 1.25);
+      } else if (key === '-' || key === '_') {
+        event.preventDefault();
+        if (loupe) setMagnify((current) => clampMagnify(current - 0.5));
+        else zoomTo(zoomNow.current / 1.25);
+      } else if (key === '0') {
+        event.preventDefault();
+        zoomTo(1);
+      } else if (key.toLowerCase() === 'l') {
+        event.preventDefault();
+        setLoupe(!loupe);
+      } else if (key.toLowerCase() === 'c') {
+        event.preventDefault();
+        void openCloseUp();
+      } else if (key === 'Escape' && loupe) {
+        setLoupe(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [loupe, zoomTo, openCloseUp]);
+  const zoomHintShown = zoomHint ? <div className="pin-hint">{zoomHint}</div> : null;
+
   const onPages = {
     onMouseUp: () => !snipping && !pinning && takeSelection(),
     onClick: (event: ReactMouseEvent) => {
+      if (event.altKey) {
+        const page = event.target instanceof Element ? event.target.closest<HTMLElement>('.pdf-book-page') : null;
+        if (!page) return;
+        const rect = page.getBoundingClientRect();
+        void openCloseUp({ page: Number(page.dataset.page) || 1, x: event.clientX - rect.left, y: event.clientY - rect.top });
+        return;
+      }
       if (pinning) pinAt(event.target, event.clientX, event.clientY);
       else if (!snipping) pickMark(event.clientX, event.clientY);
     },
@@ -485,7 +669,7 @@ export default function PdfBookView({
     >
       {scrolling ? (
         <div className="pdf-scroll-wrap">
-          <div ref={frameRef} className={`pdf-book-spread pdf-scroll${pinning ? ' is-pinning' : ''}`} onScroll={onScrolled} {...onPages}>
+          <div ref={frameRef} className={`pdf-book-spread pdf-scroll${pinning ? ' is-pinning' : ''}${zoomed ? ' is-zoomed' : ''}`} onScroll={onScrolled} {...onPages}>
             {unopened ?? (
               <div ref={columnRef} className="pdf-scroll-pages">
                 {opened && pageSize
@@ -504,34 +688,37 @@ export default function PdfBookView({
             )}
           </div>
           {pinHint}
+          {zoomHintShown}
           {snipping ? <div className="snip-hint">✂ Drag a box, or click a figure or table outlined · Esc or S to stop</div> : null}
         </div>
       ) : (
         <div
           ref={frameRef}
-          className={`pdf-book-spread${columns === 2 ? ' two' : ''}${pinning ? ' is-pinning' : ''}`}
-          onWheel={turns.onWheel}
+          className={`pdf-book-spread${columns === 2 ? ' two' : ''}${pinning ? ' is-pinning' : ''}${zoomed ? ' is-zoomed' : ''}`}
+          onWheel={zoomed || loupe ? undefined : turns.onWheel}
           onTouchStart={turns.onTouchStart}
           onTouchEnd={turns.onTouchEnd}
           {...onPages}
         >
           {unopened ?? (
-            <div className="pdf-book-pages">
+            <div ref={bookPagesRef} className="pdf-book-pages">
               {shown.map((number, index) => (
-                <PdfPage
-                  key={number}
-                  doc={opened!.doc}
-                  engine={opened!.engine}
-                  number={number}
-                  scale={scale}
-                  side={columns === 2 ? (index === 0 ? 'left' : 'right') : 'single'}
-                  {...marksOn(number)}
-                  overlay={(width, height) => pinsOn(number, width, height)}
-                />
+                <div key={number} className="pdf-book-slot" data-slot={number} style={{ width: Math.floor(pageSize!.width * scale), height: Math.floor(pageSize!.height * scale) }}>
+                  <PdfPage
+                    doc={opened!.doc}
+                    engine={opened!.engine}
+                    number={number}
+                    scale={scale}
+                    side={columns === 2 ? (index === 0 ? 'left' : 'right') : 'single'}
+                    {...marksOn(number)}
+                    overlay={(width, height) => pinsOn(number, width, height)}
+                  />
+                </div>
               ))}
             </div>
           )}
           {pinHint}
+          {zoomHintShown}
           {snipping && opened && pageSize ? (
             <PdfSnip paperId={paperId} doc={opened.doc} engine={opened.engine} pages={shown} scale={scale} holder={frameRef} announce={announce} />
           ) : null}
@@ -581,6 +768,23 @@ export default function PdfBookView({
         >
           📌 Pin
         </button>
+        <button type="button" className="btn sm ghost loupe-btn" aria-pressed={loupe} onClick={() => setLoupe(!loupe)} title="A reading glass that follows the pointer over the page (L)">
+          🔍 Loupe
+        </button>
+        <button type="button" className="btn sm ghost closeup-btn" onClick={() => void openCloseUp()} title="A figure, table or equation blown up to fill the screen — or ⌥-click one (C)">
+          Close-up
+        </button>
+        <span className="pdf-zoom-ctl" role="group" aria-label="Zoom">
+          <button type="button" className="btn sm ghost" onClick={() => zoomTo(zoomNow.current / 1.25)} disabled={zoom <= 1} aria-label="Zoom out" title="Zoom out (−)">
+            −
+          </button>
+          <button type="button" className="btn sm ghost pdf-zoom-pct" onClick={() => zoomTo(1)} title="Pinch, or ⌘ with the wheel, zooms round the pointer; 0 fits the page again">
+            {Math.round(zoom * 100)}%
+          </button>
+          <button type="button" className="btn sm ghost" onClick={() => zoomTo(zoomNow.current * 1.25)} disabled={zoom >= ZOOM_MAX} aria-label="Zoom in" title="Zoom in (+)">
+            +
+          </button>
+        </span>
         {stickies.length ? (
           <button type="button" className="btn sm ghost" aria-pressed={!cardsHidden} onClick={() => setCardsHidden(!cardsHidden)} title={cardsHidden ? 'Show the stickies' : 'Fold the stickies down to their numbers'}>
             {cardsHidden ? `Show ${stickies.length} stickies` : 'Fold stickies'}
@@ -597,6 +801,11 @@ export default function PdfBookView({
         </span>
         )}
       </div>
+      {zoomed && opened ? <PdfMinimap frame={frameRef} holder={frameRef} page={firstShown} /> : null}
+      {loupe && opened ? <PdfLoupe doc={opened.doc} holder={frameRef} scale={scale} magnify={magnify} /> : null}
+      {closeUp && opened ? (
+        <PdfCloseUp doc={opened.doc} items={closeUp.items} index={closeUp.index} onIndex={(index) => setCloseUp({ items: closeUp.items, index })} onClose={() => setCloseUp(null)} />
+      ) : null}
       {picked ? (
         <div className="selection-toolbar" style={{ top: picked.top, left: picked.left }} role="toolbar" aria-label="The selection">
           <MarkPicker onPick={(mark) => void markSelection(mark, false)} />
@@ -651,7 +860,8 @@ function PdfPage({
   useEffect(() => {
     let live = true;
     let cancel: (() => void) | undefined;
-    setDrawn(false);
+    // Drawn again at a new size — zoomed — the picture there stays, stretched, until the new one is ready.
+    if (!canvasRef.current?.width) setDrawn(false);
     setTextReady(false);
     (async () => {
       const page = await doc.getPage(number);
@@ -662,12 +872,13 @@ function PdfPage({
       const text = textRef.current;
       if (!canvas || !text) return;
       const ratio = Math.min(window.devicePixelRatio || 1, 3);
-      canvas.width = Math.floor(viewport.width * ratio);
-      canvas.height = Math.floor(viewport.height * ratio);
-      const context = canvas.getContext('2d');
+      const fresh = canvas.width ? document.createElement('canvas') : canvas;
+      fresh.width = Math.floor(viewport.width * ratio);
+      fresh.height = Math.floor(viewport.height * ratio);
+      const context = fresh.getContext('2d');
       if (!context) return;
       const task = page.render({
-        canvas,
+        canvas: fresh,
         canvasContext: context,
         viewport,
         transform: ratio === 1 ? undefined : [ratio, 0, 0, ratio, 0, 0],
@@ -680,7 +891,13 @@ function PdfPage({
         layer.cancel();
       };
       await task.promise;
-      if (live) setDrawn(true);
+      if (!live) return;
+      if (fresh !== canvas) {
+        canvas.width = fresh.width;
+        canvas.height = fresh.height;
+        canvas.getContext('2d')?.drawImage(fresh, 0, 0);
+      }
+      setDrawn(true);
       await layer.render();
       if (live) setTextReady(true);
     })().catch((reason) => {
