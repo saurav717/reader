@@ -13,6 +13,7 @@ import { join } from 'node:path';
 process.env.READER_SCHOLAR_PROFILE_DIR = join(tmpdir(), `reader-no-scholar-profile-${process.pid}`);
 process.env.READER_PROFILE_DIR = join(tmpdir(), `reader-no-profile-${process.pid}`);
 delete process.env.READER_TOKEN;
+delete process.env.TAVILY_KEY;
 delete process.env.BRAVE_KEY;
 delete process.env.SERPLY_KEY;
 delete process.env.SERPAPI_KEY;
@@ -39,19 +40,35 @@ describe('the query and the address', () => {
 });
 
 describe('a search', () => {
-  it('goes to Brave first, then Serply, then SerpApi, by the keys the proxy holds', () => {
-    assert.deepEqual(web.searchServices({ brave: 'b', serply: 's', serpapi: 'a' }), ['brave', 'serply', 'serpapi']);
+  it('goes to Tavily first, then Brave, Serply and SerpApi, by the keys the proxy holds', () => {
+    assert.deepEqual(web.searchServices({ tavily: 't', brave: 'b', serply: 's', serpapi: 'a' }), ['tavily', 'brave', 'serply', 'serpapi']);
     assert.deepEqual(web.searchServices({ serpapi: 'a' }), ['serpapi']);
     assert.deepEqual(web.searchServices({ brave: ' ' }), []);
     assert.equal(web.webAvailable({}), false);
   });
 
   it('reads each service’s results as a title, an address and a snippet', () => {
+    assert.deepEqual(web.fromTavily({ results: [{ title: 'T', url: 'https://t.example/', content: 'a passage', score: 0.9, published_date: '2026-05-01' }, { title: 'bad', url: 'ftp://x' }] }), [{ title: 'T', url: 'https://t.example/', snippet: 'a passage', age: '2026-05-01' }]);
     assert.deepEqual(web.fromBrave({ web: { results: [{ title: 'A', url: 'https://a.example/', description: 'about a', age: 'May 1, 2026' }, { title: '', url: 'https://b.example/' }, { title: 'C', url: 'javascript:alert(1)' }] } }), [
       { title: 'A', url: 'https://a.example/', snippet: 'about a', age: 'May 1, 2026' },
     ]);
     assert.deepEqual(web.fromSerply({ results: [{ title: 'S', link: 'https://s.example/', description: 'd' }] }), [{ title: 'S', url: 'https://s.example/', snippet: 'd' }]);
     assert.deepEqual(web.fromSerpApi({ organic_results: [{ title: 'G', link: 'https://g.example/', snippet: 'sn', date: 'Jun 2, 2026' }] }), [{ title: 'G', url: 'https://g.example/', snippet: 'sn', age: 'Jun 2, 2026' }]);
+  });
+
+  it('asks Tavily by POST with the key as a bearer token, before any other key', async () => {
+    const sent = [];
+    const fetchImpl = async (url, init) => {
+      sent.push({ url, init });
+      return jsonResponse({ results: [{ title: 'T', url: 'https://t.example/', content: 'p' }] });
+    };
+    const found = await web.searchWeb('a query', { tavily: 'tvly-k', brave: 'bk' }, { fetchImpl });
+    assert.equal(found.via, 'tavily');
+    assert.equal(found.results[0].url, 'https://t.example/');
+    assert.equal(sent[0].url, 'https://api.tavily.com/search');
+    assert.equal(sent[0].init.method, 'POST');
+    assert.equal(sent[0].init.headers.Authorization, 'Bearer tvly-k');
+    assert.deepEqual(JSON.parse(sent[0].init.body), { query: 'a query', max_results: 8, search_depth: 'basic', include_answer: false, include_raw_content: false, include_images: false });
   });
 
   it('asks Brave with the key in its header, and says it was Brave', async () => {

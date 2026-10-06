@@ -71,7 +71,7 @@ describe('the tools', () => {
     assert.match(refused.text, /wants its token or a sign-in/);
     assert.match(refused.step.outcome, /token/);
     fakeFetch({ error: 'no key', setup: true }, 501);
-    assert.match((await mod.runWebTool('web_search', { query: 'x' })).text, /BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY/);
+    assert.match((await mod.runWebTool('web_search', { query: 'x' })).text, /TAVILY_KEY, BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY/);
     fakeFetch({ results: [] });
     assert.match((await mod.runWebTool('web_search', { query: 'nothing' })).text, /No results/);
     assert.match((await mod.runWebTool('web_search', {})).text, /needs its query/);
@@ -96,7 +96,7 @@ describe('whether the button can be on', () => {
     mod.setProxyBase('https://other.example');
     fakeFetch({ ok: true, auth: false, gemini: true, web: false });
     assert.equal(await mod.checkWeb(), 'no-key');
-    assert.match(mod.webNote('no-key'), /BRAVE_KEY/);
+    assert.match(mod.webNote('no-key'), /TAVILY_KEY/);
     mod.setProxyToken('');
   });
 

@@ -86,7 +86,7 @@ async function problem(response: Response): Promise<string> {
     // not JSON
   }
   if (response.status === 401) return 'The paper proxy wants its token or a sign-in before it will search (Settings → Paper proxy).';
-  if (response.status === 501) return 'The paper proxy has no web search key: its owner sets BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY.';
+  if (response.status === 501) return 'The paper proxy has no web search key: its owner sets TAVILY_KEY, BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY.';
   if (response.status === 429) return 'Too many searches at once; wait a minute before searching again.';
   return message;
 }
@@ -154,7 +154,7 @@ export function webNote(readiness: WebReadiness): string {
     case 'no-proxy':
       return 'Searching the web needs a paper proxy — Settings → Paper proxy';
     case 'no-key':
-      return 'The paper proxy has no web search key yet — its owner sets BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY';
+      return 'The paper proxy has no web search key yet — its owner sets TAVILY_KEY, BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY';
     case 'sign-in':
       return 'Sign in to the paper proxy to search the web — with Google, or its token under Settings → Paper proxy';
     default:

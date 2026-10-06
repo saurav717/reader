@@ -167,10 +167,11 @@ id = "4b383f85f5d041569dc04f04350b1c38"
 
 # Ask AI's Web button: with it on, the model may search the web and read
 # pages through this Worker (server/webSearch.js). The search is asked of
-# the first of these keys that is set — Brave's Search API, made for this
-# and the cheapest, or the Serply or SerpApi key Scholar already has:
+# the first of these keys that is set — Tavily, made for exactly this and
+# free for a thousand searches a month (app.tavily.com), then Brave's
+# Search API, then the Serply or SerpApi key Scholar already has:
 #
-#     npx wrangler secret put BRAVE_KEY
+#     npx wrangler secret put TAVILY_KEY
 #
 # Each search is metered on that account, for whoever may use this Worker's
 # paid accounts, under PERSON_LIMIT above. Without any, the button in the

@@ -9,9 +9,10 @@
  * account, and a browser cannot fetch an arbitrary site anyway.
  *
  * The search is asked of whichever service the proxy has a key for, in
- * this order: Brave (BRAVE_KEY — made for this, and the cheapest), then
- * Serply's Google endpoint, then SerpApi's Google engine (SERPLY_KEY and
- * SERPAPI_KEY, the keys Scholar already uses). Each answers the same
+ * this order: Tavily (TAVILY_KEY — made for exactly this, a thousand
+ * searches a month free), then Brave (BRAVE_KEY), then Serply's Google
+ * endpoint, then SerpApi's Google engine (SERPLY_KEY and SERPAPI_KEY, the
+ * keys Scholar already uses). Each answers the same
  * shape: a few results, each a title, an address and a snippet. Both
  * routes want the proxy's token or a pass, like the rest of what spends.
  *
@@ -26,6 +27,7 @@
  * proxy does.
  */
 
+export const TAVILY_HOST = 'https://api.tavily.com';
 export const BRAVE_HOST = 'https://api.search.brave.com';
 export const SERPLY_HOST = 'https://api.serply.io';
 export const SERPAPI_HOST = 'https://serpapi.com';
@@ -53,7 +55,7 @@ const list = (value) => (Array.isArray(value) ? value : []);
 
 /** Which services the proxy can search with, from the keys it holds; the first is asked. */
 export function searchServices(keys = {}) {
-  return ['brave', 'serply', 'serpapi'].filter((name) => str(keys[name]));
+  return ['tavily', 'brave', 'serply', 'serpapi'].filter((name) => str(keys[name]));
 }
 
 /** Whether the proxy can search the web at all. */
@@ -95,6 +97,12 @@ export function checkPageUrl(value) {
 
 // ---------------------------------------------------------------- search ----
 
+/** Tavily is asked by POST: the address, and the body beside it. */
+export const TAVILY_URL = `${TAVILY_HOST}/search`;
+export function tavilyBody(query, count = RESULTS) {
+  return { query, max_results: count, search_depth: 'basic', include_answer: false, include_raw_content: false, include_images: false };
+}
+
 export function braveUrl(query, count = RESULTS) {
   return `${BRAVE_HOST}/res/v1/web/search?${new URLSearchParams({ q: query, count: String(count), text_decorations: 'false' })}`;
 }
@@ -112,6 +120,13 @@ const result = (title, url, snippet, age) => {
   if (!/^https?:\/\//i.test(link) || !str(title)) return null;
   return { title: str(title), url: link, snippet: str(snippet), ...(str(age) ? { age: str(age) } : {}) };
 };
+
+/** Tavily's `results[]`: title, url, content (a passage of the page), and when it was published. */
+export function fromTavily(json) {
+  return list(json?.results)
+    .map((entry) => result(entry?.title, entry?.url, entry?.content, entry?.published_date))
+    .filter(Boolean);
+}
 
 /** Brave's `web.results[]`: title, url, description, and when the page was seen. */
 export function fromBrave(json) {
@@ -168,8 +183,17 @@ function signalFor(signal) {
 export async function searchWeb(query, keys = {}, { fetchImpl = (...args) => fetch(...args), signal } = {}) {
   const q = checkQuery(query);
   const [service] = searchServices(keys);
-  if (!service) throw new WebRefused(501, 'this proxy has no web search key: set BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY');
+  if (!service) throw new WebRefused(501, 'this proxy has no web search key: set TAVILY_KEY, BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY');
   const key = str(keys[service]);
+  if (service === 'tavily') {
+    const response = await fetchImpl(TAVILY_URL, {
+      method: 'POST',
+      signal: signalFor(signal),
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify(tavilyBody(q)),
+    });
+    return { query: q, via: 'tavily', results: fromTavily(await readJson(response, 'Tavily')) };
+  }
   if (service === 'brave') {
     const response = await fetchImpl(braveUrl(q), { signal: signalFor(signal), headers: { Accept: 'application/json', 'X-Subscription-Token': key } });
     return { query: q, via: 'brave', results: fromBrave(await readJson(response, 'Brave')) };

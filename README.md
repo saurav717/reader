@@ -2323,19 +2323,24 @@ How it works depends on who answers:
   key, on top of the tokens.
 - **Gemini** — not here; see above.
 
-The proxy searches with the first key it has of three, and says on `/health`
+The proxy searches with the first key it has of four, and says on `/health`
 (`"web": true`) when it has one:
 
 ```bash
-npx --yes wrangler@4 secret put BRAVE_KEY     # Brave Search API, api-dashboard.search.brave.com — made for this, and the cheapest
+npx --yes wrangler@4 secret put TAVILY_KEY    # Tavily, app.tavily.com — made for this; a thousand searches a month free, no card
+npx --yes wrangler@4 secret put BRAVE_KEY     # or Brave Search API, api-dashboard.search.brave.com — $5 of credit a month
 npx --yes wrangler@4 secret put SERPLY_KEY    # or Serply's Google endpoint, the key Scholar uses
 npx --yes wrangler@4 secret put SERPAPI_KEY   # or SerpApi's Google engine, likewise
 npm run deploy:worker
-BRAVE_KEY=… npm start                         # or the Node proxy, with any of the three
+TAVILY_KEY=… npm start                        # or the Node proxy, with any of the four
 ```
 
-Each search costs about half a cent on any of them — more than the DeepSeek
-tokens for a typical answer — which is why the button is off by default. On
+Tavily is asked by `POST /search` with the key as a bearer token, a basic
+search of eight results and no generated answer, so a search is one credit;
+its `content` is a passage of the page, which is a better snippet than a
+search engine's. Past the free thousand, a search costs about half a cent
+there as on the others — more than the DeepSeek tokens for a typical answer
+— which is why the button is off by default. On
 the Worker each search goes on the usage tally as *Web searches* (and as a
 Serply credit or a SerpApi search when it was one of those), under the
 per-person limit like Scholar. A page is fetched by the proxy as a plain
@@ -3465,7 +3470,7 @@ server/scholarBrowser.js  the same, through a real Chromium (SCHOLAR_BROWSER=1),
                         the window a captcha is shown in
 server/serpapi.js       Scholar through SerpApi instead, when SERPAPI_KEY is set
 server/serply.js        Scholar through Serply instead, when SERPLY_KEY is set
-server/webSearch.js     The web for Ask AI's Web button: a search (Brave, Serply or SerpApi) and a page as text
+server/webSearch.js     The web for Ask AI's Web button: a search (Tavily, Brave, Serply or SerpApi) and a page as text
 server/profileReader.js DeepSeek reading Serply's profile snippets for a person's affiliation
 server/contributionReader.js  DeepSeek putting a paper's contributions statement to its authors
 src/lib/google.ts       Google Identity Services + Drive REST

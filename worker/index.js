@@ -259,7 +259,7 @@ export default {
     // and is asked first when both are set. See server/serply.js.
     const serplyKey = (env.SERPLY_KEY || '').trim();
     // The keys Ask AI's Web button searches with, first set first (server/webSearch.js).
-    const webKeys = { brave: (env.BRAVE_KEY || '').trim(), serply: serplyKey, serpapi: serpKey };
+    const webKeys = { tavily: (env.TAVILY_KEY || '').trim(), brave: (env.BRAVE_KEY || '').trim(), serply: serplyKey, serpapi: serpKey };
     const origin = request.headers.get('Origin') || '';
     const headers = cors(origin);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
@@ -733,7 +733,7 @@ export default {
       }
 
       // The web for Ask AI, with its Web button on: a search on this Worker's
-      // key — BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY, the first set — and a page
+      // key — TAVILY_KEY, BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY, the first set — and a page
       // read as text, for the model to cite (server/webSearch.js). Both for
       // whoever may use this Worker's paid accounts, and both on the tally.
       if (path === '/web/search' || path === '/web/page') {

@@ -742,13 +742,13 @@ async function gemini(req, res) {
 // ------------------------------------------------------------------ web ----
 //
 // The web for Ask AI, with its Web button on: a search, and a page read as
-// text — server/webSearch.js. The search is asked of Brave, Serply or
-// SerpApi on this proxy's key (BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY, the
+// text — server/webSearch.js. The search is asked of Tavily, Brave, Serply
+// or SerpApi on this proxy's key (TAVILY_KEY, BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY, the
 // first set), so with a token set only the token may spend it — the router
 // gates and rate-limits the prefix; a page is fetched from here because the
 // page cannot fetch it itself.
 
-const webKeys = () => ({ brave: (process.env.BRAVE_KEY || '').trim(), serply: serplyKey(), serpapi: serpKey() });
+const webKeys = () => ({ tavily: (process.env.TAVILY_KEY || '').trim(), brave: (process.env.BRAVE_KEY || '').trim(), serply: serplyKey(), serpapi: serpKey() });
 
 async function webSearch(url, res) {
   try {
