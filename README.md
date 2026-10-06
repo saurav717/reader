@@ -2655,15 +2655,18 @@ What it writes, in this order:
   the teacher above the student, say), and the page lays the grid out so
   nothing overlaps, runs the edges through the gaps between stages, wraps
   long labels, and shows the stages one by one as the steps advance. It
-  draws it in the figure's own colours and tweens from step to step. In the
-  Margin layout
-  the scene sits on a **stage** at the top of the margin that stays in view
-  while you read that section; the rest of the margin scrolls under it, and
-  the stage leaves with the section. In the other layouts the scene is a
-  card in the flow. Either way the scene holds the step you left it on:
-  the dots and the slider pick one, **▶ Play** runs through the steps by
-  itself, a step every few seconds, and on the stage **Follow** makes it
-  step with the paragraph under the reading line until you take it back. **▶ Stage** in the bar turns
+  draws it in the figure's own colours, with arrowheads on the edges, the
+  edges turning corners through the gaps rather than crossing the boxes,
+  and whatever a step is not about faded back, and tweens from step to
+  step. In the Margin layout the scene is a card at the top of the margin,
+  held in place like a figure; in the other layouts it is a card in the
+  flow. Either way the scene holds the step you left it on: the dots and
+  the slider pick one, and **▶ Play** runs through the steps by itself, a
+  step every few seconds. In the Margin layout **Follow** pins the card to
+  the top of the margin while you read that section — the rest of the
+  margin scrolls under it, and it leaves with the section — and steps it
+  with the paragraph under the reading line; **Hold** puts it back where
+  it was, on the step it reached. **▶ Stage** in the bar turns
   all of it off, and the page is its figures and nothing moves; scenes
   already written stay in the page and come back when it is switched on.
   Nothing is written until you ask, so a page is no slower to explain than

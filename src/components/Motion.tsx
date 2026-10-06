@@ -8,11 +8,11 @@
 //  paragraph being read until the reader takes the steps in hand.
 // ===========================================================================
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import type { Block } from '../lib/explain';
 import { KeepButton } from './Keep';
-import { anchors, charsAcross, clearOf, edgeId, labelRoom, layoutMotion, mix, motionText, overlaps, SCENE_H, SCENE_W, stateAt, stepForParagraph, wrapLabel } from '../lib/motion';
+import { anchors, charsAcross, edgeId, labelRoom, layoutMotion, mix, motionText, SCENE_H, SCENE_W, stateAt, stepForParagraph, wrapLabel } from '../lib/motion';
 import type { Box, MotionNode, MotionSpec, SceneState, Tone, Values } from '../lib/motion';
 
 export type MotionBlock = Extract<Block, { kind: 'motion' }>;
@@ -28,6 +28,15 @@ const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 // ---------------------------------------------------------------------------
 // The drawing
 // ---------------------------------------------------------------------------
+
+/** The label above a stack, a distribution or a grid. It sits above the drawing, where the column
+ *  gap gives it more room than the node's own width; a long one drops a point so it is not cut. */
+function Above({ x, y, w, label, muted, mono, size = 10 }: { x: number; y: number; w: number; label?: string; muted?: boolean; mono?: boolean; size?: number }) {
+  if (!label) return null;
+  const pt = label.length > 13 ? size - 1 : size;
+  const [line] = wrapLabel(label, charsAcross(w + 40, pt), 1);
+  return <Label x={x} y={y} text={line} muted={muted} mono={mono} size={pt} />;
+}
 
 function Label({ x, y, text, anchor = 'middle', muted, mono, size = 10 }: { x: number; y: number; text?: string; anchor?: 'start' | 'middle' | 'end'; muted?: boolean; mono?: boolean; size?: number }) {
   if (!text) return null;
@@ -79,7 +88,7 @@ function Node({ node, box, values, label, phase }: { node: MotionNode; box: Box;
             const ly = y + (n - 1 - i) * (layer + gap);
             return <rect key={i} x={x} y={ly} width={w} height={layer} rx={3} className={i === lit ? 'm-fill' : 'm-soft'} />;
           })}
-          <Label x={x + w / 2} y={top} text={wrapLabel(label, charsAcross(w + 16), 1)[0]} muted={node.frozen} />
+          <Above x={x + w / 2} y={top} w={w} label={label} muted={node.frozen} />
         </g>
       );
     }
@@ -98,7 +107,7 @@ function Node({ node, box, values, label, phase }: { node: MotionNode; box: Box;
           {node.labels?.slice(0, n).map((name, i) => (
             <Label key={i} x={x + i * bw + bw / 2} y={y + h - 3} text={name} muted size={8.5} />
           ))}
-          <Label x={x + w / 2} y={top} text={wrapLabel(label, charsAcross(w + 16, 8.5), 1)[0]} muted mono size={8.5} />
+          <Above x={x + w / 2} y={top} w={w} label={label} muted mono size={8.5} />
         </g>
       );
     }
@@ -130,7 +139,7 @@ function Node({ node, box, values, label, phase }: { node: MotionNode; box: Box;
       return (
         <g className={cls}>
           {cells.map((row, i) => row.map((v, j) => <rect key={`${i}-${j}`} x={x + j * cw} y={y + i * ch} width={cw - 1} height={ch - 1} className="m-fill" opacity={0.12 + 0.88 * clamp01(v)} />))}
-          <Label x={x + w / 2} y={top} text={wrapLabel(label, charsAcross(w + 16, 8.5), 1)[0]} muted size={8.5} />
+          <Above x={x + w / 2} y={top} w={w} label={label} muted size={8.5} />
         </g>
       );
     }
@@ -188,6 +197,64 @@ function Node({ node, box, values, label, phase }: { node: MotionNode; box: Box;
   }
 }
 
+type Pt = { x: number; y: number };
+
+/**
+ * An edge's way from one node to the next: an elbow through the gap between
+ * stages (out sideways, down or up the gap, in sideways), or down a column.
+ * With the corners rounded, a label spot on its middle run, the point at any
+ * fraction of its length for the packets, and where and how it arrives.
+ */
+function route(x1: number, y1: number, x2: number, y2: number): { d: string; at: (q: number) => Pt; label: Pt; end: { x: number; y: number; angle: number } } {
+  const dx = x2 - x1, dy = y2 - y1;
+  const sideways = Math.abs(dx) >= Math.abs(dy);
+  const pts: Pt[] =
+    sideways && Math.abs(dy) >= 4
+      ? [{ x: x1, y: y1 }, { x: (x1 + x2) / 2, y: y1 }, { x: (x1 + x2) / 2, y: y2 }, { x: x2, y: y2 }]
+      : !sideways && Math.abs(dx) >= 4
+        ? [{ x: x1, y: y1 }, { x: x1, y: (y1 + y2) / 2 }, { x: x2, y: (y1 + y2) / 2 }, { x: x2, y: y2 }]
+        : [{ x: x1, y: y1 }, { x: x2, y: y2 }];
+  const lengths = pts.slice(1).map((p, i) => Math.hypot(p.x - pts[i].x, p.y - pts[i].y));
+  const total = lengths.reduce((sum, l) => sum + l, 0) || 1;
+  const at = (q: number): Pt => {
+    let left = Math.max(0, Math.min(1, q)) * total;
+    for (let i = 0; i < lengths.length; i++) {
+      if (left <= lengths[i] || i === lengths.length - 1) {
+        const f = lengths[i] ? Math.min(1, left / lengths[i]) : 1;
+        return { x: pts[i].x + (pts[i + 1].x - pts[i].x) * f, y: pts[i].y + (pts[i + 1].y - pts[i].y) * f };
+      }
+      left -= lengths[i];
+    }
+    return pts[pts.length - 1];
+  };
+  // Rounded corners: each inner point becomes a short curve.
+  const r = 7;
+  const toward = (from: Pt, to: Pt, dist: number): Pt => {
+    const len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+    const k = Math.min(dist, len / 2) / len;
+    return { x: from.x + (to.x - from.x) * k, y: from.y + (to.y - from.y) * k };
+  };
+  let d = `M${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const before = toward(pts[i], pts[i - 1], r), after = toward(pts[i], pts[i + 1], r);
+    d += ` L${before.x.toFixed(1)} ${before.y.toFixed(1)} Q${pts[i].x.toFixed(1)} ${pts[i].y.toFixed(1)} ${after.x.toFixed(1)} ${after.y.toFixed(1)}`;
+  }
+  const last = pts[pts.length - 1];
+  d += ` L${last.x.toFixed(1)} ${last.y.toFixed(1)}`;
+  const mid = pts.length === 4 ? { x: (pts[1].x + pts[2].x) / 2, y: (pts[1].y + pts[2].y) / 2 } : at(0.5);
+  const label = pts.length === 4 && !sideways ? { x: mid.x, y: mid.y - 3 } : pts.length === 4 ? { x: mid.x, y: mid.y + 3 } : { x: mid.x, y: mid.y - 4 };
+  const prev = pts[pts.length - 2];
+  return { d, at, label, end: { x: last.x, y: last.y, angle: Math.atan2(last.y - prev.y, last.x - prev.x) } };
+}
+
+/** A small triangle at the end of an edge, pointing the way it goes. */
+function arrowhead(end: { x: number; y: number; angle: number }): string {
+  const size = 5.5;
+  const bx = end.x - Math.cos(end.angle) * size, by = end.y - Math.sin(end.angle) * size;
+  const px = -Math.sin(end.angle) * (size * 0.6), py = Math.cos(end.angle) * (size * 0.6);
+  return `M${end.x.toFixed(1)} ${end.y.toFixed(1)} L${(bx + px).toFixed(1)} ${(by + py).toFixed(1)} L${(bx - px).toFixed(1)} ${(by - py).toFixed(1)} Z`;
+}
+
 /** The scene at a step, tweened from the step before, with the flows moving while `playing`. */
 export function MotionScene({ spec, step, playing }: { spec: MotionSpec; step: number; playing: boolean }) {
   const boxes = useMemo(() => layoutMotion(spec), [spec]);
@@ -223,7 +290,9 @@ export function MotionScene({ spec, step, playing }: { spec: MotionSpec; step: n
   // A stack lit layer by layer while packets flow into it: forward from below, backward from above.
   const flowInto = new Map<string, 'forward' | 'backward'>();
   for (const edge of spec.edges) if (edge.flow && target.visible.has(edgeId(edge))) flowInto.set(edge.flow === 'forward' ? edge.to : edge.to, edge.flow);
-  const opacityOf = (id: string) => (target.visible.has(id) ? (target.dim.has(id) ? 0.3 : 1) : 0);
+  // A step that points at something lets the rest step back, so the caption and the drawing agree on what to look at.
+  const focused = target.highlight.size > 0;
+  const opacityOf = (id: string) => (!target.visible.has(id) ? 0 : target.dim.has(id) ? 0.3 : focused && !target.highlight.has(id) ? 0.62 : 1);
 
   return (
     <svg viewBox={`0 0 ${SCENE_W} ${SCENE_H}`} role="img" aria-label={spec.steps[step]?.caption || 'Scene'}>
@@ -232,43 +301,27 @@ export function MotionScene({ spec, step, playing }: { spec: MotionSpec; step: n
         const a = boxes.get(edge.from), b = boxes.get(edge.to);
         if (!a || !b) return null;
         const { x1, y1, x2, y2 } = anchors(a, b);
-        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
         const compare = edge.kind === 'compare';
-        const dx = x2 - x1, dy = y2 - y1;
-        const sideways = Math.abs(dx) >= Math.abs(dy);
-        const d = sideways && Math.abs(dy) > 4 ? `M${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}` : !sideways && Math.abs(dx) > 4 ? `M${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}` : `M${x1} ${y1} L${x2} ${y2}`;
-        const text = edge.label ? (edge.label.length > 12 ? edge.label.slice(0, 11) + '…' : edge.label) : '';
-        const pillW = text ? 12 + 5.6 * text.length : 0;
-        const c1 = sideways && Math.abs(dy) > 4 ? { x: mx, y: y1 } : !sideways && Math.abs(dx) > 4 ? { x: x1, y: my } : { x: x1 + dx / 3, y: y1 + dy / 3 };
-        const c2 = sideways && Math.abs(dy) > 4 ? { x: mx, y: y2 } : !sideways && Math.abs(dx) > 4 ? { x: x2, y: my } : { x: x1 + (2 * dx) / 3, y: y1 + (2 * dy) / 3 };
-        const at = (q: number) => {
-          const u = 1 - q;
-          return { x: u * u * u * x1 + 3 * u * u * q * c1.x + 3 * u * q * q * c2.x + q * q * q * x2, y: u * u * u * y1 + 3 * u * u * q * c1.y + 3 * u * q * q * c2.y + q * q * q * y2 };
-        };
-        const all = Array.from(boxes.values());
-        const pill = text
-          ? [0.5, 0.3, 0.7].map((q) => { const p = at(q); return { x: p.x - pillW / 2, y: p.y - 9, w: pillW, h: 18 }; }).find((r) => !all.some((box) => overlaps(r, box, 2))) ?? clearOf({ x: mx - pillW / 2, y: my - 9, w: pillW, h: 18 }, all, { dx, dy })
-          : null;
+        const path = route(x1, y1, x2, y2);
+        const text = edge.label ? (edge.label.length > 14 ? edge.label.slice(0, 13) + '…' : edge.label) : '';
+        const highlighted = target.highlight.has(id);
+        const quiet = focused && !highlighted;
         return (
-          <g key={id} className={`m-edge ${tone(edge.tone ?? (compare ? 'pink' : 'muted'))}${target.highlight.has(id) ? ' m-hi' : ''}`} style={{ opacity: opacityOf(id) }}>
-            <path d={d} className={compare ? 'm-stroke m-dashed' : 'm-stroke'} />
+          <g key={id} className={`m-edge ${tone(edge.tone ?? (compare ? 'pink' : 'muted'))}${highlighted ? ' m-hi' : ''}`} style={{ opacity: !target.visible.has(id) ? 0 : target.dim.has(id) ? 0.3 : quiet ? 0.55 : 1 }}>
+            <path d={path.d} className={compare ? 'm-stroke m-dashed' : 'm-stroke'} />
+            {!compare ? <path d={arrowhead(path.end)} className="m-arrow" /> : null}
             {edge.flow && playing && !reducedMotion()
               ? [0, 1, 2].map((k) => {
-                  const p = (phase + k / 3) % 1;
-                  const q = edge.flow === 'backward' ? 1 - p : p;
-                  // The point at q along the same cubic the line is drawn with.
-                  const { x: px, y: py } = at(q);
-                  return <circle key={k} cx={px} cy={py} r={3} className="m-packet" />;
+                  const q = (phase + k / 3) % 1;
+                  const { x, y } = path.at(edge.flow === 'backward' ? 1 - q : q);
+                  return <circle key={k} cx={x} cy={y} r={3} className="m-packet" />;
                 })
               : null}
-            {pill ? (
-              <g className="m-pill">
+            {text ? (
+              <text x={path.label.x} y={path.label.y} textAnchor="middle" fontSize={8.5} className="m-edge-label mono">
                 <title>{edge.label}</title>
-                <rect x={pill.x} y={pill.y} width={pill.w} height={pill.h} rx={4} />
-                <text x={pill.x + pill.w / 2} y={pill.y + 12.5} textAnchor="middle" fontSize={9} className="mono">
-                  {text}
-                </text>
-              </g>
+                {text}
+              </text>
             ) : null}
           </g>
         );
@@ -305,11 +358,14 @@ export function MotionView({
   followStep,
   compact,
   writer,
+  onMode,
 }: {
   block: MotionBlock;
   /** The step the reading has reached, when the card can follow it (the stage). */
   followStep?: number;
   compact?: boolean;
+  /** Told how the scene moves, so the stage can pin itself only while following. */
+  onMode?: (mode: SceneMode) => void;
   /** Who wrote the scene — the model asked for it — for what the card says when it cannot be drawn. */
   writer?: string;
 }) {
@@ -356,6 +412,9 @@ export function MotionView({
     setManual(step);
     setMode('hold');
   };
+  useEffect(() => {
+    onMode?.(mode);
+  }, [mode, onMode]);
   const text = motionText(block.title, spec);
   return (
     <figure className={`explain-motion${compact ? ' is-compact' : ''}`} data-text={text}>
@@ -417,10 +476,10 @@ export function MotionView({
             ) : null}
             {canFollow && steps > 1 ? (
               <div className="motion-modes" role="group" aria-label="How the scene moves">
-                <button type="button" className="motion-mode" aria-pressed={mode !== 'follow'} onClick={hold} title="Hold: the scene stays on this step while you read">
+                <button type="button" className="motion-mode" aria-pressed={mode !== 'follow'} onClick={hold} title="Hold: the card stays where it is in the margin, on this step, while you read on">
                   Hold
                 </button>
-                <button type="button" className="motion-mode" aria-pressed={mode === 'follow'} onClick={() => setMode('follow')} title="Follow: the scene steps with the paragraph under the reading line">
+                <button type="button" className="motion-mode" aria-pressed={mode === 'follow'} onClick={() => setMode('follow')} title="Follow: the card keeps to the top of the margin as you read, and steps with the paragraph under the reading line">
                   Follow
                 </button>
               </div>
@@ -448,6 +507,9 @@ export function MotionView({
  */
 export function Stage({ block, section, writer }: { block: MotionBlock; section: RefObject<HTMLElement>; writer?: string }) {
   const [followStep, setFollowStep] = useState(0);
+  // Pinned to the top of the margin only while following; held, it sits where a figure would.
+  const [following, setFollowing] = useState(false);
+  const onMode = useCallback((mode: SceneMode) => setFollowing(mode === 'follow'), []);
   const spec = block.spec;
   useEffect(() => {
     const element = section.current;
@@ -471,8 +533,8 @@ export function Stage({ block, section, writer }: { block: MotionBlock; section:
     };
   }, [section, spec]);
   return (
-    <div className="explain-stage">
-      <MotionView block={block} followStep={followStep} writer={writer} />
+    <div className={`explain-stage${following ? ' is-following' : ''}`}>
+      <MotionView block={block} followStep={followStep} writer={writer} onMode={onMode} />
     </div>
   );
 }
