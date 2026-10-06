@@ -14,9 +14,30 @@ pictures are re-rendered with `node docs/mockups/stage-src/render.mjs`.
 The mock-up can be scrolled at
 [saurav717.github.io/reader-mockups/stage/mock.html](https://saurav717.github.io/reader-mockups/stage/mock.html).
 
-**Not built.** This is the design as decided after four rounds of
-mock-ups. What the rounds settled is below under *The design*, with the
-options that were considered after it.
+> **Built.** The design below is in the app: `src/lib/motion.ts` (the
+> scene: its JSON, the layout, the state at a step, and what the prompt
+> says about scenes), `src/components/Motion.tsx` (the drawing, the card
+> with its caption and controls, and the stage that follows the reading),
+> the `motion` block and the `animate="yes"` mark in `src/lib/explain.ts`,
+> and the stage, the switch, the offer under a figure and the outline's
+> marks in `src/components/Explain.tsx`. Two things were decided by
+> building. The block holds JSON rather than the YAML-like lines sketched
+> below, because every model writes JSON reliably and the page can tell a
+> half-streamed block from a finished one. And a scene is not kept in a
+> tab row with Cell and Paper tabs: the still of a scene is its first step,
+> the cell sits in the margin as it always did, and a snip of the paper's
+> own figure is left for later, as is the video export. The first scenes
+> the models wrote on real papers decided a third thing: free placement
+> ("at" in percent) let a model draw a tangle of boxes and arrows, so a
+> scene is now a pipeline on a grid — a column a stage, a row a path, one
+> node a cell, edges through the gaps, long labels wrapped, and the stages
+> shown one by one as the steps go — and the stage is a solid card even
+> when the glass makes every other surface translucent. And a scene holds
+> its step by default rather than following the reading: the dots and the
+> slider pick one, Play runs through them by itself, and Follow on the
+> stage is the choice, not the start. See the README's
+> *Scenes, on the stage*. The rest of this document is the design as
+> written, with the mock-ups it was decided on.
 
 ## The design
 
@@ -115,6 +136,21 @@ already reads loss curves from what a cell prints; the stage is a third
 consumer of the same run.
 
 ![Section 07: a static figure that says "curves from In [3], ran on T4", and its cell under it](mockups/stage-9-static-with-cell-chip.png)
+
+### Off, if you want it off
+
+**Stage** in the Explain bar, beside the layout switch and remembered the
+same way, turns every part of this off. With it off the page is the page
+as it is today: no stage in any section, no suggestion under any figure, no
+marks in the outline or the section heads, every section with its figure
+in the margin beside its paragraph. Scenes already written stay in the
+page's Markdown and come back when it is switched on again, so turning it
+off costs nothing and loses nothing. The same choice is in Settings, for a
+reader who never wants to be offered a scene.
+
+![The Explain bar with Stage switched off: the outline has no marks and section 02 has no Animate button](mockups/stage-13-stage-off.png)
+
+![Section 04 with Stage off: its figure in the margin beside its paragraph, nothing else](mockups/stage-14-stage-off-section.png)
 
 ### Video is an export
 
@@ -230,6 +266,10 @@ renders the scene to a GIF belongs in the exported notebook.
   column) for sections with a scene only.
 - **`src/styles.css`**: the stage, the suggestion row, the outline's two
   marks, the phone strip.
+- **The switch**: `Stage` in the bar beside the layout switch, kept in
+  `localStorage` the way the layout is (`readLayout` in `Explain.tsx`),
+  and the same setting in Settings. Off hides the stage, the suggestion
+  rows and the marks; the parsed `motion` blocks stay in the document.
 - **Keep and the notes**: a kept scene is its still, SVG, with the caption
   of the current step.
 - **Export**: WebM through `MediaRecorder` on a canvas copy of the SVG, GIF

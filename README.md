@@ -2638,6 +2638,44 @@ What it writes, in this order:
 
 ![a displayed equation and inline symbols, typeset, with the "where" list under it](docs/explain-maths.png)
 
+- **Scenes, on the stage.** A figure that shows something happening in
+  stages — a pass through a model, a loss that compares two things, a
+  quantity that changes with a knob — can be animated. Whichever model
+  wrote the page marks the two or three figures where motion would help
+  with **▶ Animate this figure** under them; the outline shows those
+  sections with a hollow play mark. Press it (or ask the bar to *animate
+  the key figure in this section*) and the model the bar answers with —
+  Claude, DeepSeek or Gemini, picked in its chip like any other request —
+  writes a `motion` block right after the figure: not
+  SVG and not code, a small JSON scene of nodes (a stack of layers, a
+  distribution, a curve, a grid, a slider, a timeline…), edges (packets
+  flowing forward or back, a dashed comparison with its label) and steps,
+  one per paragraph of the section. A scene is a pipeline: the model puts
+  each node in a column (the stage, left to right) and a row (the path,
+  the teacher above the student, say), and the page lays the grid out so
+  nothing overlaps, runs the edges through the gaps between stages, wraps
+  long labels, and shows the stages one by one as the steps advance. It
+  draws it in the figure's own colours and tweens from step to step. In the
+  Margin layout
+  the scene sits on a **stage** at the top of the margin that stays in view
+  while you read that section; the rest of the margin scrolls under it, and
+  the stage leaves with the section. In the other layouts the scene is a
+  card in the flow. Either way the scene holds the step you left it on:
+  the dots and the slider pick one, **▶ Play** runs through the steps by
+  itself, a step every few seconds, and on the stage **Follow** makes it
+  step with the paragraph under the reading line until you take it back. **▶ Stage** in the bar turns
+  all of it off, and the page is its figures and nothing moves; scenes
+  already written stay in the page and come back when it is switched on.
+  Nothing is written until you ask, so a page is no slower to explain than
+  before. The design, with what was considered and rejected, is in
+  [`docs/explain-stage.md`](docs/explain-stage.md).
+
+![the stage beside a section on the distillation loss: teacher and student stacks with packets flowing up from the input, the two softened outputs joined by a T²·KL link, the caption "2 of 4. Only the two softened outputs are compared", and the figure it animates below it](docs/explain-stage.png)
+
+![the same scene two paragraphs later: the teacher greyed out, the hard label joined by a λ·CE link, packets flowing back down the student](docs/explain-stage-backward.png)
+
+![a figure Claude marked as worth animating, with "Animate this figure" under it, and a scene as a card in the flow](docs/explain-stage-offer.png)
+
 Three layouts, switched in the bar and remembered:
 
 - **Margin** (the default): the prose in a reading column, and its figures,
@@ -2768,20 +2806,21 @@ the plan, one a paper. Explain opens on the Explanation tab every time; the
 tab you leave it on is not kept, so Colab is a click away rather than where
 the next paper lands.
 
-![the Colab tab: the notebook seeded from the explanation, its first cell run in the T4 runtime with what it printed under it, and a cell typed in and run](docs/colab-notebook.png)
+![the Colab tab: the notebook with the explanation's cells added to it, its first cell run in the T4 runtime with what it printed under it, and a cell typed in and run](docs/colab-notebook.png)
 
-- **Seeded from the page.** The first time it opens it holds the
-  explanation's cells and text, the way *Colab → Download the notebook* writes them, with
-  the model's expected outputs left out — the point is to run them. Its
-  header is signed by the model that wrote the page — *Explained by DeepSeek
-  Flash in Reader* when DeepSeek did — not by Claude whoever wrote it. Opened
-  before the page is written, it opens blank and takes the page's cells when
-  the page is whole — not a page half streamed — so long as nothing of yours
-  is in it yet. It is the paper's own: kept under the paper's id and stamped
+- **Yours, and blank until you say.** It opens as one text cell of its own,
+  whatever is written on the Explanation and Implementation pages — writing
+  or rewriting a page never puts anything in the notebook. *Add the
+  explanation's cells* under it, or **Cells ▾** in the bar, brings in the
+  explanation's or the plan's cells and text, the way *Colab → Download the
+  notebook* writes them, with the model's expected outputs left out — the
+  point is to run them. Their header is signed by the model that wrote the
+  page — *Explained by DeepSeek Flash in Reader* when DeepSeek did — not by
+  Claude whoever wrote it; into a blank notebook they take the place of its
+  one cell, otherwise they go at the end. **Cells ▾** also takes the cells of
+  any `.ipynb`. It is the paper's own: kept under the paper's id and stamped
   with it, never shown for another paper, and the tab starts afresh with each
-  paper you open. **Cells ▾**
-  adds the explanation's or the plan's cells again, or the cells of any
-  `.ipynb`.
+  paper you open.
 - **Or written by the model you pick.** Opened before the paper is explained,
   the notebook is one text cell that names no model, and under it the start:
   *Which model writes this notebook?*, every model as a card — the same cards

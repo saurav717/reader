@@ -12,6 +12,8 @@
 //    ```output                  what the cell above prints, as Claude expects it
 //    ```caveat verdict="…" title="…"   a claim that has aged: holds, refined,
 //                                      superseded, disputed or disproved
+//    ```motion title="…" figure="…"    a scene: the figure above it with steps,
+//                                      drawn and played by the page (motion.ts)
 //
 //  Everything else is ordinary Markdown, and `## ` headings are the sections
 //  the outline lists. The same key and SDK as Ask Claude (assistant.ts); the
@@ -21,6 +23,8 @@
 import { explainError, FULL_TEXT_MAX_CHARS, modelSpec, PROVIDERS, sdk, streamModel, tag } from './assistant';
 import type { Screen, SDK } from './assistant';
 import { db } from './db';
+import { MOTION_FORMAT, parseMotion } from './motion';
+import type { MotionSpec } from './motion';
 
 /**
  * The explanation is long by design; this caps a runaway, it does not budget one.
@@ -57,7 +61,13 @@ FORMAT — plain Markdown, with these rules the page depends on:
   then 1–4 sentences of Markdown: what changed, and roughly when and by whom (only if you are confident).
   Put a caveat right where the claim is explained, AND end with a section "## Since then" that lists every
   caveat again as a short verdict table followed by what a reader should use today instead.
+- Scenes: where a figure shows something that happens in stages — a pass through a model, a loss that compares two
+  things, a procedure with steps, a quantity that changes with a knob — mark the figure as worth animating with
+  animate="yes" in its fence (at most three per page; never a table, a timeline, a list or a definition). Do NOT write
+  a scene unless the reader asks for one; when they do, write it as described under SCENES, right after the figure.
 - Name papers only when you are sure they exist.
+
+${MOTION_FORMAT}
 
 MATHS — the page typesets LaTeX, so write every formula, symbol and variable name as LaTeX:
 - Inline between single dollars, $\\nabla \\cdot u = 0$; a displayed equation on lines of its own between double dollars:
@@ -86,7 +96,10 @@ export const VERDICTS: Record<Verdict, string> = {
 
 export type Block =
   | { kind: 'prose'; md: string }
-  | { kind: 'figure'; svg: string; caption: string; open: boolean }
+  | { kind: 'figure'; svg: string; caption: string; open: boolean; /** Claude's mark that motion would help here: the page offers to animate it. */ animate?: boolean }
+  // A scene: the figure above it with steps, as motion.ts reads it. `spec` is
+  // null while the block is still streaming, or when it is not a scene at all.
+  | { kind: 'motion'; title: string; figure: string; src: string; spec: MotionSpec | null; open: boolean }
   | { kind: 'code'; lang: string; title: string; code: string; output?: string; open: boolean }
   | { kind: 'caveat'; verdict: Verdict; title: string; md: string }
   // The Implementation page's own blocks (implement.ts): a directory tree, a
@@ -169,7 +182,12 @@ export function parseExplanation(src: string): Section[] {
       i = j;
       if (lang === 'figure' || lang === 'svg') {
         flush();
-        current.blocks.push({ kind: 'figure', svg: text, caption: info.caption ?? '', open });
+        const figure: Block = { kind: 'figure', svg: text, caption: info.caption ?? '', open };
+        if (/^(yes|true|1)$/i.test(info.animate ?? '')) figure.animate = true;
+        current.blocks.push(figure);
+      } else if (lang === 'motion' || lang === 'scene') {
+        flush();
+        current.blocks.push({ kind: 'motion', title: info.title ?? '', figure: info.figure ?? '', src: text, spec: open ? null : parseMotion(text), open });
       } else if (lang === 'caveat') {
         flush();
         current.blocks.push({ kind: 'caveat', verdict: asVerdict(info.verdict), title: info.title ?? '', md: text.trim() });
@@ -240,6 +258,7 @@ export function notebook(title: string, sections: Section[], writer = 'Claude'):
       if (block.kind === 'prose') parts.push(block.md);
       else if (block.kind === 'caveat') parts.push(`> **${VERDICTS[block.verdict]}${block.title ? ` — ${block.title}` : ''}.** ${block.md.replace(/\n/g, '\n> ')}`);
       else if (block.kind === 'figure') parts.push(`*Figure: ${block.caption || 'see the explanation page'}*`);
+      else if (block.kind === 'motion') parts.push(`*Scene${block.title ? `: ${block.title}` : ''} — played on the explanation page${block.spec ? `. ${block.spec.steps.map((s) => s.caption).filter(Boolean).join(' ')}` : ''}*`);
       else if (block.kind === 'tree') parts.push(`\`\`\`\n${block.text}\n\`\`\``);
       else if (block.kind === 'compute') parts.push('*The compute budget is on the Implementation page, worked out for your hardware.*');
       else if (block.kind === 'file') {
@@ -401,7 +420,9 @@ function revisionRequest(content: string, request: string, scope: RevisionScope)
     `Change the page to satisfy it. If it is a question, answer it inside the page: expand the section it belongs to, or add a
 new section right after that one. If it asks to adjust the content (simpler, deeper, other code, more figures, less maths…),
 rewrite only the sections that must change, and keep every other section exactly as it is. Follow the same format rules
-(figure, python, output and caveat blocks). If you add or change a caveat, keep "Since then" consistent with it.
+(figure, python, output, caveat and motion blocks). If you add or change a caveat, keep "Since then" consistent with it.
+If the request is to animate a figure or a section, add ONE motion block right after the figure it animates (keep the
+figure), with a step for each paragraph of the section, and change nothing else in it.
 
 Reply ONLY with edit operations, each marker on a line of its own:
 <<<replace: Exact title of an existing section>>>
@@ -419,6 +440,15 @@ One short sentence to the reader on what you changed.`,
     .filter(Boolean)
     .join('\n\n');
 }
+
+/** What the Animate button asks for: a scene for one figure, as a request the bar could have been given. */
+export function sceneRequest(section: string, caption?: string): string {
+  const figure = caption ? `the figure “${caption}”` : 'the key figure';
+  return `Animate ${figure} in the section “${section}”: add a motion block right after it, one step per paragraph of the section, that shows what the paragraphs describe happening.`;
+}
+
+/** The section's scene, when it has one. */
+export const motionOf = (section: Section) => section.blocks.find((b): b is Extract<Block, { kind: 'motion' }> => b.kind === 'motion');
 
 // ---------------------------------------------------------------------------
 // The store: one explanation per paper, streamed once and kept

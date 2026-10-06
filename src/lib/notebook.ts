@@ -7,10 +7,9 @@
 //  with what they printed kept under them. One notebook a paper, in
 //  IndexedDB like the explanation and the plan, under the paper's id and
 //  stamped with it, so a record is only ever shown for the paper it names;
-//  seeded from the page's own cells the first time it opens (or when the
-//  page comes, if the notebook opened first), and the same shape as an
-//  .ipynb, so it goes out to Colab's page, GitHub or a file and comes back
-//  from one. The model and the store are here; the page is
+//  opened blank, with the page's own cells (`seedCells`) added only when
+//  the reader asks for them, and the same shape as an .ipynb, so it goes
+//  out to Colab's page, GitHub or a file and comes back from one. The model and the store are here; the page is
 //  src/components/Notebook.tsx.
 // ===========================================================================
 
@@ -148,9 +147,11 @@ export function fromIpynb(text: string): NbCell[] | null {
  * The page's own cells as a notebook: the explanation's or the plan's, the
  * way Colab → Download the notebook writes them, with the expected outputs left out — those
  * were written by the model, and the point of the notebook is to run them.
- * `writer` is that model's name, for the header; with no page written yet
- * there are no cells to seed, and the one cell says whose the notebook is:
- * the reader's, with the model to write it still to be picked.
+ * Added to the notebook only at the reader's request (Cells ▾, or the start
+ * under a blank one) — never because a page was written. `writer` is that
+ * model's name, for the header; with no sections there are no cells to
+ * seed, and the one cell says whose the notebook is: the reader's, with the
+ * model to write it still to be picked.
  */
 const BLANK_LINE = '*A notebook of your own in Reader. Its cells run on your Colab runtime, and what they print is kept under them.*';
 export function seedCells(title: string, sections: Section[], writer?: string): NbCell[] {
@@ -227,20 +228,6 @@ export async function loadNotebook(paperId: string, title: string, seed: () => N
   notify();
   if (!mine) persist(nb);
   return nb;
-}
-
-/**
- * The page's cells into a notebook that is still only its blank header —
- * opened before the page was written, or before it had been read back — the
- * way a notebook opened after the page is seeded from it. A notebook with
- * anything of the reader's in it is left as it is, and so is one offered
- * nothing but another blank header. Whether the cells went in.
- */
-export function fillBlank(paperId: string, cells: NbCell[]): boolean {
-  const nb = cache.get(paperId);
-  if (!nb || !cells.length || isSeedOnly(cells) || !isSeedOnly(nb.cells)) return false;
-  update(paperId, () => cells);
-  return true;
 }
 
 function update(paperId: string, change: (cells: NbCell[]) => NbCell[]) {
