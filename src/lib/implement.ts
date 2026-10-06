@@ -87,6 +87,7 @@ The blocks the page draws (the same as the explanation page):
 - Diagrams: \`\`\`figure caption="…"\` holding ONE <svg> with a viewBox, no width/height, no scripts, no images,
   coloured only with these classes: fill f-accent, f-soft, f-yellow, f-blue, f-green, f-pink, f-paper;
   stroke s-ink, s-muted, s-accent; text t-muted, t-accent, t-on. Keep text ≥ 11 units.
+  Maths in a figure's text is LaTeX between $…$ as well, e.g. $\\hat{z}_{t+1}$ — never spelled out as z_hat or theta.
 - Code: \`\`\`python title="…"\` for a runnable, seeded cell that prints something, followed by \`\`\`output\`
   with what it prints; \`\`\`bash title="…"\` for shell commands. Plain \`\`\`yaml or \`\`\`json fences inside prose
   are fine for short snippets, but a whole file goes in a file block.

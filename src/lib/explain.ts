@@ -53,6 +53,9 @@ FORMAT — plain Markdown, with these rules the page depends on:
   Colour it ONLY with these classes (the page themes them for light and dark):
   fill: f-accent, f-soft, f-yellow, f-blue, f-green, f-pink, f-paper; stroke: s-ink, s-muted, s-accent;
   text: t-muted, t-accent, t-on (for text on f-accent; text is ink by default). Lines default to the ink colour. Keep text ≥ 11 units.
+  Maths in a figure's text is LaTeX between single dollars too, e.g. <text>$\\hat{z}_{t+1} = f_\\theta(z_t)$</text>: the page
+  sets it inside the drawing with Unicode, italics, subscripts and superscripts. Keep it to what fits on one line —
+  symbols, Greek, accents, sub- and superscripts, \\frac as a/b — and never spell it out as z_hat, theta or ->.
   One or two figures per key idea is plenty; skip them where words are clearer.
 - Code: \`\`\`python title="What this cell shows"\` — short (≤ 40 lines), self-contained, numpy (or torch
   when it matters) only, deterministic (seed it), and it must print something that proves the point.
