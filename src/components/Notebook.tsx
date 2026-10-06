@@ -768,7 +768,11 @@ export default function NotebookPage({
     return () => window.clearTimeout(timer);
   }, [note]);
 
-  const menu = (label: string, items: ReactNode) => <NbMenu label={label}>{items}</NbMenu>;
+  const menu = (label: string, items: ReactNode, right = false) => (
+    <NbMenu label={label} right={right}>
+      {items}
+    </NbMenu>
+  );
 
   return (
     <div className="nb-page" ref={root} onKeyDown={onKey} tabIndex={-1}>
@@ -853,6 +857,7 @@ export default function NotebookPage({
               </Fragment>
             ))}
           </>,
+          true,
         )}
         <button type="button" className={`btn sm ghost${askBar ? ' is-on' : ''}`} aria-pressed={askBar} onClick={() => showAskBar(!askBar)} title={askBar ? 'Hide the ask bar' : 'Show the ask bar: cells written, changed and fixed for you'}>
           Ask
@@ -1225,7 +1230,7 @@ function NotebookStart({
 }
 
 /** A small menu in the toolbar. */
-function NbMenu({ label, children }: { label: string; children: ReactNode }) {
+function NbMenu({ label, right, children }: { label: string; /** Opened against the button's right edge, for a menu near the window's. */ right?: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1242,7 +1247,7 @@ function NbMenu({ label, children }: { label: string; children: ReactNode }) {
         {label} ▾
       </button>
       {open ? (
-        <div className="menu nb-menu" role="menu" onClick={() => setOpen(false)}>
+        <div className={`menu nb-menu${right ? ' right' : ''}`} role="menu" onClick={() => setOpen(false)}>
           {children}
         </div>
       ) : null}

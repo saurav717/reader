@@ -5232,6 +5232,7 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .chat-cell { color: var(--accent); font-weight: 600; text-decoration: none; border-bottom: 1px dotted currentColor; cursor: pointer; }
 .chat-cell:hover { border-bottom-style: solid; }
 .nb-menu { min-width: 260px; }
+.nb-menu.right { min-width: 320px; }
 .nb-menu button:disabled { opacity: 0.45; cursor: default; }
 .nb-menu button:disabled:hover { background: transparent; color: var(--ink); }
 .nb-menu a { display: block; padding: 7px 10px; color: inherit; text-decoration: none; font-size: 13px; border-radius: 6px; }

@@ -1,5 +1,5 @@
 /**
- * The Colab tab before anything is written: the notebook opens blank, asks
+ * The notebook before anything is written: the notebook opens blank, asks
  * which model writes it, and writes it with the one picked. A paper is
  * opened without being explained, the tab shows the start — one cell that
  * names no model, the model cards, the button — DeepSeek Flash is picked
@@ -206,11 +206,11 @@ async function withSettings(patch) {
   await page.waitForTimeout(600);
 }
 
-console.log('\n== E, then the Colab tab, with nothing explained: the notebook asks who writes it ==');
+console.log('\n== E, then Colab in the bar, with nothing explained: the notebook asks who writes it ==');
 await page.mouse.move(W / 2, H / 2);
 await page.keyboard.press('e');
 await page.waitForSelector('.explain .explain-empty');
-await page.getByRole('tab', { name: 'Colab' }).click();
+await page.locator('.explain-bar .btn.colab-open').click();
 await page.waitForSelector('.nb-start', { timeout: 15000 });
 const start = page.locator('.nb-start');
 const brand = page.locator('.explain-brand');
@@ -260,7 +260,7 @@ check('the one cell and the start are back, DeepSeek still picked', (await page.
 console.log('\n== in light — and a notebook an earlier build kept, saying Claude, is seeded again ==');
 // The notebook is written a moment after its last change; give Undo's the moment before the reload.
 await page.waitForTimeout(800);
-// What an earlier build kept for a paper opened on the Colab tab before anything was written: the one header cell, signed Claude whatever was picked.
+// What an earlier build kept for a paper whose notebook was opened before anything was written: the one header cell, signed Claude whatever was picked.
 const planted = await page.evaluate(
   () =>
     new Promise((resolve, reject) => {
@@ -285,6 +285,8 @@ const planted = await page.evaluate(
 );
 check('the old header is planted in the browser’s store', typeof planted === 'string' && planted.startsWith('notebook:'), String(planted));
 await withSettings({ theme: 'light' });
+// Explain comes back on the Explanation page; the notebook is a click on Colab in the bar away, as ever.
+await page.locator('.explain-bar .btn.colab-open').click();
 await page.waitForSelector('.nb-start', { timeout: 15000 });
 check('after a reload the pick is kept with the notebook, and the header still names it', (await page.locator('.nb-start .model-pick [aria-checked="true"] b').textContent()) === 'DeepSeek Flash' && /Notebook with DeepSeek Flash/.test(await page.locator('.explain-brand').textContent()));
 check('the kept notebook that was only the old build’s header is seeded again: one cell, naming no model', (await page.locator('.nb-cell').count()) === 1 && /A notebook of your own in Reader/.test(await page.locator('.nb-cell .nb-markdown').textContent()) && !/Claude/.test(await page.locator('.nb-cell').textContent()), (await page.locator('.nb-cell .nb-markdown').textContent()).slice(0, 120));
@@ -299,7 +301,7 @@ await page.getByRole('button', { name: 'Explain this paper' }).click();
 await page.waitForSelector('.explain-section h2', { timeout: 20000 });
 await page.waitForFunction(() => !document.querySelector('.explain-writing'), null, { timeout: 60000 });
 check('the explanation was written by DeepSeek', /Explained by DeepSeek Flash/.test(await page.locator('.explain-brand').textContent()));
-await page.getByRole('tab', { name: 'Colab' }).click();
+await page.locator('.explain-bar .btn.colab-open').click();
 await page.waitForSelector('.nb-start', { timeout: 15000 });
 check('the blank notebook now offers the explanation’s cells too', (await page.locator('.nb-start-other button', { hasText: "add the explanation's cells" }).count()) === 1 && /the paper and your explanation/.test(await page.locator('.nb-start-head p').textContent()));
 await page.locator('.nb-start-other button', { hasText: "add the explanation's cells" }).click();
@@ -310,6 +312,21 @@ check('into a blank notebook they take the place of its one cell, so there is on
 check('and the start is gone, now that there is code', (await page.locator('.nb-start').count()) === 0);
 await page.locator('.nb-cells').evaluate((el) => (el.scrollTop = 0));
 await page.screenshot({ path: `${OUT}/colab-notebook-start-7-seeded-deepseek-dark.png` });
+
+console.log('\n== Export ▾ takes the notebook, the explanation and the scaffold out; Colab in the bar comes back to the page ==');
+await page.locator('.nb-toolbar').getByRole('button', { name: /^Export/ }).click();
+await page.waitForSelector('.nb-menu');
+check('the notebook and the explanation are live, the scaffold off until the plan is written', !(await page.getByRole('menuitem', { name: 'Download as .ipynb' }).isDisabled()) && !(await page.getByRole('menuitem', { name: 'Download the explanation (.zip)' }).isDisabled()) && (await page.getByRole('menuitem', { name: 'Download the scaffold (.zip)' }).isDisabled()));
+check('the commits wait for a repository', (await page.getByRole('menuitem', { name: 'Commit the explanation, and open in Colab' }).getAttribute('title')) === 'Settings → Git repository first');
+await page.screenshot({ path: `${OUT}/colab-notebook-start-8-export-menu-dark.png` });
+const [zipped] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'Download the explanation (.zip)' }).click()]);
+const zipBytes = await readFile(await zipped.path());
+check('the explanation downloads as a zip', zipBytes[0] === 0x50 && zipBytes[1] === 0x4b);
+check('Colab in the bar is lit while the notebook is on screen, and the bar has two tabs', (await page.locator('.explain-bar .btn.colab-open').getAttribute('aria-pressed')) === 'true' && (await page.locator('.explain-pages [role="tab"]').count()) === 2);
+await page.locator('.explain-bar .btn.colab-open').click();
+await page.waitForSelector('.explain-scroll', { timeout: 10000 });
+check('a second click comes back to the Explanation page, and Colab is unlit', (await page.locator('.explain-pages button[aria-pressed="true"]').textContent()) === 'Explanation' && (await page.locator('.explain-bar .btn.colab-open').getAttribute('aria-pressed')) === 'false' && (await page.locator('.nb-page').count()) === 0);
+await page.screenshot({ path: `${OUT}/colab-notebook-start-9-back-to-the-page-dark.png` });
 
 check('no page errors', errors.length === 0, errors.join(' | '));
 console.log(`\n${problems.length ? `${problems.length} problem(s):\n  ${problems.join('\n  ')}` : 'all good'}\n`);
