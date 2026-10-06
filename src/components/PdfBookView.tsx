@@ -54,6 +54,8 @@ function pagesShownAtFirst(): PagesShown {
 const MARGIN = 16;
 /** Fill: the pages corner to corner, no margins, the page bar waiting at the bottom edge. */
 const FILL_KEY = 'reader.pdf.fill';
+/** How long the dock stays out after the pointer last moved, while filled. */
+const BAR_STAYS_MS = 2200;
 function fillAtFirst(): boolean {
   try {
     return localStorage.getItem(FILL_KEY) === 'true';
@@ -227,20 +229,46 @@ export default function PdfBookView({
       /* kept for this visit only */
     }
   };
-  // The page bar, put away while filled, comes back with the pointer at the bottom edge, and stays while it is over it.
+  // The page bar, a dock over the foot of the pages while filled: out when
+  // the pointer moves, for a moment after a page turns, and on entering
+  // Fill, so it is seen going; away after a moment's stillness; kept while
+  // the pointer or the focus is on it, so a slider being dragged or a
+  // button being tabbed to never has the dock go from under it.
   const [barOut, setBarOut] = useState(false);
+  const barHeld = useRef(false);
+  const barTimer = useRef(0);
+  const showBar = useCallback((forMs = BAR_STAYS_MS) => {
+    setBarOut(true);
+    window.clearTimeout(barTimer.current);
+    barTimer.current = window.setTimeout(() => {
+      if (!barHeld.current) setBarOut(false);
+    }, forMs);
+  }, []);
+  const holdBar = (held: boolean) => {
+    barHeld.current = held;
+    if (held) window.clearTimeout(barTimer.current);
+    else showBar();
+  };
   useEffect(() => {
     if (!fill) return;
     const onMove = (event: PointerEvent) => {
-      const fromBottom = window.innerHeight - event.clientY;
-      setBarOut((current) => (current ? fromBottom < 76 : fromBottom < 20));
+      if (event.pointerType !== 'touch') showBar();
+    };
+    // On a touch screen there is no pointer to move: a tap on the page brings the dock out for a while.
+    const onTap = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') showBar(BAR_STAYS_MS * 2);
     };
     document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerdown', onTap);
+    showBar(BAR_STAYS_MS * 1.5);
     return () => {
       document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerdown', onTap);
+      window.clearTimeout(barTimer.current);
+      barHeld.current = false;
       setBarOut(false);
     };
-  }, [fill]);
+  }, [fill, showBar]);
   const margin = fill ? 0 : MARGIN;
   const fit = pageSize
     ? scrolling
@@ -501,6 +529,13 @@ export default function PdfBookView({
     announce('Passage');
   };
   const lastShown = shown[shown.length - 1] ?? firstShown;
+  // A page turned while filled brings the dock out for a moment, with the new folio on it.
+  const turned = useRef(firstShown);
+  useEffect(() => {
+    if (turned.current === firstShown) return;
+    turned.current = firstShown;
+    if (fill) showBar(BAR_STAYS_MS * 0.7);
+  }, [firstShown, fill, showBar]);
 
   // ---- stickies ---------------------------------------------------------------
   // A note pinned to a place on a page: double-click anywhere on a page, or
@@ -765,7 +800,18 @@ export default function PdfBookView({
           </button>
         </div>
       )}
-      <div className="book-nav">
+      {fill && pages > 0 ? (
+        <div className="book-progress" aria-hidden="true">
+          <i style={{ width: `${Math.round((100 * (scrolling ? firstInView : lastShown)) / pages)}%` }} />
+        </div>
+      ) : null}
+      <div
+        className="book-nav"
+        onPointerEnter={fill ? () => holdBar(true) : undefined}
+        onPointerLeave={fill ? () => holdBar(false) : undefined}
+        onFocus={fill ? () => holdBar(true) : undefined}
+        onBlur={fill ? (event) => (event.currentTarget.contains(event.relatedTarget as Node | null) ? undefined : holdBar(false)) : undefined}
+      >
         <span className="book-folio">
           {pages ? `${firstShown === lastShown ? `Page ${firstShown}` : `Pages ${firstShown}–${lastShown}`} of ${pages}` : 'Pages'}
         </span>
@@ -782,6 +828,7 @@ export default function PdfBookView({
             disabled={spreads <= 1}
           />
         )}
+        <span className="book-sep" aria-hidden="true" />
         <button
           type="button"
           className="btn sm ghost snip-btn"
@@ -814,10 +861,11 @@ export default function PdfBookView({
           className="btn sm ghost fill-btn"
           aria-pressed={fill}
           onClick={() => chooseFill(!fill)}
-          title={fill ? 'Give the pages their margins back' : 'Fill the screen with the pages, corner to corner — this bar comes back with the pointer at the bottom edge'}
+          title={fill ? 'Give the pages their margins back' : 'Fill the screen with the pages, corner to corner — this bar floats over their foot while the pointer moves'}
         >
           ⤢ Fill
         </button>
+        <span className="book-sep" aria-hidden="true" />
         <span className="pdf-zoom-ctl" role="group" aria-label="Zoom">
           <button type="button" className="btn sm ghost" onClick={() => zoomTo(zoomNow.current / 1.25)} disabled={zoom <= 1} aria-label="Zoom out" title="Zoom out (−)">
             −
@@ -835,6 +883,8 @@ export default function PdfBookView({
           </button>
         ) : null}
         {scrolling ? null : (
+        <>
+        <span className="book-sep" aria-hidden="true" />
         <span className="segmented pdf-pages-choice" role="group" aria-label="Pages at a time">
           <button type="button" aria-pressed={columns === 1} onClick={() => choosePages('one')} title="One page at a time">
             1 page
@@ -843,6 +893,7 @@ export default function PdfBookView({
             2 pages
           </button>
         </span>
+        </>
         )}
       </div>
       {zoomed && opened ? <PdfMinimap frame={frameRef} holder={frameRef} page={firstShown} /> : null}

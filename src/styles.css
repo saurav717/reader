@@ -1740,15 +1740,43 @@ mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-s
 .pdf-book-spread.pdf-scroll.is-zoomed { overflow-x: auto; }
 .pdf-book-spread.pdf-scroll.is-zoomed .pdf-scroll-pages { width: max-content; min-width: 100%; }
 /* Filled: the pages corner to corner, the hint under them gone, and the page
-   bar waiting below the bottom edge — out while the pointer is there. */
+   bar a dock floating over the foot of the pages — a dark frosted lozenge,
+   the same one the loupe and the close-up say their keys in, so it reads on
+   a white page and in the dark alike. Out while the pointer moves and for a
+   moment after a page turns, away after a moment's stillness, and kept while
+   the pointer or the focus is on it. A hairline along the bottom edge stays,
+   and says how far through the paper you are. */
 .book-view.pdf-book.is-fill { padding: 0; }
 .pdf-book.is-fill .pdf-book-spread { max-width: none; }
 .pdf-book.is-fill > .book-nav {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 8; margin: 0; max-width: none; padding: 8px 16px; box-sizing: border-box;
-  background: var(--rail); border-top: 1px solid var(--border); translate: 0 100%; transition: translate 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+  position: absolute; left: 50%; bottom: 18px; z-index: 8; margin: 0; width: max-content; max-width: calc(100% - 32px); box-sizing: border-box;
+  flex-wrap: wrap; justify-content: center; gap: 4px 8px; padding: 6px 10px 6px 16px;
+  border-radius: 22px; border: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(22 22 19 / 0.86); color: #e9e5da;
+  box-shadow: 0 18px 44px -16px rgb(0 0 0 / 0.75), 0 0 0 1px rgb(0 0 0 / 0.3);
+  backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  translate: -50% 0; opacity: 1; transition: translate 0.28s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.28s;
 }
-.pdf-book.is-fill.bar-out > .book-nav { translate: 0 0; }
+.pdf-book.is-fill:not(.bar-out) > .book-nav { translate: -50% 14px; opacity: 0; pointer-events: none; }
+.pdf-book.is-fill > .book-nav .book-folio { min-width: 0; color: #f6f3ea; font-weight: 500; }
+/* A set width, so the dock's own width (max-content) counts the slider and nothing wraps under it. */
+.pdf-book.is-fill > .book-nav input[type='range'] { flex: 0 0 240px; width: 240px; min-width: 0; accent-color: #8fd3b8; }
+@media (max-width: 1180px) { .pdf-book.is-fill > .book-nav input[type='range'] { flex-basis: 140px; width: 140px; } }
+.pdf-book.is-fill > .book-nav .book-sep { display: block; }
+.pdf-book.is-fill > .book-nav .btn { height: 26px; color: #e9e5da; background: transparent; border-color: transparent; }
+.pdf-book.is-fill > .book-nav .btn:hover { background: rgb(255 255 255 / 0.1); color: #fff; }
+.pdf-book.is-fill > .book-nav .btn[aria-pressed='true'] { background: rgb(143 211 184 / 0.18); color: #8fd3b8; }
+.pdf-book.is-fill > .book-nav .btn:disabled { opacity: 0.35; }
+.pdf-book.is-fill > .book-nav .segmented { background: rgb(255 255 255 / 0.08); border-color: transparent; }
+.pdf-book.is-fill > .book-nav .segmented button { color: #c9c4b8; }
+.pdf-book.is-fill > .book-nav .segmented button[aria-pressed='true'] { background: rgb(255 255 255 / 0.16); color: #fff; box-shadow: none; }
+/* Between the groups on the dock: the pages, the tools, the zoom, the layout. */
+.book-nav .book-sep { display: none; flex: none; width: 1px; height: 16px; background: rgb(255 255 255 / 0.16); }
+/* The hairline: how far through the paper the spread is, along the bottom edge. */
+.book-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; z-index: 7; background: rgb(127 127 127 / 0.2); pointer-events: none; }
+.book-progress i { display: block; height: 100%; background: var(--accent); border-radius: 0 2px 2px 0; transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); box-shadow: 0 0 8px rgb(var(--accent-rgb) / 0.55); }
 .pdf-book.is-fill .pdf-minimap { bottom: 14px; }
+@media (prefers-reduced-motion: reduce) { .pdf-book.is-fill > .book-nav, .book-progress i { transition: none; } }
 .main:has(.pdf-book.is-fill) > .pdf-hint { display: none; }
 .book-nav .fill-btn { flex-shrink: 0; white-space: nowrap; }
 .book-nav .fill-btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
@@ -1796,6 +1824,50 @@ mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-s
 .pdf-closeup-card canvas { display: block; }
 .pdf-closeup-caption { margin: 0; padding: 10px 16px 12px; font: 13.5px/1.45 var(--serif); color: #2a2a26; border-top: 1px solid #e6e3da; max-height: 6em; overflow: auto; }
 .pdf-closeup-chip { position: static; }
+
+/* A figure on the Explain page, close up: lifted off the page to the middle
+   of the window, the page dimmed behind it. The card grows from the
+   drawing's place (FigureCloseUp.tsx sets the transform) and settles. */
+.figure-closeup { position: fixed; inset: 0; z-index: 62; display: flex; align-items: center; justify-content: center; }
+.figure-closeup-back { position: absolute; inset: 0; background: rgb(8 11 15 / 0.66); backdrop-filter: blur(2px); animation: closeup-back-in 0.24s; }
+.figure-closeup.is-leaving .figure-closeup-back { opacity: 0; transition: opacity 0.24s; }
+@keyframes closeup-back-in { from { opacity: 0; } }
+.figure-closeup-body { position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 12px; max-width: calc(100vw - 32px); outline: none; }
+.figure-closeup-head { display: flex; align-items: center; gap: 12px; min-height: 28px; animation: closeup-back-in 0.3s; }
+.figure-closeup.is-leaving .figure-closeup-head, .figure-closeup.is-leaving .figure-closeup-chip { opacity: 0; transition: opacity 0.18s; }
+.figure-closeup-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 11px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: #8fd3b8; }
+.figure-closeup-dots { display: inline-flex; gap: 6px; flex: none; }
+.figure-closeup-dots i { width: 6px; height: 6px; border-radius: 3px; background: rgb(255 255 255 / 0.35); cursor: pointer; transition: width 0.15s, background 0.15s; }
+.figure-closeup-dots i:hover { background: rgb(255 255 255 / 0.6); }
+.figure-closeup-dots i.on { width: 18px; background: #8fd3b8; }
+.figure-closeup-tools { display: inline-flex; gap: 6px; flex: none; }
+.figure-closeup-tools .btn { color: #f6f3ea; background: rgb(255 255 255 / 0.08); border-color: rgb(255 255 255 / 0.2); }
+.figure-closeup-tools .btn:hover { background: rgb(255 255 255 / 0.16); border-color: rgb(255 255 255 / 0.35); }
+.figure-closeup-card {
+  background: var(--surface); border-radius: 12px; overflow: hidden;
+  box-shadow: 0 30px 80px -20px rgb(0 0 0 / 0.65), 0 0 0 1px rgb(255 255 255 / 0.08);
+  transition: transform 0.34s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s; will-change: transform;
+}
+.figure-closeup-card.is-stepped { animation: closeup-step 0.22s ease-out; }
+@keyframes closeup-step { from { opacity: 0; transform: scale(0.985); } }
+/* Named with the close-up, so the drawing's own rules on the page (a figure no taller than 420px, a scene 250px) do not hold here. */
+.figure-closeup .closeup-art { box-sizing: border-box; padding: 18px; cursor: default; }
+.figure-closeup .closeup-art::after { display: none; }
+.figure-closeup .closeup-art svg { display: block; width: 100%; height: 100%; max-height: none; font-family: var(--sans); }
+.figure-closeup .closeup-art.is-scene svg { overflow: visible; }
+.figure-closeup .closeup-art.is-scene text { fill: var(--ink); }
+.figure-closeup .closeup-art.is-scene text.t-muted { fill: var(--muted); }
+.figure-closeup-caption { margin: 0; padding: 10px 18px 13px; font: 13.5px/1.5 var(--serif); color: var(--ink-2); border-top: 1px solid var(--border-soft); max-height: 6.5em; overflow: auto; }
+.figure-closeup-chip { position: static; align-self: center; animation: closeup-back-in 0.3s; }
+@media (hover: none) { .figure-closeup-chip { display: none; } }
+@media (max-width: 720px) {
+  .figure-closeup-body { max-width: calc(100vw - 16px); }
+  .closeup-art { padding: 10px; }
+  .figure-closeup-caption { padding: 8px 12px 10px; font-size: 12.5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .figure-closeup-card, .figure-closeup-back, .figure-closeup-head, .figure-closeup-chip { transition: none; animation: none; }
+}
 /* pdf.js's text layer, as its own viewer styles it: the words, invisible, over where they are drawn. */
 .pdf-text {
   position: absolute; inset: 0; overflow: clip; text-align: initial; line-height: 1; opacity: 1;
@@ -3082,6 +3154,16 @@ body.win-moving .assistant-win { transition: none; }
 :root[data-theme='dark'] .figure-art .f-pink { fill: #4a3238; }
 .figure-art.drawing { height: 140px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
 .explain-figure figcaption { margin-top: 10px; font-size: 12.5px; line-height: 1.45; color: var(--ink-2); }
+/* A drawing opens close up on a click: the pointer says so, and a small mark comes up on its corner while it is pointed at. */
+.figure-art:not(.drawing), .motion-art:not(.drawing) { position: relative; cursor: zoom-in; border-radius: 8px; outline: none; }
+.figure-art:not(.drawing)::after, .motion-art:not(.drawing)::after {
+  content: '⤢ Close-up'; position: absolute; right: 4px; bottom: 4px; z-index: 1; pointer-events: none;
+  padding: 3px 7px; border-radius: 6px; background: var(--ink); color: var(--paper); font: 600 10.5px/1.3 var(--sans); letter-spacing: 0.02em;
+  box-shadow: var(--shadow-sm); opacity: 0; translate: 0 3px; transition: opacity 0.15s, translate 0.15s;
+}
+.figure-art:not(.drawing):hover::after, .figure-art:focus-visible::after, .motion-art:not(.drawing):hover::after, .motion-art:focus-visible::after { opacity: 0.92; translate: 0 0; }
+.figure-art:focus-visible, .motion-art:focus-visible { box-shadow: 0 0 0 2px var(--accent-soft), 0 0 0 3px var(--accent); }
+@media (hover: none) { .figure-art::after, .motion-art::after { display: none; } }
 
 /* Claude's mark under a figure: motion would help here, and the page offers to draw it. */
 .figure-animate { display: flex; gap: 10px; align-items: center; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border-soft); font-size: 11.5px; line-height: 1.4; color: var(--muted); }
@@ -3091,9 +3173,10 @@ body.win-moving .assistant-win { transition: none; }
 /* A scene: the figure with steps, drawn by the page (Motion.tsx). Its colours are the page's, by tone. */
 .explain-motion {
   margin: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); overflow: clip;
-  --m-accent: var(--accent); --m-blue: #3b6fb6; --m-yellow: #b8860b; --m-pink: #b7527a; --m-muted: var(--muted);
 }
-:root[data-theme='dark'] .explain-motion { --m-blue: #7ea4e0; --m-yellow: #e0b650; --m-pink: #d57aa0; }
+/* The scene's colours, by tone: on the card, and on a scene close up. */
+.explain-motion, .closeup-art.is-scene { --m-accent: var(--accent); --m-blue: #3b6fb6; --m-yellow: #b8860b; --m-pink: #b7527a; --m-muted: var(--muted); }
+:root[data-theme='dark'] .explain-motion, :root[data-theme='dark'] .closeup-art.is-scene { --m-blue: #7ea4e0; --m-yellow: #e0b650; --m-pink: #d57aa0; }
 .motion-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px 7px 12px; border-bottom: 1px solid var(--border-soft); background: var(--panel); font-size: 12px; }
 .motion-kind { font: 500 11px var(--mono); color: var(--accent); white-space: nowrap; }
 .motion-title { flex: 1; min-width: 0; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

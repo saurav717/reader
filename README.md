@@ -2533,10 +2533,23 @@ leaves both, putting zen back as it was.
 
 **⤢ Fill**, at the end of the page bar, gives the pages the whole frame,
 corner to corner: the margins round the spread go, so does the line of hints
-under it, and the page bar itself waits below the bottom edge — move the
-pointer there and it comes back. With **F** that is the whole screen. It is
-remembered. A PDF page, as a book or scrolled, in zen mode or out of it, can
-also be looked at closer in three ways, each under its own key:
+under it, and the page bar becomes a **dock** floating over the foot of the
+pages — a dark frosted lozenge with light type, the same one the loupe and
+the close-up say their keys in, so it reads on a white page and in the dark
+alike. It is out while the pointer moves and for a moment after a page
+turns, with the new folio on it; still for a couple of seconds, it goes,
+and nothing is over the pages; it stays while the pointer or the focus is
+on it, so a slider being dragged never has it go from under it. A
+**hairline** along the bottom edge stays, and says how far through the
+paper you are. On a touch screen a tap on the page brings the dock out.
+With **F** that is the whole screen. It is remembered. The design is in
+[`docs/fill-dock.md`](docs/fill-dock.md). A PDF page, as a book or
+scrolled, in zen mode or out of it, can also be looked at closer in three
+ways, each under its own key:
+
+![Fill: the spread corner to corner, and the dock floating over its foot with the folio, the slider, the tools, the zoom and the page count](docs/zoom-fill-dock.png)
+
+![Fill, the pointer still: nothing over the pages but the hairline along the bottom edge](docs/zoom-fill-hairline.png)
 
 - **Zoom.** A pinch on the trackpad, or <kbd>⌘</kbd> (<kbd>Ctrl</kbd>) with the
   wheel, draws the pages larger round the pointer — drawn afresh at the new
@@ -2853,6 +2866,26 @@ What it writes, in this order:
 ![the same scene two paragraphs later: the teacher greyed out, the hard label joined by a λ·CE link, packets flowing back down the student](docs/explain-stage-backward.png)
 
 ![a figure Claude marked as worth animating, with "Animate this figure" under it, and a scene as a card in the flow](docs/explain-stage-offer.png)
+
+- **Figures, close up.** Click any figure Claude drew — on this page or the
+  Implementation page — and it lifts off the page to the middle of the
+  window, as large as the window allows, growing from where it sits so the
+  eye follows it; the page dims behind it and stays where it was. A figure
+  is SVG, so the close-up is the same drawing set larger, not a picture
+  scaled up. Its caption is under it, which figure it is and whose section
+  over it, and a chip says the keys: <kbd>⇥</kbd> and the arrows go on to
+  the next figure on the page, <kbd>⇧⇥</kbd> back, the dots pick one,
+  **Add to notes** keeps it, and <kbd>Esc</kbd>, the **×** or a click
+  beside it puts it back where it came from. A scene opens the same way,
+  as a still of the step it is on. The pointer over a figure is a
+  magnifier, with a **⤢ Close-up** mark on its corner; the figure can be
+  reached with <kbd>⇥</kbd> and opened with <kbd>↵</kbd> too. The design,
+  with the alternatives considered, is in
+  [`docs/explain-closeup.md`](docs/explain-closeup.md).
+
+![the pipeline figure close up: the drawing across the middle of the window, its caption under it, the page dimmed behind, and the keys in a chip](docs/explain-closeup.png)
+
+![a scene close up, on its third step, with the step's caption under it](docs/explain-closeup-scene.png)
 
 Three layouts, switched in the bar and remembered:
 
