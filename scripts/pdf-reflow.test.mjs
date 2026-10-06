@@ -804,3 +804,206 @@ describe('glyphs', () => {
     assert.equal(faceOf('LiberationSerif-Bold').bold, true);
   });
 });
+
+// What an ACL paper set with dvips taught the reflow (RoBERTa, arXiv
+// 1907.11692): justified lines in footnotes and indented first lines cut
+// at their wide spaces, a year taken for an equation's number, headings
+// broken over two lines, a footnote carried from one column to the next,
+// small capitals broken at a line's end, a byline whose marks lead the
+// institutions, a line of text that starts "Table 7.", a heading set
+// level with the gap between the two rows of a table's heading, and a
+// sentence closed before its footnote's mark.
+describe('a paper set with dvips', () => {
+  const foot = (str, x, y, options = {}) => line(str, x, y, { size: 7, ...options });
+  const body = (x, top, count = 3) => column(x, top, Array.from({ length: count }, (_, index) => (index === count - 1 ? 'The end of it.' : 'Body text of the column runs on for a while here and then')));
+
+  it('mends a footnote line cut at its wide spaces, and a paragraph\'s indented first line', () => {
+    const runs = [
+      ...body(54, 100),
+      line('Devlin et al.', 66, 140, { width: 54 }),
+      line('(2019)', 137, 140, { width: 27 }),
+      line('originally', 181, 140, { width: 40 }),
+      line('trained', 238, 140, { width: 56 }),
+      line('BERT for 1M steps with a batch size of 256 sequences.', 54, 150.8, { width: 200 }),
+      // The footnotes, in small type at the foot of the page.
+      line('6', 54, 697, { size: 5, width: 3 }),
+      foot('The datasets are: CoLA (Warstadt et al., 2018), Question NLI', 57, 700, { width: 237 }),
+      foot('(QNLI) (Rajpurkar et al., 2016),', 54, 708.4, { width: 130 }),
+      foot('Recognizing Textual', 192.5, 708.4, { width: 101.5 }),
+      foot('Entailment (RTE) and Winograd NLI (WNLI).', 54, 716.8),
+    ];
+    const layout = layoutPages([page(runs)]);
+    assert.ok(!layout.blocks.some((block) => block.kind === 'equation'));
+    assert.ok(texts(layout).includes('Devlin et al. (2019) originally trained BERT for 1M steps with a batch size of 256 sequences.'), texts(layout).join('\n'));
+    const notes = layout.blocks.filter((block) => block.kind === 'footnote').map((block) => plain(block.spans));
+    assert.deepEqual(notes, ['6The datasets are: CoLA (Warstadt et al., 2018), Question NLI (QNLI) (Rajpurkar et al., 2016), Recognizing Textual Entailment (RTE) and Winograd NLI (WNLI).']);
+  });
+
+  it('does not take a year cut from its citation for an equation\'s number', () => {
+    const runs = [
+      ...body(54, 100),
+      line('Devlin et al.', 54, 140, { width: 54 }),
+      line('(2019)', 124, 140, { width: 27 }),
+      line('trained', 161, 140, { width: 30 }),
+      line('BERT for 1M steps with a batch size of 256 sequences.', 54, 150.8, { width: 200 }),
+    ];
+    const layout = layoutPages([page(runs)]);
+    assert.ok(!layout.blocks.some((block) => block.kind === 'equation'), JSON.stringify(layout.blocks));
+    assert.ok(texts(layout).some((text) => text.includes('(2019)')));
+  });
+
+  it('reads a bold heading broken over two lines as one, and two headings set apart as two', () => {
+    const runs = [
+      line('Appendix for “A Robustly Optimized', 54, 60, { size: 11, font: 'NimbusRomNo9L-Medi', width: 180 }),
+      line('Pretraining Approach”', 54, 73, { size: 11, font: 'NimbusRomNo9L-Medi', width: 110 }),
+      line('A Full results on GLUE', 54, 93, { size: 11, font: 'NimbusRomNo9L-Medi', width: 120 }),
+      ...body(54, 110),
+      line('4.2 Model Input Format and Next Sentence', 54, 150, { font: 'NimbusRomNo9L-Medi', width: 200 }),
+      line('Prediction', 80, 161, { font: 'NimbusRomNo9L-Medi', width: 45 }),
+      ...body(54, 176),
+    ];
+    const layout = layoutPages([page(runs)]);
+    const headings = layout.blocks.filter((block) => block.kind === 'heading').map((block) => plain(block.spans));
+    assert.deepEqual(headings, ['Appendix for “A Robustly Optimized Pretraining Approach”', 'A Full results on GLUE', '4.2 Model Input Format and Next Sentence Prediction']);
+  });
+
+  it('carries a footnote broken off at the foot of one column on at the foot of the next', () => {
+    const runs = [
+      ...body(54, 100, 4),
+      ...body(314, 100, 4),
+      line('10', 54, 697, { size: 5, width: 6 }),
+      foot('While we only use the provided WNLI training data, our', 60.3, 700, { width: 233.7 }),
+      foot('results could potentially be improved by augmenting this with', 314, 692, { width: 240 }),
+      foot('additional pronoun disambiguation datasets.', 314, 700.4),
+    ];
+    const layout = layoutPages([page(runs)]);
+    const notes = layout.blocks.filter((block) => block.kind === 'footnote').map((block) => plain(block.spans));
+    assert.deepEqual(notes, ['10While we only use the provided WNLI training data, our results could potentially be improved by augmenting this with additional pronoun disambiguation datasets.']);
+  });
+
+  it('mends a word in small capitals broken at the line\'s end, and a name the paper writes whole', () => {
+    const runs = [
+      ...column(54, 100, ['BERT is trained on a combination of BOOKCOR-', 'PUS (Zhu et al., 2015) plus English WIKIPEDIA, and XL-', 'Net (Yang et al., 2019) augments its data. The BOOKCORPUS', 'and XLNet are named whole here, and self-', 'attention stays hyphenated: self-attention it is.']),
+    ];
+    const text = texts(layoutPages([page(runs)]))[0];
+    assert.ok(text.includes('of BOOKCORPUS (Zhu'), text);
+    assert.ok(text.includes('and XLNet (Yang'), text);
+    assert.ok(text.includes('and self-attention stays'), text);
+  });
+
+  it('reads an institution led by its mark as the mark\'s, not as a name, and one run over two lines whole', () => {
+    const runs = [
+      line('A Very Important Paper', 150, 80, { size: 17, font: 'NimbusRomNo9L-Medi', width: 300 }),
+      line('Yinhan Liu', 120, 110, { size: 12, font: 'NimbusRomNo9L-Medi', width: 60 }),
+      line('∗§', 180, 106, { size: 8, width: 8 }),
+      line('Myle Ott', 210, 110, { size: 12, font: 'NimbusRomNo9L-Medi', width: 45 }),
+      line('§', 255, 106, { size: 8, width: 4 }),
+      line('Mandar Joshi', 290, 110, { size: 12, font: 'NimbusRomNo9L-Medi', width: 70 }),
+      line('†', 360, 106, { size: 8, width: 4 }),
+      line('†', 160, 142, { size: 8, width: 4 }),
+      line('Paul G. Allen School of Computer Science & Engineering,', 166, 146, { size: 12, width: 280 }),
+      line('University of Washington, Seattle, WA', 200, 160, { size: 12, width: 190 }),
+      line('§', 270, 170, { size: 8, width: 4 }),
+      line('Facebook AI', 276, 174, { size: 12, width: 60 }),
+      line('Abstract', 54, 210, { size: 11, font: 'NimbusRomNo9L-Medi' }),
+      ...body(54, 224),
+      line('∗Equal contribution.', 54, 700, { size: 7, width: 60 }),
+    ];
+    const layout = layoutPages([page(runs)], { title: 'A Very Important Paper' });
+    assert.deepEqual(layout.authors, ['Yinhan Liu', 'Myle Ott', 'Mandar Joshi']);
+    assert.deepEqual(
+      layout.byline.authors.map((author) => [author.name, author.affiliations.join('; '), author.notes.join('; ')]),
+      [
+        ['Yinhan Liu', 'Facebook AI', 'Equal contribution'],
+        ['Myle Ott', 'Facebook AI', ''],
+        ['Mandar Joshi', 'Paul G. Allen School of Computer Science & Engineering, University of Washington, Seattle, WA', ''],
+      ],
+    );
+  });
+
+  it('leaves a line of the text that begins "Table 7." in the text', () => {
+    const runs = [
+      ...column(54, 100, ['Results on the RACE test sets are presented in', 'Table 7. RoBERTa achieves state-of-the-art results', 'on both middle-school and high-school settings.']),
+      ...body(54, 140),
+    ];
+    const layout = layoutPages([page(runs)]);
+    assert.ok(!layout.blocks.some((block) => block.kind === 'table'));
+    assert.ok(texts(layout)[0].includes('presented in Table 7. RoBERTa achieves'), texts(layout).join('\n'));
+  });
+
+  it('reads a heading set level with the gap between the two rows of a table\'s heading as the heading\'s, not a panel\'s title', () => {
+    const bold = { font: 'NimbusRomNo9L-Medi' };
+    const runs = [
+      line('SQuAD 1.1', 150, 76, { ...bold, width: 50 }),
+      line('SQuAD 2.0', 220, 76, { ...bold, width: 50 }),
+      line('Model', 82, 83, { ...bold, width: 30 }),
+      line('EM', 150, 90, { width: 15 }),
+      line('F1', 185, 90, { width: 12 }),
+      line('EM', 216, 90, { width: 15 }),
+      line('F1', 258, 90, { width: 12 }),
+      line('Single models on dev', 82, 108, { font: 'NimbusRomNo9L-ReguItal', width: 100 }),
+      line('BERT', 82, 122, { width: 40 }),
+      line('84.1', 148, 122, { width: 19 }),
+      line('90.9', 181, 122, { width: 19 }),
+      line('79.0', 215, 122, { width: 19 }),
+      line('81.8', 254, 122, { width: 19 }),
+      line('RoBERTa', 82, 136, { width: 44 }),
+      line('88.9', 148, 136, { width: 19 }),
+      line('94.6', 181, 136, { width: 19 }),
+      line('86.5', 215, 136, { width: 19 }),
+      line('89.4', 254, 136, { width: 19 }),
+      line('Table 6: Results on SQuAD.', 54, 165, { size: 8, width: 110 }),
+      ...body(54, 200),
+    ];
+    const graphics = [
+      { x0: 76, y0: 63.5, x1: 286, y1: 64, kind: 'path' },
+      { x0: 76, y0: 96, x1: 286, y1: 96.5, kind: 'path' },
+      { x0: 76, y0: 143, x1: 286, y1: 143.5, kind: 'path' },
+    ];
+    const layout = layoutPages([page(runs, graphics)]);
+    const table = layout.blocks.find((block) => block.kind === 'table');
+    assert.ok(table?.rows, JSON.stringify(layout.blocks));
+    const cells = table.rows.map((row) => row.map((cell) => plain(cell.spans)));
+    assert.deepEqual(cells[0], ['', 'SQuAD 1.1', 'SQuAD 2.0']);
+    assert.deepEqual(table.rows[0].slice(1).map((cell) => cell.colspan), [2, 2]);
+    assert.deepEqual(cells[1], ['Model', 'EM', 'F1', 'EM', 'F1']);
+    assert.ok(table.rows.slice(0, 2).flat().every((cell) => !plain(cell.spans) || cell.head));
+    assert.ok(!table.rows.some((row) => row.some((cell) => cell.panel)));
+    assert.deepEqual(cells[2][0], 'Single models on dev');
+    assert.deepEqual(cells[3], ['BERT', '84.1', '90.9', '79.0', '81.8']);
+  });
+
+  it('does not run a paragraph on after a sentence closed before its footnote\'s mark', () => {
+    const runs = [
+      ...column(54, 100, ['One unfortunate consequence of this formulation is that we', 'can only make use of the positive training examples, which', 'excludes over half of the provided training examples.']),
+      line('10', 262, 118.1, { size: 5, width: 6 }),
+      line('Results', 314, 100, { font: 'NimbusRomNo9L-Medi', width: 32 }),
+      line('We present our results in Table 5. In the first', 350, 100, { width: 204 }),
+      line('setting, RoBERTa achieves state-of-the-art results.', 314, 110.8, { width: 200 }),
+    ];
+    const layout = layoutPages([page(runs)]);
+    assert.deepEqual(texts(layout), [
+      'One unfortunate consequence of this formulation is that we can only make use of the positive training examples, which excludes over half of the provided training examples.10',
+      'Results We present our results in Table 5. In the first setting, RoBERTa achieves state-of-the-art results.',
+    ]);
+  });
+
+  it('keeps the hyphen of a word the paper writes hyphenated when its halves are parted by a column break, with no space', () => {
+    const runs = [
+      ...column(54, 100, ['The end-task performance of the model is measured on', 'each benchmark, and we compare perplexity and end-']),
+      ...column(314, 100, ['task performance as we increase the batch size, which', 'is the end of it.']),
+    ];
+    const text = texts(layoutPages([page(runs)]))[0];
+    assert.ok(text.includes('perplexity and end-task performance as'), text);
+  });
+
+  it('reads Computer Modern\'s epsilon as one', () => {
+    const runs = [
+      ...body(54, 100),
+      line('Adam with', 54, 140, { width: 40 }),
+      line('ǫ', 96, 140, { font: 'KDQHQT+CMMI10', width: 5 }),
+      line('= 1e-6 and a weight decay of 0.01 for the whole run.', 103, 140, { width: 191 }),
+    ];
+    assert.ok(texts(layoutPages([page(runs)])).some((text) => text.includes('Adam with ϵ = 1e-6')));
+  });
+});

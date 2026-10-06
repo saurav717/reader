@@ -1144,7 +1144,12 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   are a paragraph — and a paragraph ends where its last line stops short
   with its sentence, as a style that parts paragraphs with space rather
   than an indent sets them, or where the next line is set further under it
-  than the text's lines are set apart; a word broken at the line's end is mended; a run in a
+  than the text's lines are set apart; a word broken at the line's end is
+  mended — a word in small capitals too, *BOOKCOR-* / *PUS*, and *XL-* /
+  *Net* where the paper writes XLNet whole, while *end-* / *task* keeps the
+  hyphen the paper writes it with, across a column break as well — and a
+  sentence closed before its footnote's mark ("…training examples.¹⁰") is
+  closed, so the next column's paragraph is its own; a run in a
   bold, italic or monospaced face keeps it, and a run raised or lowered on
   the line is a superscript or subscript. Two columns are read down one and
   then the other (a recursive XY-cut, which also puts a full-width title
@@ -1156,7 +1161,11 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   structured abstract's parts, each led by a heading run into its text
   ("Recent findings", "Summary"), are a paragraph each, even where the
   abstract is set across both columns of a two-column paper.
-  Headings are the lines set larger or bolder than the body — or in its own
+  Headings are the lines set larger or bolder than the body — a bold
+  heading broken over two lines, "4.2 Model Input Format and Next
+  Sentence" / "Prediction", the second hung in under the first, is one
+  heading, and two set one over the other with space between, an
+  appendix's title and its first section's, are two — or in its own
   type, short, with space over them and the text under them, as Nature's
   journals set a subsection, one level under the section it is in — with levels from
   their numbering, and "References" or an appendix lettered "A." set as
@@ -1169,7 +1178,10 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   contents page — its entries led by dots to page numbers the reflowed
   paper does not have — is left out; running heads, page numbers
   and the arXiv stamp are left out (the article's number Springer boxes
-  beside "Page 2 of 11" with them); and accents TeX sets apart from their
+  beside "Page 2 of 11" with them) — a running head being set in the same
+  place on page after page, which a table's heading word at the head of a
+  page, *Model* or *MNLI-m* set where each table's columns fall, is not;
+  and accents TeX sets apart from their
   letters ("na¨ıve") are put back, as are the spaces pdf.js reports as runs
   of their own, the lines of justified text stretched so wide their spaces
   part them as columns are parted, and an address set a letter at a time
@@ -1191,11 +1203,15 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   the marks stand for and the institutions named ("Nanjing University ·
   ∗Equal contribution · †Corresponding authors"). An institution named
   without a mark is every author's; one with a mark, "¹", is theirs whose
-  names carry it. Addresses on the first page — one by one, written once
+  names carry it — a line led by a mark, "§Facebook AI", being what the
+  mark stands for and never a name, and an institution run over two lines
+  after a comma ("Paul G. Allen School of Computer Science & Engineering,"
+  / "University of Washington") one institution. Addresses on the first page — one by one, written once
   for a domain as `{jqiu, zchen}@nju.edu.cn`, or in a footnote — are put to
   the author whose name is in them, or to the one a note's mark is on —
   `sauravm@` is Saurav Muralidharan's, as `sharatht@` is Sharath Turuvekere
-  Sreenivas's. Names set apart by wide spaces rather than commas, as
+  Sreenivas's, and `lsz@` Luke Zettlemoyer's where no one else on the
+  byline has those initials. Names set apart by wide spaces rather than commas, as
   NeurIPS sets them, are still one name each, and a note set as a footnote
   on the first page — "∗Equal contribution" — is the byline's, not the
   text's, however many lines it runs to — set however low on the page —
@@ -1324,15 +1340,34 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   "PROMPT", its options under "OPTIONS" — is read as one column, its labels
   heading rows and its lines broken where the box breaks them. A table whose cells cannot be told apart is
   painted instead, like a figure.
+  What lies between a table's own rules is the table's, however it is set:
+  a label for a group of rows in italics as wide as a line of text (*Our
+  reimplementation (without NSP loss):*) is a row, not the text resuming,
+  and the rule drawn under the heading ends the heading whatever the rows
+  under it hold. A heading cell set level with the gap between two rows of
+  the heading (*Model* beside *SQuAD 1.1* over *EM F1*) is the heading's,
+  not a panel's title. On a page of nothing but tables — an appendix —
+  a table reaches as far as its rules, there being no text to measure by.
+  A PDF set with dvips, as the ACL's and many an older arXiv paper's are,
+  draws every rule as an image mask a pixel high and wide, stretched to a
+  line; those are read as the rules they are, not as pictures.
 - **Equations.** A line numbered *(3)* at the column's edge, or set mostly in
   a mathematics font, is display mathematics, and mathematics read glyph by
   glyph out of a PDF is not worth reading — so the equation and the lines a
   fraction or a sum spreads over, in its own column, are painted from the
   page and shown in their place — every line of a display, however much of
-  it is set in its scripts ("𝑀 = 72 𝑛layer 𝑑²model").
+  it is set in its scripts ("𝑀 = 72 𝑛layer 𝑑²model"). A year — *(2019)*
+  cut from the end of a citation by a justified line's wide spaces — is
+  not an equation's number, and the line it was cut from is mended first:
+  a justified line stretched until its spaces are wider than an em, in a
+  footnote's small type or indented as a paragraph's first line, is one
+  line again.
 - **Footnotes** also include a line at the very foot of the page led by a
   note's mark, however large it is set; and the bibliography ends at the
   heading after it, so the footnotes of an appendix's first page are its own.
+  A note broken off at the foot of one column and carried on at the foot of
+  the next, or of the next page — no mark of its own, going on in lower
+  case where the one before stopped mid-sentence — is one note.
 - **Footnotes** are the small text at the foot of each page, kept small and
   set after the text of that page, one note a mark, a note's own
   mathematics — "q · k = ∑ qᵢkᵢ" — kept in it. Small type at the foot of
@@ -1348,7 +1383,19 @@ on the main thread and reads there, slower but the same. When a PDF cannot
 be read at all, the notice under the title says why, in pdf.js's words.
 
 `scripts/pdf-reflow.test.mjs` is that layout written down against made-up
-pages; `scripts/pdf-reflow-ieee.test.mjs` reads a real IEEE conference paper
+pages — among them what an ACL paper set with dvips (RoBERTa, arXiv
+1907.11692) taught it: justified footnote lines and indented first lines
+cut at their wide spaces, a year taken for an equation's number, a bold
+heading broken over two lines, a footnote carried from one column to the
+next, small capitals broken at a line's end (*BOOKCOR-* / *PUS*), a
+byline whose marks lead its institutions (*§Facebook AI*), a line of text
+that begins "Table 7.", a sentence closed before its footnote's mark, and
+Computer Modern's ϵ; `scripts/pdf-reflow-dvips.test.mjs` writes a
+two-page PDF out by hand with its table's rules drawn as dvips draws them,
+and reads it back with pdf.js — the rules found, the table's heading and
+its italic group label kept, the running head dropped and the heading
+words that come round at the head of page after page (*Model*, *MNLI-m*,
+each table setting them where its columns fall) kept; `scripts/pdf-reflow-ieee.test.mjs` reads a real IEEE conference paper
 (`scripts/fixtures/ieee-two-column.tex`, made up, and the PDF pdflatex made
 of it) with pdf.js as the app does — a figure beside the abstract, tables in
 Roman numerals and in panels, small-capital headings, links and the byline's
