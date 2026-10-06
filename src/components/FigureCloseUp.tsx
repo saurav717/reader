@@ -22,14 +22,16 @@ export interface CloseUpVisual {
   /** The section it is in. */
   section: string;
   caption: string;
-  /** The drawing, as SVG — cleaned by DOMPurify before it was put on the page, or drawn by the page itself. */
+  /** The drawing, as SVG — cleaned by DOMPurify before it was put on the page, or drawn by the page itself — or a picture's images. */
   svg: string;
+  /** A picture found rather than drawn: images, set side by side, not a drawing. */
+  picture?: boolean;
   /** Width over height, from the viewBox, so the close-up has the drawing's own proportions. */
   aspect: number;
 }
 
 /** What on the page is a drawing: a figure's SVG, or a scene's. The page's own icons — in buttons, in headers — are not. */
-export const CLOSEUP_ART = '.explain-figure .figure-art:not(.drawing), .explain-motion .motion-art:not(.drawing)';
+export const CLOSEUP_ART = '.explain-figure .figure-art:not(.drawing):not(.picture-missing), .explain-motion .motion-art:not(.drawing)';
 
 function aspectOf(svg: SVGSVGElement, art: HTMLElement): number {
   const viewBox = svg.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number);
@@ -43,6 +45,24 @@ export function closeUpVisuals(root: HTMLElement | null): CloseUpVisual[] {
   if (!root) return [];
   const visuals: CloseUpVisual[] = [];
   for (const art of Array.from(root.querySelectorAll<HTMLElement>(CLOSEUP_ART))) {
+    // A picture found rather than drawn: its images, side by side when it is several panels.
+    const images = Array.from(art.querySelectorAll<HTMLImageElement>(':scope > img:not([hidden])'));
+    if (art.matches('.picture-art')) {
+      const element = art.closest<HTMLElement>('.explain-figure');
+      if (!element || !images.length) continue;
+      const width = images.reduce((sum, image) => sum + (image.naturalWidth && image.naturalHeight ? image.naturalWidth / image.naturalHeight : 4 / 3), 0);
+      visuals.push({
+        element,
+        art,
+        kind: 'figure',
+        section: art.closest<HTMLElement>('.explain-section')?.dataset.title ?? '',
+        caption: element.querySelector('figcaption')?.textContent?.trim() ?? '',
+        svg: images.map((image) => `<img src="${(image.currentSrc || image.src).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" alt="">`).join(''),
+        aspect: width || 4 / 3,
+        picture: true,
+      });
+      continue;
+    }
     const svg = art.querySelector<SVGSVGElement>(':scope > svg');
     if (!svg) continue;
     const scene = art.matches('.motion-art');
@@ -218,7 +238,7 @@ export default function FigureCloseUp({ visuals, index, onIndex, onClose, onKeep
           </span>
         </div>
         <div key={stepped} className={`figure-closeup-card${stepped ? ' is-stepped' : ''}`} ref={cardRef}>
-          <div ref={artRef} className={`closeup-art ${visual.kind === 'scene' ? 'motion-art is-scene' : 'figure-art'}`} style={{ width: size.width, height: size.height }} dangerouslySetInnerHTML={{ __html: visual.svg }} />
+          <div ref={artRef} className={`closeup-art ${visual.kind === 'scene' ? 'motion-art is-scene' : visual.picture ? 'figure-art picture-art' : 'figure-art'}`} style={{ width: size.width, height: size.height }} dangerouslySetInnerHTML={{ __html: visual.svg }} />
           {visual.caption ? <p className="figure-closeup-caption">{visual.caption}</p> : null}
         </div>
         <div className="pdf-zoom-chip figure-closeup-chip">

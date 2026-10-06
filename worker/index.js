@@ -34,7 +34,7 @@ import { contributionsAsked, readContributions } from '../server/contributionRea
 import { PROFILE_MODEL } from '../server/profileReader.js';
 import { aiCounts } from './usage.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini, tokensOf as geminiTokens } from '../server/geminiRelay.js';
-import { readPage, searchWeb, webAvailable, WebRefused } from '../server/webSearch.js';
+import { imagesAvailable, readPage, searchImages, searchWeb, webAvailable, WebRefused } from '../server/webSearch.js';
 import { handleColab, isColabPath, readSocketTicket } from '../server/colab.js';
 import { bridgeSocket } from './colabSocket.js';
 import { readBalance } from './deepseekBalance.js';
@@ -296,7 +296,7 @@ export default {
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(String(env.GEMINI_KEY || '').trim()), web: webAvailable(webKeys), colab: true, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(String(env.GEMINI_KEY || '').trim()), web: webAvailable(webKeys), images: imagesAvailable(webKeys), colab: true, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
           200,
           headers,
         );
@@ -775,7 +775,7 @@ export default {
       // key — TAVILY_KEY, BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY, the first set — and a page
       // read as text, for the model to cite (server/webSearch.js). Both for
       // whoever may use this Worker's paid accounts, and both on the tally.
-      if (path === '/web/search' || path === '/web/page') {
+      if (path === '/web/search' || path === '/web/page' || path === '/web/images') {
         const who = await authorized(request, env);
         if (!who) return needsToken(env, headers);
         if (await personOverLimit(env, who)) {
@@ -786,6 +786,12 @@ export default {
             const found = await searchWeb(url.searchParams.get('q'), webKeys);
             tally(env, ctx, who, { web: 1, ...(found.via === 'serply' ? { serply: 1 } : found.via === 'serpapi' ? { serpapi: 1 } : {}) });
             return json(found, 200, { ...headers, 'Cache-Control': 'private, max-age=300' });
+          }
+          if (path === '/web/images') {
+            // Pictures for the Explain page: Google Images through SerpApi first (server/webSearch.js).
+            const found = await searchImages(url.searchParams.get('q'), webKeys);
+            tally(env, ctx, who, { web: 1, ...(found.via === 'serpapi' ? { serpapi: 1 } : {}) });
+            return json(found, 200, { ...headers, 'Cache-Control': 'private, max-age=86400' });
           }
           return json(await readPage(url.searchParams.get('url')), 200, { ...headers, 'Cache-Control': 'private, max-age=300' });
         } catch (error) {

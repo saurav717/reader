@@ -2795,6 +2795,36 @@ What it writes, in this order:
 - **Figures**: small SVG diagrams, drawn by Claude. They colour themselves only
   with a few classes the page themes (`f-accent`, `f-blue`, `s-muted`, …), so
   they follow light and dark like everything else. DOMPurify cleans them first.
+- **Pictures — real ones, not only drawn.** Beside its own diagrams, the page
+  shows the paper's own figures and pictures from the web, each in the
+  section it belongs to, with a line under it saying where it came from.
+  The model asks for one in an `image` block and the page finds it:
+  - `figure="3"` (or `table="2"`) is the paper's own Figure 3, by the number
+    its caption gives it. It is taken from the Reflow column when the paper
+    is reflowed; else from arXiv's HTML rendering, where the figures are the
+    authors' own image files; else cut out of the PDF on screen, the way
+    Reflow cuts figures out of pages. A figure of a paper still loading is
+    looked for again for a while before the page says it is not there.
+  - `search="…"` is an image search — **Google Images**, through the paper
+    proxy's `SERPAPI_KEY` (SerpApi's `google_images` engine), or Brave's or
+    Tavily's image search when that is the key the proxy has. The first
+    result that will actually load here is shown (a site that refuses to be
+    shown elsewhere is passed over), linked to the page it is on.
+  - `wiki="…"` is the lead image of that English Wikipedia article, with its
+    author and licence from Commons. With no image search on the proxy, or
+    nothing that loads, Wikimedia Commons is searched instead, which needs
+    no key at all.
+
+  A web picture is searched for once and remembered in the browser. Paper
+  figures sit on white in dark mode, as they were printed, and every picture
+  opens close up like a diagram. `![caption](figure:3)` in the prose, as Ask
+  AI writes it, is found the same way.
+  `scripts/explain-pictures-smoke.mjs` runs all of it against stand-ins.
+
+![a section on the architecture: the paper's Figure 1, cut out of the PDF, beside the paragraph that explains it, with "Figure 1 of the paper" under it](docs/explain-pictures.png)
+
+![an attention map found by an image search, beside the paragraph that reads it, with the site it is on and "found by Google Images" under it](docs/explain-pictures-web.png)
+
 - **Code cells**: short, seeded numpy you can run, numbered `In [1]`,
   `In [2]`, … Each one shows the output Claude expects, labelled as not yet
   run. **Run in Colab** runs exactly that code in a Colab runtime of your own
@@ -3670,6 +3700,7 @@ node scripts/deepseek-smoke.mjs   # Ask AI and Explain on DeepSeek, with DeepSee
 node scripts/gemini-smoke.mjs     # Ask AI and Explain on Gemini, with Google's API stubbed
 node scripts/notes-smoke.mjs   # the notes beside the page, and in a window over the PDF
 node scripts/explain-notes-smoke.mjs # keeping diagrams, code, tables, maths and passages from Explain
+node scripts/explain-pictures-smoke.mjs # the paper's figures and web pictures on the Explain page
 node scripts/paper-notes-smoke.mjs   # keeping figures, tables and passages from Reflow and the PDF, and snipping
 node scripts/notes-per-paper-smoke.mjs # each paper's own notes, the list of all of them, and the library's counts
 node scripts/notes-views-smoke.mjs     # List, Document, By section, Jots and the Board; stickies on the PDF

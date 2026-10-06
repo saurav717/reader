@@ -171,6 +171,9 @@ export function showPdf(blob: Blob | null) {
   pdfOnScreen = blob;
 }
 
+/** The file `showPdf` was last told of: the paper's PDF while it is read as one. */
+export const pdfShown = (): Blob | null => pdfOnScreen;
+
 async function extractPdfText(blob: Blob): Promise<string[]> {
   const engine = await import('./pdfReflow');
   const { doc, close } = await engine.openPdf(blob);

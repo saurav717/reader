@@ -13,7 +13,7 @@
 const PAGE_PIXELS = 1200;
 
 /** Whether a caption names this figure or table: "Figure 3", "Fig. 3", "Table 2", at its start or anywhere in it. */
-function names(caption: string, kind: string, ref: string): boolean {
+export function names(caption: string, kind: string, ref: string): boolean {
   const number = ref.replace(/[^\w.]/g, '');
   if (!number) return false;
   const word = kind === 'table' ? '(?:table|tab\\.?)' : '(?:figure|fig\\.?)';

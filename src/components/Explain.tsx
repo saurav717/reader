@@ -2,7 +2,7 @@ import DOMPurify from 'dompurify';
 import { cleanFigure } from '../lib/sanitize';
 import { typesetFigureMath } from '../lib/figureMath';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
-import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Screen } from '../lib/assistant';
 import { ASSISTANT_NAME, geminiNote, getState, looksLikeKey, MODELS, modelSpec, PROVIDERS, saveKey, setAskModel, setExplainModel, subscribe } from '../lib/assistant';
 import ModelChip from './ModelChip';
@@ -43,6 +43,9 @@ import { markdown } from '../lib/markdown';
 import { SHOW_IN_EXPLAIN, addClip, copyOf } from '../lib/notes';
 import type { NoteSource } from '../lib/notes';
 import { selectedText } from '../lib/screen';
+import { findPicture, isPaperPicture, pictureLabel } from '../lib/pictures';
+import type { Picture } from '../lib/pictures';
+import { arxivIdFromUrl } from '../lib/paperContent';
 import { useStore } from '../lib/store';
 import { motionText } from '../lib/motion';
 import { MotionView, Stage } from './Motion';
@@ -350,6 +353,91 @@ function Figure({ block, onAnimate, writer }: { block: Extract<Block, { kind: 'f
   );
 }
 
+/** The paper the page explains, as the pictures need it: its arXiv id, where arXiv's rendering has its figures. */
+const PictureContext = createContext<{ arxivId?: string }>({});
+
+/**
+ * A real picture: the paper's own figure or table, or an image from the web,
+ * found by the page (pictures.ts) rather than drawn by the model. It sits
+ * where a diagram would, and opens close up the same way.
+ */
+function PictureFigure({ block }: { block: Extract<Block, { kind: 'image' }> }) {
+  const { arxivId } = useContext(PictureContext);
+  const [state, setState] = useState<{ picture?: Picture | null; broken?: number }>({});
+  useEffect(() => {
+    if (block.open) return;
+    let live = true;
+    let timer = 0;
+    setState({});
+    // The paper may still be loading — its PDF being fetched, its Reflow column being set — so a figure of it not
+    // found yet is looked for again a few times before the page says so.
+    const look = (tries: number) =>
+      void findPicture(block, { arxivId }).then((picture) => {
+        if (!live) return;
+        if (!picture && isPaperPicture(block) && tries > 0) timer = window.setTimeout(() => look(tries - 1), 3000);
+        else setState({ picture });
+      });
+    look(isPaperPicture(block) ? 8 : 0);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [block.open, block.figure, block.table, block.src, block.wiki, block.search, arxivId]);
+  const picture = state.picture;
+  const label = pictureLabel(block);
+  const paper = isPaperPicture(block);
+  // Every panel failed to load: as good as not found.
+  const lost = picture && (state.broken ?? 0) >= picture.srcs.length;
+  return (
+    <figure className={`explain-figure explain-picture${paper ? ' is-paper' : ' is-web'}`}>
+      {block.open || state.picture === undefined ? (
+        <div className="figure-art drawing">{block.open ? 'Choosing a picture…' : `Finding ${label}…`}</div>
+      ) : !picture || lost ? (
+        <div className="figure-art picture-missing">
+          {paper ? `${label.replace(/^./, (c) => c.toUpperCase())} could not be found — open the paper in Reflow, or as its PDF, and it will be cut out of it.` : `No picture could be found for ${label}.`}
+        </div>
+      ) : (
+        <div
+          className={`figure-art picture-art${picture.srcs.length > 1 ? ' is-panels' : ''}`}
+          role="button"
+          tabIndex={0}
+          aria-label={`See the picture close up${block.caption ? `: ${block.caption}` : ''}`}
+          title="Click for a close-up"
+        >
+          {picture.srcs.map((src) => (
+            <img
+              key={src}
+              src={src}
+              alt={block.alt || block.caption}
+              loading="lazy"
+              decoding="async"
+              referrerPolicy="no-referrer"
+              onError={(event) => {
+                event.currentTarget.hidden = true;
+                setState((now) => ({ ...now, broken: (now.broken ?? 0) + 1 }));
+              }}
+            />
+          ))}
+        </div>
+      )}
+      {block.caption ? <figcaption>{block.caption}</figcaption> : null}
+      {picture && !lost ? (
+        <div className="picture-credit">
+          {picture.link ? (
+            <a href={picture.link} target="_blank" rel="noopener noreferrer">
+              {picture.where}
+            </a>
+          ) : (
+            picture.where
+          )}
+          {picture.credit ? <span> · {picture.credit}</span> : null}
+          {picture.license ? <span> · {picture.license}</span> : null}
+        </div>
+      ) : null}
+    </figure>
+  );
+}
+
 function Caveat({ block }: { block: Extract<Block, { kind: 'caveat' }> }) {
   return (
     <aside className={`explain-caveat v-${block.verdict}`}>
@@ -379,6 +467,12 @@ const firstLine = (text: string) => text.split('\n').map((line) => line.trim()).
 
 /** What a piece is called in the notes, and what it says as text. */
 function describe(element: HTMLElement): { label: string; text: string; quote?: string } {
+  if (element.matches('.explain-picture')) {
+    const caption = element.querySelector('figcaption')?.textContent?.trim();
+    const where = element.querySelector('.picture-credit')?.textContent?.trim();
+    const label = element.matches('.is-paper') ? 'Figure from the paper' : 'Picture';
+    return { label, text: `[${label}${caption ? `: ${caption}` : ''}${where ? ` — ${where}` : ''}]`, quote: caption };
+  }
   if (element.matches('.explain-figure')) {
     const caption = element.querySelector('figcaption')?.textContent?.trim();
     return { label: 'Diagram', text: caption ? `[Diagram: ${caption}]` : '[Diagram]', quote: caption };
@@ -439,6 +533,8 @@ function sectionText(section: Section): string {
         ? block.md
         : block.kind === 'figure'
           ? `[Diagram${block.caption ? `: ${block.caption}` : ''}]`
+          : block.kind === 'image'
+            ? `[${block.figure ? `Figure ${block.figure} of the paper` : block.table ? `Table ${block.table} of the paper` : 'Picture'}${block.caption ? `: ${block.caption}` : ''}]`
           : block.kind === 'motion'
             ? motionText(block.title, block.spec)
           : block.kind === 'code'
@@ -511,6 +607,8 @@ function SectionView({
       <div key={key} className="explain-prose" dangerouslySetInnerHTML={{ __html: html(block.md) }} />
     ) : block.kind === 'figure' ? (
       <Figure key={key} block={block} writer={writer} onAnimate={onAnimate && stage !== 'off' && !motion && state !== 'revising' ? (caption) => onAnimate(section.title, caption) : undefined} />
+    ) : block.kind === 'image' ? (
+      <PictureFigure key={key} block={block} />
     ) : block.kind === 'motion' ? (
       <MotionView key={key} block={block} compact={stage === 'inline'} writer={asker ?? writer} />
     ) : block.kind === 'code' ? (
@@ -967,7 +1065,11 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const [justAsked, setJustAsked] = useState(false);
 
   // Drive connected after Explain opened is looked in too.
-  const { driveConnected, settings, updateSettings } = useStore();
+  const { driveConnected, settings, updateSettings, papers } = useStore();
+  // Where the paper's own figures can be had besides the page: arXiv's rendering of it, by its id.
+  const explainedPaper = papers.find((paper) => paper.id === paperId);
+  const arxivId = explainedPaper?.arxivId || [explainedPaper?.pdfUrl, explainedPaper?.landingUrl].map((url) => (url ? arxivIdFromUrl(url) : undefined)).find(Boolean);
+  const pictures = useMemo(() => ({ arxivId }), [arxivId]);
   const opacity = settings.explainOpacity;
   // What the material shows when nothing is chosen: frosted glass, or solid paper.
   const defaultOpacity = settings.glass ? Math.round((0.5 + 0.2 * settings.glassFrost) * 100) / 100 : 1;
@@ -1124,6 +1226,23 @@ export default function Explain({ paperId, title, authors, published, screen, on
   // own words are marked on it; the paper's are left to the paper when it is
   // beside this, and found here if they are here when this covers it.
   const docRef = useRef<HTMLElement>(null);
+  // A figure of the paper named in the prose, ![caption](figure:3), as Ask AI's answers name them: found as an image block's is.
+  useEffect(() => {
+    const root = docRef.current;
+    if (!root) return;
+    for (const image of Array.from(root.querySelectorAll<HTMLImageElement>('.explain-prose img.chat-figure[data-figure]:not([data-placed])'))) {
+      image.dataset.placed = '1';
+      const [kind, ref = ''] = (image.dataset.figure ?? '').split(':');
+      if (!ref || (kind !== 'figure' && kind !== 'table')) {
+        image.closest('.chat-picture')?.remove();
+        continue;
+      }
+      void findPicture(kind === 'table' ? { table: ref } : { figure: ref }, { arxivId }).then((picture) => {
+        if (picture?.srcs[0]) image.src = picture.srcs[0];
+        else image.closest('.chat-picture')?.remove();
+      });
+    }
+  });
   const layoutNow = useRef(layout);
   layoutNow.current = layout;
   const [flash, setFlash] = useState<Flash | null>(null);
@@ -1246,7 +1365,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
     // The buttons under a figure, a scene's own controls and the corner button are theirs, not a click on the drawing.
     if (target.closest('button, a, input, .figure-animate, .motion-steps, .motion-head')) return null;
     const art = target.closest<HTMLElement>(CLOSEUP_ART);
-    return art && art.querySelector(':scope > svg') ? art : null;
+    return art && art.querySelector(':scope > svg, :scope > img:not([hidden])') ? art : null;
   };
   const onDocClick = (event: ReactMouseEvent) => {
     const art = artOf(event.target);
@@ -1727,6 +1846,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
 
         <KeepContext.Provider value={keepElement}>
         <PlanContext.Provider value={plan}>
+        <PictureContext.Provider value={pictures}>
         <article
           className="explain-doc"
           ref={docRef}
@@ -1835,6 +1955,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
             </>
           )}
         </article>
+        </PictureContext.Provider>
         </PlanContext.Provider>
         </KeepContext.Provider>
       </div>
