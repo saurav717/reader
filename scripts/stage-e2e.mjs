@@ -233,9 +233,12 @@ for (const p of PAPERS) {
     const stage = await count('.explain-stage');
     const state = await text('.explain-stage .motion-state');
     note('the stage appeared, held on its first step', stage === 1 && /held/.test(state), state.trim());
+    const pos = () => page.evaluate(() => getComputedStyle(document.querySelector('.explain-stage')).position);
+    note('held, the card sits in the page like a figure', (await pos()) === 'static', await pos());
     await page.getByRole('button', { name: 'Follow', exact: true }).click();
     await page.waitForTimeout(300);
     note('Follow makes it step with the reading', /follows/.test(await text('.explain-stage .motion-state')));
+    note('and pins the card to the top of the margin', (await pos()) === 'sticky', await pos());
     const caption1 = await text('.explain-stage .motion-caption');
     note('the outline marks the section as having a scene', (await count('.explain-outline .play.has')) === 1);
     note('the offer is gone once the scene exists', (await count('.figure-animate')) === 0);
@@ -256,6 +259,7 @@ for (const p of PAPERS) {
     await page.evaluate(() => { document.querySelector('.explain-scroll').scrollTop -= 400; });
     await page.waitForTimeout(600);
     note('and scrolling does not move a held scene', (await text('.explain-stage .motion-caption')) === caption2);
+    note('and the held card is no longer pinned', (await pos()) === 'static', await pos());
     await page.screenshot({ path: `${OUT}/${p.id}-3-last-step.png` });
     // Held by hand, then played through by itself.
     await page.locator('.explain-stage .motion-steps .dots button').first().click();

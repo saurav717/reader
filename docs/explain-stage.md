@@ -35,7 +35,13 @@ The mock-up can be scrolled at
 > when the glass makes every other surface translucent. And a scene holds
 > its step by default rather than following the reading: the dots and the
 > slider pick one, Play runs through them by itself, and Follow on the
-> stage is the choice, not the start. See the README's
+> stage is the choice, not the start — and the only time the card is
+> pinned. Held, it sits in the margin where a figure would, and the page
+> scrolls past it; Follow pins it to the top of the margin and steps it
+> with the reading. The edges, last of all, turn corners through the gaps
+> with an arrowhead at the end, their labels sit plain on the line, and a
+> step that highlights something fades what it is not about, after a
+> scene a model wrote on the GAN paper read as a tangle. See the README's
 > *Scenes, on the stage*. The rest of this document is the design as
 > written, with the mock-ups it was decided on.
 
