@@ -2658,10 +2658,12 @@ What it writes, in this order:
   draws it in the figure's own colours and tweens from step to step. In the
   Margin layout
   the scene sits on a **stage** at the top of the margin that stays in view
-  while you read that section and steps with the paragraph under the reading
-  line, until you pick a step by hand; the rest of the margin scrolls under
-  it, and the stage leaves with the section. In the other layouts the scene
-  is a card in the flow with its own controls. **▶ Stage** in the bar turns
+  while you read that section; the rest of the margin scrolls under it, and
+  the stage leaves with the section. In the other layouts the scene is a
+  card in the flow. Either way the scene holds the step you left it on:
+  the dots and the slider pick one, **▶ Play** runs through the steps by
+  itself, a step every few seconds, and on the stage **Follow** makes it
+  step with the paragraph under the reading line until you take it back. **▶ Stage** in the bar turns
   all of it off, and the page is its figures and nothing moves; scenes
   already written stay in the page and come back when it is switched on.
   Nothing is written until you ask, so a page is no slower to explain than

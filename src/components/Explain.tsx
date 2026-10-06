@@ -364,7 +364,7 @@ function Caveat({ block }: { block: Extract<Block, { kind: 'caveat' }> }) {
 const KEEPABLE = '.explain-figure, .explain-motion, .explain-cell, .explain-caveat, .impl-tree, .impl-file, .impl-budget, .impl-colab, .explain-prose table, .explain-prose pre, .explain-prose .chat-math-block';
 
 /** The pieces whose header holds the button itself (a KeepButton), so the corner button keeps off them. */
-const OWN_BUTTON = '.explain-cell, .impl-file, .impl-budget, .impl-colab';
+const OWN_BUTTON = '.explain-cell, .explain-motion, .impl-file, .impl-budget, .impl-colab';
 
 /** What a box dragged over the page keeps, whole: each piece of it the box touches. */
 const SNIPPABLE = '.explain-prose > *, .explain-figure, .explain-motion, .explain-cell, .explain-caveat, .impl-tree, .impl-file, .impl-budget, .impl-colab';

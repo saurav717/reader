@@ -232,7 +232,10 @@ for (const p of PAPERS) {
     }
     const stage = await count('.explain-stage');
     const state = await text('.explain-stage .motion-state');
-    note('the stage appeared and follows the reading', stage === 1 && /follows/.test(state), state.trim());
+    note('the stage appeared, held on its first step', stage === 1 && /held/.test(state), state.trim());
+    await page.locator('.explain-stage .motion-mode').click();
+    await page.waitForTimeout(300);
+    note('Follow makes it step with the reading', /follows/.test(await text('.explain-stage .motion-state')));
     const caption1 = await text('.explain-stage .motion-caption');
     note('the outline marks the section as having a scene', (await count('.explain-outline .play.has')) === 1);
     note('the offer is gone once the scene exists', (await count('.figure-animate')) === 0);
@@ -248,13 +251,21 @@ for (const p of PAPERS) {
     const caption2 = await text('.explain-stage .motion-caption');
     note('the step moved with the paragraph', caption1 !== caption2, `${caption1.trim()} → ${caption2.trim()}`);
     await page.screenshot({ path: `${OUT}/${p.id}-3-last-step.png` });
-    // Held by hand, then handed back.
+    // Held by hand, then played through by itself.
     await page.locator('.explain-stage .motion-steps .dots button').first().click();
     await page.waitForTimeout(400);
-    note('a step picked by hand holds the stage', /held/.test(await text('.explain-stage .motion-state')));
-    await page.locator('.explain-stage .motion-state.as-btn').click();
+    note('a step picked by hand holds the stage', /held/.test(await text('.explain-stage .motion-state')) && /^1 of/.test((await text('.explain-stage .motion-caption')).trim()));
+    await page.locator('.explain-stage .motion-steps .play').click();
     await page.waitForTimeout(400);
-    note('follow again on request', /follows/.test(await text('.explain-stage .motion-state')));
+    const playing = /playing/.test(await text('.explain-stage .motion-state'));
+    await page.waitForTimeout(3900);
+    note('Play runs the scene through its steps by itself', playing && /^2 of/.test((await text('.explain-stage .motion-caption')).trim()));
+    await page.locator('.explain-stage .motion-steps .play').click();
+    await page.waitForTimeout(300);
+    note('Pause holds it where it is', /held/.test(await text('.explain-stage .motion-state')));
+    await page.locator('.explain-stage .motion-mode').click();
+    await page.waitForTimeout(300);
+    note('Follow again on request', /follows/.test(await text('.explain-stage .motion-state')));
     // The switch.
     await page.locator('.stage-toggle').click();
     await page.waitForTimeout(500);
