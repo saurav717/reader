@@ -289,6 +289,8 @@ export interface ProxyHealth {
   auth: boolean;
   /** Whether it has a Gemini key for Ask AI and Explain. */
   gemini: boolean;
+  /** Whether it has a web search key, for Ask AI's Web button. */
+  web: boolean;
 }
 
 const healthOf = new Map<string, Promise<ProxyHealth | null>>();
@@ -301,7 +303,7 @@ export function proxyHealth(): Promise<ProxyHealth | null> {
   if (!asked) {
     asked = fetch(`${base}/health`)
       .then((response) => (response.ok ? response.json() : null))
-      .then((body) => (body ? { auth: Boolean(body.auth), gemini: Boolean(body.gemini) } : null))
+      .then((body) => (body ? { auth: Boolean(body.auth), gemini: Boolean(body.gemini), web: Boolean(body.web) } : null))
       .catch(() => {
         // Asked again next time: the proxy may just have been down.
         healthOf.delete(base);

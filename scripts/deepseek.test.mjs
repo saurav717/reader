@@ -104,6 +104,111 @@ describe('the answer', () => {
   });
 });
 
+describe('tools — the web, with the button on', () => {
+  const tools = [{ name: 'web_search', description: 'Search.', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } }];
+  /** One streamed round: reasoning, then a tool call in two deltas, then the finish. */
+  const callRound = (id, query) => [
+    event({ reasoning_content: 'I should look. ' }),
+    event({ tool_calls: [{ index: 0, id, function: { name: 'web_search', arguments: '{"query":' } }] }),
+    event({ tool_calls: [{ index: 0, function: { arguments: `"${query}"}` } }] }, 'tool_calls'),
+    'data: [DONE]\n\n',
+  ];
+  const answerRound = (text) => [event({ content: text }, 'stop'), 'data: [DONE]\n\n'];
+
+  /** A fetch that answers each request with the next set of chunks. */
+  function fakeRounds(rounds) {
+    const calls = [];
+    const fetcher = async (url, init) => {
+      calls.push(JSON.parse(init.body));
+      const chunks = rounds[calls.length - 1] ?? answerRound('(no more)');
+      const encoder = new TextEncoder();
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'text/event-stream' } },
+      );
+    };
+    return { fetcher, calls };
+  }
+
+  it('declares the tools as functions, and none without them', () => {
+    const body = deepseek.requestBody({ ...params, tools });
+    assert.deepEqual(body.tools, [{ type: 'function', function: { name: 'web_search', description: 'Search.', parameters: tools[0].parameters } }]);
+    assert.equal('tools' in deepseek.requestBody(params), false);
+    assert.equal(deepseek.requestBody({ ...params, tools, toolChoice: 'none' }).tool_choice, 'none');
+  });
+
+  it('runs a call, sends its result back with the reasoning, and streams the answer of the next round', async () => {
+    const { fetcher, calls } = fakeRounds([callRound('call_1', 'oracle selection'), answerRound('Found it.')]);
+    const ran = [];
+    const steps = [];
+    let text = '';
+    const stream = new deepseek.DeepSeekStream(
+      {
+        ...params,
+        tools,
+        runTool: async (name, args) => {
+          ran.push({ name, args });
+          return { text: 'Results: one', step: { tool: 'web_search', what: args.query, outcome: '1 result' } };
+        },
+      },
+      fetcher,
+    );
+    stream.on('text', (delta) => (text += delta));
+    stream.on('step', (step) => steps.push(step));
+    const final = await stream.finalMessage();
+    assert.equal(final.stop_reason, 'end_turn');
+    assert.equal(text, 'Found it.');
+    assert.deepEqual(ran, [{ name: 'web_search', args: { query: 'oracle selection' } }]);
+    assert.deepEqual(steps, [{ tool: 'web_search', what: 'oracle selection', outcome: '1 result' }]);
+    assert.equal(calls.length, 2);
+    // The second request carries the first round: the call, its reasoning, and the tool's answer, after the conversation.
+    const sent = calls[1].messages;
+    assert.deepEqual(sent.slice(0, 2), calls[0].messages);
+    assert.deepEqual(sent[2], {
+      role: 'assistant',
+      content: '',
+      reasoning_content: 'I should look. ',
+      tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'web_search', arguments: '{"query":"oracle selection"}' } }],
+    });
+    assert.deepEqual(sent[3], { role: 'tool', tool_call_id: 'call_1', content: 'Results: one' });
+    assert.ok(calls[1].tools, 'the tools stay declared');
+  });
+
+  it('stops calling at the cap, and asks for the answer with calling off', async () => {
+    const rounds = [callRound('c1', 'a'), callRound('c2', 'b'), callRound('c3', 'c'), answerRound('Enough.')];
+    const { fetcher, calls } = fakeRounds(rounds);
+    let made = 0;
+    const stream = new deepseek.DeepSeekStream({ ...params, tools, maxToolCalls: 2, runTool: async () => ({ text: `r${(made += 1)}`, step: null }) }, fetcher);
+    const final = await stream.finalMessage();
+    assert.equal(final.stop_reason, 'end_turn');
+    assert.equal(made, 2);
+    assert.equal(calls.length, 3, 'two rounds of calls, then the answer');
+    assert.equal(calls[2].tool_choice, 'none');
+    assert.equal('tool_choice' in calls[1], false);
+  });
+
+  it('answers in one request when the model does not call, tools or no tools', async () => {
+    const { fetcher, calls } = fakeRounds([answerRound('Plain.')]);
+    let text = '';
+    const stream = new deepseek.DeepSeekStream({ ...params, tools, runTool: async () => ({ text: '', step: null }) }, fetcher);
+    stream.on('text', (delta) => (text += delta));
+    assert.equal((await stream.finalMessage()).stop_reason, 'end_turn');
+    assert.equal(text, 'Plain.');
+    assert.equal(calls.length, 1);
+  });
+
+  it('reads arguments that did not parse as what they were', () => {
+    assert.deepEqual(deepseek.parseArguments('{"query":"x"}'), { query: 'x' });
+    assert.deepEqual(deepseek.parseArguments(''), {});
+    assert.deepEqual(deepseek.parseArguments('{"query":'), { raw: '{"query":' });
+  });
+});
+
 describe('failures', () => {
   it('carries the status and DeepSeek’s own message', async () => {
     const { fetcher } = fakeFetch([], { status: 402, body: { error: { message: 'Insufficient Balance' } } });

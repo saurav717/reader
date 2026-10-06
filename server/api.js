@@ -30,6 +30,7 @@ import { askServices, servicesLabel } from './scholarServices.js';
 import { contributionsAsked, readContributions } from './contributionReader.js';
 import * as workspace from './workspace.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini } from './geminiRelay.js';
+import { readPage, searchWeb, webAvailable, WebRefused } from './webSearch.js';
 import { handleColab, isColabPath } from './colab.js';
 import { socketSecret } from './colabSocket.js';
 import { Readable } from 'node:stream';
@@ -673,7 +674,7 @@ async function colab(req, url, res) {
  */
 function gated(pathname) {
   if (pathname === '/browse/status' || pathname === '/access/status') return false;
-  return pathname.startsWith('/browse/') || pathname.startsWith('/access/') || pathname.startsWith('/scholar/captcha') || pathname.startsWith('/workspace/') || isColabPath(pathname);
+  return pathname.startsWith('/browse/') || pathname.startsWith('/access/') || pathname.startsWith('/scholar/captcha') || pathname.startsWith('/workspace/') || pathname.startsWith('/web/') || isColabPath(pathname);
 }
 
 // ------------------------------------------------------------ workspace ----
@@ -738,6 +739,35 @@ async function gemini(req, res) {
     .pipe(res);
 }
 
+// ------------------------------------------------------------------ web ----
+//
+// The web for Ask AI, with its Web button on: a search, and a page read as
+// text — server/webSearch.js. The search is asked of Tavily, Brave, Serply
+// or SerpApi on this proxy's key (TAVILY_KEY, BRAVE_KEY, SERPLY_KEY or SERPAPI_KEY, the
+// first set), so with a token set only the token may spend it — the router
+// gates and rate-limits the prefix; a page is fetched from here because the
+// page cannot fetch it itself.
+
+const webKeys = () => ({ tavily: (process.env.TAVILY_KEY || '').trim(), brave: (process.env.BRAVE_KEY || '').trim(), serply: serplyKey(), serpapi: serpKey() });
+
+async function webSearch(url, res) {
+  try {
+    return send(res, 200, await searchWeb(url.searchParams.get('q'), webKeys()), { 'Cache-Control': 'private, max-age=300' });
+  } catch (error) {
+    if (error instanceof WebRefused) return send(res, error.status, { error: error.message, ...(error.status === 501 ? { setup: true } : {}) });
+    return send(res, 502, { error: said(error, 'could not search the web') });
+  }
+}
+
+async function webPage(url, res) {
+  try {
+    return send(res, 200, await readPage(url.searchParams.get('url')), { 'Cache-Control': 'private, max-age=300' });
+  } catch (error) {
+    if (error instanceof WebRefused) return send(res, error.status, { error: error.message });
+    return send(res, 502, { error: said(error, 'could not read that page') });
+  }
+}
+
 // --------------------------------------------------------- contributions ---
 //
 // A paper's statement of who did what, read by DeepSeek for each author's
@@ -760,6 +790,7 @@ function costOf(pathname) {
   if (pathname === '/pdf' || pathname === '/asset') return 'pdf';
   if (pathname.startsWith('/scholar/') && !pathname.startsWith('/scholar/captcha')) return 'scholar';
   if (pathname === '/contributions') return 'scholar';
+  if (pathname === '/web/search' || pathname === '/web/page') return 'web';
   if (pathname === '/browse/open') return 'browse';
   return null;
 }
@@ -840,6 +871,10 @@ export default async function apiRouter(req, res, next) {
         return await accessAction(req, res, () => browse.close());
       case '/ai/gemini':
         return await gemini(req, res);
+      case '/web/search':
+        return await webSearch(url, res);
+      case '/web/page':
+        return await webPage(url, res);
       case '/workspace/status':
         return send(res, 200, await workspace.status(), { 'Cache-Control': 'no-store' });
       case '/workspace/scaffold':
@@ -864,6 +899,8 @@ export default async function apiRouter(req, res, next) {
           scholar: scholarVia(),
           /** Whether Ask AI and Explain can use Gemini on this proxy's key. */
           gemini: Boolean(geminiKey()),
+          /** Whether Ask AI's Web button has a search service behind it on this proxy. */
+          web: webAvailable(webKeys()),
           /** Whether the sign-in and browser routes want a token — so the app can ask for one. */
           auth: tokenRequired(),
           /** Whether READER_WORKSPACE names a directory the Implementation page can write into and run in. */
