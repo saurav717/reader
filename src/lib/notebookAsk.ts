@@ -184,7 +184,7 @@ function systemFor(screen: Screen): SystemBlock[] {
   const text = screen.fullText?.trim() ?? '';
   return [
     { type: 'text', text: NOTEBOOK_SYSTEM },
-    { type: 'text', text: [tag('paper', details), tag('abstract', paper?.abstract), tag('paper_text', text.slice(0, 200_000))].filter(Boolean).join('\n\n') || 'No paper is open.', cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: [tag('paper', details), tag('abstract', paper?.abstract), tag('paper_text', text.slice(0, 200_000))].filter(Boolean).join('\n\n') || 'No paper is open: this notebook is a playground of the reader’s own, not tied to a paper. Write what they ask for, in the same format; where the rules above speak of the paper, take the request itself as the brief.', cache_control: { type: 'ephemeral' } },
   ];
 }
 

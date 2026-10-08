@@ -223,7 +223,9 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }
   const runtime = colab.runtime;
   const sample = colab.sample;
   const specs = colab.specs;
-  const gpuMachine = Boolean(runtime?.accelerator);
+  /** A Jupyter server of the person's own: no Colab session, units or machine to change. */
+  const ownServer = colab.backend.kind === 'jupyter';
+  const gpuMachine = Boolean(runtime?.accelerator) || (ownServer && Boolean(colab.specs?.gpuName));
   const needs = useMemo(() => needMarkers(compute), [compute]);
   const history = colab.history;
   const { use, memory } = useMemo(() => timeline(history, now, HISTORY_MS), [history, now]);
@@ -304,7 +306,7 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }
   return (
     <div className={`rt-pane is-${style}`}>
       <div className="rt-head">
-        <b>{specs?.gpuName ?? (gpuMachine ? `${machineLabel(runtime)} — reading the machine…` : 'CPU runtime')}</b>
+        <b>{specs?.gpuName ?? (ownServer ? (colab.backend.kind === 'jupyter' ? colab.backend.server.name : '') : gpuMachine ? `${machineLabel(runtime)} — reading the machine…` : 'CPU runtime')}</b>
         <span>
           {[specs?.vramMb ? gigabytes(specs.vramMb) : '', specs?.cpus ? `${specs.cpus} CPUs` : '', specs?.ramTotalMb ? `${gigabytes(specs.ramTotalMb)} RAM` : '', specs?.diskTotalGb !== undefined ? `${specs.diskTotalGb} GB disk` : ''].filter(Boolean).join(' · ') || machineLabel(runtime)}
         </span>
@@ -477,6 +479,11 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }
       )}
 
       <div className="rt-part-label">Limits</div>
+      {ownServer ? (
+        <div className="rt-limits">
+          <p className="rt-note">A Jupyter server of your own{colab.backend.kind === 'jupyter' ? ` at ${new URL(colab.backend.server.url).host}` : ''}: no Colab session limit and no compute units. If it is a rented machine, it is billed while it is up — stop it with its provider when you are done.</p>
+        </div>
+      ) : (
       <div className="rt-limits">
         <div className="rt-limit">
           <span className="rt-limit-row">
@@ -495,6 +502,7 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }
         </div>
         {idleFor > 15 * MINUTE ? <p className="rt-note is-warn">Nothing has run for {spanText(idleFor)}. Colab ends a runtime left idle for long; the pulse keeps this one read, which the free tier counts as activity.</p> : null}
       </div>
+      )}
 
       <div className="rt-part-label">Reading the machine</div>
       <label className="colab-switch rt-switch">
@@ -532,12 +540,16 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }
         <button type="button" className="btn sm" disabled={colab.status === 'busy'} onClick={() => void restartKernel()} title="Forgets every variable; keeps the machine and the files on it">
           Restart the kernel
         </button>
-        <button type="button" className="btn sm" disabled={colab.status === 'busy'} aria-expanded={changing} onClick={() => setChanging(!changing)}>
-          Change machine…
-        </button>
-        <a className="btn sm" href={attachUrl(runtime.endpoint)} target="_blank" rel="noreferrer noopener" title="Colab's own notebook page on the same machine — for Drive, on purpose">
-          Open in Colab ↗
-        </a>
+        {ownServer ? null : (
+          <>
+            <button type="button" className="btn sm" disabled={colab.status === 'busy'} aria-expanded={changing} onClick={() => setChanging(!changing)}>
+              Change machine…
+            </button>
+            <a className="btn sm" href={attachUrl(runtime.endpoint)} target="_blank" rel="noreferrer noopener" title="Colab's own notebook page on the same machine — for Drive, on purpose">
+              Open in Colab ↗
+            </a>
+          </>
+        )}
         {confirmStop ? (
           <span className="rt-confirm">
             Release the machine now?
@@ -557,7 +569,7 @@ export default function RuntimePane({ cells, compute, onGoTo, onRunAll, picked }
           </span>
         ) : (
           <button type="button" className="btn sm colab-stop" onClick={() => setConfirmStop(true)}>
-            Stop the runtime
+            {ownServer ? 'Shut down the kernel' : 'Stop the runtime'}
           </button>
         )}
       </div>

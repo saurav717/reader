@@ -75,6 +75,9 @@ Press **⌘\\** and a chat window floats over the paper — see
 figures, runnable code and what has changed since — see [Explain](#explain).
 Both run on Claude or on DeepSeek, whichever you pick — see
 [Choosing a model](#choosing-a-model-claude-deepseek-or-gemini).
+Press **P** for the [Playground](#playground), a page for code of your own:
+a notebook or a project, on your Colab, on this PC, or with the files on this
+PC and the GPU somewhere else. Every page has [its own address](#addresses).
 
 ## Running it
 
@@ -3588,6 +3591,129 @@ runtime — a small Jupyter server in the script, and the proxy's Colab routes
 answered in the browser — so a cell's run, the probe, the runtime menu and the
 *Run it on Colab* panel are photographed live, without a Google account.
 
+## Playground
+
+The **Playground** is code of your own that is not tied to a paper. It is a
+page of its own at `/playground`, reached by the **</>** button on the rail or
+by <kbd>P</kbd> from anywhere. Each playground has its own address,
+`/playground/<id>`. A playground is a notebook and a folder of files, bound to
+a machine to run on: your Colab, this PC, or a GPU somewhere else.
+
+![the Playground's home: six ways to start, the playgrounds there are with where each runs, and your compute — Colab and two Jupyter servers](docs/playground-home.png)
+
+- **Six ways to start.** A blank notebook, a blank project (files, an editor
+  and a console), a paper from your library (the notebook cites it, and the
+  model that writes cells reads its abstract), a GitHub repository (the clone
+  waits in the console for a click), a Hugging Face model or dataset id
+  (cells that load it and run it once), or an `.ipynb` or `.py` file.
+- **Where it runs.** The sheet that follows offers three modes. **Colab, in
+  the browser** is the runtime the Explain pages use, with nothing to
+  install, and its files are kept in this browser. **This PC** is a Jupyter
+  server on your own machine, with your files, your GPU and no session clock.
+  **Code on this PC, GPU in the cloud** keeps the files in a folder on your PC
+  and runs the cells and the console on a remote machine: a rented GPU, a
+  lab server through an SSH tunnel, or your Colab. The machine can be changed
+  later from the chip in the bar, and the code stays where it is.
+
+![where should it run: the three modes, with the folder on this PC and the code on the GPU box](docs/playground-where.png)
+
+### A Jupyter server of your own
+
+The PC and the GPU machine are each a plain Jupyter server. The page talks
+to it the way it talks to a Colab runtime: the same kernel client, the same
+probe of the machine, the same contents API. **Your compute → + Add a
+server** gives the command for this site's address:
+
+```bash
+pip install jupyter_server ipykernel
+jupyter server --ServerApp.allow_origin='https://saurav717.github.io' --ServerApp.root_dir="$HOME/reader-playgrounds"
+```
+
+Paste the address Jupyter prints, with its `?token=`. The page tests it
+before keeping it, and keeps the address and the token in this browser only.
+A GPU elsewhere can be reached in three ways: run the same command there and
+tunnel it to this PC with `ssh -N -L 8890:localhost:8888 you@host`, then add
+`http://localhost:8890/?token=…`; use the pod's own HTTPS address on RunPod
+(`https://<pod>-8888.proxy.runpod.net/?token=…`, with the server on
+`--ServerApp.ip=0.0.0.0`); or use any HTTPS Jupyter that allows this origin.
+Chrome may ask once to let the site reach your local network: allow it.
+Safari will not let an `https` page reach `http://localhost`, so use Chrome,
+Edge or Firefox for a server on this PC.
+
+![adding a server: on this PC or a GPU elsewhere, the command to start one, the address with its token, Test and save](docs/playground-server.png)
+
+### The notebook, and the files
+
+A playground's **Notebook** tab is the same notebook as a paper's: cells,
+Markdown and maths, Shift-Enter, Run all and its queue, the ask bar that
+writes and fixes cells, and the **Runtime** and **Metrics** panes. The only
+difference is that it runs on the machine the playground names. On a Jupyter
+server the runtime pane reads the machine the same way it reads Colab's
+(GPU, CPU, memory, disk), and the session and units are left out because
+the server is yours.
+
+![a notebook on this PC: a cell run on the Jupyter server, and the machine read in the Runtime pane](docs/playground-notebook.png)
+
+The **Files** tab is a tree, an editor (<kbd>⌘S</kbd> saves) and a
+**console**. A command typed there runs in a real shell on the machine,
+in the playground's folder, through the same kernel the cells use. Its
+output streams in under it, and a loss it prints is drawn as a curve. When
+the files and the machine are apart, the run first **copies the folder onto
+the machine** and then **brings back** what it wrote. The **Sync** pane holds
+the rules for both: what is not copied (`.git/`, `data/`, weights, like a
+`.gitignore`) and what comes back (`runs/`, `results/`, `*.csv` …). Both
+directions carry text files up to 2 MB; data and weights stay on the machine
+and are fetched there. A second tree shows the folder as it is on the
+machine, and its files can be opened and edited there too.
+
+![files on this PC, code on the GPU box: the editor, the console's run on the remote machine with its loss, and results/ brought back](docs/playground-project.png)
+
+![the Metrics pane, dark: the loss a console command printed](docs/playground-metrics-dark.png)
+
+- **On Colab, an idle stop.** A playground on Colab can stop its runtime
+  after 10 minutes to 2 hours with nothing running. The default is 30
+  minutes, and the stop only happens while the tab is open.
+- **From a paper's notebook.** **Export → Copy into a new playground** takes
+  the cells as they are into a playground that cites the paper, and opens it.
+- **What is kept.** The playground, its notebook and the files of one that
+  lives in this browser are kept in IndexedDB, in this browser. A folder on
+  a server is a plain folder there and stays when the playground is
+  deleted.
+
+The store, the starts and the sync are `src/lib/playground.ts`. The kernel
+client for Colab and for a Jupyter server alike is `src/lib/colab.ts`, through
+`chooseBackend`. The pages are `src/components/Playground.tsx` and
+`src/components/PlaygroundWorkspace.tsx`. `scripts/playground.test.mjs`
+checks the addresses, the parsers and the sync rules.
+`scripts/playground-smoke.mjs` drives the whole page in a browser against two
+real Jupyter servers, one for this PC and one for the GPU machine, and
+photographs it. The design behind it, and what is not built yet, is in
+[docs/playground.md](docs/playground.md).
+
+## Addresses
+
+Every page has its own address, so a link can be kept or shared, a reload
+stays where it was, and Back and Forward go between pages:
+
+| | |
+|---|---|
+| `/` | Home |
+| `/library`, `/reading`, `/unread`, `/finished`, `/unsorted`, `/junk` | the library's lists |
+| `/collection/<id>` | a collection |
+| `/paper/<id>` | a paper |
+| `/usage` | the usage page, for its owner |
+| `/playground`, `/playground/<id>` | the Playground, and one playground |
+
+Panels such as the library, the dock and Ask AI open over a page and do not
+change its address. The tab's title names the page. `src/lib/route.ts` maps
+pages to paths and back. `npm start` and `vite` send every unknown path to
+the app, and `vercel.json` does the same with a rewrite. GitHub Pages serves
+only the files that exist, so `npm run build:pages` writes a copy of
+`index.html` for each fixed address (`scripts/pages-routes.mjs`). The site's
+`404.html` sends an address with an id in it, such as `/reader/paper/…`, on
+to `/reader/?route=…`, and the app puts that address back before it reads
+it.
+
 ## Layout
 
 ```
@@ -3596,6 +3722,9 @@ server/fetchPdf.js      which URLs the PDF route will fetch, and what it accepts
                         back; shared with the Cloudflare Worker
 server/index.js         production Express server
 src/lib/anchor.ts       text-quote anchoring: resolve, paint, unpaint
+src/lib/route.ts        each page's address, and the page an address names
+src/lib/playground.ts   the Playground: playgrounds, Jupyter servers, the
+                        files and their sync
 src/lib/api.ts          where the proxy is: the build's default, the setting
                         that overrides it, and the check behind "Test it"
 src/lib/sources.ts      arXiv / OpenAlex / Semantic Scholar / Crossref search,

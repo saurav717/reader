@@ -34,8 +34,11 @@ import Desk from './components/Desk';
 import { keepSpotNow } from './lib/spot';
 import { SIGN_IN_REQUIRED } from './lib/google';
 import { canFullscreen, enterFullscreen, fullscreenElement, leaveFullscreen } from './lib/fullscreen';
-import { ChartIcon, GoogleMark, HighlighterIcon, LibraryIcon, OpenBookIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
+import { ChartIcon, CodeIcon, GoogleMark, HighlighterIcon, LibraryIcon, OpenBookIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
 import { FINISHED_AT } from './lib/status';
+import { pathFor, placeFor } from './lib/route';
+import Playground from './components/Playground';
+import { OPEN_PLAYGROUND } from './lib/playground';
 
 const WELCOME_KEY = 'reader.welcomed';
 const VIEW_KEY = 'reader.view';
@@ -102,6 +105,21 @@ interface Layout {
 }
 
 function readView(): View {
+  // A link to a page — /paper/…, /collection/…, /playground — opens that page.
+  // The bare address goes on as it always has: Home for a new visit, the page
+  // left in this tab otherwise — and the address then follows that page.
+  const place = typeof window === 'undefined' ? null : placeFor(window.location.pathname);
+  if (place && (place.view.kind !== 'home' || place.usage)) {
+    try {
+      if (!sessionStorage.getItem(VISIT_KEY)) {
+        sessionStorage.setItem(VISIT_KEY, '1');
+        startVisit();
+      }
+    } catch {
+      // private mode
+    }
+    return place.view;
+  }
   // A new visit — signing in, a new tab — opens on Home, with the paper you
   // were reading one key away; reloading the tab keeps you where you were.
   try {
@@ -166,11 +184,22 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The owner of the proxy — READER_TOKEN, or a Google sign-in named in
   // READER_OWNERS — gets a rail button for who uses it; nobody else sees one.
-  const [usageOpen, setUsageOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(() => typeof window !== 'undefined' && Boolean(placeFor(window.location.pathname)?.usage));
   const isOwner = useIsOwner(settings.proxyToken);
   // Usage is a page of its own: it takes the main area, and the library and
   // the side panel step aside while it is open.
   const onUsage = usageOpen && isOwner;
+  /** The Playground is a page of its own too: the library and the dock step aside for it. */
+  const onPlayground = view.kind === 'playground' && !onUsage;
+  /** The last page that was not the Playground: where the library's and the dock's buttons go back to from it. */
+  const beforePlayground = useRef<View>({ kind: 'home' });
+  useEffect(() => {
+    if (view.kind !== 'playground') beforePlayground.current = view;
+  }, [view]);
+  /** Off the Playground, for a panel's button: the page that was open before it, with the panel to show. */
+  const leavePlayground = () => {
+    if (view.kind === 'playground') setView(beforePlayground.current);
+  };
   const [welcomed, setWelcomed] = useState(() => localStorage.getItem(WELCOME_KEY) === 'true');
   // Dismissing the opening screen is remembered for this page load only. A
   // sign-in is kept in this browser for the hour Google's token lasts, so a
@@ -394,6 +423,53 @@ export default function App() {
     localStorage.setItem(VIEW_KEY, JSON.stringify(view));
   }, [view]);
 
+  // The address bar follows the page: each destination its own path, pushed
+  // so Back goes where you were; the first one replaces the address the tab
+  // opened on, keeping its query (a sign-in's answer) and its hash.
+  const firstPath = useRef(true);
+  useEffect(() => {
+    const path = pathFor({ view, usage: usageOpen });
+    if (window.location.pathname !== path) {
+      if (firstPath.current) window.history.replaceState(window.history.state, '', `${path}${window.location.search}${window.location.hash}`);
+      else window.history.pushState({ reader: true }, '', path);
+    }
+    firstPath.current = false;
+  }, [view, usageOpen]);
+  // The tab's title names the page, so a history of them can be told apart.
+  useEffect(() => {
+    if (view.kind === 'playground' && view.id) return; // the playground names itself
+    const lists: Partial<Record<View['kind'], string>> = { all: 'Library', reading: 'Reading', unread: 'Not started', finished: 'Finished', unsorted: 'Unsorted', junk: 'Junk', playground: 'Playground' };
+    const name = usageOpen
+      ? 'Usage'
+      : view.kind === 'paper'
+        ? papers.find((paper) => paper.id === view.id)?.title
+        : view.kind === 'collection'
+          ? collections.find((collection) => collection.id === view.id)?.name
+          : lists[view.kind];
+    document.title = name ? `${name} · Reader` : 'Reader';
+  }, [view, usageOpen, papers, collections]);
+  // A playground asked for from elsewhere — a paper's notebook copied into one: Explain steps aside for it.
+  useEffect(() => {
+    const onOpen = (event: Event) => {
+      const id = (event as CustomEvent<{ id?: string }>).detail?.id;
+      setExplainOpen(false);
+      setUsageOpen(false);
+      setView(id ? { kind: 'playground', id } : { kind: 'playground' });
+    };
+    window.addEventListener(OPEN_PLAYGROUND, onOpen);
+    return () => window.removeEventListener(OPEN_PLAYGROUND, onOpen);
+  }, []);
+  // Back and Forward: the page the address names.
+  useEffect(() => {
+    const onPop = () => {
+      const place = placeFor(window.location.pathname) ?? { view: { kind: 'home' } as View };
+      setUsageOpen(Boolean(place.usage));
+      setView(place.view);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
   useEffect(() => {
     // Put away for Home is not a choice to remember: what is kept is how they were.
     localStorage.setItem(LAYOUT_KEY, JSON.stringify(panelsBeforeHome.current ?? ({ libraryOpen, dock } satisfies Layout)));
@@ -457,6 +533,16 @@ export default function App() {
         if (view.kind === 'home' && returnRef.current) {
           event.preventDefault();
           openPaperRef.current(returnRef.current.id);
+          return;
+        }
+      }
+      // P, on its own and not while typing, opens the Playground.
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'p' && !isTyping(event.target)) {
+        if (document.querySelector('.scrim, .sheet, .palette, .desk-scrim, .explain')) return;
+        if (view.kind !== 'playground') {
+          event.preventDefault();
+          setUsageOpen(false);
+          setView({ kind: 'playground' });
           return;
         }
       }
@@ -646,7 +732,7 @@ export default function App() {
         const nbOpen = Boolean(document.querySelector('.nb-page'));
         const runningAt = colab.running ? (nb?.cells.findIndex((cell) => runKey(cell.id) === colab.running) ?? -1) : -1;
         const running = !colab.running ? undefined : runningAt >= 0 ? `cell ${runningAt + 1}` : colab.running.startsWith('nb:') ? 'a cell of the notebook' : 'a code cell of the Explanation or Implementation page, not the notebook';
-        const notebook = nb ? { text: cellsBlock(nb.cells, colab.runs), runtime: colab.runtime && (colab.status === 'idle' || colab.status === 'busy') ? machineLabel(colab.runtime) : undefined, open: nbOpen, running } : undefined;
+        const notebook = nb ? { text: cellsBlock(nb.cells, colab.runs), runtime: colab.runtime && (colab.status === 'idle' || colab.status === 'busy') ? (colab.backend.kind === 'jupyter' ? colab.backend.server.name : machineLabel(colab.runtime)) : undefined, open: nbOpen, running } : undefined;
         return {
           where: notebook?.open ? 'Reading a paper, with its Colab notebook open' : explanation ? 'Reading a paper, with its Explain page open' : 'Reading a paper',
           paper: {
@@ -679,7 +765,7 @@ export default function App() {
     const where =
       view.kind === 'collection'
         ? `Browsing the collection “${name ?? 'Collection'}”`
-        : { home: 'On Home — the paper last read, what is in progress and the latest highlights', all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library' }[view.kind];
+        : { home: 'On Home — the paper last read, what is in progress and the latest highlights', all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library', playground: 'In the Playground — code of their own, not tied to one paper' }[view.kind];
     const library = Array.from(document.querySelectorAll('.paper-name'), (el) => el.textContent?.trim() ?? '').filter(Boolean);
     return { where, library };
   }, [view, papers, collections, highlights, explainOpen]);
@@ -904,12 +990,17 @@ export default function App() {
         <button
           type="button"
           className="icon-btn"
-          aria-pressed={libraryOpen}
+          aria-pressed={libraryOpen && !onPlayground}
           aria-label="Library"
           title="Library — your collections and what you are reading"
           onClick={() => {
             setUsageOpen(false);
             panelTouched();
+            if (onPlayground) {
+              leavePlayground();
+              setLibraryOpen(true);
+              return;
+            }
             setLibraryOpen(usageOpen ? true : !libraryOpen);
           }}
         >
@@ -918,12 +1009,17 @@ export default function App() {
         <button
           type="button"
           className="icon-btn"
-          aria-pressed={dockPane === 'discover'}
+          aria-pressed={dockPane === 'discover' && !onPlayground}
           aria-label="Discover papers"
           title="Discover"
           onClick={() => {
             setUsageOpen(false);
             panelTouched();
+            if (onPlayground) {
+              leavePlayground();
+              setDock('discover');
+              return;
+            }
             setDock(dockPane === 'discover' && !usageOpen ? null : 'discover');
           }}
         >
@@ -932,12 +1028,17 @@ export default function App() {
         <button
           type="button"
           className="icon-btn"
-          aria-pressed={notesShown}
+          aria-pressed={notesShown && !onPlayground}
           aria-label="Highlights and notes"
           title="Highlights and notes (H, or ⌘⇧\)"
           onClick={() => {
             setUsageOpen(false);
             panelTouched();
+            if (onPlayground) {
+              leavePlayground();
+              setDock('notes');
+              return;
+            }
             toggleNotes();
           }}
         >
@@ -952,6 +1053,19 @@ export default function App() {
           onClick={() => setAssistantOpen(!assistantOpen)}
         >
           <SparkleIcon size={19} />
+        </button>
+        <button
+          type="button"
+          className={`icon-btn${onPlayground ? ' is-active' : ''}`}
+          aria-current={onPlayground ? 'page' : undefined}
+          aria-label="Playground"
+          title="Playground — code of your own, on Colab, your PC or a GPU elsewhere (P)"
+          onClick={() => {
+            setUsageOpen(false);
+            setView({ kind: 'playground' });
+          }}
+        >
+          <CodeIcon size={19} />
         </button>
         {isOwner ? (
           <button
@@ -998,7 +1112,7 @@ export default function App() {
         </button>
       </nav>
 
-      {libraryOpen && !showWelcome && !onUsage ? (
+      {libraryOpen && !showWelcome && !onUsage && !onPlayground ? (
         <Library
           view={view}
           activePaperId={reading}
@@ -1036,13 +1150,15 @@ export default function App() {
         />
       ) : view.kind === 'home' ? (
         <Home returnTo={returnPaper} returnFromThisVisit={Boolean(lastPaperId && returnPaper?.id === lastPaperId)} onOpenPaper={openPaper} onOpenHighlight={openHighlight} onSearch={() => setPaletteOpen(true)} onDiscover={addPapers} onShowNotes={() => openNotesRef.current()} />
+      ) : view.kind === 'playground' ? (
+        <Playground id={view.id} onOpen={(id) => setView(id ? { kind: 'playground', id } : { kind: 'playground' })} onOpenPaper={openPaper} />
       ) : view.kind === 'junk' ? (
         <JunkView />
       ) : (
         <CollectionView view={view} onOpenPaper={openPaper} onDiscover={addPapers} />
       )}
 
-      {shownDock && !showWelcome && !onUsage ? (
+      {shownDock && !showWelcome && !onUsage && !onPlayground ? (
         <div className="dock">
           <div className="dock-tabs" role="tablist" aria-label="Side panel">
             <button

@@ -7,4 +7,6 @@ export type View =
   | { kind: 'unsorted' }
   | { kind: 'junk' }
   | { kind: 'collection'; id: string }
-  | { kind: 'paper'; id: string };
+  | { kind: 'paper'; id: string }
+  /** The Playground: its home with no id, one playground with one. A page of its own, at /playground. */
+  | { kind: 'playground'; id?: string };

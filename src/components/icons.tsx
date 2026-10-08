@@ -399,3 +399,10 @@ export const ExitFullscreenIcon = (props: IconProps) => (
     <path d="M9 4v5H4M20 9h-5V4M15 20v-5h5M4 15h5v5" />
   </Icon>
 );
+
+/** The Playground: code, on the rail. */
+export const CodeIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14" />
+  </Icon>
+);

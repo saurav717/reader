@@ -8,10 +8,44 @@ paper**. Change papers and the notebook changes with it.
 The **Playground** is the same machinery with the paper taken off: a place to
 write and run anything, in a notebook or as a project of files, on Colab, on
 your PC, or **on your PC with the GPU somewhere else**. This document is the
-design. Nothing here is built yet. The pictures are static mock-ups in the
+design. The pictures are static mock-ups in the
 app's own colours and type. Their sources are in
 [`mockups/playground-src/`](mockups/playground-src/), and
 `node docs/mockups/playground-src/render.mjs` renders them again.
+
+> **Built, in part.** The Playground is in the app. See the README's
+> [Playground](../README.md#playground) and [Addresses](../README.md#addresses)
+> for the pictures of it as it is. Two things were decided by building
+> rather than as written here:
+>
+> - **Every machine is a Jupyter server.** The rented GPU, the lab server
+>   and this PC are reached the same way: a Jupyter server the person
+>   starts with this site's origin allowed, reached straight from the page
+>   (directly, over an SSH tunnel, or through a pod's HTTPS proxy). The page
+>   speaks to it with the kernel client Colab already used
+>   (`chooseBackend` in `src/lib/colab.ts`). No provider API and no SSH in
+>   the proxy.
+> - **Sync is done by the page, through the Jupyter contents API.** The
+>   folder goes onto the machine before a console command, and what the
+>   bring-back rules name comes home after it. It carries text files up to
+>   2 MB; data and weights are fetched on the machine.
+>
+> **Built:** steps 1–4 (the home, where it runs, the notebook and the
+> project with its console and sync), the citations on a playground, a
+> paper's notebook copied into one (a smaller form of step 5), the Metrics
+> pane over the console's runs, Colab's idle stop (a part of step 8), and
+> an address for every page.
+>
+> **Not built yet:**
+> - **Rented GPUs.** Starting and stopping one through a provider's API,
+>   and the cost meter and monthly cap that go with it. Today you start
+>   the machine yourself and add its Jupyter server.
+> - **Step 5's Try it** in the lookup box.
+> - **Step 6's run snapshots** and the comparison against the paper's
+>   number.
+> - **Step 7's keep rules** to Drive and the Hub, and the resume plan.
+> - **Step 8's secrets.**
+> - **Ports.**
 
 ---
 
