@@ -22,7 +22,7 @@ export interface CloseUpVisual {
   /** The section it is in. */
   section: string;
   caption: string;
-  /** The drawing, as SVG — cleaned by DOMPurify before it was put on the page, or drawn by the page itself. */
+  /** The drawing, as SVG — cleaned by DOMPurify before it was put on the page, or drawn by the page itself — or, for one of the paper's own figures, its <img>. */
   svg: string;
   /** Width over height, from the viewBox, so the close-up has the drawing's own proportions. */
   aspect: number;
@@ -44,7 +44,9 @@ export function closeUpVisuals(root: HTMLElement | null): CloseUpVisual[] {
   const visuals: CloseUpVisual[] = [];
   for (const art of Array.from(root.querySelectorAll<HTMLElement>(CLOSEUP_ART))) {
     const svg = art.querySelector<SVGSVGElement>(':scope > svg');
-    if (!svg) continue;
+    // One of the paper's own figures is a picture, not a drawing: the close-up is the same picture, set larger.
+    const image = svg ? null : art.querySelector<HTMLImageElement>(':scope > img');
+    if (!svg && !image) continue;
     const scene = art.matches('.motion-art');
     const element = art.closest<HTMLElement>(scene ? '.explain-motion' : '.explain-figure');
     if (!element) continue;
@@ -57,8 +59,8 @@ export function closeUpVisuals(root: HTMLElement | null): CloseUpVisual[] {
       kind: scene ? 'scene' : 'figure',
       section: art.closest<HTMLElement>('.explain-section')?.dataset.title ?? '',
       caption,
-      svg: svg.outerHTML,
-      aspect: aspectOf(svg, art),
+      svg: svg ? svg.outerHTML : image!.outerHTML,
+      aspect: svg ? aspectOf(svg, art) : image!.naturalWidth && image!.naturalHeight ? image!.naturalWidth / image!.naturalHeight : Number(image!.getAttribute('width')) / Number(image!.getAttribute('height')) || 4 / 3,
     });
   }
   return visuals;

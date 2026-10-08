@@ -3132,6 +3132,23 @@ body.win-moving .assistant-win { transition: none; }
 /* A figure Claude drew. Its SVG may only colour itself with these classes. */
 .explain-figure { margin: 0; padding: 16px 16px 12px; background: var(--surface); border: 1px solid var(--border-soft); border-radius: 12px; }
 .figure-art svg { display: block; width: 100%; height: auto; max-height: 420px; font-family: var(--sans); }
+/* One of the paper's own figures, placed by the model that wrote the page: the picture as the paper has it, on white in either theme. */
+.figure-art.paper-art { background: #fff; border-radius: 6px; padding: 6px; cursor: zoom-in; }
+.figure-art.paper-art img { display: block; width: 100%; height: auto; max-height: 460px; object-fit: contain; }
+.figure-art.paper-missing { font: 12.5px/1.45 var(--sans); color: var(--muted); padding: 18px 8px; text-align: center; }
+.explain-figure .paper-figure-ref { font-weight: 600; color: var(--accent-ink); }
+.paper-figure-note { font: 13px/1.5 var(--sans); color: var(--ink-2); margin-top: 6px; }
+.paper-figure-note p { margin: 0 0 6px; }
+.paper-figure-note p:last-child { margin-bottom: 0; }
+.figure-closeup .closeup-art img { display: block; width: 100%; height: 100%; object-fit: contain; background: #fff; border-radius: 6px; }
+/* A code block in the prose, with its Copy button on the corner. */
+.explain-prose .prose-code { margin: 0 0 16px; }
+.explain-prose .prose-code > pre { margin: 0; }
+.explain-prose .prose-code .copy-block-btn { opacity: 0.6; transition: opacity 120ms; user-select: none; }
+.explain-prose .prose-code .copy-block-btn::before { content: 'Copy'; }
+.explain-prose .prose-code .copy-block-btn.is-done::before { content: 'Copied ✓'; }
+.explain-prose .prose-code .copy-block-btn.is-failed::before { content: 'Select and copy'; }
+.explain-prose .prose-code:hover .copy-block-btn, .explain-prose .prose-code .copy-block-btn:focus-visible, .explain-prose .prose-code .copy-block-btn.is-done { opacity: 1; }
 .figure-art svg text { fill: var(--ink); font-family: var(--sans); }
 .figure-art svg line, .figure-art svg path, .figure-art svg polyline { stroke: var(--ink); }
 .figure-art svg [fill='none'] { fill: none; }

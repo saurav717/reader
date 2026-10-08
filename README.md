@@ -2890,6 +2890,36 @@ What it writes, in this order:
 
 ![a scene close up, on its third step, with the step's caption under it](docs/explain-closeup-scene.png)
 
+- **The paper's own figures.** A drawing the model makes is a sketch of an
+  idea; the paper's figure is the thing itself — the architecture as the
+  authors drew it, the plot a result rests on. When a page is written, the
+  paper's figures and tables are read out of what the reader already has:
+  the pictures in the Reflow column (the crops cut from the PDF, or the
+  files arXiv's HTML links), or in PDF mode the PDF itself, reflowed once
+  for them. They go to the model with the paper: their names and captions
+  as a list, and — since every model the reader offers can see — the
+  pictures themselves, each named, so it describes what is actually in
+  them. It places one with a `paper-figure` block right after the paragraph
+  that discusses it, with a line on what to look at, and the page draws it
+  in the margin beside that paragraph, marked *from the paper*; a click
+  opens it close up like any other figure, and **Add to notes** keeps it.
+  The pictures are kept in this browser with the paper, so the page still
+  shows them in PDF mode, after a reload, or with the paper closed, and a
+  request from the bar sees the same figures the page was written with.
+  A page written before this has none; **Rewrite** adds them.
+
+![the paper's Figure 1 in the margin beside the paragraph about it, marked Figure 1 · from the paper, with a line on what to look at](docs/explain-paper-figure.png)
+
+- **Copy on every snippet.** Every code cell has **Copy** in its header,
+  whatever its language; its expected output has a **Copy output** of its
+  own; and a plain code block in the prose — a shape, a command, a config —
+  has a **Copy** on its corner that takes the whole block and says
+  *Copied ✓*. `scripts/explain-paper-figures-smoke.mjs` checks both in a
+  browser: what the model was sent, where the figure lands, and what each
+  Copy puts on the clipboard.
+
+![a plain code block in the prose with Copied on its corner, beside a cell whose header has Copy and Run in Colab](docs/explain-prose-copy.png)
+
 Three layouts, switched in the bar and remembered:
 
 - **Margin** (the default): the prose in a reading column, and its figures,
