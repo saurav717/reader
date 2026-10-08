@@ -1,0 +1,57 @@
+<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><link rel="stylesheet" href="playground.css"><style>
+.st{flex:1;overflow:hidden;padding:24px 30px;display:grid;grid-template-columns:210px minmax(0,1fr) 400px;gap:24px}
+.nav div{padding:7px 10px;border-radius:7px;color:var(--ink-2);font-size:12.5px}
+.nav div.on{background:var(--surface);color:var(--ink);border:1px solid var(--border)}
+.sec{padding:14px 16px;margin-bottom:14px}
+.sec h3{font:600 14px var(--sans);margin:0 0 3px}
+.sec p{margin:0 0 10px;font-size:12px;color:var(--muted)}
+.li{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--border-soft);font-size:12.5px}
+.li .mono{color:var(--muted)}
+.sw{width:30px;height:17px;border-radius:9px;background:var(--accent);position:relative;flex:none}.sw::after{content:'';position:absolute;right:2px;top:2px;width:13px;height:13px;border-radius:50%;background:#fff}
+.sw.off{background:var(--border)}.sw.off::after{right:auto;left:2px}
+.num{font:500 12px var(--mono);padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--panel)}
+.ask{border:1px solid #c9781e;border-radius:14px;background:var(--surface);box-shadow:var(--shadow-md);overflow:hidden}
+.ask .h{padding:12px 16px;background:rgba(201,120,30,.14);font-size:12.5px;display:flex;gap:8px;align-items:center}
+.ask .b{padding:14px 16px;display:flex;flex-direction:column;gap:10px;font-size:12.5px}
+.ask pre{margin:0;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:9px 11px;font:11.5px/1.6 var(--mono);white-space:pre-wrap}
+</style></head><body><div class="app"><!--RAIL--><main class="main">
+<div class="wbar"><div class="name"><b>Settings · Playground</b><span>Compute, secrets, spending, and what may run</span></div><span class="spacer"></span></div>
+<div class="st">
+ <div class="nav"><div>Drive</div><div>Git repository</div><div>Ask AI</div><div class="on">Playground</div><div>&nbsp;&nbsp;Compute</div><div>&nbsp;&nbsp;Secrets</div><div>&nbsp;&nbsp;Spending</div><div>&nbsp;&nbsp;What may run</div></div>
+ <div>
+  <div class="card sec"><h3>Secrets</h3><p>Given to a machine as environment variables when a playground that may use them starts. Never in a cell, an output, a commit or an export; kept by your proxy on this PC, not in the browser.</p>
+   <div class="li"><span class="tag">HF_TOKEN</span><span>Hugging Face · read + write <span class="mono">hf_…9xQ</span></span><span class="muted" style="font-size:11.5px">2 playgrounds</span><span class="btn sm">Edit</span></div>
+   <div class="li"><span class="tag">WANDB_API_KEY</span><span>Weights &amp; Biases <span class="mono">…b31e</span></span><span class="muted" style="font-size:11.5px">LoRA sweep</span><span class="btn sm">Edit</span></div>
+   <div class="li"><span class="tag">RUNPOD_API_KEY</span><span>Starts and stops pods <span class="mono">…7Ak2</span></span><span class="muted" style="font-size:11.5px">proxy only</span><span class="btn sm">Edit</span></div>
+  </div>
+  <div class="card sec"><h3>Spending</h3><p>Rented machines bill by the hour whether or not a cell runs. Colab units are Google's and counted separately.</p>
+   <div class="li"><span class="sw"></span><span>Stop a machine with nothing running after</span><span></span><span class="num">20 min</span></div>
+   <div class="li"><span class="sw"></span><span>Ask before starting anything over</span><span></span><span class="num">$2.00/h</span></div>
+   <div class="li"><span class="sw"></span><span>Monthly cap — stop every rented machine at</span><span class="muted" style="font-size:11.5px">$11.40 so far</span><span class="num">$40</span></div>
+   <div class="li"><span class="sw"></span><span>Warn me at 80% of the cap, and before a run's estimate crosses it</span><span></span><span></span></div>
+  </div>
+  <div class="card sec"><h3>What may run</h3><p>The same rule as the Explain cells: nothing runs without your click, and exactly the code shown is what runs.</p>
+   <div class="li"><span class="sw"></span><span>Cells the ask bar writes wait for <b>Run them</b></span><span></span><span></span></div>
+   <div class="li"><span class="sw"></span><span>Shell commands from the model are shown, then asked about, on a paid machine</span><span></span><span></span></div>
+   <div class="li"><span class="sw off"></span><span>Let a playground's cells reach your PC's files outside its folder</span><span class="muted" style="font-size:11.5px">off · recommended</span><span></span></div>
+  </div>
+ </div>
+ <div>
+  <div class="ask"><div class="h"><span class="dot" style="background:#c9781e"></span><b>LoRA rank sweep wants a secret</b></div><div class="b">
+   <div>Cell 3 calls <span class="mono">login()</span> and the run will push checkpoints to the Hub. Give it <span class="tag">HF_TOKEN</span> on <b>RunPod A100</b>?</div>
+   <pre>from huggingface_hub import login
+login(token=os.environ["HF_TOKEN"])   # cell 3</pre>
+   <div class="muted" style="font-size:11.5px">It arrives as an environment variable on that pod only, and goes when the pod stops. Outputs that print it are masked.</div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap"><span class="btn primary sm">Allow for this playground</span><span class="btn sm">Just this run</span><span class="btn sm">Don't</span></div>
+  </div></div>
+  <div class="ask" style="margin-top:16px;border-color:var(--border)"><div class="h" style="background:var(--panel)"><span class="gpuico">H100</span><b>Start an H100 at $2.79/h?</b></div><div class="b">
+   <div>You asked the bar to "run the full 7B sweep". That is over your <b>$2.00/h</b> line.</div>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px"><div class="card" style="padding:8px 10px">Estimate<br><b class="mono">≈ 6 h · $16.70</b></div><div class="card" style="padding:8px 10px">Cap left after<br><b class="mono">$11.90 of $40</b></div></div>
+   <div style="display:flex;gap:8px"><span class="btn primary sm">Start H100</span><span class="btn sm">Use the A100 · ≈ $14</span><span class="btn sm">Cancel</span></div>
+  </div></div>
+ </div>
+</div></main></div>
+<span class="pin" style="left:740px;top:84px">1</span><span class="pin" style="left:740px;top:290px">2</span><span class="pin" style="left:1410px;top:84px">3</span>
+<div class="notes" style="left:330px;bottom:18px;flex-wrap:nowrap"><div class="callout" style="width:330px"><span class="n">1</span>Secrets live with <b>your proxy</b>, scoped per playground, injected per machine.</div><div class="callout" style="width:330px"><span class="n">2</span>Idle stop, an hourly line and a monthly cap — the three that stop a forgotten A100 eating a weekend.</div><div class="callout" style="width:330px"><span class="n">3</span>Asked at the moment it matters, with the code that wants it in view.</div></div>
+<div class="step" style="bottom:110px">8 · Guardrails: secrets, spending, what may run</div>
+</body></html>

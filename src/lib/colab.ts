@@ -47,7 +47,29 @@ export interface RuntimeProxy {
   url: string;
   token: string;
   expiresAt: number;
+  /** A Jupyter server of the person's own, reached straight from the page, rather than Colab's runtime proxy. */
+  kind?: 'jupyter';
 }
+
+/**
+ * A Jupyter server the person runs somewhere — on this PC, on a rented GPU,
+ * on a lab machine through an SSH tunnel — and lets this site talk to
+ * (`--ServerApp.allow_origin`). The same kernel client Colab's runtimes get
+ * talks to it: cells, the machine's readings, its files.
+ */
+export interface JupyterServer {
+  id: string;
+  /** What the page calls it: "This PC", "RunPod A100". */
+  name: string;
+  /** The server's base URL, e.g. http://localhost:8888/ or https://<pod>-8888.proxy.runpod.net/. */
+  url: string;
+  token: string;
+  /** On the PC the page is open on, or a machine elsewhere. */
+  where: 'pc' | 'remote';
+}
+
+/** Where cells run: the person's own Colab, or a Jupyter server of theirs. */
+export type Backend = { kind: 'colab' } | { kind: 'jupyter'; server: JupyterServer };
 
 export interface Runtime {
   endpoint: string;
@@ -92,6 +114,8 @@ export type Status =
   | 'error';
 
 export interface ColabState {
+  /** What the kernel is: Colab's runtime, or a Jupyter server of the person's. */
+  backend: Backend;
   status: Status;
   machine: Machine;
   runtime?: Runtime;
@@ -180,7 +204,7 @@ const savedPulse = (): Pulse => {
   const saved = read<unknown>(local(), PULSE_KEY);
   return isPulse(saved) ? saved : 'live';
 };
-let state: ColabState = { status: 'off', machine: savedMachine(), runs: {}, gpuWatch: read<boolean>(local(), GPU_KEY) !== false, history: [], pulse: savedPulse(), queue: [], paused: false };
+let state: ColabState = { backend: { kind: 'colab' }, status: 'off', machine: savedMachine(), runs: {}, gpuWatch: read<boolean>(local(), GPU_KEY) !== false, history: [], pulse: savedPulse(), queue: [], paused: false };
 const listeners = new Set<() => void>();
 const set = (patch: Partial<ColabState>) => {
   state = { ...state, ...patch };
@@ -197,7 +221,10 @@ export function subscribeColab(listener: () => void) {
 }
 
 /** Whether cells can be run at all here: a proxy to reach Colab through, and a client ID to sign in with. */
-export const colabAvailable = (clientId: string) => hasProxy() && Boolean(clientId.trim());
+export const colabAvailable = (clientId: string) => state.backend.kind === 'jupyter' || (hasProxy() && Boolean(clientId.trim()));
+
+/** Whether the connected runtime is Colab's, so Colab's own page can be opened on it. */
+export const onColab = () => state.backend.kind === 'colab';
 
 /** The machine watch: the probe every couple of seconds in a second kernel while a cell runs, shown under the cell and in the chip. */
 export function setGpuWatch(on: boolean) {
@@ -528,7 +555,9 @@ class Kernel {
     const url = new URL(`api/kernels/${encodeURIComponent(this.id)}/channels`, this.proxy.url);
     url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:';
     url.searchParams.set('session_id', this.sessionId);
-    url.searchParams.set('colab-runtime-proxy-token', this.proxy.token);
+    if (this.proxy.kind === 'jupyter') {
+      if (this.proxy.token) url.searchParams.set('token', this.proxy.token);
+    } else url.searchParams.set('colab-runtime-proxy-token', this.proxy.token);
     return url.href;
   }
 
@@ -664,6 +693,170 @@ class Kernel {
   }
 }
 
+// ------------------------------------------------------------ the hosts ---
+//
+// What a kernel lives on. Colab's runtime is reached through the proxy, with
+// the person's Google token (server/colab.js); a Jupyter server of the
+// person's own is reached straight from the page, with its token. Both are
+// Jupyter servers underneath, so above this the page does not care which.
+
+interface Host {
+  runtime: Runtime;
+  listKernels(): Promise<{ id: string }[]>;
+  startKernel(): Promise<string>;
+  interrupt(kernelId: string): Promise<void>;
+  restart(kernelId: string): Promise<void>;
+  contents(path: string): Promise<{ path: string; entries: RuntimeEntry[] }>;
+  /** A ticket for the proxy to carry a kernel's socket, where the host will not take the page's own. */
+  ticket?: (kernelId: string, sessionId: string) => Promise<string>;
+}
+
+export class JupyterRequestError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'JupyterRequestError';
+  }
+}
+
+/** The server's base URL with a trailing slash, for `new URL(path, base)`. */
+export const serverBase = (url: string) => (url.endsWith('/') ? url : `${url}/`);
+
+/** A request to a Jupyter server of the person's own, with its token; JSON back. */
+export async function jupyterFetch<T>(server: Pick<JupyterServer, 'url' | 'token'>, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  const url = new URL(path, serverBase(server.url));
+  let response: Response;
+  try {
+    response = await fetch(url.href, {
+      method: init.method ?? 'GET',
+      headers: { Accept: 'application/json', ...(server.token ? { Authorization: `token ${server.token}` } : {}), ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+    });
+  } catch {
+    throw new JupyterRequestError(0, `Could not reach ${url.origin}. Is the Jupyter server running, and started with --ServerApp.allow_origin set to this site?`);
+  }
+  if (response.status === 204) return undefined as T;
+  const body = (await response.json().catch(() => ({}))) as T & { message?: string };
+  if (response.status === 401 || response.status === 403) throw new JupyterRequestError(response.status, `${url.origin} refused the token (${response.status}).`);
+  if (!response.ok) throw new JupyterRequestError(response.status, (body as { message?: string }).message || `${url.origin} answered ${response.status}.`);
+  return body;
+}
+
+interface JupyterModel {
+  name: string;
+  path: string;
+  type: 'directory' | 'notebook' | 'file';
+  size?: number | null;
+  last_modified?: string | null;
+  content?: unknown;
+  format?: 'text' | 'base64' | 'json' | null;
+}
+
+const entryOf = (model: JupyterModel): RuntimeEntry => ({ name: model.name, path: model.path, type: model.type, size: model.size ?? null, modified: model.last_modified ?? null });
+const contentsUrl = (path: string) => `api/contents/${path.split('/').filter(Boolean).map(encodeURIComponent).join('/')}`;
+
+/** What is under `path` on a Jupyter server, folders first. */
+export async function jupyterList(server: Pick<JupyterServer, 'url' | 'token'>, path = ''): Promise<{ path: string; entries: RuntimeEntry[] }> {
+  const model = await jupyterFetch<JupyterModel>(server, `${contentsUrl(path)}?type=directory&content=1`);
+  const entries = (Array.isArray(model.content) ? (model.content as JupyterModel[]) : []).map(entryOf);
+  entries.sort((a, b) => (a.type === 'directory') === (b.type === 'directory') ? a.name.localeCompare(b.name) : a.type === 'directory' ? -1 : 1);
+  return { path: model.path ?? path, entries };
+}
+
+/** A text file on a Jupyter server; null when there is none. */
+export async function jupyterRead(server: Pick<JupyterServer, 'url' | 'token'>, path: string): Promise<{ text: string; modified: string | null } | null> {
+  try {
+    const model = await jupyterFetch<JupyterModel>(server, `${contentsUrl(path)}?type=file&format=text&content=1`);
+    return { text: typeof model.content === 'string' ? model.content : '', modified: model.last_modified ?? null };
+  } catch (error) {
+    if (error instanceof JupyterRequestError && (error.status === 404 || error.status === 400)) return null;
+    throw error;
+  }
+}
+
+/** Writes a text file on a Jupyter server, making the folders on the way. */
+export async function jupyterWrite(server: Pick<JupyterServer, 'url' | 'token'>, path: string, text: string): Promise<{ modified: string | null }> {
+  const parts = path.split('/').filter(Boolean);
+  for (let i = 1; i < parts.length; i += 1) {
+    const dir = parts.slice(0, i).join('/');
+    try {
+      await jupyterFetch(server, contentsUrl(dir), { method: 'PUT', body: { type: 'directory' } });
+    } catch (error) {
+      // 409 and the like: there already
+      if (!(error instanceof JupyterRequestError) || error.status === 0 || error.status === 401 || error.status === 403) throw error;
+    }
+  }
+  const model = await jupyterFetch<JupyterModel>(server, contentsUrl(path), { method: 'PUT', body: { type: 'file', format: 'text', content: text } });
+  return { modified: model?.last_modified ?? null };
+}
+
+/** Whether a Jupyter server answers with this token: its version, or why not. */
+export async function checkJupyter(server: Pick<JupyterServer, 'url' | 'token'>): Promise<{ ok: true; version?: string } | { ok: false; error: string }> {
+  try {
+    const about = await jupyterFetch<{ version?: string }>(server, 'api');
+    await jupyterFetch(server, 'api/kernels');
+    return { ok: true, version: about?.version };
+  } catch (error) {
+    return { ok: false, error: message(error) };
+  }
+}
+
+const runtimeOfServer = (server: JupyterServer): Runtime => ({
+  endpoint: `jupyter:${server.id}`,
+  accelerator: null,
+  highMem: false,
+  proxy: { url: serverBase(server.url), token: server.token, expiresAt: Number.MAX_SAFE_INTEGER, kind: 'jupyter' },
+});
+
+function jupyterHost(server: JupyterServer): Host {
+  return {
+    runtime: runtimeOfServer(server),
+    listKernels: () => jupyterFetch<{ id: string }[]>(server, 'api/kernels'),
+    startKernel: async () => (await jupyterFetch<{ id: string }>(server, 'api/kernels', { method: 'POST', body: { name: 'python3' } })).id,
+    interrupt: async (id) => {
+      await jupyterFetch(server, `api/kernels/${encodeURIComponent(id)}/interrupt`, { method: 'POST', body: {} });
+    },
+    restart: async (id) => {
+      await jupyterFetch(server, `api/kernels/${encodeURIComponent(id)}/restart`, { method: 'POST', body: {} });
+    },
+    contents: (path) => jupyterList(server, path),
+  };
+}
+
+/** Colab's runtime as a host: each call through the proxy, with the Google token `token` gives. */
+function colabHost(runtime: Runtime, token: () => Promise<string>): Host {
+  return {
+    runtime,
+    listKernels: async () => (await relay<{ kernels: { id: string }[] }>('/colab/kernels/list', await token(), { method: 'POST', body: { proxy: runtime.proxy } })).kernels ?? [],
+    startKernel: async () => (await relay<{ kernel: { id: string } }>('/colab/kernels', await token(), { method: 'POST', body: { proxy: runtime.proxy } })).kernel.id,
+    interrupt: async (id) => {
+      await relay('/colab/kernels/interrupt', await token(), { method: 'POST', body: { proxy: runtime.proxy, kernel: id } });
+    },
+    restart: async (id) => {
+      await relay('/colab/kernels/restart', await token(), { method: 'POST', body: { proxy: runtime.proxy, kernel: id } });
+    },
+    contents: async (path) => relay<{ path: string; entries: RuntimeEntry[] }>('/colab/contents', await token(), { method: 'POST', body: { proxy: runtime.proxy, path } }),
+    ticket: async (kernelId, sessionId) => (await relay<{ ticket: string }>('/colab/socket/ticket', await token(), { method: 'POST', body: { proxy: { url: runtime.proxy.url }, kernel: kernelId, session: sessionId } })).ticket,
+  };
+}
+
+/** The Google token without a window: for the readings, which must never open one. */
+async function quietToken(): Promise<string> {
+  const held = await colabToken(clientIdNow);
+  if (!held) throw new Error('Not connected to Colab.');
+  return held;
+}
+
+/** The host the connected runtime is on; null when nothing is connected. `quiet`: never open Google's window for it. */
+function hostNow(quiet = false): Host | null {
+  const runtime = state.runtime;
+  if (!runtime) return null;
+  if (state.backend.kind === 'jupyter') return jupyterHost(state.backend.server);
+  return colabHost(runtime, quiet ? quietToken : tokenOrConnect);
+}
+
 // ------------------------------------------------------------ the actions --
 
 let kernel: Kernel | null = null;
@@ -683,19 +876,19 @@ function stopWatching() {
 let startingMonitor: Promise<Kernel | null> | null = null;
 
 /** The monitor kernel, started on first need. Null when it could not be had — the watch is a reading, not the work. */
-function ensureMonitor(runtime: Runtime, googleToken: string): Promise<Kernel | null> {
+function ensureMonitor(host: Host): Promise<Kernel | null> {
   if (monitor) return Promise.resolve(monitor);
   if (startingMonitor) return startingMonitor;
   startingMonitor = (async () => {
     try {
-      const made = await relay<{ kernel: { id: string } }>('/colab/kernels', googleToken, { method: 'POST', body: { proxy: runtime.proxy } });
+      const id = await host.startKernel();
       const attached = new Kernel(
-        runtime.proxy,
-        made.kernel.id,
+        host.runtime.proxy,
+        id,
         () => {
           if (monitor === attached) monitor = null;
         },
-        ticketFor(runtime),
+        host.ticket,
       );
       await attached.connect();
       monitor = attached;
@@ -729,6 +922,28 @@ const keepSample = (sample: MachineSample) => {
   const history = [...state.history.filter((entry) => at - entry.at <= HISTORY_MS), { at, sample }];
   set({ sample, specs: { ...state.specs, ...specsOf(sample) }, history });
 };
+
+/**
+ * Runs code in the monitor kernel — the small second one — and gives back
+ * what it printed. For the page's own housekeeping (a file written into the
+ * runtime, a listing), never for a cell: those run in the kernel the person
+ * sees. Null when there is no runtime to run it in.
+ */
+export async function runQuietly(code: string): Promise<{ ok: boolean; text: string } | null> {
+  const host = hostNow(true);
+  if (!host || !(await ensureMonitor(host)) || !monitor) return null;
+  let text = '';
+  let failed = false;
+  const reply = await monitor.execute(code, (incoming) => {
+    const type = incoming.header.msg_type;
+    if (type === 'stream') text += asText(incoming.content.text);
+    else if (type === 'error') {
+      failed = true;
+      text += `${asText(incoming.content.ename)}: ${asText(incoming.content.evalue)}`;
+    }
+  });
+  return { ok: !failed && reply.status === 'ok', text };
+}
 
 // ------------------------------------------------------------ idle pulse ---
 
@@ -770,9 +985,9 @@ export function setPulse(pulse: Pulse) {
  * each sample onto the run and into the chip. Any failure ends the watch
  * quietly.
  */
-async function watchMachine(key: string, runtime: Runtime, googleToken: string, started: number) {
+async function watchMachine(key: string, host: Host, started: number) {
   if (!state.gpuWatch) return;
-  if (!(await ensureMonitor(runtime, googleToken))) return;
+  if (!(await ensureMonitor(host))) return;
   const tick = async () => {
     if (state.running !== key || !monitor) return;
     const sample = await takeSample(Math.round((Date.now() - started) / 100) / 10);
@@ -793,11 +1008,10 @@ async function watchMachine(key: string, runtime: Runtime, googleToken: string, 
  * cell runs — the watch is already sampling.
  */
 export async function probeMachine(): Promise<MachineSample | null> {
-  const runtime = state.runtime;
-  if (!runtime || !state.gpuWatch || state.running || state.status !== 'idle') return null;
+  if (!state.runtime || !state.gpuWatch || state.running || state.status !== 'idle') return null;
   try {
-    const googleToken = await colabToken(clientIdNow);
-    if (!googleToken || !(await ensureMonitor(runtime, googleToken))) return null;
+    const host = hostNow(true);
+    if (!host || !(await ensureMonitor(host))) return null;
     const sample = await takeSample(0);
     if (sample) keepSample(sample);
     return sample;
@@ -820,8 +1034,11 @@ async function tokenOrConnect(): Promise<string> {
   return connectColab(clientIdNow);
 }
 
-/** Where a run says it happened: the machine, from the runtime. */
-const whereOf = (runtime: Runtime) => `Colab · ${machineLabel(runtime)}`;
+/** Where a run says it happened: the machine, from the runtime — or the Jupyter server, by the name it was given. */
+const whereOf = (runtime: Runtime) => (state.backend.kind === 'jupyter' ? `${state.backend.server.name}${state.specs?.gpuName ? ` · ${state.specs.gpuName}` : ''}` : `Colab · ${machineLabel(runtime)}`);
+
+/** What the kernel is on, in a few words: "Colab · T4", "This PC". */
+export const backendLabel = (backend: Backend = state.backend, runtime: Runtime | undefined = state.runtime) => (backend.kind === 'jupyter' ? backend.server.name : runtime ? `Colab · ${machineLabel(runtime)}` : 'Colab');
 
 const closeKernels = () => {
   stopWatching();
@@ -834,7 +1051,7 @@ const closeKernels = () => {
 
 const lost = (reason: string) => {
   closeKernels();
-  write(session(), RUNTIME_KEY, null);
+  if (state.backend.kind === 'colab') write(session(), RUNTIME_KEY, null);
   const runs = Object.fromEntries(
     Object.entries(state.runs)
       .filter(([, run]) => run.state !== 'queued')
@@ -844,25 +1061,18 @@ const lost = (reason: string) => {
   wake();
 };
 
-/** A ticket for the proxy to carry a kernel's socket: asked for as the page connects, with the person's own token. */
-const ticketFor = (runtime: Runtime) => async (kernelId: string, sessionId: string) => {
-  const googleToken = await tokenOrConnect();
-  const answer = await relay<{ ticket: string }>('/colab/socket/ticket', googleToken, { method: 'POST', body: { proxy: { url: runtime.proxy.url }, kernel: kernelId, session: sessionId } });
-  return answer.ticket;
-};
-
-async function attach(runtime: Runtime, googleToken: string): Promise<Kernel> {
+async function attach(host: Host): Promise<Kernel> {
   // The runtime's kernel, if it has one — a second kernel would be a second Python with none of the first's variables.
-  const listed = await relay<{ kernels: { id: string }[] }>('/colab/kernels/list', googleToken, { method: 'POST', body: { proxy: runtime.proxy } }).catch(() => null);
-  let id = state.kernel && listed?.kernels?.some((k) => k.id === state.kernel) ? state.kernel : listed?.kernels?.[0]?.id;
-  if (!id) id = (await relay<{ kernel: { id: string } }>('/colab/kernels', googleToken, { method: 'POST', body: { proxy: runtime.proxy } })).kernel.id;
+  const listed = await host.listKernels().catch(() => null);
+  let id = state.kernel && listed?.some((k) => k.id === state.kernel) ? state.kernel : state.backend.kind === 'colab' ? listed?.[0]?.id : undefined;
+  if (!id) id = await host.startKernel();
   const attached = new Kernel(
-    runtime.proxy,
+    host.runtime.proxy,
     id,
     (reason) => {
       if (kernel === attached) lost(`The connection to the runtime closed and could not be opened again: ${reason}`);
     },
-    ticketFor(runtime),
+    host.ticket,
     (link) => {
       if (kernel === attached) set({ reconnecting: link === 'reconnecting', via: attached.via });
     },
@@ -871,25 +1081,74 @@ async function attach(runtime: Runtime, googleToken: string): Promise<Kernel> {
   return attached;
 }
 
+/** The kernel this tab keeps on a Jupyter server, by server, so a reload comes back to the same Python. */
+const SERVER_KERNELS_KEY = 'reader.jupyter.kernels';
+const keptKernel = (serverId: string) => read<Record<string, string>>(session(), SERVER_KERNELS_KEY)?.[serverId];
+const keepKernel = (serverId: string, kernelId: string | undefined) => {
+  const all = { ...(read<Record<string, string>>(session(), SERVER_KERNELS_KEY) ?? {}) };
+  if (kernelId) all[serverId] = kernelId;
+  else delete all[serverId];
+  write(session(), SERVER_KERNELS_KEY, all);
+};
+
+const sameBackend = (a: Backend, b: Backend) => (a.kind === 'colab' ? b.kind === 'colab' : b.kind === 'jupyter' && a.server.id === b.server.id && a.server.url === b.server.url && a.server.token === b.server.token);
+
 /**
- * A runtime and a kernel, from what is held or afresh: Google's window if
- * Colab was never connected in this tab, then Colab's assignment for this
- * browser's notebook, then a WebSocket to its kernel.
+ * Where the next cell runs: Colab, or a Jupyter server of the person's. A
+ * change closes the kernel the page holds — the old one stays where it is,
+ * on its machine — and marks what ran there as from before; the next Run
+ * connects to the new one.
+ */
+export function chooseBackend(backend: Backend) {
+  if (sameBackend(state.backend, backend)) {
+    if (backend.kind === 'jupyter' && state.backend.kind === 'jupyter' && backend.server.name !== state.backend.server.name) set({ backend });
+    return;
+  }
+  closeKernels();
+  const runs = Object.fromEntries(Object.entries(state.runs).filter(([, run]) => run.state !== 'queued').map(([key, run]) => [key, { ...run, stale: true }]));
+  const kept = backend.kind === 'jupyter' ? keptKernel(backend.server.id) : undefined;
+  set({ backend, status: 'off', runtime: undefined, kernel: kept, running: undefined, startedAt: undefined, runs, error: undefined, sample: undefined, specs: undefined, history: [], reconnecting: false, queue: [], paused: false, via: undefined });
+  wake();
+}
+
+/**
+ * A runtime and a kernel, from what is held or afresh. On Colab: Google's
+ * window if Colab was never connected in this tab, then Colab's assignment
+ * for this browser's notebook, then a WebSocket to its kernel. On a Jupyter
+ * server: its kernel — the one this tab started there before, or a new one.
  */
 export async function connect(machine: Machine = state.machine): Promise<void> {
   if (state.status === 'connecting') return;
+  if (state.backend.kind === 'jupyter') {
+    const { server } = state.backend;
+    set({ status: 'connecting', error: undefined });
+    try {
+      const host = jupyterHost(server);
+      closeKernels();
+      if (!state.kernel) set({ kernel: keptKernel(server.id) });
+      kernel = await attach(host);
+      keepKernel(server.id, kernel.id);
+      const same = state.runtime?.endpoint === host.runtime.endpoint;
+      set({ status: 'idle', runtime: host.runtime, kernel: kernel.id, via: 'direct', reconnecting: false, startedAt: same && state.startedAt ? state.startedAt : Date.now(), error: undefined, history: same ? state.history : [] });
+      void probeMachine().finally(() => schedulePulse());
+    } catch (error) {
+      set({ status: state.runtime ? 'lost' : 'error', error: message(error) });
+      throw error;
+    }
+    return;
+  }
   set({ status: 'connecting', error: undefined, machine });
   write(local(), MACHINE_KEY, machine);
   try {
     const googleToken = await tokenOrConnect();
     const held = state.runtime ?? read<Runtime>(session(), RUNTIME_KEY) ?? undefined;
-    let runtime = held && held.proxy.expiresAt > Date.now() + 60_000 ? held : undefined;
+    let runtime = held && held.proxy.expiresAt > Date.now() + 60_000 && held.proxy.kind !== 'jupyter' ? held : undefined;
     if (!runtime) {
       // The runtime Colab already has for this notebook, or one it starts now.
       runtime = (await relay<{ runtime: Runtime }>('/colab/runtimes', googleToken, { method: 'POST', body: { notebook: notebookId(), accelerator: machine.accelerator, highMem: Boolean(machine.highMem) } })).runtime;
     }
     closeKernels();
-    kernel = await attach(runtime, googleToken);
+    kernel = await attach(colabHost(runtime, tokenOrConnect));
     write(session(), RUNTIME_KEY, runtime);
     const same = state.runtime?.endpoint === runtime.endpoint;
     set({ status: 'idle', runtime, kernel: kernel.id, via: kernel.via, reconnecting: false, startedAt: same && state.startedAt ? state.startedAt : Date.now(), error: undefined, history: same ? state.history : [] });
@@ -920,6 +1179,10 @@ async function refreshUnits(googleToken: string) {
   }
 }
 
+/** When the last cell finished, or started: the idle stop counts from here. */
+let lastActivity = Date.now();
+export const lastActivityAt = () => lastActivity;
+
 /**
  * Runs one cell — the code as shown — in the kernel, and keeps what it
  * prints under `key`. Connects first when there is nothing to run in, which
@@ -931,11 +1194,13 @@ export async function runCell(key: string, code: string): Promise<void> {
   const runtime = state.runtime;
   if (!kernel || !runtime) return;
   const started = Date.now();
+  lastActivity = started;
   const where = whereOf(runtime);
   stopPulse();
   set({ status: 'busy', running: key });
   setRun(key, { state: 'running', outputs: [], startedAt: started, where });
-  if (state.gpuWatch) void colabToken(clientIdNow).then((googleToken) => (googleToken ? watchMachine(key, runtime, googleToken, started) : undefined)).catch(() => undefined);
+  const host = hostNow(true);
+  if (state.gpuWatch && host) void watchMachine(key, host, started).catch(() => undefined);
   let outputs: Output[] = [];
   let cut = false;
   try {
@@ -954,6 +1219,7 @@ export async function runCell(key: string, code: string): Promise<void> {
     setRun(key, { ...state.runs[key], state: 'interrupted', outputs, startedAt: started, ms: Date.now() - started, where, stale: true });
     if (state.status !== 'lost') set({ error: message(error) });
   } finally {
+    lastActivity = Date.now();
     stopWatching();
     if (state.status === 'busy') set({ status: 'idle', running: undefined });
     else set({ running: undefined });
@@ -985,7 +1251,7 @@ function dropQueue() {
 /** Runs cells one after another, in the order given, and stops at the first that fails. */
 export async function runAll(cells: { key: string; code: string }[]): Promise<void> {
   if (!cells.length || state.running || state.queue.length) return;
-  const where = state.runtime ? whereOf(state.runtime) : 'Colab';
+  const where = state.runtime ? whereOf(state.runtime) : backendLabel();
   const runs = { ...state.runs };
   for (const cell of cells) runs[cell.key] = { state: 'queued', outputs: [], startedAt: 0, where };
   set({ runs, queue: cells.map((cell) => cell.key), paused: false });
@@ -1020,10 +1286,10 @@ export async function stopRuns(): Promise<void> {
 
 /** Interrupts the cell running now; the kernel answers the cell's request with an error, which ends the run. */
 export async function interrupt(): Promise<void> {
-  if (!state.runtime || !state.kernel) return;
+  const host = hostNow();
+  if (!host || !state.kernel) return;
   try {
-    const googleToken = await tokenOrConnect();
-    await relay('/colab/kernels/interrupt', googleToken, { method: 'POST', body: { proxy: state.runtime.proxy, kernel: state.kernel } });
+    await host.interrupt(state.kernel);
   } catch (error) {
     set({ error: message(error) });
   }
@@ -1031,10 +1297,10 @@ export async function interrupt(): Promise<void> {
 
 /** Restarts the kernel: every variable goes, the machine and its files stay. Runs are kept, marked as from before. */
 export async function restartKernel(): Promise<void> {
-  if (!state.runtime || !state.kernel) return;
+  const host = hostNow();
+  if (!host || !state.kernel) return;
   try {
-    const googleToken = await tokenOrConnect();
-    await relay('/colab/kernels/restart', googleToken, { method: 'POST', body: { proxy: state.runtime.proxy, kernel: state.kernel } });
+    await host.restart(state.kernel);
     const runs = Object.fromEntries(Object.entries(state.runs).map(([key, run]) => [key, { ...run, stale: true }]));
     set({ runs, error: undefined });
   } catch (error) {
@@ -1042,15 +1308,26 @@ export async function restartKernel(): Promise<void> {
   }
 }
 
-/** Releases the runtime. The cells keep what they printed, marked as from a runtime that is gone. */
+/**
+ * Releases the runtime. The cells keep what they printed, marked as from a
+ * runtime that is gone. On a Jupyter server of the person's own the server is
+ * theirs and stays up; the page shuts down the kernels it started there.
+ */
 export async function stopRuntime(): Promise<void> {
   const runtime = state.runtime;
+  const backend = state.backend;
+  const kernelId = state.kernel;
   closeKernels();
-  write(session(), RUNTIME_KEY, null);
+  if (backend.kind === 'colab') write(session(), RUNTIME_KEY, null);
+  else keepKernel(backend.server.id, undefined);
   const runs = Object.fromEntries(Object.entries(state.runs).map(([key, run]) => [key, { ...run, stale: true }]));
   set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, runs, error: undefined, sample: undefined, specs: undefined, history: [], reconnecting: false, queue: [], paused: false });
   wake();
   if (!runtime) return;
+  if (backend.kind === 'jupyter') {
+    if (kernelId) await jupyterFetch(backend.server, `api/kernels/${encodeURIComponent(kernelId)}`, { method: 'DELETE' }).catch(() => undefined);
+    return;
+  }
   try {
     const googleToken = await tokenOrConnect();
     await relay('/colab/runtimes/stop', googleToken, { method: 'POST', body: { endpoint: runtime.endpoint } });
@@ -1063,7 +1340,7 @@ export async function stopRuntime(): Promise<void> {
 export function disconnect(): void {
   closeKernels();
   write(session(), RUNTIME_KEY, null);
-  dropColab();
+  if (state.backend.kind === 'colab') dropColab();
   set({ status: 'off', runtime: undefined, kernel: undefined, running: undefined, startedAt: undefined, error: undefined, units: undefined, sample: undefined, specs: undefined, history: [], reconnecting: false, queue: [], paused: false });
   wake();
 }
@@ -1078,10 +1355,9 @@ export interface RuntimeEntry {
 
 /** What is on the runtime's disk under `path` — the notebook page's Files pane. Needs a runtime. */
 export async function listContents(path = ''): Promise<{ path: string; entries: RuntimeEntry[] }> {
-  const runtime = state.runtime;
-  if (!runtime || state.status === 'off' || state.status === 'lost') throw new Error('No runtime is connected.');
-  const googleToken = await tokenOrConnect();
-  return relay<{ path: string; entries: RuntimeEntry[] }>('/colab/contents', googleToken, { method: 'POST', body: { proxy: runtime.proxy, path } });
+  const host = hostNow();
+  if (!host || state.status === 'off' || state.status === 'lost') throw new Error('No runtime is connected.');
+  return host.contents(path);
 }
 
 /** Forgets one cell's run — for a cell whose code has changed, or on request. */
@@ -1092,11 +1368,11 @@ export function forgetRun(key: string) {
   set({ runs });
 }
 
-/** Whether this tab holds a Colab grant already, so the first Run need not explain itself again. */
-export const colabGranted = () => hasColabAccess();
+/** Whether this tab holds a Colab grant already, so the first Run need not explain itself again. A Jupyter server needs none. */
+export const colabGranted = () => state.backend.kind === 'jupyter' || hasColabAccess();
 
 /** A runtime this tab had before a reload, if Colab may still have it. */
 export const rememberedRuntime = (): Runtime | undefined => {
   const held = read<Runtime>(session(), RUNTIME_KEY);
-  return held && held.proxy?.expiresAt > Date.now() ? held : undefined;
+  return held && held.proxy?.expiresAt > Date.now() && held.proxy.kind !== 'jupyter' ? held : undefined;
 };

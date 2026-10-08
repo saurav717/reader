@@ -1858,7 +1858,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           {side === 'runtime' ? (
             <RuntimePane cells={codeCells} compute={compute} onGoTo={goToCell} onRunAll={colabAvailable(settings.googleClientId) && runnable.length ? () => void runAll(runnable).catch(() => undefined) : undefined} />
           ) : side === 'metrics' ? (
-            <MetricsPane cells={metricCells} running={colab.running} onGoTo={goToCell} colabUrl={colab.runtime ? attachUrl(colab.runtime.endpoint) : undefined} />
+            <MetricsPane cells={metricCells} running={colab.running} onGoTo={goToCell} colabUrl={colab.runtime && colab.backend.kind === 'colab' ? attachUrl(colab.runtime.endpoint) : undefined} />
           ) : (
             <FilesPane />
           )}

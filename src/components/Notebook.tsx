@@ -16,7 +16,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import DOMPurify from 'dompurify';
 import { getState as assistantState, geminiNote, looksLikeKey, modelSpec, MODELS, PROVIDERS, saveKey, setAskModel, subscribe as subscribeAssistant } from '../lib/assistant';
 import type { GeminiReadiness, Screen } from '../lib/assistant';
-import { colabAvailable, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, listContents, machineLabel, runAll, runCell } from '../lib/colab';
+import { backendLabel, colabAvailable, colabNow, colabGranted, connect as connectColab, forgetRun, interrupt as interruptColab, listContents, machineLabel, runAll, runCell } from '../lib/colab';
 import type { CellRun, RuntimeEntry } from '../lib/colab';
 import { explanationFor, parseExplanation, subscribeExplain } from '../lib/explain';
 import type { Section } from '../lib/explain';
@@ -33,6 +33,7 @@ import { markdown } from '../lib/markdown';
 import { typesetMath } from '../lib/typesetMath';
 import { appendCells, cellStatus, clearOutputs, fromIpynb, insertCell, isSeedOnly, loadNotebook, moveCell, notebookFileName, notebookFor, removeCell, runKey, seedCells, setCells, setOutputs, setSource, setType, subscribeNotebook, toIpynb } from '../lib/notebook';
 import type { NbCell } from '../lib/notebook';
+import { createPlayground, OPEN_PLAYGROUND } from '../lib/playground';
 import { useStore } from '../lib/store';
 import { attachUrl, CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Colab';
 import { highlightPython, lastThought } from './Explain';
@@ -73,7 +74,7 @@ function download(name: string, blob: Blob) {
 // what is highlighted; the two share a grid cell, so the height is the text's.
 // ---------------------------------------------------------------------------
 
-function Editor({ value, python, autoFocus, onChange, onKeyDown, onBlur, placeholder }: { value: string; python: boolean; autoFocus?: boolean; onChange: (next: string) => void; onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void; onBlur?: () => void; placeholder?: string }) {
+export function Editor({ value, python, autoFocus, onChange, onKeyDown, onBlur, placeholder }: { value: string; python: boolean; autoFocus?: boolean; onChange: (next: string) => void; onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void; onBlur?: () => void; placeholder?: string }) {
   const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (autoFocus) {
@@ -255,7 +256,7 @@ function Cell({
             </pre>
           </div>
         ) : cell.type === 'code' || editing ? (
-          <Editor value={cell.source} python={python} autoFocus={editing} onChange={(next) => setSource(paperId, cell.id, next)} onKeyDown={keys} placeholder={python ? '# Python, on your Colab runtime' : 'Markdown'} onBlur={() => (python ? onEdit(false) : undefined)} />
+          <Editor value={cell.source} python={python} autoFocus={editing} onChange={(next) => setSource(paperId, cell.id, next)} onKeyDown={keys} placeholder={python ? `# Python, on ${colabNow().backend.kind === 'jupyter' ? backendLabel() : 'your Colab runtime'}` : 'Markdown'} onBlur={() => (python ? onEdit(false) : undefined)} />
         ) : (
           <div ref={prose} className="nb-markdown explain-prose" onDoubleClick={() => onEdit(true)} dangerouslySetInnerHTML={{ __html: cell.source.trim() ? mdHtml(cell.source) : '<p class="nb-empty">Empty text cell — double-click to write</p>' }} />
         )}
@@ -401,7 +402,10 @@ export default function NotebookPage({
   onSide,
   sections,
   planSections,
+  playground,
 }: {
+  /** In the Playground: no paper's pages to take cells from, and its own first cells. */
+  playground?: { hasPaper: boolean; seed: () => NbCell[] };
   paperId: string;
   title: string;
   screen: () => Promise<Screen>;
@@ -443,7 +447,7 @@ export default function NotebookPage({
   const writerOf = (page: { model?: string } | undefined) => (page?.model ? modelSpec(page.model).label : undefined);
   useEffect(() => {
     // A new notebook opens blank, whatever is written on the pages: the explanation's and the plan's cells come in only when asked for (the start below, or Cells ▾), so explaining the paper never fills the notebook.
-    void loadNotebook(paperId, title, () => seedCells(title, []));
+    void loadNotebook(paperId, title, playground?.seed ?? (() => seedCells(title, [])));
     void loadNotebookAsk(paperId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
@@ -768,6 +772,21 @@ export default function NotebookPage({
     return () => window.clearTimeout(timer);
   }, [note]);
 
+  /** The cells into a playground of their own, citing the paper, and the Playground opened on it. */
+  const copyToPlayground = async () => {
+    if (!nb) return;
+    const made = await createPlayground({
+      title: `${title.split(/[:—–]/)[0].trim().slice(0, 60)} — playground`,
+      kind: 'notebook',
+      start: 'copy',
+      compute: colab.backend.kind === 'jupyter' ? { kind: 'server', serverId: colab.backend.server.id } : { kind: 'colab', machine: colab.machine },
+      home: { kind: 'browser' },
+      cites: [{ paperId, title }],
+      cells: nb.cells.map((cell) => ({ ...cell, id: crypto.randomUUID(), fresh: undefined })),
+    });
+    window.dispatchEvent(new CustomEvent(OPEN_PLAYGROUND, { detail: { id: made.id } }));
+  };
+
   const menu = (label: string, items: ReactNode, right = false) => (
     <NbMenu label={label} right={right}>
       {items}
@@ -787,11 +806,11 @@ export default function NotebookPage({
         />
       ) : null}
       <div className="nb-toolbar" role="toolbar" aria-label="Notebook">
-        <ColabMark />
+        {colab.backend.kind === 'jupyter' ? <span className={`pg-mark ${colab.backend.server.where === 'pc' ? 'is-pc' : 'is-gpu'}`}>{colab.backend.server.where === 'pc' ? 'PC' : 'GPU'}</span> : <ColabMark />}
         <span className="nb-title">
-          <b>Your notebook</b>
+          <b>{playground ? 'Notebook' : 'Your notebook'}</b>
           <span>
-            {connected && colab.runtime ? `on your ${machineLabel(colab.runtime)} runtime — the kernel the pages' cells run in` : available ? `runs on your own Colab, from here — the first Run starts a ${machineLabel(colab.machine)} runtime` : 'running cells needs Settings → Google and Settings → Paper proxy'}
+            {playground ? (connected && colab.runtime ? `on ${backendLabel(colab.backend, colab.runtime)}` : `runs on ${backendLabel(colab.backend)} — the first Run connects`) : connected && colab.runtime ? `on your ${machineLabel(colab.runtime)} runtime — the kernel the pages' cells run in` : available ? `runs on your own Colab, from here — the first Run starts a ${machineLabel(colab.machine)} runtime` : 'running cells needs Settings → Google and Settings → Paper proxy'}
             {' · '}
             {cells.length} {cells.length === 1 ? 'cell' : 'cells'}, {ranCount} run
           </span>
@@ -814,12 +833,16 @@ export default function NotebookPage({
         {menu(
           'Cells',
           <>
-            <button type="button" role="menuitem" onClick={() => addFromSections(sections, 'explanation', writerOf(explanationFor(paperId)))}>
-              Add the explanation's cells
-            </button>
-            <button type="button" role="menuitem" onClick={() => addFromSections(planSections?.(), 'plan', writerOf(implementationFor(paperId)))}>
-              Add the plan's cells
-            </button>
+            {playground ? null : (
+              <>
+                <button type="button" role="menuitem" onClick={() => addFromSections(sections, 'explanation', writerOf(explanationFor(paperId)))}>
+                  Add the explanation's cells
+                </button>
+                <button type="button" role="menuitem" onClick={() => addFromSections(planSections?.(), 'plan', writerOf(implementationFor(paperId)))}>
+                  Add the plan's cells
+                </button>
+              </>
+            )}
             <button type="button" role="menuitem" onClick={() => filePick.current?.click()}>
               Add the cells of a .ipynb…
             </button>
@@ -836,15 +859,20 @@ export default function NotebookPage({
             <button type="button" role="menuitem" onClick={() => nb && download(notebookFileName(title), new Blob([toIpynb(nb)], { type: 'application/x-ipynb+json' }))}>
               Download as .ipynb
             </button>
+            {playground ? null : (
+              <button type="button" role="menuitem" disabled={!nb} onClick={() => nb && void copyToPlayground()} title="The cells, as they are, in a playground of their own that cites this paper — at /playground">
+                Copy into a new playground
+              </button>
+            )}
             <button type="button" role="menuitem" disabled={!target || push.state === 'pushing'} onClick={() => void commit()} title={target ? `notebooks/ in ${target.owner}/${target.repo}` : 'Settings → Git repository first'}>
               {push.state === 'pushing' ? 'Committing…' : 'Commit to GitHub, and open in Colab'}
             </button>
-            {colab.runtime ? (
+            {colab.runtime && colab.backend.kind === 'colab' ? (
               <a role="menuitem" href={attachUrl(colab.runtime.endpoint)} target="_blank" rel="noreferrer noopener">
                 Open this runtime in Colab's own page ↗
               </a>
             ) : null}
-            {outs.map((item) => (
+            {(playground ? [] : outs).map((item) => (
               <Fragment key={item.key}>
                 <hr />
                 <div className="menu-label">{item.key === 'page' ? 'The explanation' : 'The plan’s scaffold'}</div>
@@ -1054,7 +1082,7 @@ export default function NotebookPage({
               />
             ))
           )}
-          {blank && !asking ? (
+          {blank && !asking && (!playground || playground.hasPaper) ? (
             <NotebookStart
               model={writerModel}
               keys={assistant.keys}
@@ -1101,7 +1129,7 @@ export default function NotebookPage({
             {side === 'runtime' ? (
               <RuntimePane cells={codeCells} compute={compute} onGoTo={goTo} onRunAll={available ? runEverything : undefined} picked={selectedIndex >= 0 && cells[selectedIndex]?.type === 'code' && available && !busy ? { label: `cell ${selectedIndex + 1}`, run: () => runOne(cells[selectedIndex], 'stay') } : undefined} />
             ) : side === 'metrics' ? (
-              <MetricsPane cells={metricCells} running={colab.running} onGoTo={goTo} colabUrl={colab.runtime ? attachUrl(colab.runtime.endpoint) : undefined} />
+              <MetricsPane cells={metricCells} running={colab.running} onGoTo={goTo} colabUrl={colab.runtime && colab.backend.kind === 'colab' ? attachUrl(colab.runtime.endpoint) : undefined} />
             ) : (
               <FilesPane />
             )}

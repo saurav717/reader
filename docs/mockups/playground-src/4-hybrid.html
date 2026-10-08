@@ -1,0 +1,96 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="playground.css"><style>
+.tabsrow{display:flex;align-items:flex-end;gap:2px;padding:0 12px;height:36px;border-bottom:1px solid var(--border-soft);background:var(--panel)}
+.tabsrow span{padding:7px 12px;font:12px var(--mono);color:var(--muted);border-radius:7px 7px 0 0}
+.tabsrow span.on{background:var(--surface);color:var(--ink);border:1px solid var(--border-soft);border-bottom-color:var(--surface);margin-bottom:-1px}
+.tabsrow .sp{flex:1}
+.editor{flex:1;overflow:hidden;background:var(--surface);display:grid;grid-template-columns:44px 1fr;font:12.5px/1.65 var(--mono)}
+.ln{color:var(--muted);text-align:right;padding:10px 10px 0 0;opacity:.7;white-space:pre}
+.editor pre{margin:0;padding:10px 14px 0 4px;white-space:pre}
+.hl{background:var(--accent-soft);display:block;margin:0 -14px 0 -4px;padding:0 14px 0 4px}
+.termwrap{height:300px;flex:none;display:flex;flex-direction:column;border-top:1px solid var(--border)}
+.termbar{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;background:#1d1f25;color:#c3bfb4;font-size:11.5px}
+.termbar span.on{color:#fff;border-bottom:2px solid #57a98f;padding:8px 0}
+.termbar .sp{flex:1}
+.term{flex:1}
+.syncrow{display:flex;align-items:center;gap:8px;font-size:12px}
+.port{display:grid;grid-template-columns:1fr auto;gap:4px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-size:12px}
+.port .mono{color:var(--muted)}
+</style></head><body><div class="app"><!--RAIL--><main class="main">
+<div class="wbar"><div class="name"><b>LoRA rank sweep on Llama-3.2-1B</b><span>Project · ~/playgrounds/lora-sweep on this PC</span></div>
+ <span class="segm" style="margin-left:14px"><span>Notebook</span><span class="on">Files</span><span>Split</span></span>
+ <span class="spacer"></span>
+ <span class="rt"><span class="pc">PC</span><span class="muted">→</span><span class="gpuico">A100</span><span class="live"></span>RunPod A100 80 GB<span class="m">GPU 94% · 0:37 · $1.01</span><span class="muted">▾</span></span>
+ <span class="btn sm">▶ Run <span class="mono">make sweep</span></span><span class="btn sm">Open in VS Code</span><span class="btn sm">Commit</span>
+</div>
+<div class="ws">
+ <aside class="side">
+  <h4>~/playgrounds/lora-sweep<i>⇅</i></h4>
+  <div class="tree">
+   <div class="f on">train.py<span class="st m">● syncing</span></div><div class="f">config.yaml<span class="st s">✓</span></div><div class="f">sweep.sh<span class="st s">✓</span></div><div class="f">Makefile<span class="st s">✓</span></div><div class="f">env.txt<span class="st s">✓</span></div><div class="f">.syncignore<span class="st s">✓</span></div>
+   <div class="dir open">runs<span class="st">← back</span></div><div class="dir d1 open">r16</div><div class="f d2">metrics.jsonl<span class="st">← 2s</span></div><div class="f d2">ckpt-600/<span class="st">← 3.1 GB</span></div><div class="dir d1">r8</div><div class="dir d1">r4</div>
+   <div class="dir" style="opacity:.55">data<span class="st">remote only</span></div>
+   <div class="dir" style="opacity:.55">.hf-cache<span class="st">remote only</span></div>
+  </div>
+  <h4>Edit it anywhere</h4>
+  <div style="padding:0 14px;font-size:11.5px;color:var(--ink-2);line-height:1.5">The folder is a plain folder on your PC. Save in VS Code, vim or here — the sync sees it either way.</div>
+ </aside>
+ <section class="center">
+  <div class="tabsrow"><span class="on">train.py</span><span>config.yaml</span><span>sweep.sh</span><span class="sp"></span></div>
+  <div class="editor"><div class="ln">31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44</div><pre><span class="k1">def</span> <span class="k2">build_model</span>(cfg):
+    model = AutoModelForCausalLM.from_pretrained(
+        cfg.model, torch_dtype=torch.bfloat16, device_map=<span class="k3">"cuda"</span>)
+    lora = LoraConfig(r=cfg.rank, lora_alpha=<span class="k5">2</span> * cfg.rank,
+                      target_modules=[<span class="k3">"q_proj"</span>, <span class="k3">"v_proj"</span>],
+<span class="hl">                      lora_dropout=<span class="k5">0.05</span>)   <span class="k4"># was 0.1 — saved 4 s ago, synced</span></span>    <span class="k4"># LoRA §4.1: scale ΔW by α/r so the rank can change without retuning</span>
+    <span class="k1">return</span> get_peft_model(model, lora)
+
+<span class="k1">def</span> <span class="k2">train</span>(cfg):
+    model = build_model(cfg)
+    <span class="k1">for</span> step, batch <span class="k1">in</span> enumerate(loader(cfg)):
+        loss = model(**batch).loss
+        log(step=step, loss=loss.item(), lr=sched.get_last_lr()[<span class="k5">0</span>])</pre></div>
+  <div class="termwrap"><div class="termbar"><span class="on">Terminal · runpod-a100:/workspace/lora-sweep</span><span>nvidia-smi</span><span>Local · this PC</span><span class="sp"></span><span>+ new</span><span>⤢</span></div>
+   <div class="term"><span class="p">root@runpod-a100</span>:<span class="y">/workspace/lora-sweep</span>$ make sweep RANKS="4 8 16 32"
+<br><span class="d">→ synced 6 files ↑ 18 KB · env.txt satisfied (cached)</span>
+<br>[r=4]  done · 1800 steps · val_loss 1.912 · 21 min
+<br>[r=8]  done · 1800 steps · val_loss 1.874 · 22 min
+<br>[r=16] step  600/1800  loss 1.931  lr 1.8e-4  <span class="y">████████░░░░░░░░</span> 34%  2.9 it/s
+<br><span class="d">       checkpoint ckpt-600 written · pulling back to this PC (3.1 GB)…</span>
+<br><span class="d">       TensorBoard on :6006 → forwarded to localhost:16006</span>
+<br><span class="p">▍</span></div></div>
+ </section>
+ <aside class="pane"><div class="tabs"><span class="on">Sync</span><span>Ports</span><span>Runtime</span><span>Metrics</span></div><div class="body">
+  <div class="card" style="padding:11px 12px;display:flex;flex-direction:column;gap:7px">
+   <div class="syncrow"><span class="pc">PC</span><b>this PC</b><span class="muted" style="margin-left:auto">⇄</span><b>RunPod</b><span class="gpuico">A100</span></div>
+   <div class="syncrow"><span class="dot dg"></span>Code: two-way, on save<span class="muted mono" style="margin-left:auto">4 s ago</span></div>
+   <div class="syncrow"><span class="dot db"></span>runs/: back to the PC, as written<span class="muted mono" style="margin-left:auto">1.2 GB/3.1</span></div>
+   <div class="bar"><i style="width:39%;background:#3a78bd"></i></div>
+   <div class="syncrow"><span class="dot" style="background:var(--muted)"></span>data/, .hf-cache: stay remote<span class="muted mono" style="margin-left:auto">38 GB</span></div>
+   <div class="muted" style="font-size:11px">Rules in <span class="mono">.syncignore</span> · a conflict asks, never overwrites</div>
+  </div>
+  <div><span class="eyebrow">Forwarded ports</span>
+   <div style="display:flex;flex-direction:column;gap:6px;margin-top:7px">
+    <div class="port"><span><b>TensorBoard</b> <span class="mono">:6006 → localhost:16006</span></span><span class="btn sm">Open</span></div>
+    <div class="port"><span><b>Gradio demo</b> <span class="mono">:7860 · not started</span></span><span class="btn sm" style="opacity:.5">Open</span></div>
+   </div></div>
+  <div class="card" style="padding:11px 12px"><span class="eyebrow">How it's connected</span><div style="font-size:11.5px;color:var(--ink-2);margin-top:6px;line-height:1.55">Your Reader proxy on this PC holds the SSH key and the RunPod API key. It starts the pod, runs a Jupyter kernel and a shell there, mirrors the folder, and tunnels the ports. The browser only talks to your PC.</div></div>
+  <div class="card" style="padding:11px 12px"><div style="display:flex;justify-content:space-between;font-size:12px"><span>This session</span><b class="mono">$1.01 · 0:37</b></div><div style="display:flex;justify-content:space-between;font-size:12px;margin-top:4px"><span>Sweep, estimated</span><b class="mono">≈ $3.60</b></div><div class="muted" style="font-size:11px;margin-top:6px">Stops 20 min after the sweep ends, once runs/ is home.</div></div>
+ </div></aside>
+</div></main></div>
+<span class="pin" style="left:672px;top:15px">1</span><span class="pin" style="left:150px;top:341px">2</span><span class="pin" style="left:578px;top:608px">3</span><span class="pin" style="left:1108px;top:62px">4</span>
+<div class="notes" style="left:330px;top:440px;width:760px;flex-wrap:nowrap"><div class="callout" style="width:180px"><span class="n">1</span><b>PC → A100</b>: code here, kernel there; cost ticks live.</div><div class="callout" style="width:186px"><span class="n">2</span>Each file says if it's synced, coming back, or <b>remote only</b>.</div><div class="callout" style="width:186px"><span class="n">3</span>The terminal is a <b>real shell on the GPU box</b>; a second tab is your PC.</div><div class="callout" style="width:186px"><span class="n">4</span>Sync rules, tunnelled ports, and where the keys live.</div></div>
+<div class="step">4 · Code on this PC, GPU in the cloud</div>
+</body></html>

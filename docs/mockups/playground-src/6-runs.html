@@ -1,0 +1,55 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="playground.css"><style>
+.rp{flex:1;overflow:hidden;padding:20px 26px;display:flex;flex-direction:column;gap:16px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{font:600 10.5px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--border)}
+td{padding:9px 10px;border-bottom:1px solid var(--border-soft);vertical-align:middle}
+td.n{font-family:var(--mono);font-size:12px}
+tr.sel td{background:var(--accent-soft)}
+.diff{color:#8a5212;background:#fbe9cf;padding:0 4px;border-radius:3px;font-family:var(--mono);font-size:11.5px}
+.charts{display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
+.chartc{padding:14px 16px}
+.lg{display:flex;gap:14px;font-size:11.5px;color:var(--ink-2);margin-top:6px}
+.lg i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+</style></head><body><div class="app"><!--RAIL--><main class="main">
+<div class="wbar"><div class="name"><b>LoRA rank sweep on Llama-3.2-1B</b><span>Project · 4 runs · RunPod A100</span></div>
+ <span class="segm" style="margin-left:14px"><span>Notebook</span><span>Files</span><span class="on">Runs</span></span><span class="spacer"></span>
+ <span class="rt"><span class="pc">PC</span><span class="muted">→</span><span class="gpuico">A100</span><span class="live"></span>RunPod A100<span class="m">r=32 running · 1:58 · $3.22</span></span><span class="btn sm">Compare 2</span><span class="btn sm">Add to notes</span>
+</div>
+<div class="rp">
+ <div class="card" style="overflow:hidden"><table>
+  <tr><th></th><th>Run</th><th>Where</th><th>Code</th><th>Config change</th><th>Steps</th><th>val loss</th><th>vs paper</th><th>Time · cost</th></tr>
+  <tr><td><span class="dot" style="background:#9b978c"></span></td><td><b>r=4</b></td><td><span class="gpuico">A100</span></td><td class="n">a3f91c</td><td><span class="diff">rank: 4</span></td><td class="n">1800</td><td class="n">1.912</td><td class="muted">—</td><td class="n">21 min · $0.57</td></tr>
+  <tr><td><span class="dot" style="background:#3a78bd"></span></td><td><b>r=8</b></td><td><span class="gpuico">A100</span></td><td class="n">a3f91c</td><td><span class="diff">rank: 8</span></td><td class="n">1800</td><td class="n">1.874</td><td class="muted">—</td><td class="n">22 min · $0.60</td></tr>
+  <tr class="sel"><td><span class="dot" style="background:#1f5e52"></span></td><td><b>r=16</b> <span class="badge g">best</span></td><td><span class="gpuico">A100</span></td><td class="n">a3f91c</td><td><span class="diff">rank: 16</span></td><td class="n">1800</td><td class="n"><b>1.861</b></td><td><span class="badge g">within 0.8%</span></td><td class="n">24 min · $0.66</td></tr>
+  <tr><td><span class="dot" style="background:#c9781e"></span></td><td><b>r=32</b> <span class="badge a">running</span></td><td><span class="gpuico">A100</span></td><td class="n">a3f91c <span class="badge a">+1 edit</span></td><td><span class="diff">rank: 32</span> <span class="diff">dropout: 0.05</span></td><td class="n">1120/1800</td><td class="n">1.889</td><td class="muted">—</td><td class="n">15 min · $0.41</td></tr>
+  <tr><td><span class="dot" style="background:#c9566c"></span></td><td><b>T4 dry run</b></td><td><span class="co">CO</span></td><td class="n">7be210</td><td><span class="diff">rank: 8</span> <span class="diff">4-bit</span> <span class="diff">steps: 100</span></td><td class="n">100</td><td class="n">2.41</td><td class="muted">smoke test</td><td class="n">6 min · 0.2 u</td></tr>
+ </table></div>
+ <div class="charts">
+  <div class="card chartc"><div style="display:flex;align-items:baseline"><span class="eyebrow">val loss by step</span><span style="flex:1"></span><span class="chip">smooth 0.6</span></div>
+   <svg viewBox="0 0 700 250" width="100%" height="250" style="margin-top:6px">
+    <g stroke="var(--border-soft)" stroke-width="1"><line x1="40" y1="20" x2="690" y2="20"/><line x1="40" y1="80" x2="690" y2="80"/><line x1="40" y1="140" x2="690" y2="140"/><line x1="40" y1="200" x2="690" y2="200"/></g>
+    <g font-family="IBM Plex Mono" font-size="10" fill="#6f6c63"><text x="4" y="24">2.4</text><text x="4" y="84">2.2</text><text x="4" y="144">2.0</text><text x="4" y="204">1.8</text><text x="40" y="225">0</text><text x="350" y="225">900</text><text x="660" y="225">1800</text></g>
+    <line x1="40" y1="184" x2="690" y2="184" stroke="#c9566c" stroke-dasharray="5 4" stroke-width="1.4"/><text x="560" y="200" font-family="IBM Plex Sans" font-size="11" fill="#c9566c">paper, Table 2: 1.846</text>
+    <polyline fill="none" stroke="#9b978c" stroke-width="2" points="40,30 90,80 150,118 220,140 300,152 400,160 500,163 600,166 690,168"/>
+    <polyline fill="none" stroke="#3a78bd" stroke-width="2" points="40,28 90,74 150,110 220,134 300,148 400,166 500,173 600,176 690,178"/>
+    <polyline fill="none" stroke="#1f5e52" stroke-width="2.6" points="40,27 90,70 150,104 220,130 300,148 400,166 500,174 600,179 690,181"/>
+    <polyline fill="none" stroke="#c9781e" stroke-width="2" points="40,26 90,68 150,102 220,132 300,154 404,170"/><circle cx="404" cy="170" r="3.5" fill="#c9781e"/>
+   </svg>
+   <div class="lg"><span><i style="background:#9b978c"></i>r=4</span><span><i style="background:#3a78bd"></i>r=8</span><span><i style="background:#1f5e52"></i>r=16</span><span><i style="background:#c9781e"></i>r=32 (live)</span><span><i style="background:#c9566c"></i>the paper's number</span></div>
+  </div>
+  <div class="card chartc"><span class="eyebrow">r=16 against r=32 · what differs</span>
+   <div class="term" style="border-radius:8px;margin-top:10px;font-size:11.5px;line-height:1.7">  config.yaml
+<br><span style="color:#e6a46f">- rank: 16</span>
+<br><span style="color:#93cfa6">+ rank: 32</span>
+<br>  train.py:36
+<br><span style="color:#e6a46f">-   lora_dropout=0.1)</span>
+<br><span style="color:#93cfa6">+   lora_dropout=0.05)</span>
+<br><span class="d">  env.txt — same · seed 0 — same · data sha 9c1e… — same</span></div>
+   <div style="font-size:12px;color:var(--ink-2);margin-top:10px;line-height:1.5">Two things changed at once, so the comparison isn't clean. <span style="color:var(--accent);font-weight:500">Re-run r=32 with dropout 0.1 →</span></div>
+  </div>
+ </div>
+</div></main></div>
+<span class="pin" style="left:440px;top:66px">1</span><span class="pin" style="left:700px;top:510px">2</span><span class="pin" style="left:1300px;top:76px">3</span>
+<div class="notes" style="left:100px;bottom:16px;flex-wrap:nowrap"><div class="callout" style="width:400px"><span class="n">1</span>Every run snapshots <b>code, config, env and data hash</b> — a run you can't reproduce is just a number.</div><div class="callout" style="width:400px"><span class="n">2</span>The paper's reported value is pulled from its table and drawn as the line to beat.</div><div class="callout" style="width:400px"><span class="n">3</span>Runs on different machines compare side by side; cost is a column, not an afterthought.</div></div>
+<div class="step" style="bottom:110px">6 · Runs, compared — and against the paper</div>
+</body></html>

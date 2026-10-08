@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="playground.css"></head><body><div class="app"><!--RAIL--><main class="main">
+<div class="wbar"><div class="name"><b>Flash-attention, by hand</b><span>Notebook · 14 cells · Playground</span></div>
+ <span class="segm" style="margin-left:14px"><span class="on">Notebook</span><span>Files</span><span>Split</span></span>
+ <span class="spacer"></span>
+ <span class="rt"><span class="co">CO</span><span class="live"></span>Colab T4<span class="m">GPU 71% · 9.8/15 GB · 0:42</span><span class="muted">▾</span></span>
+ <span class="btn sm">▶ Run all</span><span class="btn sm">Ask</span><span class="btn sm">Share ▾</span><span class="btn sm">Export ▾</span>
+</div>
+<div class="ws">
+ <aside class="side">
+  <h4>Playgrounds<i>+</i></h4>
+  <div class="pl"><div class="on"><span class="dot dy"></span>Flash-attention, by hand<small>T4</small></div><div><span class="dot dg"></span>LoRA rank sweep<small>A100</small></div><div><span class="dot db"></span>Tokenizer scratchpad<small>PC</small></div></div>
+  <h4>Files on the runtime<i>↻</i></h4>
+  <div class="tree"><div class="dir open">workspace</div><div class="f d1">bench.py</div><div class="f d1 on">kernels.py<span class="st m">M</span></div><div class="dir d1">results</div><div class="f d1">timings.csv<span class="st s">kept</span></div></div>
+  <h4>Papers it cites</h4>
+  <div class="pl"><div><span class="cover" style="width:18px;height:24px;padding:3px"><i></i><i></i></span><span style="font-size:12px">FlashAttention-2 · §3.1, §3.2</span></div><div><span class="cover" style="width:18px;height:24px;padding:3px"><i></i><i></i></span><span style="font-size:12px">Attention Is All You Need · §3.2.1</span></div></div>
+  <h4>Snippets</h4>
+  <div class="pl"><div style="font-size:12px">⏱ time a CUDA op</div><div style="font-size:12px">📈 log to the Metrics tab</div><div style="font-size:12px">🤗 load a model in 4-bit</div></div>
+ </aside>
+ <section class="center"><div class="nb">
+  <div class="cell"><div class="gut"></div><div class="md"><h3>Tiling the softmax</h3>Compute attention a block at a time, keeping a running max <i>m</i> and sum <i>ℓ</i> so the full N×N matrix is never written. <span class="cite">¶ FlashAttention-2 §3.1 · Alg. 1</span></div></div>
+  <div class="cell"><div class="gut">[7]<span class="s ok"></span></div><div class="code"><div class="hd">kernels.py · cell 7<span class="sp"></span><span>Copy</span><span>Add to notes</span><span>▶</span></div><pre><span class="k1">def</span> <span class="k2">flash_attn</span>(q, k, v, block=<span class="k5">128</span>):
+    m = torch.full(q.shape[:-<span class="k5">1</span>], -torch.inf, device=q.device)
+    l = torch.zeros_like(m); o = torch.zeros_like(q)
+    <span class="k1">for</span> j <span class="k1">in</span> range(<span class="k5">0</span>, k.shape[-<span class="k5">2</span>], block):
+        s = q @ k[..., j:j+block, :].mT / q.shape[-<span class="k5">1</span>]**<span class="k5">.5</span>
+        m_new = torch.maximum(m, s.amax(-<span class="k5">1</span>))   <span class="k4"># running max, eq. (3)</span>
+        p = torch.exp(s - m_new[..., <span class="k1">None</span>])
+        l = torch.exp(m - m_new) * l + p.sum(-<span class="k5">1</span>)
+        o = torch.exp(m - m_new)[..., <span class="k1">None</span>] * o + p @ v[..., j:j+block, :]
+        m = m_new
+    <span class="k1">return</span> o / l[..., <span class="k1">None</span>]</pre><div class="out"><div class="where">Colab T4 · 2 min ago · 0.4 s</div>max |flash − reference| = 3.1e-07   ✓ matches torch.nn.functional.scaled_dot_product_attention</div></div></div>
+  <div class="cell"><div class="gut">[*]<span class="s run"></span></div><div class="code pick"><div class="hd">cell 8 · running 0:41<span class="sp"></span><span>■ Stop</span></div><pre>%%bench --sizes <span class="k5">1k,2k,4k,8k,16k</span> --compare sdpa,flash_attn
+<span class="k1">for</span> n <span class="k1">in</span> sizes: bench(flash_attn, n), bench(sdpa, n)</pre><div class="out">n=1024   flash_attn  1.92 ms   sdpa 0.41 ms<br>n=2048   flash_attn  6.80 ms   sdpa 1.37 ms<br>n=4096   flash_attn 26.1  ms   sdpa 5.02 ms<br>n=8192   <span class="muted">running…</span></div></div></div>
+ </div>
+ <div style="padding:10px 34px 16px 90px;border-top:1px solid var(--border-soft);background:var(--panel)"><div style="display:flex;align-items:center;gap:10px;height:42px;padding:0 6px 0 14px;border:1px solid var(--border);border-radius:11px;background:var(--surface);color:var(--muted);font-size:13.5px"><span class="chip acc">cell 8</span>Ask to write, change or fix cells — <i>“make this a Triton kernel”</i><span style="flex:1"></span><span class="chip">Claude Opus 5</span><span class="btn primary sm">Ask</span></div></div>
+ </section>
+ <aside class="pane"><div class="tabs"><span class="on">Runtime</span><span>Metrics</span><span>Ports</span><span>Env</span></div><div class="body">
+  <div><b>Tesla T4</b><div class="muted" style="font-size:11.5px">15 GB · 2 CPUs · 13 GB RAM · 71 GB disk</div><div style="font-size:11.5px;margin-top:3px"><span class="dot dg" style="width:7px;height:7px"></span> running cell 8 · up 0:42</div></div>
+  <div class="tiles">
+   <div class="tile"><div class="k">GPU</div><div class="v">71 <small>%</small></div><svg class="spark" viewBox="0 0 120 22" width="100%"><polyline fill="none" stroke="#1f5e52" stroke-width="1.6" points="0,20 15,19 30,18 40,8 55,6 70,9 85,4 100,5 120,6"/></svg></div>
+   <div class="tile"><div class="k">VRAM</div><div class="v">9.8 <small>of 15 GB</small></div><svg class="spark" viewBox="0 0 120 22" width="100%"><polyline fill="none" stroke="#1f5e52" stroke-width="1.6" points="0,19 30,18 45,12 60,11 90,8 120,7"/></svg></div>
+   <div class="tile"><div class="k">CPU</div><div class="v">38 <small>%</small></div><svg class="spark" viewBox="0 0 120 22" width="100%"><polyline fill="none" stroke="#c9781e" stroke-width="1.6" points="0,16 20,14 40,15 60,10 80,13 100,11 120,12"/></svg></div>
+   <div class="tile"><div class="k">RAM</div><div class="v">3.4 <small>of 13 GB</small></div><svg class="spark" viewBox="0 0 120 22" width="100%"><polyline fill="none" stroke="#c9781e" stroke-width="1.6" points="0,17 40,16 80,15 120,15"/></svg></div>
+  </div>
+  <div class="card" style="padding:10px 12px"><span class="eyebrow">Environment</span><div class="mono" style="margin-top:6px;line-height:1.7">python 3.12 · torch 2.6 · cuda 12.4<br>+ triton 3.2 <span class="muted">(cell 2)</span><br>+ einops 0.8 <span class="muted">(cell 2)</span></div><div style="display:flex;gap:6px;margin-top:8px"><span class="btn sm">Lock to env.txt</span><span class="btn sm">Restore</span></div></div>
+  <div class="card" style="padding:10px 12px"><span class="eyebrow">Move it</span><div style="font-size:12px;color:var(--ink-2);margin:6px 0 8px">Same code, another machine: the files go with it, the kernel starts afresh and re-runs what you pick.</div><div style="display:flex;gap:6px;flex-wrap:wrap"><span class="btn sm"><span class="pc">PC</span> This PC</span><span class="btn sm"><span class="gpuico">A100</span> RunPod</span><span class="btn sm"><span class="co">CO</span> L4</span></div></div>
+ </div></aside>
+</div></main></div>
+<span class="pin" style="left:812px;top:15px">1</span><span class="pin" style="left:672px;top:129px">2</span><span class="pin" style="left:182px;top:333px">3</span><span class="pin" style="left:1262px;top:42px">4</span>
+<div class="notes" style="left:316px;bottom:68px;width:800px;flex-wrap:nowrap"><div class="callout" style="width:260px"><span class="n">1</span>One chip says <b>where the kernel is</b> and how busy it is; it opens the machine menu.</div><div class="callout" style="width:260px"><span class="n">2</span>A text cell can <b>cite</b> a paper's section. <span class="n">3</span>The playground lists what it cites, and shows on those papers' pages.</div><div class="callout" style="width:260px"><span class="n">4</span>The pane adds <b>Ports</b> (TensorBoard, Gradio) and <b>Env</b> — installs pinned to a file for the next machine.</div></div>
+<div class="step">3 · A notebook playground, on Colab</div>
+</body></html>

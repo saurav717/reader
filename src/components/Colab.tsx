@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { CellRun, Machine, Output } from '../lib/colab';
-import { colabAvailable, colabNow, compareOutput, connect, differingLines, disconnect, MACHINES, machineLabel, outputText, restartKernel, runAll, setGpuWatch, setMachine, stopRuntime, subscribeColab } from '../lib/colab';
+import { backendLabel, colabAvailable, colabNow, compareOutput, connect, differingLines, disconnect, MACHINES, machineLabel, outputText, restartKernel, runAll, setGpuWatch, setMachine, stopRuntime, subscribeColab } from '../lib/colab';
 import { useStore } from '../lib/store';
 import type { MachineSample, MachineSpecs } from '../lib/telemetry';
 import { gigabytes, hasCurve, lossSeries, MACHINE_PROBE } from '../lib/telemetry';
@@ -192,9 +192,9 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
     colab.status === 'connecting'
       ? 'Colab · connecting…'
       : connected && colab.runtime
-        ? `${machineLabel(colab.runtime)} · ${colab.reconnecting ? 'reconnecting…' : colab.status === 'busy' ? busyText(colab.sample) : 'idle'} · ${clock(colab.startedAt, now)}`
+        ? `${colab.backend.kind === 'jupyter' ? colab.backend.server.name : machineLabel(colab.runtime)} · ${colab.reconnecting ? 'reconnecting…' : colab.status === 'busy' ? busyText(colab.sample) : 'idle'} · ${clock(colab.startedAt, now)}`
         : colab.status === 'lost'
-          ? `${colab.runtime ? machineLabel(colab.runtime) : 'Colab'} · runtime ended`
+          ? `${colab.runtime ? backendLabel(colab.backend, colab.runtime) : 'Colab'} · runtime ended`
           : colab.status === 'error'
             ? 'Colab · not connected'
             : 'Colab · no runtime';
@@ -214,7 +214,7 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
             <div className="colab-stats">
               <div>
                 <span className="k">Machine</span>
-                <span className="v">{colab.runtime ? machineLabel(colab.runtime) : '—'}</span>
+                <span className="v">{colab.runtime ? backendLabel(colab.backend, colab.runtime) : '—'}</span>
               </div>
               <div>
                 <span className="k">Up for</span>
@@ -279,7 +279,7 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
               <b>Run all {cells.length} {cells.length === 1 ? 'cell' : 'cells'}, top to bottom</b>
               <span>At once; stops at the first error</span>
             </button>
-            {colab.runtime ? (
+            {colab.runtime && colab.backend.kind === 'colab' ? (
               <a className="colab-action" role="menuitem" href={attachUrl(colab.runtime.endpoint)} target="_blank" rel="noreferrer noopener">
                 <b>Open this runtime in Colab ↗</b>
                 <span>Colab's own notebook page on the same machine — for editing, plots, a terminal, or Drive, on purpose</span>
