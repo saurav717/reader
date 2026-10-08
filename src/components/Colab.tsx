@@ -11,6 +11,7 @@ import { useStore } from '../lib/store';
 import type { MachineSample, MachineSpecs } from '../lib/telemetry';
 import { gigabytes, hasCurve, lossSeries, MACHINE_PROBE } from '../lib/telemetry';
 import { LossChart } from './Charts';
+import CopyBlock from './CopyBlock';
 
 export const useColab = () => useSyncExternalStore(subscribeColab, colabNow);
 
@@ -264,7 +265,7 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
                 </small>
               </span>
             </label>
-            {probe ? <pre className="colab-probe">{MACHINE_PROBE}</pre> : null}
+            {probe ? <CopyBlock className="colab-probe" code={MACHINE_PROBE} /> : null}
             <hr />
             <button
               type="button"
