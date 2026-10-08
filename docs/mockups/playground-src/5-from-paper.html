@@ -1,0 +1,50 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="playground.css"><style>
+.rd{flex:1;display:flex;justify-content:flex-start;padding-left:70px !important;overflow:hidden;background:var(--rail);padding:28px 0}
+.page{width:720px;background:#fff;color:#1a1a17;box-shadow:var(--shadow-md);padding:56px 70px;font:15px/1.55 'Times New Roman',Times,serif}
+.page h3{font:700 15px 'Times New Roman',serif;margin:16px 0 8px}
+.page p{margin:0 0 10px;text-align:justify}
+.alg{border-top:1.5px solid #000;border-bottom:1.5px solid #000;padding:6px 0;margin:10px 0;font-size:13.5px}
+.alg .t{border-bottom:1px solid #000;padding-bottom:4px;margin-bottom:4px;font-weight:700}
+.alg div{padding-left:10px}
+.sel{position:relative;background:rgba(31,94,82,.10);outline:2px solid #1f5e52;outline-offset:2px;border-radius:2px}
+.pop{position:fixed;left:950px;top:240px;width:400px;background:var(--surface);border:1px solid var(--border);border-radius:13px;box-shadow:var(--shadow-md);overflow:hidden;z-index:8}
+.pop .h{display:flex;gap:6px;padding:8px;border-bottom:1px solid var(--border-soft);background:var(--panel)}
+.pop .h span{font-size:11.5px;padding:4px 9px;border-radius:7px;color:var(--ink-2)}
+.pop .h span.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-sm)}
+.pop .b{padding:12px 14px;display:flex;flex-direction:column;gap:9px}
+.choice{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;font-size:12.5px}
+.choice.on{border-color:var(--accent);background:var(--accent-soft)}
+.choice small{display:block;color:var(--muted);font-size:11px}
+.topb{display:flex;align-items:center;gap:10px;height:46px;padding:0 16px;border-bottom:1px solid var(--border-soft);background:var(--paper)}
+</style></head><body><div class="app"><!--RAIL--><main class="main">
+<div class="topb"><span class="btn sm">← Home</span><span class="ptitle" style="font-size:14px">FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</span><span style="flex:1"></span><span class="chip"><span class="co">CO</span> T4 idle</span><span class="chip acc">2 playgrounds cite this paper</span></div>
+<div class="rd"><div class="page">
+ <h3>3.1 Algorithm</h3>
+ <p>We tweak the algorithm from FlashAttention to reduce the number of non-matmul FLOPs. This is because modern GPUs have specialized compute units (e.g., Tensor Cores on Nvidia GPUs) that make matmul much faster.</p>
+ <div class="alg sel"><div class="t">Algorithm 1 FlashAttention-2 forward pass</div>
+ <div>1: Divide <i>Q</i> into <i>T<sub>r</sub></i> blocks of size <i>B<sub>r</sub></i> × <i>d</i> each, and divide <i>K, V</i> into <i>T<sub>c</sub></i> blocks…</div>
+ <div>2: <b>for</b> 1 ≤ <i>i</i> ≤ <i>T<sub>r</sub></i> <b>do</b></div>
+ <div>3: &nbsp;&nbsp;Load <i>Q<sub>i</sub></i> from HBM to on-chip SRAM. Initialise <i>O<sub>i</sub></i> = 0, ℓ<sub>i</sub> = 0, <i>m<sub>i</sub></i> = −∞.</div>
+ <div>4: &nbsp;&nbsp;<b>for</b> 1 ≤ <i>j</i> ≤ <i>T<sub>c</sub></i> <b>do</b></div>
+ <div>5: &nbsp;&nbsp;&nbsp;&nbsp;Compute <i>S<sub>i</sub><sup>(j)</sup></i> = <i>Q<sub>i</sub>K<sub>j</sub><sup>T</sup></i>.</div>
+ <div>6: &nbsp;&nbsp;&nbsp;&nbsp;Compute <i>m<sub>i</sub><sup>(j)</sup></i> = max(<i>m<sub>i</sub><sup>(j−1)</sup></i>, rowmax(<i>S<sub>i</sub><sup>(j)</sup></i>)) …</div>
+ <div>7: &nbsp;&nbsp;&nbsp;&nbsp;Compute <i>O<sub>i</sub><sup>(j)</sup></i> = diag(e<sup>m<sup>(j−1)</sup>−m<sup>(j)</sup></sup>) <i>O<sub>i</sub><sup>(j−1)</sup></i> + <i>P̃<sub>i</sub><sup>(j)</sup>V<sub>j</sub></i>.</div>
+ <div>8: &nbsp;&nbsp;<b>end for</b></div>
+ <div>9: &nbsp;&nbsp;Compute <i>O<sub>i</sub></i> = diag(ℓ<sub>i</sub><sup>(T<sub>c</sub>)</sup>)<sup>−1</sup> <i>O<sub>i</sub><sup>(T<sub>c</sub>)</sup></i>.</div>
+ </div>
+ <p>We do not have to rescale both terms of the output update by diag(ℓ<sup>(j)</sup>)<sup>−1</sup>; we can keep an unscaled version of <i>O</i><sup>(j)</sup> and keep around the statistics ℓ<sup>(j)</sup>…</p>
+ <h3>3.2 Parallelism</h3>
+ <p>The first version of FlashAttention parallelizes over batch size and number of heads. We use 1 thread block to process one attention head…</p>
+</div></div>
+</main></div>
+<div class="pop"><div class="h"><span>Highlight</span><span>Note</span><span>Ask</span><span class="on">&lt;/&gt; Try it</span></div><div class="b">
+ <div style="font-size:12.5px">Turn <b>Algorithm 1</b> into code you can run.</div>
+ <div class="choice on"><span style="font:600 13px var(--mono);color:var(--accent)">+</span><div>Add to <b>Flash-attention, by hand</b><small>as a text cell citing §3.1 and a code cell, after cell 8</small></div></div>
+ <div class="choice"><span style="font:600 13px var(--mono);color:var(--accent)">✦</span><div>A new playground from this<small>notebook · the paper's method only · written by Claude Opus 5</small></div></div>
+ <div class="choice"><span style="font:600 13px var(--mono);color:var(--accent)">⑂</span><div>Open the official code<small>github.com/Dao-AILab/flash-attention · csrc/flash_attn</small></div></div>
+ <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)">Runs on <span class="chip"><span class="co">CO</span> Colab T4 ▾</span><span style="flex:1"></span><span class="btn primary sm">Write the cells</span></div>
+</div></div>
+<span class="pin" style="left:1338px;top:248px">1</span><span class="pin" style="left:1336px;top:40px">2</span>
+<div class="notes" style="left:950px;top:556px;flex-direction:column"><div class="callout" style="width:400px"><span class="n">1</span>The lookup box over a selection gets <b>Try it</b>: an algorithm, an equation or a table becomes cells in a playground — an existing one, or a new one.</div><div class="callout" style="width:400px"><span class="n">2</span>The link goes both ways: a paper shows the playgrounds that cite it, and the cells keep the section they came from.</div></div>
+<div class="step">5 · Into a playground, from the page you're reading</div>
+</body></html>

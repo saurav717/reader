@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="playground.css"><style>
+.dim{position:fixed;inset:0;background:rgba(26,26,23,.38);z-index:5}
+.sheet{position:fixed;z-index:6;left:50%;top:40px;transform:translateX(-50%);width:1180px;background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-md);overflow:hidden}
+.sh-h{padding:20px 24px 12px;display:flex;align-items:flex-end;gap:14px}
+.sh-h h2{font:600 22px var(--serif)}
+.sh-h p{margin:4px 0 0;color:var(--muted);font-size:12.5px}
+.modes{display:grid;grid-template-columns:1fr 1fr 1.25fr;gap:14px;padding:6px 24px 16px}
+.mode{border:1px solid var(--border);border-radius:12px;padding:14px 15px;display:flex;flex-direction:column;gap:9px;background:var(--paper)}
+.mode.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);background:var(--surface)}
+.mode .top{display:flex;align-items:center;gap:9px}
+.mode .top b{font-size:14px}
+.radio{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--muted);margin-left:auto}
+.mode.on .radio{border:5px solid var(--accent)}
+.diagram{display:flex;align-items:center;gap:6px;font:11px var(--mono);color:var(--ink-2);background:var(--panel);border-radius:8px;padding:8px 10px}
+.diagram .box{border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:4px 7px;text-align:center;line-height:1.3}
+.diagram .arrow{color:var(--muted)}
+.mode ul{margin:0;padding-left:16px;font-size:12px;color:var(--ink-2);line-height:1.55}
+.mode .good{color:#2f7d4f}.mode .bad{color:#9a2f43}
+.opts{display:flex;flex-direction:column;gap:5px}
+.opt{display:grid;grid-template-columns:22px 1fr auto auto;align-items:center;gap:8px;padding:6px 9px;border:1px solid var(--border-soft);border-radius:8px;font-size:12px;background:var(--surface)}
+.opt.on{border-color:var(--accent);background:var(--accent-soft)}
+.opt .p{font:11px var(--mono);color:var(--muted)}
+.fit{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;padding:14px 24px;border-top:1px solid var(--border-soft);background:var(--panel)}
+.fit .k{font-size:11px;color:var(--muted)}
+.fit .v{font:500 12.5px var(--sans);margin:2px 0 5px}
+.foot{display:flex;align-items:center;gap:12px;padding:14px 24px;border-top:1px solid var(--border-soft)}
+.foot .sw{width:30px;height:17px;border-radius:9px;background:var(--accent);position:relative}.foot .sw::after{content:'';position:absolute;right:2px;top:2px;width:13px;height:13px;border-radius:50%;background:#fff}
+</style></head><body><div class="app"><!--RAIL--><main class="main"><div class="scroll"></div></main></div>
+<div class="dim"></div>
+<div class="sheet">
+ <div class="sh-h"><div><span class="eyebrow">New project · LoRA rank sweep</span><h2>Where should it run?</h2><p>The code is the same whichever you pick; the machine can be changed from the bar later.</p></div><span style="flex:1"></span><span class="chip">Change any time · <kbd>⇧</kbd><kbd>M</kbd></span></div>
+ <div class="modes">
+  <div class="mode"><div class="top"><span class="co lg">CO</span><b>Colab, in the browser</b><span class="radio"></span></div>
+   <div class="diagram"><span class="box">Reader<br>tab</span><span class="arrow">⇄</span><span class="box">Colab runtime<br>code + kernel + disk</span></div>
+   <ul><li class="good">Nothing to install; free T4 to start</li><li class="good">Same kernel as the Explain cells</li><li class="bad">Disk goes with the runtime — keep what matters (step 7)</li></ul>
+   <div class="opts"><div class="opt"><span class="co">CO</span>CPU<span class="p">free</span><span></span></div><div class="opt"><span class="co">CO</span>T4 · 15 GB<span class="p">~1.8 u/h</span><span></span></div><div class="opt"><span class="co">CO</span>A100 · 40 GB<span class="p">~11 u/h</span><span></span></div></div>
+  </div>
+  <div class="mode"><div class="top"><span class="pc">PC</span><b>This PC</b><span class="radio"></span></div>
+   <div class="diagram"><span class="box">Reader<br>tab</span><span class="arrow">⇄</span><span class="box">proxy on :8787<br>kernel + files</span></div>
+   <ul><li class="good">Your files, your editor, no clock</li><li class="good">Free, offline, private data stays put</li><li class="bad">RTX 3060 · 12 GB — too small for this sweep in fp16</li></ul>
+   <div class="opts"><div class="opt"><span class="pc">PC</span>RTX 3060 · 12 GB<span class="p">free</span><span class="badge a">4-bit</span></div><div class="opt"><span class="pc">PC</span>CPU · 16 threads<span class="p">free</span><span></span></div></div>
+  </div>
+  <div class="mode on"><div class="top"><span class="pc">PC</span><span class="arrow muted">→</span><span class="gpuico">GPU</span><b>Code on this PC, GPU in the cloud</b><span class="radio"></span></div>
+   <div class="diagram"><span class="box">~/playgrounds/<br>lora-sweep</span><span class="arrow">⇄ sync ⇄</span><span class="box">remote GPU<br>kernel · shell · ports</span><span class="arrow">→</span><span class="box">runs/ &amp;<br>checkpoints back</span></div>
+   <ul><li class="good">Files live on your PC — edit here, in VS Code, anywhere</li><li class="good">Kernel and terminal run on the remote card</li><li class="good">Outputs and checkpoints come back as they're written</li></ul>
+   <div class="opts">
+    <div class="opt"><span class="co">CO</span>Colab A100 · 40 GB<span class="p">~11 u/h</span><span class="badge g">fits</span></div>
+    <div class="opt on"><span class="gpuico">A100</span>RunPod A100 · 80 GB<span class="p">$1.64/h</span><span class="badge g">fits · smallest</span></div>
+    <div class="opt"><span class="gpuico" style="background:#2e6fb5">SSH</span>lab-server · 4× A6000<span class="p">free · queue 1</span><span class="badge g">fits</span></div>
+   </div>
+  </div>
+ </div>
+ <div class="fit">
+  <div><div class="k">VRAM · from the config (r=64, bs 16, seq 2k)</div><div class="v">~31 GB of 80 GB</div><div class="bar"><i style="width:39%"></i></div></div>
+  <div><div class="k">Disk · model + dataset + 8 checkpoints</div><div class="v">~46 GB of 200 GB</div><div class="bar"><i style="width:23%"></i></div></div>
+  <div><div class="k">Time · 4 ranks × 3 epochs</div><div class="v">~2 h 10 min</div><div class="bar"><i style="width:18%"></i></div></div>
+  <div><div class="k">Cost · at $1.64/h</div><div class="v">≈ $3.60 · cap left $28.60</div><div class="bar"><i style="width:13%"></i></div></div>
+ </div>
+ <div class="foot"><span class="sw"></span><span style="font-size:12.5px">Stop the machine after <b>20 min</b> with nothing running</span><span class="muted" style="font-size:12px">· checkpoints are pulled back first</span><span style="flex:1"></span><span class="btn">Cancel</span><span class="btn primary">Start RunPod A100 · $1.64/h</span></div>
+</div>
+<span class="pin" style="left:1194px;top:152px">1</span><span class="pin" style="left:136px;top:466px">2</span><span class="pin" style="left:132px;top:548px">3</span>
+<div class="notes" style="left:130px;bottom:14px;z-index:7"><div class="callout" style="width:380px"><span class="n">1</span>The third mode is the one asked for: <b>files on your PC, compute on a rented GPU</b>. Colab, a cloud GPU or your lab's server are all just "remote kernels".</div><div class="callout" style="width:380px"><span class="n">2</span>Needs come from the code itself (config, model size) — the same sums as the Implementation budget — so "fits" is said before money is spent.</div><div class="callout" style="width:330px"><span class="n">3</span>Idle auto-stop is <b>on by default</b> for anything billed by the hour.</div></div>
+<div class="step" style="z-index:8">2 · Where should it run?</div>
+</body></html>

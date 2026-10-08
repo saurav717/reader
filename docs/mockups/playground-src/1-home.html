@@ -1,0 +1,65 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="playground.css"><style>
+.scroll{padding:30px 44px}
+.hero{display:flex;align-items:flex-end;gap:20px;margin-bottom:22px}
+.hero h1{font:600 30px/1.15 var(--serif);letter-spacing:-.01em}
+.hero p{margin:6px 0 0;color:var(--ink-2);font-size:13.5px;max-width:640px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:22px}
+.starts{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.start{padding:14px 15px;display:flex;flex-direction:column;gap:7px;min-height:122px}
+.start .ic{width:32px;height:32px;border-radius:9px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font:600 14px var(--mono)}
+.start b{font-size:13.5px}
+.start span{color:var(--muted);font-size:12px;line-height:1.45}
+.start.main{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.recent{margin-top:22px}
+.row{display:grid;grid-template-columns:22px minmax(0,1fr) 170px 110px 70px;align-items:center;gap:12px;padding:11px 14px;border-top:1px solid var(--border-soft)}
+.row:first-of-type{border-top:0}
+.row .t b{display:block;font-size:13px}.row .t span{font-size:11.5px;color:var(--muted)}
+.where{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-2)}
+.mach{padding:12px 14px;display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--border-soft)}
+.mach:first-of-type{border-top:0}
+.mach .h{display:flex;align-items:center;gap:8px;font-weight:600;font-size:12.5px}
+.mach .h .r{margin-left:auto;font:500 11px var(--mono);color:var(--muted)}
+.mach .s{font-size:11.5px;color:var(--muted);padding-left:30px}
+.sect{display:flex;align-items:center;margin:0 0 10px}
+.sect .eyebrow{flex:1}
+</style></head><body><div class="app"><!--RAIL--><main class="main"><div class="scroll">
+<div class="hero"><div><span class="eyebrow">Playground</span><h1>Try something</h1><p>Code that belongs to no paper — or to several. Pick a start and where it should run; you can change the machine later without losing the code.</p></div><span style="flex:1"></span><div class="chip"><kbd>P</kbd> from anywhere</div></div>
+<div class="grid"><div>
+ <div class="sect"><span class="eyebrow">Start from</span></div>
+ <div class="starts">
+  <div class="card start main"><div class="ic">[ ]</div><b>Blank notebook</b><span>Cells, Markdown, maths, a kernel. The quickest way to try an idea.</span></div>
+  <div class="card start"><div class="ic">{ }</div><b>Blank project</b><span>Files and a terminal — <code>train.py</code>, a config, a Makefile. For code that outgrows cells.</span></div>
+  <div class="card start"><div class="ic">¶</div><b>From a paper</b><span>The Implementation plan's scaffold, or any paper's cells, with every cell citing its section.</span></div>
+  <div class="card start"><div class="ic">⑂</div><b>From a repository</b><span>A GitHub URL — the paper's official code, cloned onto the machine you pick.</span></div>
+  <div class="card start"><div class="ic">🤗</div><b>From a model card</b><span>A Hugging Face model or dataset id: load it, run it, fine-tune it.</span></div>
+  <div class="card start"><div class="ic">.nb</div><b>Open a file</b><span>An <code>.ipynb</code> or a folder from your PC, Drive or the Git repository.</span></div>
+ </div>
+ <div class="recent"><div class="sect"><span class="eyebrow">Your playgrounds</span><span class="muted" style="font-size:11.5px">kept in this browser · files in Git when you commit</span></div>
+ <div class="card">
+  <div class="row"><span class="dot dg"></span><div class="t"><b>LoRA rank sweep on Llama-3.2-1B</b><span>Project · 6 files · 4 runs · cites 2 papers</span></div><div class="where"><span class="pc">PC</span>→<span class="gpuico">A100</span> RunPod</div><span class="muted" style="font-size:11.5px">ran 2 h ago</span><span class="btn sm">Open</span></div>
+  <div class="row"><span class="dot dy"></span><div class="t"><b>Flash-attention, by hand</b><span>Notebook · 14 cells · from <i>FlashAttention-2</i> §3</span></div><div class="where"><span class="co">CO</span> Colab T4</div><span class="muted" style="font-size:11.5px">yesterday</span><span class="btn sm">Open</span></div>
+  <div class="row"><span class="dot db"></span><div class="t"><b>Tokenizer scratchpad</b><span>Notebook · 5 cells · no paper</span></div><div class="where"><span class="pc">PC</span> This PC · CPU</div><span class="muted" style="font-size:11.5px">3 days ago</span><span class="btn sm">Open</span></div>
+  <div class="row"><span class="dot dp"></span><div class="t"><b>FNO on Darcy flow</b><span>Project · from <i>Fourier Neural Operator</i> plan</span></div><div class="where"><span class="pc">PC</span> RTX 3060</div><span class="muted" style="font-size:11.5px">last week</span><span class="btn sm">Open</span></div>
+ </div></div>
+</div>
+<aside>
+ <div class="sect"><span class="eyebrow">Your compute</span><span class="btn ghost sm">+ Add</span></div>
+ <div class="card">
+  <div class="mach"><div class="h"><span class="co">CO</span>Google Colab<span class="r">Pro · 84 units</span></div><div class="s">CPU, T4, L4, A100, H100 — in your own account</div></div>
+  <div class="mach"><div class="h"><span class="pc">PC</span>This PC<span class="r">proxy on :8787</span></div><div class="s">RTX 3060 12 GB · 32 GB RAM · Python 3.12, torch 2.6</div></div>
+  <div class="mach"><div class="h"><span class="gpuico">GPU</span>RunPod<span class="r">key saved · $0 now</span></div><div class="s">A100 80 GB from $1.64/h · H100 from $2.79/h</div></div>
+  <div class="mach"><div class="h"><span class="gpuico" style="background:#2e6fb5">SSH</span>lab-server<span class="r">ssh · 4× A6000</span></div><div class="s">Your university box, through your SSH config</div></div>
+ </div>
+ <div class="card" style="margin-top:14px;padding:12px 14px">
+  <span class="eyebrow">This month</span>
+  <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12.5px"><span>Rented GPU</span><b class="mono" style="font-size:12px">$11.40 of $40 cap</b></div>
+  <div class="bar" style="margin-top:6px"><i style="width:28%"></i></div>
+  <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12.5px"><span>Colab units</span><b class="mono" style="font-size:12px">16 used · 84 left</b></div>
+  <div class="bar" style="margin-top:6px"><i style="width:16%;background:#f9ab00"></i></div>
+ </div>
+</aside></div>
+</div></main></div>
+<span class="pin" style="left:46px;top:212px">1</span><span class="pin" style="left:1030px;top:150px">2</span><span class="pin" style="left:96px;top:160px">3</span>
+<div class="notes" style="left:104px;bottom:44px"><div class="callout"><span class="n">1</span>A <b>Playground</b> button on the rail, <kbd>P</kbd> anywhere — a sibling of the library, not a tab inside a paper.</div><div class="callout"><span class="n">2</span>Every machine you have connected, in one place. The <b>Where</b> step picks from this list.</div><div class="callout"><span class="n">3</span>Six ways in. A paper is one of them, not a requirement — but code that came from a paper keeps its citations.</div></div>
+<div class="step">1 · Playground home</div>
+</body></html>
