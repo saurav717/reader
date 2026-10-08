@@ -32,6 +32,7 @@ import { useStore } from '../lib/store';
 import type { Paper } from '../types';
 import { ColabMark } from './Colab';
 import { CloseIcon, CodeIcon, TrashIcon } from './icons';
+import CopyBlock from './CopyBlock';
 import PlaygroundWorkspace from './PlaygroundWorkspace';
 
 export default function Playground({ id, onOpen, onOpenPaper }: { id?: string; onOpen: (id?: string) => void; onOpenPaper: (id: string) => void }) {
@@ -392,13 +393,14 @@ const safeHost = (url: string) => {
 
 /** The commands that start a Jupyter server this page may talk to, for this site's origin. */
 export function serverCommands(where: 'pc' | 'remote', origin: string): { label: string; code: string }[] {
-  const allow = `--ServerApp.allow_origin='${origin}'`;
-  const base = `pip install jupyter_server ipykernel\njupyter server ${allow} --ServerApp.root_dir="$HOME/reader-playgrounds"`;
-  if (where === 'pc') return [{ label: 'On this PC, in a terminal', code: `mkdir -p "$HOME/reader-playgrounds"\n${base}` }];
+  // One flag a line, joined with backslashes: easy to read in a narrow card, and still one command when pasted.
+  const server = (...extra: string[]) => ['jupyter server', `--ServerApp.allow_origin='${origin}'`, '--ServerApp.root_dir="$HOME/reader-playgrounds"', ...extra].join(' \\\n  ');
+  const setup = 'mkdir -p "$HOME/reader-playgrounds"\npip install jupyter_server ipykernel';
+  if (where === 'pc') return [{ label: 'On this PC, in a terminal', code: `${setup}\n${server()}` }];
   return [
-    { label: 'On the GPU machine', code: `mkdir -p "$HOME/reader-playgrounds"\n${base} --ServerApp.port=8888` },
-    { label: 'Then on this PC — an SSH tunnel to it (a lab server, a cloud VM, a pod with SSH)', code: 'ssh -N -L 8890:localhost:8888 you@the-gpu-machine\n# and add http://localhost:8890/?token=… here' },
-    { label: 'Or, on RunPod: start it on 0.0.0.0 and use the pod’s own HTTPS address', code: `${base} --ServerApp.ip=0.0.0.0 --ServerApp.port=8888\n# address: https://<pod-id>-8888.proxy.runpod.net/?token=…` },
+    { label: 'On the GPU machine', code: `${setup}\n${server('--ServerApp.port=8888')}` },
+    { label: 'Then on this PC — an SSH tunnel to it (a lab server, a cloud VM, a pod with SSH)', code: 'ssh -N -L 8890:localhost:8888 you@the-gpu-machine\n# then add http://localhost:8890/?token=… here' },
+    { label: 'Or, on RunPod: start it on 0.0.0.0 and use the pod’s own HTTPS address', code: `${setup}\n${server('--ServerApp.ip=0.0.0.0', '--ServerApp.port=8888')}\n# address: https://<pod-id>-8888.proxy.runpod.net/?token=…` },
   ];
 }
 
@@ -446,7 +448,7 @@ function ServerForm({ server, onDone, onSaved, defaultWhere = 'pc' }: { server?:
         {serverCommands(where, origin).map((step) => (
           <div key={step.label}>
             <small>{step.label}</small>
-            <pre>{step.code}</pre>
+            <CopyBlock code={step.code} />
           </div>
         ))}
         <small>Jupyter prints an address with <code>?token=</code> — paste it below. The token stays in this browser. A browser may ask once to let this site reach your local network: allow it.</small>

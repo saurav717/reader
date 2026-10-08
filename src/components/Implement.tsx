@@ -28,6 +28,7 @@ import { CellRunOutput, ColabMark, ConnectCard, RunState, useColab } from './Col
 import { CloseIcon, ExplainIcon, LocalIcon } from './icons';
 import { highlightPython } from './Explain';
 import { KeepButton } from './Keep';
+import CopyBlock from './CopyBlock';
 
 /** The plan the page is showing — its title and sections — for the pieces that need more than their own block, such as the Colab panel under the budget. */
 export const PlanContext = createContext<{ title: string; sections: Section[] } | null>(null);
@@ -650,7 +651,7 @@ export function LocalMenu({ title, bundle, sections }: { title: string; bundle: 
           ) : !status?.available ? (
             <div className="colab-status">
               <b>No local workspace.</b> {status?.reason ?? ''}
-              <pre className="local-setup">{`READER_WORKSPACE=~/reader-workspace npm start`}</pre>
+              <CopyBlock className="local-setup" code="READER_WORKSPACE=~/reader-workspace npm start" />
               then point Settings → Paper proxy at it, and the scaffold can be written and run here.
             </div>
           ) : (

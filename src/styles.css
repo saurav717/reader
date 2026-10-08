@@ -5812,3 +5812,12 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
   .pg-cites, .pg-when { display: none; }
   .pg-name { width: 140px; }
 }
+
+/* A block of commands with a Copy button on its corner, taking the whole block. */
+.copy-block { position: relative; }
+.copy-block > pre { padding-right: 76px !important; }
+.copy-block-btn { position: absolute; top: 6px; right: 6px; height: 24px; padding: 0 9px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--ink-2); font: 500 11px var(--sans); cursor: pointer; opacity: 0.88; }
+.copy-block-btn:hover, .copy-block-btn:focus-visible { opacity: 1; color: var(--accent-ink); border-color: var(--accent); outline: none; }
+.copy-block-btn.is-done { color: var(--accent-ink); background: var(--accent-soft); border-color: transparent; opacity: 1; }
+.colab-menu .copy-block .colab-probe { margin: 0; }
+.colab-menu .copy-block { margin: 0 8px 8px; }
