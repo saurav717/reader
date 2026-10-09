@@ -1,0 +1,115 @@
+% A single-column paper with an appendix of the kind coding-agent papers
+% carry — made up, after "Automatic Generation of High-Performance RL
+% Environments" (arXiv:2603.12145) — with what Reflow once read badly in
+% one: headings in a bold sans set at the text's size, their numbers an em
+% apart, straight under a table and its notes; numbered paragraphs led by a
+% run-in heading, their lines turning over to the margin; listings of code
+% between them; a prompt set in typewriter type, bold labels and all; and
+% an algorithm ruled off as algorithmic's "ruled" style sets one.
+% Rebuilt with: pdflatex agent-appendix.tex (TinyTeX: lm, booktabs, fancyvrb).
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern,amsmath,amssymb,booktabs,fancyvrb,float}
+\makeatletter
+\renewcommand\section{\@startsection{section}{1}{\z@}{-3ex \@plus -1ex}{1.5ex}{\normalfont\Large\sffamily\bfseries}}
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}{-2.5ex \@plus -1ex}{1ex}{\normalfont\normalsize\sffamily\bfseries}}
+\makeatother
+\title{\textbf{Translating Environments with Coding Agents}}
+\author{Ada Lindqvist \and Tomas Okafor}
+\date{}
+\begin{document}
+\maketitle
+\begin{abstract}
+Environments for reinforcement learning are slow, and rewriting them by hand takes months. We have a coding agent translate them instead, and check each translation at four levels, from single functions to policies trained in one and evaluated in the other.
+\end{abstract}
+\section{Introduction}
+Simulating the environment takes most of the time spent training an agent. Rewriting the environment for an accelerator takes a specialist months, and has been done for a handful of them. We let a coding agent do the rewriting, and check what it writes at four levels of increasing scope, so that the agent is told where a translation is wrong as well as that it is wrong. This paragraph runs on for a few lines so that the page has a measure of its body text, as a real paper's would.
+
+The translations are as fast as the hand-written rewrites they are compared with, and pass the same tests. They cost a few dollars each, and the agent wrote every line of them.
+\appendix
+\section{Supplementary Details}
+\subsection{Multi-Agent Validation}
+We translated two of the environments again with two more agents, using the same prompts and the same tests. Both converge to translations that pass the tests (Table~\ref{tab:agents}), so the method does not depend on the agent.
+\begin{table}[H]
+\centering
+\caption{\textbf{Multi-agent comparison.} Identical inputs; equivalent outputs.}\label{tab:agents}
+\begin{tabular}{llrrr}
+\toprule
+\textbf{Environment} & \textbf{Agent} & \textbf{Iters} & \textbf{Tests} & \textbf{Cost} \\
+\midrule
+Pong & Agent One & 13 & 6/6 & \$0.05 \\
+ & Agent Two & 3 & 5/6$^\S$ & \$0.08 \\
+\midrule
+HalfCheetah & Agent One & 20 & 69/69 & \$3.26 \\
+ & Agent Three & 6 & 69/69 & --$^\dagger$ \\
+\bottomrule
+\end{tabular}
+
+\vspace{4pt}
+{\footnotesize $^\S$Same statistical test for both agents. $^\dagger$Cost not tracked.}
+\end{table}
+\subsection{Verification Ablation Details}
+\textbf{HalfCheetah (complex physics).}\quad The run checked only by rollouts used eight end-to-end tests and forty-two iterations without converging. The agent could not tell a sign error in a force from a failure at the end of a rollout, and went round rewriting the vectorization instead.
+\subsection{Cross-Hardware Validation}
+\begin{table}[H]
+\centering
+\caption{\textbf{Throughput elsewhere.} Peak steps per second.}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Environment} & \textbf{SPS} & \textbf{vs. Reference} \\
+\midrule
+HalfCheetah & 13.1M & 290$\times$ \\
+Pong & 1.4B & 23k$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+\subsection{Agent Translation Metrics}
+The translation was carried out entirely through logged sessions. The first phase translated five core modules, and the second used a command-line agent for the six modules heaviest in logic.
+\section{Performance Optimization Guide}
+The following patterns, distilled from the case studies, make an environment faster. They are ordered by how much they usually help.
+
+\medskip\noindent\textbf{1. Fixed-size state arrays.}\quad The compiler needs every shape known in advance. Replace all dynamic-length data structures (lists, dictionaries with varying keys) with fixed-size \texttt{jnp.ndarray} fields padded to their largest size, and mark the unused slots with a sentinel value.
+
+\medskip\noindent\textbf{2. Branchless conditionals with \texttt{jnp.where}.}\quad Replace Python \texttt{if}/\texttt{else} with \texttt{jnp.where(condition, true\_val, false\_val)}, which computes both branches and selects the result by mask; this is faster on a GPU because it avoids divergence:
+\begin{Verbatim}[xleftmargin=1em]
+ball_vy = jnp.where(wall_hit, -ball_vy, ball_vy)
+step = jax.vmap(
+    partial(step, terrain=terrain),
+    in_axes=(0, 0)
+)
+\end{Verbatim}
+\medskip\noindent\textbf{3. JIT the outer interface.}\quad Apply \texttt{jax.jit} to the vectorized step and reset functions so that the whole batch is compiled to a single kernel, and compile them once while the environment is set up.
+\subsection{Optimization Agent Prompt}
+The following prompt is used once the environment passes the tests. It asks the agent to make it faster without changing what it does.
+\begin{Verbatim}[xleftmargin=1em,fontsize=\small,commandchars=\\\{\}]
+The environment has passed all verification tests. Now optimize it
+for maximum steps per second.
+\textbf{Target:}  Maximize SPS while keeping every test passing.
+\textbf{Constraints:}
+  - All tests must continue to pass after optimization
+  - Do not change the external API (step, reset, observation
+    shapes)
+\end{Verbatim}
+\begin{figure}[H]
+\hrule height 0.6pt
+\vspace{3pt}
+\noindent\textbf{Algorithm 1 Hierarchical translation and verification.}
+\vspace{3pt}
+\hrule height 0.4pt
+\vspace{3pt}
+\noindent\begin{tabular}{@{}r@{\hspace{6pt}}l@{}}
+1: & \textbf{Phase 1: Module translation} \\
+2: & \textbf{for} $k = 1$ \textbf{to} $K$ \textbf{do} \\
+3: & \hspace{1em}$m'_k \gets \textsc{Agent}(m_k)$ \\
+4: & \hspace{1em}\textbf{if} $\textsc{RunTests}(m'_k) = \textsc{Pass}$ \textbf{then} \\
+5: & \hspace{2em}\textbf{break} \\
+6: & \hspace{1em}\textbf{end if} \\
+7: & \textbf{end for} \\
+8: & \textbf{return} $E_\text{perf}$ \\
+\end{tabular}
+\vspace{3pt}
+\hrule height 0.6pt
+\end{figure}
+Algorithm 1 sets out the loop the agent runs, module by module, until every test passes.
+\end{document}

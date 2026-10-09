@@ -89,6 +89,14 @@ describe('paragraphs', () => {
     ]);
   });
 
+  it('carries a paragraph on over a page after a colon, where it goes on in lower case', () => {
+    const first = page(column(54, 100, ['Not every environment is faster once translated, least of all one', 'already tuned by hand. The physics engine is one, as this illustrates:']), [], 0);
+    const second = page(column(54, 100, ['against a mature, hand-optimized engine, the method reaches parity', 'rather than a speedup.']), [], 1);
+    assert.deepEqual(texts(layoutPages([first, second])), [
+      'Not every environment is faster once translated, least of all one already tuned by hand. The physics engine is one, as this illustrates: against a mature, hand-optimized engine, the method reaches parity rather than a speedup.',
+    ]);
+  });
+
   it('keeps the hyphen of a word the paper writes hyphenated elsewhere', () => {
     const runs = [
       ...column(54, 100, ['The cost of the method is quasi-linear in the resolution, and', 'stays that way. A second sentence says again that it is quasi-', 'linear. And a broken word like infor-', 'mation is mended.']),
