@@ -1,0 +1,96 @@
+// The Reader Companion, from the page's side: finding it on 127.0.0.1, pairing
+// with the code it shows, and the commands that start it. The Companion itself
+// is companion/ (a Python package); scripts/build-companion.mjs puts its wheel
+// and the one-line installers into the site build. See docs/companion.md.
+
+/** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
+export const COMPANION_VERSION = '0.1.0';
+/** Where the Companion listens unless told otherwise. */
+export const COMPANION_PORT = 47321;
+
+export interface CompanionInfo {
+  app: 'reader-companion';
+  version: string;
+  name: string;
+  hardware: string;
+  root: string;
+}
+
+export interface CompanionPairing {
+  url: string;
+  token: string;
+  name: string;
+  hardware: string;
+  version: string;
+}
+
+const companionBase = (port: number) => `http://127.0.0.1:${port}/companion`;
+
+/** The Companion on this computer, or null when nothing answers (not running, another program on the port, or the browser won't let the page reach it). */
+export async function findCompanion(port = COMPANION_PORT, timeoutMs = 1500): Promise<CompanionInfo | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${companionBase(port)}/info`, { signal: controller.signal, cache: 'no-store' });
+    if (!response.ok) return null;
+    const info = (await response.json()) as Partial<CompanionInfo>;
+    return info && info.app === 'reader-companion' && typeof info.name === 'string' ? (info as CompanionInfo) : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Trades the code the Companion printed for its server's address and token. */
+export async function pairCompanion(code: string, port = COMPANION_PORT): Promise<CompanionPairing> {
+  let response: Response;
+  try {
+    response = await fetch(`${companionBase(port)}/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: normaliseCode(code) }) });
+  } catch {
+    throw new Error('The Companion stopped answering. Is it still running in the terminal?');
+  }
+  const body = (await response.json().catch(() => ({}))) as Partial<CompanionPairing> & { error?: string };
+  if (!response.ok || typeof body.url !== 'string' || typeof body.token !== 'string') throw new Error(body.error || `The Companion said ${response.status}.`);
+  return body as CompanionPairing;
+}
+
+/** "abc def", "ABCDEF" and "ABC-DEF" are the same code. */
+export function normaliseCode(code: string): string {
+  const raw = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return raw.length === 6 ? `${raw.slice(0, 3)}-${raw.slice(3)}` : raw;
+}
+
+/** `#pair=ABC-DEF&port=47321`, as the Companion opens the page with, or null. */
+export function pairFragment(hash: string): { code: string; port: number } | null {
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  const code = params.get('pair');
+  if (!code) return null;
+  const port = Number(params.get('port'));
+  return { code: normaliseCode(code), port: Number.isInteger(port) && port > 0 && port < 65536 ? port : COMPANION_PORT };
+}
+
+/** A saved server that is a Companion on this computer: its port, or null. */
+export function companionPort(url: string): number | null {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === '127.0.0.1' && parsed.pathname === '/' && parsed.port ? Number(parsed.port) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The commands that start the Companion, for a site served at `site` (its origin plus base path). */
+export function companionCommands(site: string): { unix: string; windows: string; uv: string } {
+  const base = site.replace(/\/?$/, '/');
+  return {
+    unix: `curl -LsSf ${base}companion.sh | sh`,
+    windows: `powershell -ExecutionPolicy ByPass -c "irm ${base}companion.ps1 | iex"`,
+    uv: `uvx --from ${base}companion/reader_companion-${COMPANION_VERSION}-py3-none-any.whl reader-companion --site ${base}`,
+  };
+}
+
+/** Safari will not let an https page call http://127.0.0.1, so the Companion can't be reached from it. */
+export function isSafari(userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent): boolean {
+  return /Safari\//.test(userAgent) && !/(Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS)\//.test(userAgent);
+}

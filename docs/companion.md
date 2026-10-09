@@ -10,7 +10,17 @@ macOS, Windows, Linux and a GPU box, with no installer to download, sign or
 notarize. The Reader extension for VS Code runs the same thing for you, for
 anyone who would rather click. It keeps a Jupyter server running, pairs with the site in
 one click, and keeps a folder on disk, the site and VS Code showing the same
-project. This document is the design. **None of it is built yet.** The
+project. This document is the design.
+
+> **Built: step 1.** `companion/` is the package, and the Playground's
+> **Connect this computer** card starts it, finds it and pairs with it (see
+> the README's *Connect this computer*). It is served from the site rather
+> than PyPI: `curl -LsSf https://saurav717.github.io/reader/companion.sh | sh`
+> installs uv if needed and runs the wheel the site build carries. Your code
+> runs in `~/Reader/.venv`, or in the Python given with `--python`. Everything
+> from step 2 on is not built yet. Until the relay (step 5) exists, Safari
+> can't reach the Companion, because it won't let an `https` page call
+> `127.0.0.1`. The
 pictures are static mock-ups in the app's own colours. Their sources are in
 [`mockups/companion-src/`](mockups/companion-src/), and
 `node docs/mockups/companion-src/render.mjs` renders them again.
