@@ -50,6 +50,30 @@ const ZEN_KEY = 'reader.zen';
 const EXPLAIN_KEY = 'reader.explain.open';
 const NOTES_FLOAT_KEY = 'reader.notes.float';
 
+/**
+ * What a tab has open — its page, Explain, the assistant, zen, the floating
+ * notes — is that tab's own, kept in sessionStorage: a reload keeps it, and a
+ * second tab neither opens on the first one's page nor with its panels.
+ * (localStorage is shared by every tab, so keeping these there made each new
+ * or reloaded tab copy whichever tab moved last.)
+ */
+const tabState = {
+  get(key: string): string | null {
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, value: string): void {
+    try {
+      sessionStorage.setItem(key, value);
+    } catch {
+      // private mode: this page load only
+    }
+  },
+};
+
 /** Which edge's panes are out while in zen mode: the top one is the reader's top bar. */
 type Peek = 'left' | 'right' | 'top' | null;
 
@@ -132,7 +156,7 @@ function readView(): View {
     return { kind: 'home' };
   }
   try {
-    const raw = localStorage.getItem(VIEW_KEY);
+    const raw = tabState.get(VIEW_KEY);
     if (raw) return JSON.parse(raw) as View;
   } catch {
     // fall through to the default
@@ -148,7 +172,8 @@ function isNarrow(): boolean {
 
 function readLayout(): Layout {
   try {
-    const raw = localStorage.getItem(LAYOUT_KEY);
+    // This tab's panels; a new tab starts from the last ones chosen in any tab, a preference more than a page.
+    const raw = tabState.get(LAYOUT_KEY) ?? localStorage.getItem(LAYOUT_KEY);
     if (raw) {
       const stored = JSON.parse(raw) as Partial<Layout>;
       if (typeof stored.libraryOpen === 'boolean') {
@@ -207,11 +232,11 @@ export default function App() {
   // hold a refresh token — the visit starts disconnected, and offers to
   // reconnect before anything is collected that Drive would then have missed.
   const [skippedConnect, setSkippedConnect] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(() => localStorage.getItem(ASSISTANT_KEY) === 'true');
+  const [assistantOpen, setAssistantOpen] = useState(() => tabState.get(ASSISTANT_KEY) === 'true');
   // Zen mode, while a paper is open: the rail, the library, the dock and the
   // reader's top bar step off the screen and wait at its edges. Hovering an edge brings that side's
   // panes out over the page, with a haze cast from them across it.
-  const [zen, setZen] = useState(() => localStorage.getItem(ZEN_KEY) === 'true');
+  const [zen, setZen] = useState(() => tabState.get(ZEN_KEY) === 'true');
   const [peek, setPeek] = useState<Peek>(null);
   // Opening the notes in zen mode keeps them out, beside the page: the page
   // slides left to make room for them, rather than having them laid over it.
@@ -233,9 +258,9 @@ export default function App() {
   const [boardOpen, setBoardOpen] = useState(false);
   const notesWindowRef = useRef(notesWindow);
   notesWindowRef.current = notesWindow;
-  const [notesFloat, setNotesFloat] = useState(() => localStorage.getItem(NOTES_FLOAT_KEY) === 'true');
+  const [notesFloat, setNotesFloat] = useState(() => tabState.get(NOTES_FLOAT_KEY) === 'true');
   useEffect(() => {
-    localStorage.setItem(NOTES_FLOAT_KEY, String(notesFloat));
+    tabState.set(NOTES_FLOAT_KEY, String(notesFloat));
   }, [notesFloat]);
   useEffect(() => () => window.clearTimeout(slideTimer.current), []);
   // Opening and closing the notes, which depend on what else is open; set
@@ -244,10 +269,10 @@ export default function App() {
   const openNotesRef = useRef<() => void>(() => undefined);
   const toggleNotesRef = useRef<() => void>(() => undefined);
   // Explain: the whole paper taught by Claude, over the reader the way zen mode is.
-  const [explainOpen, setExplainOpen] = useState(() => localStorage.getItem(EXPLAIN_KEY) === 'true');
+  const [explainOpen, setExplainOpen] = useState(() => tabState.get(EXPLAIN_KEY) === 'true');
   const toggleExplain = useCallback(() => setExplainOpen((current) => !current), []);
   useEffect(() => {
-    localStorage.setItem(EXPLAIN_KEY, String(explainOpen));
+    tabState.set(EXPLAIN_KEY, String(explainOpen));
   }, [explainOpen]);
   // With Drive connected, an explanation is kept in the paper's folder too,
   // and fetched from there before Claude is asked to write it again.
@@ -272,7 +297,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(ZEN_KEY, String(zen));
+    tabState.set(ZEN_KEY, String(zen));
   }, [zen]);
 
   // Full screen: the whole display is the paper, as a film is — the browser's
@@ -351,7 +376,7 @@ export default function App() {
   useEffect(() => () => window.clearTimeout(peekTimer.current), []);
 
   useEffect(() => {
-    localStorage.setItem(ASSISTANT_KEY, String(assistantOpen));
+    tabState.set(ASSISTANT_KEY, String(assistantOpen));
   }, [assistantOpen]);
 
   useEffect(trackSelection, []);
@@ -420,7 +445,7 @@ export default function App() {
 
   // Reopening the tab should put you back on the paper you were reading.
   useEffect(() => {
-    localStorage.setItem(VIEW_KEY, JSON.stringify(view));
+    tabState.set(VIEW_KEY, JSON.stringify(view));
   }, [view]);
 
   // The address bar follows the page: each destination its own path, pushed
@@ -472,7 +497,9 @@ export default function App() {
 
   useEffect(() => {
     // Put away for Home is not a choice to remember: what is kept is how they were.
-    localStorage.setItem(LAYOUT_KEY, JSON.stringify(panelsBeforeHome.current ?? ({ libraryOpen, dock } satisfies Layout)));
+    const panels = JSON.stringify(panelsBeforeHome.current ?? ({ libraryOpen, dock } satisfies Layout));
+    tabState.set(LAYOUT_KEY, panels);
+    localStorage.setItem(LAYOUT_KEY, panels);
   }, [libraryOpen, dock]);
 
   const onHome = view.kind === 'home';
