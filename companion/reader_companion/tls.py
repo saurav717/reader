@@ -51,7 +51,8 @@ def make_certificate() -> None:
     from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
     key = ec.generate_private_key(ec.SECP256R1())
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"Reader Companion on {state.computer_name()}"), x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Reader Companion (this computer only)")])
+    # A fixed name: a name in a certificate is at most 64 characters, and a computer's can be longer.
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Reader Companion (localhost)"), x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Reader Companion, this computer only")])
     now = datetime.datetime.now(datetime.timezone.utc)
     certificate = (
         x509.CertificateBuilder()
