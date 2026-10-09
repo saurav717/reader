@@ -29,9 +29,13 @@ project. This document is the design.
 > machine. From step 3: **an installer to double-click** (a `.command` in a zip
 > for macOS, a `.cmd` for Windows, a line for Linux) that installs the
 > Companion with `uv tool install` and runs `reader-companion setup`. That
-> installs the VS Code extension, starts the Companion at every login (launchd,
-> systemd or the Startup folder; `reader-companion uninstall` undoes it), and
-> opens the page to pair. Steps 2, 3, 5 and 6 are not built yet. The
+> makes a **Reader app** on the computer, installs the VS Code extension,
+> starts the Companion at every login (launchd, systemd or the Startup folder;
+> `reader-companion uninstall` undoes it), and opens the page to pair. The
+> app opens the site in an app window, starting the Companion first. It is
+> made on the computer, not downloaded, so it needs no signing (see *Why not a
+> `.dmg`*). The page installs the VS Code extension through the Companion
+> (`/companion/vscode`). Steps 2, 3, 5 and 6 are not built yet. The
 pictures are static mock-ups in the app's own colours. Their sources are in
 [`mockups/companion-src/`](mockups/companion-src/), and
 `node docs/mockups/companion-src/render.mjs` renders them again.

@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.3.0';
+export const COMPANION_VERSION = '0.4.0';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 
@@ -72,6 +72,22 @@ export async function pairCompanion(code: string, base = directBase()): Promise<
   const body = (await response.json().catch(() => ({}))) as Partial<CompanionPairing> & { error?: string };
   if (!response.ok || typeof body.url !== 'string' || typeof body.token !== 'string') throw new Error(body.error || `The Companion said ${response.status}.`);
   return body as CompanionPairing;
+}
+
+/**
+ * Asks the Companion to put its pairing code on its computer's screen, for a
+ * browser that found it but has no code (it runs in the background, with no
+ * terminal to read). False when that computer has nothing to show it with.
+ */
+export async function showCompanionCode(base = directBase()): Promise<boolean> {
+  try {
+    const response = await fetch(`${base}companion/show-code`, { method: 'POST' });
+    if (response.status === 429) return true;
+    const body = (await response.json().catch(() => ({}))) as { shown?: boolean };
+    return response.ok && body.shown === true;
+  } catch {
+    return false;
+  }
 }
 
 /** "abc def", "ABCDEF" and "ABC-DEF" are the same code. */
@@ -153,4 +169,27 @@ export function vscodeInstall(site: string, windows = false): { vsix: string; co
 /** Safari will not let an https page call http://127.0.0.1, so the Companion can't be reached from it. */
 export function isSafari(userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent): boolean {
   return /Safari\//.test(userAgent) && !/(Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS)\//.test(userAgent);
+}
+
+/** The VS Code-like editors on a Companion's computer, and whether each has the Reader extension. */
+export interface VsCodeStatus {
+  editors: { name: string; installed: boolean }[];
+}
+
+/**
+ * Asks a paired Companion about VS Code (`GET`), or to install the Reader
+ * extension into it (`install`): the extension isn't on the Marketplace, and a
+ * page can't run `code --install-extension`, but the Companion can.
+ */
+export async function companionVsCode(server: { url: string; token: string }, install = false): Promise<VsCodeStatus> {
+  let response: Response;
+  try {
+    response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/vscode`, { method: install ? 'POST' : 'GET', headers: { Authorization: `token ${server.token}` }, cache: 'no-store' });
+  } catch {
+    throw new Error('The Companion isn’t answering. Open the Reader app, or start it again.');
+  }
+  const body = (await response.json().catch(() => ({}))) as Partial<VsCodeStatus> & { error?: string };
+  if (response.status === 404 && !body.error) throw new Error('This Companion is older than the VS Code button: run the installer again to update it.');
+  if (!response.ok) throw new Error(body.error || `The Companion said ${response.status}.`);
+  return { editors: Array.isArray(body.editors) ? body.editors : [] };
 }

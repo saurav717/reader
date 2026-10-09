@@ -3734,7 +3734,7 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
 The quickest way to run on your own computer is the **Reader Companion**.
 Under **Your compute**, **Connect this computer** offers it two ways.
 
-**Install it once: Download for macOS / Windows.** The card's button
+**The Reader app: Download for macOS / Windows.** The card's button
 downloads a small installer for the system the browser is on: on macOS a zip
 holding `Reader Companion.command`, on Windows `Reader-Companion-Setup.cmd`.
 Double-click it. On Linux the card gives the same thing as a line to paste,
@@ -3742,25 +3742,62 @@ Double-click it. On Linux the card gives the same thing as a line to paste,
 installs uv if needed, installs the Companion for good (`uv tool install`), and
 runs `reader-companion setup`, which:
 
+- makes a **Reader** app on this computer: `~/Applications/Reader.app` on
+  macOS (Launchpad, Spotlight, and drag it to the Dock), shortcuts in the Start
+  menu and on the desktop on Windows, an entry in the applications menu on
+  Linux. Opening it runs `reader-companion open`. That starts the Companion if
+  it isn't running and opens the site in a window of its own: an app window
+  of Chrome, Edge or Brave when one is installed, else the default browser.
+  It opens with a pairing link, so a browser that knows this computer
+  reconnects with no click, even at a new tunnel address;
 - puts the **Reader** extension into VS Code (and Cursor or VSCodium) when one
   is installed, from the `.vsix` the site serves;
 - starts the Companion **at every login**, in the background: a LaunchAgent on
   macOS, a systemd user service (or an autostart entry) on Linux, a hidden
   launcher in the Startup folder on Windows. It also starts it now. Its output
   goes to `~/.reader-companion/companion.log`;
-- opens the Playground with a pairing link, so one click on **Connect**
-  finishes.
+- opens the site with a pairing link, so one click on **Connect** finishes.
 
-The installers aren't signed. The first time, macOS asks about a file from the
-internet: right-click it and choose **Open**, or on macOS 15 and later use
-**Open Anyway** in System Settings → Privacy & Security. Windows SmartScreen
-asks too: **More info** → **Run anyway**. Each installer fetches the setup
-script from the site, so an old download still installs the newest Companion,
-and running it again updates the Companion and restarts it.
-Afterwards, `reader-companion pair` opens a new pairing link for another
-browser, and `reader-companion uninstall` stops it starting at login. The
-folder and the settings stay. Safari can't use the installer (see the Safari
-note below), so in Safari the card shows only the command.
+**Why there's no `.dmg`.** A downloaded app has to be signed and notarized
+(Apple's $99 a year) or macOS won't open it without a fight; Windows'
+SmartScreen is the same. The Reader app isn't downloaded: the installer
+*makes* it on the computer, so it carries no "from the internet" mark and opens
+like any other app. Only the installer itself is downloaded, and it asks once.
+On macOS, right-click it and choose **Open**, or on macOS 15 and later use
+**Open Anyway** in System Settings → Privacy & Security. On Windows, choose
+**More info** → **Run anyway**. Each installer fetches the setup script from
+the site, so an old download still installs the newest Companion, and running
+it again updates the Companion and the app.
+
+On a Mac without Chrome, Edge or Brave, the Reader app opens in Safari, which
+can't call `127.0.0.1` from an https page. There `setup` turns the Companion's
+HTTPS tunnel on (`--no-tunnel` turns it off), and the link the app opens
+carries the tunnel's address. Afterwards, `reader-companion pair` opens a new
+pairing link for another browser, and `reader-companion uninstall` removes the
+app and stops the Companion starting at login. The folder and the settings
+stay.
+
+**The app isn't the only way in.** Once installed, the Companion runs in the
+background, so the site in any Chrome, Edge or Firefox tab finds it too. A
+browser that hasn't paired yet asks for the code. There is no terminal to read
+it from, so **Show the code on this computer** has the Companion put it in a
+dialog on that computer's screen (`osascript` on macOS, a message box on
+Windows, `zenity`, `kdialog` or `notify-send` on Linux). Whoever reads it is at
+the computer, as with the terminal. The Reader app and the terminal's link
+connect without a code.
+
+**VS Code from the site.** The extension isn't on the Marketplace, and a page
+can't install one. The Companion can, though. Under *Your compute* the
+Companion's row says whether VS Code is there and has the Reader extension,
+with **Add Reader to VS Code** when it doesn't. A project's bar shows the
+same button next to **Open in VS Code** until it's added.
+(`/companion/vscode`: the site's origin and the Companion's token, then
+`code --install-extension` with the site's `.vsix`.)
+
+The site is also an installable web app (`public/manifest.webmanifest`).
+Chrome and Edge offer **Install** in the address bar, and Safari offers
+**File → Add to Dock**. That gives it a window and an icon of its own,
+without the Companion.
 
 **Run it just for now** with one line pasted into a terminal. It runs until
 the terminal closes:

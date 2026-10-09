@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
 import type { CompanionInfo, CompanionPairing } from '../lib/companion';
-import { COMPANION_PORT, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, directBase, findCompanion, isSafari, normaliseCode, pairCompanion, pairFragment, vscodeInstall } from '../lib/companion';
+import { COMPANION_PORT, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, directBase, findCompanion, isSafari, normaliseCode, pairCompanion, pairFragment, showCompanionCode, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
@@ -37,6 +37,7 @@ import { ColabMark } from './Colab';
 import { CloseIcon, CodeIcon, TrashIcon } from './icons';
 import CopyBlock from './CopyBlock';
 import PlaygroundWorkspace from './PlaygroundWorkspace';
+import VsCodeExtension from './VsCodeExtension';
 
 export default function Playground({ id, onOpen, onOpenPaper }: { id?: string; onOpen: (id?: string) => void; onOpenPaper: (id: string) => void }) {
   const list = usePlaygrounds();
@@ -367,10 +368,11 @@ function ServerRow({ server }: { server: JupyterServer }) {
       {state ? <p className={state.ok ? 'pg-ok' : 'pg-bad'}>{state.text}</p> : null}
       {state && !state.ok && (server.companionId || companionPort(server.url)) ? (
         <div className="pg-howto">
-          <small>It’s the Companion: start it again in a terminal on this computer. It opens a link here that reconnects it.</small>
+          <small>It’s the Companion: open the <b>Reader</b> app on this computer, or start it again in a terminal. Either opens a link here that reconnects it.</small>
           <CopyBlock code={companionCommands(siteBase(), { tunnel: isSafari() }).unix} />
         </div>
       ) : null}
+      <VsCodeExtension server={server} />
       <div className="pg-machine-actions">
         <button type="button" className="btn sm ghost" onClick={() => void test()} disabled={checking}>
           {checking ? 'Testing…' : 'Test'}
@@ -521,6 +523,13 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [looks, setLooks] = useState(0);
+  const [asking, setAsking] = useState(false);
+  const [shown, setShown] = useState<boolean | null>(null);
+  const askForCode = async () => {
+    setAsking(true);
+    setShown(await showCompanionCode());
+    setAsking(false);
+  };
   useEffect(() => {
     // Safari can't call 127.0.0.1: there the Companion's link, with its tunnel, is the way in.
     if (safari) return;
@@ -572,8 +581,15 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
               </small>
             </div>
           </div>
+          <div className="pg-companion-ask">
+            <button type="button" className="btn sm" disabled={asking} onClick={() => void askForCode()}>
+              {asking ? 'Asking…' : 'Show the code on this computer'}
+            </button>
+            {shown === true ? <small className="pg-companion-note">It’s in a window on this computer’s screen.</small> : null}
+            {shown === false ? <small className="pg-companion-note">This computer can’t show it in a window. Open the <b>Reader</b> app instead, which connects with no code, or run <span className="mono">reader-companion pair</span>.</small> : null}
+          </div>
           <label className="pg-companion-code">
-            <span>Type the code the terminal shows</span>
+            <span>Type the code it shows</span>
             <span className="pg-companion-row">
               <input value={code} onChange={(event) => (setCode(event.target.value), setProblem(null))} onKeyDown={(event) => event.key === 'Enter' && normaliseCode(code).length === 7 && void connect()} placeholder="ABC-DEF" spellCheck={false} autoComplete="off" maxLength={9} />
               <button type="button" className="btn primary sm" disabled={busy || normaliseCode(code).length !== 7} onClick={() => void connect()}>
@@ -581,56 +597,54 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
               </button>
             </span>
           </label>
-          <small className="pg-companion-note">Or open the link the terminal printed: it connects with no code.</small>
+          <small className="pg-companion-note">Or open the Reader app, or the link the terminal printed: both connect with no code.</small>
         </>
       ) : (
         <>
-          {safari ? null : (
-            <div className="pg-companion-install">
-              <p className="pg-companion-lede">
-                <b>Install it once.</b> It sets up the Jupyter server this page runs on, puts the Reader extension into VS Code if you have it, starts at every login, and opens this page to pair. Nothing else to install first.
-              </p>
-              {system === 'linux' ? (
-                <CopyBlock code={download.command} />
+          <div className="pg-companion-install">
+            <p className="pg-companion-lede">
+              <b>Get the Reader app.</b> One install sets up the Jupyter server your projects run on (your files stay in <span className="mono">~/Reader</span>), adds the Reader extension to VS Code if you have it, and makes a <b>Reader</b> app: open it from the Dock, the Start menu or Spotlight, and the site opens in its own window, connected to this computer. Nothing else to install first.
+            </p>
+            {system === 'linux' ? (
+              <CopyBlock code={download.command} />
+            ) : (
+              <a className="btn primary pg-companion-download" href={download.href} download>
+                Download for {download.label}
+              </a>
+            )}
+            <small className="pg-companion-note">
+              {system === 'mac' ? (
+                <>
+                  Open the zip, then double-click <b>{download.file}</b>. macOS asks once about this file from the internet: right-click it and choose <b>Open</b> (on macOS 15 and later, <b>Open Anyway</b> in System Settings → Privacy &amp; Security). The Reader app it makes is made on your Mac, so that opens without asking.
+                </>
+              ) : system === 'windows' ? (
+                <>
+                  Double-click <b>{download.file}</b>. If Windows says it protected your PC, choose <b>More info</b> → <b>Run anyway</b>.
+                </>
               ) : (
-                <a className="btn primary pg-companion-download" href={download.href} download>
-                  Download for {download.label}
-                </a>
-              )}
-              <small className="pg-companion-note">
-                {system === 'mac' ? (
-                  <>
-                    Open the zip, then double-click <b>{download.file}</b>. macOS asks once about a file from the internet: right-click it and choose <b>Open</b>, or on macOS 15 and later click <b>Open Anyway</b> in System Settings → Privacy &amp; Security.
-                  </>
-                ) : system === 'windows' ? (
-                  <>
-                    Double-click <b>{download.file}</b>. If Windows says it protected your PC, choose <b>More info</b> → <b>Run anyway</b>.
-                  </>
-                ) : (
-                  <>
-                    Paste it into a terminal, or <a href={download.href} download>download the script</a> and run <span className="mono">sh {download.file}</span>.
-                  </>
-                )}{' '}
-                Your files go in <span className="mono">~/Reader</span>. <span className="mono">reader-companion uninstall</span> stops it starting at login.
-              </small>
-              <small className="pg-companion-note">
-                Other systems:{' '}
-                {(Object.keys(downloads) as (keyof typeof downloads)[])
-                  .filter((key) => key !== system)
-                  .map((key, index) => (
-                    <span key={key}>
-                      {index ? ' · ' : ''}
-                      <button type="button" className="link-btn" onClick={() => setSystem(key)}>
-                        {downloads[key].label}
-                      </button>
-                    </span>
-                  ))}
-              </small>
-            </div>
-          )}
+                <>
+                  Paste it into a terminal, or <a href={download.href} download>download the script</a> and run <span className="mono">sh {download.file}</span>.
+                </>
+              )}{' '}
+              <span className="mono">reader-companion uninstall</span> takes it away again.
+            </small>
+            <small className="pg-companion-note">
+              Other systems:{' '}
+              {(Object.keys(downloads) as (keyof typeof downloads)[])
+                .filter((key) => key !== system)
+                .map((key, index) => (
+                  <span key={key}>
+                    {index ? ' · ' : ''}
+                    <button type="button" className="link-btn" onClick={() => setSystem(key)}>
+                      {downloads[key].label}
+                    </button>
+                  </span>
+                ))}
+            </small>
+          </div>
           <p className="pg-companion-lede">
-            {safari ? 'Paste this into a terminal on this computer. It needs nothing installed beforehand, and it opens a page here to finish.' : 'Or run it just for now: paste this into a terminal, and it runs until you close it.'}
-            {safari ? ' Safari can’t reach a program on this computer directly, so the Companion also opens a private HTTPS address for it (a Cloudflare quick tunnel; everything through it needs the token). In Chrome, Edge or Firefox this card offers an installer instead.' : ''}
+            Or run it just for now: paste this into a terminal, and it runs until you close it.
+            {safari ? ' Safari can’t reach a program on this computer directly, so the Companion also opens a private HTTPS address for it (a Cloudflare quick tunnel; everything through it needs the token). The Reader app avoids that when Chrome or Edge is installed: it opens in one of them.' : ''}
           </p>
           <div className="segmented pg-seg" role="radiogroup" aria-label="This computer’s system">
             {(
@@ -686,6 +700,7 @@ function PairFromLink() {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState<{ server: JupyterServer; again: boolean } | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
   // A pairing link opened in a tab already on the Playground changes only the hash.
   useEffect(() => {
     const onHash = () => {
@@ -694,6 +709,7 @@ function PairFromLink() {
       setFound(undefined);
       setDone(null);
       setProblem(null);
+      setReconnecting(false);
       setPending(next);
     };
     window.addEventListener('hashchange', onHash);
@@ -708,7 +724,10 @@ function PairFromLink() {
       if (!live) return;
       setFound(reached);
       // A Companion this browser already knows, back at a new address (a new tunnel each start): reconnect without asking.
-      if (reached?.info.id && serversNow().some((server) => server.companionId === reached.info.id)) void connect(reached.base, true);
+      if (reached?.info.id && serversNow().some((server) => server.companionId === reached.info.id)) {
+        setReconnecting(true);
+        void connect(reached.base, true);
+      }
     });
     return () => {
       live = false;
@@ -716,13 +735,18 @@ function PairFromLink() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending]);
   if (!pending) return null;
+  // While a computer this browser already knows is being looked for, show nothing: it most likely reconnects by itself.
+  if (!problem && (info === undefined || reconnecting) && serversNow().some((server) => server.companionId)) return null;
   const close = () => setPending(null);
   async function connect(base: string, again = false) {
     if (!pending) return;
     setBusy(true);
     setProblem(null);
     try {
-      setDone({ server: saveCompanion(await pairCompanion(pending.code, base), base), again });
+      const server = saveCompanion(await pairCompanion(pending.code, base), base);
+      // Back again (the Reader app opens this link each time): nothing to say, the page just has it.
+      if (again) setPending(null);
+      else setDone({ server, again });
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {

@@ -21,6 +21,7 @@ import type { NbSide } from './Notebook';
 import RuntimePane from './RuntimePane';
 import Terminal, { hasTerminals } from './Terminal';
 import { WhereDialog } from './Playground';
+import VsCodeExtension, { VsCodeMark } from './VsCodeExtension';
 import { ArrowLeftIcon, CloseIcon } from './icons';
 
 type Tab = 'notebook' | 'files';
@@ -105,6 +106,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
   const usable = Boolean(backend) && colabAvailable(settings.googleClientId);
 
   const vscode = vscodeLink(playground);
+  const homeServer = playground.home.kind === 'server' ? serverById(playground.home.serverId) : undefined;
   // The folder says which playground it is, for VS Code's Reader extension; once per opening is enough.
   useEffect(() => {
     if (playground.home.kind !== 'server') return;
@@ -149,6 +151,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
             <VsCodeMark /> Open in VS Code
           </a>
         ) : null}
+        {vscode && homeServer ? <VsCodeExtension server={homeServer} compact /> : null}
         <MachineChip playground={playground} name={machineName} usable={usable} onChange={() => setChanging(true)} />
         {tab === 'notebook' ? (
           <>
@@ -736,13 +739,3 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
   );
 }
 
-/** VS Code's mark, drawn small in the bar's ink. */
-function VsCodeMark() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
-      <path d="M17 2.8 21 4.8v14.4l-4 2-11-9.2L17 2.8Z" />
-      <path d="M17 7.6 10.6 12 17 16.4" />
-      <path d="M3 9.2 5.4 8 17 17.4M3 14.8 5.4 16 17 6.6" />
-    </svg>
-  );
-}

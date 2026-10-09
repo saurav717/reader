@@ -8,7 +8,9 @@ from unittest import mock
 from reader_companion import desktop
 
 
-class LoginItemTest(unittest.TestCase):
+class Sandbox(unittest.TestCase):
+    """A home folder of its own, where nothing really starts or stops."""
+
     def setUp(self):
         self.home = tempfile.TemporaryDirectory()
         patches = [
@@ -24,6 +26,8 @@ class LoginItemTest(unittest.TestCase):
             self.addCleanup(patch.stop)
         self.addCleanup(self.home.cleanup)
 
+
+class LoginItemTest(Sandbox):
     def test_launch_agent(self):
         plist = plistlib.loads(desktop.launch_agent(["/Users/me/.local/bin/reader-companion"], {"PATH": "/opt/homebrew/bin:/usr/bin"}))
         self.assertEqual(plist["Label"], desktop.LABEL)
@@ -62,6 +66,58 @@ class LoginItemTest(unittest.TestCase):
         self.assertTrue(desktop.is_lasting(["/home/me/.local/bin/reader-companion"]))
 
 
+class AppTest(Sandbox):
+    def test_icons(self):
+        png = b"\x89PNG\r\n\x1a\nfake"
+        made = desktop.icns({256: png, 512: png + b"!"})
+        self.assertEqual(made[:4], b"icns")
+        self.assertEqual(int.from_bytes(made[4:8], "big"), len(made))
+        self.assertEqual(made[8:12], b"ic08")
+        self.assertIn(b"ic09", made)
+        icon = desktop.ico(png)
+        self.assertEqual(icon[:6], b"\x00\x00\x01\x00\x01\x00")
+        self.assertEqual(icon[6], 0)  # 256 px
+        self.assertEqual(icon[22:], png)
+
+    def test_mac_app(self):
+        files = desktop.mac_app(["/Users/me/.local/bin/reader-companion"], {256: b"png", 512: b"png"})
+        info = plistlib.loads(files["Contents/Info.plist"])
+        self.assertEqual(info["CFBundleExecutable"], "Reader")
+        self.assertEqual(info["CFBundleIconFile"], "Reader")
+        self.assertEqual(files["Contents/MacOS/Reader"].decode().splitlines()[-1], "exec '/Users/me/.local/bin/reader-companion' 'open'")
+        self.assertIn("Contents/Resources/Reader.icns", files)
+
+    def test_install_and_uninstall_the_app(self):
+        with mock.patch.object(desktop, "fetch_icons", return_value={256: b"png", 512: b"png"}):
+            for system in ("Darwin", "Linux"):
+                where = desktop.install_app(["/x/reader-companion"], "https://saurav717.github.io/reader/", system=system)
+                self.assertTrue(Path(where).exists(), system)
+                self.assertEqual(desktop.uninstall_app(system=system), [where])
+                self.assertFalse(Path(where).exists())
+        app = desktop.mac_app_path() / "Contents" / "MacOS" / "Reader"
+        self.assertFalse(app.exists())
+
+    def test_open_window_prefers_an_app_window(self):
+        with mock.patch.object(desktop, "app_browser", return_value=["/usr/bin/google-chrome"]):
+            desktop.open_window("https://saurav717.github.io/reader/playground")
+        desktop.subprocess.Popen.assert_called_once()
+        self.assertEqual(desktop.subprocess.Popen.call_args[0][0], ["/usr/bin/google-chrome", "--app=https://saurav717.github.io/reader/playground"])
+
+
+class CodeOnScreenTest(unittest.TestCase):
+    def test_each_system_shows_it(self):
+        mac = desktop.code_dialog("ABC-DEF", 'Saurav\'s "Mac"', system="Darwin")
+        self.assertEqual(mac[:2], ["osascript", "-e"])
+        self.assertIn("ABC-DEF", mac[2])
+        self.assertIn('\\"Mac\\"', mac[2])  # quotes escaped for AppleScript
+        windows = desktop.code_dialog("ABC-DEF", "Saurav's PC", system="Windows")
+        self.assertIn("Saurav''s PC", windows[-1])  # and for PowerShell
+        with mock.patch.object(desktop.shutil, "which", side_effect=lambda tool: "/usr/bin/notify-send" if tool == "notify-send" else None):
+            self.assertEqual(desktop.code_dialog("ABC-DEF", "box", system="Linux")[0], "notify-send")
+        with mock.patch.object(desktop.shutil, "which", return_value=None):
+            self.assertIsNone(desktop.code_dialog("ABC-DEF", "box", system="Linux"))
+
+
 class EditorTest(unittest.TestCase):
     def test_no_editor_no_download(self):
         with mock.patch.object(desktop, "editor_commands", return_value=[]), mock.patch.object(desktop.urllib.request, "urlretrieve") as fetch:
@@ -76,7 +132,7 @@ class EditorTest(unittest.TestCase):
             return mock.Mock(returncode=0)
 
         with mock.patch.object(desktop, "editor_commands", return_value=["/usr/bin/code", "/usr/bin/cursor"]), mock.patch.object(desktop.urllib.request, "urlretrieve") as fetch, mock.patch.object(desktop, "editor_call", fake_call):
-            self.assertEqual(desktop.install_extension("https://saurav717.github.io/reader"), ["code", "cursor"])
+            self.assertEqual(desktop.install_extension("https://saurav717.github.io/reader"), ["VS Code", "Cursor"])
         self.assertEqual(fetch.call_args[0][0], "https://saurav717.github.io/reader/vscode/reader-playground.vsix")
         self.assertEqual([args[0] for _, args in calls], ["--install-extension", "--install-extension"])
 
