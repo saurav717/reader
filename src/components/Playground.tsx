@@ -1087,7 +1087,7 @@ function PairFromLink() {
 
 // --------------------------------------------------------- where it runs ----
 
-type Mode = 'colab' | 'pc' | 'split';
+type Mode = 'colab' | 'pc' | 'device' | 'split';
 
 /** Where a playground runs and where its files are kept, from the three modes. */
 export function WhereDialog({
@@ -1106,17 +1106,23 @@ export function WhereDialog({
   const { settings } = useStore();
   const pcs = servers.filter((s) => s.where === 'pc');
   const remotes = servers.filter((s) => s.where === 'remote');
+  /** Your computers with a Companion: this one, and those of your account elsewhere, reached through their tunnels. */
+  const devices = servers.filter(isCompanion);
   const initialMode: Mode = current
     ? current.compute.kind === 'colab' && current.home.kind === 'browser'
       ? 'colab'
       : current.home.kind === 'server' && current.compute.kind === 'server' && current.home.serverId === current.compute.serverId
-        ? 'pc'
+        ? serverById(current.home.serverId)?.where === 'pc'
+          ? 'pc'
+          : 'device'
         : 'split'
     : 'colab';
   const [mode, setMode] = useState<Mode>(initialMode);
   const [title, setTitle] = useState(draft.title);
   const [machine, setMachine] = useState<Machine>(current?.compute.kind === 'colab' ? current.compute.machine : { accelerator: 'NONE' });
   const [pcId, setPcId] = useState<string | undefined>(current?.home.kind === 'server' ? current.home.serverId : pcs[0]?.id);
+  /** In the device mode: the computer, files and code both. */
+  const [deviceId, setDeviceId] = useState<string | undefined>(current?.home.kind === 'server' && current.compute.kind === 'server' && current.home.serverId === current.compute.serverId ? current.home.serverId : devices[0]?.id);
   /** In the split mode: a remote server's id, or 'colab'. */
   const [remoteId, setRemoteId] = useState<string>(current?.compute.kind === 'server' && current.home.kind === 'server' && current.compute.serverId !== current.home.serverId ? current.compute.serverId : current?.compute.kind === 'colab' && current.home.kind === 'server' ? 'colab' : remotes[0]?.id ?? 'colab');
   const [idleStop, setIdleStop] = useState(current?.compute.kind === 'colab' ? current.idleStopMin : 30);
@@ -1128,7 +1134,7 @@ export function WhereDialog({
   const colabOk = colabAvailable(settings.googleClientId);
   // A mode that needs a server none has been added for opens the steps to start one at once,
   // rather than waiting for a click on a tile that reads like a hint.
-  const missing: 'pc' | 'remote' | null = mode === 'colab' ? null : !pcs.length ? 'pc' : mode === 'split' && !remotes.length && remoteId !== 'colab' ? 'remote' : null;
+  const missing: 'pc' | 'remote' | null = mode === 'colab' ? null : mode === 'device' ? (devices.length ? null : 'pc') : !pcs.length ? 'pc' : mode === 'split' && !remotes.length && remoteId !== 'colab' ? 'remote' : null;
   useEffect(() => {
     if (missing) setAdding(missing);
   }, [missing]);
@@ -1140,6 +1146,9 @@ export function WhereDialog({
     if (!pcId && pcs[0]) setPcId(pcs[0].id);
   }, [pcs, pcId]);
   useEffect(() => {
+    if (!deviceId && devices[0]) setDeviceId(devices[0].id);
+  }, [devices, deviceId]);
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.stopPropagation();
@@ -1149,6 +1158,7 @@ export function WhereDialog({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [onClose]);
   const pc = serverById(pcId);
+  const device = serverById(deviceId);
   const root = current?.home.kind === 'server' ? current.home.root : '';
   const choice: { compute: Compute; home: FilesHome } | null =
     mode === 'colab'
@@ -1157,6 +1167,10 @@ export function WhereDialog({
         ? pc
           ? { compute: { kind: 'server', serverId: pc.id }, home: { kind: 'server', serverId: pc.id, root } }
           : null
+        : mode === 'device'
+          ? device
+            ? { compute: { kind: 'server', serverId: device.id }, home: { kind: 'server', serverId: device.id, root } }
+            : null
         : pc && (remoteId === 'colab' || serverById(remoteId))
           ? { compute: remoteId === 'colab' ? { kind: 'colab', machine } : { kind: 'server', serverId: remoteId }, home: { kind: 'server', serverId: pc.id, root } }
           : null;
@@ -1248,6 +1262,35 @@ export function WhereDialog({
               <li className="bad">Only as much GPU as the PC has</li>
             </ul>
             {mode === 'pc' ? serverPicker(pcs, pcId, setPcId, 'pc') : null}
+          </section>
+          <section className={`pg-mode${mode === 'device' ? ' is-on' : ''}`} onClick={() => setMode('device')}>
+            <div className="pg-mode-top">
+              <span className="pg-mark is-pc">PC</span>
+              <b>Your computer, from anywhere</b>
+              <span className="pg-radio" aria-hidden="true" />
+            </div>
+            <div className="pg-flow">
+              <span>any browser of yours</span>
+              <i>⇄ its tunnel ⇄</i>
+              <span>your computer · files, kernel, shell</span>
+            </div>
+            <ul>
+              <li className="good">Code and compute both stay on that computer</li>
+              <li className="good">Edit and run it from a phone or another laptop, signed in as you</li>
+              <li className="bad">Only while that computer is on and online</li>
+            </ul>
+            {mode === 'device' ? (
+              <div className="pg-opts" role="radiogroup" aria-label="Your computer" onClick={(event) => event.stopPropagation()}>
+                {devices.map((server) => (
+                  <button key={server.id} type="button" role="radio" aria-checked={deviceId === server.id} className={`pg-opt${deviceId === server.id ? ' is-on' : ''}`} onClick={() => setDeviceId(server.id)}>
+                    <span className="pg-mark is-pc">PC</span>
+                    <b>{server.name}</b>
+                    <small className="mono">{server.where === 'pc' ? 'this computer' : `from here, through ${safeHost(server.url)}`}</small>
+                  </button>
+                ))}
+                {!devices.length ? <small className="pg-note">None of your computers is connected yet. Open the Reader app on the one you want, signed in as you: it shows up here, on every device you sign in to.</small> : null}
+              </div>
+            ) : null}
           </section>
           <section className={`pg-mode is-wide${mode === 'split' ? ' is-on' : ''}`} onClick={() => setMode('split')}>
             <div className="pg-mode-top">
