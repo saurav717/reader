@@ -567,6 +567,111 @@ def uninstall_app(system: str | None = None) -> list[str]:
     return removed
 
 
+# ------------------------------------------------- started from the page ----
+#
+# A page can't start a program, but it can open a link whose scheme this
+# computer hands to one. The page's Start (the machine chip's menu, and
+# Settings → This computer) opens reader-companion://start, and what is made
+# here runs `reader-companion start`: on macOS a small app in the settings
+# folder that declares the scheme, on Linux an applications entry for
+# x-scheme-handler/reader-companion, on Windows the URL protocol under
+# HKEY_CURRENT_USER. Browsers ask once before opening it.
+
+SCHEME = "reader-companion"
+URL_APP = "Reader Companion"
+LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+
+def url_handler_path(system: str | None = None) -> Path:
+    """The file that answers reader-companion:// links (on macOS, the app's script)."""
+    system = system or platform.system()
+    if system == "Darwin":
+        return state.config_dir() / f"{URL_APP}.app" / "Contents" / "MacOS" / "start"
+    if system == "Windows":
+        return state.config_dir() / "Start.vbs"
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "applications" / "reader-companion-start.desktop"
+
+
+def mac_url_app(command: list[str]) -> dict[str, bytes]:
+    """The files of the app that answers reader-companion:// links: a script that runs `reader-companion start`."""
+    script = "#!/bin/sh\n# Opened by a reader-companion:// link (the page's Start): starts the Reader Companion if it isn't running.\nexec " + " ".join(f"'{word}'" for word in [*command, "start", "--quiet"]) + "\n"
+    info = {
+        "CFBundleName": URL_APP,
+        "CFBundleDisplayName": URL_APP,
+        "CFBundleIdentifier": "io.github.saurav717.reader-companion.start",
+        "CFBundleExecutable": "start",
+        "CFBundlePackageType": "APPL",
+        "CFBundleShortVersionString": "1.0",
+        "LSUIElement": True,
+        "CFBundleURLTypes": [{"CFBundleURLName": "Reader Companion", "CFBundleURLSchemes": [SCHEME]}],
+    }
+    return {"Contents/Info.plist": plistlib.dumps(info), "Contents/MacOS/start": script.encode()}
+
+
+def windows_url_launcher(command: list[str]) -> str:
+    line = " ".join(f'""{word}""' for word in [*command, "start", "--quiet"])
+    return f'CreateObject("WScript.Shell").Run "{line}", 0, False\r\n'
+
+
+def linux_url_entry(command: list[str]) -> str:
+    exec_line = " ".join(f'"{word}"' if " " in word else word for word in [*command, "start", "--quiet"])
+    return f"[Desktop Entry]\nType=Application\nName=Reader Companion\nComment=Starts the Reader Companion, for the reader's Start button\nExec={exec_line} %u\nTerminal=false\nNoDisplay=true\nMimeType=x-scheme-handler/{SCHEME};\n"
+
+
+def install_url_handler(command: list[str], system: str | None = None, force: bool = False) -> str | None:
+    """Makes reader-companion:// links start the Companion; nothing when it already does with this command. Says where, when it made it."""
+    system = system or platform.system()
+    path = url_handler_path(system)
+    if system == "Darwin":
+        files = mac_url_app(command)
+        if not force and path.is_file() and path.read_bytes() == files["Contents/MacOS/start"]:
+            return None
+        app = path.parent.parent.parent
+        shutil.rmtree(app, ignore_errors=True)
+        for name, data in files.items():
+            (app / name).parent.mkdir(parents=True, exist_ok=True)
+            (app / name).write_bytes(data)
+        os.chmod(path, 0o755)
+        # Launch Services learns of an app when Finder sees it; this one is in a hidden folder, so it is told.
+        run_quietly(LSREGISTER, "-f", str(app))
+        return str(app)
+    if system == "Windows":
+        launcher = windows_url_launcher(command)
+        if not force and path.is_file() and path.read_bytes() == launcher.encode():
+            return None
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(launcher.encode())
+        key = rf"HKCU\Software\Classes\{SCHEME}"
+        run_quietly("reg", "add", key, "/ve", "/d", "URL:Reader Companion", "/f")
+        run_quietly("reg", "add", key, "/v", "URL Protocol", "/d", "", "/f")
+        run_quietly("reg", "add", rf"{key}\shell\open\command", "/ve", "/d", f'wscript.exe "{path}" "%1"', "/f")
+        return str(path)
+    entry = linux_url_entry(command)
+    if not force and path.is_file() and path.read_text() == entry:
+        return None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(entry)
+    run_quietly("xdg-mime", "default", path.name, f"x-scheme-handler/{SCHEME}")
+    run_quietly("update-desktop-database", str(path.parent))
+    return str(path)
+
+
+def uninstall_url_handler(system: str | None = None) -> list[str]:
+    system = system or platform.system()
+    path = url_handler_path(system)
+    if not path.exists():
+        return []
+    if system == "Darwin":
+        app = path.parent.parent.parent
+        run_quietly(LSREGISTER, "-u", str(app))
+        shutil.rmtree(app, ignore_errors=True)
+        return [str(app)]
+    if system == "Windows":
+        run_quietly("reg", "delete", rf"HKCU\Software\Classes\{SCHEME}", "/f")
+    path.unlink()
+    return [str(path)]
+
+
 # ------------------------------------------------------ the code, on screen ----
 
 def code_dialog(code: str, name: str, system: str | None = None) -> list[str] | None:

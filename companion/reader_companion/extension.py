@@ -18,6 +18,13 @@ VS Code-like editors are here and whether they have the Reader extension, and
 installing it into them from the .vsix the site serves — the extension isn't
 on the Marketplace, and a page can't run `code --install-extension` itself.
 
+/companion/shutdown is for the page once paired (its origin, and the token): it
+stops the kernels and the server, and leaves a mark (state.set_off) that keeps
+it stopped, at the next login too, until someone starts it on purpose: the
+Reader app, `reader-companion start`, or the page's Start, which opens a
+reader-companion:// link this computer hands to `reader-companion start`
+(desktop.install_url_handler). The machine chip's menu has the button.
+
 /companion/link is for this computer's own programs, not the page: given the
 token, it hands out a pairing link with a fresh code. `reader-companion setup`
 and `reader-companion pair` open it, for a Companion running in the background.
@@ -197,6 +204,21 @@ class UpdateHandler(VsCodeHandler):
             IOLoop.current().call_later(0.5, lambda: os._exit(0))
 
 
+class ShutdownHandler(VsCodeHandler):
+    def initialize(self, serverapp=None):
+        self.serverapp = serverapp
+
+    def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        state.set_off(True)
+        self.reply(200, {"stopping": True})
+        print("  Shut down from the page. It stays off until it is started again: the Reader app, or reader-companion start.", flush=True)
+        # After the answer has gone: the kernels are shut down, the server stops, and the process ends
+        # with 0, which launchd and systemd take as "leave it stopped" (KeepAlive/Restart on failure only).
+        IOLoop.current().call_later(0.3, self.serverapp.stop)
+
+
 def load(serverapp):
     base = serverapp.base_url
     serverapp.web_app.add_handlers(
@@ -208,5 +230,6 @@ def load(serverapp):
             (url_path_join(base, "companion/link"), LinkHandler),
             (url_path_join(base, "companion/vscode"), VsCodeHandler),
             (url_path_join(base, "companion/update"), UpdateHandler),
+            (url_path_join(base, "companion/shutdown"), ShutdownHandler, {"serverapp": serverapp}),
         ],
     )

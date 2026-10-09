@@ -25,7 +25,9 @@ curl -LsSf https://saurav717.github.io/reader/companion-setup.sh | sh
 That runs `reader-companion setup` (`--no-vscode`, `--no-login`). The Reader
 app it makes runs `reader-companion open`: the Companion started if it isn't
 running, and the site in a window of its own. `reader-companion pair` opens a
-pairing link for another browser, and `reader-companion uninstall` removes the
+pairing link for another browser, `reader-companion start` starts it in the
+background (also after the page shut it down: it stays off until then, and the
+page's **Start** runs this through a `reader-companion://` link), and `reader-companion uninstall` removes the
 app and stops it starting at login.
 
 Options: `--root` (the folder the page may use, `~/Reader` by default),

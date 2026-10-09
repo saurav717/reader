@@ -3816,6 +3816,31 @@ from the `.dmg` only sets up again when it carries a newer Companion than the
 one installed, so an update from Settings stays. A Companion older than 0.5.0
 can't do this: update it once the way it was installed.
 
+**Shut it down, start it when you want it.** The machine chip in a
+playground's bar (*Your Mac · idle*) has a menu. **Interrupt the
+running cell** stops the cell that is running, as Ctrl-C would; the kernel and
+its variables stay. **Shut down the kernel** ends the notebook's Python
+process; the Jupyter server stays. **Shut down the Companion** stops the whole
+thing: every kernel, the Jupyter server and the process
+(`/companion/shutdown`, with its token). It then **stays off**, at the next
+login too, until you start it on purpose. Then the same menu (and Settings →
+This computer) has **Start the Companion**. A page can't start a program, so
+Start opens a `reader-companion://start` link, which `setup` hands to
+`reader-companion start` (a small app in `~/.reader-companion` on macOS, an
+applications entry on Linux, a URL protocol on Windows; the browser asks once
+whether to open it). Opening the Reader app, or `reader-companion start` in a
+terminal, starts it too. A Companion from before 0.6.0 gets the link once it is
+updated.
+
+**HTTPS.** The page reaches the Companion at `https://127.0.0.1:47331` when
+this computer trusts the Companion's certificate (`setup` asks for that once,
+on macOS), in every browser now, not only Safari. Pairings made over plain
+`http://127.0.0.1:47321` move to https on their own, and the chip's menu says
+which one is in use. Plain http is only the fallback for a browser that doesn't
+use the system's certificates (Firefox), and it is still local: `127.0.0.1`
+never leaves the computer, only the reader's own site may call it, and every
+call needs the Companion's token.
+
 **VS Code from the site.** The extension isn't on the Marketplace, and a page
 can't install one. The Companion can, though. Under *Your compute* the
 Companion's row says whether VS Code is there and has the Reader extension,

@@ -10,7 +10,8 @@ import type { Backend } from '../lib/colab';
 import { backendLabel, chooseBackend, colabAvailable, colabNow, connect, forgetRun, interrupt, lastActivityAt, runCell, runQuietly, setMachine, stopRuntime } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, Playground, SyncReport } from '../lib/playground';
-import { blankCells, filesAreOnMachine, homeHost, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
+import { blankCells, filesAreOnMachine, homeHost, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
+import { STARTABLE, companionPort, findCompanion, isSecure, shutdownCompanion, startCompanion } from '../lib/companion';
 import type { RuntimeEntry } from '../lib/colab';
 import { useStore } from '../lib/store';
 import type { Screen } from '../lib/assistant';
@@ -21,7 +22,7 @@ import type { NbSide } from './Notebook';
 import RuntimePane from './RuntimePane';
 import Terminal, { hasTerminals } from './Terminal';
 import { WhereDialog } from './Playground';
-import VsCodeExtension, { VsCodeMark } from './VsCodeExtension';
+import VsCodeExtension, { VsCodeMark, isCompanion } from './VsCodeExtension';
 import { ArrowLeftIcon, CloseIcon } from './icons';
 
 type Tab = 'notebook' | 'files';
@@ -65,6 +66,11 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
     if (playground.compute.kind === 'colab') setMachine(playground.compute.machine);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playground.compute.kind === 'server' ? playground.compute.serverId : 'colab', playground.compute.kind === 'colab' ? playground.compute.machine.accelerator : '', backend?.kind === 'jupyter' ? backend.server.url + backend.server.token : '']);
+
+  // A Companion paired over plain http moves to its https address once this computer trusts its certificate.
+  useEffect(() => {
+    void secureCompanions();
+  }, []);
 
   useEffect(() => {
     document.title = `${playground.title} · Playground · Reader`;
@@ -152,7 +158,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
           </a>
         ) : null}
         {vscode && homeServer ? <VsCodeExtension server={homeServer} compact /> : null}
-        <MachineChip playground={playground} name={machineName} usable={usable} onChange={() => setChanging(true)} />
+        <MachineChip playground={playground} name={machineName} usable={usable} onChange={() => setChanging(true)} onNote={setNote} />
         {tab === 'notebook' ? (
           <>
             <button type="button" className={`btn sm ghost${side === 'runtime' ? ' is-on' : ''}`} aria-pressed={side === 'runtime'} onClick={() => setSide(side === 'runtime' ? null : 'runtime')}>
@@ -224,10 +230,14 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
   );
 }
 
-/** The chip in the bar: where the kernel is, how it is, and its menu — connect, restart, change, stop. */
-function MachineChip({ playground, name, usable, onChange }: { playground: Playground; name: string; usable: boolean; onChange: () => void }) {
+/** The chip in the bar: where the kernel is, how it is, and its menu — connect, interrupt, change, shut down; and for a Companion on this computer, shut it down and start it again. */
+function MachineChip({ playground, name, usable, onChange, onNote }: { playground: Playground; name: string; usable: boolean; onChange: () => void; onNote: (note: string | null) => void }) {
   const colab = useColab();
   const [open, setOpen] = useState(false);
+  const server = playground.compute.kind === 'server' ? serverById(playground.compute.serverId) : undefined;
+  // A Companion on this computer: the page can shut it down, and start it again (a tunnel's address changes each start).
+  const companion = server && server.where === 'pc' && isCompanion(server) && companionPort(server.url) !== null ? server : undefined;
+  const [power, setPower] = useState<'unknown' | 'up' | 'down' | 'stopping' | 'starting'>('unknown');
   const [now, setNow] = useState(Date.now());
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -242,10 +252,53 @@ function MachineChip({ playground, name, usable, onChange }: { playground: Playg
     return () => window.removeEventListener('mousedown', away);
   }, [open]);
   const connected = colab.status === 'idle' || colab.status === 'busy';
-  const dot = colab.status === 'busy' || colab.status === 'connecting' ? 'busy' : connected ? 'on' : colab.status === 'lost' || colab.status === 'error' ? 'lost' : 'off';
+  // Whether the Companion answers, looked at when the menu opens and it isn't connected.
+  useEffect(() => {
+    if (!open || !companion || connected || power === 'stopping' || power === 'starting') return;
+    let live = true;
+    void findCompanion(companion.url, 2500).then((info) => live && setPower(info ? 'up' : 'down'));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, companion?.url, connected]);
+  useEffect(() => {
+    if (connected) setPower('up');
+  }, [connected]);
+  const dot = colab.status === 'busy' || colab.status === 'connecting' || power === 'starting' || power === 'stopping' ? 'busy' : connected ? 'on' : colab.status === 'lost' || colab.status === 'error' ? 'lost' : 'off';
   const sample = colab.sample;
   const busy = sample ? [sample.gpu ? `GPU ${sample.gpu.util}%` : '', sample.cpu !== undefined ? `CPU ${sample.cpu}%` : ''].filter(Boolean).join(' · ') : '';
-  const state = colab.status === 'connecting' ? 'connecting…' : colab.reconnecting ? 'reconnecting…' : colab.status === 'busy' ? busy || 'running' : connected ? 'idle' : colab.status === 'lost' ? 'ended' : 'not connected';
+  const state =
+    power === 'stopping' ? 'shutting down…' : power === 'starting' ? 'starting…' : colab.status === 'connecting' ? 'connecting…' : colab.reconnecting ? 'reconnecting…' : colab.status === 'busy' ? busy || 'running' : connected ? 'idle' : power === 'down' ? 'shut down' : colab.status === 'lost' ? 'ended' : 'not connected';
+
+  const shutDown = async () => {
+    if (!companion) return;
+    if (colab.status === 'busy' && !window.confirm(`A cell is running on ${name}. Shut the Companion down anyway? What is running stops, and every variable goes.`)) return;
+    setPower('stopping');
+    onNote(null);
+    try {
+      await stopRuntime();
+      await shutdownCompanion(companion);
+      setPower('down');
+      onNote(`The Reader Companion on ${name} is shut down: no Jupyter server, no kernels. It stays off, at your next login too, until you start it — Start the Companion in this menu, the Reader app, or reader-companion start in a terminal.`);
+    } catch (error) {
+      setPower('unknown');
+      onNote(error instanceof Error ? error.message : String(error));
+    }
+  };
+  const startUp = async () => {
+    if (!companion) return;
+    setPower('starting');
+    onNote(null);
+    const info = await startCompanion(companion.url);
+    if (!info) {
+      setPower('down');
+      onNote(`The Companion didn’t start from here. Open the Reader app on ${name}, or run reader-companion start in a terminal there. (The page can start a Companion from ${STARTABLE} on, installed with the Reader app or the installer: update it in Settings → This computer.)`);
+      return;
+    }
+    setPower('up');
+    await connect().catch(() => undefined);
+  };
   return (
     <div className="menu-wrap" ref={box}>
       <button type="button" className={`colab-chip pg-chip is-${dot}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title={colab.error || `Cells run on ${name}`}>
@@ -261,8 +314,26 @@ function MachineChip({ playground, name, usable, onChange }: { playground: Playg
             <b>{name}</b>
             {colab.specs?.gpuName ? ` · ${colab.specs.gpuName}` : ''}
             {colab.specs?.ramTotalMb ? ` · ${Math.round(colab.specs.ramTotalMb / 1024)} GB RAM` : ''}
+            {server ? (
+              <small className="pg-chip-secure" title={isSecure(server.url) ? 'The page and the server talk over https: encrypted, and the server’s certificate checked.' : 'The page and the Companion talk over plain http on 127.0.0.1: it never leaves this computer, and every call needs the Companion’s token. Safari, and the others once this computer trusts the Companion’s certificate, use https instead.'}>
+                {isSecure(server.url) ? 'HTTPS · encrypted' : companion ? 'HTTP · on this computer only' : 'HTTP · not encrypted'}
+              </small>
+            ) : null}
           </p>
-          {!connected ? (
+          {companion && !connected && (power === 'down' || power === 'starting') ? (
+            <button
+              type="button"
+              role="menuitem"
+              disabled={power === 'starting'}
+              title="Starts the Reader Companion (the Jupyter server on this computer) through the Reader app. Your browser asks once whether to open it."
+              onClick={() => {
+                setOpen(false);
+                void startUp();
+              }}
+            >
+              {power === 'starting' ? 'Starting the Companion…' : 'Start the Companion'}
+            </button>
+          ) : !connected ? (
             <button
               type="button"
               role="menuitem"
@@ -279,12 +350,13 @@ function MachineChip({ playground, name, usable, onChange }: { playground: Playg
               type="button"
               role="menuitem"
               disabled={colab.status !== 'busy'}
+              title="Stops the cell that is running now, as Ctrl-C would. The kernel, its variables and the server stay."
               onClick={() => {
                 setOpen(false);
                 void interrupt();
               }}
             >
-              Stop what is running
+              Interrupt the running cell
             </button>
           )}
           <button
@@ -297,19 +369,35 @@ function MachineChip({ playground, name, usable, onChange }: { playground: Playg
           >
             Change where it runs…
           </button>
-          {connected ? (
+          {connected || (companion && power === 'up') ? (
             <>
               <hr />
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setOpen(false);
-                  void stopRuntime();
-                }}
-              >
-                {playground.compute.kind === 'colab' ? 'Stop the Colab runtime' : 'Shut down the kernel'}
-              </button>
+              {connected ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  title={playground.compute.kind === 'colab' ? undefined : 'Ends this notebook’s Python process: its variables go. The Jupyter server keeps running.'}
+                  onClick={() => {
+                    setOpen(false);
+                    void stopRuntime();
+                  }}
+                >
+                  {playground.compute.kind === 'colab' ? 'Stop the Colab runtime' : 'Shut down the kernel'}
+                </button>
+              ) : null}
+              {companion ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  title="Stops the Reader Companion, the Jupyter server on this computer, and every kernel in it. It stays off until you start it again from this menu or the Reader app."
+                  onClick={() => {
+                    setOpen(false);
+                    void shutDown();
+                  }}
+                >
+                  Shut down the Companion
+                </button>
+              ) : null}
             </>
           ) : null}
         </div>
