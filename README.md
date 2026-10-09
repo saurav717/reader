@@ -3801,6 +3801,17 @@ Windows, `zenity`, `kdialog` or `notify-send` on Linux). Whoever reads it is at
 the computer, as with the terminal. The Reader app and the terminal's link
 connect without a code.
 
+**Updating.** Settings → **This computer** lists the Companions this browser
+is paired with, and their versions. When the site serves a newer one, **Update**
+asks that Companion to update itself (`/companion/update`, with its token): it
+reads `companion/latest.json` from the site, installs that wheel over itself
+with `uv tool install` (only a wheel from the site it pairs with), refreshes the
+VS Code extension where it is installed, and starts again, through its login
+item when it has one. The page waits until the new version answers. Reader.app
+from the `.dmg` only sets up again when it carries a newer Companion than the
+one installed, so an update from Settings stays. A Companion older than 0.5.0
+can't do this: update it once the way it was installed.
+
 **VS Code from the site.** The extension isn't on the Marketplace, and a page
 can't install one. The Companion can, though. Under *Your compute* the
 Companion's row says whether VS Code is there and has the Reader extension,

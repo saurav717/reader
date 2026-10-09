@@ -8,6 +8,11 @@ answer only the reader's own origin. /info says which computer this is;
 it puts the code in a dialog on this computer's screen (a few seconds apart at
 most), so whoever reads it there is at the computer, as with the terminal.
 
+/companion/update is for the page once paired too (its origin, and the token):
+it installs the newest Companion the site serves (companion/latest.json, a wheel
+from the site and nowhere else) over this one, refreshes the VS Code extension
+where it is installed, and restarts. Settings → This computer has the button.
+
 /companion/vscode is for the page once paired (its origin, and the token): which
 VS Code-like editors are here and whether they have the Reader extension, and
 installing it into them from the .vsix the site serves — the extension isn't
@@ -21,6 +26,7 @@ and `reader-companion pair` open it, for a Companion running in the background.
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import time
 
@@ -151,6 +157,46 @@ class VsCodeHandler(CompanionHandler):
         self.reply(200, status)
 
 
+class UpdateHandler(VsCodeHandler):
+    busy = False
+
+    async def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        companion = state.current
+        newest = await IOLoop.current().run_in_executor(None, desktop.latest, companion.site)
+        self.reply(200, {"version": companion.version, "latest": newest["version"] if newest else None, "updatable": desktop.is_lasting(desktop.executable())})
+
+    async def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        if UpdateHandler.busy:
+            return self.reply(409, {"error": "It’s updating already."})
+        companion = state.current
+        command = desktop.executable()
+        if not desktop.is_lasting(command):
+            return self.reply(409, {"error": "This Companion runs from uvx, which fetches the newest each start: stop it (Ctrl-C) and start it again."})
+        newest = await IOLoop.current().run_in_executor(None, desktop.latest, companion.site)
+        if not newest:
+            return self.reply(502, {"error": "Couldn’t read the newest version from the site. Is this computer online?"})
+        if not desktop.newer(newest["version"], companion.version):
+            return self.reply(200, {"version": companion.version, "updated": False})
+        UpdateHandler.busy = True
+        try:
+            ok, said = await IOLoop.current().run_in_executor(None, desktop.install_wheel, newest["wheel"])
+            if not ok:
+                return self.reply(500, {"error": "The update didn’t install.", "detail": said})
+            status = await IOLoop.current().run_in_executor(None, desktop.extension_status)
+            if any(editor["installed"] for editor in status["editors"]):
+                await IOLoop.current().run_in_executor(None, lambda: desktop.install_extension(companion.site, say=lambda *_: None))
+        finally:
+            UpdateHandler.busy = False
+        self.reply(200, {"version": newest["version"], "updated": True})
+        print(f"  Updated to {newest['version']}: starting again…", flush=True)
+        if not desktop.restart_later(desktop.executable()):
+            IOLoop.current().call_later(0.5, lambda: os._exit(0))
+
+
 def load(serverapp):
     base = serverapp.base_url
     serverapp.web_app.add_handlers(
@@ -161,5 +207,6 @@ def load(serverapp):
             (url_path_join(base, "companion/show-code"), ShowCodeHandler),
             (url_path_join(base, "companion/link"), LinkHandler),
             (url_path_join(base, "companion/vscode"), VsCodeHandler),
+            (url_path_join(base, "companion/update"), UpdateHandler),
         ],
     )

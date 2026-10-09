@@ -3,7 +3,8 @@
 // installers to download and double-click.
 //   node scripts/build-companion.mjs <outDir> [siteUrl]
 // writes <outDir>/companion/reader_companion-<version>-py3-none-any.whl,
-// <outDir>/companion.sh and <outDir>/companion.ps1 (run it once, here),
+// <outDir>/companion/latest.json (the version an installed Companion updates
+// itself to), <outDir>/companion.sh and <outDir>/companion.ps1 (run it once, here),
 // <outDir>/companion-setup.sh and <outDir>/companion-setup.ps1 (install it for
 // good: `reader-companion setup`), and in <outDir>/download/ the files that run
 // those with a double-click: Reader-Companion-mac.zip (a .command, executable,
@@ -244,6 +245,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const built = buildWheel();
   mkdirSync(join(out, 'companion'), { recursive: true });
   writeFileSync(join(out, 'companion', built.name), built.bytes);
+  // What an installed Companion updates itself to (Settings → This computer → Update).
+  writeFileSync(join(out, 'companion', 'latest.json'), JSON.stringify({ version: built.version, wheel: installers(site, built.name).wheel }) + '\n');
   const { sh, ps1, wheel } = installers(site, built.name);
   writeFileSync(join(out, 'companion.sh'), sh);
   writeFileSync(join(out, 'companion.ps1'), ps1);

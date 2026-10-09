@@ -119,6 +119,12 @@ describe('the page’s side', () => {
       delete globalThis.sessionStorage;
     }
   });
+  it('compares versions as numbers', () => {
+    assert.equal(companion.isNewer('0.5.1', '0.5.0'), true);
+    assert.equal(companion.isNewer('0.10.0', '0.9.2'), true);
+    assert.equal(companion.isNewer('0.5.0', '0.5.0'), false);
+    assert.equal(companion.isNewer('0.4.0', '0.5'), false);
+  });
   it('tells Safari from the browsers that say Safari too', () => {
     assert.equal(companion.isSafari('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15'), true);
     assert.equal(companion.isSafari('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'), false);
@@ -160,6 +166,10 @@ describe('the wheel and the installers', () => {
   });
   it('builds the same bytes twice', () => {
     assert.ok(buildWheel().bytes.equals(wheel.bytes));
+  });
+  it('says which version an installed Companion updates itself to', () => {
+    const { wheel: url } = installers('https://example.org/reader', wheel.name);
+    assert.ok(url.startsWith('https://example.org/reader/companion/') && url.endsWith('.whl'));
   });
   it('points the installers at the wheel and the site', () => {
     const { sh, ps1, wheel: url } = installers('https://example.org/reader', wheel.name);

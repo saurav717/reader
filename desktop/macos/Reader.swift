@@ -25,7 +25,9 @@ final class Reader: NSObject, NSApplicationDelegate {
     private var running: Process?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if installedVersion() == wanted {
+        // Set up when there is no Companion yet, or this app carries a newer one. One the
+        // site updated (Settings → This computer → Update) can be newer than this app's: keep it.
+        if let installed = installedVersion(), !isOlder(installed, than: wanted) {
             open()
         } else {
             install()
@@ -54,6 +56,11 @@ final class Reader: NSObject, NSApplicationDelegate {
         process.waitUntilExit()
         let text = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return text.split(separator: " ").last.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+    }
+
+    private func isOlder(_ version: String, than other: String) -> Bool {
+        let parts = { (value: String) in value.split(separator: ".").map { Int($0) ?? 0 } }
+        return parts(version).lexicographicallyPrecedes(parts(other))
     }
 
     /// `reader-companion open`, showing a window only if it takes a moment (a Companion that wasn't running).

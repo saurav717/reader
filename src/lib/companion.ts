@@ -252,3 +252,43 @@ export async function latestMacDmg(repo = MAC_RELEASES): Promise<MacDmg | null> 
   }
   return found;
 }
+
+/** Whether `version` is newer than `than` (dotted numbers: 0.10.0 is newer than 0.9.2). */
+export function isNewer(version: string, than: string): boolean {
+  const parts = (value: string) => value.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const a = parts(version);
+  const b = parts(than);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  }
+  return false;
+}
+
+/**
+ * Asks a paired Companion to update itself to the newest version the site
+ * serves (POST /companion/update): it installs it, refreshes the VS Code
+ * extension where it is installed, and starts again. Resolves with the version
+ * it is updating to, once it has installed it (it restarts after answering).
+ */
+export async function updateCompanion(server: { url: string; token: string }): Promise<{ version: string; updated: boolean }> {
+  let response: Response;
+  try {
+    response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/update`, { method: 'POST', headers: { Authorization: `token ${server.token}` } });
+  } catch {
+    throw new Error('The Companion isn’t answering. Open the Reader app, or start it again.');
+  }
+  const body = (await response.json().catch(() => ({}))) as { version?: string; updated?: boolean; error?: string };
+  if (!response.ok || typeof body.version !== 'string') throw new Error(body.error || `The Companion said ${response.status}.`);
+  return { version: body.version, updated: Boolean(body.updated) };
+}
+
+/** Waits for the Companion at `base` to answer as `version` (or newer) after it restarts. */
+export async function waitForVersion(base: string, version: string, forMs = 120_000): Promise<CompanionInfo | null> {
+  const until = Date.now() + forMs;
+  while (Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const info = await findCompanion(base, 3000);
+    if (info && !isNewer(version, info.version)) return info;
+  }
+  return null;
+}
