@@ -556,9 +556,15 @@ start command `npm start`, and it listens on `$PORT`.
 caveat. `npm run build:pages` produces `dist-pages/` for a `/reader/` sub-path:
 
 ```bash
-npm run build:pages                                   # no proxy compiled in
-VITE_API_BASE=https://…workers.dev npm run build:pages   # or name one now
+npm run build:pages                                      # this site's Worker compiled in
+VITE_API_BASE=https://…workers.dev npm run build:pages   # or another proxy
+VITE_API_BASE=none npm run build:pages                   # or no proxy at all
 ```
+
+`build:pages` compiles in the Worker the deployed site uses
+(`reader-arxiv-proxy.es16btech11007.workers.dev`), so a build for
+saurav717.github.io/reader keeps its PDFs, its sign-in check and the owner's
+usage dashboard without anything to remember.
 
 Without a proxy the app still runs, and says so in the UI: search falls back to
 OpenAlex, Crossref and Semantic Scholar (all of which send CORS headers, and all
