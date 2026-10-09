@@ -87,6 +87,9 @@ def main(argv=None):
     # GPU pods (RunPod and the like) run everything as root; it listens on 127.0.0.1 behind a token either way.
     jupyter.ServerApp.allow_root = True
     jupyter.ServerApp.root_dir = str(root)
+    # The page writes .reader/playground.json into a project (for the VS Code extension): let it reach
+    # hidden paths it names, while listings still leave them out.
+    jupyter.ContentsManager.allow_hidden = True
     jupyter.ServerApp.allow_origin = origin
     jupyter.ServerApp.jpserver_extensions = {"reader_companion": True, "jupyter_server_terminals": True}
     # A real terminal for the page: your shell, with your rc files and this environment.

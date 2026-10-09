@@ -266,6 +266,34 @@ export async function createPlayground(spec: NewPlayground): Promise<Playground>
   return made;
 }
 
+/** A project's folder as a vscode:// link, when its files are on a Companion that said where its folder is. */
+export function vscodeLink(playground: Playground): string | null {
+  if (playground.home.kind !== 'server') return null;
+  const server = serverById(playground.home.serverId);
+  if (!server?.root) return null;
+  const full = `${server.root.replace(/\\/g, '/').replace(/\/+$/, '')}/${playground.home.root}`;
+  // /Users/me/Reader/… on macOS and Linux, /C:/Users/me/Reader/… on Windows; each part escaped, the drive's colon kept.
+  const path = full.startsWith('/') ? full : `/${full}`;
+  return `vscode://file${path.split('/').map((part) => encodeURIComponent(part).replace(/%3A/gi, ':')).join('/')}`;
+}
+
+/**
+ * `.reader/playground.json` in a project's folder: which playground it is and
+ * where it lives on the web, so an editor (the Reader extension for VS Code)
+ * can tie the folder back to its page. Written when the folder is made and
+ * again when the project opens; nothing reads it back here.
+ */
+export async function markFolder(playground: Playground, site: string): Promise<void> {
+  if (playground.home.kind !== 'server') return;
+  const marker = {
+    id: playground.id,
+    title: playground.title,
+    page: `${site.replace(/\/?$/, '/')}playground/${playground.id}`,
+    cites: playground.cites.map((cite) => ({ paperId: cite.paperId, title: cite.title, page: `${site.replace(/\/?$/, '/')}paper/${encodeURIComponent(cite.paperId)}` })),
+  };
+  await homeHost(playground).write('.reader/playground.json', `${JSON.stringify(marker, null, 2)}\n`);
+}
+
 export async function deletePlayground(id: string) {
   playgrounds = playgrounds.filter((p) => p.id !== id);
   emit();

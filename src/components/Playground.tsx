@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
 import type { CompanionInfo, CompanionPairing } from '../lib/companion';
-import { COMPANION_PORT, companionCommands, companionPort, companionRoutes, directBase, findCompanion, isSafari, normaliseCode, pairCompanion, pairFragment } from '../lib/companion';
+import { COMPANION_PORT, companionCommands, companionPort, companionRoutes, directBase, findCompanion, isSafari, normaliseCode, pairCompanion, pairFragment, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
@@ -490,7 +490,7 @@ const siteBase = () => (typeof window === 'undefined' ? 'https://saurav717.githu
 /** Keeps a Companion's pairing as this browser's PC server, reached at `base` (its direct address or its tunnel's): the one already saved for that Companion, updated, or a new one. */
 function saveCompanion(pairing: CompanionPairing, base: string): JupyterServer {
   const same = serversNow().find((server) => (pairing.id && server.companionId === pairing.id) || server.url === base);
-  return saveServer({ id: same?.id, name: pairing.name, where: 'pc', url: base, token: pairing.token, companionId: pairing.id });
+  return saveServer({ id: same?.id, name: pairing.name, where: 'pc', url: base, token: pairing.token, companionId: pairing.id, root: pairing.root || same?.root });
 }
 
 /** The first of these addresses a Companion answers on, trying for a while: a new tunnel can take some seconds to be found. */
@@ -511,7 +511,8 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
   const safari = isSafari();
   const commands = companionCommands(siteBase(), { tunnel: safari });
   const windows = typeof navigator !== 'undefined' && /Win/i.test(navigator.platform || navigator.userAgent);
-  const [os, setOs] = useState<'unix' | 'windows' | 'uv'>(windows ? 'windows' : 'unix');
+  const [os, setOs] = useState<'unix' | 'windows' | 'uv' | 'vscode'>(windows ? 'windows' : 'unix');
+  const vscode = vscodeInstall(siteBase(), windows);
   const [found, setFound] = useState<CompanionInfo | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -591,6 +592,7 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
                 ['unix', 'macOS · Linux'],
                 ['windows', 'Windows'],
                 ['uv', 'Have uv'],
+                ['vscode', 'VS Code'],
               ] as const
             ).map(([key, label]) => (
               <button key={key} type="button" role="radio" aria-checked={os === key} className={os === key ? 'on' : ''} onClick={() => setOs(key)}>
@@ -598,10 +600,21 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
               </button>
             ))}
           </div>
-          <CopyBlock code={commands[os]} />
-          <small className="pg-companion-note">
-            {os === 'uv' ? 'Runs the Companion with the uv you have.' : 'It installs uv (a small Python tool) once if it isn’t there, then runs the Companion with its own Python.'} The page may use the folder <span className="mono">~/Reader</span>, and nothing outside it.
-          </small>
+          {os === 'vscode' ? (
+            <>
+              <CopyBlock code={vscode.command} />
+              <small className="pg-companion-note">
+                That installs the <b>Reader</b> extension (or <a href={vscode.vsix}>download the .vsix</a> and use Extensions → … → Install from VSIX). Then run <b>Reader: Start the Companion</b> from VS Code’s command palette: it starts the same Companion in VS Code’s terminal, and the projects, the papers they cite and the Python the site uses are in its Reader side bar.
+              </small>
+            </>
+          ) : (
+            <>
+              <CopyBlock code={commands[os]} />
+              <small className="pg-companion-note">
+                {os === 'uv' ? 'Runs the Companion with the uv you have.' : 'It installs uv (a small Python tool) once if it isn’t there, then runs the Companion with its own Python.'} The page may use the folder <span className="mono">~/Reader</span>, and nothing outside it.
+              </small>
+            </>
+          )}
           <div className="pg-companion-wait">
             <span className="pg-wait" />
             {safari ? 'Waiting for the link it opens…' : looks ? 'Waiting for this computer…' : 'Looking for it…'}

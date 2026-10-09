@@ -68,6 +68,8 @@ export interface JupyterServer {
   where: 'pc' | 'remote';
   /** A Reader Companion's id: the same computer when it comes back at another address (a new tunnel). */
   companionId?: string;
+  /** A Reader Companion's folder on its computer, absolute (~/Reader): what "Open in VS Code" opens. */
+  root?: string;
 }
 
 /** Where cells run: the person's own Colab, or a Jupyter server of theirs. */

@@ -60,29 +60,42 @@ async function terminalName(server: JupyterServer, key: string, cwd: string, fre
   return made.name;
 }
 
-const THEME = {
-  background: '#15161a',
-  foreground: '#eae7df',
-  cursor: '#57a98f',
-  cursorAccent: '#15161a',
-  selectionBackground: 'rgba(87, 169, 143, 0.35)',
-  black: '#1d1f25',
-  red: '#e06c75',
-  green: '#93cfa6',
-  yellow: '#e6c46f',
-  blue: '#8bb8ec',
-  magenta: '#c99ae0',
-  cyan: '#7cc7c4',
-  white: '#c3bfb4',
-  brightBlack: '#6f6c63',
-  brightRed: '#f08a92',
-  brightGreen: '#b3e3c1',
-  brightYellow: '#f2d68f',
-  brightBlue: '#a9cdf5',
-  brightMagenta: '#ddb8ef',
-  brightCyan: '#9fdcd9',
-  brightWhite: '#eae7df',
+// The terminal wears the site's theme: its paper, ink and accent, read from the page's own tokens, and
+// ANSI colours from its palette — the highlight and code colours — dark or light to suit.
+const ANSI = {
+  light: {
+    black: '#1a1a17', red: '#b5435a', green: '#2f7d4f', yellow: '#9a7a00', blue: '#1f5e9e', magenta: '#8a3ea6', cyan: '#1f6f72', white: '#6f6c63',
+    brightBlack: '#55524a', brightRed: '#c9566c', brightGreen: '#3c9160', brightYellow: '#b0571c', brightBlue: '#3a78bd', brightMagenta: '#a55bc0', brightCyan: '#2c8a8d', brightWhite: '#1a1a17',
+  },
+  dark: {
+    black: '#25272d', red: '#e08592', green: '#93cfa6', yellow: '#e6c46f', blue: '#8bb8ec', magenta: '#c99ae0', cyan: '#7cc7c4', white: '#c3bfb4',
+    brightBlack: '#9b978c', brightRed: '#f0a3ae', brightGreen: '#b3e3c1', brightYellow: '#f2d68f', brightBlue: '#a9cdf5', brightMagenta: '#ddb8ef', brightCyan: '#9fdcd9', brightWhite: '#eae7df',
+  },
 };
+
+/** The page's theme as xterm takes it, from the tokens on <html> right now. */
+export function pageTerminalTheme(root: HTMLElement = document.documentElement) {
+  const css = getComputedStyle(root);
+  const token = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
+  const dark = root.dataset.theme === 'dark';
+  const glass = root.dataset.glass === 'on';
+  const accentRgb = token('--accent-rgb', dark ? '87 169 143' : '31 94 82');
+  return {
+    theme: {
+      // Glass shows the wall through; otherwise the terminal is a sheet of the page's paper.
+      background: glass ? 'rgba(0, 0, 0, 0)' : token('--paper', dark ? '#15161a' : '#fbfaf6'),
+      foreground: token('--ink', dark ? '#eae7df' : '#1a1a17'),
+      cursor: token('--accent', dark ? '#57a98f' : '#1f5e52'),
+      cursorAccent: token('--paper', dark ? '#15161a' : '#fbfaf6'),
+      selectionBackground: `rgb(${accentRgb} / ${dark ? 0.38 : 0.22})`,
+      selectionInactiveBackground: `rgb(${accentRgb} / 0.14)`,
+      scrollbarSliderBackground: `rgb(${accentRgb} / 0.18)`,
+      scrollbarSliderHoverBackground: `rgb(${accentRgb} / 0.3)`,
+      ...ANSI[dark ? 'dark' : 'light'],
+    },
+    glass,
+  };
+}
 
 export default function Terminal({ server, cwd, sessionId, label }: { server: JupyterServer; cwd: string; sessionId: string; label: string }) {
   const host = useRef<HTMLDivElement>(null);
@@ -103,7 +116,8 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
         const name = await terminalName(server, sessionId, cwd, fresh.current);
         fresh.current = false;
         if (disposed || !host.current) return;
-        const term = new XTerm({ fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace", fontSize: 12.5, lineHeight: 1.2, cursorBlink: true, scrollback: 5000, theme: THEME, macOptionIsMeta: true, allowTransparency: false });
+        const look = pageTerminalTheme();
+        const term = new XTerm({ fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace", fontSize: 12.5, lineHeight: 1.25, cursorBlink: true, cursorStyle: 'bar', scrollback: 5000, theme: look.theme, macOptionIsMeta: true, allowTransparency: true });
         const fit = new FitAddon();
         term.loadAddon(fit);
         term.open(host.current);
@@ -138,7 +152,13 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
         const typing = term.onData((data) => send(['stdin', data]));
         const observer = new ResizeObserver(() => resize());
         observer.observe(host.current);
+        // Light, dark or glass changed in Settings: the terminal follows at once.
+        const themeWatch = new MutationObserver(() => {
+          term.options.theme = pageTerminalTheme().theme;
+        });
+        themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-glass'] });
         cleanup = () => {
+          themeWatch.disconnect();
           observer.disconnect();
           typing.dispose();
           term.dispose();

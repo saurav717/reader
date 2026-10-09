@@ -114,6 +114,17 @@ export function companionCommands(site: string, { tunnel = false } = {}): { unix
   };
 }
 
+/** The Reader extension for VS Code, as the site serves it (scripts/build-vscode.mjs): the .vsix and the line that installs it. */
+export function vscodeInstall(site: string, windows = false): { vsix: string; command: string } {
+  const vsix = `${site.replace(/\/?$/, '/')}vscode/reader-playground.vsix`;
+  return {
+    vsix,
+    command: windows
+      ? `powershell -c "irm ${vsix} -OutFile $env:TEMP\\reader-playground.vsix; code --install-extension $env:TEMP\\reader-playground.vsix"`
+      : `curl -LsSfo /tmp/reader-playground.vsix ${vsix} && code --install-extension /tmp/reader-playground.vsix`,
+  };
+}
+
 /** Safari will not let an https page call http://127.0.0.1, so the Companion can't be reached from it. */
 export function isSafari(userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent): boolean {
   return /Safari\//.test(userAgent) && !/(Chrome|Chromium|CriOS|Edg|OPR|Firefox|FxiOS)\//.test(userAgent);

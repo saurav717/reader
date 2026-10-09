@@ -3768,6 +3768,32 @@ a browser there, type the code it prints into the card instead.
   link. The tunnel's address changes each start, so the link the Companion
   opens reconnects the computer the browser already knows, with no click.
 
+**VS Code.** A project on the Companion has **Open in VS Code** in its bar.
+It is a `vscode://file/…` link to the project's folder, so it works with
+nothing else installed. The **Reader Playground** extension (`vscode/`)
+adds the rest:
+- **Side bar:** the Companion's projects, the papers the open project cites,
+  and the Companion itself (running or not, its folder, its Python).
+- **Citations:** `¶ FlashAttention-2 §3.1` in a file becomes a link to that
+  paper on the site.
+- **Python:** in a Reader project, the Python extension uses the Companion's
+  environment, so notebooks and the terminal run the same Python as the site.
+- **Starting the Companion:** **Reader: Start the Companion** runs the card's
+  command in VS Code's terminal.
+
+The extension reads the Companion's settings and the `.reader/playground.json`
+the page writes into each project folder. It keeps nothing of its own. To
+install it, use the card's **VS Code** tab:
+`curl -LsSfo /tmp/reader-playground.vsix https://saurav717.github.io/reader/vscode/reader-playground.vsix && code --install-extension /tmp/reader-playground.vsix`.
+`npm run build:pages` builds that `.vsix` (`scripts/build-vscode.mjs`: esbuild,
+then the same zip writer as the Companion's wheel). To publish to the
+Marketplace instead, run `cd vscode && npx @vscode/vsce publish` with a
+publisher of your own.
+
+**The terminal's look** follows the site's theme: the page's paper, ink and
+accent, and ANSI colours from its own palette. It switches with the theme,
+light, dark or glass, while it's open.
+
 **What's protected, and how.**
 - **Who can call it:** everything needs the server's token (32 random bytes,
   kept in `~/.reader-companion/config.json`, mode 600), and only this site's
