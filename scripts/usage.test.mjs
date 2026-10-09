@@ -339,6 +339,131 @@ describe('the Worker, tallying', () => {
       assert.equal((await (await ask({ ...env, GEMINI_KEY: 'k' }, '/health')).json()).gemini, true);
     });
   });
+
+  describe('Claude and DeepSeek, on the Worker’s own keys', () => {
+    const CLAUDE_SSE =
+      `event: message_start\ndata: ${JSON.stringify({ type: 'message_start', message: { usage: { input_tokens: 1000, cache_read_input_tokens: 10000, cache_creation_input_tokens: 0, output_tokens: 1 } } })}\n\n` +
+      `event: content_block_delta\ndata: ${JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello' } })}\n\n` +
+      `event: message_delta\ndata: ${JSON.stringify({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 500 } })}\n\n`;
+    const DEEPSEEK_SSE =
+      `data: ${JSON.stringify({ choices: [{ delta: { content: 'Hello' } }] })}\n\n` +
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 11000, prompt_cache_hit_tokens: 10000, prompt_cache_miss_tokens: 1000, completion_tokens: 500 } })}\n\ndata: [DONE]\n\n`;
+    const CLAUDE_Q = {
+      model: 'claude-sonnet-5',
+      max_tokens: 999999,
+      stream: true,
+      system: [{ type: 'text', text: 'Be brief.', cache_control: { type: 'ephemeral' } }],
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'Hi' }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } }, { type: 'document', source: { type: 'url', url: 'https://x' } }] }],
+      thinking: { type: 'adaptive', display: 'summarized' },
+      output_config: { effort: 'medium' },
+      tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 99 }, { type: 'code_execution_20250825', name: 'code_execution' }],
+      mcp_servers: [{ url: 'https://x' }],
+    };
+    const DEEPSEEK_Q = {
+      model: 'deepseek-flash',
+      max_tokens: 16000,
+      stream: true,
+      thinking: { type: 'disabled' },
+      messages: [{ role: 'system', content: 'Be brief.' }, { role: 'user', content: [{ type: 'text', text: 'Hi' }, { type: 'image_url', image_url: { url: 'https://elsewhere.example/a.png' } }] }],
+    };
+    /** Anthropic and DeepSeek, answering with SSE, remembering what the Worker sent them. */
+    const withProviders = (env) => {
+      const sent = [];
+      const before = globalThis.fetch;
+      globalThis.fetch = async (input, init) => {
+        const url = String(input instanceof Request ? input.url : input);
+        if (url === 'https://api.anthropic.com/v1/messages') {
+          sent.push({ url, key: init.headers['x-api-key'], body: JSON.parse(init.body) });
+          return new Response(CLAUDE_SSE, { headers: { 'Content-Type': 'text/event-stream' } });
+        }
+        if (url === 'https://api.deepseek.com/chat/completions') {
+          sent.push({ url, key: init.headers.Authorization, body: JSON.parse(init.body) });
+          return new Response(DEEPSEEK_SSE, { headers: { 'Content-Type': 'text/event-stream' } });
+        }
+        return before(input, init);
+      };
+      return { env: { ...env, ANTHROPIC_KEY: 'sk-ant-worker-secret', DEEPSEEK_KEY: 'sk-worker-secret' }, sent };
+    };
+    const askAi = (env, provider, token, body, origin = SITE) =>
+      worker.fetch(
+        new Request(`https://proxy.example/ai/${provider}`, {
+          method: 'POST',
+          headers: { Origin: origin, 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify(body),
+        }),
+        env,
+        ctx,
+      );
+
+    it('streams Claude’s answer back, the key only in the header to Anthropic, no tool but its web search — and tallies it', async () => {
+      const { env, sent } = withProviders(setup().env);
+      const answer = await askAi(env, 'anthropic', 'owner-token', CLAUDE_Q);
+      assert.equal(answer.status, 200);
+      const text = await answer.text();
+      assert.match(text, /Hello/);
+      assert.ok(!text.includes('worker-secret'));
+      assert.equal(sent.length, 1);
+      assert.equal(sent[0].key, 'sk-ant-worker-secret');
+      assert.equal(sent[0].body.max_tokens, 64000);
+      assert.deepEqual(sent[0].body.tools, [{ type: 'web_search_20250305', name: 'web_search', max_uses: 8 }]);
+      assert.equal(sent[0].body.mcp_servers, undefined);
+      assert.equal(sent[0].body.messages[0].content.length, 2, 'a document by address is not passed on');
+      assert.deepEqual(sent[0].body.system, [{ type: 'text', text: 'Be brief.', cache_control: { type: 'ephemeral' } }]);
+      await settle();
+      const owner = (await (await usage(env, 'owner-token')).json()).people.find((person) => person.email === 'owner').total;
+      assert.equal(owner.claude, 1);
+      assert.equal(owner.claude_out, 500);
+      assert.equal(owner.claude_cost, Math.round(1000 * 2 + 10000 * 0.2 + 500 * 10));
+    });
+
+    it('streams DeepSeek’s answer back on the Worker’s key, a picture by address dropped — and tallies it as the entry picked', async () => {
+      const { env, sent } = withProviders(setup().env);
+      const answer = await askAi(env, 'deepseek', 'owner-token', DEEPSEEK_Q);
+      assert.equal(answer.status, 200);
+      assert.match(await answer.text(), /Hello/);
+      assert.equal(sent[0].key, 'Bearer sk-worker-secret');
+      assert.deepEqual(sent[0].body.stream_options, { include_usage: true });
+      assert.equal(sent[0].body.messages[1].content.length, 1);
+      await settle();
+      const out = await (await usage(env, 'owner-token')).json();
+      const owner = out.people.find((person) => person.email === 'owner');
+      assert.equal(owner.total.deepseek, 1);
+      assert.equal(owner.total.deepseek_in, 11000);
+      assert.deepEqual(Object.keys(owner.models), ['deepseek-flash-fast']);
+    });
+
+    it('relays DeepSeek V4 Pro, and only the models the app offers', async () => {
+      const { env, sent } = withProviders(setup().env);
+      assert.equal((await askAi(env, 'deepseek', 'owner-token', { ...DEEPSEEK_Q, model: 'deepseek-v4-pro' })).status, 200);
+      assert.equal(sent[0].body.model, 'deepseek-v4-pro');
+      assert.equal((await askAi(env, 'deepseek', 'owner-token', { ...DEEPSEEK_Q, model: 'deepseek-mystery' })).status, 400);
+      assert.equal((await askAi(env, 'anthropic', 'owner-token', { ...CLAUDE_Q, model: 'claude-mythical-9' })).status, 400);
+      assert.equal(sent.length, 1);
+    });
+
+    it('says what is missing, and is the owner’s alone unless AI_FOR says everyone', async () => {
+      const { env, sent } = withProviders(setup().env);
+      const none = await askAi({ ...env, ANTHROPIC_KEY: '' }, 'anthropic', 'owner-token', CLAUDE_Q);
+      assert.equal(none.status, 501);
+      assert.equal((await none.json()).setup, true);
+      assert.equal((await askAi(env, 'deepseek', null, DEEPSEEK_Q)).status, 401);
+      assert.equal((await askAi(env, 'deepseek', 'owner-token', DEEPSEEK_Q, 'https://elsewhere.example')).status, 403);
+      const { pass } = await (await ask(env, '/auth/google', { method: 'POST', headers: { 'X-Google-Token': 'g' } })).json();
+      const refused = await askAi(env, 'anthropic', pass, CLAUDE_Q);
+      assert.equal(refused.status, 403);
+      assert.equal((await refused.json()).owners, true);
+      assert.equal(sent.length, 0);
+      assert.equal((await askAi({ ...env, AI_FOR: 'everyone' }, 'anthropic', pass, CLAUDE_Q)).status, 200);
+      // GEMINI_FOR, the older setting, opens Gemini alone.
+      assert.equal((await askAi({ ...env, GEMINI_FOR: 'everyone' }, 'deepseek', pass, DEEPSEEK_Q)).status, 403);
+    });
+
+    it('/health says which keys the Worker holds', async () => {
+      const { env } = setup();
+      assert.deepEqual((await (await ask(env, '/health')).json()).ai, { anthropic: false, deepseek: false, gemini: false });
+      assert.deepEqual((await (await ask({ ...env, ANTHROPIC_KEY: 'k', DEEPSEEK_KEY: 'k' }, '/health')).json()).ai, { anthropic: true, deepseek: true, gemini: false });
+    });
+  });
 });
 
 const balance = await import('../worker/deepseekBalance.js');

@@ -19,9 +19,10 @@
  *   claude_cost, deepseek_cost, …    what they cost, in millionths of a dollar
  *   models   the same per model: { [model]: { n, in, out, cost } }
  *
- * The AI answers are not the Worker's to make: the app sends them straight to
- * Anthropic or DeepSeek with the visitor's own key, then tells the Worker how
- * many tokens the answer took (`POST /usage/ai`). The cost is worked out here,
+ * An AI answer on a visitor's own key is not the Worker's to make: the app
+ * sends it straight to Anthropic or DeepSeek, then tells the Worker how many
+ * tokens it took (`POST /usage/ai`). One on the site's keys goes through the
+ * Worker (server/aiRelay.js), which counts it itself. The cost is worked out here,
  * from PRICES, so that the page and the tally agree on one price list.
  *
  * The owner, with READER_TOKEN itself, is tallied as "owner". Nobody
@@ -59,6 +60,8 @@ export const PRICES = {
   },
   deepseek: {
     'deepseek-flash': { input: 0.28, output: 0.42, cacheRead: 0.028, cacheWrite: 0.28 },
+    // V4 Pro at its peak-hours rate; off-peak (UTC) is half.
+    'deepseek-v4-pro': { input: 1.32, output: 3.96, cacheRead: 0.044, cacheWrite: 1.32 },
   },
   // Google's paid tier, prompts under 200K tokens; thinking is billed as
   // output. Gemini's caching is implicit — nothing to write — and a cached
@@ -79,7 +82,7 @@ export const PRICES = {
  */
 export const MODELS = {
   claude: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'],
-  deepseek: ['deepseek-flash', 'deepseek-flash-fast'],
+  deepseek: ['deepseek-flash', 'deepseek-flash-fast', 'deepseek-v4-pro'],
   gemini: ['gemini-3.1-pro-preview', 'gemini-3.8-flash', 'gemini-3.5-flash-lite'],
 };
 export const MODEL_FIELDS = ['n', 'in', 'out', 'cost'];

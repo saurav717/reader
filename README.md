@@ -2140,50 +2140,63 @@ and nothing sits under the box but the box, which names the model itself —
 ### Choosing a model: Claude, DeepSeek or Gemini
 
 The picker at the top of the window lists every model, grouped by who runs it:
-**Claude** Opus 5, Sonnet 5 and Haiku 4.5 from Anthropic, **DeepSeek Flash**
-from DeepSeek — twice, thinking first or answering at once — and **Gemini** 3.1
+**Claude** Opus 5, Sonnet 5 and Haiku 4.5 from Anthropic, **DeepSeek V4.1
+Flash** — twice, thinking first or answering at once — and **DeepSeek V4 Pro**
+from DeepSeek, and **Gemini** 3.1
 Pro, 3.8 Flash and 3.5 Flash-Lite from Google. Explain and Implementation have a
 picker of their own, on their start page, so the chat can run on one and the
 long pages on the other. **Settings → AI models** holds both choices and every
 key in one place.
 
-Claude and DeepSeek each take your own API key — from
-[console.anthropic.com](https://console.anthropic.com/settings/keys) or
-[platform.deepseek.com](https://platform.deepseek.com/api_keys). Pick a model
-whose provider has no key yet and the window asks for that one. Each key is
-kept in this browser's localStorage under its own name (`reader.anthropic-key`,
-`reader.deepseek-key`) and sent only to its provider's API; the ⚙ menu and
-Settings can forget either. Usage bills your own account.
-
-Gemini takes no key in the page. It runs on the paper proxy's own key,
-`GEMINI_KEY`, which never reaches the site:
+**The site's keys, by default.** All three run on the paper proxy's own keys —
+`ANTHROPIC_KEY`, `DEEPSEEK_KEY` and `GEMINI_KEY` — which never reach the site.
+Set whichever you have:
 
 ```bash
-npx --yes wrangler@4 secret put GEMINI_KEY    # the Worker: paste a key from aistudio.google.com/apikey, then
+npx --yes wrangler@4 secret put ANTHROPIC_KEY   # the Worker: a key from console.anthropic.com
+npx --yes wrangler@4 secret put DEEPSEEK_KEY    # one from platform.deepseek.com (the Usage page's balance reads it too)
+npx --yes wrangler@4 secret put GEMINI_KEY      # one from aistudio.google.com/apikey
 npm run deploy:worker
-GEMINI_KEY=… npm start                        # or the Node proxy
+ANTHROPIC_KEY=… DEEPSEEK_KEY=… GEMINI_KEY=… npm start   # or the Node proxy
 ```
 
-The app sends what it would have sent Google to the proxy's `POST /ai/gemini`,
-with the proxy's token or the pass from a Google sign-in; the proxy checks who
-is asking, sends it on with the key in a header, and streams Google's answer
-back (`server/geminiRelay.js`). Only the turns, the system instruction and the
-generation settings are relayed, for the three models the app offers — no
-tool can be slipped in to spend the key on something else. The proxy reads
-the tokens off the stream as it passes and puts them on the usage tally
-itself. On the Worker, `GEMINI_FOR` in `wrangler.toml` says who may use it:
-`owners` (the default — `READER_TOKEN` and the accounts in `READER_OWNERS`) or
-`everyone` signed in, which spends your Google account on each of them, up to
-the per-person limit. `/health` says `"gemini": true` once the key is set, and
-the picker says what is missing until then — no key on the proxy, or no
-sign-in.
+The app sends what it would have sent the provider to the proxy's
+`POST /ai/anthropic`, `/ai/deepseek` or `/ai/gemini`, with the proxy's token or
+the pass from a Google sign-in; the proxy checks who is asking, sends it on with
+its key in a header, and streams the answer back (`server/aiRelay.js`,
+`server/geminiRelay.js`). Only what Ask AI, Explain and Implementation send is
+relayed — the system prompt, the turns, the thinking and output settings, and
+the Web button's tools (Anthropic's web search; DeepSeek's two functions) — for
+the models the app offers; no other tool can be slipped in to spend the key on
+something else. The proxy reads the tokens off the stream as it passes and puts
+them on the usage tally itself. On the Worker, `AI_FOR` in `wrangler.toml` says
+who may use the keys: `owners` (the default — `READER_TOKEN` and the accounts in
+`READER_OWNERS`) or `everyone` signed in, which spends your accounts on each of
+them, up to the per-person limit. (`GEMINI_FOR`, the older setting, is still
+read for Gemini when `AI_FOR` is unset.) `/health` says which keys it holds —
+`"ai": {"anthropic": true, "deepseek": true, "gemini": true}` — and the picker
+says what is missing until then: no key on the proxy, or no sign-in.
+
+**Your own key, if you'd rather.** Settings → AI models (and the ⚙ menu in the
+window) shows, for Claude and DeepSeek, *on the site's key* with a **Use my own
+key** button. Paste a key from
+[console.anthropic.com](https://console.anthropic.com/settings/keys) or
+[platform.deepseek.com](https://platform.deepseek.com/api_keys) and that
+provider's models go straight to its API with it, never through the proxy,
+billing your own account. It is kept in this browser's localStorage under its own
+name (`reader.anthropic-key`, `reader.deepseek-key`); **Use the site's key**
+forgets it and goes back. Someone the proxy keeps its keys from (not an owner,
+with `AI_FOR` at `owners`) is told so on their first question and asked for a key
+of their own. Gemini is the site's key only.
 
 What to know about DeepSeek:
 
-- **One model.** Both entries call `deepseek-flash` (V4.1 Flash). DeepSeek
-  retired `deepseek-chat` and `deepseek-reasoner` in July 2026; a preference or
-  an Explain page saved with either is read as *DeepSeek Flash, no thinking* or
-  *DeepSeek Flash*.
+- **Two models.** The two Flash entries call `deepseek-flash` (V4.1 Flash),
+  which reads pictures; **DeepSeek V4 Pro** calls `deepseek-v4-pro`, DeepSeek's
+  larger model, which reads text only — no pages or screenshots go to it, and it
+  thinks first. DeepSeek retired `deepseek-chat` and `deepseek-reasoner` in July
+  2026; a preference or an Explain page saved with either is read as *DeepSeek
+  V4.1 Flash, no thinking* or *DeepSeek V4.1 Flash*.
 - **Thinking** is `thinking: {"type": "enabled"}` with `reasoning_effort` high
   (low when Explain asks for low), or `{"type": "disabled"}` for the entry that
   answers at once. The reasoning streams as `reasoning_content` and is folded
@@ -2436,12 +2449,13 @@ network, since the address is the model's to choose.
 
 ### The key
 
-Anthropic offers no "sign in with Claude" for other websites, and a Claude.ai
-subscription cannot be spent from a web page, so the window asks for an **API key**
-from [console.anthropic.com](https://console.anthropic.com/settings/keys) the first
-time. It is kept in this browser's localStorage under its own name and sent straight
+By default Claude runs on the site's key, through the paper proxy (above). Anthropic
+offers no "sign in with Claude" for other websites, and a Claude.ai subscription
+cannot be spent from a web page, so to use your own account the window takes an
+**API key** from [console.anthropic.com](https://console.anthropic.com/settings/keys)
+instead — under ⚙, **Use my own key**. It is kept in this browser's localStorage under its own name and sent straight
 to `api.anthropic.com` — the SDK adds the header Anthropic requires for calls made
-from a browser. Usage bills your own account. **Forget my key** under ⚙ removes it.
+from a browser. Usage bills your own account. **Use the site's key** under ⚙ forgets it.
 
 The SDK (`@anthropic-ai/sdk`) is loaded the first time a question is sent, as a chunk
 of its own, so a visit that never asks anything never downloads it.

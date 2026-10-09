@@ -30,6 +30,7 @@ import { askServices, servicesLabel } from './scholarServices.js';
 import { contributionsAsked, readContributions } from './contributionReader.js';
 import * as workspace from './workspace.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini } from './geminiRelay.js';
+import { aiKey, aiKeys, AiRefused, checkAi, KEY_NAMES, relayAi } from './aiRelay.js';
 import { readPage, searchWeb, webAvailable, WebRefused } from './webSearch.js';
 import { handleColab, isColabPath } from './colab.js';
 import { socketSecret } from './colabSocket.js';
@@ -708,30 +709,34 @@ async function workspaceRun(req, res) {
   }
 }
 
-// --------------------------------------------------------------- gemini ----
+// ------------------------------------------------------------------- ai ----
 //
-// Gemini for Ask AI and Explain, on this proxy's key (GEMINI_KEY), so it is
-// never typed into the site: see server/geminiRelay.js. A POST from this
-// app, with the token when this proxy wants one; Google's answer streams
-// back as it comes.
+// Claude, DeepSeek and Gemini for Ask AI and Explain, on this proxy's keys
+// (ANTHROPIC_KEY, DEEPSEEK_KEY, GEMINI_KEY), so none is typed into the site:
+// see server/aiRelay.js and server/geminiRelay.js. A POST from this app, with
+// the token when this proxy wants one; the answer streams back as it comes.
 
-const geminiKey = () => (process.env.GEMINI_KEY || '').trim();
+const geminiKey = () => aiKey(process.env, 'gemini');
+const AI_NAMES = { anthropic: 'Claude', deepseek: 'DeepSeek', gemini: 'Gemini' };
 
-async function gemini(req, res) {
+async function askAi(provider, req, res) {
   if (req.method !== 'POST') return send(res, 405, { error: 'POST' });
   if (!fromThisApp(req)) return send(res, 403, { error: 'not from this app' });
   const refused = gate(req, res);
   if (refused) return refused;
-  if (!geminiKey()) return send(res, 501, { error: 'this proxy has no Gemini key: set GEMINI_KEY and start it again', setup: true });
+  const key = aiKey(process.env, provider);
+  if (!key) return send(res, 501, { error: `this proxy has no ${AI_NAMES[provider]} key: set ${KEY_NAMES[provider]} and start it again`, setup: true });
   let checked;
   try {
-    checked = checkRequest(await readJson(req, MAX_REQUEST_BYTES));
+    const body = await readJson(req, MAX_REQUEST_BYTES);
+    checked = provider === 'gemini' ? checkRequest(body) : checkAi(provider, body);
   } catch (error) {
-    return send(res, error instanceof GeminiRefused ? error.status : 400, { error: error instanceof GeminiRefused ? error.message : said(error, 'could not read that request') });
+    const known = error instanceof GeminiRefused || error instanceof AiRefused;
+    return send(res, known ? error.status : 400, { error: known ? error.message : said(error, 'could not read that request') });
   }
   const controller = new AbortController();
   res.on('close', () => controller.abort());
-  const { response } = await relayGemini(checked, geminiKey(), { signal: controller.signal });
+  const { response } = provider === 'gemini' ? await relayGemini(checked, key, { signal: controller.signal }) : await relayAi(provider, checked, key, { signal: controller.signal });
   res.writeHead(response.status, { 'Content-Type': response.headers.get('Content-Type') || 'application/json', 'Cache-Control': 'no-store' });
   if (!response.body) return res.end();
   Readable.fromWeb(response.body)
@@ -870,7 +875,11 @@ export default async function apiRouter(req, res, next) {
       case '/browse/close':
         return await accessAction(req, res, () => browse.close());
       case '/ai/gemini':
-        return await gemini(req, res);
+        return await askAi('gemini', req, res);
+      case '/ai/anthropic':
+        return await askAi('anthropic', req, res);
+      case '/ai/deepseek':
+        return await askAi('deepseek', req, res);
       case '/web/search':
         return await webSearch(url, res);
       case '/web/page':
@@ -899,6 +908,8 @@ export default async function apiRouter(req, res, next) {
           scholar: scholarVia(),
           /** Whether Ask AI and Explain can use Gemini on this proxy's key. */
           gemini: Boolean(geminiKey()),
+          /** Which providers Ask AI and Explain can use on this proxy's own keys, for whoever has no key of their own. */
+          ai: aiKeys(process.env),
           /** Whether Ask AI's Web button has a search service behind it on this proxy. */
           web: webAvailable(webKeys()),
           /** Whether the sign-in and browser routes want a token — so the app can ask for one. */
