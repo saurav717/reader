@@ -686,6 +686,7 @@ function PairFromLink() {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState<{ server: JupyterServer; again: boolean } | null>(null);
+  const [reconnecting, setReconnecting] = useState(false);
   // A pairing link opened in a tab already on the Playground changes only the hash.
   useEffect(() => {
     const onHash = () => {
@@ -694,6 +695,7 @@ function PairFromLink() {
       setFound(undefined);
       setDone(null);
       setProblem(null);
+      setReconnecting(false);
       setPending(next);
     };
     window.addEventListener('hashchange', onHash);
@@ -708,7 +710,10 @@ function PairFromLink() {
       if (!live) return;
       setFound(reached);
       // A Companion this browser already knows, back at a new address (a new tunnel each start): reconnect without asking.
-      if (reached?.info.id && serversNow().some((server) => server.companionId === reached.info.id)) void connect(reached.base, true);
+      if (reached?.info.id && serversNow().some((server) => server.companionId === reached.info.id)) {
+        setReconnecting(true);
+        void connect(reached.base, true);
+      }
     });
     return () => {
       live = false;
@@ -716,13 +721,18 @@ function PairFromLink() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending]);
   if (!pending) return null;
+  // While a computer this browser already knows is being looked for, show nothing: it most likely reconnects by itself.
+  if (!problem && (info === undefined || reconnecting) && serversNow().some((server) => server.companionId)) return null;
   const close = () => setPending(null);
   async function connect(base: string, again = false) {
     if (!pending) return;
     setBusy(true);
     setProblem(null);
     try {
-      setDone({ server: saveCompanion(await pairCompanion(pending.code, base), base), again });
+      const server = saveCompanion(await pairCompanion(pending.code, base), base);
+      // Back again (the Reader app opens this link each time): nothing to say, the page just has it.
+      if (again) setPending(null);
+      else setDone({ server, again });
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {
