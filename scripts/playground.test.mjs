@@ -157,3 +157,26 @@ describe('a sync between two hosts', () => {
     assert.deepEqual(found.map((f) => f.path).sort(), ['main.py', 'src/a.py']);
   });
 });
+
+describe('a playground names its computer by its Companion', () => {
+  it('takes the computer’s id, and follows it to another entry for the same computer', async () => {
+    const first = pg.saveServer({ name: 'Mac', where: 'pc', url: 'http://127.0.0.1:47321/', token: 't', companionId: 'mac123' });
+    const made = await pg.createPlayground({ title: 'Rebind', kind: 'project', compute: { kind: 'server', serverId: first.id }, home: { kind: 'server', serverId: first.id, root: 'playgrounds/rebind' }, start: 'blank' });
+    assert.equal(made.compute.deviceId, 'mac123');
+    assert.equal(made.home.deviceId, 'mac123');
+    // Another browser's list: the same computer under another id (the account's list, synced).
+    pg.removeServer(first.id);
+    const second = pg.saveServer({ name: 'Mac', where: 'remote', url: 'https://x.trycloudflare.com/', token: 't2', companionId: 'mac123' });
+    const now = pg.playgroundById(made.id);
+    assert.equal(now.compute.serverId, second.id);
+    assert.equal(now.home.serverId, second.id);
+    assert.equal(now.home.root, 'playgrounds/rebind');
+  });
+
+  it('opens its notebook from the cells its record carries, in a browser that has none', async () => {
+    const made = await pg.createPlayground({ title: 'Cells', kind: 'notebook', compute: { kind: 'colab', machine: { accelerator: 'NONE' } }, home: { kind: 'browser' }, start: 'blank' });
+    pg.updatePlayground(made.id, { cells: [{ type: 'markdown', source: '# Hi' }, { type: 'code', source: 'print(1)' }] });
+    const seed = pg.takeSeed(made.id);
+    assert.deepEqual(seed.map((cell) => [cell.type, cell.source]), [['markdown', '# Hi'], ['code', 'print(1)']]);
+  });
+});

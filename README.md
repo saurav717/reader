@@ -3876,6 +3876,23 @@ page found but this browser hasn't paired with. Unpaired, the page sends no
 token, so the Companion (from 0.7.0) takes a shutdown without one only from
 this computer itself (`127.0.0.1`), never through its tunnel.
 
+**Your playgrounds follow your Google account too.** Signed in with Drive,
+the list of playgrounds is `playgrounds.json` in your Reader folder in Drive
+(with a spare copy in the app's hidden folder), not something one browser
+keeps (`src/lib/playgroundsDrive.ts`). Each record has what it takes to open
+the playground again anywhere:
+- its name, settings and console history;
+- its notebook's cells as text (no outputs);
+- where it runs and where its files are, with the computer named by its
+  Companion's id.
+
+A browser that has never seen a playground finds that computer in your
+account's list and opens the same folder on it. The files stay on the
+computer, or, for a playground whose files are in a browser, in that browser.
+Two browsers' changes are merged: the newer record of each playground wins,
+and a deletion carries over. Signed out, the list is kept in this browser, as
+before.
+
 **Your computers follow your Google account; your files stay on them.** A
 browser signed in with Google that pairs with the Companion (the Reader app's
 link, or the code) also *claims* it for that account (`/companion/claim`, from

@@ -18,7 +18,10 @@ import {
   blankCells,
   createPlayground,
   deletePlayground,
+  configurePlaygroundDrive,
   loadPlaygrounds,
+  usePlaygroundsWhere,
+  syncPlaygrounds,
   modelCells,
   modelIdOf,
   paperCells,
@@ -43,12 +46,34 @@ import VsCodeExtension, { isCompanion } from './VsCodeExtension';
 
 export default function Playground({ id, onOpen, onOpenPaper }: { id?: string; onOpen: (id?: string) => void; onOpenPaper: (id: string) => void }) {
   const list = usePlaygrounds();
+  const { settings, driveConnected } = useStore();
   const [ready, setReady] = useState(playgroundsLoaded());
+  const [fromDrive, setFromDrive] = useState(false);
   useEffect(() => {
     void loadPlaygrounds().then(() => setReady(true));
   }, []);
+  // Signed in with Drive: the list is the account's, in its Drive, in every browser it signs in to.
+  const clientId = settings.googleClientId.trim();
+  useEffect(() => {
+    configurePlaygroundDrive(driveConnected && clientId ? { clientId, folderName: settings.driveFolderName, account: currentAccount() ?? undefined } : null);
+    if (driveConnected && clientId) void syncPlaygrounds().finally(() => setFromDrive(true));
+  }, [driveConnected, clientId, settings.driveFolderName]);
   if (id) {
     const found = list.find((p) => p.id === id);
+    // A link opened in a browser that hasn't got the list from Drive yet: wait for it before saying there is none.
+    if (!found && driveConnected && clientId && !fromDrive) {
+      return (
+        <main className="main pg-page">
+          <div className="pg-scroll">
+            <div className="pg-missing">
+              <p>
+                <span className="spinner" /> Looking for it in your Drive…
+              </p>
+            </div>
+          </div>
+        </main>
+      );
+    }
     if (!found) {
       return (
         <main className="main pg-page">
@@ -56,7 +81,7 @@ export default function Playground({ id, onOpen, onOpenPaper }: { id?: string; o
             {ready ? (
               <div className="pg-missing">
                 <h1>No playground here</h1>
-                <p>There is no playground at this address in this browser. Playgrounds are kept in the browser they were made in.</p>
+                <p>There is no playground at this address{driveConnected ? ' in your Drive' : ' in this browser'}. {driveConnected ? 'It may have been deleted, or made by another Google account.' : 'Signed out, playgrounds are kept in the browser they were made in: sign in with Google, with Drive, to have them in every browser.'}</p>
                 <button type="button" className="btn primary" onClick={() => onOpen()}>
                   Go to the Playground
                 </button>
@@ -103,7 +128,7 @@ export function ComputeTag({ compute, home }: { compute: Compute; home?: FilesHo
         </>
       ) : null}
       {compute.kind === 'colab' ? <ColabMark /> : <span className={`pg-mark ${server?.where === 'pc' ? 'is-pc' : 'is-gpu'}`}>{server?.where === 'pc' ? 'PC' : 'GPU'}</span>}
-      <span>{compute.kind === 'colab' ? `Colab ${MACHINES.find((m) => m.accelerator === compute.machine.accelerator)?.label ?? 'CPU'}` : server?.name ?? 'a server no longer here'}</span>
+      <span>{compute.kind === 'colab' ? `Colab ${MACHINES.find((m) => m.accelerator === compute.machine.accelerator)?.label ?? 'CPU'}` : server?.name ?? (compute.deviceId ? 'a computer not connected here' : 'a server no longer here')}</span>
     </span>
   );
 }
@@ -143,6 +168,7 @@ function useLiveCompanions(servers: JupyterServer[]): Record<string, Liveness> {
 }
 
 function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; ready: boolean; onOpen: (id?: string) => void }) {
+  const where = usePlaygroundsWhere();
   const { papers, settings } = useStore();
   const servers = useServers();
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -309,7 +335,9 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
 
             <div className="pg-section-head">
               <span className="eyebrow">Your playgrounds</span>
-              <span className="pg-aside">kept in this browser</span>
+              <span className="pg-aside" title={where === 'drive' ? 'Each playground’s name, machine, folder and notebook are in your Google Drive (playgrounds.json in your Reader folder); its files stay where they are.' : undefined}>
+                {where === 'drive' ? 'kept in your Drive' : where === 'error' ? 'kept in this browser · Drive didn’t answer' : 'kept in this browser · sign in with Drive to keep them there'}
+              </span>
             </div>
             {!ready ? (
               <p className="pg-note">
