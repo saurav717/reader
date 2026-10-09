@@ -105,17 +105,44 @@ export function MachinePicker({ machine, onPick, disabled }: { machine: Machine;
  * the person's own Colab, on which machine, that Google will ask once for
  * Colab, and what the reader can and cannot do with it.
  */
-export function ConnectCard({ cellLabel, onConnect, onClose, busy }: { cellLabel?: string; onConnect: (machine: Machine) => void; onClose: () => void; busy?: boolean }) {
+export function ConnectCard({
+  cellLabel,
+  onConnect,
+  onClose,
+  busy,
+  playground,
+  initial,
+  footer,
+}: {
+  cellLabel?: string;
+  onConnect: (machine: Machine) => void;
+  onClose: () => void;
+  busy?: boolean;
+  /** For a playground: its runtime, connected for its notebook and console — not a cell of a paper's page. */
+  playground?: boolean;
+  /** The machine picked first: the playground's own, else the last one used. */
+  initial?: Machine;
+  /** More under the card: the playground's "Change where it runs…". */
+  footer?: React.ReactNode;
+}) {
   const colab = useColab();
   const { settings } = useStore();
-  const [machine, pick] = useState<Machine>(colab.machine);
+  const [machine, pick] = useState<Machine>(initial ?? colab.machine);
   const box = useRef<HTMLDivElement>(null);
   useAway(true, onClose, box);
   const available = colabAvailable(settings.googleClientId);
   return (
     <div className="menu right colab-menu colab-connect" role="dialog" aria-label="Run in Google Colab" ref={box}>
       <div className="menu-label">
-        <b>Run {cellLabel ? `${cellLabel} ` : 'this cell '}in your Google Colab.</b> The first run starts a runtime in your own Colab account — the same one colab.research.google.com uses — and every cell on this page can then run in it with one click.
+        {playground ? (
+          <>
+            <b>Run this playground in your Google Colab.</b> Connecting starts a runtime in your own Colab account — the same one colab.research.google.com uses — and the notebook’s cells and the console’s commands run in it.
+          </>
+        ) : (
+          <>
+            <b>Run {cellLabel ? `${cellLabel} ` : 'this cell '}in your Google Colab.</b> The first run starts a runtime in your own Colab account — the same one colab.research.google.com uses — and every cell on this page can then run in it with one click.
+          </>
+        )}
       </div>
       <MachinePicker machine={machine} onPick={pick} disabled={busy} />
       <div className="colab-google">
@@ -128,7 +155,7 @@ export function ConnectCard({ cellLabel, onConnect, onClose, busy }: { cellLabel
         <div>
           <b>The reader can</b>
           <ul>
-            <li>run the cells on this page you click</li>
+            <li>{playground ? 'run the cells and commands you run here' : 'run the cells on this page you click'}</li>
             <li>show what they print here — and loss curves, when a cell prints losses</li>
             <li>read the machine's use while a cell runs — {machine.accelerator !== 'NONE' ? 'GPU, ' : ''}CPU, memory, disk — with a few lines of its own, every two seconds</li>
           </ul>
@@ -145,18 +172,21 @@ export function ConnectCard({ cellLabel, onConnect, onClose, busy }: { cellLabel
       <hr />
       {available ? (
         <button type="button" className="colab-action is-primary" disabled={busy} onClick={() => onConnect(machine)}>
-          <b>{busy ? 'Connecting…' : `Connect and run${cellLabel ? ` ${cellLabel}` : ''}`}</b>
-          <span>Opens Google's window, starts the {machineLabel(machine)} runtime, runs the cell. About fifteen seconds the first time.</span>
+          <b>{busy ? 'Connecting…' : playground ? `Connect · ${machineLabel(machine)}` : `Connect and run${cellLabel ? ` ${cellLabel}` : ''}`}</b>
+          <span>Opens Google's window and starts the {machineLabel(machine)} runtime{playground ? '' : ', runs the cell'}. About fifteen seconds the first time.</span>
         </button>
       ) : (
         <div className="colab-status">
           <b>Not available here.</b> {settings.googleClientId ? 'Running cells needs the reader’s proxy (Settings → Paper proxy), which makes the calls to Colab that a page cannot.' : 'Give Settings → Google a client ID first: the runtime is started as you.'}
         </div>
       )}
-      <div className="colab-hint">
-        <ColabMark />
-        The code was written by a model, from the paper. Read it before you run it: it runs as you, on your Colab quota. <b>Colab → Download the notebook</b> in the bar is the same cells for Colab's own page instead.
-      </div>
+      {playground ? null : (
+        <div className="colab-hint">
+          <ColabMark />
+          The code was written by a model, from the paper. Read it before you run it: it runs as you, on your Colab quota. <b>Colab → Download the notebook</b> in the bar is the same cells for Colab's own page instead.
+        </div>
+      )}
+      {footer}
     </div>
   );
 }
