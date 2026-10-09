@@ -10,7 +10,7 @@ import { clearSelection, currentSelection, currentSelectionIn, explanationOnScre
 import Assistant from './components/Assistant';
 import Explain from './components/Explain';
 import { RailProgress } from './components/ExplainProgress';
-import { colabNow, machineLabel } from './lib/colab';
+import { colabNow, machineLabel, useClient as useColabClient } from './lib/colab';
 import { explanationFor, setExplainDrive } from './lib/explain';
 import { notebookFor, runKey } from './lib/notebook';
 import { cellsBlock } from './lib/notebookAsk';
@@ -37,7 +37,7 @@ import { SIGN_IN_REQUIRED } from './lib/google';
 import { canFullscreen, enterFullscreen, fullscreenElement, leaveFullscreen } from './lib/fullscreen';
 import { ChartIcon, CodeIcon, GoogleMark, HighlighterIcon, LibraryIcon, OpenBookIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
 import { FINISHED_AT } from './lib/status';
-import { pathFor, placeFor } from './lib/route';
+import { addressWith, currentAddress, pathFor, placeFor } from './lib/route';
 import Playground from './components/Playground';
 import { OPEN_PLAYGROUND } from './lib/playground';
 
@@ -133,7 +133,7 @@ function readView(): View {
   // A link to a page — /paper/…, /collection/…, /playground — opens that page.
   // The bare address goes on as it always has: Home for a new visit, the page
   // left in this tab otherwise — and the address then follows that page.
-  const place = typeof window === 'undefined' ? null : placeFor(window.location.pathname);
+  const place = typeof window === 'undefined' ? null : placeFor(currentAddress());
   if (place && (place.view.kind !== 'home' || place.usage)) {
     try {
       if (!sessionStorage.getItem(VISIT_KEY)) {
@@ -210,13 +210,16 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The owner of the proxy — READER_TOKEN, or a Google sign-in named in
   // READER_OWNERS — gets a rail button for who uses it; nobody else sees one.
-  const [usageOpen, setUsageOpen] = useState(() => typeof window !== 'undefined' && Boolean(placeFor(window.location.pathname)?.usage));
+  const [usageOpen, setUsageOpen] = useState(() => typeof window !== 'undefined' && Boolean(placeFor(currentAddress())?.usage));
   // Usage is for the owner signed in now. A pass outlives the Google sign-in it
   // came from (weeks against an hour), so while the page asks to sign in or to
   // reconnect, Usage is neither offered nor shown; and a pass is only used for
   // the account it was given to. A site with no Google sign-in at all (a copy run
   // on READER_TOKEN alone) goes by the token, as before.
   const usesGoogle = Boolean(settings.googleClientId.trim());
+  // Colab starts runtimes as the signed-in person, with this client ID: on every
+  // page, not only where Explain is open, so a playground's Run has it too.
+  useColabClient(settings.googleClientId.trim());
   const signedInNow = !usesGoogle || (Boolean(user) && driveConnected);
   const heldToken = settings.proxyToken.trim();
   const ownToken = isPass(heldToken) && passEmail(heldToken)?.toLowerCase() !== user?.email?.toLowerCase() ? '' : heldToken;
@@ -464,8 +467,9 @@ export default function App() {
   const firstPath = useRef(true);
   useEffect(() => {
     const path = pathFor({ view, usage: usageOpen });
-    if (window.location.pathname !== path) {
-      if (firstPath.current) window.history.replaceState(window.history.state, '', `${path}${window.location.search}${window.location.hash}`);
+    const here = placeFor(currentAddress());
+    if (window.location.pathname !== path.split('?')[0] || !here || pathFor(here) !== path) {
+      if (firstPath.current) window.history.replaceState(window.history.state, '', `${addressWith(path, window.location.search)}${window.location.hash}`);
       else window.history.pushState({ reader: true }, '', path);
     }
     firstPath.current = false;
@@ -497,7 +501,7 @@ export default function App() {
   // Back and Forward: the page the address names.
   useEffect(() => {
     const onPop = () => {
-      const place = placeFor(window.location.pathname) ?? { view: { kind: 'home' } as View };
+      const place = placeFor(currentAddress()) ?? { view: { kind: 'home' } as View };
       setUsageOpen(Boolean(place.usage));
       setView(place.view);
     };

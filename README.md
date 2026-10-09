@@ -4166,20 +4166,21 @@ stays where it was, and Back and Forward go between pages:
 |---|---|
 | `/` | Home |
 | `/library`, `/reading`, `/unread`, `/finished`, `/unsorted`, `/junk` | the library's lists |
-| `/collection/<id>` | a collection |
-| `/paper/<id>` | a paper |
+| `/collection/?id=<id>` | a collection |
+| `/paper/?id=<id>` | a paper |
 | `/usage` | the usage page, for its owner |
-| `/playground`, `/playground/<id>` | the Playground, and one playground |
+| `/playground`, `/playground/?id=<id>` | the Playground, and one playground |
 
 Panels such as the library, the dock and Ask AI open over a page and do not
 change its address. The tab's title names the page. `src/lib/route.ts` maps
 pages to paths and back. `npm start` and `vite` send every unknown path to
 the app, and `vercel.json` does the same with a rewrite. GitHub Pages serves
 only the files that exist, so `npm run build:pages` writes a copy of
-`index.html` for each fixed address (`scripts/pages-routes.mjs`). The site's
-`404.html` sends an address with an id in it, such as `/reader/paper/…`, on
-to `/reader/?route=…`, and the app puts that address back before it reads
-it.
+`index.html` for each fixed address (`scripts/pages-routes.mjs`), and a page
+with an id keeps it in the query, so a reload is always answered by one of
+those files. Older links with the id in the path, such as `/reader/paper/…`,
+reach the site's `404.html`, which sends them on to `/reader/?route=…`; the
+app puts that address back, then rewrites it in the new form.
 
 ## Layout
 
