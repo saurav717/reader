@@ -36,13 +36,14 @@ import {
   saveServer,
   serverById,
   serversNow,
+  useDriveConnected,
   usePlaygrounds,
   useServers,
 } from '../lib/playground';
 import { useStore } from '../lib/store';
 import type { Paper } from '../types';
 import { ColabMark } from './Colab';
-import { CloseIcon, CodeIcon, TrashIcon } from './icons';
+import { CloseIcon, CodeIcon, DriveMark, TrashIcon } from './icons';
 import CopyBlock from './CopyBlock';
 import PlaygroundWorkspace from './PlaygroundWorkspace';
 import VsCodeExtension, { isCompanion } from './VsCodeExtension';
@@ -406,7 +407,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
                         </button>
                       </span>
                     ) : (
-                      <button type="button" className="icon-btn sm" aria-label={`Delete ${p.title}`} title="Delete this playground (its notebook and the files kept in this browser; a folder on a server stays)" onClick={() => setConfirmDelete(p.id)}>
+                      <button type="button" className="icon-btn sm" aria-label={`Delete ${p.title}`} title="Delete this playground (its record and notebook; its files stay where they are — in Drive, or in a folder on a computer)" onClick={() => setConfirmDelete(p.id)}>
                         <TrashIcon size={15} />
                       </button>
                     )}
@@ -1198,6 +1199,9 @@ function PairFromLink() {
 // --------------------------------------------------------- where it runs ----
 
 type Mode = 'colab' | 'pc' | 'device' | 'split';
+/** In the split mode, the code's home when it is Drive rather than a server. */
+const DRIVE = 'drive';
+
 
 /** Where a playground runs and where its files are kept, from the three modes. */
 export function WhereDialog({
@@ -1219,7 +1223,7 @@ export function WhereDialog({
   /** Your computers with a Companion: this one, and those of your account elsewhere, reached through their tunnels. */
   const devices = servers.filter(isCompanion);
   const initialMode: Mode = current
-    ? current.compute.kind === 'colab' && current.home.kind === 'browser'
+    ? current.compute.kind === 'colab' && current.home.kind !== 'server'
       ? 'colab'
       : current.home.kind === 'server' && current.compute.kind === 'server' && current.home.serverId === current.compute.serverId
         ? serverById(current.home.serverId)?.where === 'pc'
@@ -1234,7 +1238,7 @@ export function WhereDialog({
   /** In the device mode: the computer, files and code both. */
   const [deviceId, setDeviceId] = useState<string | undefined>(current?.home.kind === 'server' && current.compute.kind === 'server' && current.home.serverId === current.compute.serverId ? current.home.serverId : devices[0]?.id);
   /** In the split mode: the server whose folder keeps the code — any of yours, this PC or elsewhere. */
-  const [homeId, setHomeId] = useState<string | undefined>(current?.home.kind === 'server' ? current.home.serverId : (pcs[0] ?? servers[0])?.id);
+  const [homeId, setHomeId] = useState<string | undefined>(current?.home.kind === 'server' ? current.home.serverId : current?.home.kind === 'drive' && current.compute.kind === 'server' ? DRIVE : (pcs[0] ?? servers[0])?.id ?? DRIVE);
   /** In the split mode: the server it runs on — any other of yours — or 'colab'. */
   const [remoteId, setRemoteId] = useState<string>(
     current?.compute.kind === 'server' && current.home.kind === 'server' && current.compute.serverId !== current.home.serverId
@@ -1243,6 +1247,9 @@ export function WhereDialog({
         ? 'colab'
         : (remotes.find((s) => s.id !== homeId) ?? servers.find((s) => s.id !== homeId))?.id ?? 'colab',
   );
+  const driveOk = useDriveConnected();
+  /** On Colab: the files in your Drive, or on the runtime's own disk. */
+  const [colabFiles, setColabFiles] = useState<'drive' | 'machine'>(current?.home.kind === 'machine' ? 'machine' : 'drive');
   const [idleStop, setIdleStop] = useState(current?.compute.kind === 'colab' ? current.idleStopMin : 30);
   const [adding, setAdding] = useState<'pc' | 'remote' | null>(null);
   /** Starting Jupyter by hand instead of the Companion, for this PC. */
@@ -1253,7 +1260,7 @@ export function WhereDialog({
   // A mode that needs a server none has been added for opens the steps to start one at once,
   // rather than waiting for a click on a tile that reads like a hint.
   const missing: 'pc' | 'remote' | null =
-    mode === 'colab' ? null : mode === 'device' ? (devices.length ? null : 'pc') : mode === 'split' ? (!servers.length ? 'pc' : remoteId !== 'colab' && !servers.some((s) => s.id !== homeId) ? 'remote' : null) : !pcs.length ? 'pc' : null;
+    mode === 'colab' ? null : mode === 'device' ? (devices.length ? null : 'pc') : mode === 'split' ? (homeId === DRIVE ? (remoteId !== 'colab' && !servers.length ? 'remote' : null) : !servers.length ? 'pc' : remoteId !== 'colab' && !servers.some((s) => s.id !== homeId) ? 'remote' : null) : !pcs.length ? 'pc' : null;
   useEffect(() => {
     if (missing) setAdding(missing);
   }, [missing]);
@@ -1268,7 +1275,7 @@ export function WhereDialog({
     if (!deviceId && devices[0]) setDeviceId(devices[0].id);
   }, [devices, deviceId]);
   useEffect(() => {
-    if (!homeId && servers[0]) setHomeId((pcs[0] ?? servers[0]).id);
+    if (!homeId) setHomeId((pcs[0] ?? servers[0])?.id ?? DRIVE);
     // The two ends are different machines: the code's server can't also be the one it runs on.
     if (remoteId === homeId) setRemoteId(servers.find((s) => s.id !== homeId)?.id ?? 'colab');
   }, [servers, pcs, homeId, remoteId]);
@@ -1286,7 +1293,7 @@ export function WhereDialog({
   const root = current?.home.kind === 'server' ? current.home.root : '';
   const choice: { compute: Compute; home: FilesHome } | null =
     mode === 'colab'
-      ? { compute: { kind: 'colab', machine }, home: { kind: 'browser' } }
+      ? { compute: { kind: 'colab', machine }, home: colabFiles === 'drive' ? { kind: 'drive', folder: current?.home.kind === 'drive' ? current.home.folder : '' } : { kind: 'machine' } }
       : mode === 'pc'
         ? pc
           ? { compute: { kind: 'server', serverId: pc.id }, home: { kind: 'server', serverId: pc.id, root } }
@@ -1295,11 +1302,14 @@ export function WhereDialog({
           ? device
             ? { compute: { kind: 'server', serverId: device.id }, home: { kind: 'server', serverId: device.id, root } }
             : null
-        : homeId && serverById(homeId) && (remoteId === 'colab' || (serverById(remoteId) && remoteId !== homeId))
-          ? { compute: remoteId === 'colab' ? { kind: 'colab', machine } : { kind: 'server', serverId: remoteId }, home: { kind: 'server', serverId: homeId, root } }
-          : null;
+        : homeId === DRIVE && (remoteId === 'colab' || serverById(remoteId))
+          ? { compute: remoteId === 'colab' ? { kind: 'colab', machine } : { kind: 'server', serverId: remoteId }, home: { kind: 'drive', folder: current?.home.kind === 'drive' ? current.home.folder : '' } }
+          : homeId && serverById(homeId) && (remoteId === 'colab' || (serverById(remoteId) && remoteId !== homeId))
+            ? { compute: remoteId === 'colab' ? { kind: 'colab', machine } : { kind: 'server', serverId: remoteId }, home: { kind: 'server', serverId: homeId, root } }
+            : null;
   const usesColab = choice?.compute.kind === 'colab';
-  const blocked = !choice || (usesColab && !colabOk) || !title.trim();
+  const needsDrive = choice?.home.kind === 'drive' && !driveOk;
+  const blocked = !choice || (usesColab && !colabOk) || needsDrive || !title.trim();
 
   const colabPicker = (
     <div className="pg-opts" role="radiogroup" aria-label="Colab machine">
@@ -1375,14 +1385,35 @@ export function WhereDialog({
             <div className="pg-flow">
               <span>this tab</span>
               <i>⇄</i>
-              <span>Colab runtime · code, kernel, disk</span>
+              <span>Colab runtime · kernel, shell</span>
+              <i>⇄</i>
+              <span>{colabFiles === 'drive' ? 'your Google Drive · files' : 'the runtime’s disk · files'}</span>
             </div>
             <ul>
               <li className="good">Nothing to install; CPU and a T4 on the free tier</li>
               <li className="good">The same kernel as the Explain pages’ cells</li>
-              <li className="bad">The runtime’s disk goes with it — the files are kept in this browser</li>
+              <li className={colabFiles === 'drive' ? 'good' : 'bad'}>{colabFiles === 'drive' ? 'The files are kept in your Google Drive, copied to the runtime before each run' : 'The files live on the runtime’s disk — they go when the runtime ends'}</li>
             </ul>
-            {mode === 'colab' ? colabPicker : null}
+            {mode === 'colab' ? (
+              <>
+                <small className="pg-pick-label">The files are kept in</small>
+                <div className="pg-opts" role="radiogroup" aria-label="Where the files are kept" onClick={(event) => event.stopPropagation()}>
+                  <button type="button" role="radio" aria-checked={colabFiles === 'drive'} className={`pg-opt${colabFiles === 'drive' ? ' is-on' : ''}`} onClick={() => setColabFiles('drive')}>
+                    <DriveMark />
+                    <b>Google Drive</b>
+                    <small>Papers_collection/Playgrounds — kept, and in every browser you sign in to</small>
+                  </button>
+                  <button type="button" role="radio" aria-checked={colabFiles === 'machine'} className={`pg-opt${colabFiles === 'machine' ? ' is-on' : ''}`} onClick={() => setColabFiles('machine')}>
+                    <ColabMark />
+                    <b>The Colab runtime</b>
+                    <small>its disk only — gone when it stops</small>
+                  </button>
+                </div>
+                <small className="pg-pick-label">The machine</small>
+                {colabPicker}
+              </>
+            ) : null}
+            {mode === 'colab' && needsDrive ? <p className="pg-bad">Keeping the files in Drive needs you signed in with Google, with Drive (Settings → Google).</p> : null}
             {mode === 'colab' && !colabOk ? <p className="pg-bad">Colab needs Settings → Google (a client ID) and Settings → Paper proxy first.</p> : null}
           </section>
           <section className={`pg-mode${mode === 'pc' ? ' is-on' : ''}`} onClick={() => setMode('pc')}>
@@ -1443,21 +1474,28 @@ export function WhereDialog({
               <span className="pg-radio" aria-hidden="true" />
             </div>
             <div className="pg-flow">
-              <span>a folder on any machine of yours</span>
+              <span>a folder in Drive or on any machine of yours</span>
               <i>⇄ copied before each run ⇄</i>
               <span>any other · kernel, shell</span>
               <i>→</i>
               <span>runs/ &amp; results back</span>
             </div>
             <ul>
-              <li className="good">The code lives in a folder on one machine — this PC, another computer of yours, a lab server, a cloud disk</li>
+              <li className="good">The code lives in your Google Drive, or in a folder on one machine — this PC, another computer of yours, a lab server</li>
               <li className="good">Cells and the console run on another: a GPU box, a rented card, Colab</li>
               <li className="good">What a run writes under runs/ and results/ comes back to the code’s folder</li>
             </ul>
             {mode === 'split' ? (
               <div className="pg-split" onClick={(event) => event.stopPropagation()}>
                 <small>The code is kept on</small>
-                {serverPicker(servers, homeId, setHomeId, 'pc', undefined, 'Where the code is kept', true)}
+                {serverPicker(servers, homeId, setHomeId, 'pc', (
+                  <button type="button" role="radio" aria-checked={homeId === DRIVE} className={`pg-opt${homeId === DRIVE ? ' is-on' : ''}`} onClick={() => setHomeId(DRIVE)}>
+                    <DriveMark />
+                    <b>Google Drive</b>
+                    <small>Papers_collection/Playgrounds</small>
+                  </button>
+                ), 'Where the code is kept', true)}
+                {homeId === DRIVE && !driveOk ? <p className="pg-bad">Sign in with Google, with Drive (Settings → Google), to keep the code there.</p> : null}
                 <small>It runs on</small>
                 {serverPicker(servers.filter((s) => s.id !== homeId), remoteId, setRemoteId, 'remote', (
                   <button type="button" role="radio" aria-checked={remoteId === 'colab'} className={`pg-opt${remoteId === 'colab' ? ' is-on' : ''}`} onClick={() => setRemoteId('colab')}>

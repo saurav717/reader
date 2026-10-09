@@ -455,7 +455,7 @@ export function signOut(): void {
 
 // ------------------------------------------------------------------ Drive ---
 
-const FOLDER_MIME = 'application/vnd.google-apps.folder';
+export const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 /**
  * A refusal from Drive, with the status kept where a caller can read it: a
@@ -472,7 +472,7 @@ export class DriveRequestError extends Error {
   }
 }
 
-async function driveFetch(accessToken: string, url: string, init: RequestInit = {}): Promise<Response> {
+export async function driveFetch(accessToken: string, url: string, init: RequestInit = {}): Promise<Response> {
   const response = await fetch(url, {
     ...init,
     headers: { Authorization: `Bearer ${accessToken}`, ...(init.headers || {}) },
@@ -490,7 +490,7 @@ async function driveFetch(accessToken: string, url: string, init: RequestInit = 
   return response;
 }
 
-function escapeQuery(value: string): string {
+export function escapeQuery(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 

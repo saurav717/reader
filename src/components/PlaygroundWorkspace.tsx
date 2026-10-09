@@ -10,8 +10,8 @@ import type { Backend, JupyterServer } from '../lib/colab';
 import { backendLabel, chooseBackend, colabAvailable, colabNow, connect, forgetRun, interrupt, lastActivityAt, machineLabel, restartKernel, runCell, runQuietly, setMachine, stopRuntime } from '../lib/colab';
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
-import type { ConsoleEntry, FileHost, Playground, SyncReport } from '../lib/playground';
-import { blankCells, filesAreOnMachine, homeHost, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
+import type { ConsoleEntry, FileHost, FilesHome, Playground, SyncReport } from '../lib/playground';
+import { blankCells, filesAreOnMachine, homeHost, homeLabelOf, moveFilesOutOfBrowser, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
 import { AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
@@ -31,10 +31,49 @@ import type { PaneLayout } from './Gutter';
 import Terminal, { forgetTerminal, hasTerminals, typeInTerminal } from './Terminal';
 import { WhereDialog } from './Playground';
 import VsCodeExtension, { VsCodeMark, isCompanion } from './VsCodeExtension';
-import { ArrowLeftIcon, CloseIcon } from './icons';
+import { ArrowLeftIcon, ChartIcon, CloseIcon, DriveMark, PlusIcon, SearchIcon, SparkleIcon } from './icons';
+import FileIcon, { languageOf } from './FileIcon';
+import ProjectAgent from './ProjectAgent';
+import { listAll } from '../lib/projectAgent';
+import type { AgentChange, ProjectView } from '../lib/projectAgent';
 
 type Tab = 'notebook' | 'files';
-type FilesSide = 'sync' | 'agent' | 'runtime' | 'metrics' | null;
+/** What the side bar shows, picked in the activity bar; null when it is folded away. */
+type Primary = 'explorer' | 'search' | 'sync' | 'runtime' | 'metrics' | null;
+
+const readLocal = <T,>(name: string, fallback: T): T => {
+  try {
+    const raw = localStorage.getItem(name);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+const writeLocal = (name: string, value: unknown) => {
+  try {
+    localStorage.setItem(name, JSON.stringify(value));
+  } catch {
+    // private mode: the layout starts over next time
+  }
+};
+
+const FilesGlyph = () => (
+  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14 3H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V7z" />
+    <path d="M14 3v4h4M9 21h9a2 2 0 0 0 2-2V9" />
+  </svg>
+);
+const SyncGlyph = () => (
+  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 9a8 8 0 0 1 14.5-3.5L20 7M20 3v4h-4M20 15a8 8 0 0 1-14.5 3.5L4 17M4 21v-4h4" />
+  </svg>
+);
+const GaugeGlyph = () => (
+  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+    <path d="M4 18a8 8 0 1 1 16 0" />
+    <path d="m12 18 4-6" />
+  </svg>
+);
 
 const clock = (since: number | undefined, now: number) => {
   if (!since) return '';
@@ -60,7 +99,6 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
   useServers();
   const [tab, setTab] = useState<Tab>(playground.kind === 'project' ? 'files' : 'notebook');
   const [side, setSide] = useState<NbSide>(null);
-  const [filesSide, setFilesSide] = useState<FilesSide>(filesAreOnMachine(playground) ? null : 'sync');
   const [title, setTitle] = useState(playground.title);
   const [changing, setChanging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -176,26 +214,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
               Metrics
             </button>
           </>
-        ) : (
-          <>
-            {!filesAreOnMachine(playground) ? (
-              <button type="button" className={`btn sm ghost${filesSide === 'sync' ? ' is-on' : ''}`} aria-pressed={filesSide === 'sync'} onClick={() => setFilesSide(filesSide === 'sync' ? null : 'sync')}>
-                Sync
-              </button>
-            ) : null}
-            {playground.compute.kind === 'server' ? (
-              <button type="button" className={`btn sm ghost${filesSide === 'agent' ? ' is-on' : ''}`} aria-pressed={filesSide === 'agent'} onClick={() => setFilesSide(filesSide === 'agent' ? null : 'agent')} title="A coding agent — Claude Code, Codex, Gemini CLI and more — in a pane beside the editor, working in this project's folder">
-                Agent
-              </button>
-            ) : null}
-            <button type="button" className={`btn sm ghost${filesSide === 'runtime' ? ' is-on' : ''}`} aria-pressed={filesSide === 'runtime'} onClick={() => setFilesSide(filesSide === 'runtime' ? null : 'runtime')}>
-              Runtime
-            </button>
-            <button type="button" className={`btn sm ghost${filesSide === 'metrics' ? ' is-on' : ''}`} aria-pressed={filesSide === 'metrics'} onClick={() => setFilesSide(filesSide === 'metrics' ? null : 'metrics')}>
-              Metrics
-            </button>
-          </>
-        )}
+        ) : null}
       </header>
       {!backend ? (
         <div className="pg-banner is-problem">
@@ -217,13 +236,14 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
           </button>
         </div>
       ) : null}
+      {playground.home.kind === 'browser' && playground.kind === 'project' ? <MoveOutOfBrowser playground={playground} machineName={machineName} onNote={setNote} /> : null}
       <div className="pg-body">
         {tab === 'notebook' ? (
           <div className="pg-notebook">
             <NotebookPage paperId={nbKey} title={playground.title} screen={screen} side={side} onSide={setSide} sections={[]} playground={{ hasPaper: cited.some(Boolean), seed }} />
           </div>
         ) : (
-          <FilesView playground={playground} side={filesSide} onSide={setFilesSide} connected={connected} usable={usable} machineName={machineName} />
+          <FilesView key={JSON.stringify(playground.home)} playground={playground} connected={connected} usable={usable} machineName={machineName} />
         )}
       </div>
       {changing ? (
@@ -852,14 +872,22 @@ function VsCodePane({ server, folder, playground }: { server: JupyterServer; fol
   );
 }
 
-function FilesView({ playground, side, onSide, connected, usable, machineName }: { playground: Playground; side: FilesSide; onSide: (next: FilesSide) => void; connected: boolean; usable: boolean; machineName: string }) {
+function FilesView({ playground, connected, usable, machineName }: { playground: Playground; connected: boolean; usable: boolean; machineName: string }) {
   const colab = useColab();
   const servers = useServers();
   const split = !filesAreOnMachine(playground);
   // The hosts follow the servers' list, so an edited address is used at once.
   const home = useMemo(() => homeHost(playground), [playground, servers]);
   const machine = useMemo(() => machineHost(playground, machineName), [playground, machineName, servers]);
-  const homeLabel = playground.home.kind === 'server' ? `${serverById(playground.home.serverId)?.name ?? 'a server'} · ${playground.home.root}` : 'this browser';
+  const homeLabel = homeLabelOf(playground, machineName);
+  // The workbench, as VS Code lays it out: the activity bar's view in the side bar, the agent on the right, the panel below.
+  const [primary, setPrimary] = useState<Primary>(() => readLocal<Primary>('reader.pgPrimary', 'explorer'));
+  const [agentOpen, setAgentOpenState] = useState(() => readLocal('reader.pgAgent', true));
+  const [agentMode, setAgentMode] = useState<'reader' | 'cli'>(() => readLocal('reader.pgAgentMode', 'reader'));
+  const [panelOpen, setPanelOpen] = useState(true);
+  const setAgentOpen = (open: boolean) => (setAgentOpenState(open), writeLocal('reader.pgAgent', open));
+  useEffect(() => writeLocal('reader.pgPrimary', primary), [primary]);
+  useEffect(() => writeLocal('reader.pgAgentMode', agentMode), [agentMode]);
   const [files, setFiles] = useState<OpenFile[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -881,7 +909,6 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
     });
   const dragFrom = useRef<PaneLayout>(layout);
   const centerBox = useRef<HTMLElement>(null);
-  const sideKey = side === 'agent' ? 'agent' : 'side';
   const [onDisk, setOnDisk] = useState<{ key: string; text: string } | null>(null);
   const dismissed = useRef<{ key: string; text: string } | null>(null);
   const currentKey = current ? `${current.where}:${current.path}` : null;
@@ -1100,281 +1127,509 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
     if (last && consoleLog.current) consoleLog.current.scrollTop = last.offsetTop - 4;
   }, [playground.console.length]);
 
+  /** The project as the agent reads it: the folder's files, the ones open, the last commands and what they printed. */
+  const agentView = async (): Promise<ProjectView> => ({
+    where: `Files kept in ${homeLabel}; code runs on ${machineName}${split ? ', the folder copied there before each command' : ''}.`,
+    listing: await listAll(home),
+    open: files.filter((file) => file.where === 'home').map((file) => ({ path: file.path, text: file.text, active: `${file.where}:${file.path}` === active, unsaved: file.text !== file.saved })),
+    console: playground.console.slice(-4).map((entry) => {
+      const done = colab.runs[consoleKey(playground.id, entry.id)];
+      return { command: entry.command, output: done ? done.outputs.map((o) => ('text' in o ? o.text : '')).join('') : '', state: done ? done.state : 'output not in this tab' };
+    }),
+  });
+  /** Files the agent wrote (or put back): open ones take the new text unless edited here, and the explorer reads the folder again. */
+  const tookAgentFiles = (changes: AgentChange[]) => {
+    setFiles((list) => list.map((file) => {
+      const change = file.where === 'home' ? changes.find((c) => c.path === file.path) : undefined;
+      return change && file.text === file.saved ? { ...file, text: change.after, saved: change.after } : file;
+    }));
+    setRefresh((n) => n + 1);
+    const first = changes.find((c) => c.after);
+    if (first && !files.length) void open('home', first.path);
+  };
+
   if (vscodeHere && homeServer && playground.editor === 'vscode' && playground.home.kind === 'server') {
     return <VsCodePane server={homeServer} folder={playground.home.root} playground={playground} />;
   }
 
+  const cliAgents = Boolean(terminals && computeServer && isCompanion(computeServer));
+  const mode = cliAgents ? agentMode : 'reader';
+  const sideKey = mode === 'cli' ? 'agent' : 'side';
+  const crumbs = current ? [current.where === 'home' ? homeLabel : machineName, ...current.path.split('/')] : [];
+  const views: { id: Primary; label: string; icon: React.ReactNode; hidden?: boolean }[] = [
+    { id: 'explorer', label: 'Explorer', icon: <FilesGlyph /> },
+    { id: 'search', label: 'Search the files', icon: <SearchIcon size={19} /> },
+    { id: 'sync', label: `Sync with ${machineName}`, icon: <SyncGlyph />, hidden: !split },
+    { id: 'runtime', label: 'Runtime — GPU, memory, disk', icon: <GaugeGlyph /> },
+    { id: 'metrics', label: 'Metrics the runs print', icon: <ChartIcon size={19} /> },
+  ];
+  const togglePrimary = (id: Primary) => setPrimary(primary === id ? null : id);
+
   return (
-    <div
-      className={`pg-files${layout.sideLeft ? ' is-side-left' : ''}${layout.big ? ` is-big-${layout.big}` : ''}${layout.tree === 0 ? ' is-tree-folded' : ''}`}
-      style={{ '--pg-tree-w': `${layout.tree}px`, '--pg-side-w': `${layout[sideKey]}px`, '--pg-console-h': `${layout.console}%` } as React.CSSProperties}
-    >
-      <aside className="pg-tree" hidden={layout.tree === 0}>
-        <Tree key={`home-${refresh}`} host={home} label={split ? `Files · ${homeLabel}` : `Files · ${homeLabel}`} onOpen={(path) => void open('home', path)} activePath={current?.where === 'home' ? current.path : null} onNew={() => void newFile()} />
-        {split ? <Tree key={`machine-${refresh}-${connected}`} host={machine} label={`On ${machineName}`} note={connected ? undefined : 'Connect to see the folder on the machine.'} disabled={!connected} onOpen={(path) => void open('machine', path)} activePath={current?.where === 'machine' ? current.path : null} /> : null}
-      </aside>
-      <Gutter
-        axis="x"
-        label="The file tree’s width"
-        onStart={() => (dragFrom.current = layout)}
-        onMove={(delta) => {
-          const width = dragFrom.current.tree + delta;
-          setLayout({ tree: width < TREE_FOLD ? 0 : width });
-        }}
-        onReset={() => setLayout({ tree: DEFAULT_LAYOUT.tree })}
-      />
-      <section className="pg-center" ref={centerBox}>
-        <div className="pg-tabs" role="tablist">
-          {files.map((file) => {
-            const key = `${file.where}:${file.path}`;
-            return (
-              <span key={key} className={`pg-tab${key === active ? ' is-on' : ''}`}>
-                <button type="button" role="tab" aria-selected={key === active} onClick={() => setActive(key)} title={`${file.where === 'home' ? homeLabel : machineName} · ${file.path}`}>
-                  {file.where === 'machine' ? '⇣ ' : ''}
-                  {file.path.split('/').pop()}
-                  {file.text !== file.saved ? ' •' : ''}
-                </button>
-                <button
-                  type="button"
-                  className="pg-tab-x"
-                  aria-label={`Close ${file.path}`}
-                  onClick={() => {
-                    setFiles((list) => list.filter((f) => f !== file));
-                    if (key === active) setActive(null);
-                  }}
-                >
-                  ×
-                </button>
-              </span>
-            );
-          })}
+    <div className="vs-shell">
+      <div
+        className={`pg-files vs-work${layout.big ? ` is-big-${layout.big}` : ''}${!panelOpen ? ' is-panel-closed' : ''}`}
+        style={{ '--pg-tree-w': `${Math.max(layout.tree, 200)}px`, '--pg-side-w': `${layout[sideKey]}px`, '--pg-console-h': `${layout.console}%` } as React.CSSProperties}
+      >
+        <nav className="vs-activity" aria-label="Views">
+          {views
+            .filter((v) => !v.hidden)
+            .map((v) => (
+              <button key={v.id} type="button" className={`vs-act${primary === v.id ? ' is-on' : ''}`} aria-pressed={primary === v.id} onClick={() => togglePrimary(v.id)} title={v.label} aria-label={v.label}>
+                {v.icon}
+              </button>
+            ))}
           <span className="spacer" />
-          {current && plan ? (
-            <button
-              type="button"
-              className="btn sm pg-run"
-              disabled={!('command' in plan) || !usable}
-              onClick={() => void runFile()}
-              title={'command' in plan ? `${plan.command}${asked ? '' : ` (${machineName} couldn’t say what is installed: this is a guess)`} — ⌘↵` : `Running ${plan.language} needs ${plan.missing} on ${machineName}`}
-            >
-              ▶ Run
-            </button>
-          ) : null}
-          {vscodeHere ? <EditorSwitch playground={playground} /> : null}
-          {current ? (
-            <button type="button" className="btn sm" disabled={!dirty} onClick={() => void save(current)} title="⌘S">
-              {dirty ? 'Save' : 'Saved'}
-            </button>
-          ) : null}
-        </div>
-        <div
-          className="pg-editor"
-          onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's' && current) {
-              event.preventDefault();
-              void save(current);
-            }
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && current) {
-              event.preventDefault();
-              void runFile();
-            }
-          }}
-        >
-          {current ? (
-            <Editor value={current.text} python={/\.py$/.test(current.path)} path={current.path} onChange={(text) => setFiles((list) => list.map((f) => (f === current ? { ...f, text } : f)))} onKeyDown={() => undefined} />
-          ) : (
-            <div className="pg-editor-empty">
-              <p>Open a file from the left, or make one.</p>
-              <p className="pg-note">
-                {playground.home.kind === 'server' ? `The folder is ${playground.home.root} on ${serverById(playground.home.serverId)?.name ?? 'the server'} — a plain folder: edit it in any editor too.` : 'These files are kept in this browser, and copied onto the machine before each command.'}
-              </p>
+          <button type="button" className={`vs-act is-agent${agentOpen ? ' is-on' : ''}`} aria-pressed={agentOpen} onClick={() => setAgentOpen(!agentOpen)} title="The agent: ask it to write, change or fix the code" aria-label="The agent">
+            <SparkleIcon size={19} />
+          </button>
+        </nav>
+        {primary ? (
+          <aside className="pg-tree vs-sidebar">
+            <div className="vs-side-title">
+              <span>{views.find((v) => v.id === primary)?.label.split(' —')[0]}</span>
+              {primary === 'explorer' ? (
+                <>
+                  <button type="button" className="icon-btn sm" onClick={() => void newFile()} title="A new file" aria-label="A new file">
+                    <PlusIcon size={14} />
+                  </button>
+                  <button type="button" className="icon-btn sm" onClick={() => setRefresh((n) => n + 1)} title="Read the folder again" aria-label="Refresh">
+                    ↻
+                  </button>
+                </>
+              ) : null}
             </div>
-          )}
-          {problem ? <p className="pg-note is-problem">{problem}</p> : null}
-        </div>
-        {current && onDisk && onDisk.key === currentKey ? (
-          <div className="pg-banner pg-disk-banner">
-            {current.path.split('/').pop()} changed in its folder while you were editing it here.
-            <button type="button" className="btn sm" onClick={() => (setFiles((list) => list.map((f) => (f === current ? { ...f, text: onDisk.text, saved: onDisk.text } : f))), setOnDisk(null))}>
-              Load it
-            </button>
-            <button type="button" className="btn sm ghost" onClick={() => ((dismissed.current = onDisk), setOnDisk(null))} title="Keep what is here; Save writes it over the folder's">
-              Keep mine
-            </button>
-          </div>
+            {primary === 'explorer' ? (
+              <>
+                <Tree key={`home-${refresh}`} host={home} label={homeLabel} icon={playground.home.kind === 'drive' ? <DriveMark size={12} /> : undefined} onOpen={(path) => void open('home', path)} activePath={current?.where === 'home' ? current.path : null} />
+                {split ? <Tree key={`machine-${refresh}-${connected}`} host={machine} label={`On ${machineName}`} note={connected ? undefined : 'Connect to see the folder on the machine.'} disabled={!connected} onOpen={(path) => void open('machine', path)} activePath={current?.where === 'machine' ? current.path : null} /> : null}
+              </>
+            ) : primary === 'search' ? (
+              <SearchView host={home} onOpen={(path) => void open('home', path)} />
+            ) : primary === 'sync' && split ? (
+              <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} />
+            ) : primary === 'runtime' ? (
+              connected ? <RuntimePane cells={consoleCells} onGoTo={() => undefined} /> : <p className="pg-note pg-pad">Connect from the bar, or run a command, and the machine is read here: GPU, memory, disk.</p>
+            ) : (
+              <MetricsPane cells={metricCells} running={colab.running} />
+            )}
+          </aside>
         ) : null}
-        {layout.big !== 'console' ? (
+        {primary ? (
           <Gutter
-            axis="y"
-            label="The console’s height"
+            axis="x"
+            label="The side bar’s width"
             onStart={() => (dragFrom.current = layout)}
-            onMove={(delta) => setLayout({ console: dragFrom.current.console - (delta / Math.max(1, centerBox.current?.clientHeight ?? 1)) * 100 })}
-            onReset={() => setLayout({ console: DEFAULT_LAYOUT.console })}
+            onMove={(delta) => {
+              const width = dragFrom.current.tree + delta;
+              if (width < TREE_FOLD) setPrimary(null);
+              else setLayout({ tree: width });
+            }}
+            onReset={() => setLayout({ tree: DEFAULT_LAYOUT.tree })}
           />
         ) : null}
-        <div className={`pg-console${view === 'terminal' ? ' is-terminal' : ''}`}>
-          <div className="pg-console-head">
-            {terminals && computeServer ? (
-              <div className="segmented pg-seg pg-console-tabs" role="tablist" aria-label="Console">
-                <button type="button" role="tab" aria-selected={view === 'terminal'} className={view === 'terminal' ? 'on' : ''} onClick={() => setShellView('terminal')}>
-                  Terminal
-                </button>
-                <button type="button" role="tab" aria-selected={view === 'commands'} className={view === 'commands' ? 'on' : ''} onClick={() => setShellView('commands')}>
-                  {split ? 'Copy & run' : 'Commands'}
-                </button>
-              </div>
-            ) : (
-              <b>Console</b>
-            )}
-            {view === 'terminal' && terminals && computeServer ? (
-              <div className="pg-shell-tabs" role="tablist" aria-label="Terminals">
-                {shells.map((id, index) => (
-                  <span key={id} className={`pg-shell-tab${id === activeShell ? ' is-on' : ''}`}>
-                    <button type="button" role="tab" aria-selected={id === activeShell} onClick={() => setActiveShell(id)}>
-                      {index + 1}
-                    </button>
-                    {shells.length > 1 ? (
-                      <button type="button" className="pg-tab-x" aria-label={`Close terminal ${index + 1}`} title="Close this terminal (its shell ends)" onClick={() => closeShell(id)}>
-                        ×
-                      </button>
-                    ) : null}
-                  </span>
-                ))}
-                <button type="button" className="icon-btn sm" onClick={addShell} aria-label="A new terminal" title="A new terminal">
-                  +
-                </button>
-              </div>
-            ) : null}
-            <span className="mono">
-              {machineName}:{base ?? machineRoot(playground)}
-            </span>
-            <span className="spacer" />
-            {view === 'terminal' && split ? <span className="pg-note">The terminal doesn’t copy the folder over — use Sync, or Copy &amp; run.</span> : null}
-            {terminals && computeServer && isCompanion(computeServer) ? (
-              <button type="button" className={`btn sm ghost${side === 'agent' ? ' is-on' : ''}`} onClick={() => onSide(side === 'agent' ? null : 'agent')} title={`A coding agent on ${machineName}, in a pane beside the editor`}>
-                Agent
-              </button>
-            ) : null}
-            <button type="button" className={`icon-btn sm${layout.big === 'console' ? ' is-on' : ''}`} onClick={() => setLayout({ big: layout.big === 'console' ? null : 'console' })} aria-pressed={layout.big === 'console'} title={layout.big === 'console' ? 'Give the editor its room back' : 'Give the console the whole column'} aria-label={layout.big === 'console' ? 'Restore the console' : 'Expand the console'}>
-              {layout.big === 'console' ? '⤡' : '⤢'}
-            </button>
-            {view === 'commands' && colab.running?.startsWith('pgsh:') ? (
-              <button type="button" className="btn sm colab-stop" onClick={() => void interrupt()}>
-                ■ Stop
-              </button>
-            ) : null}
-          </div>
-          {view === 'terminal' && computeServer
-            ? shells.map((id) => (
-                <div key={id} className="pg-terminal-slot" hidden={id !== activeShell}>
-                  <Terminal server={computeServer} cwd={machineRoot(playground)} sessionId={id} label={machineName} />
-                </div>
-              ))
-            : null}
-          <div className="pg-console-log" ref={consoleLog} hidden={view === 'terminal'}>
-            {playground.console.slice(-12).map((entry) => {
-              const key = consoleKey(playground.id, entry.id);
-              const runNow = colab.runs[key];
+        <section className="pg-center" ref={centerBox}>
+          <div className="pg-tabs vs-tabs" role="tablist">
+            {files.map((file) => {
+              const key = `${file.where}:${file.path}`;
+              const dirtyTab = file.text !== file.saved;
               return (
-                <div key={entry.id} className="pg-console-entry">
-                  <div className="pg-console-cmd">
-                    <span className="pg-prompt">$</span> {entry.command}
-                    <button type="button" className="link" onClick={() => setCommand(entry.command)} title="Put it in the box again">
-                      again
-                    </button>
-                  </div>
-                  {runNow ? <CellRunOutput run={runNow} onForget={() => forgetRun(key)} /> : <div className="pg-note">ran {new Date(entry.at).toLocaleString()} — the output was in that tab</div>}
-                </div>
+                <span key={key} className={`pg-tab vs-tab${key === active ? ' is-on' : ''}${dirtyTab ? ' is-dirty' : ''}`}>
+                  <button type="button" role="tab" aria-selected={key === active} onClick={() => setActive(key)} title={`${file.where === 'home' ? homeLabel : machineName} · ${file.path}`}>
+                    <FileIcon path={file.path} />
+                    {file.where === 'machine' ? '⇣ ' : ''}
+                    {file.path.split('/').pop()}
+                  </button>
+                  <button
+                    type="button"
+                    className="pg-tab-x"
+                    aria-label={`Close ${file.path}`}
+                    onClick={() => {
+                      setFiles((list) => list.filter((f) => f !== file));
+                      if (key === active) setActive(null);
+                    }}
+                  >
+                    <span className="vs-dot" aria-hidden="true">●</span>
+                    <span className="vs-x" aria-hidden="true">×</span>
+                  </button>
+                </span>
               );
             })}
           </div>
-          <form
-            hidden={view === 'terminal'}
-            className="pg-console-input"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void run(command);
+          {current ? (
+            <div className="vs-crumbs">
+              {crumbs.map((part, index) => (
+                <span key={`${index}-${part}`} className={index === crumbs.length - 1 ? 'is-last' : ''}>
+                  {index === crumbs.length - 1 ? <FileIcon path={part} /> : null}
+                  {part}
+                </span>
+              ))}
+              <span className="spacer" />
+              {plan ? (
+                <button
+                  type="button"
+                  className="vs-action is-run"
+                  disabled={!('command' in plan) || !usable}
+                  onClick={() => void runFile()}
+                  title={'command' in plan ? `${plan.command}${asked ? '' : ` (${machineName} couldn’t say what is installed: this is a guess)`} — ⌘↵` : `Running ${plan.language} needs ${plan.missing} on ${machineName}`}
+                >
+                  ▶ Run
+                </button>
+              ) : null}
+              <button type="button" className="vs-action" disabled={!dirty} onClick={() => void save(current)} title="⌘S">
+                {dirty ? 'Save' : 'Saved'}
+              </button>
+              {vscodeHere ? <EditorSwitch playground={playground} /> : null}
+            </div>
+          ) : null}
+          <div
+            className="pg-editor"
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's' && current) {
+                event.preventDefault();
+                void save(current);
+              }
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && current) {
+                event.preventDefault();
+                void runFile();
+              }
             }}
           >
-            <span className="pg-prompt">$</span>
-            <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder={`A command, run in a shell on ${machineName} — python main.py, pip install …, nvidia-smi`} spellCheck={false} aria-label="A command" disabled={!usable} />
-            <button type="submit" className="btn sm primary" disabled={!usable || !command.trim() || Boolean(colab.running)}>
-              {split ? 'Copy & run' : 'Run'}
-            </button>
-          </form>
-        </div>
-      </section>
-      {side ? (
-        <Gutter
-          axis="x"
-          className="is-side"
-          label="The side pane’s width"
-          onStart={() => (dragFrom.current = layout)}
-          onMove={(delta) => setLayout({ [sideKey]: dragFrom.current[sideKey] + (layout.sideLeft ? delta : -delta), big: null })}
-          onReset={() => setLayout({ [sideKey]: DEFAULT_LAYOUT[sideKey], big: null })}
-        />
-      ) : null}
-      {side ? (
-        <aside className={`nb-side pg-side-pane${side === 'agent' ? ' is-agent' : ''}`}>
-          <div className="nb-side-tabs" role="tablist">
-            {split ? (
-              <button type="button" role="tab" aria-selected={side === 'sync'} onClick={() => onSide('sync')}>
-                Sync
-              </button>
-            ) : null}
-            {playground.compute.kind === 'server' ? (
-              <button type="button" role="tab" aria-selected={side === 'agent'} onClick={() => onSide('agent')}>
-                Agent
-              </button>
-            ) : null}
-            <button type="button" role="tab" aria-selected={side === 'runtime'} onClick={() => onSide('runtime')}>
-              Runtime
-            </button>
-            <button type="button" role="tab" aria-selected={side === 'metrics'} onClick={() => onSide('metrics')}>
-              Metrics
-            </button>
-            <span className="spacer" />
-            <button type="button" className="icon-btn sm" onClick={() => setLayout({ sideLeft: !layout.sideLeft })} title={layout.sideLeft ? 'Move the pane to the right of the editor' : 'Move the pane to the left of the editor'} aria-label={layout.sideLeft ? 'Move the pane right' : 'Move the pane left'}>
-              ⇄
-            </button>
-            <button type="button" className={`icon-btn sm${layout.big === 'side' ? ' is-on' : ''}`} onClick={() => setLayout({ big: layout.big === 'side' ? null : 'side' })} aria-pressed={layout.big === 'side'} title={layout.big === 'side' ? 'Back to its width' : 'Give the pane most of the width'} aria-label={layout.big === 'side' ? 'Restore the pane' : 'Expand the pane'}>
-              {layout.big === 'side' ? '⤡' : '⤢'}
-            </button>
-            <button type="button" className="icon-btn sm" onClick={() => onSide(null)} aria-label="Close the pane">
-              <CloseIcon size={14} />
-            </button>
-          </div>
-          {side === 'agent' ? (
-            terminals === false ? (
-              <p className="pg-note pg-pad">{machineName} offers no terminals, so no agent can run there. A Reader Companion does.</p>
+            {current ? (
+              <Editor value={current.text} python={/\.py$/.test(current.path)} path={current.path} onChange={(text) => setFiles((list) => list.map((f) => (f === current ? { ...f, text } : f)))} onKeyDown={() => undefined} />
             ) : (
+              <div className="pg-editor-empty vs-welcome">
+                <b>{playground.title}</b>
+                <p>Open a file from the explorer, make one, or ask the agent on the right to write it.</p>
+                <div className="vs-welcome-keys">
+                  <button type="button" className="link" onClick={() => void newFile()}>
+                    New file…
+                  </button>
+                  <button type="button" className="link" onClick={() => setAgentOpen(true)}>
+                    Ask the agent
+                  </button>
+                </div>
+                <p className="pg-note">
+                  {playground.home.kind === 'server'
+                    ? `The folder is ${playground.home.root} on ${serverById(playground.home.serverId)?.name ?? 'the server'} — a plain folder: edit it in any editor too.`
+                    : playground.home.kind === 'drive'
+                      ? `The files are kept in your Google Drive, in Papers_collection/Playgrounds/${playground.home.folder}${split ? `, and copied onto ${machineName} before each command` : ''}.`
+                      : playground.home.kind === 'machine'
+                        ? playground.compute.kind === 'colab'
+                          ? 'The files are on the Colab runtime’s disk: they go when it stops. Change the machine to keep them in Drive.'
+                          : `The files are on ${machineName}.`
+                        : 'These files are still kept in this browser: move them out from the banner above.'}
+                </p>
+              </div>
+            )}
+            {problem ? <p className="pg-note is-problem">{problem}</p> : null}
+          </div>
+          {current && onDisk && onDisk.key === currentKey ? (
+            <div className="pg-banner pg-disk-banner">
+              {current.path.split('/').pop()} changed in its folder while you were editing it here.
+              <button type="button" className="btn sm" onClick={() => (setFiles((list) => list.map((f) => (f === current ? { ...f, text: onDisk.text, saved: onDisk.text } : f))), setOnDisk(null))}>
+                Load it
+              </button>
+              <button type="button" className="btn sm ghost" onClick={() => ((dismissed.current = onDisk), setOnDisk(null))} title="Keep what is here; Save writes it over the folder's">
+                Keep mine
+              </button>
+            </div>
+          ) : null}
+          {panelOpen && layout.big !== 'console' ? (
+            <Gutter
+              axis="y"
+              label="The panel’s height"
+              onStart={() => (dragFrom.current = layout)}
+              onMove={(delta) => setLayout({ console: dragFrom.current.console - (delta / Math.max(1, centerBox.current?.clientHeight ?? 1)) * 100 })}
+              onReset={() => setLayout({ console: DEFAULT_LAYOUT.console })}
+            />
+          ) : null}
+          <div className={`pg-console vs-panel${view === 'terminal' ? ' is-terminal' : ''}`} hidden={!panelOpen}>
+            <div className="pg-console-head vs-panel-head">
+              <div className="vs-panel-tabs" role="tablist" aria-label="Panel">
+                {terminals && computeServer ? (
+                  <button type="button" role="tab" aria-selected={view === 'terminal'} className={view === 'terminal' ? 'is-on' : ''} onClick={() => setShellView('terminal')}>
+                    Terminal
+                  </button>
+                ) : null}
+                <button type="button" role="tab" aria-selected={view === 'commands'} className={view === 'commands' ? 'is-on' : ''} onClick={() => setShellView('commands')}>
+                  {split ? 'Copy & run' : 'Console'}
+                </button>
+              </div>
+              {view === 'terminal' && terminals && computeServer ? (
+                <div className="pg-shell-tabs" role="tablist" aria-label="Terminals">
+                  {shells.map((id, index) => (
+                    <span key={id} className={`pg-shell-tab${id === activeShell ? ' is-on' : ''}`}>
+                      <button type="button" role="tab" aria-selected={id === activeShell} onClick={() => setActiveShell(id)}>
+                        {index + 1}
+                      </button>
+                      {shells.length > 1 ? (
+                        <button type="button" className="pg-tab-x" aria-label={`Close terminal ${index + 1}`} title="Close this terminal (its shell ends)" onClick={() => closeShell(id)}>
+                          ×
+                        </button>
+                      ) : null}
+                    </span>
+                  ))}
+                  <button type="button" className="icon-btn sm" onClick={addShell} aria-label="A new terminal" title="A new terminal">
+                    +
+                  </button>
+                </div>
+              ) : null}
+              <span className="mono">
+                {machineName}:{base ?? machineRoot(playground)}
+              </span>
+              <span className="spacer" />
+              {view === 'terminal' && split ? <span className="pg-note">The terminal doesn’t copy the folder over — use Sync, or Copy &amp; run.</span> : null}
+              {view === 'commands' && colab.running?.startsWith('pgsh:') ? (
+                <button type="button" className="btn sm colab-stop" onClick={() => void interrupt()}>
+                  ■ Stop
+                </button>
+              ) : null}
+              <button type="button" className={`icon-btn sm${layout.big === 'console' ? ' is-on' : ''}`} onClick={() => setLayout({ big: layout.big === 'console' ? null : 'console' })} aria-pressed={layout.big === 'console'} title={layout.big === 'console' ? 'Give the editor its room back' : 'Give the panel the whole column'} aria-label={layout.big === 'console' ? 'Restore the panel' : 'Maximise the panel'}>
+                {layout.big === 'console' ? '⤡' : '⤢'}
+              </button>
+              <button type="button" className="icon-btn sm" onClick={() => (setPanelOpen(false), layout.big === 'console' && setLayout({ big: null }))} aria-label="Hide the panel" title="Hide the panel (the status bar brings it back)">
+                <CloseIcon size={13} />
+              </button>
+            </div>
+            {view === 'terminal' && computeServer
+              ? shells.map((id) => (
+                  <div key={id} className="pg-terminal-slot" hidden={id !== activeShell}>
+                    <Terminal server={computeServer} cwd={machineRoot(playground)} sessionId={id} label={machineName} />
+                  </div>
+                ))
+              : null}
+            <div className="pg-console-log" ref={consoleLog} hidden={view === 'terminal'}>
+              {playground.console.slice(-12).map((entry) => {
+                const key = consoleKey(playground.id, entry.id);
+                const runNow = colab.runs[key];
+                return (
+                  <div key={entry.id} className="pg-console-entry">
+                    <div className="pg-console-cmd">
+                      <span className="pg-prompt">$</span> {entry.command}
+                      <button type="button" className="link" onClick={() => setCommand(entry.command)} title="Put it in the box again">
+                        again
+                      </button>
+                    </div>
+                    {runNow ? <CellRunOutput run={runNow} onForget={() => forgetRun(key)} /> : <div className="pg-note">ran {new Date(entry.at).toLocaleString()} — the output was in that tab</div>}
+                  </div>
+                );
+              })}
+            </div>
+            <form
+              hidden={view === 'terminal'}
+              className="pg-console-input"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void run(command);
+              }}
+            >
+              <span className="pg-prompt">$</span>
+              <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder={`A command, run in a shell on ${machineName} — python main.py, pip install …, nvidia-smi`} spellCheck={false} aria-label="A command" disabled={!usable} />
+              <button type="submit" className="btn sm primary" disabled={!usable || !command.trim() || Boolean(colab.running)}>
+                {split ? 'Copy & run' : 'Run'}
+              </button>
+            </form>
+          </div>
+        </section>
+        {agentOpen ? (
+          <Gutter
+            axis="x"
+            className="is-side"
+            label="The agent’s width"
+            onStart={() => (dragFrom.current = layout)}
+            onMove={(delta) => setLayout({ [sideKey]: dragFrom.current[sideKey] - delta, big: null })}
+            onReset={() => setLayout({ [sideKey]: DEFAULT_LAYOUT[sideKey], big: null })}
+          />
+        ) : null}
+        {agentOpen ? (
+          <aside className={`nb-side pg-side-pane vs-agent${mode === 'cli' ? ' is-agent' : ''}`}>
+            <div className="vs-agent-head">
+              <span className="vs-agent-title">
+                <SparkleIcon size={14} /> Agent
+              </span>
+              {cliAgents ? (
+                <div className="segmented pg-seg" role="tablist" aria-label="Which agent">
+                  <button type="button" role="tab" aria-selected={mode === 'reader'} className={mode === 'reader' ? 'on' : ''} onClick={() => setAgentMode('reader')} title="An agent in the page, answered by the model you pick">
+                    In the page
+                  </button>
+                  <button type="button" role="tab" aria-selected={mode === 'cli'} className={mode === 'cli' ? 'on' : ''} onClick={() => setAgentMode('cli')} title={`Claude Code, Codex, Gemini CLI… in a terminal on ${machineName}`}>
+                    In a terminal
+                  </button>
+                </div>
+              ) : null}
+              <span className="spacer" />
+              <button type="button" className={`icon-btn sm${layout.big === 'side' ? ' is-on' : ''}`} onClick={() => setLayout({ big: layout.big === 'side' ? null : 'side' })} aria-pressed={layout.big === 'side'} title={layout.big === 'side' ? 'Back to its width' : 'Give the agent most of the width'} aria-label={layout.big === 'side' ? 'Restore the agent' : 'Widen the agent'}>
+                {layout.big === 'side' ? '⤡' : '⤢'}
+              </button>
+              <button type="button" className="icon-btn sm" onClick={() => setAgentOpen(false)} aria-label="Close the agent">
+                <CloseIcon size={14} />
+              </button>
+            </div>
+            {mode === 'cli' ? (
               <AgentPane server={computeServer} machineName={machineName} agents={machineTools.agents} asked={asked} cwd={machineRoot(playground)} inFolder={inFolder} playgroundId={playground.id} />
-            )
-          ) : side === 'sync' && split ? (
-            <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} />
-          ) : side === 'runtime' ? (
-            connected ? <RuntimePane cells={consoleCells} onGoTo={() => undefined} /> : <p className="pg-note pg-pad">Connect from the bar, or run a command, and the machine is read here: GPU, memory, disk.</p>
-          ) : (
-            <MetricsPane cells={metricCells} running={colab.running} />
-          )}
-        </aside>
-      ) : null}
+            ) : (
+              <ProjectAgent
+                projectId={playground.id}
+                host={home}
+                machineName={machineName}
+                view={agentView}
+                context={{ active: current?.path, open: files.length, commands: Math.min(4, playground.console.length) }}
+                onOpen={(path) => void open('home', path)}
+                onRun={(line) => {
+                  setPanelOpen(true);
+                  if (terminalHere) inTerminal(line);
+                  else void run(line);
+                }}
+                onWrote={tookAgentFiles}
+              />
+            )}
+          </aside>
+        ) : null}
+      </div>
+      <footer className="vs-status" aria-label="Status">
+        <span className={`vs-status-item is-machine is-${connected ? 'on' : colab.status === 'connecting' ? 'busy' : 'off'}`} title={`Runs on ${machineName}`}>
+          <span className="colab-dot" aria-hidden="true" /> {machineName}
+          {colab.status === 'busy' ? ' · running' : connected ? '' : ' · not connected'}
+        </span>
+        <span className="vs-status-item" title="Where the files are kept">
+          {playground.home.kind === 'drive' ? <DriveMark size={11} /> : null} {homeLabel}
+        </span>
+        {split ? (
+          <>
+            <button type="button" className="vs-status-item is-btn" disabled={!connected || Boolean(syncing)} onClick={() => void push()} title={`Copy the folder to ${machineName}`}>
+              {syncing === 'push' ? 'Copying…' : '↑ Copy'}
+            </button>
+            <button type="button" className="vs-status-item is-btn" disabled={!connected || Boolean(syncing)} onClick={() => void pull()} title={`Bring results back from ${machineName}`}>
+              {syncing === 'pull' ? 'Bringing back…' : '↓ Bring back'}
+            </button>
+          </>
+        ) : null}
+        <span className="spacer" />
+        {current ? (
+          <>
+            <span className="vs-status-item">{languageOf(current.path)}</span>
+            <span className="vs-status-item">{dirty ? '● Unsaved' : 'Saved'}</span>
+          </>
+        ) : null}
+        <button type="button" className={`vs-status-item is-btn${panelOpen ? ' is-on' : ''}`} onClick={() => setPanelOpen(!panelOpen)} title="Show or hide the panel: the console and terminals">
+          {view === 'terminal' ? 'Terminal' : 'Console'}
+        </button>
+        <button type="button" className={`vs-status-item is-btn is-agent${agentOpen ? ' is-on' : ''}`} onClick={() => setAgentOpen(!agentOpen)} title="Show or hide the agent">
+          <SparkleIcon size={11} /> Agent
+        </button>
+      </footer>
     </div>
   );
 }
 
-function Tree({ host, label, note, disabled, onOpen, activePath, onNew }: { host: FileHost; label: string; note?: string; disabled?: boolean; onOpen: (path: string) => void; activePath: string | null; onNew?: () => void }) {
+function Tree({ host, label, icon, note, disabled, onOpen, activePath }: { host: FileHost; label: string; icon?: React.ReactNode; note?: string; disabled?: boolean; onOpen: (path: string) => void; activePath: string | null }) {
+  const [open, setOpen] = useState(true);
   return (
     <div className="pg-tree-part">
-      <div className="pg-tree-head">
+      <button type="button" className={`pg-tree-head vs-section${open ? ' is-open' : ''}`} aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="vs-chev" aria-hidden="true">›</span>
+        {icon}
         <span>{label}</span>
-        {onNew ? (
-          <button type="button" className="icon-btn sm" onClick={onNew} title="A new file" aria-label="A new file">
-            +
-          </button>
-        ) : null}
-      </div>
-      {disabled ? <p className="pg-note pg-pad">{note}</p> : <Folder host={host} path="" depth={0} onOpen={onOpen} activePath={activePath} />}
+      </button>
+      {!open ? null : disabled ? <p className="pg-note pg-pad">{note}</p> : <Folder host={host} path="" depth={0} onOpen={onOpen} activePath={activePath} />}
+    </div>
+  );
+}
+
+/** Search, as VS Code's: every text file in the folder read, and the lines that hold the words, by file. */
+function SearchView({ host, onOpen }: { host: FileHost; onOpen: (path: string) => void }) {
+  const [query, setQuery] = useState('');
+  const [hits, setHits] = useState<{ path: string; lines: { n: number; text: string }[] }[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const search = async (words: string) => {
+    if (!words.trim()) return setHits(null);
+    setBusy(true);
+    const needle = words.toLowerCase();
+    const found: { path: string; lines: { n: number; text: string }[] }[] = [];
+    for (const file of await listAll(host, 200)) {
+      if (file.size !== null && file.size > 400_000) continue;
+      if (/\.(png|jpe?g|gif|pt|pth|ckpt|safetensors|bin|npz|npy|h5|zip|gz)$/i.test(file.path)) continue;
+      const text = await host.read(file.path).catch(() => null);
+      if (!text) continue;
+      const lines = text.split('\n').flatMap((line, index) => (line.toLowerCase().includes(needle) ? [{ n: index + 1, text: line.trim().slice(0, 160) }] : [])).slice(0, 20);
+      if (lines.length || file.path.toLowerCase().includes(needle)) found.push({ path: file.path, lines });
+    }
+    setHits(found);
+    setBusy(false);
+  };
+  return (
+    <div className="vs-search">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void search(query);
+        }}
+      >
+        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search — ⏎" aria-label="Search the files" spellCheck={false} />
+      </form>
+      {busy ? (
+        <p className="pg-note pg-pad">
+          <span className="spinner" /> Reading the files…
+        </p>
+      ) : hits ? (
+        hits.length ? (
+          <ul className="vs-hits">
+            {hits.map((hit) => (
+              <li key={hit.path}>
+                <button type="button" className="pg-entry" onClick={() => onOpen(hit.path)}>
+                  <FileIcon path={hit.path} />
+                  {hit.path}
+                  <small>{hit.lines.length}</small>
+                </button>
+                {hit.lines.map((line) => (
+                  <button key={line.n} type="button" className="vs-hit-line mono" onClick={() => onOpen(hit.path)} title={`Line ${line.n}`}>
+                    <i>{line.n}</i> {line.text}
+                  </button>
+                ))}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="pg-note pg-pad">Nothing in the folder says “{query}”.</p>
+        )
+      ) : (
+        <p className="pg-note pg-pad">Words to find in every file of the folder.</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A project made before files left the browser: its files are still there.
+ * Moved to Drive, to a computer of yours, or to the machine, in one click;
+ * nothing is taken out of the browser until it is all written there.
+ */
+function MoveOutOfBrowser({ playground, machineName, onNote }: { playground: Playground; machineName: string; onNote: (note: string | null) => void }) {
+  const driveOk = useDriveConnected();
+  const [busy, setBusy] = useState(false);
+  const move = async (to: FilesHome) => {
+    setBusy(true);
+    try {
+      const n = await moveFilesOutOfBrowser(playground.id, to);
+      onNote(`${n} ${n === 1 ? 'file' : 'files'} moved to ${to.kind === 'drive' ? 'your Google Drive' : machineName}; nothing of this project is kept in the browser now.`);
+    } catch (error) {
+      onNote(`The files stayed where they were: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="pg-banner is-problem">
+      This project’s files are still kept in this browser. Move them out — they are then kept only there:
+      <button type="button" className="btn sm primary" disabled={!driveOk || busy} onClick={() => void move({ kind: 'drive', folder: '' })} title={driveOk ? 'Papers_collection/Playgrounds in your Drive' : 'Sign in with Google, with Drive, first'}>
+        <DriveMark size={12} /> To Google Drive
+      </button>
+      {playground.compute.kind === 'server' ? (
+        <button type="button" className="btn sm" disabled={busy} onClick={() => void move({ kind: 'machine' })}>
+          To {machineName}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -1415,12 +1670,15 @@ function Folder({ host, path, depth, onOpen, activePath }: { host: FileHost; pat
                   })
                 }
               >
+                <span className="vs-chev" aria-hidden="true">›</span>
+                <FileIcon path={entry.path} folder open={openDirs.has(entry.path)} />
                 {entry.name}
               </button>
               {openDirs.has(entry.path) ? <Folder host={host} path={entry.path} depth={depth + 1} onOpen={onOpen} activePath={activePath} /> : null}
             </>
           ) : (
             <button type="button" className={`pg-entry${activePath === entry.path ? ' is-on' : ''}`} style={{ paddingLeft: 8 + depth * 14 }} onClick={() => onOpen(entry.path)}>
+              <FileIcon path={entry.path} />
               {entry.name}
               {entry.size !== null ? <small>{entry.size < 1024 ? `${entry.size} B` : entry.size < 1048576 ? `${Math.round(entry.size / 1024)} KB` : `${(entry.size / 1048576).toFixed(1)} MB`}</small> : null}
             </button>

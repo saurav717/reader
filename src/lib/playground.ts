@@ -32,6 +32,7 @@ import { mergePlaygrounds, readPlaygroundsFromDrive, serialisePlaygrounds, write
 import type { CompanionPairing } from './companion';
 import { secureAddress } from './companion';
 import { currentAccount, onProxyChange } from './api';
+import { driveFolderName, driveHost } from './driveFiles';
 
 // ---------------------------------------------------------------- types ----
 
@@ -44,8 +45,16 @@ interface Named {
 
 export type Compute = { kind: 'colab'; machine: Machine } | ({ kind: 'server'; serverId: string; /** The computer's Companion id: the same in every browser, where serverId is this browser's. */ deviceId?: string } & Named);
 
-/** Where its files are kept: this browser, or a folder on a Jupyter server. */
-export type FilesHome = { kind: 'browser'; /** Which browser it was made in, in a few words ("Chrome on a Mac"), for the others. */ browser?: string } | ({ kind: 'server'; serverId: string; root: string; /** The computer's Companion id, as in Compute. */ deviceId?: string } & Named);
+/**
+ * Where its files are kept: a folder in the account's Google Drive, a folder
+ * on a Jupyter server, or the disk of the machine it runs on. `browser` is
+ * only for projects made before: their files are moved out on opening.
+ */
+export type FilesHome =
+  | { kind: 'drive'; /** The folder's name under Papers_collection/Playgrounds. */ folder: string }
+  | { kind: 'machine' }
+  | ({ kind: 'server'; serverId: string; root: string; /** The computer's Companion id, as in Compute. */ deviceId?: string } & Named)
+  | { kind: 'browser'; /** Which browser it was made in, in a few words ("Chrome on a Mac"), for the others. */ browser?: string };
 
 /** This browser, in a few words: "Safari on a Mac", "Chrome on Windows". */
 export function browserLabel(agent = typeof navigator !== 'undefined' ? navigator.userAgent : ''): string {
@@ -326,6 +335,9 @@ let syncAgain = false;
 
 /** Where the list is kept now: this browser only (signed out, or Drive not connected), the account's Drive, or Drive failing. */
 export const playgroundsWhere = () => where;
+/** Whether Drive can keep a project's files now: signed in, with Drive connected. */
+export const driveConnected = () => Boolean(drive);
+export const useDriveConnected = () => useSyncExternalStore(subscribePlaygrounds, driveConnected);
 export const usePlaygroundsWhere = () => useSyncExternalStore(subscribePlaygrounds, playgroundsWhere);
 
 /** Signed in with Drive connected (or not): the store calls this, and the list is synced with that account's Drive. */
@@ -508,20 +520,26 @@ export const takeSeed = (id: string): NbCell[] | undefined => {
   return kept?.length ? kept.map((cell) => newCell(cell.type, cell.source)) : undefined;
 };
 
+/** A new project's home as it is kept: a server's folder named, Drive's folder named, and never the browser — Drive when it is connected, else the machine. */
+function newHome(home: FilesHome, title: string, id: string): FilesHome {
+  if (home.kind === 'server') return { ...home, root: home.root || `playgrounds/${slugOf(title)}`, deviceId: home.deviceId ?? serverById(home.serverId)?.companionId };
+  if (home.kind === 'drive') return { kind: 'drive', folder: home.folder || driveFolderName(title, id) };
+  if (home.kind === 'machine') return home;
+  return drive ? { kind: 'drive', folder: driveFolderName(title, id) } : { kind: 'machine' };
+}
+
 export async function createPlayground(spec: NewPlayground): Promise<Playground> {
   await loadPlaygrounds();
   const now = Date.now();
+  const id = uid();
   const made: Playground = rebind(normalise({
-    id: uid(),
+    id,
     title: spec.title,
     kind: spec.kind,
     created: now,
     updated: now,
     compute: spec.compute.kind === 'server' ? { ...spec.compute, deviceId: spec.compute.deviceId ?? serverById(spec.compute.serverId)?.companionId } : spec.compute,
-    home:
-      spec.home.kind === 'server'
-        ? { ...spec.home, root: spec.home.root || `playgrounds/${slugOf(spec.title)}`, deviceId: spec.home.deviceId ?? serverById(spec.home.serverId)?.companionId }
-        : { kind: 'browser', browser: browserLabel() },
+    home: newHome(spec.home, spec.title, id),
     cites: spec.cites ?? [],
     console: [],
     pending: spec.pending,
@@ -683,6 +701,14 @@ export function reachOf(
   if (p.kind === 'notebook' && home.kind === 'browser') {
     return { code: 'the notebook’s cells, in your Drive with this list', ran: `${computeName} — any machine of yours can run it`, needs: 'Nothing: it opens in any browser signed in to your Drive' };
   }
+  if (home.kind === 'drive') {
+    return { code: `your Google Drive · Papers_collection/Playgrounds/${home.folder}`, ran: `${computeName} — ${anyMachine}`, needs: 'Nothing but your Google account: it opens in any browser signed in with Drive' };
+  }
+  if (home.kind === 'machine') {
+    return compute.kind === 'colab'
+      ? { code: 'the Colab runtime’s disk', ran: computeName, needs: 'Your Colab', warn: 'Its files are on the Colab runtime’s disk: they go when the runtime ends. Move them to Drive from the project to keep them.' }
+      : { code: `${computeName} · its own disk`, ran: computeName, needs: `${computeName} specifically: its code is there`, blocked: ctx.serverName(compute.serverId) ? undefined : `Its code is on ${computeName}, which isn’t connected to this browser.` };
+  }
   if (home.kind === 'browser') {
     const there = home.browser ?? 'the browser it was made in';
     const here = ctx.browserHasFiles;
@@ -805,20 +831,66 @@ export function kernelHost(label: string, root: string): FileHost {
   };
 }
 
+/** Drive's hosts, one a folder, so the ids each has looked up are kept for the session. */
+const driveHosts = new Map<string, FileHost>();
+
 /** Where a playground's files are kept. */
 export function homeHost(playground: Playground): FileHost {
-  if (playground.home.kind === 'server') {
-    const server = serverById(playground.home.serverId);
-    if (server) return serverHost(server, playground.home.root);
+  const home = playground.home;
+  if (home.kind === 'server') {
+    const server = serverById(home.serverId);
+    if (server) return serverHost(server, home.root);
+    return unreachableHost(home.name ?? 'a computer this browser isn’t connected to');
   }
+  if (home.kind === 'drive') {
+    let host = driveHosts.get(home.folder);
+    if (!host) driveHosts.set(home.folder, (host = driveHost(() => drive, home.folder)));
+    return host;
+  }
+  if (home.kind === 'machine') return machineHost(playground, playground.compute.kind === 'colab' ? 'Colab' : 'the machine');
   return browserHost(playground.id);
 }
 
+/** A home whose computer isn't in this browser's list: it says so, and keeps nothing anywhere else. */
+function unreachableHost(name: string): FileHost {
+  const fail = async (): Promise<never> => {
+    throw new Error(`The files are on ${name}, which isn’t connected to this browser.`);
+  };
+  return { label: name, list: fail, read: fail, write: fail };
+}
+
 /** Whether the files are kept on the machine the code runs on, so nothing needs copying. */
-export const filesAreOnMachine = (playground: Playground) => playground.home.kind === 'server' && playground.compute.kind === 'server' && playground.home.serverId === playground.compute.serverId;
+export const filesAreOnMachine = (playground: Playground) => playground.home.kind === 'machine' || (playground.home.kind === 'server' && playground.compute.kind === 'server' && playground.home.serverId === playground.compute.serverId);
+
+/** Where the files are kept, in a few words, for the explorer and the status bar. */
+export function homeLabelOf(playground: Playground, machineName: string): string {
+  const home = playground.home;
+  if (home.kind === 'drive') return 'Google Drive';
+  if (home.kind === 'machine') return machineName;
+  if (home.kind === 'server') return `${serverById(home.serverId)?.name ?? home.name ?? 'a server'} · ${home.root}`;
+  return 'this browser (to move)';
+}
+
+/**
+ * A project made before files left the browser: its files copied to the new
+ * home — Drive, a computer's folder, the machine — and then taken out of this
+ * browser. Nothing is removed until every file is written there.
+ */
+export async function moveFilesOutOfBrowser(id: string, to: FilesHome): Promise<number> {
+  const p = playgroundById(id);
+  if (!p || p.home.kind !== 'browser') return 0;
+  const files = (await db.getKv<Record<string, string>>(FILES_KEY(id)).catch(() => undefined)) ?? {};
+  const home = newHome(to, p.title, id);
+  const next: Playground = { ...p, home, updated: Date.now() };
+  const host = homeHost(next);
+  for (const [path, text] of Object.entries(files)) await host.write(path, text);
+  put(rebind(next));
+  await db.deleteKv(FILES_KEY(id)).catch(() => undefined);
+  return Object.keys(files).length;
+}
 
 /** The folder on the machine the code runs in, relative to where its kernel starts. */
-export const machineRoot = (playground: Playground) => (filesAreOnMachine(playground) && playground.home.kind === 'server' ? playground.home.root : `playgrounds/${slugOf(playground.title)}-${playground.id}`);
+export const machineRoot = (playground: Playground) => (playground.home.kind === 'server' && filesAreOnMachine(playground) ? playground.home.root : `playgrounds/${slugOf(playground.title)}-${playground.id}`);
 
 /** The folder on the machine, as its files can be listed and written there. */
 export function machineHost(playground: Playground, label: string): FileHost {
