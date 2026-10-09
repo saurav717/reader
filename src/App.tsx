@@ -164,7 +164,7 @@ function readLayout(): Layout {
 }
 
 export default function App() {
-  const { ready, papers, collections, highlights, user, driveConnected, settings } = useStore();
+  const { ready, papers, collections, highlights, user, driveConnected, settings, askingTabs } = useStore();
   const [layout] = useState(readLayout);
   const [libraryOpen, setLibraryOpen] = useState(layout.libraryOpen);
   const [dock, setDock] = useState<Dock>(layout.dock);
@@ -1128,7 +1128,12 @@ export default function App() {
       {onUsage ? (
         <UsageView />
       ) : showWelcome ? (
-        <Welcome onDismiss={dismissWelcome} onOpenSettings={() => setSettingsOpen(true)} />
+        // A tab opened beside a signed-in one is handed its sign-in in a moment: no reconnect screen flashes up first.
+        askingTabs && (needsSignIn || needsDrive) ? (
+          <main className="main" aria-busy="true" />
+        ) : (
+          <Welcome onDismiss={dismissWelcome} onOpenSettings={() => setSettingsOpen(true)} />
+        )
       ) : view.kind === 'paper' ? (
         <Reader
           paperId={view.id}

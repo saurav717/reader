@@ -222,6 +222,8 @@ interface StoreValue {
   connectDrive: () => Promise<void>;
   /** Drive was connected on an earlier visit, so reconnecting is one click. */
   driveRemembered: boolean;
+  /** A new tab is asking the open tabs for their sign-in (a moment, as the page loads): the reconnect screen waits for the answer. */
+  askingTabs: boolean;
   signOut: () => void;
 
   /**
@@ -273,6 +275,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<GoogleUser | null>(google.restoredUser);
   const [driveConnected, setDriveConnected] = useState(google.hasDriveAccess);
   const [driveRemembered, setDriveRemembered] = useState(() => localStorage.getItem(DRIVE_KEY) === 'true');
+  // A tab opened beside a signed-in one takes its sign-in rather than asking the person again (google.ts).
+  const [askingTabs, setAskingTabs] = useState(() => !google.restoredUser() && typeof BroadcastChannel !== 'undefined');
   /**
    * Whose library is open: the signed-in account's, or — signed out — the one
    * this browser keeps for nobody. It follows `user` into an account, and on
@@ -705,6 +709,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     setAccount(key);
   }, []);
+
+  // Another tab's sign-in, handed over when this one opened or renewed while it is open; another tab's sign-out.
+  useEffect(() => {
+    const take = () => {
+      const handed = google.restoredUser();
+      if (!handed) return;
+      setUser(handed);
+      const drive = google.hasDriveAccess();
+      setDriveConnected(drive);
+      if (drive) {
+        localStorage.setItem(DRIVE_KEY, 'true');
+        setDriveRemembered(true);
+      }
+      enterAccount(handed);
+    };
+    const stop = google.onSessionChange((change) => {
+      if (change === 'token') take();
+      // Signed out elsewhere: start again with nobody's library here too, as the tab that signed out does.
+      else if (accountNow.current) window.location.reload();
+      else setUser(null);
+    });
+    if (askingTabs) void google.askOtherTabs().then(() => setAskingTabs(false));
+    return stop;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enterAccount]);
 
   const githubConnected = Boolean(targetFrom(settings));
 
@@ -1346,6 +1375,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       user,
       driveConnected,
       driveRemembered,
+      askingTabs,
       authError,
       syncLog,
       librarySync,
@@ -1389,7 +1419,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog, librarySync, strays, adoptStrays, discardStrays,
       addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile, setPaperAuthors,
       createCollection, renameCollection, deleteCollection, addHighlight, updateHighlight,
-      deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
+      deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, askingTabs, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
       githubConnected, githubLog, githubPending, pushToGitHub,
     ],
   );

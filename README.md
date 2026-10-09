@@ -815,7 +815,11 @@ one. **Not now** goes straight to the app with everything kept in this browser.
 It asks **once an hour at most**, not on every visit. The sign-in is kept in
 this browser for as long as the token Google issued lasts — about an hour — so
 a reload, or a tab closed and reopened, comes back signed in and connected
-with no window at all. A page with no backend cannot hold a refresh token,
+with no window at all. **A new tab** is signed in too, while another Reader tab
+is open. It asks the open tabs, and a signed-in one hands over its token over a
+`BroadcastChannel`, which reaches only this site's open pages. The token is still
+never written anywhere that outlasts the tabs. A renewal reaches every tab the
+same way, and signing out in one signs out all of them. A page with no backend cannot hold a refresh token,
 though, so once that hour is up the visit starts disconnected, and the screen
 stands in front again: a paper added before you reconnect is a paper Drive
 never hears about. The asking is cheap then: the app remembers *that* you
