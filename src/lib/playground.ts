@@ -621,6 +621,44 @@ export interface FileHost {
 
 const joinPath = (...parts: string[]) => parts.filter(Boolean).join('/').replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '');
 
+/** Whether this browser holds the files of a playground kept in a browser: false for one made in another browser. */
+export async function filesHere(id: string): Promise<boolean> {
+  return Boolean(await db.getKv<Record<string, string>>(FILES_KEY(id)).catch(() => undefined));
+}
+
+/**
+ * Where a playground's code is, where it runs, and whether it can be opened
+ * here. Its files stay where they were made — a folder on one computer, or
+ * the browser it was made in — and the list in Drive reaches every browser,
+ * so a browser that can't reach those files can't open it: the code isn't
+ * there to run. Where it runs can be any machine: on the computer with the
+ * files, or elsewhere with the folder copied over before each run.
+ */
+export function reachOf(
+  p: Pick<Playground, 'kind' | 'home' | 'compute'>,
+  ctx: { serverName: (id: string) => string | undefined; down: (id: string) => boolean; browserHasFiles: boolean },
+): { files: string; runs: string; blocked?: string; warn?: string } {
+  const home = p.home;
+  const compute = p.compute;
+  const runsName = compute.kind === 'colab' ? 'your Colab' : ctx.serverName(compute.serverId) ?? 'a computer not paired here';
+  if (home.kind === 'browser') {
+    const here = ctx.browserHasFiles || p.kind === 'notebook';
+    return {
+      files: p.kind === 'notebook' ? 'the notebook, in your Drive' : here ? 'this browser' : 'the browser it was made in',
+      runs: `${runsName}${p.kind === 'project' ? ' — the folder is copied there to run' : ''}`,
+      blocked: here ? undefined : 'Its files were kept in the browser it was made in, so they aren’t here: open it there.',
+    };
+  }
+  const filesName = ctx.serverName(home.serverId);
+  const same = compute.kind === 'server' && compute.serverId === home.serverId;
+  return {
+    files: `${filesName ?? 'a computer not paired with this browser'} · ${home.root}`,
+    runs: same ? `${runsName}, where its files are` : `${runsName} — the folder is copied there to run`,
+    blocked: filesName ? undefined : 'Its files are on a computer this browser isn’t paired with. Pair it (Your compute → Add a server), or open the project on that computer.',
+    warn: filesName && ctx.down(home.serverId) ? `${filesName} isn’t answering now: its files open once its Companion is started.` : undefined,
+  };
+}
+
 /** Files kept in this browser, by path, for a playground with no folder on a server. */
 function browserHost(id: string): FileHost {
   const all = async () => (await db.getKv<Record<string, string>>(FILES_KEY(id)).catch(() => undefined)) ?? {};

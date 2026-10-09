@@ -371,6 +371,9 @@ RESTARTING_PAGE = """<!doctype html><meta charset="utf-8"><meta http-equiv="refr
 <title>Starting VS Code again</title>
 <style>:root{color-scheme:light dark}body{margin:0;height:100vh;display:grid;place-items:center;font:14px system-ui,sans-serif;color:#8a877e;background:transparent}</style>
 <p>VS Code on this computer stopped answering — starting it again. This page reloads by itself.</p>"""
+PROXY_ERROR_PAGE = """<!doctype html><meta charset="utf-8"><title>VS Code: an error in the Companion</title>
+<style>:root{{color-scheme:light dark}}body{{margin:0;height:100vh;display:grid;place-items:center;font:14px system-ui,sans-serif;color:#b5435a;background:transparent;padding:0 24px;text-align:center}}code{{font:12px ui-monospace,monospace}}</style>
+<p>The Companion ({version}) couldn’t pass this on to VS Code:<br><code>{error}</code><br><br>Its log, ~/.reader-companion/companion.log, has the whole story.</p>"""
 FAILED_PAGE = """<!doctype html><meta charset="utf-8"><title>VS Code didn’t start</title>
 <style>:root{{color-scheme:light dark}}body{{margin:0;height:100vh;display:grid;place-items:center;font:14px system-ui,sans-serif;color:#b5435a;background:transparent;padding:0 24px;text-align:center}}</style>
 <p>{error}<br><br>Switch to Editor and back to VS Code to try again.</p>"""
@@ -409,6 +412,14 @@ class VsCodeProxy(websocket.WebSocketHandler):
         if "Origin" in self.request.headers:
             headers["Origin"] = f"http://127.0.0.1:{web.port}"
         return headers
+
+    def write_error(self, status_code, **kwargs):
+        """Anything that went wrong here, said in the frame — its kind and message — not Tornado's bare 500 page."""
+        error = kwargs.get("exc_info", (None, None, None))[1]
+        said = f"{type(error).__name__}: {error}" if error else f"{status_code} {self._reason}"
+        self.set_header("Content-Type", "text/html; charset=utf-8")
+        self.set_header("Content-Security-Policy", f"frame-ancestors 'self' {state.current.origin if state.current else ''}".strip())
+        self.finish(PROXY_ERROR_PAGE.format(error=html.escape(said), version=html.escape(state.current.version if state.current else "")))
 
     def failed_here(self, secret) -> bool:
         """The right secret, but VS Code couldn't be started again: its error, said in the frame."""

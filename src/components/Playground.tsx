@@ -19,6 +19,8 @@ import {
   createPlayground,
   deletePlayground,
   configurePlaygroundDrive,
+  filesHere,
+  reachOf,
   loadPlaygrounds,
   usePlaygroundsWhere,
   syncPlaygrounds,
@@ -193,6 +195,23 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
   }, []);
   // Your compute lists what answers now; the rest are a click away, under Offline.
   const live = useLiveCompanions(servers);
+  // Which of the playgrounds kept in a browser have their files in this one (null until looked).
+  const [filesInBrowser, setFilesInBrowser] = useState<Set<string> | null>(null);
+  const browserKept = list.filter((p) => p.home.kind === 'browser' && p.kind === 'project').map((p) => p.id);
+  useEffect(() => {
+    let alive = true;
+    void Promise.all(browserKept.map(async (id) => [id, await filesHere(id)] as const)).then((found) => alive && setFilesInBrowser(new Set(found.filter(([, here]) => here).map(([id]) => id))));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browserKept.join(' ')]);
+  const reach = (p: PlaygroundRecord) =>
+    reachOf(p, {
+      serverName: (id) => servers.find((server) => server.id === id)?.name,
+      down: (id) => live[id] === 'down',
+      browserHasFiles: !filesInBrowser || filesInBrowser.has(p.id),
+    });
   const offline = servers.filter((server) => live[server.id] && live[server.id] !== 'up');
   const active = servers.filter((server) => !live[server.id] || live[server.id] === 'up');
   const [showOffline, setShowOffline] = useState(false);
@@ -345,14 +364,21 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
               </p>
             ) : sorted.length ? (
               <ul className="pg-list">
-                {sorted.map((p) => (
-                  <li key={p.id} className="pg-row">
-                    <button type="button" className="pg-row-main" onClick={() => onOpen(p.id)}>
+                {sorted.map((p) => {
+                  const at = reach(p);
+                  return (
+                  <li key={p.id} className={`pg-row${at.blocked ? ' is-blocked' : ''}`}>
+                    <button type="button" className="pg-row-main" onClick={() => !at.blocked && onOpen(p.id)} disabled={Boolean(at.blocked)} title={at.blocked}>
                       <b>{p.title}</b>
                       <span>
                         {p.kind === 'project' ? 'Project' : 'Notebook'}
                         {p.cites.length ? ` · cites ${p.cites.map((c) => c.title).join(', ').slice(0, 80)}` : ''}
                       </span>
+                      <span className="pg-row-where">
+                        <span title="Where its code is: it stays there">Code · {at.files}</span>
+                        <span title="Where it runs: any machine of yours — change it from the machine menu in the project">Runs · {at.runs}</span>
+                      </span>
+                      {at.blocked || at.warn ? <span className={`pg-row-note${at.blocked ? ' is-problem' : ''}`}>{at.blocked ?? at.warn}</span> : null}
                     </button>
                     <ComputeTag compute={p.compute} home={p.home} />
                     <span className="pg-when">{ago(p.updated)}</span>
@@ -370,11 +396,12 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
                         <TrashIcon size={15} />
                       </button>
                     )}
-                    <button type="button" className="btn sm" onClick={() => onOpen(p.id)}>
+                    <button type="button" className="btn sm" onClick={() => onOpen(p.id)} disabled={Boolean(at.blocked)} title={at.blocked}>
                       Open
                     </button>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             ) : (
               <div className="pg-empty">

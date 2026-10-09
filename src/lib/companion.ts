@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.7.2';
+export const COMPANION_VERSION = '0.7.3';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -395,6 +395,8 @@ export interface VsCodeWeb {
   path: string;
   /** The folder it opens, absolute on that computer. */
   folder: string;
+  /** VS Code's own last lines of output (Companion 0.7.3 on), for when something is wrong. */
+  log: string[];
 }
 
 /**
@@ -415,7 +417,7 @@ export async function vscodeWeb(server: { url: string; token: string }, folder: 
   if (response.status === 404) throw new Error('This Companion is older than VS Code in the page (0.7.0): update it in Settings → Updates.');
   const body = (await response.json().catch(() => ({}))) as Partial<VsCodeWeb> & { error?: string };
   if (!response.ok) throw new Error(body.error || `The Companion said ${response.status}.`);
-  return { state: body.state ?? 'off', error: body.error ?? '', path: body.path ?? '', folder: body.folder ?? '' };
+  return { state: body.state ?? 'off', error: body.error ?? '', path: body.path ?? '', folder: body.folder ?? '', log: Array.isArray(body.log) ? body.log.filter((line): line is string => typeof line === 'string') : [] };
 }
 
 /** The link that starts the Companion on this computer: `reader-companion setup` hands the scheme to `reader-companion start`. */
