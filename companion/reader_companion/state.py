@@ -42,6 +42,24 @@ def save_config(config: dict) -> None:
         pass
 
 
+# Written when the page shuts the Companion down, so that it stays down (at the next login too)
+# until someone starts it on purpose: the Reader app, `reader-companion start`, or the page's Start.
+OFF = "off"
+
+
+def is_off() -> bool:
+    return (config_dir() / OFF).exists()
+
+
+def set_off(off: bool) -> None:
+    path = config_dir() / OFF
+    if off:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"Shut down from the page at {time.strftime('%Y-%m-%d %H:%M:%S')}. reader-companion start starts it again.\n")
+    else:
+        path.unlink(missing_ok=True)
+
+
 def new_code() -> str:
     raw = "".join(secrets.choice(ALPHABET) for _ in range(6))
     return f"{raw[:3]}-{raw[3:]}"

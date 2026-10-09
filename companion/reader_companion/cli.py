@@ -37,7 +37,7 @@ def parse(argv=None, command=""):
         parser.add_argument("--no-login", action="store_true", help="don't start the Companion at login: run it here, in this terminal, as plain reader-companion does")
         parser.add_argument("--no-app", action="store_true", help="don't make the Reader app (Reader.app from the .dmg runs setup with this: it is the app)")
     else:
-        parser = argparse.ArgumentParser(prog="reader-companion", description="Connect this computer to the reader's Playground.", epilog="Also: reader-companion setup (install it for good: the Reader app, VS Code, start at login, pair), reader-companion open (what the Reader app runs), reader-companion pair (a new pairing link for the one running), reader-companion trust (let Safari reach it, on macOS), reader-companion uninstall (remove the Reader app and stop starting it at login).")
+        parser = argparse.ArgumentParser(prog="reader-companion", description="Connect this computer to the reader's Playground.", epilog="Also: reader-companion setup (install it for good: the Reader app, VS Code, start at login, pair), reader-companion open (what the Reader app runs), reader-companion start (start it in the background, also after a shutdown from the page), reader-companion pair (a new pairing link for the one running), reader-companion trust (let Safari reach it, on macOS), reader-companion uninstall (remove the Reader app and stop starting it at login).")
     parser.add_argument("--root", help="the folder the page may read, write and run in (default ~/Reader)")
     parser.add_argument("--port", type=int, help=f"the port on 127.0.0.1 (default {DEFAULT_PORT})")
     parser.add_argument("--site", help=f"the reader's address (default {DEFAULT_SITE})")
@@ -74,6 +74,13 @@ def main(argv=None):
 
 def serve(config: dict, args):
     """Runs the Jupyter server the page pairs with, here, until Ctrl-C."""
+    if state.is_off():
+        # Shut down from the page. Started by hand in a terminal is on purpose; a login item isn't.
+        if sys.stdin.isatty():
+            state.set_off(False)
+        else:
+            print("reader-companion: it was shut down from the page, so it stays off until it is started on purpose: the page's Start, the Reader app, or reader-companion start.", flush=True)
+            return
     site = config.get("site") or DEFAULT_SITE
     try:
         origin = state.origin_of(site)
@@ -184,6 +191,12 @@ def serve(config: dict, args):
             webbrowser.open(link)
         except Exception:  # no browser here: the link above is enough
             pass
+    if desktop.is_lasting(desktop.executable()) and desktop.login_installed():
+        # Installed for good: the page's Start can start it again after a shutdown (one updated from the page gets it here).
+        try:
+            desktop.install_url_handler(desktop.executable())
+        except OSError:
+            pass
     pid_file = state.config_dir() / desktop.PID
     pid_file.write_text(str(os.getpid()))
     try:
@@ -207,6 +220,7 @@ def setup(argv):
     """The double-click installers' last step: VS Code, the Companion at every login and now, the Reader app, and the page to pair."""
     args = parse(argv, "setup")
     config = configure(args)
+    state.set_off(False)
     site = config.get("site") or DEFAULT_SITE
     port = int(config.get("port") or DEFAULT_PORT)
     print(f"\n  {BOLD}Reader Companion {__version__}: setting up this computer{RESET}\n", flush=True)
@@ -241,6 +255,7 @@ def setup(argv):
         sys.exit(f"\n  reader-companion: it didn't start. Its log is {state.config_dir() / desktop.LOG}; reader-companion on its own runs it here, where you can see why.")
     if not args.no_app:
         print(f"  {DIM}The app   {RESET} {desktop.install_app(command, site)}", flush=True)
+    desktop.install_url_handler(command, force=True)
     link = desktop.fresh_link(config["token"], running)
     print(f"""  {DIM}Listening {RESET} http://127.0.0.1:{running}/  {DIM}(folder {Path(os.path.expanduser(config.get("root") or "~/Reader")).resolve()}){RESET}
 
@@ -268,6 +283,7 @@ def open_app(argv):
     if tls.needed() and tls.days_left() and not tls.is_trusted() and time.time() - float(config.get("trust_asked_at") or 0) > 7 * 86400:
         make_trusted()
     port = int(config.get("port") or DEFAULT_PORT)
+    state.set_off(False)  # opening the app is starting it on purpose
     running = desktop.wait_for(config["token"], port, 0)
     if running is None:
         desktop.kick(desktop.executable())
@@ -309,6 +325,32 @@ def trust_command(argv):
             print("Restarted the Companion: it listens on https now.")
 
 
+def start(argv):
+    """Starts the Companion in the background if it isn't running, also after a shutdown from the page. What the page's Start runs."""
+    parser = argparse.ArgumentParser(prog="reader-companion start", description="Start the Companion in the background if it isn't running: also after it was shut down from the page.")
+    parser.add_argument("--quiet", action="store_true", help="say nothing, and don't wait for it (how a reader-companion:// link runs it)")
+    parser.add_argument("url", nargs="?", help=argparse.SUPPRESS)  # the reader-companion://start link, on Linux and Windows
+    args = parser.parse_args(argv)
+    config = state.load_config()
+    state.set_off(False)
+    if not config.get("token"):
+        if args.quiet:
+            return
+        sys.exit("reader-companion: it isn't set up here yet. Run reader-companion (or reader-companion setup) once first.")
+    port = int(config.get("port") or DEFAULT_PORT)
+    running = desktop.wait_for(config["token"], port, 0)
+    if running is None:
+        desktop.kick(desktop.executable())
+        if args.quiet:
+            return
+        print("Starting the Companion…", flush=True)
+        running = desktop.wait_for(config["token"], port, 120)
+        if running is None:
+            sys.exit(f"reader-companion: it didn't start. Its log is {state.config_dir() / desktop.LOG}.")
+    if not args.quiet:
+        print(f"The Companion is running: http://127.0.0.1:{running}/")
+
+
 def pair(argv):
     """Opens a new pairing link for the Companion running on this computer."""
     parser = argparse.ArgumentParser(prog="reader-companion pair", description="Open a new pairing link for the Companion running on this computer.")
@@ -329,14 +371,14 @@ def uninstall(argv):
     argparse.ArgumentParser(prog="reader-companion uninstall", description="Remove the Reader app and stop starting the Companion at login. Your folder and settings stay.").parse_args(argv)
     config = state.load_config()
     running = bool(config.get("token")) and desktop.wait_for(config["token"], int(config.get("port") or DEFAULT_PORT), 0) is not None
-    removed = desktop.uninstall_login(running) + desktop.uninstall_app()
+    removed = desktop.uninstall_login(running) + desktop.uninstall_app() + desktop.uninstall_url_handler()
     print("\n".join(f"Removed {path}" for path in removed) if removed else "It wasn't set to start at login.")
     print(f"Your files are still in {Path(os.path.expanduser(config.get('root') or '~/Reader')).resolve()}, and the settings in {state.config_dir()}.")
     if shutil.which("uv"):
         print("To remove the program too: uv tool uninstall reader-companion")
 
 
-COMMANDS = {"setup": setup, "open": open_app, "pair": pair, "trust": trust_command, "uninstall": uninstall}
+COMMANDS = {"setup": setup, "open": open_app, "start": start, "pair": pair, "trust": trust_command, "uninstall": uninstall}
 
 
 if __name__ == "__main__":

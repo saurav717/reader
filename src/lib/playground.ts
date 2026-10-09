@@ -22,6 +22,7 @@ import type { JupyterServer, Machine, RuntimeEntry } from './colab';
 import { JupyterRequestError, jupyterList, jupyterRead, jupyterWrite, runQuietly } from './colab';
 import type { NbCell } from './notebook';
 import { newCell } from './notebook';
+import { secureAddress } from './companion';
 
 // ---------------------------------------------------------------- types ----
 
@@ -125,6 +126,14 @@ export function saveServer(server: Omit<JupyterServer, 'id'> & { id?: string }):
   const made: JupyterServer = { ...server, id: server.id ?? uid() };
   saveServers(servers.some((s) => s.id === made.id) ? servers.map((s) => (s.id === made.id ? made : s)) : [...servers, made]);
   return made;
+}
+
+/** Moves each Companion this browser reaches over plain http onto its https address, where this computer's certificate lets it: the same server, encrypted. */
+export async function secureCompanions(): Promise<void> {
+  for (const server of servers) {
+    const secure = await secureAddress(server).catch(() => null);
+    if (secure) saveServer({ ...server, url: secure });
+  }
 }
 
 export const removeServer = (id: string) => saveServers(servers.filter((server) => server.id !== id));

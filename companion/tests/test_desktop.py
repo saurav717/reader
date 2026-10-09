@@ -193,3 +193,78 @@ class EditorTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UrlHandlerTest(Sandbox):
+    """reader-companion:// links, which the page's Start opens, run `reader-companion start`."""
+
+    def test_mac_app_declares_the_scheme_and_runs_start(self):
+        files = desktop.mac_url_app(["/Users/me/.local/bin/reader-companion"])
+        info = plistlib.loads(files["Contents/Info.plist"])
+        self.assertEqual(info["CFBundleURLTypes"][0]["CFBundleURLSchemes"], ["reader-companion"])
+        self.assertTrue(info["LSUIElement"])
+        self.assertIn(b"exec '/Users/me/.local/bin/reader-companion' 'start' '--quiet'", files["Contents/MacOS/start"])
+
+    def test_linux_entry(self):
+        entry = desktop.linux_url_entry(["/home/me/my apps/reader-companion"])
+        self.assertIn('Exec="/home/me/my apps/reader-companion" start --quiet %u', entry)
+        self.assertIn("MimeType=x-scheme-handler/reader-companion;", entry)
+
+    def test_install_once_then_uninstall_each_system(self):
+        command = ["/x/reader-companion"]
+        for system in ("Darwin", "Linux", "Windows"):
+            made = desktop.install_url_handler(command, system=system)
+            self.assertTrue(made, system)
+            self.assertTrue(desktop.url_handler_path(system).exists(), system)
+            # The same command again: nothing to do; a new one: made again.
+            self.assertIsNone(desktop.install_url_handler(command, system=system))
+            self.assertTrue(desktop.install_url_handler(["/y/reader-companion"], system=system))
+            self.assertEqual(len(desktop.uninstall_url_handler(system)), 1)
+            self.assertFalse(desktop.url_handler_path(system).exists(), system)
+            self.assertEqual(desktop.uninstall_url_handler(system), [])
+        registered = [call.args for call in desktop.run_quietly.call_args_list]
+        self.assertIn((desktop.LSREGISTER, "-f", str(desktop.state.config_dir() / "Reader Companion.app")), registered)
+        self.assertTrue(any(args[:2] == ("xdg-mime", "default") for args in registered))
+        self.assertTrue(any(args[:2] == ("reg", "add") for args in registered))
+
+
+class OffTest(Sandbox):
+    """Shut down from the page, it stays down until it is started on purpose."""
+
+    def test_off_mark(self):
+        from reader_companion import state
+
+        self.assertFalse(state.is_off())
+        state.set_off(True)
+        self.assertTrue(state.is_off())
+        state.set_off(False)
+        state.set_off(False)
+        self.assertFalse(state.is_off())
+
+    def test_a_login_start_stays_off_and_a_terminal_start_clears_it(self):
+        from reader_companion import cli, state
+
+        state.set_off(True)
+        args = cli.parse(["--no-browser"])
+        with mock.patch.object(cli.sys.stdin, "isatty", return_value=False), mock.patch.object(cli.env, "prepare") as prepare:
+            cli.serve({"token": "t", "id": "i"}, args)
+            prepare.assert_not_called()
+        self.assertTrue(state.is_off())
+        with mock.patch.object(cli.sys.stdin, "isatty", return_value=True), mock.patch.object(cli.env, "prepare", side_effect=SystemExit("stop here")):
+            with self.assertRaises(SystemExit):
+                cli.serve({"token": "t", "id": "i", "root": str(Path(self.home.name) / "Reader")}, args)
+        self.assertFalse(state.is_off())
+
+    def test_start_clears_it_and_starts_it(self):
+        from reader_companion import cli, state
+
+        state.save_config({"token": "t", "port": 47400})
+        state.set_off(True)
+        with mock.patch.object(desktop, "wait_for", side_effect=[None, 47400]), mock.patch.object(desktop, "kick") as kick:
+            cli.start([])
+        self.assertFalse(state.is_off())
+        kick.assert_called_once()
+        # Running already: nothing to start.
+        with mock.patch.object(desktop, "wait_for", return_value=47400), mock.patch.object(desktop, "kick") as kick:
+            cli.start(["--quiet", "reader-companion://start"])
+        kick.assert_not_called()

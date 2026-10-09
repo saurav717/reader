@@ -55,18 +55,63 @@ describe('the page’s side', () => {
     assert.equal(companion.tunnelBase('https://a.b.trycloudflare.com'), null);
     assert.equal(companion.tunnelBase(null), null);
   });
-  it('tries the address on this computer first (https in Safari), then the tunnel', () => {
+  it('tries the address on this computer first (https first, and only https in Safari), then the tunnel', () => {
     const via = 'https://brave-otter.trycloudflare.com/';
-    assert.deepEqual(companion.companionRoutes(47321, via, false), ['http://127.0.0.1:47321/', via]);
+    // The others: https when it has it (encrypted), plain http on this computer if this browser can't use it, then the tunnel.
+    assert.deepEqual(companion.companionRoutes(47321, via, false), ['https://127.0.0.1:47331/', 'http://127.0.0.1:47321/', via]);
+    assert.deepEqual(companion.companionRoutes(47321, via, false, null), ['http://127.0.0.1:47321/', via]);
     // Safari: the Companion's https address on this computer, then the tunnel.
     assert.deepEqual(companion.companionRoutes(47321, via, true), ['https://127.0.0.1:47331/', via]);
-    assert.deepEqual(companion.companionRoutes(47321, null, false), ['http://127.0.0.1:47321/']);
+    assert.deepEqual(companion.companionRoutes(47321, null, false), ['https://127.0.0.1:47331/', 'http://127.0.0.1:47321/']);
     assert.deepEqual(companion.companionRoutes(47321, null, true), ['https://127.0.0.1:47331/']);
     assert.deepEqual(companion.companionRoutes(47321, null, true, 47400), ['https://127.0.0.1:47400/']);
     assert.deepEqual(companion.companionRoutes(47321, via, true, null), [via]);
     assert.equal(companion.localBase(true), 'https://127.0.0.1:47331/');
     assert.equal(companion.localBase(false), 'http://127.0.0.1:47321/');
     assert.equal(companion.companionPort('https://127.0.0.1:47331/'), 47331);
+    assert.equal(companion.isSecure('https://127.0.0.1:47331/'), true);
+    assert.equal(companion.isSecure('http://127.0.0.1:47321/'), false);
+  });
+  it('moves a paired Companion to https only when the same Companion answers there', async () => {
+    const real = globalThis.fetch;
+    let answer = { app: 'reader-companion', name: 'Mac', id: 'abc', version: '0.6.0' };
+    const asked = [];
+    globalThis.fetch = async (url) => {
+      asked.push(String(url));
+      return answer ? new Response(JSON.stringify(answer)) : Promise.reject(new TypeError('failed'));
+    };
+    try {
+      assert.equal(await companion.secureAddress({ url: 'http://127.0.0.1:47321/', companionId: 'abc' }), 'https://127.0.0.1:47331/');
+      assert.equal(asked.at(-1), 'https://127.0.0.1:47331/companion/info');
+      // Another Companion, a server that isn't one, one already on https, and nothing answering: left as they are.
+      assert.equal(await companion.secureAddress({ url: 'http://127.0.0.1:47321/', companionId: 'other' }), null);
+      assert.equal(await companion.secureAddress({ url: 'http://127.0.0.1:8888/' }), null);
+      assert.equal(await companion.secureAddress({ url: 'https://127.0.0.1:47331/', companionId: 'abc' }), null);
+      answer = null;
+      assert.equal(await companion.secureAddress({ url: 'http://127.0.0.1:47321/', companionId: 'abc' }), null);
+    } finally {
+      globalThis.fetch = real;
+    }
+  });
+  it('shuts a Companion down with its token, and says when it is too old to', async () => {
+    const real = globalThis.fetch;
+    const calls = [];
+    let status = 200;
+    globalThis.fetch = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify(status === 200 ? { stopping: true } : {}), { status });
+    };
+    try {
+      await companion.shutdownCompanion({ url: 'https://127.0.0.1:47331', token: 't0k' });
+      assert.equal(calls[0].url, 'https://127.0.0.1:47331/companion/shutdown');
+      assert.equal(calls[0].init.method, 'POST');
+      assert.equal(calls[0].init.headers.Authorization, 'token t0k');
+      status = 404;
+      await assert.rejects(companion.shutdownCompanion({ url: 'http://127.0.0.1:47321/', token: 't0k' }), /older than the Shut down button/);
+    } finally {
+      globalThis.fetch = real;
+    }
+    assert.equal(companion.START_LINK, 'reader-companion://start');
   });
   it('takes a code however it is typed', () => {
     assert.equal(companion.normaliseCode(' abc def '), 'ABC-DEF');

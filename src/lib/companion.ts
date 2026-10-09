@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.5.1';
+export const COMPANION_VERSION = '0.6.0';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -115,10 +115,39 @@ export function pairFragment(hash: string): { code: string; port: number; tls: n
   return { code: normaliseCode(code), port: valid(port) ? port : COMPANION_PORT, tls: valid(tls) ? tls : null, via: tunnelBase(params.get('via')) };
 }
 
-/** Where to look for a Companion, in order: its address on this computer (https in Safari, when it has one), then its tunnel. */
+/**
+ * Where to look for a Companion, in order: its https address on this computer
+ * when it has one (encrypted, and the only way in for Safari), its plain http
+ * one (not for Safari; it never leaves this computer either), then its tunnel.
+ */
 export function companionRoutes(port: number, via: string | null, safari = isSafari(), tls: number | null = COMPANION_TLS_PORT): string[] {
-  const local = safari ? (tls ? [secureBase(tls)] : []) : [directBase(port)];
+  const secure = tls ? [secureBase(tls)] : [];
+  const local = safari ? secure : [...secure, directBase(port)];
   return [...local, ...(via ? [via] : [])];
+}
+
+/** The Companion on this computer, at its https address when this browser can reach it there, else at its http one (never for Safari). */
+export async function findLocalCompanion(safari = isSafari(), timeoutMs = 1500): Promise<{ base: string; info: CompanionInfo } | null> {
+  for (const base of companionRoutes(COMPANION_PORT, null, safari)) {
+    const info = await findCompanion(base, timeoutMs);
+    if (info) return { base, info };
+  }
+  return null;
+}
+
+/** Whether a saved server is reached over https (or through its tunnel, which is https too): encrypted all the way. */
+export const isSecure = (url: string) => url.startsWith('https://');
+
+/**
+ * The https address of a Companion this browser reaches over plain http on
+ * this computer, once it answers there as the same Companion (its certificate
+ * trusted by this computer); null when it doesn't, or the server is something else.
+ */
+export async function secureAddress(server: { url: string; companionId?: string }, tlsPort = COMPANION_TLS_PORT): Promise<string | null> {
+  if (isSecure(server.url) || !server.companionId || companionPort(server.url) === null) return null;
+  const base = secureBase(tlsPort);
+  const info = await findCompanion(base, 2500);
+  return info?.id === server.companionId ? base : null;
 }
 
 /** A saved server that is a Companion on this computer: its port, or null. */
@@ -289,6 +318,46 @@ export async function waitForVersion(base: string, version: string, forMs = 120_
     await new Promise((resolve) => setTimeout(resolve, 2000));
     const info = await findCompanion(base, 3000);
     if (info && !isNewer(version, info.version)) return info;
+  }
+  return null;
+}
+
+/** The first Companion the page can shut down and start again (POST /companion/shutdown, and reader-companion:// links). */
+export const STARTABLE = '0.6.0';
+
+/**
+ * Shuts a paired Companion down (POST /companion/shutdown): its kernels, its
+ * Jupyter server and the process. It stays off, at the next login too, until it
+ * is started on purpose: startCompanion, the Reader app, or `reader-companion start`.
+ */
+export async function shutdownCompanion(server: { url: string; token: string }): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/shutdown`, { method: 'POST', headers: { Authorization: `token ${server.token}` } });
+  } catch {
+    throw new Error('The Companion isn’t answering: it may be off already.');
+  }
+  if (response.status === 404) throw new Error(`This Companion is older than the Shut down button (${STARTABLE}): update it in Settings → This computer, then try again.`);
+  const body = (await response.json().catch(() => ({}))) as { error?: string };
+  if (!response.ok) throw new Error(body.error || `The Companion said ${response.status}.`);
+}
+
+/** The link that starts the Companion on this computer: `reader-companion setup` hands the scheme to `reader-companion start`. */
+export const START_LINK = 'reader-companion://start';
+
+/**
+ * Asks this computer to start its Companion, by opening START_LINK (the
+ * browser asks once whether to open it), then waits for it to answer at
+ * `base`. Null when it doesn't within `forMs`: nothing here takes the link (a
+ * Companion from before STARTABLE, or not installed for good), or it didn't start.
+ */
+export async function startCompanion(base: string, forMs = 90_000): Promise<CompanionInfo | null> {
+  if (typeof window !== 'undefined') window.location.href = START_LINK;
+  const until = Date.now() + forMs;
+  while (Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const info = await findCompanion(base, 3000);
+    if (info) return info;
   }
   return null;
 }

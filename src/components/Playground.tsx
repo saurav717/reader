@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
 import type { CompanionInfo, CompanionPairing, MacDmg } from '../lib/companion';
-import { COMPANION_PORT, COMPANION_TLS_PORT, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, isSafari, latestMacDmg, localBase, normaliseCode, pairCompanion, pairFragment, showCompanionCode, vscodeInstall } from '../lib/companion';
+import { COMPANION_PORT, COMPANION_TLS_PORT, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, findLocalCompanion, isSafari, latestMacDmg, normaliseCode, pairCompanion, pairFragment, showCompanionCode, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
@@ -527,6 +527,7 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
   }, []);
   const download = system === 'mac' && dmg ? { ...downloads.mac, href: dmg.url, file: 'Reader.dmg' } : downloads[system];
   const [found, setFound] = useState<CompanionInfo | null>(null);
+  const [foundAt, setFoundAt] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -535,19 +536,20 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
   const [shown, setShown] = useState<boolean | null>(null);
   const askForCode = async () => {
     setAsking(true);
-    setShown(await showCompanionCode());
+    setShown(await showCompanionCode(foundAt ?? undefined));
     setAsking(false);
   };
   useEffect(() => {
-    // Safari looks at the Companion's https address, the others at its http one (localBase).
+    // Its https address first (Safari's only way in), then, for the others, its http one.
     let live = true;
     let timer = 0;
     const look = async () => {
-      const info = await findCompanion();
+      const reached = await findLocalCompanion(safari);
       if (!live) return;
-      setFound(info);
+      setFound(reached?.info ?? null);
+      setFoundAt(reached?.base ?? null);
       setLooks((n) => n + 1);
-      timer = window.setTimeout(() => void look(), info ? 5000 : 2000);
+      timer = window.setTimeout(() => void look(), reached ? 5000 : 2000);
     };
     void look();
     return () => {
@@ -559,7 +561,8 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
     setBusy(true);
     setProblem(null);
     try {
-      const saved = saveCompanion(await pairCompanion(code), localBase());
+      if (!foundAt) throw new Error('The Companion stopped answering. Is it still running?');
+      const saved = saveCompanion(await pairCompanion(code, foundAt), foundAt);
       onPaired?.(saved);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -743,7 +746,7 @@ function PairFromLink() {
     // The code is spent either way: off the address, out of history's way.
     window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
     let live = true;
-    void reachCompanion(companionRoutes(pending.port, pending.via, isSafari(), pending.tls ?? COMPANION_TLS_PORT), pending.via ? 30_000 : 0).then((reached) => {
+    void reachCompanion(companionRoutes(pending.port, pending.via, isSafari(), isSafari() ? pending.tls ?? COMPANION_TLS_PORT : pending.tls), pending.via ? 30_000 : 0).then((reached) => {
       if (!live) return;
       setFound(reached);
       // A Companion this browser already knows, back at a new address (a new tunnel each start): reconnect without asking.
