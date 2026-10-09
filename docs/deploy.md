@@ -13,7 +13,7 @@ Merging a pull request into `main` here publishes everything it changes:
 - **The Mac app.** The *macOS app* workflow builds Reader.app and publishes it
   as the release `app-v<Companion version>` (see [macos-app.md](macos-app.md)),
   when the merge touches the app or the Companion. The site's **Download for
-  macOS** offers the newest, and **Settings → This computer → Update** brings an
+  macOS** offers the newest, and **Settings → Updates → Update** brings an
   installed Companion up to the version the site serves.
 
 ## Once: the token the site needs

@@ -11,7 +11,7 @@ most), so whoever reads it there is at the computer, as with the terminal.
 /companion/update is for the page once paired too (its origin, and the token):
 it installs the newest Companion the site serves (companion/latest.json, a wheel
 from the site and nowhere else) over this one, refreshes the VS Code extension
-where it is installed, and restarts. Settings → This computer has the button.
+where it is installed, and restarts. Settings → Updates has the button.
 
 /companion/vscode is for the page once paired (its origin, and the token): which
 VS Code-like editors are here and whether they have the Reader extension, and

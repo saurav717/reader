@@ -3805,8 +3805,14 @@ Windows, `zenity`, `kdialog` or `notify-send` on Linux). Whoever reads it is at
 the computer, as with the terminal. The Reader app and the terminal's link
 connect without a code.
 
-**Updating.** Settings → **This computer** lists the Companions this browser
-is paired with, and their versions. When the site serves a newer one, **Update**
+**Updating.** Reader has two parts. The website, here and in the Reader
+app's window, isn't installed anywhere: a new build reaches every window the
+next time it loads, and Settings → **Updates** offers **Reload** to a window
+left open when a newer build has been published (each build writes
+`build.json` beside the page). The Companion is the one part installed on the
+computer. Settings → **Updates** lists the Companions this browser
+is paired with, and their versions (and, when it isn't paired with any, pairs
+with the one running on this computer in place). When the site serves a newer one, **Update**
 asks that Companion to update itself (`/companion/update`, with its token): it
 reads `companion/latest.json` from the site, installs that wheel over itself
 with `uv tool install` (only a wheel from the site it pairs with), refreshes the

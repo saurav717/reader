@@ -1,6 +1,20 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { execSync } from 'node:child_process';
 import apiRouter from './server/api.js';
+
+// Which build this is: the commit it was made from and when. The page carries it, and build.json beside
+// the page says the same, so a window left open can tell when a newer one has been published
+// (Settings → Updates, src/lib/siteBuild.ts).
+const commit = (() => {
+  if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA.slice(0, 7);
+  try {
+    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    return 'dev';
+  }
+})();
+const build = { commit, time: new Date().toISOString() };
 
 // The arXiv API and arXiv's HTML/PDF hosts send no CORS headers, so every
 // request to them goes through our own /api routes. In dev that is Vite
@@ -8,8 +22,15 @@ import apiRouter from './server/api.js';
 // VITE_BASE lets the same build serve a sub-path, e.g. /reader/ on GitHub Pages.
 export default defineConfig({
   base: process.env.VITE_BASE || '/',
+  define: { __READER_BUILD__: JSON.stringify(build) },
   plugins: [
     react(),
+    {
+      name: 'reader-build-json',
+      generateBundle() {
+        this.emitFile({ type: 'asset', fileName: 'build.json', source: JSON.stringify(build) });
+      },
+    },
     {
       name: 'reader-api',
       configureServer(server) {

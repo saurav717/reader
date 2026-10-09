@@ -337,7 +337,7 @@ export async function shutdownCompanion(server: { url: string; token: string }):
   } catch {
     throw new Error('The Companion isn’t answering: it may be off already.');
   }
-  if (response.status === 404) throw new Error(`This Companion is older than the Shut down button (${STARTABLE}): update it in Settings → This computer, then try again.`);
+  if (response.status === 404) throw new Error(`This Companion is older than the Shut down button (${STARTABLE}): update it in Settings → Updates, then try again.`);
   const body = (await response.json().catch(() => ({}))) as { error?: string };
   if (!response.ok) throw new Error(body.error || `The Companion said ${response.status}.`);
 }
