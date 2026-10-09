@@ -2,7 +2,7 @@ import DOMPurify from 'dompurify';
 import { cleanFigure } from '../lib/sanitize';
 import { typesetFigureMath } from '../lib/figureMath';
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
-import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createContext, Fragment, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Screen } from '../lib/assistant';
 import { ASSISTANT_NAME, geminiNote, getState, looksLikeKey, MODELS, modelSpec, PROVIDERS, saveKey, setAskModel, setExplainModel, subscribe } from '../lib/assistant';
 import ModelChip from './ModelChip';
@@ -62,6 +62,13 @@ import { cellKey, colabAvailable, colabGranted, connect as connectColab, forgetR
 import { KeepButton, KeepContext, tableText, useKept, useKeeper } from './Keep';
 import BoxSnip from './BoxSnip';
 import FigureCloseUp, { CLOSEUP_ART, closeUpVisuals } from './FigureCloseUp';
+import { copyText } from './CopyBlock';
+import CopyBlock from './CopyBlock';
+import { findFigure, loadPaperFigures, paperFiguresFor, setFigureReader, subscribePaperFigures } from '../lib/paperFigures';
+import { figuresOnScreen } from '../lib/figureReader';
+
+// The paper's own figures are read from the Reflow column, or the PDF, when a page is written.
+setFigureReader(figuresOnScreen);
 import type { CloseUpVisual } from './FigureCloseUp';
 import type { Flash } from './PassageFlash';
 import PassageFlash from './PassageFlash';
@@ -160,15 +167,36 @@ const PAGES: { id: WrittenPage; label: string; note: string }[] = [
 const NOTEBOOK_NOTE = 'Your notebook: cells of your own on your Colab runtime, the same kernel the pages’ cells run in, kept here. Its Export menu takes the notebook, the explanation or the plan’s scaffold out — an .ipynb, a zip, or a commit opened in Colab.';
 
 const VERDICT_CELL = /<td>(Still holds|Holds|Refined(?: since)?|Superseded|Disputed|Disproved)<\/td>/gi;
-/** Prose, with a verdict alone in a table cell (the "Since then" table) drawn as its chip. */
+/** A code block in prose, with a Copy button on its corner; the page's own click handler does the copying (see `copyProseCode`). */
+const PROSE_PRE = /<pre(\s[^>]*)?>([\s\S]*?)<\/pre>/g;
+/** Prose, with a verdict alone in a table cell (the "Since then" table) drawn as its chip, and each code block copyable. */
 const html = (md: string) =>
   DOMPurify.sanitize(
-    markdown(md).replace(VERDICT_CELL, (_, word: string) => {
-      const verdict = word.toLowerCase().replace(/^still /, '').replace(/ since$/, '');
-      return `<td><span class="verdict-chip v-${verdict}">${word}</span></td>`;
-    }),
+    markdown(md)
+      .replace(VERDICT_CELL, (_, word: string) => {
+        const verdict = word.toLowerCase().replace(/^still /, '').replace(/ since$/, '');
+        return `<td><span class="verdict-chip v-${verdict}">${word}</span></td>`;
+      })
+      .replace(PROSE_PRE, (whole) => `<div class="copy-block prose-code">${whole}<button type="button" class="copy-block-btn" data-copy-code="" aria-label="Copy — the whole block" title="Copy the whole block"></button></div>`),
     { ADD_ATTR: ['target'] },
   );
+
+/**
+ * A click on a prose code block's Copy button, wherever on the page it is: the
+ * prose is set as HTML, so its buttons are answered here, by delegation.
+ * True when the click was one.
+ */
+function copyProseCode(target: EventTarget | null): boolean {
+  const button = target instanceof Element ? target.closest<HTMLButtonElement>('button[data-copy-code]') : null;
+  const pre = button?.parentElement?.querySelector('pre');
+  if (!button || !pre) return false;
+  // The label is drawn by the stylesheet, so the page's text — what is quoted, kept or sent — never reads "Copy".
+  void copyText(pre.textContent ?? '').then((ok) => {
+    button.classList.add(ok ? 'is-done' : 'is-failed');
+    window.setTimeout(() => button.classList.remove('is-done', 'is-failed'), 1600);
+  });
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // Python, coloured — a few regular expressions, not a parser
@@ -258,22 +286,24 @@ function CodeCell({ block, index, onAsk, asker, writer }: { block: Extract<Block
         {run ? <RunState run={run} /> : null}
         {/* In the header, beside Copy — a button on the corner would sit on Run in Colab. */}
         <KeepButton selector=".explain-cell" what="cell" />
+        {/* Every cell can be copied, whatever its language — an output or a snippet as much as a runnable cell. */}
+        {!live && !block.open ? (
+          <button
+            type="button"
+            className="btn sm ghost"
+            onClick={() => {
+              void copyText(block.code).then((ok) => {
+                setCopied(ok);
+                if (ok) window.setTimeout(() => setCopied(false), 1400);
+              });
+            }}
+            title="Copy the code of this cell"
+          >
+            {copied ? 'Copied ✓' : 'Copy'}
+          </button>
+        ) : null}
         {python || shell ? (
           <>
-            {!live ? (
-              <button
-                type="button"
-                className="btn sm ghost"
-                onClick={() => {
-                  void navigator.clipboard?.writeText(block.code).then(() => {
-                    setCopied(true);
-                    window.setTimeout(() => setCopied(false), 1400);
-                  });
-                }}
-              >
-                {copied ? 'Copied' : 'Copy'}
-              </button>
-            ) : null}
             {shell && project ? (
               <button type="button" className="btn sm local-run" disabled={local.running || block.open} onClick={() => void runLocally(block.code.trim())} title={`Run in ${project.dir}`}>
                 ▶ Run locally
@@ -316,7 +346,7 @@ function CodeCell({ block, index, onAsk, asker, writer }: { block: Extract<Block
       ) : block.output !== undefined ? (
         <div className="cell-output">
           <div className="cell-output-label">Expected output · written by Claude, not run yet</div>
-          <pre>{block.output}</pre>
+          <CopyBlock code={block.output} label="Copy output" />
         </div>
       ) : null}
     </figure>
@@ -346,6 +376,36 @@ function Figure({ block, onAnimate, writer }: { block: Extract<Block, { kind: 'f
           <span>Motion would help here, {writer ?? 'the model'} thinks: the scene follows the paragraphs as you read.</span>
         </div>
       ) : null}
+    </figure>
+  );
+}
+
+/** The paper the page is about, for the paper's own figures it places (paperFigures.ts). */
+const PaperContext = createContext<string | null>(null);
+
+/** One of the paper's own figures, where the page placed it: the picture kept from the paper, its name, and what to look at in it. */
+function PaperFigureView({ block }: { block: Extract<Block, { kind: 'paperFigure' }> }) {
+  const paperId = useContext(PaperContext);
+  const figures = useSyncExternalStore(subscribePaperFigures, () => (paperId ? paperFiguresFor(paperId) : undefined));
+  const figure = figures ? findFigure(figures, block.ref) : undefined;
+  const name = figure?.ref ?? (block.ref || 'A figure');
+  return (
+    <figure className="explain-figure is-paper" data-ref={name}>
+      {figure ? (
+        // Click it, or press Enter on it, and it opens close up, like the figures the model drew.
+        <div className="figure-art paper-art" role="button" tabIndex={0} aria-label={`See ${name} of the paper close up`} title="Click for a close-up">
+          <img src={`data:image/jpeg;base64,${figure.data}`} width={figure.width} height={figure.height} alt={`${name} of the paper${figure.caption ? `: ${figure.caption}` : ''}`} />
+        </div>
+      ) : (
+        <div className="figure-art drawing paper-missing">
+          {block.open ? 'Placing the figure…' : figures ? `${name} is not among the figures read from this paper.` : `${name} of the paper — open the paper in Reflow, or write the page again, to read its figures.`}
+        </div>
+      )}
+      <figcaption>
+        <span className="paper-figure-ref">{name} · from the paper</span>
+        {block.caption ? ` — ${block.caption}` : null}
+      </figcaption>
+      {block.md ? <div className="paper-figure-note" dangerouslySetInnerHTML={{ __html: html(block.md) }} /> : null}
     </figure>
   );
 }
@@ -439,6 +499,8 @@ function sectionText(section: Section): string {
         ? block.md
         : block.kind === 'figure'
           ? `[Diagram${block.caption ? `: ${block.caption}` : ''}]`
+          : block.kind === 'paperFigure'
+            ? `[${block.ref} of the paper${block.caption ? `: ${block.caption}` : ''}]${block.md ? ` ${block.md}` : ''}`
           : block.kind === 'motion'
             ? motionText(block.title, block.spec)
           : block.kind === 'code'
@@ -511,6 +573,8 @@ function SectionView({
       <div key={key} className="explain-prose" dangerouslySetInnerHTML={{ __html: html(block.md) }} />
     ) : block.kind === 'figure' ? (
       <Figure key={key} block={block} writer={writer} onAnimate={onAnimate && stage !== 'off' && !motion && state !== 'revising' ? (caption) => onAnimate(section.title, caption) : undefined} />
+    ) : block.kind === 'paperFigure' ? (
+      <PaperFigureView key={key} block={block} />
     ) : block.kind === 'motion' ? (
       <MotionView key={key} block={block} compact={stage === 'inline'} writer={asker ?? writer} />
     ) : block.kind === 'code' ? (
@@ -975,6 +1039,8 @@ export default function Explain({ paperId, title, authors, published, screen, on
     setChecked(false);
     void store.load(paperId).finally(() => setChecked(true));
   }, [paperId, driveConnected, store]);
+  // The paper's own figures the page places, as they were kept when it was written.
+  useEffect(() => void loadPaperFigures(paperId), [paperId]);
   useEffect(() => {
     // A new page: the bar's chips were about the other one.
     setScope({});
@@ -1246,9 +1312,11 @@ export default function Explain({ paperId, title, authors, published, screen, on
     // The buttons under a figure, a scene's own controls and the corner button are theirs, not a click on the drawing.
     if (target.closest('button, a, input, .figure-animate, .motion-steps, .motion-head')) return null;
     const art = target.closest<HTMLElement>(CLOSEUP_ART);
-    return art && art.querySelector(':scope > svg') ? art : null;
+    return art && art.querySelector(':scope > svg, :scope > img') ? art : null;
   };
   const onDocClick = (event: ReactMouseEvent) => {
+    // A code block's Copy button in the prose, which is set as HTML and so answered here.
+    if (copyProseCode(event.target)) return;
     const art = artOf(event.target);
     // Dragging across a figure to select the text round it is not a click on it.
     if (!art || window.getSelection()?.toString()) return;
@@ -1725,6 +1793,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
           ) : null}
         </nav>
 
+        <PaperContext.Provider value={paperId}>
         <KeepContext.Provider value={keepElement}>
         <PlanContext.Provider value={plan}>
         <article
@@ -1837,6 +1906,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
         </article>
         </PlanContext.Provider>
         </KeepContext.Provider>
+        </PaperContext.Provider>
       </div>
       {side ? (
         <aside className="nb-side explain-side" aria-label={side === 'runtime' ? 'The runtime' : side === 'metrics' ? 'Training metrics' : 'Files on the runtime'}>

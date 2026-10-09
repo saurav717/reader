@@ -14,6 +14,8 @@
 //                                      superseded, disputed or disproved
 //    ```motion title="…" figure="…"    a scene: the figure above it with steps,
 //                                      drawn and played by the page (motion.ts)
+//    ```paper-figure ref="Figure 3" caption="…"   one of the paper's own figures,
+//                                      drawn from what paperFigures.ts kept
 //
 //  Everything else is ordinary Markdown, and `## ` headings are the sections
 //  the outline lists. The same key and SDK as Ask Claude (assistant.ts); the
@@ -25,6 +27,8 @@ import type { Screen, SDK } from './assistant';
 import { db } from './db';
 import { MOTION_FORMAT, parseMotion } from './motion';
 import type { MotionSpec } from './motion';
+import { figureList, gatherPaperFigures } from './paperFigures';
+import type { PaperFigure } from './paperFigures';
 
 /**
  * The explanation is long by design; this caps a runaway, it does not budget one.
@@ -68,6 +72,15 @@ FORMAT — plain Markdown, with these rules the page depends on:
   things, a procedure with steps, a quantity that changes with a knob — mark the figure as worth animating with
   animate="yes" in its fence (at most three per page; never a table, a timeline, a list or a definition). Do NOT write
   a scene unless the reader asks for one; when they do, write it as described under SCENES, right after the figure.
+- The paper's own figures: when a <paper_figures> list is given, put the paper's figure on the page where the reader
+  should look at it — the architecture as the authors drew it, the plot a result rests on, a table of the key numbers,
+  qualitative samples — with a fenced block of its own, right after the paragraph that discusses it:
+  \`\`\`paper-figure ref="Figure 3" caption="What to look at in it, in one line"\`
+  then, inside the block, 1–3 sentences of Markdown that walk the reader through it: what the axes, panels or boxes
+  are, and what to notice. Close the block with \`\`\`. Use ONLY names from that list, each at most once, and
+  refer to it in the prose ("in Figure 3 of the paper, …"). Where you were shown the pictures, describe what is
+  actually in them. Prefer the paper's figure to redrawing the same thing; draw your own figure only to show what
+  the paper does not. Two to six of the paper's figures on a page is typical; none when no list is given.
 - Name papers only when you are sure they exist.
 
 ${MOTION_FORMAT}
@@ -105,6 +118,8 @@ export type Block =
   | { kind: 'motion'; title: string; figure: string; src: string; spec: MotionSpec | null; open: boolean }
   | { kind: 'code'; lang: string; title: string; code: string; output?: string; open: boolean }
   | { kind: 'caveat'; verdict: Verdict; title: string; md: string }
+  // One of the paper's own figures, named as the paper names it; the picture is the one paperFigures.ts kept.
+  | { kind: 'paperFigure'; ref: string; caption: string; md: string; open: boolean }
   // The Implementation page's own blocks (implement.ts): a directory tree, a
   // starter file, and the work in the paper as numbers the page turns into hours.
   | { kind: 'tree'; text: string; open: boolean }
@@ -191,6 +206,9 @@ export function parseExplanation(src: string): Section[] {
       } else if (lang === 'motion' || lang === 'scene') {
         flush();
         current.blocks.push({ kind: 'motion', title: info.title ?? '', figure: info.figure ?? '', src: text, spec: open ? null : parseMotion(text), open });
+      } else if (/^paper[-_]?(figure|table|fig)$/.test(lang)) {
+        flush();
+        current.blocks.push({ kind: 'paperFigure', ref: info.ref ?? info.figure ?? info.name ?? '', caption: info.caption ?? '', md: text.trim(), open });
       } else if (lang === 'caveat') {
         flush();
         current.blocks.push({ kind: 'caveat', verdict: asVerdict(info.verdict), title: info.title ?? '', md: text.trim() });
@@ -227,6 +245,13 @@ export function parseExplanation(src: string): Section[] {
       }
       continue;
     }
+    // A figure of the paper named the way Ask Claude names one, alone on its line: drawn as the block would be.
+    const named = /^\s*!\[([^\]]*)\]\(\s*(figure|table)\s*:\s*([\w.]+)\s*\)\s*$/i.exec(line);
+    if (named) {
+      flush();
+      current.blocks.push({ kind: 'paperFigure', ref: `${named[2].toLowerCase() === 'table' ? 'Table' : 'Figure'} ${named[3]}`, caption: named[1], md: '', open: false });
+      continue;
+    }
     prose.push(line);
   }
   flush();
@@ -261,6 +286,7 @@ export function notebook(title: string, sections: Section[], writer = 'Claude'):
       if (block.kind === 'prose') parts.push(block.md);
       else if (block.kind === 'caveat') parts.push(`> **${VERDICTS[block.verdict]}${block.title ? ` — ${block.title}` : ''}.** ${block.md.replace(/\n/g, '\n> ')}`);
       else if (block.kind === 'figure') parts.push(`*Figure: ${block.caption || 'see the explanation page'}*`);
+      else if (block.kind === 'paperFigure') parts.push(`*${block.ref} of the paper${block.caption ? ` — ${block.caption}` : ''}*${block.md ? `\n\n${block.md}` : ''}`);
       else if (block.kind === 'motion') parts.push(`*Scene${block.title ? `: ${block.title}` : ''} — played on the explanation page${block.spec ? `. ${block.spec.steps.map((s) => s.caption).filter(Boolean).join(' ')}` : ''}*`);
       else if (block.kind === 'tree') parts.push(`\`\`\`\n${block.text}\n\`\`\``);
       else if (block.kind === 'compute') parts.push('*The compute budget is on the Implementation page, worked out for your hardware.*');
@@ -423,7 +449,7 @@ function revisionRequest(content: string, request: string, scope: RevisionScope)
     `Change the page to satisfy it. If it is a question, answer it inside the page: expand the section it belongs to, or add a
 new section right after that one. If it asks to adjust the content (simpler, deeper, other code, more figures, less maths…),
 rewrite only the sections that must change, and keep every other section exactly as it is. Follow the same format rules
-(figure, python, output, caveat and motion blocks). If you add or change a caveat, keep "Since then" consistent with it.
+(figure, paper-figure, python, output, caveat and motion blocks). If you add or change a caveat, keep "Since then" consistent with it.
 If the request is to animate a figure or a section, add ONE motion block right after the figure it animates (keep the
 figure), with a step for each paragraph of the section, and change nothing else in it.
 
@@ -683,7 +709,7 @@ export function stopExplaining() {
 }
 
 /** The system prompt, identical for the first page and every revision, so the paper is read from the cache. */
-function systemFor(screen: Screen) {
+function systemFor(screen: Screen, figures: readonly PaperFigure[] = []) {
   const paper = screen.paper!;
   const text = screen.fullText?.trim() ?? '';
   const details = [
@@ -699,7 +725,9 @@ function systemFor(screen: Screen) {
     { type: 'text' as const, text: EXPLAIN_SYSTEM },
     {
       type: 'text' as const,
-      text: [tag('paper', details), tag('abstract', paper.abstract), tag('paper_text', text.slice(0, FULL_TEXT_MAX_CHARS))].filter(Boolean).join('\n\n'),
+      text: [tag('paper', details), tag('abstract', paper.abstract), tag('paper_text', text.slice(0, FULL_TEXT_MAX_CHARS)), figures.length ? tag('paper_figures', figureList(figures)) : '']
+        .filter(Boolean)
+        .join('\n\n'),
       cache_control: { type: 'ephemeral' as const },
     },
   ];
@@ -709,6 +737,31 @@ const firstAsk = (screen: Screen) =>
   screen.fullText?.trim()
     ? 'Write the explanation page for this paper.'
     : 'Only the details and abstract of this paper could be read, not its full text. Write the explanation page from them and what you reliably know of the paper, and say at the top that the full text was not available.';
+
+type FirstContent = string | ({ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } } | { type: 'image'; source: { type: 'base64'; media_type: 'image/jpeg'; data: string } })[];
+
+/**
+ * The first request, the same for the page and every revision of it: the ask,
+ * led by the paper's figures as pictures, each named, when the model can see
+ * them. Claude's copy is cached at its end, so a revision pays for the
+ * pictures once.
+ */
+export function firstMessage(screen: Screen, figures: readonly PaperFigure[], model: string): FirstContent {
+  const ask = firstAsk(screen);
+  const spec = modelSpec(model);
+  if (!figures.length || !spec.vision) return ask;
+  return [
+    ...figures.flatMap((figure) => [
+      { type: 'text' as const, text: `${figure.ref} of the paper — ${figure.caption || 'no caption'}` },
+      { type: 'image' as const, source: { type: 'base64' as const, media_type: 'image/jpeg' as const, data: figure.data } },
+    ]),
+    {
+      type: 'text' as const,
+      text: `Those are the paper's own figures, as listed in <paper_figures>. ${ask}`,
+      ...(spec.provider === 'anthropic' ? { cache_control: { type: 'ephemeral' as const } } : {}),
+    },
+  ];
+}
 
 /** A paper's worth of thinking takes minutes; this is what the page shows meanwhile. */
 function setThinking(paperId: string, thinking: string | undefined) {
@@ -727,7 +780,7 @@ async function streamOnce(
   paperId: string,
   model: string,
   effort: 'low' | 'medium' | 'high',
-  params: { system: ReturnType<typeof systemFor>; messages: { role: 'user' | 'assistant'; content: string }[] },
+  params: { system: ReturnType<typeof systemFor>; messages: { role: 'user' | 'assistant'; content: FirstContent }[] },
   onText: (text: string) => void,
 ): Promise<{ stop: string | null }> {
   const stream = await streamModel({ model, maxTokens: MAX_TOKENS, ...params, effort });
@@ -776,7 +829,9 @@ export async function generateExplanation(screen: Screen, model: string) {
   let SDK: SDK | null = null;
   try {
     if (modelSpec(model).provider === 'anthropic') SDK = await sdk();
-    const { stop } = await streamOnce(paper.id, model, 'medium', { system: systemFor(screen), messages: [{ role: 'user', content: firstAsk(screen) }] }, (text) => {
+    // The paper's own figures, read afresh: the page places them, and a model that can see is shown them.
+    const figures = await gatherPaperFigures(paper.id, { fresh: true });
+    const { stop } = await streamOnce(paper.id, model, 'medium', { system: systemFor(screen, figures), messages: [{ role: 'user', content: firstMessage(screen, figures, model) }] }, (text) => {
       entry.content = text;
       cache.set(paper.id, { ...entry });
       notify();
@@ -821,14 +876,16 @@ export async function reviseExplanation(screen: Screen, request: string, scope: 
   let SDK: SDK | null = null;
   try {
     if (modelSpec(answerer).provider === 'anthropic') SDK = await sdk();
+    // The figures the page was written with, so the request reads as the page did.
+    const figures = await gatherPaperFigures(paper.id);
     const { stop } = await streamOnce(
       paper.id,
       answerer,
       'medium',
       {
-        system: systemFor(screen),
+        system: systemFor(screen, figures),
         messages: [
-          { role: 'user', content: firstAsk(screen) },
+          { role: 'user', content: firstMessage(screen, figures, answerer) },
           { role: 'assistant', content: before },
           { role: 'user', content: revisionRequest(before, pending.request, scope) },
         ],

@@ -171,6 +171,9 @@ export function showPdf(blob: Blob | null) {
   pdfOnScreen = blob;
 }
 
+/** The PDF shown in PDF mode, for reading its figures out of it (paperFigures.ts). */
+export const pdfShown = (): Blob | null => pdfOnScreen;
+
 async function extractPdfText(blob: Blob): Promise<string[]> {
   const engine = await import('./pdfReflow');
   const { doc, close } = await engine.openPdf(blob);

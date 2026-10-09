@@ -168,3 +168,62 @@ describe('the copy in Drive', async () => {
     assert.equal(file.fromMarkdownFile('---\nmodel: "x"\n---\n\n', paper.id), null);
   });
 });
+
+describe("the paper's own figures", async () => {
+  const figures = await load('src/lib/paperFigures.ts');
+  const kept = [
+    { ref: 'Figure 1', kind: 'figure', caption: 'Figure 1: The Transformer - model architecture.', data: 'AAAA', width: 400, height: 600 },
+    { ref: 'Figure 2', kind: 'figure', caption: 'Figure 2: (left) Scaled Dot-Product Attention.', data: 'BBBB', width: 600, height: 300 },
+    { ref: 'Table 2', kind: 'table', caption: 'Table 2: BLEU scores.', data: 'CCCC', width: 800, height: 300 },
+  ];
+  it('asks for them by name, only from the list it is given', () => {
+    assert.match(explain.EXPLAIN_SYSTEM, /```paper-figure ref="Figure 3"/);
+    assert.match(explain.EXPLAIN_SYSTEM, /Use ONLY names from that list/);
+  });
+  it('reads a paper-figure block, and a figure named as Ask Claude names one', () => {
+    const page = [
+      '## How it works',
+      'The encoder is on the left.',
+      '```paper-figure ref="Figure 1" caption="The encoder and decoder stacks"',
+      'The **left** column is the encoder.',
+      '```',
+      'Then attention.',
+      '![The attention block](figure:2)',
+    ].join('\n');
+    const [section] = explain.parseExplanation(page);
+    const placed = section.blocks.filter((b) => b.kind === 'paperFigure');
+    assert.deepEqual(placed.map((b) => [b.ref, b.caption]), [['Figure 1', 'The encoder and decoder stacks'], ['Figure 2', 'The attention block']]);
+    assert.equal(placed[0].md, 'The **left** column is the encoder.');
+    assert.equal(placed[0].open, false);
+    assert.match(explain.notebook('T', [section]), /Figure 1 of the paper — The encoder and decoder stacks/);
+  });
+  it('a figure named in the middle of a sentence stays in the prose', () => {
+    const [section] = explain.parseExplanation('## A\nSee ![x](figure:1) here.');
+    assert.equal(section.blocks.some((b) => b.kind === 'paperFigure'), false);
+  });
+  it('matches a name however it is written', () => {
+    assert.equal(figures.figureKey('Fig. 2'), 'figure:2');
+    assert.equal(figures.figureKey('figure:2'), 'figure:2');
+    assert.equal(figures.figureKey('Tab. 2'), 'table:2');
+    assert.equal(figures.findFigure(kept, 'Figure 2b')?.data, 'BBBB', 'a panel is found in its figure');
+    assert.equal(figures.findFigure(kept, 'Table 2')?.data, 'CCCC');
+    assert.equal(figures.findFigure(kept, 'Figure 7'), undefined);
+    assert.deepEqual(figures.refFromCaption('Fig. 4. Results on ImageNet'), { ref: 'Figure 4', kind: 'figure' });
+    assert.equal(figures.refFromCaption('The figure shows'), null);
+  });
+  it('lists them for the model by name and caption', () => {
+    const list = figures.figureList(kept);
+    assert.match(list, /^- Figure 1: The Transformer - model architecture\.$/m);
+    assert.match(list, /^- Table 2: BLEU scores\.$/m);
+  });
+  it('shows a model that can see the pictures, each named, before the ask', () => {
+    const screen = { where: 'x', paper: { id: 'p', title: 'T', authors: [] }, fullText: 'text' };
+    const content = explain.firstMessage(screen, kept, 'claude-sonnet-5');
+    assert.ok(Array.isArray(content));
+    assert.equal(content.filter((part) => part.type === 'image').length, 3);
+    assert.equal(content[0].text.startsWith('Figure 1 of the paper'), true);
+    assert.match(content.at(-1).text, /Write the explanation page/);
+    assert.deepEqual(content.at(-1).cache_control, { type: 'ephemeral' });
+    assert.equal(explain.firstMessage(screen, [], 'claude-sonnet-5'), 'Write the explanation page for this paper.');
+  });
+});
