@@ -3,6 +3,7 @@ and websockets both ways, and lets only the reader's site frame it. The VS Code 
 
 import json
 import socket
+import time
 
 from tornado import websocket
 from tornado.testing import AsyncHTTPTestCase, bind_unused_port, gen_test
@@ -69,6 +70,20 @@ class ProxyTest(AsyncHTTPTestCase):
         self.assertFalse(any("'none'" in policy for policy in policies))
         posted = self.fetch("/companion/vscode/s3cret/api", method="POST", body="hello")
         self.assertEqual(json.loads(posted.body)["body"], "hello")
+
+    def test_an_error_here_is_said_in_the_frame_not_as_a_bare_500(self):
+        original = extension.VsCodeProxy.upstream_headers
+        extension.VsCodeProxy.upstream_headers = lambda self: (_ for _ in ()).throw(KeyError("something odd"))
+        try:
+            response = self.fetch("/companion/vscode/s3cret/")
+        finally:
+            extension.VsCodeProxy.upstream_headers = original
+        self.assertEqual(response.code, 500)
+        page = response.body.decode()
+        self.assertIn("KeyError: &#x27;something odd&#x27;", page)
+        self.assertIn("companion.log", page)
+        self.assertNotIn("500: Internal Server Error", page)
+        self.assertIn(f"frame-ancestors 'self' {ORIGIN}", response.headers["Content-Security-Policy"])
 
     def test_a_wrong_secret_or_vscode_off_is_not_found(self):
         self.assertEqual(self.fetch("/companion/vscode/guess/").code, 404)
@@ -151,6 +166,11 @@ class StoppedTest(AsyncHTTPTestCase):
         self.assertEqual(response.code, 503)
         self.assertIn(b'http-equiv="refresh"', response.body)
         self.assertIn(f"frame-ancestors 'self' {ORIGIN}", response.headers["Content-Security-Policy"])
+        # The start runs on a thread of its own, so the page is answered at once: wait for it.
+        for _ in range(100):
+            if self.started:
+                break
+            time.sleep(0.01)
         self.assertEqual(self.started, [True])
 
     def test_one_that_could_not_be_started_says_why(self):

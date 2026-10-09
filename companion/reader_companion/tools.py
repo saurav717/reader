@@ -149,7 +149,8 @@ class VsCodeWeb:
     def status(self) -> dict:
         if self.process and self.process.poll() is not None and self.state != "failed":
             self.state, self.error = "failed", "VS Code stopped: " + " | ".join(self.tail[-3:])
-        return {"state": self.state, "error": self.error, "path": f"{self.base_path}/" if self.state == "ready" else ""}
+        # Its last lines, for the page to show when something is wrong: what VS Code itself said.
+        return {"state": self.state, "error": self.error, "path": f"{self.base_path}/" if self.state == "ready" else "", "log": self.tail[-12:]}
 
     def start(self) -> dict:
         with self.lock:

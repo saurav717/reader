@@ -180,3 +180,28 @@ describe('a playground names its computer by its Companion', () => {
     assert.deepEqual(seed.map((cell) => [cell.type, cell.source]), [['markdown', '# Hi'], ['code', 'print(1)']]);
   });
 });
+
+describe('where a playground’s code is, and whether this browser can open it', () => {
+  const names = { pc: 'Saurav’s MacBook Air', gpu: 'GPU box' };
+  const ctx = (extra = {}) => ({ serverName: (id) => names[id], down: () => false, browserHasFiles: true, ...extra });
+  const onPc = { kind: 'server', serverId: 'pc', root: 'playgrounds/cifar' };
+  it('says where its files are and where it runs', () => {
+    const at = pg.reachOf({ kind: 'project', home: onPc, compute: { kind: 'server', serverId: 'pc' } }, ctx());
+    assert.equal(at.files, 'Saurav’s MacBook Air · playgrounds/cifar');
+    assert.equal(at.runs, 'Saurav’s MacBook Air, where its files are');
+    assert.equal(at.blocked, undefined);
+    const split = pg.reachOf({ kind: 'project', home: onPc, compute: { kind: 'server', serverId: 'gpu' } }, ctx());
+    assert.equal(split.runs, 'GPU box — the folder is copied there to run');
+  });
+  it('does not open a project whose files are on a computer this browser can’t reach, or in another browser', () => {
+    assert.match(pg.reachOf({ kind: 'project', home: { ...onPc, serverId: 'elsewhere' }, compute: { kind: 'colab', machine: {} } }, ctx()).blocked, /isn’t paired/);
+    assert.match(pg.reachOf({ kind: 'project', home: { kind: 'browser' }, compute: { kind: 'colab', machine: {} } }, ctx({ browserHasFiles: false })).blocked, /browser it was made in/);
+    // A notebook's cells are in Drive with the list: it opens anywhere.
+    assert.equal(pg.reachOf({ kind: 'notebook', home: { kind: 'browser' }, compute: { kind: 'colab', machine: {} } }, ctx({ browserHasFiles: false })).blocked, undefined);
+  });
+  it('warns, without blocking, when the computer with its files is off', () => {
+    const at = pg.reachOf({ kind: 'project', home: onPc, compute: { kind: 'server', serverId: 'pc' } }, ctx({ down: () => true }));
+    assert.equal(at.blocked, undefined);
+    assert.match(at.warn, /isn’t answering/);
+  });
+});

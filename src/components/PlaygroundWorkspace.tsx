@@ -11,7 +11,7 @@ import { backendLabel, chooseBackend, colabAvailable, colabNow, connect, forgetR
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, Playground, SyncReport } from '../lib/playground';
 import { blankCells, filesAreOnMachine, homeHost, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
-import { STARTABLE, companionPort, companionTools, findCompanion, isSecure, shutdownCompanion, startCompanion, vscodeWeb } from '../lib/companion';
+import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
 import { AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
 import type { AgentOptions, AgentSpec } from '../lib/agents';
@@ -281,7 +281,7 @@ function MachineChip({ playground, name, usable, onChange, onNote }: { playgroun
   const sample = colab.sample;
   const busy = sample ? [sample.gpu ? `GPU ${sample.gpu.util}%` : '', sample.cpu !== undefined ? `CPU ${sample.cpu}%` : ''].filter(Boolean).join(' · ') : '';
   const state =
-    power === 'stopping' ? 'shutting down…' : power === 'starting' ? 'starting…' : colab.status === 'connecting' ? 'connecting…' : colab.reconnecting ? 'reconnecting…' : colab.status === 'busy' ? busy || 'running' : connected ? 'idle' : power === 'down' ? 'shut down' : colab.status === 'lost' ? 'ended' : 'not connected';
+    power === 'stopping' ? 'shutting down…' : power === 'starting' ? 'starting…' : colab.status === 'connecting' ? 'connecting…' : colab.reconnecting ? 'reconnecting…' : colab.status === 'busy' ? busy || 'running' : connected ? 'idle' : power === 'down' ? 'shut down' : colab.status === 'lost' ? 'ended' : playground.compute.kind === 'server' ? 'kernel not started' : 'not connected';
 
   const shutDown = async () => {
     if (!companion) return;
@@ -313,7 +313,7 @@ function MachineChip({ playground, name, usable, onChange, onNote }: { playgroun
   };
   return (
     <div className="menu-wrap" ref={box}>
-      <button type="button" className={`colab-chip pg-chip is-${dot}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title={colab.error || `Cells run on ${name}`}>
+      <button type="button" className={`colab-chip pg-chip is-${dot}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title={colab.error || (state === 'kernel not started' ? `Cells run on ${name}. Its kernel starts with the first cell or command; the terminal, the files and the agent don't need it — they reach the computer through its Companion.` : `Cells run on ${name}`)}>
         {playground.compute.kind === 'colab' ? <ColabMark /> : <span className={`pg-mark ${serverById(playground.compute.serverId)?.where === 'pc' ? 'is-pc' : 'is-gpu'}`}>{serverById(playground.compute.serverId)?.where === 'pc' ? 'PC' : 'GPU'}</span>}
         <span className={`colab-dot is-${dot}`} aria-hidden="true" />
         {name} · {state}
@@ -650,6 +650,29 @@ function VsCodePane({ server, folder, playground }: { server: JupyterServer; fol
   const [status, setStatus] = useState<VsCodeWeb | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [round, setRound] = useState(0);
+  const [showLog, setShowLog] = useState(false);
+  // VS Code in the page leans on the Companion's fixes (0.7.2: started again when it stops answering): an older one is offered the update here.
+  const [companion, setCompanion] = useState<{ version: string; updating?: boolean; error?: string } | null>(null);
+  useEffect(() => {
+    let live = true;
+    void findCompanion(server.url.replace(/\/?$/, '/'), 3000).then((info) => live && info && setCompanion({ version: info.version }));
+    return () => {
+      live = false;
+    };
+  }, [server.url, round]);
+  const outdated = companion && isNewer(COMPANION_VERSION, companion.version) ? companion : null;
+  const update = async () => {
+    if (!outdated) return;
+    setCompanion({ ...outdated, updating: true, error: undefined });
+    try {
+      const done = await updateCompanion(server);
+      const back = done.updated ? await waitForVersion(server.url.replace(/\/?$/, '/'), done.version) : null;
+      setCompanion({ version: back?.version ?? done.version });
+      setRound((n) => n + 1);
+    } catch (error) {
+      setCompanion({ ...outdated, updating: false, error: error instanceof Error ? error.message : String(error) });
+    }
+  };
   useEffect(() => {
     let live = true;
     let timer = 0;
@@ -688,12 +711,26 @@ function VsCodePane({ server, folder, playground }: { server: JupyterServer; fol
         <EditorSwitch playground={playground} />
         <span className="pg-note mono">{status?.folder || folder}</span>
         <span className="spacer" />
+        {status?.log.length ? (
+          <button type="button" className={`btn sm ghost${showLog ? ' is-on' : ''}`} aria-pressed={showLog} onClick={() => setShowLog(!showLog)} title="What VS Code itself printed last, on that computer">
+            VS Code’s output
+          </button>
+        ) : null}
         {src ? (
           <a className="btn sm ghost" href={src} target="_blank" rel="noreferrer" title="If the frame stays blank (some browsers keep a frame from another site out of its sign-in), it opens in a tab of its own">
             Open in a new tab
           </a>
         ) : null}
       </div>
+      {outdated ? (
+        <div className="pg-banner is-problem">
+          {outdated.error ?? `The Companion on ${server.name} is ${outdated.version}; VS Code in the page needs ${COMPANION_VERSION}, which starts VS Code again when it stops answering instead of showing “500: Internal Server Error”.`}
+          <button type="button" className="btn sm" disabled={outdated.updating} onClick={() => void update()}>
+            {outdated.updating ? 'Updating…' : 'Update it'}
+          </button>
+        </div>
+      ) : null}
+      {showLog && status?.log.length ? <pre className="pg-vscode-log">{status.log.join('\n')}</pre> : null}
       {src ? (
         <iframe key={frameRound} className="pg-vscode-frame" src={src} title={`VS Code on ${server.name}`} allow="clipboard-read; clipboard-write" />
       ) : (
