@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
 import type { CompanionInfo, CompanionPairing } from '../lib/companion';
-import { COMPANION_PORT, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, directBase, findCompanion, isSafari, normaliseCode, pairCompanion, pairFragment, showCompanionCode, vscodeInstall } from '../lib/companion';
+import { COMPANION_PORT, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, directBase, findCompanion, isSafari, latestMacDmg, normaliseCode, pairCompanion, pairFragment, showCompanionCode, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
@@ -517,7 +517,15 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
   const vscode = vscodeInstall(siteBase(), windows);
   const downloads = companionDownloads(siteBase());
   const [system, setSystem] = useState(desktopSystem);
-  const download = downloads[system];
+  const [dmg, setDmg] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void latestMacDmg().then((url) => live && setDmg(url));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const download = system === 'mac' && dmg ? { ...downloads.mac, href: dmg, file: 'Reader.dmg' } : downloads[system];
   const [found, setFound] = useState<CompanionInfo | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -608,14 +616,22 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
             {system === 'linux' ? (
               <CopyBlock code={download.command} />
             ) : (
-              <a className="btn primary pg-companion-download" href={download.href} download>
+              <a className="btn primary pg-companion-download" href={download.href} download={system === 'mac' && dmg ? undefined : true}>
                 Download for {download.label}
               </a>
             )}
             <small className="pg-companion-note">
               {system === 'mac' ? (
                 <>
-                  Open the zip, then double-click <b>{download.file}</b>. macOS asks once about this file from the internet: right-click it and choose <b>Open</b> (on macOS 15 and later, <b>Open Anyway</b> in System Settings → Privacy &amp; Security). The Reader app it makes is made on your Mac, so that opens without asking.
+                  {dmg ? (
+                    <>
+                      Open <b>Reader.dmg</b>, drag <b>Reader</b> to Applications, and open it. It’s signed and notarized by Apple, so macOS opens it without asking. The first time, it sets itself up in a minute or two.
+                    </>
+                  ) : (
+                    <>
+                      Open the zip, then double-click <b>{download.file}</b>. macOS stops it once (“Apple could not verify…”): click <b>Done</b>, then <b>Open Anyway</b> in System Settings → Privacy &amp; Security, and confirm. Or paste <span className="mono">{download.command}</span> into Terminal, which macOS doesn’t stop. The Reader app it makes is made on your Mac, so that one opens without asking.
+                    </>
+                  )}
                 </>
               ) : system === 'windows' ? (
                 <>

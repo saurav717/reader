@@ -1,0 +1,92 @@
+# Builds Reader.app and Reader.dmg on macOS (desktop/macos/build.sh).
+#
+# Every run uploads the .dmg as an artifact. With the signing secrets set it is
+# signed with your Developer ID and notarized by Apple, so it opens with no
+# warning; without them it is unsigned, for trying out. A tag app-v* (or a
+# manual run with "release" ticked) publishes a signed, notarized one as a
+# GitHub Release; the site's "Download for macOS" points at the newest.
+#
+# Secrets (Settings → Secrets and variables → Actions), see docs/macos-app.md:
+#   MACOS_CERTIFICATE           your Developer ID Application certificate, a .p12, base64
+#   MACOS_CERTIFICATE_PASSWORD  the .p12's password
+#   APPLE_ID                    the Apple Account of the developer membership
+#   APPLE_TEAM_ID               its Team ID (10 characters)
+#   APPLE_APP_PASSWORD          an app-specific password for it (account.apple.com)
+name: macOS app
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Publish the .dmg as a GitHub Release (needs the signing secrets)
+        type: boolean
+        default: false
+  push:
+    tags: ['app-v*']
+  pull_request:
+    paths: ['desktop/macos/**', 'companion/**', 'public/icons/**', 'scripts/build-companion.mjs', '.github/workflows/macos-app.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Put the signing certificate in a keychain of its own
+        if: env.MACOS_CERTIFICATE != ''
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/certificate.p12"
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -n 1)"
+          if [ -z "$IDENTITY" ]; then echo "::error::No Developer ID Application identity in MACOS_CERTIFICATE"; exit 1; fi
+          echo "MACOS_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      - name: Build Reader.app and Reader.dmg
+        run: sh desktop/macos/build.sh dist-macos
+
+      - name: Check the app
+        run: |
+          codesign --verify --strict --verbose=2 dist-macos/Reader.app
+          lipo -archs dist-macos/Reader.app/Contents/MacOS/Reader
+          lipo -archs dist-macos/Reader.app/Contents/Resources/uv
+          dist-macos/Reader.app/Contents/Resources/uv --version
+          plutil -lint dist-macos/Reader.app/Contents/Info.plist
+          echo "### Reader.dmg: $(cat dist-macos/status)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Reader-dmg
+          path: dist-macos/Reader.dmg
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/app-v') || inputs.release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(cat dist-macos/status)" != notarized ]; then
+            echo "::error::Only a signed, notarized Reader.dmg is published. Add the signing secrets (docs/macos-app.md)."
+            exit 1
+          fi
+          VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' companion/pyproject.toml)"
+          TAG="${GITHUB_REF_NAME}"
+          case "$TAG" in app-v*) ;; *) TAG="app-v$VERSION" ;; esac
+          gh release create "$TAG" dist-macos/Reader.dmg --title "Reader for macOS $VERSION" \
+            --notes "Reader.app with the Reader Companion $VERSION, signed and notarized. Open the .dmg and drag Reader to Applications." \
+            || gh release upload "$TAG" dist-macos/Reader.dmg --clobber

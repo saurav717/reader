@@ -193,3 +193,42 @@ export async function companionVsCode(server: { url: string; token: string }, in
   if (!response.ok) throw new Error(body.error || `The Companion said ${response.status}.`);
   return { editors: Array.isArray(body.editors) ? body.editors : [] };
 }
+
+/** Where the signed, notarized Reader.dmg is published: the macOS app workflow's GitHub Releases. */
+export const MAC_RELEASES = 'saurav717/reader';
+
+/**
+ * The newest published Reader.dmg (signed and notarized, see docs/macos-app.md),
+ * or null while there is none: then the Mac download stays the .command in a zip.
+ */
+export async function latestMacDmg(repo = MAC_RELEASES): Promise<string | null> {
+  try {
+    const cached = sessionStorage.getItem('reader.macDmg');
+    if (cached !== null) return cached || null;
+  } catch {
+    // no storage: ask each time
+  }
+  let found: string | null = null;
+  try {
+    const response = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=10`, { headers: { Accept: 'application/vnd.github+json' } });
+    if (response.ok) {
+      const releases = (await response.json()) as { draft?: boolean; prerelease?: boolean; assets?: { name?: string; browser_download_url?: string }[] }[];
+      for (const release of releases) {
+        if (release.draft || release.prerelease) continue;
+        const dmg = release.assets?.find((asset) => asset.name === 'Reader.dmg');
+        if (dmg?.browser_download_url) {
+          found = dmg.browser_download_url;
+          break;
+        }
+      }
+    }
+  } catch {
+    return null;
+  }
+  try {
+    sessionStorage.setItem('reader.macDmg', found ?? '');
+  } catch {
+    // fine
+  }
+  return found;
+}

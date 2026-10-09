@@ -133,13 +133,13 @@ describe('the wheel and the installers', () => {
     const { sh, ps1, wheel: url } = installers('https://example.org/reader', wheel.name);
     assert.equal(url, `https://example.org/reader/companion/${wheel.name}`);
     assert.ok(sh.includes(`WHEEL="${url}"`) && sh.includes('SITE="https://example.org/reader/"'));
-    assert.match(sh, /exec "\$UV" tool run --from "\$WHEEL" reader-companion --site "\$SITE" "\$@"/);
+    assert.match(sh, /exec "\$UV" tool run --python 3.12 --from "\$WHEEL" reader-companion --site "\$SITE" "\$@"/);
     assert.ok(ps1.includes(`$wheel = '${url}'`));
   });
   it('installs it for good from the setup scripts, and runs those from the double-click files', () => {
     const setup = setupInstallers('https://example.org/reader', wheel.name);
     const url = `https://example.org/reader/companion/${wheel.name}`;
-    assert.match(setup.sh, new RegExp(`tool install --force --quiet --from "\\$WHEEL" reader-companion`));
+    assert.match(setup.sh, new RegExp(`tool install --force --quiet --python 3.12 --from "\\$WHEEL" reader-companion`));
     assert.ok(setup.sh.includes(`WHEEL="${url}"`));
     assert.match(setup.sh, /exec "\$BIN\/reader-companion" setup --site "\$SITE" "\$@"/);
     assert.ok(setup.ps1.includes(`$wheel = '${url}'`) && setup.ps1.includes("'reader-companion.exe') setup --site $site"));
