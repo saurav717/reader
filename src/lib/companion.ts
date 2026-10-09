@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.6.1';
+export const COMPANION_VERSION = '0.6.2';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -325,20 +325,26 @@ export async function waitForVersion(base: string, version: string, forMs = 120_
 /** The first Companion the page can shut down and start again (POST /companion/shutdown, and reader-companion:// links). */
 export const STARTABLE = '0.6.0';
 
+/** The first Companion a page that hasn't paired with it can shut down, from this computer (not through its tunnel). */
+export const STOPPABLE_UNPAIRED = '0.6.2';
+
 /**
- * Shuts a paired Companion down (POST /companion/shutdown): its kernels, its
- * Jupyter server and the process. It stays off, at the next login too, until it
- * is started on purpose: startCompanion, the Reader app, or `reader-companion start`.
+ * Shuts a Companion down (POST /companion/shutdown): its kernels, its Jupyter
+ * server and the process. It stays off, at the next login too, until it is
+ * started on purpose: startCompanion, the Reader app, or `reader-companion start`.
+ * Without a token (a Companion found but not paired), only on this computer and
+ * from STOPPABLE_UNPAIRED on.
  */
-export async function shutdownCompanion(server: { url: string; token: string }): Promise<void> {
+export async function shutdownCompanion(server: { url: string; token?: string }): Promise<void> {
   let response: Response;
   try {
-    response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/shutdown`, { method: 'POST', headers: { Authorization: `token ${server.token}` } });
+    response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/shutdown`, { method: 'POST', headers: server.token ? { Authorization: `token ${server.token}` } : {} });
   } catch {
     throw new Error('The Companion isn’t answering: it may be off already.');
   }
   if (response.status === 404) throw new Error(`This Companion is older than the Shut down button (${STARTABLE}): update it in Settings → Updates, then try again.`);
   const body = (await response.json().catch(() => ({}))) as { error?: string };
+  if (response.status === 403 && !server.token) throw new Error(`This Companion turns off from here only once paired, or from ${STOPPABLE_UNPAIRED} on: connect it with its code first, or stop it with Ctrl-C in its terminal.`);
   if (!response.ok) throw new Error(body.error || `The Companion said ${response.status}.`);
 }
 

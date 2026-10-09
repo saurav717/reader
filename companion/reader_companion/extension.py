@@ -18,7 +18,10 @@ VS Code-like editors are here and whether they have the Reader extension, and
 installing it into them from the .vsix the site serves — the extension isn't
 on the Marketplace, and a page can't run `code --install-extension` itself.
 
-/companion/shutdown is for the page once paired (its origin, and the token): it
+/companion/shutdown is for the page (its origin): with the token once paired,
+or without it from this computer itself (127.0.0.1, not through the tunnel),
+so the Playground's switch can turn off a Companion it found but hasn't paired
+with. Stopping it is all that gives: anything on this computer could anyway. It
 stops the kernels and the server, and leaves a mark (state.set_off) that keeps
 it stopped, at the next login too, until someone starts it on purpose: the
 Reader app, `reader-companion start`, or the page's Start, which opens a
@@ -208,9 +211,13 @@ class ShutdownHandler(VsCodeHandler):
     def initialize(self, serverapp=None):
         self.serverapp = serverapp
 
+    def allowed(self) -> bool:
+        # The token, or the page on this computer itself: never through the tunnel without it.
+        return super().allowed() or (CompanionHandler.allowed(self) and not tunnel.via_tunnel(self.request.host))
+
     def post(self):
         if not self.allowed():
-            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+            return self.reply(403, {"error": "Pair this browser with the Companion first: through its tunnel, only a paired page can shut it down."})
         state.set_off(True)
         self.reply(200, {"stopping": True})
         print("  Shut down from the page. It stays off until it is started again: the Reader app, or reader-companion start.", flush=True)

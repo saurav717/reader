@@ -3838,6 +3838,12 @@ whether to open it). Opening the Reader app, or `reader-companion start` in a
 terminal, starts it too. A Companion from before 0.6.0 gets the link once it is
 updated.
 
+The Playground's home page has the same as a switch: on the Companion's row
+under **Your compute**, and in **Connect this computer** for a Companion the
+page found but this browser hasn't paired with. Unpaired, the page sends no
+token, so the Companion (from 0.6.2) takes a shutdown without one only from
+this computer itself (`127.0.0.1`), never through its tunnel.
+
 **Deleting the app removes it.** On a Mac the Companion runs from a login
 item, not from Reader.app, so deleting the app used to leave it running and
 starting at every login. Now `setup` records where Reader.app is, and the

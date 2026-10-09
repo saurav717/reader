@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
 import type { CompanionInfo, MacDmg } from '../lib/companion';
-import { COMPANION_PORT, COMPANION_TLS_PORT, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, findLocalCompanion, isSafari, latestMacDmg, normaliseCode, pairCompanion, pairFragment, showCompanionCode, vscodeInstall } from '../lib/companion';
+import { COMPANION_PORT, COMPANION_TLS_PORT, STARTABLE, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, findLocalCompanion, isSafari, latestMacDmg, normaliseCode, pairCompanion, pairFragment, showCompanionCode, shutdownCompanion, startCompanion, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
@@ -352,6 +352,37 @@ function ServerRow({ server }: { server: JupyterServer }) {
   const [state, setState] = useState<{ ok: boolean; text: string } | null>(null);
   const [checking, setChecking] = useState(false);
   const [editing, setEditing] = useState(false);
+  const companion = Boolean(server.companionId || companionPort(server.url));
+  const [power, setPower] = useState<Power>('unknown');
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (!companion) return;
+    let live = true;
+    void findCompanion(server.url, 2500).then((info) => live && setPower((now) => (now === 'unknown' ? (info ? 'up' : 'down') : now)));
+    return () => {
+      live = false;
+    };
+  }, [companion, server.url]);
+  const toggle = async (on: boolean) => {
+    setNote(null);
+    setState(null);
+    if (!on) {
+      setPower('stopping');
+      try {
+        await shutdownCompanion(server);
+        setPower('down');
+        setNote('Shut down: no Jupyter server, no kernels. It stays off, at your next login too, until you turn it on here, open the Reader app, or run reader-companion start.');
+      } catch (error) {
+        setPower('up');
+        setNote(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    setPower('starting');
+    const info = await startCompanion(server.url);
+    setPower(info ? 'up' : 'down');
+    if (!info) setNote(`It didn’t start from here. Open the Reader app on this computer, or run reader-companion start in a terminal. (The page can start a Companion from ${STARTABLE} on, installed with the Reader app or the installer.)`);
+  };
   const test = async () => {
     setChecking(true);
     const answer = await checkJupyter(server);
@@ -367,7 +398,8 @@ function ServerRow({ server }: { server: JupyterServer }) {
         <span className="mono">{safeHost(server.url)}</span>
       </div>
       {state ? <p className={state.ok ? 'pg-ok' : 'pg-bad'}>{state.text}</p> : null}
-      {state && !state.ok && (server.companionId || companionPort(server.url)) ? (
+      {note ? <p>{note}</p> : null}
+      {state && !state.ok && companion ? (
         <div className="pg-howto">
           <small>It’s the Companion: open the <b>Reader</b> app on this computer, or start it again in a terminal. Either opens a link here that reconnects it.</small>
           <CopyBlock code={companionCommands(siteBase(), { tunnel: isSafari() }).unix} />
@@ -384,6 +416,7 @@ function ServerRow({ server }: { server: JupyterServer }) {
         <button type="button" className="btn sm ghost danger" onClick={() => removeServer(server.id)}>
           Remove
         </button>
+        {companion ? <PowerSwitch power={power} onChange={(on) => void toggle(on)} /> : null}
       </div>
     </div>
   );
@@ -503,6 +536,30 @@ async function reachCompanion(routes: string[], forMs: number): Promise<{ base: 
   }
 }
 
+type Power = 'unknown' | 'up' | 'down' | 'stopping' | 'starting';
+
+/** The Companion's on/off switch: off shuts it down (kernels, Jupyter server, process) and keeps it off; on starts it through the reader-companion:// link. */
+function PowerSwitch({ power, onChange }: { power: Power; onChange: (on: boolean) => void }) {
+  const on = power === 'up' || power === 'starting';
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label="The Companion on this computer"
+      className={`pg-power is-${power}`}
+      disabled={power === 'unknown' || power === 'stopping' || power === 'starting'}
+      onClick={() => onChange(!on)}
+      title={on ? 'Shut the Companion down: its kernels and Jupyter server stop, and it stays off until it is turned on again.' : 'Start the Companion on this computer. Your browser asks once whether to open the Reader app.'}
+    >
+      <span className="pg-power-track" aria-hidden="true">
+        <span className="pg-power-knob" />
+      </span>
+      {power === 'stopping' ? 'Stopping…' : power === 'starting' ? 'Starting…' : power === 'unknown' ? '…' : on ? 'On' : 'Off'}
+    </button>
+  );
+}
+
 /** "Connect this computer": the Companion's one-line start, then the code it prints. The page looks for it while this is open. */
 function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server: JupyterServer) => void; onManual?: () => void; onClose?: () => void }) {
   const safari = isSafari();
@@ -529,6 +586,41 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
   const [looks, setLooks] = useState(0);
   const [asking, setAsking] = useState(false);
   const [shown, setShown] = useState<boolean | null>(null);
+  // A Companion this card shut down: still shown, with its switch, rather than the install steps.
+  const [stopped, setStopped] = useState<{ base: string; info: CompanionInfo } | null>(null);
+  const [moving, setMoving] = useState<'stopping' | 'starting' | null>(null);
+  const power: Power = moving ?? (found ? 'up' : stopped ? 'down' : 'unknown');
+  const toggle = async (on: boolean) => {
+    setProblem(null);
+    if (!on) {
+      if (!found || !foundAt) return;
+      const was = { base: foundAt, info: found };
+      setMoving('stopping');
+      setStopped(was);
+      try {
+        await shutdownCompanion({ url: foundAt });
+        setFound(null);
+        setFoundAt(null);
+      } catch (error) {
+        setStopped(null);
+        setProblem(error instanceof Error ? error.message : String(error));
+      } finally {
+        setMoving(null);
+      }
+      return;
+    }
+    if (!stopped) return;
+    setMoving('starting');
+    const info = await startCompanion(stopped.base);
+    setMoving(null);
+    if (info) {
+      setFound(info);
+      setFoundAt(stopped.base);
+      setStopped(null);
+    } else {
+      setProblem(`It didn’t start from here. Open the Reader app on this computer, or run reader-companion start in a terminal. (The page can start a Companion from ${STARTABLE} on, installed with the Reader app or the installer.)`);
+    }
+  };
   const askForCode = async () => {
     setAsking(true);
     setShown(await showCompanionCode(foundAt ?? undefined));
@@ -543,6 +635,7 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
       if (!live) return;
       setFound(reached?.info ?? null);
       setFoundAt(reached?.base ?? null);
+      if (reached) setStopped(null);
       setLooks((n) => n + 1);
       timer = window.setTimeout(() => void look(), reached ? 5000 : 2000);
     };
@@ -585,6 +678,7 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
                 {found.hardware} · <span className="mono">{found.root}</span>
               </small>
             </div>
+            <PowerSwitch power={power} onChange={(on) => void toggle(on)} />
           </div>
           <div className="pg-companion-ask">
             <button type="button" className="btn sm" disabled={asking} onClick={() => void askForCode()}>
@@ -603,6 +697,18 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
             </span>
           </label>
           <small className="pg-companion-note">Or open the Reader app, or the link the terminal printed: both connect with no code.</small>
+        </>
+      ) : stopped ? (
+        <>
+          <div className="pg-companion-found is-off">
+            <span className="pg-off" />
+            <div>
+              <b>{stopped.info.name}</b>
+              <small>shut down · no Jupyter server, no kernels</small>
+            </div>
+            <PowerSwitch power={power} onChange={(on) => void toggle(on)} />
+          </div>
+          <small className="pg-companion-note">It stays off, at your next login too, until you turn it on here, open the Reader app, or run <span className="mono">reader-companion start</span>.</small>
         </>
       ) : (
         <>
