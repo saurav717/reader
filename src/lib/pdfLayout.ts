@@ -1004,7 +1004,7 @@ function findCaptions(lines: Line[], measures: Measures): void {
     // bold — "Fig. 1" in bold, then the caption in roman.
     const runOn = /^\s+$/.test(match[3]) && line.text.length > match[0].length;
     // An algorithm's caption is set bold whole, between the rules over it:
-    // "Algorithm 1 Hierarchical translation and verification."
+    // "Algorithm 1 Column-by-column compilation."
     const algorithm = /^(algorithm|listing)/i.test(match[1]) && line.allBold && line.text.length <= 120;
     if (!algorithm && (runOn ? !labelApart(line, match[0].trim().length) : !styled && !punctuated)) continue;
     // "Table in" is not a table; Roman numerals are capitals.
@@ -1318,7 +1318,7 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
         /^(?:[A-Z]|\d{1,2})(?:\.\d{1,2})*\.?$/.test(line.text) &&
         lines.some((other) => other !== line && other.allBold && Math.abs(other.baseline - line.baseline) < 0.3 * line.size && other.x0 > line.x1 && other.x0 - line.x1 < 3 * em && /^\p{Lu}\p{Ll}/u.test(other.text));
       // (Or the title itself, its number set apart beside it in the margin
-      // of the caption's span: "A.4" / "Verification Ablation Details".)
+      // of the caption's span: "A.4" / "Compilation Metrics".)
       const numberedBeside =
         line.allBold &&
         /^\p{Lu}/u.test(line.text) &&
@@ -1905,8 +1905,8 @@ function paragraphs(ordered: Line[], measures: Measures, columns: Map<Line, numb
         const edge = Math.max(columnLeft + measures.columnWidth, ...current.lines.map((one) => one.x1));
         const flush = current.lines.slice(1).every((one) => one.x0 - columnLeft < em * 0.3);
         const turned = flush && current.lines[0].x0 - columnLeft >= em * 0.3 && previous.x1 >= edge - em;
-        // A paragraph that only opens with a number — "1. Fixed-size state
-        // arrays. JAX requires…", its run-in heading in bold — turns over to
+        // A paragraph that only opens with a number — "1. Fixed-width
+        // columns. The compiler needs…", its run-in heading in bold — turns over to
         // the column's edge, the number flush with it: after a full line —
         // to the column's edge, though a line of code overran it — the text
         // runs on.
@@ -3229,7 +3229,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
         // A sentence closed, and then a footnote's mark — "…training examples.¹⁰" — is closed.
         const closing = plain(carry.spans.filter((span, index) => !(span.sup && carry!.spans.slice(index).every((rest) => rest.sup || !rest.text.trim()))));
         // (A colon or a semicolon before a sentence going on in lower case —
-        // "…illustrates this:" / "against a mature, hand-optimized engine…" —
+        // "…as the timings show:" / "against a sheet its author had…" —
         // across a table set at the head of the page, is not the end of it.)
         const openEnded = !/[.!?:;"”’)\]]$/.test(closing) || /[a-z],$/.test(closing) || (/[:;]$/.test(closing) && /^\p{Ll}/u.test(text) && !inReferences);
         const continues = /^[a-z(]/.test(text) || last.endsWith('-');

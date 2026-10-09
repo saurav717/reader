@@ -90,10 +90,10 @@ describe('paragraphs', () => {
   });
 
   it('carries a paragraph on over a page after a colon, where it goes on in lower case', () => {
-    const first = page(column(54, 100, ['Not every environment is faster once translated, least of all one', 'already tuned by hand. The physics engine is one, as this illustrates:']), [], 0);
-    const second = page(column(54, 100, ['against a mature, hand-optimized engine, the method reaches parity', 'rather than a speedup.']), [], 1);
+    const first = page(column(54, 100, ['Not every workbook recalculates faster once compiled, least of all one', 'already tuned by hand. The ledger is one, as the timings show:']), [], 0);
+    const second = page(column(54, 100, ['against a sheet its author had already vectorized, the compiler only', 'matches it.']), [], 1);
     assert.deepEqual(texts(layoutPages([first, second])), [
-      'Not every environment is faster once translated, least of all one already tuned by hand. The physics engine is one, as this illustrates: against a mature, hand-optimized engine, the method reaches parity rather than a speedup.',
+      'Not every workbook recalculates faster once compiled, least of all one already tuned by hand. The ledger is one, as the timings show: against a sheet its author had already vectorized, the compiler only matches it.',
     ]);
   });
 
