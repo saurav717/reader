@@ -163,6 +163,18 @@ const PASS_PREFIX = 'rp1.';
 export const isPass = (value: string) => value.startsWith(PASS_PREFIX);
 
 /** When a pass runs out, from the part of it that is only signed, not secret; 0 when unreadable. */
+/** Whose pass it is, as the pass itself says (the proxy checks the signature; this only reads it). */
+export function passEmail(value: string): string | null {
+  if (!isPass(value)) return null;
+  try {
+    const payload = value.slice(PASS_PREFIX.length).split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
+    const claims = JSON.parse(atob(payload + '='.repeat((4 - (payload.length % 4)) % 4))) as { e?: string };
+    return typeof claims.e === 'string' ? claims.e : null;
+  } catch {
+    return null;
+  }
+}
+
 export function passExpires(value: string): number {
   if (!isPass(value)) return 0;
   try {

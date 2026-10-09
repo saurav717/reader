@@ -57,9 +57,11 @@ export interface UsageReport {
 }
 
 /** The report for the last `days` days, or null — which is what anyone but the owner gets. */
-async function fetchUsage(days: number): Promise<UsageReport | null> {
+async function fetchUsage(days: number, token?: string): Promise<UsageReport | null> {
   if (!hasProxy()) return null;
-  const response = await apiFetch(`/usage?days=${days}`);
+  // With the token named: the one in Settings may be newer than the one api.ts holds,
+  // which the store hands it only after this render (setProxyToken, in an effect).
+  const response = await apiFetch(`/usage?days=${days}`, token ? { headers: { Authorization: `Bearer ${token.trim()}` } } : {});
   if (!response.ok) return null;
   const answer = (await response.json()) as UsageReport;
   return Array.isArray(answer?.people) ? answer : null;
@@ -79,11 +81,20 @@ export function useIsOwner(token: string): boolean {
       return;
     }
     let cancelled = false;
-    fetchUsage(1)
-      .then((report) => !cancelled && setOwner(Boolean(report)))
-      .catch(() => !cancelled && setOwner(false));
+    let timer = 0;
+    const ask = (triesLeft: number) =>
+      fetchUsage(1, token)
+        .then((report) => !cancelled && setOwner(Boolean(report)))
+        .catch(() => {
+          // Not an answer (offline, the Worker waking): ask again in a while rather than hide Usage for good.
+          if (cancelled) return;
+          setOwner(false);
+          if (triesLeft > 0) timer = window.setTimeout(() => void ask(triesLeft - 1), 5000);
+        });
+    void ask(3);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, [token]);
   return owner;

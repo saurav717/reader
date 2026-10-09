@@ -5866,6 +5866,10 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .pg-companion-install { display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border-soft); }
 .pg-companion-ask { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .pg-companion-download { align-self: flex-start; text-decoration: none; }
+.proxy-pass { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 10px; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); }
+.proxy-pass b { color: var(--ink); font-weight: 600; }
+.proxy-pass .banner { margin: 0; }
+.proxy-pass-ask { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .companion-update { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 10px; margin-bottom: 8px; }
 .companion-update > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .companion-update b { font-size: 13px; }
