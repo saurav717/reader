@@ -7,6 +7,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
+import type { CompanionInfo, CompanionPairing } from '../lib/companion';
+import { COMPANION_PORT, companionCommands, companionPort, findCompanion, isSafari, normaliseCode, pairCompanion, pairFragment } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
@@ -25,6 +27,7 @@ import {
   repoUrlOf,
   saveServer,
   serverById,
+  serversNow,
   usePlaygrounds,
   useServers,
 } from '../lib/playground';
@@ -319,18 +322,13 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
               {servers.map((server) => (
                 <ServerRow key={server.id} server={server} />
               ))}
-              {!servers.length ? (
-                <div className="pg-machine">
-                  <p>
-                    Add a <b>Jupyter server</b> to run on this PC, or on a GPU elsewhere — a rented one, or your lab’s, through an SSH tunnel.
-                  </p>
-                </div>
-              ) : null}
             </div>
+            {!servers.some((server) => server.where === 'pc') && !addingServer ? <CompanionConnect onManual={() => setAddingServer(true)} /> : null}
             {addingServer ? <ServerForm onDone={() => setAddingServer(false)} /> : null}
           </aside>
         </div>
       </div>
+      <PairFromLink />
       {draft ? (
         <WhereDialog
           draft={draft}
@@ -367,6 +365,12 @@ function ServerRow({ server }: { server: JupyterServer }) {
         <span className="mono">{safeHost(server.url)}</span>
       </div>
       {state ? <p className={state.ok ? 'pg-ok' : 'pg-bad'}>{state.text}</p> : null}
+      {state && !state.ok && companionPort(server.url) ? (
+        <div className="pg-howto">
+          <small>It’s the Companion: start it again in a terminal on this computer, and Test once more.</small>
+          <CopyBlock code={companionCommands(siteBase()).unix} />
+        </div>
+      ) : null}
       <div className="pg-machine-actions">
         <button type="button" className="btn sm ghost" onClick={() => void test()} disabled={checking}>
           {checking ? 'Testing…' : 'Test'}
@@ -478,6 +482,218 @@ function ServerForm({ server, onDone, onSaved, defaultWhere = 'pc' }: { server?:
   );
 }
 
+// ------------------------------------------------------------ companion ----
+
+/** This site's address with its base path: what the Companion's installers are served under. */
+const siteBase = () => (typeof window === 'undefined' ? 'https://saurav717.github.io/reader/' : `${window.location.origin}${import.meta.env.BASE_URL}`);
+
+/** Keeps a Companion's pairing as this browser's PC server: the one already saved for its address, updated, or a new one. */
+function saveCompanion(pairing: CompanionPairing): JupyterServer {
+  const same = serversNow().find((server) => server.url === pairing.url);
+  return saveServer({ id: same?.id, name: pairing.name, where: 'pc', url: pairing.url, token: pairing.token });
+}
+
+/** "Connect this computer": the Companion's one-line start, then the code it prints. The page looks for it while this is open. */
+function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server: JupyterServer) => void; onManual?: () => void; onClose?: () => void }) {
+  const commands = companionCommands(siteBase());
+  const windows = typeof navigator !== 'undefined' && /Win/i.test(navigator.platform || navigator.userAgent);
+  const [os, setOs] = useState<'unix' | 'windows' | 'uv'>(windows ? 'windows' : 'unix');
+  const [found, setFound] = useState<CompanionInfo | null>(null);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [looks, setLooks] = useState(0);
+  const safari = isSafari();
+  useEffect(() => {
+    let live = true;
+    let timer = 0;
+    const look = async () => {
+      const info = await findCompanion();
+      if (!live) return;
+      setFound(info);
+      setLooks((n) => n + 1);
+      timer = window.setTimeout(() => void look(), info ? 5000 : 2000);
+    };
+    void look();
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, []);
+  const connect = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const saved = saveCompanion(await pairCompanion(code));
+      onPaired?.(saved);
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="pg-card pg-companion">
+      <div className="pg-section-head">
+        <b>Connect this computer</b>
+        {onClose ? (
+          <button type="button" className="icon-btn sm" aria-label="Close" onClick={onClose}>
+            <CloseIcon size={14} />
+          </button>
+        ) : null}
+      </div>
+      {found ? (
+        <>
+          <div className="pg-companion-found">
+            <span className="pg-live" />
+            <div>
+              <b>{found.name}</b>
+              <small>
+                {found.hardware} · <span className="mono">{found.root}</span>
+              </small>
+            </div>
+          </div>
+          <label className="pg-companion-code">
+            <span>Type the code the terminal shows</span>
+            <span className="pg-companion-row">
+              <input value={code} onChange={(event) => (setCode(event.target.value), setProblem(null))} onKeyDown={(event) => event.key === 'Enter' && normaliseCode(code).length === 7 && void connect()} placeholder="ABC-DEF" spellCheck={false} autoComplete="off" maxLength={9} />
+              <button type="button" className="btn primary sm" disabled={busy || normaliseCode(code).length !== 7} onClick={() => void connect()}>
+                {busy ? 'Connecting…' : 'Connect'}
+              </button>
+            </span>
+          </label>
+          <small className="pg-companion-note">Or open the link the terminal printed: it connects with no code.</small>
+        </>
+      ) : (
+        <>
+          <p className="pg-companion-lede">Paste this into a terminal on this computer. It needs nothing installed beforehand, and it opens a page here to finish.</p>
+          <div className="segmented pg-seg" role="radiogroup" aria-label="This computer’s system">
+            {(
+              [
+                ['unix', 'macOS · Linux'],
+                ['windows', 'Windows'],
+                ['uv', 'Have uv'],
+              ] as const
+            ).map(([key, label]) => (
+              <button key={key} type="button" role="radio" aria-checked={os === key} className={os === key ? 'on' : ''} onClick={() => setOs(key)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <CopyBlock code={commands[os]} />
+          <small className="pg-companion-note">
+            {os === 'uv' ? 'Runs the Companion with the uv you have.' : 'It installs uv (a small Python tool) once if it isn’t there, then runs the Companion with its own Python.'} The page may use the folder <span className="mono">~/Reader</span>, and nothing outside it.
+          </small>
+          <div className="pg-companion-wait">
+            <span className="pg-wait" />
+            {looks ? 'Waiting for this computer…' : 'Looking for it…'}
+            <span className="mono">127.0.0.1:{COMPANION_PORT}</span>
+          </div>
+          {safari ? <p className="pg-bad">Safari won’t let a site reach a program on this computer, so it can’t find the Companion. Open the Playground in Chrome, Edge or Firefox to connect.</p> : null}
+        </>
+      )}
+      {problem ? <p className="pg-bad">{problem}</p> : null}
+      {onManual ? (
+        <button type="button" className="btn ghost sm pg-companion-manual" onClick={onManual}>
+          Start Jupyter by hand instead
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** The page opened from the Companion's link, `#pair=CODE&port=N`: asks once, then connects with that code. */
+function PairFromLink() {
+  const [pending, setPending] = useState(() => (typeof window === 'undefined' ? null : pairFragment(window.location.hash)));
+  const [info, setInfo] = useState<CompanionInfo | null | undefined>(undefined);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [done, setDone] = useState<JupyterServer | null>(null);
+  // A pairing link opened in a tab already on the Playground changes only the hash.
+  useEffect(() => {
+    const onHash = () => {
+      const next = pairFragment(window.location.hash);
+      if (!next) return;
+      setInfo(undefined);
+      setDone(null);
+      setProblem(null);
+      setPending(next);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  useEffect(() => {
+    if (!pending) return;
+    // The code is spent either way: off the address, out of history's way.
+    window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+    void findCompanion(pending.port, 4000).then(setInfo);
+  }, [pending]);
+  if (!pending) return null;
+  const close = () => setPending(null);
+  const connect = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      setDone(saveCompanion(await pairCompanion(pending.code, pending.port)));
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="scrim" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && close()}>
+      <div className="sheet narrow pg-pair" role="dialog" aria-label="Connect this computer?">
+        <span className="eyebrow">Playground · pair a computer</span>
+        <h2>{done ? 'Connected' : 'Connect this computer?'}</h2>
+        {done ? (
+          <p className="lede">
+            <b>{done.name}</b> is under <b>Your compute</b>, and new playgrounds can run on it. It stays paired while the Companion keeps the same settings: start it again whenever you want to use it.
+          </p>
+        ) : info === undefined ? (
+          <p className="lede">
+            <span className="spinner" /> Looking for the Companion…
+          </p>
+        ) : info === null ? (
+          <p className="lede">{isSafari() ? 'Safari won’t let a site reach a program on this computer. Open this link in Chrome, Edge or Firefox instead — or start the Companion again and use the link it prints there.' : `Nothing answers on 127.0.0.1:${pending.port}. Is the Companion still running in the terminal?`}</p>
+        ) : (
+          <>
+            <p className="lede">
+              A Reader Companion on this computer asked to pair with this browser, with the code <b className="mono">{pending.code}</b>.
+            </p>
+            <div className="pg-pair-kv">
+              <span>Computer</span>
+              <b>{info.name}</b>
+              <span>Hardware</span>
+              <b>{info.hardware}</b>
+              <span>Folder</span>
+              <b className="mono">{info.root}</b>
+            </div>
+            <p className="pg-note">The page may run code there, and read and write files in that folder only. Remove it any time under Your compute.</p>
+          </>
+        )}
+        {problem ? <p className="pg-bad">{problem}</p> : null}
+        <div className="pg-pair-actions">
+          {done || !info ? (
+            <button type="button" className="btn primary" onClick={close}>
+              {done ? 'Done' : 'Close'}
+            </button>
+          ) : (
+            <>
+              <button type="button" className="btn" onClick={close}>
+                Not this one
+              </button>
+              <button type="button" className="btn primary" disabled={busy} onClick={() => void connect()}>
+                {busy ? 'Connecting…' : 'Connect'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --------------------------------------------------------- where it runs ----
 
 type Mode = 'colab' | 'pc' | 'split';
@@ -514,8 +730,21 @@ export function WhereDialog({
   const [remoteId, setRemoteId] = useState<string>(current?.compute.kind === 'server' && current.home.kind === 'server' && current.compute.serverId !== current.home.serverId ? current.compute.serverId : current?.compute.kind === 'colab' && current.home.kind === 'server' ? 'colab' : remotes[0]?.id ?? 'colab');
   const [idleStop, setIdleStop] = useState(current?.compute.kind === 'colab' ? current.idleStopMin : 30);
   const [adding, setAdding] = useState<'pc' | 'remote' | null>(null);
+  /** Starting Jupyter by hand instead of the Companion, for this PC. */
+  const [manual, setManual] = useState(false);
   const [busy, setBusy] = useState(false);
+  const addingRef = useRef<HTMLDivElement>(null);
   const colabOk = colabAvailable(settings.googleClientId);
+  // A mode that needs a server none has been added for opens the steps to start one at once,
+  // rather than waiting for a click on a tile that reads like a hint.
+  const missing: 'pc' | 'remote' | null = mode === 'colab' ? null : !pcs.length ? 'pc' : mode === 'split' && !remotes.length && remoteId !== 'colab' ? 'remote' : null;
+  useEffect(() => {
+    if (missing) setAdding(missing);
+  }, [missing]);
+  // The form opens below the three cards: bring it into view, or it is easy to miss.
+  useEffect(() => {
+    if (adding) addingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [adding]);
   useEffect(() => {
     if (!pcId && pcs[0]) setPcId(pcs[0].id);
   }, [pcs, pcId]);
@@ -565,7 +794,7 @@ export function WhereDialog({
       ))}
       {extra}
       <button type="button" className="pg-opt is-add" onClick={() => setAdding(kind)}>
-        <b>+ {kind === 'pc' ? 'This PC’s Jupyter server' : 'A GPU machine’s Jupyter server'}</b>
+        <b>+ {kind === 'pc' ? 'Connect this computer' : 'A GPU machine’s Jupyter server'}</b>
         <small>{kind === 'pc' ? 'one command in a terminal' : 'a rented GPU, a lab server, an SSH tunnel'}</small>
       </button>
     </div>
@@ -667,15 +896,28 @@ export function WhereDialog({
           </section>
         </div>
         {adding ? (
-          <div className="pg-adding">
-            <ServerForm
-              defaultWhere={adding}
-              onDone={() => setAdding(null)}
-              onSaved={(saved) => {
-                if (saved.where === 'pc') setPcId(saved.id);
-                else setRemoteId(saved.id);
-              }}
-            />
+          <div className="pg-adding" ref={addingRef}>
+            {missing === adding && adding === 'remote' ? <p className="pg-adding-lede">The GPU machine needs a Jupyter server too. Start one there with the commands below, then paste its address.</p> : null}
+            {adding === 'pc' && !manual ? (
+              <CompanionConnect
+                onManual={() => setManual(true)}
+                onClose={missing === 'pc' ? undefined : () => setAdding(null)}
+                onPaired={(saved) => {
+                  setPcId(saved.id);
+                  setAdding(null);
+                }}
+              />
+            ) : (
+              <ServerForm
+                key={adding}
+                defaultWhere={adding}
+                onDone={() => (setAdding(null), setManual(false))}
+                onSaved={(saved) => {
+                  if (saved.where === 'pc') setPcId(saved.id);
+                  else setRemoteId(saved.id);
+                }}
+              />
+            )}
           </div>
         ) : null}
         <footer className="pg-sheet-foot">
@@ -694,6 +936,8 @@ export function WhereDialog({
                 with nothing running, while this tab is open
               </span>
             </label>
+          ) : missing ? (
+            <span className="pg-note">{missing === 'pc' ? 'Connect this computer above to create it here.' : 'Add the GPU machine’s Jupyter server above, or pick Your Colab.'}</span>
           ) : (
             <span className="pg-note">A Jupyter server of yours stays up until you stop it; a rented one is billed by its provider while it is.</span>
           )}

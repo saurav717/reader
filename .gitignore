@@ -10,3 +10,7 @@ dist-pages
 # wrangler dev scratch
 .wrangler/tmp
 stage-e2e/
+
+# The Companion (Python)
+__pycache__/
+*.pyc

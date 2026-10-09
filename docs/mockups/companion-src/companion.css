@@ -1,0 +1,20 @@
+/* The Companion mock-ups: the Playground's frame and tokens, plus a terminal and a VS Code window. */
+@import url('../playground-src/playground.css');
+.dim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:5}
+.cmd{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:10px 12px;font:12.5px var(--mono);color:var(--ink)}
+.cmd .pr{color:var(--muted)}
+.cmd .cp{margin-left:auto;font:500 11px var(--sans);color:var(--accent);border:1px solid var(--border);border-radius:6px;padding:3px 8px;background:var(--surface)}
+.live{width:8px;height:8px;border-radius:50%;background:#3c9160;box-shadow:0 0 0 3px rgba(60,145,96,.22);display:inline-block;flex:none}
+.wait{width:8px;height:8px;border-radius:50%;background:#c9781e;box-shadow:0 0 0 3px rgba(201,120,30,.22);display:inline-block;flex:none}
+.off{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;flex:none}
+.tabsx{display:flex;gap:2px;padding:3px;background:var(--panel);border:1px solid var(--border);border-radius:9px;width:max-content}
+.tabsx span{padding:5px 11px;border-radius:7px;font:500 11.5px var(--sans);color:var(--ink-2)}
+.tabsx span.on{background:var(--surface);color:var(--ink);border:1px solid var(--border)}
+/* A macOS window */
+.win{position:fixed;z-index:6;background:#101114;border:1px solid #2c2f36;border-radius:11px;box-shadow:0 24px 60px rgba(0,0,0,.6);overflow:hidden}
+.win .tb{height:30px;display:flex;align-items:center;gap:7px;padding:0 12px;background:#1b1c21;border-bottom:1px solid #2a2c33;font:500 11.5px var(--sans);color:#9b978c}
+.win .tb i{width:11px;height:11px;border-radius:50%;display:inline-block}
+.win .tb i:nth-child(1){background:#ff5f57}.win .tb i:nth-child(2){background:#febc2e}.win .tb i:nth-child(3){background:#28c840}
+.win .tb span{flex:1;text-align:center;margin-right:50px}
+.win .tm{padding:12px 16px;font:12.5px/1.65 var(--mono);color:#d8d5cc;white-space:pre}
+.tm .p{color:#7cc7a5}.tm .d{color:#8b8a84}.tm .y{color:#e6c46f}.tm .b{color:#8bb8ec}.tm .g{color:#93cfa6}.tm .w{color:#fff;font-weight:500}

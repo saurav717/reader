@@ -3725,12 +3725,50 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
 
 ![where should it run: the three modes, with the folder on this PC and the code on the GPU box](docs/playground-where.png)
 
+### Connect this computer: the Companion
+
+The quickest way to run on your own computer is the **Reader Companion**.
+Under **Your compute**, **Connect this computer** shows one line to paste into
+a terminal:
+
+```bash
+curl -LsSf https://saurav717.github.io/reader/companion.sh | sh                                  # macOS, Linux
+powershell -ExecutionPolicy ByPass -c "irm https://saurav717.github.io/reader/companion.ps1 | iex"  # Windows
+```
+
+It installs [uv](https://docs.astral.sh/uv/) once if it isn't there. Then it
+runs the Companion, a small Python package (`companion/`), with its own Python.
+The Companion starts a Jupyter server on `127.0.0.1:47321` that only this
+site may call. It opens the Playground with a pairing link, and one click on
+**Connect** saves the computer under *Your compute*. Nothing is pasted, and the
+token is kept across restarts, so a browser paired once stays paired. Without
+a browser there, type the code it prints into the card instead.
+
+- **The folder** is `~/Reader` (`--root` to change it). A project's files are
+  in `~/Reader/playgrounds/<name>`, so they can be opened in any editor.
+- **Your code's Python** is `~/Reader/.venv`, made once. The console's `python`
+  and `pip install …` mean that environment, and so do the notebooks. To use
+  one you already have (a conda env with torch, say), pass
+  `--python /path/to/python`.
+- **Options** go after `sh -s --`: `--no-browser`, `--root DIR`, `--python PY`,
+  `--port N`, `--name NAME`. They are remembered in
+  `~/.reader-companion/config.json`.
+- **Safari** won't let the site reach `127.0.0.1`. Use Chrome, Edge or Firefox
+  to connect and run on this computer.
+
+`npm run build:pages` builds the Companion's wheel and the two installers
+into the site (`scripts/build-companion.mjs`, in Node, so no Python is needed
+to build). The design, and what comes next (a login service, live updates
+from disk, VS Code, GPU machines through a relay), is in
+[docs/companion.md](docs/companion.md).
+
 ### A Jupyter server of your own
 
 The PC and the GPU machine are each a plain Jupyter server. The page talks
 to it the way it talks to a Colab runtime: the same kernel client, the same
-probe of the machine, the same contents API. **Your compute → + Add a
-server** gives the command for this site's address:
+probe of the machine, the same contents API. The Companion above starts one
+for you. To start one by hand, **Your compute → + Add a server** gives the
+command for this site's address:
 
 ```bash
 pip install jupyter_server ipykernel

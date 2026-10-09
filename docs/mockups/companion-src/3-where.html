@@ -1,0 +1,48 @@
+<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><link rel="stylesheet" href="companion.css"><style>
+.sheet{position:fixed;z-index:6;left:50%;top:50px;transform:translateX(-50%);width:1180px;background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-md);overflow:hidden}
+.sh-h{padding:20px 24px 8px}.sh-h h2{font:600 22px var(--serif)}.sh-h p{margin:4px 0 0;color:var(--muted);font-size:12.5px}
+.name{padding:6px 24px 4px;display:flex;gap:14px}
+.name label{display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--muted)}
+.name .in{height:32px;display:flex;align-items:center;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--paper);color:var(--ink);font-size:12.5px;width:440px}
+.name .in.mono{font-family:var(--mono);font-size:12px;width:520px;color:var(--ink-2)}
+.modes{display:grid;grid-template-columns:1fr 1fr 1.25fr;gap:14px;padding:14px 24px 18px}
+.mode{border:1px solid var(--border);border-radius:12px;padding:14px 15px;display:flex;flex-direction:column;gap:9px;background:var(--paper)}
+.mode.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);background:var(--surface)}
+.mode .top{display:flex;align-items:center;gap:9px}.mode .top b{font-size:14px}
+.radio{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--muted);margin-left:auto}.mode.on .radio{border:5px solid var(--accent)}
+.mode ul{margin:0;padding-left:16px;font-size:12px;line-height:1.55}.good{color:var(--ul-green)}.bad{color:var(--ul-pink)}
+.opt{display:grid;grid-template-columns:22px 1fr auto;align-items:center;column-gap:8px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;font-size:12px;background:var(--surface)}
+.opt.on{border-color:var(--accent);background:var(--accent-soft)}
+.opt small{grid-column:2/4;color:var(--muted);font-size:11px;display:flex;align-items:center;gap:6px}
+.opt .r{font:500 10.5px var(--mono);color:var(--muted);display:flex;align-items:center;gap:6px}
+.opts{display:flex;flex-direction:column;gap:5px}
+.lbl{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-top:2px}
+.foot{display:flex;align-items:center;gap:12px;padding:14px 24px;border-top:1px solid var(--border-soft);background:var(--panel)}
+</style></head><body><div class="app"><!--RAIL--><main class="main"><div class="scroll"></div></main></div>
+<div class="dim"></div>
+<div class="sheet">
+ <div class="sh-h"><span class="eyebrow">New project</span><h2>Where should it run?</h2><p>The code is the same whichever you pick; the machine can be changed from the bar later.</p></div>
+ <div class="name"><label>Name<span class="in">attention-sweep</span></label><label>Folder<span class="in mono">~/Reader/Projects/attention-sweep</span></label></div>
+ <div class="modes">
+  <div class="mode"><div class="top"><span class="co lg">CO</span><b>Colab, in the browser</b><span class="radio"></span></div>
+   <ul><li class="good">Nothing to install; CPU and a T4 on the free tier</li><li class="bad">The runtime’s disk goes with it — the files are kept in this browser</li></ul></div>
+  <div class="mode on"><div class="top"><span class="pc">PC</span><b>This computer</b><span class="radio"></span></div>
+   <ul><li class="good">Your files, your GPU, no session clock</li><li class="good">Open the folder in VS Code, Finder, anything</li><li class="bad">Only as much GPU as the computer has</li></ul>
+   <div class="opts"><div class="opt on"><span class="pc">PC</span><b>Saurav’s MacBook Pro</b><span class="r"><span class="live"></span>connected</span><small>M3 Pro · 36 GB · via Companion · direct</small></div></div>
+  </div>
+  <div class="mode"><div class="top"><span class="pc">PC</span><span class="muted">→</span><span class="gpuico">GPU</span><b>Code on this computer, GPU elsewhere</b><span class="radio"></span></div>
+   <ul><li class="good">The files stay in the folder on this computer</li><li class="good">Only changed files are copied over before a run</li><li class="good">What a run writes under runs/ and results/ comes back</li></ul>
+   <span class="lbl">The code runs on</span>
+   <div class="opts">
+    <div class="opt"><span class="gpuico">A100</span><b>lab-a100</b><span class="r"><span class="live"></span>idle</span><small>4× A100 80 GB · Companion, headless · via relay</small></div>
+    <div class="opt"><span class="gpuico" style="background:#2e6fb5">4090</span><b>runpod-4090</b><span class="r"><span class="off"></span>offline</span><small>last seen 3 days ago</small></div>
+    <div class="opt"><span class="co">CO</span><b>Your Colab</b><span></span><small>a GPU runtime</small></div>
+   </div>
+  </div>
+ </div>
+ <div class="foot"><span class="muted" style="font-size:12.5px">The Companion keeps running in the background · stop it from the terminal or <code class="mono">reader-companion service stop</code></span><span style="flex:1"></span><span class="btn">Cancel</span><span class="btn primary">Create · Saurav’s MacBook Pro</span></div>
+</div>
+<span class="pin" style="left:600px;top:156px">1</span><span class="pin" style="left:514px;top:326px">2</span><span class="pin" style="left:868px;top:350px">3</span>
+<div class="notes" style="left:130px;bottom:16px;z-index:7"><div class="callout" style="width:360px"><span class="n">1</span>The project is <b>a real folder</b> on the computer. The page writes to it, and so can every editor.</div><div class="callout" style="width:360px"><span class="n">2</span>Once paired, the computer is simply there: it’s picked by default, and Create works straight away.</div><div class="callout" style="width:380px"><span class="n">3</span>A GPU box runs the same Companion <b>headless</b>. It dials out, so there’s no SSH tunnel and no token to copy.</div></div>
+<div class="step" style="z-index:8">3 · Where should it run?</div>
+</body></html>

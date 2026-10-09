@@ -1,0 +1,56 @@
+<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><link rel="stylesheet" href="companion.css"><style>
+.scroll{padding:30px 44px}
+.hero h1{font:600 30px/1.15 var(--serif)}
+.hero p{margin:6px 0 22px;color:var(--ink-2);font-size:13.5px;max-width:640px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:22px}
+.starts{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.start{padding:14px 15px;display:flex;flex-direction:column;gap:7px;min-height:112px}
+.start .ic{width:32px;height:32px;border-radius:9px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font:600 14px var(--mono)}
+.start b{font-size:13.5px}.start span{color:var(--muted);font-size:12px;line-height:1.45}
+.sect{display:flex;align-items:center;margin:0 0 10px}.sect .eyebrow{flex:1}
+.mach{padding:12px 14px;display:flex;flex-direction:column;gap:3px;border-top:1px solid var(--border-soft)}
+.mach:first-child{border-top:0}
+.mach .h{display:flex;align-items:center;gap:8px;font-weight:600;font-size:12.5px}
+.mach .h .r{margin-left:auto;font:500 11px var(--mono);color:var(--muted)}
+.mach .s{font-size:11.5px;color:var(--muted);padding-left:30px}
+.connect{margin-top:14px;padding:16px;display:flex;flex-direction:column;gap:11px;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.connect h3{font:600 15px var(--sans)}
+.connect p{margin:0;font-size:12px;color:var(--ink-2);line-height:1.5}
+.connect small{font-size:11.5px;color:var(--muted);line-height:1.5}
+.status{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:8px;background:var(--panel);font-size:12px}
+.status .mono{margin-left:auto;color:var(--muted)}
+.empty{padding:22px;border:1px dashed var(--border);border-radius:12px;color:var(--muted);font-size:12.5px}
+.connect .cmd{font-size:11.5px;white-space:nowrap}
+</style></head><body><div class="app"><!--RAIL--><main class="main"><div class="scroll">
+<div class="hero"><span class="eyebrow">Playground</span><h1>Try something</h1><p>Code that belongs to no paper — or to several. Pick a start and where it should run; the machine can be changed later without losing the code.</p></div>
+<div class="grid"><div>
+ <div class="sect"><span class="eyebrow">Start from</span></div>
+ <div class="starts">
+  <div class="card start"><div class="ic">[ ]</div><b>Blank notebook</b><span>Cells, Markdown, maths — the quickest way to try an idea.</span></div>
+  <div class="card start"><div class="ic">{ }</div><b>Blank project</b><span>Files and a console, in a folder on your computer.</span></div>
+  <div class="card start"><div class="ic">⑂</div><b>From a repository</b><span>A GitHub address, cloned onto the machine you pick.</span></div>
+ </div>
+ <div class="sect" style="margin-top:22px"><span class="eyebrow">Your playgrounds</span></div>
+ <div class="empty">Nothing here yet.</div>
+</div>
+<aside>
+ <div class="sect"><span class="eyebrow">Your compute</span><span class="btn ghost sm">+ GPU machine</span></div>
+ <div class="card">
+  <div class="mach"><div class="h"><span class="co">CO</span>Google Colab<span class="r">ready</span></div><div class="s">CPU, T4, L4, A100 — in your own Colab account.</div></div>
+  <div class="mach"><div class="h"><span class="pc">PC</span>This computer<span class="r"><span class="wait"></span>&nbsp; not connected</span></div><div class="s">Run on your own CPU and GPU, with the files in a folder you can open anywhere.</div></div>
+ </div>
+ <div class="card connect">
+  <h3>Connect this computer</h3>
+  <div class="tabsx"><span class="on">Terminal</span><span>VS Code</span></div>
+  <p>Paste this into a terminal. It needs nothing installed beforehand, and it opens a page here to finish.</p>
+  <div class="cmd"><span class="pr">$</span>curl -LsSf https://astral.sh/uv/install.sh | sh<span class="cp">Copy</span></div>
+  <div class="cmd"><span class="pr">$</span>uvx reader-companion<span class="cp">Copy</span></div>
+  <small>The first line installs <b>uv</b> once, if you don’t have it. Windows: <code class="mono">irm https://astral.sh/uv/install.ps1 | iex</code>, then the same second line.</small>
+  <div class="status"><span class="wait"></span>Waiting for this computer…<span class="mono">code K7Q-4XM</span></div>
+ </div>
+</aside></div>
+</div></main></div>
+<span class="pin" style="left:956px;top:500px">1</span><span class="pin" style="left:1174px;top:386px">2</span><span class="pin" style="left:956px;top:672px">3</span>
+<div class="notes" style="left:104px;bottom:16px"><div class="callout" style="width:300px"><span class="n">1</span>Instead of a <b>.dmg</b>: one command. <code>uvx</code> fetches the Companion and runs it, with no installer, no admin rights, and nothing to sign. It is the same on macOS, Windows and Linux.</div><div class="callout" style="width:280px"><span class="n">2</span>Or the <b>VS Code</b> tab: install the Reader extension, and it runs the same Companion for you.</div><div class="callout" style="width:260px"><span class="n">3</span>The page waits; when the command starts, it finishes pairing by itself.</div></div>
+<div class="step">1 · Connect this computer</div>
+</body></html>
