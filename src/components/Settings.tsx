@@ -11,6 +11,7 @@ import { PAPER_LAYOUTS, setLayout, useLayout } from './paperCards';
 import { getState as assistantState, MODELS, PROVIDER_IDS, PROVIDERS, setExplainModel, setModel, subscribe as onAssistant } from '../lib/assistant';
 import { KeyRow } from './Assistant';
 import CompanionUpdates from './CompanionUpdate';
+import ProxyPass from './ProxyPass';
 
 /** Every model, grouped by who runs it, saying which still need a key. */
 function ModelOptions({ keys }: { keys: Record<string, boolean> }) {
@@ -170,6 +171,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               <GoogleMark size={18} /> Sign in with Google
             </button>
           )}
+
+          <ProxyPass />
 
           <div
             style={{

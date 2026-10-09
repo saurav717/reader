@@ -176,7 +176,7 @@ function loadTurnstile(): Promise<void> {
  * Its answer goes to the proxy with the sign-in (setCaptchaAnswer) and is
  * checked there; this only draws it and says when it has an answer.
  */
-function Captcha({ siteKey, onSolved }: { siteKey: string; onSolved: (solved: boolean) => void }) {
+export function Captcha({ siteKey, onSolved }: { siteKey: string; onSolved: (solved: boolean) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
