@@ -13,7 +13,7 @@ import {
   clearHistory,
   deleteChat,
   forgetKey,
-  geminiNote,
+  siteNote,
   getState,
   newChat,
   openChat,
@@ -239,7 +239,6 @@ function SetSection({ icon, title, note, children }: { icon: string; title: stri
 
 function ChatSettings({
   context,
-  keys,
   paperLayout,
   marks,
   look,
@@ -247,7 +246,6 @@ function ChatSettings({
   onLook,
 }: {
   context: Record<string, boolean>;
-  keys: Record<Provider, boolean>;
   paperLayout: PaperLayout;
   marks: ChatMarks;
   look: PassageLook;
@@ -316,9 +314,9 @@ function ChatSettings({
         </div>
       </SetSection>
 
-      <SetSection icon="⚿" title="Your API keys" note="One a provider · kept in this browser only, sent straight to that provider">
+      <SetSection icon="⚿" title="API keys" note="The site’s by default · or your own, kept in this browser and sent straight to its provider">
         {PROVIDER_IDS.map((provider) => (
-          <KeyRow key={provider} provider={provider} connected={keys[provider]} />
+          <KeyRow key={provider} provider={provider} />
         ))}
       </SetSection>
     </div>
@@ -623,51 +621,88 @@ function KeyInput({ provider, onSaved }: { provider: Provider; onSaved?: () => v
   );
 }
 
-/** A provider's key in the ⚙ menu: connected with a way to forget it, or a box to add one. */
-export function KeyRow({ provider, connected }: { provider: Provider; connected: boolean }) {
+/**
+ * A provider's key in the ⚙ menu and Settings. By default a provider runs on
+ * the site's key, through the paper proxy; a key of your own, pasted here,
+ * goes before it, and forgetting it goes back. Gemini is the site's key only.
+ */
+export function KeyRow({ provider }: { provider: Provider; connected?: boolean }) {
   const info = PROVIDERS[provider];
-  const readiness = useSyncExternalStore(subscribe, () => getState().gemini);
+  const own = useSyncExternalStore(subscribe, () => getState().own[provider]);
+  const site = useSyncExternalStore(subscribe, () => getState().site[provider]);
+  const [adding, setAdding] = useState(false);
+  const note = siteNote(provider, site);
   if (info.viaProxy) {
     return (
-      <div className={connected ? 'set-key' : 'set-key-add'}>
-        {connected ? <span className="set-key-dot" aria-hidden="true" /> : null}
+      <div className={site === 'ready' ? 'set-key' : 'set-key-add'}>
+        {site === 'ready' ? <span className="set-key-dot" aria-hidden="true" /> : null}
         <span>
-          <b>{info.company}</b> · {info.name} · {geminiNote(readiness).short} — no key is kept in this browser
+          <b>{info.company}</b> · {info.name} · {note.short} — no key is kept in this browser
         </span>
       </div>
     );
   }
-  return connected ? (
-    <div className="set-key">
-      <span className="set-key-dot" aria-hidden="true" />
-      <span>
-        <b>{info.company}</b> · connected · usage bills your own account
-      </span>
-      <button type="button" className="btn sm danger" onClick={() => forgetKey(provider)}>
-        Forget
-      </button>
-    </div>
-  ) : (
+  if (own) {
+    return (
+      <div className="set-key">
+        <span className="set-key-dot" aria-hidden="true" />
+        <span>
+          <b>{info.company}</b> · your own key · usage bills your own account
+        </span>
+        <button
+          type="button"
+          className="btn sm danger"
+          onClick={() => forgetKey(provider)}
+          title={site === 'ready' ? `Forget your key and go back to the site’s ${info.name} key` : 'Forget your key'}
+        >
+          {site === 'ready' ? 'Use the site’s key' : 'Forget'}
+        </button>
+      </div>
+    );
+  }
+  if (site === 'ready' && !adding) {
+    return (
+      <div className="set-key">
+        <span className="set-key-dot" aria-hidden="true" />
+        <span>
+          <b>{info.company}</b> · on the site’s key, through your paper proxy
+        </span>
+        <button type="button" className="btn sm" onClick={() => setAdding(true)} title={`Use a ${info.company} key of your own instead, sent straight to ${info.host}`}>
+          Use my own key
+        </button>
+      </div>
+    );
+  }
+  return (
     <div className="set-key-add">
       <span>
-        <b>{info.company}</b> · no key yet —{' '}
+        <b>{info.company}</b> · {site === 'ready' ? 'your own key, in place of the site’s' : `no key yet (the site’s: ${note.short})`} —{' '}
         <a href={info.consoleUrl} target="_blank" rel="noopener noreferrer">
           get one
         </a>
+        {site === 'ready' ? (
+          <>
+            {' '}
+            ·{' '}
+            <button type="button" className="link-btn" onClick={() => setAdding(false)}>
+              keep the site’s
+            </button>
+          </>
+        ) : null}
       </span>
-      <KeyInput provider={provider} />
+      <KeyInput provider={provider} onSaved={() => setAdding(false)} />
     </div>
   );
 }
 
 function KeyCard({ provider }: { provider: Provider }) {
   const info = PROVIDERS[provider];
-  const readiness = useSyncExternalStore(subscribe, () => getState().gemini);
+  const readiness = useSyncExternalStore(subscribe, () => getState().site[provider]);
   if (info.viaProxy) {
     return (
       <div className="chat-card">
         <h3>{info.name} runs on your paper proxy</h3>
-        <p>{geminiNote(readiness).long}</p>
+        <p>{siteNote(provider, readiness).long}</p>
         <p className="chat-card-note">Or pick a Claude or DeepSeek model above.</p>
       </div>
     );
@@ -675,6 +710,7 @@ function KeyCard({ provider }: { provider: Provider }) {
   return (
     <div className="chat-card">
       <h3>Connect your {info.company} account</h3>
+      <p className="chat-card-note">{siteNote(provider, readiness).long}</p>
       <p>
         {info.company} does not offer a “sign in with {info.name}” for other websites
         {provider === 'anthropic' ? ', and a Claude.ai subscription cannot be spent from a web page' : ''} — so {info.name} models need an{' '}
@@ -1000,7 +1036,6 @@ export default function Assistant({ onClose, screen, reading }: Props) {
       {drawer === 'settings' ? (
         <ChatSettings
           context={s.prefs.context}
-          keys={s.keys}
           paperLayout={paperLayout}
           marks={settings.chatMarks ?? 'auto'}
           look={settings.passageLook ?? 'marker'}

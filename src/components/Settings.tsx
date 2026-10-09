@@ -16,7 +16,7 @@ function ModelOptions({ keys }: { keys: Record<string, boolean> }) {
   return (
     <>
       {PROVIDER_IDS.map((id) => (
-        <optgroup key={id} label={`${PROVIDERS[id].company}${keys[id] ? '' : PROVIDERS[id].viaProxy ? ' — not on your proxy yet' : ' — no key yet'}`}>
+        <optgroup key={id} label={`${PROVIDERS[id].company}${keys[id] ? '' : PROVIDERS[id].viaProxy ? ' — not on your proxy yet' : ' — no key yet, the site’s or yours'}`}>
           {MODELS.filter((m) => m.provider === id).map((m) => (
             <option key={m.id} value={m.id}>
               {m.label} — {m.note}
@@ -609,12 +609,13 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             </small>
           </label>
           {PROVIDER_IDS.map((provider) => (
-            <KeyRow key={provider} provider={provider} connected={ai.keys[provider]} />
+            <KeyRow key={provider} provider={provider} />
           ))}
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            Each key is kept in this browser only and sent straight to its provider — api.anthropic.com or
-            api.deepseek.com. Usage bills your own account there. Gemini is the exception: it runs on your paper
-            proxy’s own key (GEMINI_KEY), which never reaches this page.
+            Claude, DeepSeek and Gemini run on the site’s own keys by default — held by your paper proxy
+            (ANTHROPIC_KEY, DEEPSEEK_KEY, GEMINI_KEY), which never reach this page. To spend your own account instead,
+            press “Use my own key” on Claude or DeepSeek: your key is kept in this browser only and sent straight to
+            api.anthropic.com or api.deepseek.com. Forget it to go back to the site’s.
           </p>
         </section>
 

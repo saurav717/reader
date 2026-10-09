@@ -34,6 +34,7 @@ import { contributionsAsked, readContributions } from '../server/contributionRea
 import { PROFILE_MODEL } from '../server/profileReader.js';
 import { aiCounts } from './usage.js';
 import { checkRequest, GeminiRefused, MAX_REQUEST_BYTES, relayGemini, tokensOf as geminiTokens } from '../server/geminiRelay.js';
+import { aiForEveryone, aiKey, aiKeys, AiRefused, checkAi, KEY_NAMES, relayAi, relayedUsage } from '../server/aiRelay.js';
 import { readPage, searchWeb, webAvailable, WebRefused } from '../server/webSearch.js';
 import { handleColab, isColabPath, readSocketTicket } from '../server/colab.js';
 import { bridgeSocket } from './colabSocket.js';
@@ -196,6 +197,10 @@ async function snapshotTavily(env, { minAge = 0 } = {}) {
   }
 }
 
+/** The routes that ask a model on this Worker's own key, and whose. */
+const AI_ROUTES = { '/ai/anthropic': 'anthropic', '/ai/deepseek': 'deepseek', '/ai/gemini': 'gemini' };
+const AI_NAMES = { anthropic: 'Claude', deepseek: 'DeepSeek', gemini: 'Gemini' };
+
 /** The refusal, worded for whether there is a token to give at all. */
 const needsToken = (env, headers) =>
   json({ error: env.READER_TOKEN ? TOKEN_MESSAGE : NO_TOKEN_MESSAGE, token: true, google: Boolean(env.READER_TOKEN && env.GOOGLE_CLIENT_ID) }, 401, headers);
@@ -289,14 +294,14 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/usage/ai' && path !== '/ai/gemini' && !isColabPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/usage/ai' && !AI_ROUTES[path] && !isColabPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(String(env.GEMINI_KEY || '').trim()), web: webAvailable(webKeys), colab: true, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
           200,
           headers,
         );
@@ -397,35 +402,51 @@ export default {
         return json({ ok: true }, 200, headers);
       }
 
-      // Gemini for Ask AI and Explain, on this Worker's key — GEMINI_KEY, a
-      // secret — so it is never typed into the site: server/geminiRelay.js.
-      // POST, from this app, by someone signed in; the owner alone unless
-      // GEMINI_FOR is "everyone". The tokens go on the tally from here.
-      if (path === '/ai/gemini') {
+      // Claude, DeepSeek and Gemini for Ask AI and Explain, on this Worker's
+      // keys — ANTHROPIC_KEY, DEEPSEEK_KEY and GEMINI_KEY, secrets — so none
+      // is typed into the site: server/aiRelay.js and server/geminiRelay.js.
+      // Someone with a key of their own goes straight to the provider and
+      // never comes here. POST, from this app, by someone signed in; the
+      // owner alone unless AI_FOR is "everyone". The tokens go on the tally
+      // from here.
+      if (AI_ROUTES[path]) {
+        const provider = AI_ROUTES[path];
+        const name = AI_NAMES[provider];
         if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
         if (!ALLOWED_ORIGINS.includes(origin)) return json({ error: 'not from this app' }, 403, headers);
         const who = await authorized(request, env);
         if (!who) return needsToken(env, headers);
-        const key = String(env.GEMINI_KEY || '').trim();
-        if (!key) return json({ error: 'this proxy has no Gemini key: npx wrangler secret put GEMINI_KEY, then redeploy', setup: true }, 501, headers);
-        if (!who.owner && String(env.GEMINI_FOR || '').trim().toLowerCase() !== 'everyone') {
-          return json({ error: 'Gemini on this proxy is for its owner; pick another model, or ask the owner to set GEMINI_FOR to everyone', owners: true }, 403, headers);
+        const key = aiKey(env, provider);
+        if (!key) return json({ error: `this proxy has no ${name} key: npx wrangler secret put ${KEY_NAMES[provider]}, then redeploy`, setup: true }, 501, headers);
+        if (!who.owner && !aiForEveryone(env, provider)) {
+          return json({ error: `${name} on this proxy is for its owner; add a key of your own under Settings, or ask the owner to set AI_FOR to everyone`, owners: true }, 403, headers);
         }
         if (await personOverLimit(env, who)) {
           return json({ error: 'too many questions at once; try again in a minute' }, 429, { ...headers, 'Retry-After': '60' });
         }
         if (Number(request.headers.get('Content-Length') || 0) > MAX_REQUEST_BYTES) return json({ error: 'that request is too large' }, 413, headers);
-        let checked;
+        const body = await request.json().catch(() => null);
+        let response, counted;
         try {
-          checked = checkRequest(await request.json().catch(() => null));
+          if (provider === 'gemini') {
+            const checked = checkRequest(body);
+            const relayed = await relayGemini(checked, key);
+            response = relayed.response;
+            counted = relayed.usage.then((used) => {
+              if (used) tally(env, ctx, who, aiCounts({ provider: 'gemini', model: checked.model, ...geminiTokens(used) }));
+            });
+          } else {
+            const checked = checkAi(provider, body);
+            const relayed = await relayAi(provider, checked, key);
+            response = relayed.response;
+            counted = relayed.usage.then((used) => {
+              if (used) tally(env, ctx, who, aiCounts(relayedUsage(provider, checked, used)));
+            });
+          }
         } catch (error) {
-          if (error instanceof GeminiRefused) return json({ error: error.message }, error.status, headers);
+          if (error instanceof GeminiRefused || error instanceof AiRefused) return json({ error: error.message }, error.status, headers);
           throw error;
         }
-        const { response, usage } = await relayGemini(checked, key);
-        const counted = usage.then((used) => {
-          if (used) tally(env, ctx, who, aiCounts({ provider: 'gemini', model: checked.model, ...geminiTokens(used) }));
-        });
         if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(counted);
         return new Response(response.body, {
           status: response.status,

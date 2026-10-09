@@ -231,6 +231,26 @@ describe('failures', () => {
     });
   });
 
+  it('asks the proxy on the site’s key when given its route, with its headers and no key of its own', async () => {
+    const { fetcher, calls } = fakeFetch([event({ content: 'Hi' }, 'stop')]);
+    const { apiKey: _none, ...rest } = params;
+    await new deepseek.DeepSeekStream({ ...rest, url: 'https://proxy.example/ai/deepseek', headers: { Authorization: 'Bearer pass', 'X-Reader-Client': 'c' } }, fetcher).finalMessage();
+    assert.equal(calls[0].url, 'https://proxy.example/ai/deepseek');
+    assert.equal(calls[0].init.headers.Authorization, 'Bearer pass');
+    assert.equal(calls[0].body.model, 'deepseek-flash');
+  });
+
+  it('tells the proxy saying no from DeepSeek saying no, and says what to do', async () => {
+    const { fetcher } = fakeFetch([], { status: 403, body: { error: 'DeepSeek on this proxy is for its owner', owners: true } });
+    const { apiKey: _none, ...rest } = params;
+    await assert.rejects(new deepseek.DeepSeekStream({ ...rest, url: 'https://proxy.example/ai/deepseek', headers: {} }, fetcher).finalMessage(), (error) => {
+      assert.equal(error.fromProxy, true);
+      assert.equal(error.reason, 'OWNERS_ONLY');
+      assert.match(assistant.explainError(error, null), /for its owner\. Or add a key of your own/);
+      return true;
+    });
+  });
+
   it('reads a stop as Stopped', async () => {
     const fetcher = (_url, init) =>
       new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
@@ -247,7 +267,10 @@ describe('models and keys', () => {
     assert.equal(assistant.providerOf('deepseek-flash').company, 'DeepSeek');
     assert.equal(assistant.providerOf('claude-opus-5').name, 'Claude');
     assert.equal(assistant.modelSpec('no-such-model').id, assistant.MODELS[0].id);
-    assert.ok(assistant.MODELS.filter((m) => m.provider === 'deepseek').every((m) => m.vision));
+    // V4.1 Flash reads pictures; V4 Pro reads text only.
+    assert.ok(assistant.MODELS.filter((m) => m.apiModel === 'deepseek-flash' || m.id === 'deepseek-flash').every((m) => m.vision));
+    assert.equal(assistant.modelSpec('deepseek-v4-pro').vision, false);
+    assert.equal(assistant.modelSpec('deepseek-v4-pro').thinks, true);
   });
 
   it('sends both DeepSeek entries to deepseek-flash, and reads the retired ids as them', () => {

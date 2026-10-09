@@ -114,11 +114,21 @@ simple = { limit = 60, period = 60 }
 # profile exactly — every work, citations, h-index; "serply" is cheaper, and
 # takes the searches, people and versions while SerpApi keeps the profiles.
 SCHOLAR_FIRST = "serpapi"
-# Who may ask Gemini on this Worker's key (GEMINI_KEY, a secret — see
-# server/geminiRelay.js): "owners", the default — READER_TOKEN and the Google
+# Ask AI and Explain on this Worker's own keys — the site's keys, used by
+# anyone who has not pasted one of their own under Settings (server/aiRelay.js,
+# server/geminiRelay.js). Each a secret, and each optional:
+#
+#     npx wrangler secret put ANTHROPIC_KEY    # Claude
+#     npx wrangler secret put DEEPSEEK_KEY     # DeepSeek (the Usage page's balance reads it too)
+#     npx wrangler secret put GEMINI_KEY       # Gemini
+#
+# Who may ask on them: "owners", the default — READER_TOKEN and the Google
 # accounts in READER_OWNERS — or "everyone" signed in, which spends the
-# owner's Google account on each of them.
-GEMINI_FOR = "owners"
+# owner's accounts on each of them. Anyone else can still paste a key of
+# their own, which goes straight to its provider and never through here.
+# (GEMINI_FOR, the setting before this one, is still read for Gemini when
+# AI_FOR is unset.)
+AI_FOR = "owners"
 # The app's Google OAuth client ID — public, it is in the site's JavaScript.
 # A Google sign-in is only taken for a pass when Google says it was made for
 # this client; a sign-in some other site obtained is not one to this app.

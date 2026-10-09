@@ -5,18 +5,21 @@
 //  Google's Gemini. The model picker says which, and each provider has a key
 //  of its own.
 //
-//  ON SIGNING IN. Neither publishes a "sign in with …" for third-party
-//  websites: a Claude.ai or Claude Code subscription cannot be spent from a
-//  page like this one, and there is no OAuth flow to offer. So the window asks
-//  for an API key — from console.anthropic.com or platform.deepseek.com. Each
-//  is kept in this browser's localStorage and sent straight to its provider's
-//  API (api.anthropic.com, or api.deepseek.com — deepseek.ts). Usage bills the
-//  visitor's own account, and nothing about a key reaches anyone else.
+//  THE SITE'S KEYS, AND YOUR OWN. The site comes with keys of its own: the
+//  paper proxy holds ANTHROPIC_KEY, DEEPSEEK_KEY and GEMINI_KEY, never typed
+//  into the page, and asks the provider for whoever is signed in to it —
+//  server/aiRelay.js and server/geminiRelay.js. A provider's models are ready
+//  on the site's key when the proxy says it has one and this browser holds
+//  the proxy's token or pass. That is the default.
 //
-//  Gemini is the exception: its key is the proxy's (GEMINI_KEY), never typed
-//  into the site, and the proxy asks Google for whoever is signed in to it —
-//  gemini.ts and server/geminiRelay.js. Its models are ready when the proxy
-//  says it has the key and this browser holds the proxy's token or pass.
+//  Anyone may use a key of their own for Claude or DeepSeek instead, under
+//  Settings: it is kept in this browser's localStorage and sent straight to
+//  its provider's API (api.anthropic.com, or api.deepseek.com — deepseek.ts),
+//  never through the proxy. Usage then bills their own account, and nothing
+//  about the key reaches anyone else. Neither provider publishes a "sign in
+//  with …" for third-party websites — a Claude.ai subscription cannot be
+//  spent from a page like this one — so a key it is. Gemini is the site's
+//  key only.
 //
 //  The SDK is imported on first use, not at boot: Vite splits it into a chunk
 //  of its own, and a visitor who never opens the window never downloads it.
@@ -35,7 +38,7 @@
 // ===========================================================================
 
 import type AnthropicClient from '@anthropic-ai/sdk';
-import { DeepSeekStream } from './deepseek';
+import { DeepSeekStream, proxyReason } from './deepseek';
 import { GeminiStream } from './gemini';
 import { reportAiUsage } from './aiUsage';
 import { api as proxyUrl, apiHeaders, hasProxy, hasProxyToken, onProxyChange, proxyHealth } from './api';
@@ -136,10 +139,11 @@ export const MODELS: readonly ModelSpec[] = [
   { id: 'claude-opus-5', provider: 'anthropic', label: 'Claude Opus 5', note: 'most capable', adaptive: true, vision: true },
   { id: 'claude-sonnet-5', provider: 'anthropic', label: 'Claude Sonnet 5', note: 'faster and cheaper', adaptive: true, vision: true },
   { id: 'claude-haiku-4-5', provider: 'anthropic', label: 'Claude Haiku 4.5', note: 'fastest and cheapest', adaptive: false, vision: true },
-  // V4.1 Flash, the one model DeepSeek serves (deepseek-chat and deepseek-reasoner were retired in July 2026), twice:
-  // thinking first, and answering straight away.
-  { id: 'deepseek-flash', provider: 'deepseek', label: 'DeepSeek Flash', note: 'thinks first · very cheap', adaptive: false, vision: true, thinks: true },
-  { id: 'deepseek-flash-fast', apiModel: 'deepseek-flash', provider: 'deepseek', label: 'DeepSeek Flash, no thinking', note: 'answers at once · cheapest', adaptive: false, vision: true, thinks: false },
+  // DeepSeek serves two (deepseek-chat and deepseek-reasoner were retired in July 2026): V4.1 Flash, which reads
+  // pictures, twice — thinking first, and answering straight away — and V4 Pro, its larger model, which reads text only.
+  { id: 'deepseek-flash', provider: 'deepseek', label: 'DeepSeek V4.1 Flash', note: 'thinks first · very cheap', adaptive: false, vision: true, thinks: true },
+  { id: 'deepseek-flash-fast', apiModel: 'deepseek-flash', provider: 'deepseek', label: 'DeepSeek V4.1 Flash, no thinking', note: 'answers at once · cheapest', adaptive: false, vision: true, thinks: false },
+  { id: 'deepseek-v4-pro', provider: 'deepseek', label: 'DeepSeek V4 Pro', note: 'DeepSeek’s most capable · text only', adaptive: false, vision: false, thinks: true },
   // Google's current three: its Pro (still filed as a preview), its newest Flash, and Flash-Lite.
   { id: 'gemini-3.1-pro-preview', provider: 'gemini', label: 'Gemini 3.1 Pro', note: 'Google’s most capable', adaptive: false, vision: true, thinking: 'high', maxOutput: 64000 },
   { id: 'gemini-3.8-flash', provider: 'gemini', label: 'Gemini 3.8 Flash', note: 'fast and capable', adaptive: false, vision: true, thinking: 'high', maxOutput: 64000 },
@@ -545,63 +549,94 @@ const storedKey = (provider: Provider) => {
     return '';
   }
 };
-const keyFor = (provider: Provider) => memKeys[provider] || storedKey(provider);
-/** Whether each provider can answer from here: a key in this browser, or — for Gemini — a proxy ready to ask for it. */
-const storedKeys = () =>
-  Object.fromEntries(
-    PROVIDER_IDS.map((provider) => [provider, PROVIDERS[provider].viaProxy ? state.gemini === 'ready' : Boolean(keyFor(provider))]),
-  ) as Record<Provider, boolean>;
+const keyFor = (provider: Provider) => (PROVIDERS[provider].viaProxy ? '' : memKeys[provider] || storedKey(provider));
+/** Which providers have a key of this browser's own. */
+const ownKeys = () => Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, Boolean(keyFor(provider))])) as Record<Provider, boolean>;
+/** Whether each provider can answer from here: a key of this browser's own, or the site's, on a proxy ready to ask with it. */
+const usableKeys = (own: Record<Provider, boolean>, site: Record<Provider, SiteReadiness>) =>
+  Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, own[provider] || site[provider] === 'ready'])) as Record<Provider, boolean>;
+/** Whether an answer from this provider goes through the proxy, on the site's key, rather than straight there on this browser's own. */
+export const onSiteKey = (provider: Provider) => !keyFor(provider);
 
 /**
- * Where Gemini stands on this proxy: ready; no proxy at all; a proxy with no
- * GEMINI_KEY; one that wants its token or a sign-in first; or not yet known.
+ * Where the site's key for a provider stands on this proxy: ready; no proxy
+ * at all; a proxy with no key for it; one that wants its token or a sign-in
+ * first; one that keeps it for its owner; or not yet known.
  */
-export type GeminiReadiness = 'ready' | 'no-proxy' | 'no-key' | 'sign-in' | 'checking';
+export type SiteReadiness = 'ready' | 'no-proxy' | 'no-key' | 'sign-in' | 'owners' | 'checking';
+/** The name this had when Gemini was the only provider on the proxy's key. */
+export type GeminiReadiness = SiteReadiness;
 
-/** Ask the proxy's /health what it can do for the window: Gemini, and the web. */
+/** Ask the proxy's /health what it can do for the window: the site's keys, and the web. */
 function checkProxy() {
-  void checkGemini();
+  void checkSite();
   void checkWeb().then((web) => {
     if (web !== state.web) set({ web });
   });
 }
 
-/** Ask the proxy's /health whether it has Gemini, and whether this browser may use it. */
-async function checkGemini() {
-  if (!hasProxy()) return setGemini('no-proxy');
+/** Ask the proxy's /health which keys it holds, and whether this browser may use them. */
+async function checkSite() {
+  const all = (readiness: SiteReadiness) => setSite(Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, readiness])) as Record<Provider, SiteReadiness>);
+  if (!hasProxy()) return all('no-proxy');
   const health = await proxyHealth();
-  if (!health) return setGemini('no-proxy');
-  if (!health.gemini) return setGemini('no-key');
-  setGemini(health.auth && !hasProxyToken() ? 'sign-in' : 'ready');
+  if (!health) return all('no-proxy');
+  setSite(
+    Object.fromEntries(
+      PROVIDER_IDS.map((provider) => [
+        provider,
+        !health.ai[provider] ? 'no-key' : health.auth && !hasProxyToken() ? 'sign-in' : 'ready',
+      ]),
+    ) as Record<Provider, SiteReadiness>,
+  );
 }
 
-/** Where Gemini stands, in a few words for a picker and in a sentence for a card. */
-export function geminiNote(readiness: GeminiReadiness): { short: string; long: string } {
+/** Where the site's key for a provider stands, in a few words for a picker and in a sentence for a card. */
+export function siteNote(provider: Provider, readiness: SiteReadiness): { short: string; long: string } {
+  const { name } = PROVIDERS[provider];
+  const own = PROVIDERS[provider].viaProxy ? '' : ' Or add a key of your own.';
   switch (readiness) {
     case 'ready':
-      return { short: 'ready, on your paper proxy', long: 'Gemini runs on your paper proxy’s own key, so there is nothing to paste here.' };
+      return { short: 'ready, on the site’s key', long: `${name} runs on the site’s own key, through your paper proxy, so there is nothing to paste here.` };
     case 'no-key':
       return {
-        short: 'the proxy has no Gemini key',
-        long: 'Gemini runs on your paper proxy’s own key, and it has none yet. Its owner sets it once with “npx wrangler secret put GEMINI_KEY” (or GEMINI_KEY for npm start) and redeploys.',
+        short: 'the proxy has no key for it',
+        long: `The site’s ${name} key lives on your paper proxy, and it has none yet. Its owner sets it once with “npx wrangler secret put ${SITE_KEY_NAMES[provider]}” (or ${SITE_KEY_NAMES[provider]} for npm start) and redeploys.${own}`,
       };
     case 'sign-in':
       return {
         short: 'sign in to the proxy first',
-        long: 'Gemini runs on your paper proxy’s own key, for whoever is signed in to it. Sign in with Google, or paste the proxy’s token under Settings → Paper proxy.',
+        long: `${name} runs on the site’s own key, through your paper proxy, for whoever is signed in to it. Sign in with Google, or paste the proxy’s token under Settings → Paper proxy.${own}`,
       };
+    case 'owners':
+      return { short: 'the site’s key is the owner’s', long: `The site’s ${name} key is kept for its owner.${own || ' Pick a model from another provider.'}` };
     case 'no-proxy':
-      return { short: 'needs a paper proxy', long: 'Gemini runs on a paper proxy’s own key, and this site has no proxy set. Add one under Settings → Paper proxy.' };
+      return { short: 'needs a paper proxy', long: `The site’s ${name} key lives on a paper proxy, and this site has no proxy set. Add one under Settings → Paper proxy.${own}` };
     default:
-      return { short: 'checking the proxy…', long: 'Asking your paper proxy whether it has Gemini…' };
+      return { short: 'checking the proxy…', long: `Asking your paper proxy whether it has ${name}…` };
   }
 }
 
-function setGemini(gemini: GeminiReadiness) {
-  if (gemini === state.gemini) return;
-  state = { ...state, gemini };
-  const keys = storedKeys();
-  set({ keys, hasKey: keys[modelSpec(state.prefs.model).provider] });
+/** Where Gemini stands — siteNote, for the callers from before the other two were on the proxy too. */
+export const geminiNote = (readiness: SiteReadiness) => siteNote('gemini', readiness);
+
+/** What each provider's key is set as on the proxy. */
+const SITE_KEY_NAMES: Record<Provider, string> = { anthropic: 'ANTHROPIC_KEY', deepseek: 'DEEPSEEK_KEY', gemini: 'GEMINI_KEY' };
+
+function setSite(site: Record<Provider, SiteReadiness>) {
+  if (PROVIDER_IDS.every((provider) => site[provider] === state.site[provider])) return;
+  const keys = usableKeys(state.own, site);
+  set({ site, gemini: site.gemini, keys, hasKey: keys[modelSpec(state.prefs.model).provider] });
+}
+
+/**
+ * The proxy said the site's key for this provider is its owner's: it stops
+ * counting as usable here, so the pickers ask for a key of this browser's
+ * own, until the proxy or the sign-in changes.
+ */
+function siteRefused(provider: Provider, reason: string) {
+  if (reason === 'OWNERS_ONLY') setSite({ ...state.site, [provider]: 'owners' });
+  else if (reason === 'NO_KEY') setSite({ ...state.site, [provider]: 'no-key' });
 }
 
 // ---------------------------------------------------------------------------
@@ -641,12 +676,16 @@ export interface AssistantState {
   history: Chat[];
   live: boolean;
   prefs: Prefs;
-  /** Which providers have a key in this browser. */
+  /** Which providers can answer from here: a key of this browser's own, or the site's. */
   keys: Record<Provider, boolean>;
+  /** Which providers have a key of this browser's own, which is used before the site's. */
+  own: Record<Provider, boolean>;
+  /** Where the site's key for each provider stands on the proxy. */
+  site: Record<Provider, SiteReadiness>;
   /** Whether the chat's model has a key — whether the window can send. */
   hasKey: boolean;
-  /** Whether Gemini can be asked through the proxy, and if not, why not. */
-  gemini: GeminiReadiness;
+  /** Whether Gemini can be asked through the proxy, and if not, why not — site.gemini. */
+  gemini: SiteReadiness;
   /** Whether the proxy can search the web for the Web button, and if not, why not. */
   web: WebReadiness;
   /** A passage attached to the next question with "Ask Claude" on a selection. */
@@ -662,6 +701,8 @@ let state: AssistantState = {
   live: false,
   prefs: { model: DEFAULT_MODEL, context: { paper: true, fullText: true, visible: true, selection: true, highlights: true, library: true, explanation: true, notebook: true } },
   keys: { anthropic: false, deepseek: false, gemini: false },
+  own: { anthropic: false, deepseek: false, gemini: false },
+  site: { anthropic: 'checking', deepseek: 'checking', gemini: 'checking' },
   hasKey: false,
   gemini: 'checking',
   web: 'checking',
@@ -676,8 +717,9 @@ function ensureLoaded() {
   if (loaded) return;
   loaded = true;
   const prefs = loadPrefs();
-  const keys = storedKeys();
-  state = { ...state, prefs, history: loadHistory(), keys, hasKey: keys[modelSpec(prefs.model).provider] };
+  const own = ownKeys();
+  const keys = usableKeys(own, state.site);
+  state = { ...state, prefs, history: loadHistory(), own, keys, hasKey: keys[modelSpec(prefs.model).provider] };
   // A Gemini key an earlier build kept in this browser is not needed any more.
   try {
     localStorage.removeItem(PROVIDERS.gemini.keyStore);
@@ -769,7 +811,7 @@ export function setContext(key: ContextKey, on: boolean) {
   savePrefs();
 }
 
-/** Keep a key for a provider — by default, the one behind the chat's model. */
+/** Keep a key of this browser's own for a provider — by default, the one behind the chat's model — used before the site's. */
 export function saveKey(key: string, provider: Provider = modelSpec(state.prefs.model).provider) {
   // The proxy's key, not one of this browser's.
   if (PROVIDERS[provider].viaProxy) return;
@@ -781,11 +823,13 @@ export function saveKey(key: string, provider: Provider = modelSpec(state.prefs.
   } catch {
     // private mode: the key lives for this page load only
   }
-  if (provider === 'anthropic') client = null;
-  const keys = { ...state.keys, [provider]: Boolean(value) };
-  set({ keys, hasKey: keys[modelSpec(state.prefs.model).provider] });
+  if (provider === 'anthropic') clients.own = null;
+  const own = { ...state.own, [provider]: Boolean(value) };
+  const keys = usableKeys(own, state.site);
+  set({ own, keys, hasKey: keys[modelSpec(state.prefs.model).provider] });
 }
 
+/** Forget this browser's own key for a provider: its models go back to the site's key, where there is one. */
 export function forgetKey(provider: Provider = modelSpec(state.prefs.model).provider) {
   saveKey('', provider);
 }
@@ -939,7 +983,8 @@ export function clearHistory() {
 
 export type SDK = typeof AnthropicClient;
 let sdkModule: SDK | null = null;
-let client: AnthropicClient | null = null;
+/** One client on this browser's own key, one on the site's through the proxy. */
+const clients: { own: AnthropicClient | null; site: AnthropicClient | null } = { own: null, site: null };
 let stream: ModelStream | null = null;
 
 export async function sdk(): Promise<SDK> {
@@ -948,16 +993,54 @@ export async function sdk(): Promise<SDK> {
 }
 
 export async function anthropic(): Promise<AnthropicClient> {
-  if (client) return client;
   const SDK = await sdk();
-  client = new SDK({
-    // Deliberate, and the only way a static site can work: the visitor's own
-    // key, in the visitor's own browser, going straight to Anthropic.
+  if (keyFor('anthropic')) {
+    clients.own ??= new SDK({
+      // Deliberate, and the only way a static site can work: the visitor's own
+      // key, in the visitor's own browser, going straight to Anthropic.
+      dangerouslyAllowBrowser: true,
+      apiKey: keyFor('anthropic'),
+      maxRetries: 1,
+    });
+    return clients.own;
+  }
+  clients.site ??= new SDK({
     dangerouslyAllowBrowser: true,
-    apiKey: keyFor('anthropic'),
+    // The key is the proxy's; this one is never sent anywhere.
+    apiKey: 'site-key',
     maxRetries: 1,
+    fetch: siteFetch,
   });
-  return client;
+  return clients.site;
+}
+
+/**
+ * The SDK's fetch, for the site's key: the Messages API request goes to the
+ * proxy's /ai/anthropic instead, with the proxy's headers in place of the
+ * SDK's (the key placeholder among them), and the answer comes back as
+ * Anthropic sent it. A refusal of the proxy's own is not one to retry.
+ */
+async function siteFetch(_input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
+  const response = await fetch(proxyUrl('/ai/anthropic'), {
+    method: 'POST',
+    body: init.body,
+    signal: init.signal,
+    headers: apiHeaders({ 'Content-Type': 'application/json' }),
+  });
+  if (response.ok) return response;
+  const text = await response.text();
+  let body: { error?: unknown } | null = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    // not JSON: passed on as it came
+  }
+  const ours = typeof body?.error === 'string';
+  if (ours) siteRefused('anthropic', proxyReason(body as Parameters<typeof proxyReason>[0]));
+  return new Response(text, {
+    status: response.status,
+    headers: { 'Content-Type': 'application/json', ...(ours ? { 'x-should-retry': 'false' } : {}) },
+  });
 }
 
 /** What callers hold while an answer streams in, whichever provider is writing it. */
@@ -991,8 +1074,10 @@ export async function streamModel(params: {
   const web = Boolean(params.web) && webUsable(spec.id);
   const maxTokens = spec.maxOutput ? Math.min(params.maxTokens, spec.maxOutput) : params.maxTokens;
   if (spec.provider === 'deepseek') {
-    return new DeepSeekStream({
-      apiKey: keyFor('deepseek'),
+    const site = onSiteKey('deepseek');
+    const answer = new DeepSeekStream({
+      // This browser's own key, straight to DeepSeek; or the site's, through the proxy.
+      ...(site ? { url: proxyUrl('/ai/deepseek'), headers: apiHeaders() } : { apiKey: keyFor('deepseek') }),
       model: spec.apiModel ?? spec.id,
       maxTokens,
       thinking: !spec.thinks ? 'off' : params.effort === 'low' ? 'low' : 'high',
@@ -1000,15 +1085,21 @@ export async function streamModel(params: {
       messages: params.messages as ConstructorParameters<typeof DeepSeekStream>[0]['messages'],
       ...(web ? { tools: WEB_TOOLS, runTool: runWebTool, maxToolCalls: MAX_TOOL_CALLS } : {}),
       onUsage: (usage) => {
+        // The proxy counts what goes through it on the site's key itself.
+        if (site) return;
         const hit = usage.prompt_cache_hit_tokens || 0;
         const miss = usage.prompt_cache_miss_tokens ?? Math.max(0, (usage.prompt_tokens || 0) - hit);
         reportAiUsage('deepseek', spec.apiModel ?? spec.id, { input: miss, cacheRead: hit, output: usage.completion_tokens || 0 }, spec.id);
       },
     });
+    answer.finalMessage().catch((error: DeepSeekError) => {
+      if (error?.fromProxy) siteRefused('deepseek', error.reason);
+    });
+    return answer;
   }
   if (spec.provider === 'gemini') {
     const level = spec.thinking ?? 'high';
-    return new GeminiStream({
+    const answer = new GeminiStream({
       url: proxyUrl('/ai/gemini'),
       headers: apiHeaders(),
       model: spec.apiModel ?? spec.id,
@@ -1018,7 +1109,12 @@ export async function streamModel(params: {
       messages: params.messages as ConstructorParameters<typeof GeminiStream>[0]['messages'],
       // The proxy counts Gemini's tokens itself, as they pass through it.
     });
+    answer.finalMessage().catch((error: GeminiError) => {
+      if (error?.fromProxy) siteRefused('gemini', error.reason);
+    });
+    return answer;
   }
+  const site = onSiteKey('anthropic');
   const api = await anthropic();
   const sdkStream = api.messages.stream({
     model: spec.apiModel ?? spec.id,
@@ -1047,6 +1143,8 @@ export async function streamModel(params: {
   });
   // Once the answer is in, the tokens it took go on the owner's tally (aiUsage.ts).
   sdkStream.on('finalMessage', (message) => {
+    // The proxy counts what goes through it on the site's key itself.
+    if (site) return;
     const usage = message.usage;
     reportAiUsage('claude', spec.apiModel ?? spec.id, {
       input: usage.input_tokens || 0,
@@ -1251,13 +1349,27 @@ export function withQuote(quote: string, text: string): string {
 // Sending
 // ---------------------------------------------------------------------------
 
+/** What the proxy saying no to the site's key should say: why, and what to do instead. */
+function siteRefusal(provider: Provider, status: number, reason: string, message: string): string {
+  const { name } = PROVIDERS[provider];
+  const own = PROVIDERS[provider].viaProxy ? ' Pick a model from another provider instead.' : ' Or add a key of your own under ⚙.';
+  if (reason === 'NO_KEY') return `The paper proxy has no ${name} key yet. Its owner sets it with “npx wrangler secret put ${SITE_KEY_NAMES[provider]}” and redeploys.${own}`;
+  if (reason === 'SIGN_IN' || status === 401) return `Sign in to the paper proxy to use ${name} on the site’s key — with Google, or its token under Settings → Paper proxy.${own}`;
+  if (reason === 'OWNERS_ONLY') return `${name} on the site’s key is for its owner.${own}`;
+  if (status === 429) return 'Too many questions at once. Wait a minute and ask again.';
+  return `The paper proxy would not ask ${name}: ${message}`;
+}
+
 /** What a failure should say to someone who is not holding the SDK docs. */
 export function explainError(err: unknown, SDK: SDK | null): string {
   if ((err as Error)?.name === 'AbortError') return 'Stopped.';
   // By name, not instanceof: the class may come from another copy of the module (a test bundle).
   if ((err as Error)?.name === 'DeepSeekError') {
-    const { status, message } = err as DeepSeekError;
-    if (status === 0) return 'Could not reach api.deepseek.com. Check your connection, or whether something is blocking the request.';
+    const { status, message, fromProxy, reason, viaProxy: site } = err as DeepSeekError;
+    if (fromProxy) return siteRefusal('deepseek', status, reason, message);
+    if (status === 0) return site ? 'Could not reach the paper proxy that asks DeepSeek. Check your connection, or Settings → Paper proxy.' : 'Could not reach api.deepseek.com. Check your connection, or whether something is blocking the request.';
+    if (site && status === 401) return 'DeepSeek rejected the site’s key. Its owner checks DEEPSEEK_KEY on the proxy — or add a key of your own under ⚙.';
+    if (site && status === 402) return 'The site’s DeepSeek balance has run out. Add a key of your own under ⚙, or ask the owner to top it up.';
     if (status === 401) return 'DeepSeek rejected that API key. Check it on platform.deepseek.com, then enter it again under ⚙.';
     if (status === 402) return 'Your DeepSeek balance has run out. Top it up on platform.deepseek.com and ask again.';
     if (status === 429) return 'Rate limited by DeepSeek. Wait a moment and ask again.';
@@ -1267,13 +1379,7 @@ export function explainError(err: unknown, SDK: SDK | null): string {
   if ((err as Error)?.name === 'GeminiError') {
     const { status, message, reason, fromProxy } = err as GeminiError;
     if (status === 0) return 'Could not reach the paper proxy that asks Gemini. Check your connection, or Settings → Paper proxy.';
-    if (fromProxy) {
-      if (reason === 'NO_KEY') return 'The paper proxy has no Gemini key yet. Its owner sets it with “npx wrangler secret put GEMINI_KEY” and redeploys.';
-      if (reason === 'SIGN_IN' || status === 401) return 'Sign in to the paper proxy to use Gemini — with Google, or its token under Settings → Paper proxy.';
-      if (reason === 'OWNERS_ONLY') return 'Gemini on this paper proxy is for its owner. Pick a Claude or DeepSeek model instead.';
-      if (status === 429) return 'Too many questions at once. Wait a minute and ask again.';
-      return `The paper proxy would not ask Gemini: ${message}`;
-    }
+    if (fromProxy) return siteRefusal('gemini', status, reason, message);
     // Google answers a bad key with a 400 of its own wording, not a 401.
     if (status === 401 || /API key not valid|API_KEY_INVALID/i.test(message)) {
       return 'Google rejected the paper proxy’s Gemini key. Its owner checks GEMINI_KEY on aistudio.google.com and sets it again.';
@@ -1284,8 +1390,16 @@ export function explainError(err: unknown, SDK: SDK | null): string {
     if (status >= 500) return `Gemini is having trouble (${status}): ${message}. Try again in a moment.`;
     return `Gemini returned ${status}: ${message}`;
   }
+  // The proxy's own refusal, on the site's key: its error is a string, where Anthropic's is an object.
+  if (SDK && err instanceof SDK.APIError && typeof (err.error as { error?: unknown } | undefined)?.error === 'string') {
+    const body = err.error as { error: string; setup?: unknown; owners?: unknown; token?: unknown; auth?: unknown };
+    return siteRefusal('anthropic', err.status ?? 0, proxyReason(body), body.error);
+  }
+  const site = onSiteKey('anthropic');
   if (SDK && err instanceof SDK.AuthenticationError) {
-    return 'Anthropic rejected that API key. Check it in the console, then enter it again under ⚙.';
+    return site
+      ? 'Anthropic rejected the site’s key. Its owner checks ANTHROPIC_KEY on the proxy — or add a key of your own under ⚙.'
+      : 'Anthropic rejected that API key. Check it in the console, then enter it again under ⚙.';
   }
   if (SDK && err instanceof SDK.PermissionDeniedError) {
     return 'That key is not allowed to use this model. Try a different model, or a key with broader access.';
@@ -1293,7 +1407,9 @@ export function explainError(err: unknown, SDK: SDK | null): string {
   if (SDK && err instanceof SDK.RateLimitError) return 'Rate limited by Anthropic. Wait a moment and ask again.';
   if (SDK && err instanceof SDK.APIUserAbortError) return 'Stopped.';
   if (SDK && err instanceof SDK.APIConnectionError) {
-    return 'Could not reach api.anthropic.com. Check your connection, or whether something is blocking the request.';
+    return site
+      ? 'Could not reach the paper proxy that asks Claude. Check your connection, or Settings → Paper proxy.'
+      : 'Could not reach api.anthropic.com. Check your connection, or whether something is blocking the request.';
   }
   if (SDK && err instanceof SDK.APIError) return `Anthropic returned ${err.status}: ${err.message}`;
   return String((err as Error)?.message ?? err);

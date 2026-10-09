@@ -3,7 +3,9 @@
 //
 //  DeepSeek's API speaks the OpenAI chat-completions dialect, so there is no
 //  SDK to load: one fetch to api.deepseek.com with the visitor's own key, read
-//  as server-sent events. The stream it returns has the few methods the app
+//  as server-sent events — or, for a visitor with no key of their own, the same
+//  request to the proxy's `POST /ai/deepseek`, which sends it on with the
+//  site's key (server/aiRelay.js) and streams the answer back unchanged. The stream it returns has the few methods the app
 //  uses on Anthropic's MessageStream — on('text'), on('thinking'), abort()
 //  and finalMessage() — so the callers need not care which one they hold.
 //
@@ -35,14 +37,30 @@ import type { ToolSpec, WebStep } from './webTools';
 
 export const DEEPSEEK_URL = 'https://api.deepseek.com/chat/completions';
 
-/** A failure DeepSeek (or the way to it) reported. `status` is 0 when the request never got an answer. */
+/**
+ * A failure DeepSeek (or the way to it) reported. `status` is 0 when the
+ * request never got an answer; `fromProxy` when it was the proxy that said no
+ * (not signed in, no key there, the owner's alone) rather than DeepSeek.
+ */
 export class DeepSeekError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  fromProxy: boolean;
+  /** The proxy's reason: NO_KEY, SIGN_IN or OWNERS_ONLY. */
+  reason: string;
+  /** Asked through the proxy, on the site's key, rather than straight at DeepSeek. */
+  viaProxy = false;
+  constructor(status: number, message: string, fromProxy = false, reason = '') {
     super(message);
     this.name = 'DeepSeekError';
     this.status = status;
+    this.fromProxy = fromProxy;
+    this.reason = reason;
   }
+}
+
+/** The proxy's own refusal, which it words as a string where a provider's is an object: why, in a word. */
+export function proxyReason(body: { setup?: unknown; owners?: unknown; token?: unknown; auth?: unknown }): string {
+  return body.setup ? 'NO_KEY' : body.owners ? 'OWNERS_ONLY' : body.token || body.auth ? 'SIGN_IN' : '';
 }
 
 type Part =
@@ -76,7 +94,11 @@ export type WireMessage =
   | { role: 'tool'; tool_call_id: string; content: string };
 
 export interface DeepSeekParams {
-  apiKey: string;
+  /** The visitor's own key, sent straight to DeepSeek. */
+  apiKey?: string;
+  /** Or the proxy's route and its headers (the token or pass, the client id), to ask on the site's key. */
+  url?: string;
+  headers?: Record<string, string>;
   model: string;
   maxTokens: number;
   /** The system prompt, as one text. */
@@ -114,7 +136,7 @@ export function toWire(content: string | Part[]): string | WirePart[] {
 }
 
 /** The request body, as sent: the conversation, and the rounds of tool calls so far after it. */
-export function requestBody(params: Omit<DeepSeekParams, 'apiKey' | 'onUsage' | 'runTool' | 'maxToolCalls'>, rounds: WireMessage[] = []) {
+export function requestBody(params: Omit<DeepSeekParams, 'apiKey' | 'url' | 'headers' | 'onUsage' | 'runTool' | 'maxToolCalls'>, rounds: WireMessage[] = []) {
   return {
     model: params.model,
     max_tokens: params.maxTokens,
@@ -174,7 +196,10 @@ export class DeepSeekStream {
   private done: Promise<{ stop_reason: string | null }>;
 
   constructor(params: DeepSeekParams, fetcher: typeof fetch = fetch) {
-    this.done = this.run(params, fetcher);
+    this.done = this.run(params, fetcher).catch((error) => {
+      if (error instanceof DeepSeekError) error.viaProxy = Boolean(params.url);
+      throw error;
+    });
     // A caller that never asks for the result must not leave an unhandled rejection behind.
     this.done.catch(() => {});
   }
@@ -244,9 +269,9 @@ export class DeepSeekStream {
   private async request(params: DeepSeekParams, rounds: WireMessage[], fetcher: typeof fetch): Promise<Round> {
     let response: Response;
     try {
-      response = await fetcher(DEEPSEEK_URL, {
+      response = await fetcher(params.url ?? DEEPSEEK_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` },
+        headers: params.url ? { ...params.headers, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json', Authorization: `Bearer ${params.apiKey}` },
         body: JSON.stringify(requestBody(params, rounds)),
         signal: this.controller.signal,
       });
@@ -258,8 +283,12 @@ export class DeepSeekStream {
       let message = response.statusText;
       try {
         const body = await response.json();
+        if (params.url && typeof body?.error === 'string') {
+          throw new DeepSeekError(response.status, body.error, true, proxyReason(body));
+        }
         message = body?.error?.message || message;
-      } catch {
+      } catch (error) {
+        if (error instanceof DeepSeekError) throw error;
         // not JSON: the status line will do
       }
       throw new DeepSeekError(response.status, message || `HTTP ${response.status}`);
