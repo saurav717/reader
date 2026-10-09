@@ -21,6 +21,7 @@ import {
   serialise,
   visibleInDrive,
   writeLibraryToDrive,
+  LIBRARY_FILE,
   type Library,
   type RemoteMark,
 } from './driveLibrary';
@@ -475,7 +476,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return;
       }
       const { googleClientId, driveFolderName } = latest.current.settings;
-      setLibrarySync({ state: 'saving' });
+      setLibrarySync((was) => ({ state: 'saving', message: was.state === 'error' ? undefined : was.message }));
       try {
         let toWrite = library;
         const now = await libraryMark(googleClientId, driveFolderName);
@@ -496,7 +497,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Anything changed while the write was in flight is still to go.
         dirty.current = serialise(currentLibrary()) !== lastPushed.current;
         await Promise.all([db.setKv(REMOTE_KEY, mark), db.setKv(DIRTY_KEY, dirty.current)]).catch(() => undefined);
-        setLibrarySync({ state: 'saved', at: new Date().toISOString() });
+        setLibrarySync((was) => ({ state: 'saved', at: new Date().toISOString(), message: was.message }));
       } catch (error) {
         setLibrarySync({ state: 'error', message: error instanceof Error ? error.message : String(error) });
       }
@@ -588,7 +589,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (accountNow.current !== owner) return;
       const local = currentLibrary();
       let next: Library;
-      if (remote) {
+      let restored: string | undefined;
+      if (remote?.mark) {
         next = !wasDirty
           ? remote.library
           : knownMark?.modifiedTime === remote.mark.modifiedTime
@@ -597,6 +599,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         remoteMark.current = remote.mark;
         lastPushed.current = serialise(remote.library);
         void db.setKv(REMOTE_KEY, remote.mark).catch(() => undefined);
+        if (remote.source === 'trash') restored = `${LIBRARY_FILE} was in Drive's trash, and has been put back.`;
+      } else if (remote) {
+        // The file itself is gone, and the spare copy stands in for it: it is
+        // put together with the copy here, and written back where it was.
+        next = mergeLibraries(local, remote.library);
+        remoteMark.current = null;
+        lastPushed.current = null;
+        restored = `${LIBRARY_FILE} was missing from Drive, and has been restored from the spare copy.`;
       } else {
         next = mergeLibraries(local, await takeFromGuest(true));
         next = mergeLibraries(next, await rebuildFromSidecars(googleClientId, driveFolderName, newId));
@@ -611,9 +621,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         };
       }
       pulled.current = true;
-      dirty.current = Boolean(wasDirty) || !remote;
+      dirty.current = Boolean(wasDirty) || !remote?.mark;
       await applyLibrary(next);
-      setLibrarySync({ state: 'saved', at: new Date().toISOString() });
+      setLibrarySync({ state: 'saved', at: new Date().toISOString(), message: restored });
       void countStrays();
       void pushLibrary();
     } catch (error) {
@@ -642,7 +652,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const { googleClientId, driveFolderName } = latest.current.settings;
       void libraryMark(googleClientId, driveFolderName)
         .then((mark) => {
-          if (mark && mark.modifiedTime !== remoteMark.current?.modifiedTime && !dirty.current) {
+          if (!mark) {
+            // Gone from Drive while this tab was away: written again from here.
+            if (remoteMark.current) {
+              remoteMark.current = null;
+              lastPushed.current = null;
+              void pushLibrary();
+            }
+            return;
+          }
+          if (mark.modifiedTime !== remoteMark.current?.modifiedTime && !dirty.current) {
             pulled.current = false;
             void pullLibrary();
           }

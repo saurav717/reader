@@ -10,7 +10,8 @@
  *   - a second account signing in on the same browser sees none of it, and
  *     is offered none of it;
  *   - the first account on a browser with nothing in it gets its library
- *     back from Drive.
+ *     back from Drive — and still does after library.json has been put in
+ *     the trash, deleted outright, or had its whole folder trashed.
  *
  *   npm run build && npm start &
  *   node scripts/account-library-smoke.mjs        # SMOKE_BASE=http://localhost:8080
@@ -44,8 +45,14 @@ const put = (email, file) => {
   driveOf(email).set(id, { parents: [], mimeType: 'application/json', ...file, id, modifiedTime: new Date(Date.now() + nextId).toISOString() });
   return id;
 };
+const inAppData = (file) => file.parents.includes('appDataFolder');
+const libraryFiles = (email) => [...driveOf(email).values()].filter((item) => item.name === 'library.json' && !inAppData(item));
 const libraryIn = (email) => {
-  const file = [...driveOf(email).values()].find((item) => item.name === 'library.json');
+  const file = libraryFiles(email).find((item) => !item.trashed);
+  return file ? JSON.parse(file.body) : null;
+};
+const backupIn = (email) => {
+  const file = [...driveOf(email).values()].find((item) => item.name === 'library.json' && inAppData(item));
   return file ? JSON.parse(file.body) : null;
 };
 
@@ -54,6 +61,7 @@ function matches(file, q) {
     let m;
     if ((m = clause.match(/^name = '(.*)'$/)) && file.name !== m[1].replace(/\\'/g, "'")) return false;
     if ((m = clause.match(/^mimeType = '(.*)'$/)) && file.mimeType !== m[1]) return false;
+    if ((m = clause.match(/^trashed = (true|false)$/)) && Boolean(file.trashed) !== (m[1] === 'true')) return false;
     if ((m = clause.match(/^'(.*)' in parents$/))) {
       if (m[1] === 'root' ? file.parents.length : !file.parents.includes(m[1])) return false;
     }
@@ -84,7 +92,7 @@ async function routeGoogle(context) {
       const fileId = upload[1];
       if (fileId && !drive.has(fileId)) return json(route, { error: 'not found' }, 404);
       const id = fileId
-        ? put(email, { ...drive.get(fileId), body: content, id: fileId })
+        ? put(email, { ...drive.get(fileId), body: content, id: fileId, trashed: metadata.trashed ?? drive.get(fileId).trashed })
         : put(email, { name: metadata.name, mimeType: metadata.mimeType, parents: metadata.parents || [], body: content });
       const file = drive.get(id);
       return json(route, { id, name: file.name, modifiedTime: file.modifiedTime });
@@ -97,13 +105,19 @@ async function routeGoogle(context) {
     }
     if (url.pathname === '/drive/v3/files') {
       const q = url.searchParams.get('q') || '';
-      const files = [...drive.values()].filter((file) => matches(file, q.replace(/ and trashed = false/g, '')));
+      const appData = url.searchParams.get('spaces') === 'appDataFolder';
+      const files = [...drive.values()].filter((file) => inAppData(file) === appData && matches(file, q));
       return json(route, { files: files.map(({ id, name, parents, modifiedTime }) => ({ id, name, parents, modifiedTime })) });
     }
     const one = url.pathname.match(/^\/drive\/v3\/files\/([^/]+)$/);
     if (one) {
       const file = drive.get(decodeURIComponent(one[1]));
       if (!file) return json(route, { error: 'not found' }, 404);
+      if (request.method() === 'PATCH') {
+        const patch = JSON.parse(request.postData() || '{}');
+        if ('trashed' in patch) file.trashed = patch.trashed;
+        file.modifiedTime = new Date(Date.now() + nextId++).toISOString();
+      }
       if (url.searchParams.get('alt') === 'media') return route.fulfill({ status: 200, contentType: file.mimeType, body: file.body || '' });
       return json(route, { id: file.id, name: file.name, parents: file.parents, modifiedTime: file.modifiedTime });
     }
@@ -123,7 +137,7 @@ const fakeIdentity = () => {
                 config.callback({
                   access_token: `token:${localStorage.getItem('fake.account')}`,
                   expires_in: 3600,
-                  scope: 'openid email profile https://www.googleapis.com/auth/drive.file',
+                  scope: 'openid email profile https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.file',
                 }),
               10,
             ),
@@ -308,28 +322,57 @@ check('B’s Drive has a library of its own, with nothing of A’s in it', bLibr
 check('nothing of A’s was written to B’s Drive', ![...driveOf(B).values()].some((file) => /Saved Paper|Only In Drive/.test(file.name)));
 await first.context.close();
 
+/** A on a browser that has never seen it: what its library holds, and what Settings said. */
+async function freshBrowser(shot) {
+  const fresh = await newPage();
+  await signInAs(fresh.page, A);
+  const said = await fresh.page.locator('.sheet').innerText();
+  await closeSettings(fresh.page);
+  await fresh.page.waitForTimeout(400);
+  const papers = await fresh.page.evaluate(async () => {
+    const db = await new Promise((resolve) => {
+      const request = indexedDB.open('reader:first@example.org', 1);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const all = await new Promise((resolve) => {
+      const request = db.transaction('papers').objectStore('papers').getAll();
+      request.onsuccess = () => resolve(request.result);
+    });
+    db.close();
+    return all;
+  });
+  const home = await fresh.page.locator('body').innerText();
+  if (shot) await fresh.page.screenshot({ path: `${OUT}${shot}` });
+  await fresh.context.close();
+  return { papers, said, home, titles: papers.map((item) => item.title).sort() };
+}
+
 console.log('A signs in on a browser with nothing in it');
-const second = await newPage();
-await signInAs(second.page, A);
-await closeSettings(second.page);
-await second.page.waitForTimeout(400);
-const restored = await second.page.evaluate(async () => {
-  const db = await new Promise((resolve) => {
-    const request = indexedDB.open('reader:first@example.org', 1);
-    request.onsuccess = () => resolve(request.result);
-  });
-  const papers = await new Promise((resolve) => {
-    const request = db.transaction('papers').objectStore('papers').getAll();
-    request.onsuccess = () => resolve(request.result);
-  });
-  db.close();
-  return papers.map((item) => item.title).sort();
-});
-check('the whole library comes back from A’s Drive', restored.length === 3, restored.join(', '));
-const home = await second.page.locator('body').innerText();
-check('with its collections', home.includes('Old shelf') && home.includes('Operators'));
-await second.page.screenshot({ path: `${OUT}account-a-new-browser.png` });
-await second.context.close();
+let fresh = await freshBrowser('account-a-new-browser.png');
+check('the whole library comes back from A’s Drive', fresh.titles.length === 3, fresh.titles.join(', '));
+check('with its collections', fresh.home.includes('Old shelf') && fresh.home.includes('Operators'));
+check('a spare copy is kept in the app’s hidden folder', backupIn(A)?.papers.length === 3);
+
+console.log('library.json put in the trash');
+for (const file of libraryFiles(A)) file.trashed = true;
+fresh = await freshBrowser();
+check('the library still comes back', fresh.titles.length === 3, fresh.titles.join(', '));
+check('the file is taken out of the trash, not made twice', libraryFiles(A).length === 1 && !libraryFiles(A)[0].trashed);
+check('Settings says so', /was in Drive's trash/.test(fresh.said));
+
+console.log('library.json deleted outright');
+for (const file of libraryFiles(A)) driveOf(A).delete(file.id);
+fresh = await freshBrowser('account-a-restored.png');
+check('the library comes back from the spare copy', fresh.titles.length === 3, fresh.titles.join(', '));
+check('reading progress is kept', fresh.papers.find((item) => item.id === 'arxiv:1')?.progress === 0.42);
+check('library.json is written again', libraryIn(A)?.papers.length === 3);
+check('Settings says so', /restored from the spare copy/.test(fresh.said));
+
+console.log('the whole Papers_collection folder put in the trash');
+driveOf(A).get(root).trashed = true;
+fresh = await freshBrowser();
+check('the library still comes back', fresh.titles.length === 3, fresh.titles.join(', '));
+check('the folder is taken out of the trash', !driveOf(A).get(root).trashed);
 
 await browser.close();
 if (problems.length) {

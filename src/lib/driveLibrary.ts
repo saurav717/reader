@@ -6,6 +6,13 @@
  * account reads it, and another account, which cannot see this app's files
  * in someone else's Drive, never does.
  *
+ * Deleting that file by hand does not lose the library. Every write also
+ * goes to a second copy in the app's hidden folder in the same Drive
+ * (`appDataFolder`, which no folder-tidying in My Drive can reach); a file
+ * in Drive's trash is taken back out of it; and a library with neither is
+ * rebuilt from the sidecar in each paper's folder, which carries enough —
+ * progress, tags, collection colours — to lose little.
+ *
  * The copy the browser keeps (db.ts, one database per account) is only so
  * that a reload opens at once and survives a moment offline; what Drive says
  * wins when the two disagree, unless the change here has not been written up
@@ -13,7 +20,20 @@
  */
 import type { Collection, Highlight, HighlightColor, HighlightStyle, JunkEntry, Paper } from '../types';
 import { COLLECTION_COLORS } from '../types';
-import { downloadText, ensureDriveToken, ensureFolder, findFile, findFolder, queryFiles, uploadFile, type DriveFile } from './google';
+import {
+  downloadText,
+  ensureDriveToken,
+  ensureFolder,
+  findAppDataFile,
+  findFile,
+  findFolder,
+  findTrashed,
+  hasAppDataAccess,
+  queryFiles,
+  untrash,
+  uploadFile,
+  type DriveFile,
+} from './google';
 import { driveFolderUrl, JUNK_FOLDER, ROOT_FOLDER } from './driveSync';
 import type { Sidecar } from './sidecar';
 
@@ -117,7 +137,7 @@ const COLOURS: HighlightColor[] = ['yellow', 'green', 'blue', 'pink'];
 export function fromSidecar(
   sidecar: Partial<Sidecar>,
   where: { folderId: string; metaFileId: string; folderName?: string },
-): { paper: Paper; highlights: Highlight[]; collectionNames: string[] } | null {
+): { paper: Paper; highlights: Highlight[]; collectionNames: string[]; colours: Record<string, string> } | null {
   const said = (sidecar?.paper ?? {}) as Record<string, unknown>;
   const id = typeof said.id === 'string' ? said.id : '';
   const title = typeof said.title === 'string' ? said.title : '';
@@ -140,7 +160,9 @@ export function fromSidecar(
     addedAt: text(said.addedAt) ?? new Date().toISOString(),
     collectionIds: [],
     tags: strings(said.tags),
-    progress: 0,
+    progress: typeof said.progress === 'number' && said.progress >= 0 && said.progress <= 1 ? said.progress : 0,
+    lastOpenedAt: text(said.lastOpenedAt),
+    pdfChoice: text(said.pdfChoice),
     drive: {
       folderId: where.folderId,
       folderName: where.folderName,
@@ -173,19 +195,28 @@ export function fromSidecar(
       createdAt: text(note.created) ?? paper.addedAt,
     });
   }
-  return { paper, highlights, collectionNames: strings(said.collections) };
+  const colours: Record<string, string> = {};
+  const saidColours = said.collectionColours;
+  if (saidColours && typeof saidColours === 'object') {
+    for (const [name, colour] of Object.entries(saidColours as Record<string, unknown>)) {
+      if (typeof colour === 'string' && /^#[0-9a-f]{3,8}$/i.test(colour)) colours[name] = colour;
+    }
+  }
+  return { paper, highlights, collectionNames: strings(said.collections), colours };
 }
 
 /** Sidecars read back as a library, collections made from the names they carry. */
 export function libraryFromSidecars(
-  read: { paper: Paper; highlights: Highlight[]; collectionNames: string[] }[],
+  read: { paper: Paper; highlights: Highlight[]; collectionNames: string[]; colours?: Record<string, string> }[],
   newId: () => string,
 ): Library {
   const collections: Collection[] = [];
+  const colours = Object.assign({}, ...read.map((item) => item.colours ?? {})) as Record<string, string>;
   const idFor = (name: string) => {
     let found = collections.find((item) => item.name === name);
     if (!found) {
-      found = { id: newId(), name, color: COLLECTION_COLORS[collections.length % COLLECTION_COLORS.length], createdAt: new Date().toISOString() };
+      const color = colours[name] ?? COLLECTION_COLORS[collections.length % COLLECTION_COLORS.length];
+      found = { id: newId(), name, color, createdAt: new Date().toISOString() };
       collections.push(found);
     }
     return found.id;
@@ -196,19 +227,60 @@ export function libraryFromSidecars(
 
 const rootName = (folderName: string | undefined) => folderName?.trim() || ROOT_FOLDER;
 
-/** The library file in this account's Drive, or null when it has none yet. */
+/**
+ * Where a library read from Drive came from: its file; its file, brought back
+ * out of Drive's trash; or the spare copy in the app's hidden folder, the
+ * file itself being gone — in which case it has no mark, and is written
+ * again in its place.
+ */
+export type LibrarySource = 'file' | 'trash' | 'backup';
+
+/** The spare copy in the app's hidden folder, or null when there is none or it cannot be reached. */
+async function readBackup(token: string): Promise<Library | null> {
+  if (!hasAppDataAccess()) return null;
+  const file = await findAppDataFile(token, LIBRARY_FILE).catch(() => null);
+  if (!file) return null;
+  return parseLibrary(await downloadText(token, file.id).catch(() => ''));
+}
+
+/** The root folder, taken back out of the trash if that is where it went. */
+async function findRoot(token: string, name: string): Promise<string | null> {
+  const found = await findFolder(token, name);
+  if (found) return found;
+  const trashed = await findTrashed(token, name);
+  return trashed ? (await untrash(token, trashed.id)).id : null;
+}
+
+/**
+ * The library in this account's Drive, or null when it has none at all. The
+ * file in the root folder first — out of the trash, folder and all, if it
+ * was put there — and the spare copy when the file is gone.
+ */
 export async function readLibraryFromDrive(
   clientId: string,
   folderName: string | undefined,
-): Promise<{ library: Library; mark: RemoteMark } | null> {
+): Promise<{ library: Library; mark: RemoteMark | null; source: LibrarySource } | null> {
   const token = await ensureDriveToken(clientId);
-  const rootId = await findFolder(token, rootName(folderName));
-  if (!rootId) return null;
-  const file = await findFile(token, LIBRARY_FILE, rootId);
-  if (!file) return null;
-  const library = parseLibrary(await downloadText(token, file.id));
-  if (!library) throw new Error(`${rootName(folderName)}/${LIBRARY_FILE} in Drive could not be read.`);
-  return { library, mark: { fileId: file.id, modifiedTime: file.modifiedTime } };
+  const rootId = await findRoot(token, rootName(folderName));
+  let file = rootId ? await findFile(token, LIBRARY_FILE, rootId) : null;
+  let source: LibrarySource = 'file';
+  if (!file && rootId) {
+    const trashed = await findTrashed(token, LIBRARY_FILE, rootId);
+    if (trashed) {
+      file = await untrash(token, trashed.id);
+      source = 'trash';
+    }
+  }
+  if (file) {
+    const library = parseLibrary(await downloadText(token, file.id));
+    if (library) return { library, mark: { fileId: file.id, modifiedTime: file.modifiedTime }, source };
+    // A file that will not parse — edited by hand — is not trusted over the spare copy.
+    const backup = await readBackup(token);
+    if (backup) return { library: backup, mark: null, source: 'backup' };
+    throw new Error(`${rootName(folderName)}/${LIBRARY_FILE} in Drive could not be read.`);
+  }
+  const backup = await readBackup(token);
+  return backup ? { library: backup, mark: null, source: 'backup' } : null;
 }
 
 /** When Drive last saw the library file change, without reading it. */
@@ -239,7 +311,27 @@ export async function writeLibraryToDrive(
     if (!options.fileId || (error as { status?: number }).status !== 404) throw error;
     file = await write(undefined);
   }
+  await writeBackup(token, JSON.stringify(body)).catch(() => undefined);
   return { fileId: file.id, modifiedTime: file.modifiedTime };
+}
+
+let backupId: string | null = null;
+
+/**
+ * The same library, to the spare copy in the app's hidden folder. A failure
+ * here is not the write failing — the file in the root folder is the record —
+ * so it is left to the next write to try again.
+ */
+async function writeBackup(token: string, body: string): Promise<void> {
+  if (!hasAppDataAccess()) return;
+  const file = { name: LIBRARY_FILE, mimeType: 'application/json', parentId: 'appDataFolder', body };
+  backupId ??= (await findAppDataFile(token, LIBRARY_FILE))?.id ?? null;
+  try {
+    backupId = (await uploadFile(token, { ...file, fileId: backupId ?? undefined })).id;
+  } catch (error) {
+    if (!backupId || (error as { status?: number }).status !== 404) throw error;
+    backupId = (await uploadFile(token, file)).id;
+  }
 }
 
 /**
@@ -258,7 +350,7 @@ export async function rebuildFromSidecars(clientId: string, folderName: string |
   const sidecars = (await queryFiles(token, "mimeType = 'application/json'")).filter(
     (file) => file.name !== LIBRARY_FILE && file.parents?.some((parent) => paperFolders.has(parent)),
   );
-  const read: { paper: Paper; highlights: Highlight[]; collectionNames: string[] }[] = [];
+  const read: NonNullable<ReturnType<typeof fromSidecar>>[] = [];
   for (const file of sidecars) {
     const folderId = file.parents?.find((parent) => paperFolders.has(parent)) as string;
     try {

@@ -127,6 +127,23 @@ describe('a library rebuilt from the sidecars in Drive', () => {
     assert.equal(mark.note, 'why');
   });
 
+  it('keeps reading progress and collection colours when written for Drive', () => {
+    const original = paper('arxiv:9', { progress: 0.55, lastOpenedAt: '2026-02-02T00:00:00.000Z' });
+    const written = sidecar(original, [], ['Operators'], { colours: { Operators: '#3B4B8C', Other: '#000000' } });
+    const read = fromSidecar(JSON.parse(JSON.stringify(written)), { folderId: 'f', metaFileId: 'm' });
+    assert.equal(read.paper.progress, 0.55);
+    assert.equal(read.paper.lastOpenedAt, '2026-02-02T00:00:00.000Z');
+    assert.deepEqual(read.colours, { Operators: '#3B4B8C' });
+    const library = libraryFromSidecars([read], () => 'c');
+    assert.equal(library.collections[0].color, '#3B4B8C');
+  });
+
+  it('leaves progress out of the copy written for Git', () => {
+    const written = sidecar(paper('arxiv:9', { progress: 0.55 }), [], ['Operators']);
+    assert.equal('progress' in written.paper, false);
+    assert.equal('collectionColours' in written.paper, false);
+  });
+
   it('skips a sidecar with no paper in it', () => {
     assert.equal(fromSidecar({}, { folderId: 'f', metaFileId: 'm' }), null);
   });

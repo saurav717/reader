@@ -121,6 +121,7 @@ describe('reaching Google inside the click', () => {
     void google.signIn('client-id');
     assert.equal(calls.length, 1);
     assert.match(calls[0].scope, /^openid email profile .*drive\.file$/);
+    assert.match(calls[0].scope, /drive\.appdata/);
   });
 
   it('asks for Drive in the same tick too, as a second consent', () => {

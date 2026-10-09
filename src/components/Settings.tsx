@@ -217,6 +217,12 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             ) : null}
           </div>
 
+          {librarySync.state !== 'error' && librarySync.message ? (
+            <p className="banner warn" style={{ marginTop: 10 }}>
+              {librarySync.message}
+            </p>
+          ) : null}
+
           {librarySync.state === 'error' ? (
             <p className="banner error" style={{ marginTop: 10 }}>
               The library could not be saved to Drive: {librarySync.message}

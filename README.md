@@ -865,6 +865,30 @@ left. If another browser wrote in the meantime, the two are put together
 before the write rather than one replacing the other. **Sign out** writes
 what is waiting, then reloads the page with nobody's library on it.
 
+**Deleting `library.json` does not lose the library.** Three things stand
+behind it:
+
+- **A spare copy in the app's hidden folder.** Every write also goes to
+  `library.json` in the account's `appDataFolder` — a part of the same Drive
+  that never shows in My Drive, so no tidying of folders there can reach it.
+  (It is removed only by *Settings → Manage apps → Reader → Delete hidden app
+  data* in Drive.) If the file in `Papers_collection/` is gone, the library is
+  read from the spare copy and the file is written again. This is the
+  `drive.appdata` scope on the consent screen — *see, create and delete its
+  own configuration data in your Google Drive* — which Google counts as
+  non-sensitive. A sign-in from before it was asked for gets it at the next
+  sign-in.
+- **The trash.** A `library.json` in Drive's trash — or the whole
+  `Papers_collection` folder — is taken back out of it rather than a second
+  one being made.
+- **The sidecars.** Each paper's `.json` in Drive also carries its reading
+  progress, when it was last opened, the copy picked by hand, and the colours
+  of its collections, so a library rebuilt from the paper folders alone loses
+  only Junk and collections with nothing in them.
+
+A browser that already has the library open simply writes it back, too.
+Settings says when any of this happened.
+
 An account with no `library.json` yet — anyone who used the app before this
 — gets one made on first sign-in from:
 
