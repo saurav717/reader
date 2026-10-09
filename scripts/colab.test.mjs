@@ -334,6 +334,11 @@ describe('what a running cell says about itself', () => {
   it('reads the machine probe’s line: the GPU by name, the CPU, the memory, the disk', () => {
     assert.match(telemetry.MACHINE_PROBE, /nvidia-smi/);
     assert.match(telemetry.MACHINE_PROBE, /\/proc\/stat/);
+    // Off Linux — the person's own Mac or Windows PC — the CPU and memory come from the system's own counters.
+    assert.match(telemetry.MACHINE_PROBE, /host_statistics/);
+    assert.match(telemetry.MACHINE_PROBE, /vm_stat/);
+    assert.match(telemetry.MACHINE_PROBE, /GetSystemTimes/);
+    assert.match(telemetry.MACHINE_PROBE, /GlobalMemoryStatusEx/);
     assert.match(telemetry.MACHINE_PROBE, /json\.dumps/);
     const line = '{"gpu": "Tesla T4, 63, 3012, 15360", "cpu": 41, "cpus": 2, "ram": [5200, 13000], "disk": [71, 78]}';
     const sample = telemetry.parseMachineSample(`some warning first\n${line}\n`, 4.2);

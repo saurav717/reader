@@ -258,7 +258,7 @@ export const notebookKey = (id: string) => `pg:${id}`;
 function put(next: Playground) {
   playgrounds = playgrounds.some((p) => p.id === next.id) ? playgrounds.map((p) => (p.id === next.id ? next : p)) : [next, ...playgrounds];
   emit();
-  void db.setKv(KEY(next.id), next).catch(() => undefined);
+  void db.setKv(KEY(next.id), next).then(announce, () => undefined);
   scheduleSync();
 }
 
@@ -325,6 +325,64 @@ export function configurePlaygroundDrive(next: { clientId: string; folderName?: 
   if (next && !same) void syncPlaygrounds();
 }
 
+// ------------------------------------------ the other windows and browsers --
+
+/**
+ * The list is read from Drive as the Playground page opens; a window left
+ * open — the app's, a tab — would otherwise keep what it read then. So the
+ * windows of one browser tell each other when the list in its database
+ * changed, and each takes it from there at once; and Drive is read again
+ * when a window comes back into view and every minute while it is in view,
+ * so a playground made in another browser or on another computer shows up
+ * without a reload.
+ */
+const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('reader-playgrounds') : null;
+const READ_DRIVE_EVERY_MS = 60_000;
+/** Back in view sooner than this after a reading: not read again. */
+const READ_DRIVE_AT_MOST_MS = 10_000;
+let lastSync = 0;
+
+function announce() {
+  try {
+    channel?.postMessage('changed');
+  } catch {
+    // A closed channel: the others read Drive on their own clock.
+  }
+}
+
+/** The list as this browser's database has it now, merged in: another window wrote it. */
+async function takeFromThisBrowser() {
+  if (!loaded) return;
+  const [found, gone] = await Promise.all([db.kvWithPrefix<Playground>('playground:'), db.getKv<Record<string, number>>(DELETED_KEY).catch(() => undefined)]).catch(() => [[], undefined] as const);
+  const stored: PlaygroundSet = { playgrounds: found.map(([, value]) => normalise(value)).filter((p): p is Playground => Boolean(p)), deleted: gone && typeof gone === 'object' ? gone : {} };
+  const merged = mergePlaygrounds({ playgrounds, deleted }, stored);
+  const next = merged.playgrounds.map(rebind);
+  if (serialisePlaygrounds({ playgrounds: next, deleted: merged.deleted }) === serialisePlaygrounds({ playgrounds, deleted })) return;
+  playgrounds = next;
+  deleted = merged.deleted;
+  emit();
+}
+
+const inView = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
+
+function readDriveAgain() {
+  if (!drive || !inView() || Date.now() - lastSync < READ_DRIVE_AT_MOST_MS) return;
+  void syncPlaygrounds();
+}
+
+if (channel) {
+  channel.onmessage = () => void takeFromThisBrowser();
+  // Outside a page (the tests, under Node) an open channel would keep the process alive.
+  (channel as { unref?: () => void }).unref?.();
+}
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  window.addEventListener('focus', readDriveAgain);
+  document.addEventListener('visibilitychange', readDriveAgain);
+  window.setInterval(() => {
+    if (drive && inView() && Date.now() - lastSync >= READ_DRIVE_EVERY_MS - 1000) void syncPlaygrounds();
+  }, READ_DRIVE_EVERY_MS);
+}
+
 function scheduleSync() {
   if (!drive) return;
   if (syncTimer) clearTimeout(syncTimer);
@@ -346,15 +404,21 @@ export function syncPlaygrounds(): Promise<void> {
     const merged = remote ? mergePlaygrounds(local, remote) : local;
     const before = new Map(playgrounds.map((p) => [p.id, p]));
     const next = merged.playgrounds.map((p) => normalise(p)).filter((p): p is Playground => Boolean(p)).map(rebind);
-    for (const p of next) if (JSON.stringify(before.get(p.id)) !== JSON.stringify(p)) void db.setKv(KEY(p.id), p).catch(() => undefined);
-    for (const id of before.keys()) if (!next.some((p) => p.id === id)) void db.deleteKv(KEY(id)).catch(() => undefined);
+    const writes: Promise<unknown>[] = [];
+    for (const p of next) if (JSON.stringify(before.get(p.id)) !== JSON.stringify(p)) writes.push(db.setKv(KEY(p.id), p));
+    for (const id of before.keys()) if (!next.some((p) => p.id === id)) writes.push(db.deleteKv(KEY(id)));
+    const changedHere = writes.length > 0;
     playgrounds = next;
     deleted = merged.deleted;
-    void db.setKv(DELETED_KEY, deleted).catch(() => undefined);
+    writes.push(db.setKv(DELETED_KEY, deleted));
     const result: PlaygroundSet = { playgrounds, deleted };
     if (!remote || serialisePlaygrounds(remote) !== serialisePlaygrounds(result)) await writePlaygroundsToDrive(config.clientId, config.folderName, result, config.account);
     where = 'drive';
+    lastSync = Date.now();
     emit();
+    await Promise.allSettled(writes);
+    // What Drive brought, the other windows of this browser take from its database.
+    if (changedHere) announce();
   })()
     .catch(() => {
       where = 'error';
@@ -484,10 +548,11 @@ export async function markFolder(playground: Playground, site: string): Promise<
 export async function deletePlayground(id: string) {
   playgrounds = playgrounds.filter((p) => p.id !== id);
   deleted = { ...deleted, [id]: Date.now() };
-  void db.setKv(DELETED_KEY, deleted).catch(() => undefined);
+  const tombstone = db.setKv(DELETED_KEY, deleted).catch(() => undefined);
   emit();
   scheduleSync();
-  await Promise.all([db.deleteKv(KEY(id)), db.deleteKv(FILES_KEY(id)), db.deleteKv(`notebook:${notebookKey(id)}`), db.deleteKv(`notebook-ask:${notebookKey(id)}`)]).catch(() => undefined);
+  await Promise.all([tombstone, db.deleteKv(KEY(id)), db.deleteKv(FILES_KEY(id)), db.deleteKv(`notebook:${notebookKey(id)}`), db.deleteKv(`notebook-ask:${notebookKey(id)}`)]).catch(() => undefined);
+  announce();
 }
 
 // --------------------------------------------------------- first cells ----

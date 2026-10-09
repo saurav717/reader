@@ -3085,7 +3085,9 @@ A cell that prints its losses — `loss=0.53`, `train_loss: 0.4 val_loss: 0.5`,
 a progress bar redrawing itself — earns a **loss curve** under its output,
 drawn as it runs, by step when the log names one. **The machine is watched
 while a cell runs**: a few lines of the reader's own — `nvidia-smi` when there
-is a GPU, `/proc/stat` for the CPUs, `/proc/meminfo` for the memory, the disk —
+is a GPU, `/proc/stat` and `/proc/meminfo` for the CPUs and memory on Linux
+(`host_statistics`, `sysctl` and `vm_stat` on a Mac; `GetSystemTimes` and
+`GlobalMemoryStatusEx` on Windows, for a Jupyter server on your own PC), the disk —
 shown in full in the runtime menu, run in a second kernel so they never wait
 on the cell, every two seconds. Under the cell they are drawn as GPU and CPU
 utilisation over the run and as VRAM and RAM in use, and the bar's chip

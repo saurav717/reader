@@ -1093,7 +1093,7 @@ export function ColabRunPanel({ compute, hardware }: { compute: Compute; hardwar
               </div>
             )}
             <div className="live-note">
-              Read by a few lines of the reader's own — <code>nvidia-smi</code>, <code>/proc/stat</code>, <code>/proc/meminfo</code>, the disk — in a second kernel, every two seconds while a step runs and once as the runtime connects. Shown in the runtime menu; nothing runs unseen.
+              Read by a few lines of the reader's own — <code>nvidia-smi</code>, the CPU and memory counters (<code>/proc</code> on Linux, the system's own on a Mac or Windows PC), the disk — in a second kernel, every two seconds while a step runs and once as the runtime connects. Shown in the runtime menu; nothing runs unseen.
             </div>
           </div>
         </>
