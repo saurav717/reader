@@ -264,6 +264,9 @@ def open_app(argv):
     site = config.get("site") or DEFAULT_SITE
     if not config.get("token"):
         return desktop.open_window(site)
+    # Safari's certificate, not trusted yet (the prompt was turned down, or failed): ask again, at most once a week.
+    if tls.needed() and tls.days_left() and not tls.is_trusted() and time.time() - float(config.get("trust_asked_at") or 0) > 7 * 86400:
+        make_trusted()
     port = int(config.get("port") or DEFAULT_PORT)
     running = desktop.wait_for(config["token"], port, 0)
     if running is None:
@@ -282,10 +285,14 @@ def make_trusted() -> bool:
         return True
     print(f"  {DIM}Safari    {RESET} macOS now asks for your password once, to trust a certificate for this Mac's own address", flush=True)
     print(f"  {DIM}          {RESET} (localhost and 127.0.0.1 only), so Safari can reach the Companion too…", flush=True)
-    if tls.trust():
+    config = state.load_config()
+    config["trust_asked_at"] = time.time()
+    state.save_config(config)
+    trusted, said = tls.trust()
+    if trusted:
         print(f"  {DIM}Safari    {RESET} done: https://127.0.0.1:{tls.DEFAULT_PORT}", flush=True)
         return True
-    print(f"  {YELLOW}Safari    It wasn't trusted, so Safari can't reach the Companion: Chrome, Edge and Firefox can. reader-companion trust asks again.{RESET}", flush=True)
+    print(f"  {YELLOW}Safari    It wasn't trusted{f' (macOS said: {said})' if said else ''}, so Safari can't reach the Companion yet: Chrome, Edge and Firefox can. Opening Reader asks again, or reader-companion trust.{RESET}", flush=True)
     return False
 
 

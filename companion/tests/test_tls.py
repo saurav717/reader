@@ -33,6 +33,10 @@ class CertificateTest(unittest.TestCase):
         self.assertLessEqual((certificate.not_valid_after_utc - certificate.not_valid_before_utc).days, 825)
         self.assertEqual(oct(tls.key_path().stat().st_mode & 0o777), "0o600")
 
+    def test_whatever_the_computer_is_called(self):
+        with mock.patch.object(tls.state, "computer_name", return_value="runner-" + "x" * 80):
+            self.assertTrue(tls.ensure_certificate())
+
     def test_kept_until_it_nears_its_end(self):
         tls.ensure_certificate()
         first = tls.cert_path().read_bytes()
