@@ -3758,11 +3758,13 @@ runs `reader-companion setup`, which:
   goes to `~/.reader-companion/companion.log`;
 - opens the site with a pairing link, so one click on **Connect** finishes.
 
-**A signed `.dmg`.** Once there is a published, notarized `Reader.dmg` (the
-*macOS app* workflow, with an Apple Developer ID: see
-[docs/macos-app.md](docs/macos-app.md)), the card's macOS download is that
-instead. Drag Reader to Applications and open it: no warning, and it sets
-itself up the first time.
+**A `.dmg`.** Once the *macOS app* workflow has published a release (see
+[docs/macos-app.md](docs/macos-app.md)), the card's macOS download is the
+Reader.app in a `.dmg` instead: drag Reader to Applications and open it, and it
+sets itself up the first time. Notarized (with an Apple Developer ID, US$99 a
+year) it opens with no warning. Without that (`Reader-unsigned.dmg`) macOS
+stops it once: **Done**, then **Open Anyway** in System Settings → Privacy &
+Security.
 
 **Without one.** A downloaded app has to be signed and notarized
 (Apple's $99 a year) or macOS won't open it without a fight; Windows'

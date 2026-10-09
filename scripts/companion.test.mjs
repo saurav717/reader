@@ -87,6 +87,31 @@ describe('the page’s side', () => {
     assert.equal(downloads.windows.href, 'https://saurav717.github.io/reader/download/Reader-Companion-Setup.cmd');
     assert.equal(downloads.linux.command, 'curl -LsSf https://saurav717.github.io/reader/companion-setup.sh | sh');
   });
+  it('offers the newest Reader.app .dmg, notarized or not, and nothing while there is none', async () => {
+    const realFetch = globalThis.fetch;
+    const store = new Map();
+    globalThis.sessionStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, v) };
+    const answer = (releases) => (globalThis.fetch = async () => new Response(JSON.stringify(releases), { status: 200 }));
+    try {
+      answer([
+        { draft: true, assets: [{ name: 'Reader.dmg', browser_download_url: 'https://x/draft.dmg' }] },
+        { tag_name: 'v9', assets: [{ name: 'notes.txt', browser_download_url: 'https://x/notes' }] },
+        { assets: [{ name: 'Reader-unsigned.dmg', browser_download_url: 'https://x/unsigned.dmg' }] },
+      ]);
+      assert.deepEqual(await companion.latestMacDmg(), { url: 'https://x/unsigned.dmg', notarized: false });
+      store.clear();
+      answer([{ assets: [{ name: 'Reader-unsigned.dmg', browser_download_url: 'https://x/u.dmg' }, { name: 'Reader.dmg', browser_download_url: 'https://x/signed.dmg' }] }]);
+      assert.deepEqual(await companion.latestMacDmg(), { url: 'https://x/signed.dmg', notarized: true });
+      // asked once a session
+      answer([]);
+      assert.deepEqual(await companion.latestMacDmg(), { url: 'https://x/signed.dmg', notarized: true });
+      store.clear();
+      assert.equal(await companion.latestMacDmg(), null);
+    } finally {
+      globalThis.fetch = realFetch;
+      delete globalThis.sessionStorage;
+    }
+  });
   it('tells Safari from the browsers that say Safari too', () => {
     assert.equal(companion.isSafari('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15'), true);
     assert.equal(companion.isSafari('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'), false);

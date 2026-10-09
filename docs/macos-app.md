@@ -1,11 +1,12 @@
-# Reader for macOS: a signed, notarized `.dmg`
+# Reader for macOS: Reader.app in a `.dmg`
 
 The *Connect this computer* card's **Download for macOS** gives a `.command`
-in a zip until there is a notarized `Reader.dmg` to give instead. macOS stops
-that `.command` once, with *"Apple could not verify 'Reader Companion.command'
-is free of malware"*, because nothing downloaded is let run unless Apple has
-checked it. A `.dmg` signed with a Developer ID and **notarized** by Apple
-opens with no warning at all. This is how to make one.
+in a zip until a release of Reader.app is published, then that `.dmg`. macOS
+stops anything downloaded that Apple hasn't checked, once, with *"Apple could
+not verify … is free of malware"*. A `.dmg` signed with a Developer ID and
+**notarized** by Apple opens with no warning at all; that needs a paid Apple
+Developer membership. Without one, the same app is published unsigned and
+needs one click in System Settings the first time. This is how to make either.
 
 ## What it is
 
@@ -25,6 +26,24 @@ The parts:
 - [`desktop/macos/install.sh`](../desktop/macos/install.sh): what it runs to set up.
 - [`desktop/macos/build.sh`](../desktop/macos/build.sh): builds, signs, notarizes and makes the `.dmg`.
 - [`.github/workflows/macos-app.yml`](../.github/workflows/macos-app.yml): runs `build.sh` on GitHub's Macs.
+
+## Without the membership: the same app, not notarized
+
+Signing and notarizing cost US$99 a year (below). Without them the workflow
+still builds the very same Reader.app, and **Actions → macOS app → Run
+workflow** with *release* ticked publishes it as `Reader-unsigned.dmg`. The
+card offers that one, with the step it needs: macOS stops it the first time
+(*"Apple could not verify…"*). Click **Done**, then **Open Anyway** in System
+Settings → Privacy & Security, and **Open**. That is once per Mac; after it,
+Reader opens like any app. (The app copies its `uv` out and clears that copy's
+quarantine mark, so the setup doesn't get stopped a second time.)
+
+The one-line installer on the card (`curl … companion-setup.sh | sh`, pasted
+into Terminal) isn't stopped at all, since macOS only checks what a browser
+downloads, and it makes a Reader app too.
+
+When a notarized `Reader.dmg` is published later, the card offers that
+instead, with no step.
 
 ## What you need (once): an Apple Developer membership
 
@@ -71,9 +90,9 @@ ticket to it, checks it with `spctl`, and publishes it as a GitHub Release.
 The site needs no change: the card asks GitHub for the newest release with a
 `Reader.dmg` and offers that from then on.
 
-Until the secrets are there, the workflow still builds an **unsigned**
-`Reader.dmg` on each pull request that touches the app, as an artifact to try
-out. macOS warns about that one as it does about the `.command`.
+Until the secrets are there, the workflow builds an **unsigned** `Reader.dmg`
+on each pull request that touches the app, as an artifact to try out, and a
+release publishes it as `Reader-unsigned.dmg` (see above).
 
 ## Updating
 

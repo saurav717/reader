@@ -197,36 +197,45 @@ export async function companionVsCode(server: { url: string; token: string }, in
 /** Where the signed, notarized Reader.dmg is published: the macOS app workflow's GitHub Releases. */
 export const MAC_RELEASES = 'saurav717/reader';
 
+/** A published Reader.app for macOS: notarized (opens with no warning) or not (macOS stops it once). */
+export interface MacDmg {
+  url: string;
+  notarized: boolean;
+}
+
 /**
- * The newest published Reader.dmg (signed and notarized, see docs/macos-app.md),
- * or null while there is none: then the Mac download stays the .command in a zip.
+ * The newest published Reader.app .dmg (the macOS app workflow, see
+ * docs/macos-app.md): Reader.dmg when it is notarized, Reader-unsigned.dmg when
+ * it isn't. Null while there is neither: then the Mac download stays the
+ * .command in a zip.
  */
-export async function latestMacDmg(repo = MAC_RELEASES): Promise<string | null> {
+export async function latestMacDmg(repo = MAC_RELEASES): Promise<MacDmg | null> {
   try {
     const cached = sessionStorage.getItem('reader.macDmg');
-    if (cached !== null) return cached || null;
+    if (cached !== null) return cached ? (JSON.parse(cached) as MacDmg) : null;
   } catch {
-    // no storage: ask each time
+    // no storage, or not ours: ask
   }
-  let found: string | null = null;
+  let found: MacDmg | null = null;
   try {
     const response = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=10`, { headers: { Accept: 'application/vnd.github+json' } });
-    if (response.ok) {
-      const releases = (await response.json()) as { draft?: boolean; prerelease?: boolean; assets?: { name?: string; browser_download_url?: string }[] }[];
-      for (const release of releases) {
-        if (release.draft || release.prerelease) continue;
-        const dmg = release.assets?.find((asset) => asset.name === 'Reader.dmg');
-        if (dmg?.browser_download_url) {
-          found = dmg.browser_download_url;
-          break;
-        }
+    if (!response.ok) return null;
+    const releases = (await response.json()) as { draft?: boolean; prerelease?: boolean; assets?: { name?: string; browser_download_url?: string }[] }[];
+    for (const release of releases) {
+      if (release.draft || release.prerelease) continue;
+      const signed = release.assets?.find((asset) => asset.name === 'Reader.dmg');
+      const unsigned = release.assets?.find((asset) => asset.name === 'Reader-unsigned.dmg');
+      const asset = signed ?? unsigned;
+      if (asset?.browser_download_url) {
+        found = { url: asset.browser_download_url, notarized: asset === signed };
+        break;
       }
     }
   } catch {
     return null;
   }
   try {
-    sessionStorage.setItem('reader.macDmg', found ?? '');
+    sessionStorage.setItem('reader.macDmg', found ? JSON.stringify(found) : '');
   } catch {
     // fine
   }
