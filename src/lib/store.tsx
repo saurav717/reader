@@ -30,7 +30,7 @@ import { ROOT_FOLDER, driveFolderUrl, isInDrive, junkPaperInDrive, restorePaperI
 import { FINISHED_AT, type ReadingStatus } from './status';
 import { pathFor, syncPapersToGitHub, targetFrom } from './github';
 import { setContactEmail } from './contact';
-import { isPass, passEmail, passExpires, passForGoogle, setProxyBase, setProxyToken, SignInRefused } from './api';
+import { isPass, passEmail, passExpires, passForGoogle, proxyHealth, setProxyBase, setProxyToken, SignInRefused } from './api';
 import * as google from './google';
 
 const SETTINGS_KEY = 'reader.settings';
@@ -1293,6 +1293,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings((current) => ({ ...current, ...patch }));
   }, []);
+
+  // No client ID here (none typed in this browser, and a build without one): the site's own, from its proxy —
+  // the one it checks sign-ins against — so signing in, Drive and Colab work in any browser, as the same account.
+  useEffect(() => {
+    if (settings.googleClientId.trim()) return;
+    let live = true;
+    void proxyHealth().then((health) => {
+      if (live && health?.googleClientId) updateSettings({ googleClientId: health.googleClientId });
+    });
+    return () => {
+      live = false;
+    };
+  }, [settings.googleClientId, settings.proxyBase, updateSettings]);
 
   const signIn = useCallback(async () => {
     setAuthError(null);

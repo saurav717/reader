@@ -918,6 +918,8 @@ export default async function apiRouter(req, res, next) {
           workspace: workspace.available(),
           /** Whether the page's Python cells can be run in the signed-in person's own Google Colab through this proxy. */
           colab: true,
+          /** The Google OAuth client ID sign-ins are checked against (public, as client IDs are): a browser with none typed in takes it. */
+          googleClientId: String(process.env.GOOGLE_CLIENT_ID || ''),
         });
       default:
         if (next) return next();
