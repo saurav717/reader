@@ -352,7 +352,12 @@ def open_app(argv):
         running = desktop.wait_for(config["token"], port, 120)
     # A pairing link: a browser that knows this Companion reconnects with no click, also at a new tunnel address.
     link = desktop.fresh_link(config["token"], running) if running else None
-    desktop.open_window(link or site)
+    desktop.open_window(app_window_url(link or site))
+
+
+def app_window_url(url: str) -> str:
+    """The address marked as the Reader app's window (#app=1 beside any pairing), so the page there keeps the Companion company."""
+    return f"{url}&app=1" if "#" in url else f"{url}#app=1"
 
 
 def make_trusted() -> bool:

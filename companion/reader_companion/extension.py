@@ -59,7 +59,7 @@ import time
 
 from jupyter_server.utils import url_path_join
 from tornado import web
-from tornado.ioloop import IOLoop
+from tornado.ioloop import IOLoop, PeriodicCallback
 
 import atexit
 import hmac
@@ -109,7 +109,7 @@ class InfoHandler(CompanionHandler):
         # Through the tunnel the address is public: say which Companion it is, and the rest after pairing.
         remote = tunnel.via_tunnel(self.request.host)
         held = account.owner()
-        self.reply(200, {"app": "reader-companion", "version": companion.version, "id": companion.id, "name": companion.name, "hardware": "" if remote else companion.hardware, "root": "" if remote else companion.root, "tls": companion.tls_port, "owned": bool(held), "owner": account.mask(held["email"]) if held else ""})
+        self.reply(200, {"app": "reader-companion", "version": companion.version, "id": companion.id, "name": companion.name, "hardware": "" if remote else companion.hardware, "root": "" if remote else companion.root, "tls": companion.tls_port, "owned": bool(held), "owner": account.mask(held["email"]) if held else "", "stopWithApp": stops_with_app()})
 
 
 class PairHandler(CompanionHandler):
@@ -515,6 +515,17 @@ class VsCodeProxy(websocket.WebSocketHandler):
             self.upstream = None
 
 
+async def shut_down(serverapp, why: str) -> None:
+    """Off, and kept off (at the next login too) until started on purpose: the Reader app, reader-companion start, the page's Start."""
+    state.set_off(True)
+    if account.owner():  # the account's list says it is off, so its other browsers don't wait for it
+        await IOLoop.current().run_in_executor(None, lambda: account.beat(state.current, off=True))
+    print(f"  {why} It stays off until it is started again: the Reader app, or reader-companion start.", flush=True)
+    # After any answer has gone: the kernels are shut down, the server stops, and the process ends
+    # with 0, which launchd and systemd take as "leave it stopped" (KeepAlive/Restart on failure only).
+    IOLoop.current().call_later(0.3, serverapp.stop)
+
+
 class ShutdownHandler(VsCodeHandler):
     def initialize(self, serverapp=None):
         self.serverapp = serverapp
@@ -526,14 +537,98 @@ class ShutdownHandler(VsCodeHandler):
     async def post(self):
         if not self.allowed():
             return self.reply(403, {"error": "Pair this browser with the Companion first: through its tunnel, only a paired page can shut it down."})
-        state.set_off(True)
-        if account.owner():  # the account's list says it is off, so its other browsers don't wait for it
-            await IOLoop.current().run_in_executor(None, lambda: account.beat(state.current, off=True))
         self.reply(200, {"stopping": True})
-        print("  Shut down from the page. It stays off until it is started again: the Reader app, or reader-companion start.", flush=True)
-        # After the answer has gone: the kernels are shut down, the server stops, and the process ends
-        # with 0, which launchd and systemd take as "leave it stopped" (KeepAlive/Restart on failure only).
-        IOLoop.current().call_later(0.3, self.serverapp.stop)
+        await shut_down(self.serverapp, "Shut down from the page.")
+
+
+# ---------------------------------------------------- with the Reader window ----
+#
+# The Reader app opens the site in a window of its own and quits; the Companion it started
+# would run on. So the page in that window (and only there: the app marks it) says it is
+# open every half minute, and that it is closing as it closes; the Companion shuts down
+# once the window is gone — a few seconds after its goodbye, so that a reload (goodbye,
+# then hello again) doesn't, or when it has gone quiet for a few minutes (closed without a
+# goodbye: a crash, a force-quit). Unless it is set to keep running (the page's switch),
+# for a computer reached from other machines while its own window is shut.
+
+APP_QUIET_S = 180  # a window minimised for long is woken once a minute at most: three of those
+APP_GOODBYE_S = 10
+
+
+def stops_with_app() -> bool:
+    return state.load_config().get("stop_with_app", True) is not False
+
+
+class AppWindow:
+    """The Reader window's last word: when it was last heard from, and whether it said goodbye since."""
+
+    def __init__(self):
+        self.heard = 0.0
+        self.closing: object | None = None
+        self.watch: PeriodicCallback | None = None
+
+    def hello(self, serverapp) -> None:
+        self.heard = time.time()
+        if self.closing is not None:
+            IOLoop.current().remove_timeout(self.closing)
+            self.closing = None
+        if self.watch is None:
+            self.watch = PeriodicCallback(lambda: self._quiet(serverapp), 30_000)
+            self.watch.start()
+
+    def goodbye(self, serverapp) -> None:
+        said = time.time()
+        if self.closing is not None:
+            IOLoop.current().remove_timeout(self.closing)
+
+        def gone():
+            self.closing = None
+            if self.heard <= said and stops_with_app():
+                self.stop(serverapp, "The Reader window was closed: shut down with it.")
+
+        self.closing = IOLoop.current().call_later(APP_GOODBYE_S, gone)
+
+    def _quiet(self, serverapp) -> None:
+        if self.heard and time.time() - self.heard > APP_QUIET_S and stops_with_app():
+            self.stop(serverapp, "The Reader window went quiet (closed without a word): shut down with it.")
+
+    def stop(self, serverapp, why: str) -> None:
+        if self.watch is not None:
+            self.watch.stop()
+            self.watch = None
+        self.heard = 0.0
+        IOLoop.current().spawn_callback(shut_down, serverapp, why)
+
+
+app_window = AppWindow()
+
+
+class AppHandler(VsCodeHandler):
+    """POST /companion/app: {event: "hello"} from the Reader window while it is open, {event: "goodbye"} as it closes,
+    {event: "setting", stopWithApp} from the page's switch. The token, as for every call that changes something."""
+
+    def initialize(self, serverapp=None):
+        self.serverapp = serverapp
+
+    def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        try:
+            body = json.loads(self.request.body or b"{}")
+        except ValueError:
+            body = {}
+        event = body.get("event") if isinstance(body, dict) else None
+        if event == "setting" and isinstance(body.get("stopWithApp"), bool):
+            config = state.load_config()
+            config["stop_with_app"] = body["stopWithApp"]
+            state.save_config(config)
+        elif event == "hello":
+            app_window.hello(self.serverapp)
+        elif event == "goodbye":
+            app_window.goodbye(self.serverapp)
+        else:
+            return self.reply(400, {"error": "hello, goodbye, or setting"})
+        self.reply(200, {"stopWithApp": stops_with_app()})
 
 
 def load(serverapp):
@@ -550,6 +645,7 @@ def load(serverapp):
             (url_path_join(base, "companion/vscode"), VsCodeHandler),
             (url_path_join(base, "companion/update"), UpdateHandler),
             (url_path_join(base, "companion/shutdown"), ShutdownHandler, {"serverapp": serverapp}),
+            (url_path_join(base, "companion/app"), AppHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/tools"), ToolsHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/vscode-web"), VsCodeWebHandler),
             (url_path_join(base, r"companion/vscode/([^/]+)/?(.*)"), VsCodeProxy),

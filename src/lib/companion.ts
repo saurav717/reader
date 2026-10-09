@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.7.3';
+export const COMPANION_VERSION = '0.7.4';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -15,6 +15,8 @@ export interface CompanionInfo {
   /** Its https port on this computer, for Safari (0 when it has none). */
   tls?: number;
   version: string;
+  /** Whether it shuts down with the Reader app's window (0.7.4 on; absent before). */
+  stopWithApp?: boolean;
   /** The same for a Companion across restarts, while its address (a tunnel's) may change. */
   id?: string;
   name: string;
@@ -438,4 +440,16 @@ export async function startCompanion(base: string, forMs = 90_000): Promise<Comp
     if (info) return info;
   }
   return null;
+}
+
+/** Whether the Companion shuts down with the Reader app's window (true) or keeps running once it is closed. */
+export async function setStopWithApp(server: { url: string; token: string }, on: boolean): Promise<boolean> {
+  const response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/app`, {
+    method: 'POST',
+    headers: { Authorization: `token ${server.token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event: 'setting', stopWithApp: on }),
+  });
+  const body = (await response.json().catch(() => ({}))) as { stopWithApp?: boolean; error?: string };
+  if (!response.ok || typeof body.stopWithApp !== 'boolean') throw new Error(body.error || `The Companion said ${response.status}: update it in Settings → Updates.`);
+  return body.stopWithApp;
 }

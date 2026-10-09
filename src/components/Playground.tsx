@@ -10,7 +10,7 @@ import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
 import type { CompanionInfo, MacDmg } from '../lib/companion';
 import { claimForAccount, forgetDevice, pairForAccount, syncDevices } from '../lib/devices';
 import { currentAccount, onProxyChange } from '../lib/api';
-import { COMPANION_PORT, COMPANION_TLS_PORT, STARTABLE, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, findLocalCompanion, isSafari, latestMacDmg, normaliseCode, pairFragment, showCompanionCode, shutdownCompanion, startCompanion, vscodeInstall } from '../lib/companion';
+import { COMPANION_PORT, COMPANION_TLS_PORT, STARTABLE, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, findLocalCompanion, isSafari, latestMacDmg, normaliseCode, pairFragment, setStopWithApp, showCompanionCode, shutdownCompanion, startCompanion, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
@@ -487,10 +487,17 @@ function ServerRow({ server, offline = false }: { server: JupyterServer; offline
   const companion = Boolean(server.companionId || companionPort(server.url));
   const [power, setPower] = useState<Power>('unknown');
   const [note, setNote] = useState<string | null>(null);
+  /** Whether it shuts down with the Reader app's window: undefined for a Companion from before 0.7.4, or one not answering. */
+  const [stopWithApp, setStopWithAppState] = useState<boolean | undefined>(undefined);
+  const local = companionPort(server.url) !== null;
   useEffect(() => {
     if (!companion) return;
     let live = true;
-    void findCompanion(server.url, 2500).then((info) => live && setPower((now) => (now === 'unknown' ? (info ? 'up' : 'down') : now)));
+    void findCompanion(server.url, 2500).then((info) => {
+      if (!live) return;
+      setPower((now) => (now === 'unknown' ? (info ? 'up' : 'down') : now));
+      setStopWithAppState(info?.stopWithApp);
+    });
     return () => {
       live = false;
     };
@@ -574,6 +581,20 @@ function ServerRow({ server, offline = false }: { server: JupyterServer; offline
         ) : null}
         {companion ? <PowerSwitch power={power} canStart={companionPort(server.url) !== null} onChange={(on) => void toggle(on)} /> : null}
       </div>
+      {companion && local && stopWithApp !== undefined ? (
+        <label className="pg-stop-with-app" title="The Reader app opens this site in a window of its own and starts the Companion; with this on, closing that window shuts the Companion down too, until you open the app again. Turn it off to keep reaching this computer from your other devices while its window is closed.">
+          <input
+            type="checkbox"
+            checked={stopWithApp}
+            onChange={(event) => {
+              const on = event.target.checked;
+              setStopWithAppState(on);
+              void setStopWithApp(server, on).then(setStopWithAppState, (error) => (setStopWithAppState(!on), setNote(error instanceof Error ? error.message : String(error))));
+            }}
+          />
+          <span>Shut down when the Reader window closes</span>
+        </label>
+      ) : null}
     </div>
   );
 }
@@ -1371,14 +1392,15 @@ export function WhereDialog({
               <span className="pg-radio" aria-hidden="true" />
             </div>
             <div className="pg-flow">
-              <span>this tab</span>
-              <i>⇄</i>
-              <span>Jupyter on this PC · kernel and files</span>
+              <span>this browser</span>
+              <i>⇄ 127.0.0.1 ⇄</i>
+              <span>the computer it runs on · files, kernel</span>
             </div>
+            <p className="pg-mode-what">The computer you are using right now, reached directly — only from this browser, on this computer. Pick it to work here and nowhere else.</p>
             <ul>
-              <li className="good">Your files, your GPU, no session clock</li>
-              <li className="good">Free, and private data stays put</li>
-              <li className="bad">Only as much GPU as the PC has</li>
+              <li className="good">Your files, your GPU, no session clock; nothing leaves this computer</li>
+              <li className="good">Any Jupyter server here works, the Reader Companion or one started by hand</li>
+              <li className="bad">Not from your phone or another laptop — for that, pick “Your computer, from anywhere”</li>
             </ul>
             {mode === 'pc' ? serverPicker(pcs, pcId, setPcId, 'pc') : null}
           </section>
@@ -1389,14 +1411,15 @@ export function WhereDialog({
               <span className="pg-radio" aria-hidden="true" />
             </div>
             <div className="pg-flow">
-              <span>any browser of yours</span>
-              <i>⇄ its tunnel ⇄</i>
-              <span>your computer · files, kernel, shell</span>
+              <span>any browser you sign in to</span>
+              <i>⇄ its HTTPS tunnel ⇄</i>
+              <span>that computer · files, kernel, shell</span>
             </div>
+            <p className="pg-mode-what">A computer of yours with the Reader Companion, connected to your Google account — this one or another. Every browser you sign in to reaches it. Pick it to open the same project from your phone, another laptop, or here.</p>
             <ul>
               <li className="good">Code and compute both stay on that computer</li>
-              <li className="good">Edit and run it from a phone or another laptop, signed in as you</li>
-              <li className="bad">Only while that computer is on and online</li>
+              <li className="good">It shows up in every browser signed in as you — nothing to pair again</li>
+              <li className="bad">Only while that computer is on, online, and its Companion running</li>
             </ul>
             {mode === 'device' ? (
               <div className="pg-opts" role="radiogroup" aria-label="Your computer" onClick={(event) => event.stopPropagation()}>
