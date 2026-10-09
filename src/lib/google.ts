@@ -6,12 +6,15 @@
  *
  * For that hour it is kept in `sessionStorage`, beside who it belongs to, so
  * a reload is still signed in rather than starting over at the connect
- * screen — but a new tab is not: a bearer token is the one thing here worth
- * stealing, and session storage is neither shared across tabs nor left on
- * disk for whatever else runs on this origin to read later. A new tab is
- * offered the reconnect (the store remembers that Drive was connected once)
- * and needs the one click. The token goes when it expires, when Drive
- * refuses it, and on sign-out — which also revokes it.
+ * screen. A bearer token is the one thing here worth stealing, so it is never
+ * put in localStorage or anywhere else left on disk. A new tab gets it from
+ * the tabs already open instead: it asks on a BroadcastChannel, which reaches
+ * only this origin's pages that are open right now, and a signed-in tab
+ * answers with its token. Renewals go to every tab the same way, and so does
+ * a sign-out. Only with no Reader tab open is a new one offered the reconnect
+ * (the store remembers that Drive was connected once), which needs one click.
+ * The token goes when it expires, when Drive refuses it, and on sign-out —
+ * which also revokes it.
  *
  * Sign-in asks for identity and `drive.file` together, in one window — the
  * app can only ever see files it created itself, and the library is one of
@@ -169,9 +172,78 @@ function writeSession(next: StoredToken | null): void {
 
 let token: StoredToken | null = readSession();
 
+// ---------------------------------------------------- the other tabs ----
+
+type TabMessage = { type: 'ask' } | { type: 'token'; token: StoredToken } | { type: 'signout' };
+const tabs: BroadcastChannel | null = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('reader.google.session');
+// Node (the tests) keeps a process alive while a channel is open; browsers have no such method.
+(tabs as unknown as { unref?: () => void } | null)?.unref?.();
+const sessionListeners = new Set<(change: 'token' | 'signout') => void>();
+const live = (held: StoredToken | null): held is StoredToken => Boolean(held && held.expiresAt > Date.now());
+
+/** Hear when another tab hands this one a sign-in, renews it, or signs out. */
+export function onSessionChange(listener: (change: 'token' | 'signout') => void): () => void {
+  sessionListeners.add(listener);
+  return () => sessionListeners.delete(listener);
+}
+
+/** Whether a token from another tab should replace this tab's: one when it has none, or a later one for the same person. */
+export function adoptable(mine: StoredToken | null, theirs: StoredToken, now = Date.now()): boolean {
+  if (!theirs || typeof theirs.accessToken !== 'string' || !Array.isArray(theirs.scopes) || !(theirs.expiresAt > now) || !theirs.user?.email) return false;
+  if (!mine || !(mine.expiresAt > now)) return true;
+  return mine.user?.email === theirs.user.email && theirs.expiresAt > mine.expiresAt;
+}
+
+if (tabs) {
+  tabs.onmessage = (event: MessageEvent<TabMessage>) => {
+    const message = event.data;
+    if (message?.type === 'ask') {
+      // Only a token whose owner is known goes out, so the asking tab knows whose library to open.
+      if (live(token) && token.user) tabs.postMessage({ type: 'token', token } satisfies TabMessage);
+    } else if (message?.type === 'token') {
+      if (!adoptable(token, message.token)) return;
+      token = message.token;
+      writeSession(token);
+      sessionListeners.forEach((listener) => listener('token'));
+    } else if (message?.type === 'signout') {
+      token = null;
+      writeSession(null);
+      sessionListeners.forEach((listener) => listener('signout'));
+    }
+  };
+}
+
+/**
+ * A new tab with no sign-in of its own asks the open tabs for theirs, as the
+ * page loads. Resolves true when one arrives within `ms` (they answer in a few
+ * milliseconds), false when no tab has one to give.
+ */
+let asked: Promise<boolean> | null = null;
+export function askOtherTabs(ms = 400): Promise<boolean> {
+  if (live(token)) return Promise.resolve(true);
+  if (!tabs) return Promise.resolve(false);
+  asked ??= new Promise<boolean>((resolve) => {
+    const stop = onSessionChange((change) => {
+      if (change !== 'token') return;
+      stop();
+      window.clearTimeout(timer);
+      resolve(true);
+    });
+    const timer = window.setTimeout(() => {
+      stop();
+      asked = null;
+      resolve(live(token));
+    }, ms);
+    tabs.postMessage({ type: 'ask' } satisfies TabMessage);
+  });
+  return asked;
+}
+
 function setToken(next: StoredToken | null): void {
   token = next;
   writeSession(next);
+  // A new or renewed sign-in reaches the other tabs too; a token dropped here (refused, expired) does not.
+  if (next?.user && tabs) tabs.postMessage({ type: 'token', token: next } satisfies TabMessage);
 }
 
 /** Drop a token Google or Drive no longer honours, so the next need asks afresh. */
@@ -376,6 +448,8 @@ export function dropSignIn(): void {
 export function signOut(): void {
   const active = token?.accessToken;
   forgetToken();
+  // Every tab signs out with this one: the token is about to be revoked, and a tab left signed in would show an account that is gone.
+  tabs?.postMessage({ type: 'signout' } satisfies TabMessage);
   if (active) window.google?.accounts.oauth2.revoke(active);
 }
 
