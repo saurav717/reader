@@ -3870,6 +3870,37 @@ whether to open it). Opening the Reader app, or `reader-companion start` in a
 terminal, starts it too. A Companion from before 0.6.0 gets the link once it is
 updated.
 
+The Playground's home page has the same as a switch: on the Companion's row
+under **Your compute**, and in **Connect this computer** for a Companion the
+page found but this browser hasn't paired with. Unpaired, the page sends no
+token, so the Companion (from 0.7.0) takes a shutdown without one only from
+this computer itself (`127.0.0.1`), never through its tunnel.
+
+**Your computers follow your Google account; your files stay on them.** A
+browser signed in with Google that pairs with the Companion (the Reader app's
+link, or the code) also *claims* it for that account (`/companion/claim`, from
+0.7.0). The Companion then:
+
+- changes its token, so a browser that paired before, signed in as anyone
+  else, no longer gets in with the one it kept;
+- pairs only with a page signed in as that account: it asks the Worker whose
+  pass the page sent (`GET /me`), and refuses anyone else's, code or not;
+- opens its HTTPS tunnel and keeps the account's list of computers on the
+  Worker current (`worker/devices.js`, one Durable Object per account): its
+  name, its tunnel address and its token, when it starts, every five minutes,
+  and when it is shut down. Nothing else leaves the computer: projects and
+  data stay in `~/Reader` on it, and nothing goes to Drive.
+
+Every browser signed in as the account, on this computer or another, reads
+that list (`GET /devices`, with its pass) and shows the computer under **Your
+compute**: through `127.0.0.1` on the computer itself, through the tunnel
+anywhere else. A browser signed in as someone else shows a Companion it finds
+as "connected to sa•••@gmail.com" and can't pair with it. To give the computer
+to another account, run `reader-companion release` on it (a new token, and no
+owner), then connect again signed in as that account. A pairing from before
+0.7.0 has **Connect to my account** on its row. The Worker needs the `DEVICES`
+Durable Object in `wrangler.toml` (its `v3` migration), which a deploy makes.
+
 **Deleting the app removes it.** On a Mac the Companion runs from a login
 item, not from Reader.app, so deleting the app used to leave it running and
 starting at every login. Now `setup` records where Reader.app is, and the
@@ -3950,6 +3981,35 @@ a browser there, type the code it prints into the card instead.
   that address. The page accepts only a `trycloudflare.com` address from a
   link. The tunnel's address changes each start, so the link the Companion
   opens reconnects the computer the browser already knows, with no click.
+
+**Run, agents, and VS Code in the page.** A project's **Files** tab has, for
+the open file, **▶ Run** (⌘↵), as VS Code's ▶ does: the command comes from
+the file's language and what the machine has (`src/lib/languages.ts`):
+`python main.py`, `node`/`bun`/`deno`, `go run`, `gcc`/`g++` into
+`.reader/bin/` and run, `rustc`, `java File.java`, Ruby, R, Julia, shell and
+more. It saves first and types the command into the terminal below, so
+`input()` and Ctrl-C work. The Companion says what is installed
+(`/companion/tools`), looked up through your own shell and rc files, since one
+started at login has a bare PATH. A language with nothing to run it says what
+to install. On Colab or a plain Jupyter server, the machine is taken to be
+Linux with Python and a compiler. The editor highlights those languages too.
+
+**Agents ▾** in the console lists the coding agents with a command line on the
+machine (Claude Code, Codex, Gemini CLI, Copilot CLI, Aider, …) and starts one
+in the project's folder, in the terminal. With none, it offers their installs.
+
+**Editor | VS Code** switches a project whose files are on a Companion to
+VS Code itself, in the page, on the same folder: `code serve-web`, Microsoft's
+VS Code for the browser, from the VS Code installed on that computer
+(`companion/reader_companion/tools.py`). It starts on first use (the first time
+downloads VS Code's server, a minute or two) on 127.0.0.1 with a connection
+token only the Companion knows. The page reaches it through the Companion at
+`/companion/vscode/<secret>/`, which adds the token and lets only the site
+frame it, so it works through the tunnel too. Your extensions, coding agents
+included, are linked in from `~/.vscode/extensions`. Settings and sign-ins
+are its own, in `~/.reader-companion/vscode`. Starting it accepts the
+[VS Code Server license](https://code.visualstudio.com/license/server). If a
+browser keeps the frame blank, **Open in a new tab** opens it on its own.
 
 **VS Code.** A project on the Companion has **Open in VS Code** in its bar.
 It is a `vscode://file/…` link to the project's folder, so it works with

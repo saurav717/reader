@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.6.1';
+export const COMPANION_VERSION = '0.7.0';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -20,6 +20,10 @@ export interface CompanionInfo {
   name: string;
   hardware: string;
   root: string;
+  /** Connected to a Google account (from 0.7.0): only a page signed in as it pairs. */
+  owned?: boolean;
+  /** That account, partly hidden (sa•••@gmail.com). */
+  owner?: string;
 }
 
 export interface CompanionPairing {
@@ -70,10 +74,11 @@ export async function findCompanion(base = localBase(), timeoutMs = 1500): Promi
 }
 
 /** Trades the code the Companion printed for its server's address and token. */
-export async function pairCompanion(code: string, base = localBase()): Promise<CompanionPairing> {
+export async function pairCompanion(code: string, base = localBase(), pass?: string | null): Promise<CompanionPairing> {
   let response: Response;
   try {
-    response = await fetch(`${base}companion/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: normaliseCode(code) }) });
+    // The page's pass, when signed in: a Companion connected to an account pairs only with a page signed in as it.
+    response = await fetch(`${base}companion/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: normaliseCode(code), ...(pass ? { pass } : {}) }) });
   } catch {
     throw new Error('The Companion stopped answering. Is it still running in the terminal?');
   }
@@ -325,21 +330,92 @@ export async function waitForVersion(base: string, version: string, forMs = 120_
 /** The first Companion the page can shut down and start again (POST /companion/shutdown, and reader-companion:// links). */
 export const STARTABLE = '0.6.0';
 
+/** The first Companion a page that hasn't paired with it can shut down, from this computer (not through its tunnel). */
+export const STOPPABLE_UNPAIRED = '0.7.0';
+
+/** The first Companion that belongs to a Google account (POST /companion/claim). */
+export const ACCOUNTS = '0.7.0';
+
 /**
- * Shuts a paired Companion down (POST /companion/shutdown): its kernels, its
- * Jupyter server and the process. It stays off, at the next login too, until it
- * is started on purpose: startCompanion, the Reader app, or `reader-companion start`.
+ * Shuts a Companion down (POST /companion/shutdown): its kernels, its Jupyter
+ * server and the process. It stays off, at the next login too, until it is
+ * started on purpose: startCompanion, the Reader app, or `reader-companion start`.
+ * Without a token (a Companion found but not paired), only on this computer and
+ * from STOPPABLE_UNPAIRED on.
  */
-export async function shutdownCompanion(server: { url: string; token: string }): Promise<void> {
+export async function shutdownCompanion(server: { url: string; token?: string }): Promise<void> {
   let response: Response;
   try {
-    response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/shutdown`, { method: 'POST', headers: { Authorization: `token ${server.token}` } });
+    response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/shutdown`, { method: 'POST', headers: server.token ? { Authorization: `token ${server.token}` } : {} });
   } catch {
     throw new Error('The Companion isn’t answering: it may be off already.');
   }
   if (response.status === 404) throw new Error(`This Companion is older than the Shut down button (${STARTABLE}): update it in Settings → Updates, then try again.`);
   const body = (await response.json().catch(() => ({}))) as { error?: string };
+  if (response.status === 403 && !server.token) throw new Error(`This Companion turns off from here only once paired, or from ${STOPPABLE_UNPAIRED} on: connect it with its code first, or stop it with Ctrl-C in its terminal.`);
   if (!response.ok) throw new Error(body.error || `The Companion said ${response.status}.`);
+}
+
+/**
+ * Connects a paired Companion to the Google account the page is signed in as
+ * (POST /companion/claim, from 0.7.0): it goes on that account's list of
+ * computers on the Worker at `api`, opens its HTTPS tunnel, and takes a new
+ * token, which it answers with — the one the browser had stops working.
+ */
+export async function claimCompanion(server: { url: string; token: string }, pass: string, api: string): Promise<{ email: string; token: string; tunnel: string; id: string }> {
+  let response: Response;
+  try {
+    response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/claim`, { method: 'POST', headers: { Authorization: `token ${server.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ pass, api }) });
+  } catch {
+    throw new Error('The Companion isn’t answering.');
+  }
+  if (response.status === 404) throw new Error('This Companion is older than accounts (0.7.0): update it in Settings → Updates to connect it to your Google account.');
+  const body = (await response.json().catch(() => ({}))) as { email?: string; token?: string; tunnel?: string; id?: string; error?: string };
+  if (!response.ok || typeof body.token !== 'string' || typeof body.email !== 'string') throw new Error(body.error || `The Companion said ${response.status}.`);
+  return { email: body.email, token: body.token, tunnel: body.tunnel || '', id: body.id || '' };
+}
+
+/** What the paired Companion's computer can run (GET /companion/tools, from 0.7.0): null when it can't say. */
+export async function companionTools(server: { url: string; token: string }): Promise<{ os: 'mac' | 'linux' | 'windows'; tools: Record<string, string>; agents: { id: string; name: string }[]; vscode: boolean } | null> {
+  try {
+    const response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/tools`, { headers: { Authorization: `token ${server.token}` }, cache: 'no-store' });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { os?: string; tools?: Record<string, string>; agents?: { id: string; name: string }[]; vscode?: boolean };
+    if (!body.tools || !Array.isArray(body.agents)) return null;
+    return { os: body.os === 'windows' ? 'windows' : body.os === 'linux' ? 'linux' : 'mac', tools: body.tools, agents: body.agents, vscode: Boolean(body.vscode) };
+  } catch {
+    return null;
+  }
+}
+
+export interface VsCodeWeb {
+  state: 'off' | 'starting' | 'ready' | 'failed';
+  error: string;
+  /** Where it is on the Companion, with its secret, once ready: /companion/vscode/<secret>/. */
+  path: string;
+  /** The folder it opens, absolute on that computer. */
+  folder: string;
+}
+
+/**
+ * VS Code for the browser on the Companion's computer (/companion/vscode-web,
+ * from 0.7.0): `start` starts it (the first time downloads VS Code's server),
+ * otherwise only says how it is. `folder` is the project's, under the Companion's.
+ */
+export async function vscodeWeb(server: { url: string; token: string }, folder: string, start = false): Promise<VsCodeWeb> {
+  const base = `${server.url.replace(/\/?$/, '/')}companion/vscode-web`;
+  let response: Response;
+  try {
+    response = start
+      ? await fetch(base, { method: 'POST', headers: { Authorization: `token ${server.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ folder }) })
+      : await fetch(`${base}?folder=${encodeURIComponent(folder)}`, { headers: { Authorization: `token ${server.token}` }, cache: 'no-store' });
+  } catch {
+    throw new Error('The Companion isn’t answering.');
+  }
+  if (response.status === 404) throw new Error('This Companion is older than VS Code in the page (0.7.0): update it in Settings → Updates.');
+  const body = (await response.json().catch(() => ({}))) as Partial<VsCodeWeb> & { error?: string };
+  if (!response.ok) throw new Error(body.error || `The Companion said ${response.status}.`);
+  return { state: body.state ?? 'off', error: body.error ?? '', path: body.path ?? '', folder: body.folder ?? '' };
 }
 
 /** The link that starts the Companion on this computer: `reader-companion setup` hands the scheme to `reader-companion start`. */

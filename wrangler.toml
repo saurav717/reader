@@ -33,6 +33,18 @@ class_name = "Usage"
 tag = "v2"
 new_sqlite_classes = ["Usage"]
 
+# The computers each Google account has connected (worker/devices.js): how
+# to reach each one's Reader Companion — its tunnel address and token — so a
+# browser signed in as that account finds it from anywhere. One object per
+# account; the files stay on the computer.
+[[durable_objects.bindings]]
+name = "DEVICES"
+class_name = "Devices"
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["Devices"]
+
 # Anyone signed in with Google in the reader need paste nothing: the app
 # swaps the sign-in for a thirty-day pass signed with READER_TOKEN (see
 # server/passes.js and GOOGLE_CLIENT_ID below), so the token is the key the

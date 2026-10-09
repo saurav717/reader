@@ -42,7 +42,7 @@ jobs:
         run: npm ci
 
       - name: Test the Worker
-        run: node --test scripts/usage.test.mjs scripts/passes.test.mjs
+        run: node --test scripts/usage.test.mjs scripts/passes.test.mjs scripts/devices.test.mjs
 
       - name: Build it, deploying nothing
         if: github.event_name == 'pull_request'

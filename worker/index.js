@@ -47,6 +47,7 @@ import * as browserless from './browserless.js';
 // it exported from the entry. See worker/browserSession.js.
 export { BrowserSession } from './browserSession.js';
 export { Usage } from './usage.js';
+export { Devices } from './devices.js';
 import { rateLimited, refusal } from './browserSession.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;
@@ -329,7 +330,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && path !== '/usage/ai' && !AI_ROUTES[path] && !isColabPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && path !== '/usage/ai' && !AI_ROUTES[path] && !isColabPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
@@ -377,6 +378,41 @@ export default {
         tally(env, ctx, { email }, { signin: 1 });
         const { expires } = await readPass(pass, secret);
         return json({ pass, email, expires }, 200, { ...headers, 'Cache-Control': 'no-store' });
+      }
+
+      // Whose pass this is: the Companion asks, to know which account a page
+      // that wants to pair or claim it is signed in as (it can't read a pass).
+      if (path === '/me') {
+        const who = await authorized(request, env);
+        if (!who?.email) return json({ error: 'sign in with Google first' }, 401, headers);
+        return json({ email: who.email }, 200, { ...headers, 'Cache-Control': 'no-store' });
+      }
+
+      // The computers an account has connected: worker/devices.js. The list
+      // and claiming and forgetting take the account's pass; a Companion's
+      // beat takes the secret it was given when claimed.
+      if (path === '/devices' || path.startsWith('/devices/')) {
+        if (!env.DEVICES) return json({ error: 'no DEVICES object is bound here — see wrangler.toml' }, 501, headers);
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        const of = (email) => env.DEVICES.get(env.DEVICES.idFromName(`devices:${email.toLowerCase()}`));
+        if (path === '/devices/beat') {
+          const body = await request.json().catch(() => ({}));
+          if (typeof body.email !== 'string' || !body.email) return json({ error: 'whose computer?' }, 400, headers);
+          const answer = await of(body.email).fetch('https://devices/beat', { method: 'POST', body: JSON.stringify(body) });
+          return json(await answer.json(), answer.status, noStore);
+        }
+        const who = await authorized(request, env);
+        if (!who?.email) return json({ error: 'sign in with Google to see your computers' }, 401, headers);
+        if (path === '/devices') {
+          const answer = await of(who.email).fetch('https://devices/list');
+          return json(await answer.json(), answer.status, noStore);
+        }
+        if (path === '/devices/claim' || path === '/devices/forget') {
+          const body = await request.json().catch(() => ({}));
+          const answer = await of(who.email).fetch(`https://devices${path.slice('/devices'.length)}`, { method: 'POST', body: JSON.stringify(body) });
+          return json({ ...(await answer.json()), email: who.email }, answer.status, noStore);
+        }
+        return json({ error: 'not found' }, 404, headers);
       }
 
       // Who uses this Worker's paid accounts, and how much: worker/usage.js.
