@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
-import type { CompanionInfo, CompanionPairing } from '../lib/companion';
+import type { CompanionInfo, CompanionPairing, MacDmg } from '../lib/companion';
 import { COMPANION_PORT, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, directBase, findCompanion, isSafari, latestMacDmg, normaliseCode, pairCompanion, pairFragment, showCompanionCode, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
@@ -517,7 +517,7 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
   const vscode = vscodeInstall(siteBase(), windows);
   const downloads = companionDownloads(siteBase());
   const [system, setSystem] = useState(desktopSystem);
-  const [dmg, setDmg] = useState<string | null>(null);
+  const [dmg, setDmg] = useState<MacDmg | null>(null);
   useEffect(() => {
     let live = true;
     void latestMacDmg().then((url) => live && setDmg(url));
@@ -525,7 +525,7 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
       live = false;
     };
   }, []);
-  const download = system === 'mac' && dmg ? { ...downloads.mac, href: dmg, file: 'Reader.dmg' } : downloads[system];
+  const download = system === 'mac' && dmg ? { ...downloads.mac, href: dmg.url, file: 'Reader.dmg' } : downloads[system];
   const [found, setFound] = useState<CompanionInfo | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -625,7 +625,15 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
                 <>
                   {dmg ? (
                     <>
-                      Open <b>Reader.dmg</b>, drag <b>Reader</b> to Applications, and open it. It’s signed and notarized by Apple, so macOS opens it without asking. The first time, it sets itself up in a minute or two.
+                      Open the .dmg, drag <b>Reader</b> to Applications, and open it.{' '}
+                      {dmg.notarized ? (
+                        'It’s signed and notarized by Apple, so macOS opens it without asking.'
+                      ) : (
+                        <>
+                          macOS stops it the first time (“Apple could not verify…”, as it isn’t notarized): click <b>Done</b>, then <b>Open Anyway</b> in System Settings → Privacy &amp; Security, and <b>Open</b>. After that it opens like any app. To skip that step, paste <span className="mono">{download.command}</span> into Terminal instead: it makes the same Reader app.
+                        </>
+                      )}{' '}
+                      The first time, it sets itself up in a minute or two.
                     </>
                   ) : (
                     <>

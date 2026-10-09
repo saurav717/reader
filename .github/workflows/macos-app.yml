@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       release:
-        description: Publish the .dmg as a GitHub Release (needs the signing secrets)
+        description: Publish the .dmg as a GitHub Release (notarized with the signing secrets, unsigned without)
         type: boolean
         default: false
   push:
@@ -80,13 +80,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$(cat dist-macos/status)" != notarized ]; then
-            echo "::error::Only a signed, notarized Reader.dmg is published. Add the signing secrets (docs/macos-app.md)."
-            exit 1
-          fi
+          # Notarized: Reader.dmg, which opens with no warning. Without the signing secrets:
+          # Reader-unsigned.dmg, which macOS stops once (Done, then Open Anyway in System Settings).
           VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' companion/pyproject.toml)"
           TAG="${GITHUB_REF_NAME}"
           case "$TAG" in app-v*) ;; *) TAG="app-v$VERSION" ;; esac
-          gh release create "$TAG" dist-macos/Reader.dmg --title "Reader for macOS $VERSION" \
-            --notes "Reader.app with the Reader Companion $VERSION, signed and notarized. Open the .dmg and drag Reader to Applications." \
-            || gh release upload "$TAG" dist-macos/Reader.dmg --clobber
+          if [ "$(cat dist-macos/status)" = notarized ]; then
+            ASSET=Reader.dmg
+            TITLE="Reader for macOS $VERSION"
+            NOTES="Reader.app with the Reader Companion $VERSION, signed and notarized. Open the .dmg, drag Reader to Applications, and open it."
+          else
+            ASSET=Reader-unsigned.dmg
+            cp dist-macos/Reader.dmg "dist-macos/$ASSET"
+            TITLE="Reader for macOS $VERSION (not notarized)"
+            NOTES="Reader.app with the Reader Companion $VERSION. It isn't notarized by Apple, so macOS stops it the first time: open the .dmg, drag Reader to Applications, open it, click Done, then Open Anyway in System Settings → Privacy & Security. After that it opens like any app."
+          fi
+          gh release create "$TAG" "dist-macos/$ASSET" --title "$TITLE" --notes "$NOTES" \
+            || gh release upload "$TAG" "dist-macos/$ASSET" --clobber
