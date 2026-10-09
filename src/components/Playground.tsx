@@ -594,14 +594,14 @@ export function serverCommands(where: 'pc' | 'remote', origin: string): { label:
   const setup = 'mkdir -p "$HOME/reader-playgrounds"\npip install jupyter_server ipykernel';
   if (where === 'pc') return [{ label: 'On this PC, in a terminal', code: `${setup}\n${server()}` }];
   return [
-    { label: 'On the GPU machine', code: `${setup}\n${server('--ServerApp.port=8888')}` },
-    { label: 'Then on this PC — an SSH tunnel to it (a lab server, a cloud VM, a pod with SSH)', code: 'ssh -N -L 8890:localhost:8888 you@the-gpu-machine\n# then add http://localhost:8890/?token=… here' },
+    { label: 'On the other machine — a GPU box, a lab server, a cloud VM, or a computer that keeps your code', code: `${setup}\n${server('--ServerApp.port=8888')}` },
+    { label: 'Then on this PC — an SSH tunnel to it (a lab server, a cloud VM, a pod with SSH)', code: 'ssh -N -L 8890:localhost:8888 you@that-machine\n# then add http://localhost:8890/?token=… here' },
     { label: 'Or, on RunPod: start it on 0.0.0.0 and use the pod’s own HTTPS address', code: `${setup}\n${server('--ServerApp.ip=0.0.0.0', '--ServerApp.port=8888')}\n# address: https://<pod-id>-8888.proxy.runpod.net/?token=…` },
   ];
 }
 
 function ServerForm({ server, onDone, onSaved, defaultWhere = 'pc' }: { server?: JupyterServer; onDone: () => void; onSaved?: (server: JupyterServer) => void; defaultWhere?: 'pc' | 'remote' }) {
-  const [name, setName] = useState(server?.name ?? (defaultWhere === 'pc' ? 'This PC' : 'GPU machine'));
+  const [name, setName] = useState(server?.name ?? (defaultWhere === 'pc' ? 'This PC' : 'Another machine'));
   const [where, setWhere] = useState<'pc' | 'remote'>(server?.where ?? defaultWhere);
   const [address, setAddress] = useState(server ? `${server.url}${server.token ? `?token=${server.token}` : ''}` : '');
   const [token, setToken] = useState('');
@@ -619,7 +619,7 @@ function ServerForm({ server, onDone, onSaved, defaultWhere = 'pc' }: { server?:
       setState({ ok: false, text: answer.error });
       return;
     }
-    const saved = saveServer({ id: server?.id, name: name.trim() || (where === 'pc' ? 'This PC' : 'GPU machine'), where, url: effective.url, token: effective.token });
+    const saved = saveServer({ id: server?.id, name: name.trim() || (where === 'pc' ? 'This PC' : 'Another machine'), where, url: effective.url, token: effective.token });
     onSaved?.(saved);
     onDone();
   };
@@ -636,7 +636,7 @@ function ServerForm({ server, onDone, onSaved, defaultWhere = 'pc' }: { server?:
           On this PC
         </button>
         <button type="button" role="radio" aria-checked={where === 'remote'} className={where === 'remote' ? 'on' : ''} onClick={() => setWhere('remote')}>
-          A GPU elsewhere
+          Another machine
         </button>
       </div>
       <details className="pg-howto" open={!server}>
@@ -1164,8 +1164,16 @@ export function WhereDialog({
   const [pcId, setPcId] = useState<string | undefined>(current?.home.kind === 'server' ? current.home.serverId : pcs[0]?.id);
   /** In the device mode: the computer, files and code both. */
   const [deviceId, setDeviceId] = useState<string | undefined>(current?.home.kind === 'server' && current.compute.kind === 'server' && current.home.serverId === current.compute.serverId ? current.home.serverId : devices[0]?.id);
-  /** In the split mode: a remote server's id, or 'colab'. */
-  const [remoteId, setRemoteId] = useState<string>(current?.compute.kind === 'server' && current.home.kind === 'server' && current.compute.serverId !== current.home.serverId ? current.compute.serverId : current?.compute.kind === 'colab' && current.home.kind === 'server' ? 'colab' : remotes[0]?.id ?? 'colab');
+  /** In the split mode: the server whose folder keeps the code — any of yours, this PC or elsewhere. */
+  const [homeId, setHomeId] = useState<string | undefined>(current?.home.kind === 'server' ? current.home.serverId : (pcs[0] ?? servers[0])?.id);
+  /** In the split mode: the server it runs on — any other of yours — or 'colab'. */
+  const [remoteId, setRemoteId] = useState<string>(
+    current?.compute.kind === 'server' && current.home.kind === 'server' && current.compute.serverId !== current.home.serverId
+      ? current.compute.serverId
+      : current?.compute.kind === 'colab' && current.home.kind === 'server'
+        ? 'colab'
+        : (remotes.find((s) => s.id !== homeId) ?? servers.find((s) => s.id !== homeId))?.id ?? 'colab',
+  );
   const [idleStop, setIdleStop] = useState(current?.compute.kind === 'colab' ? current.idleStopMin : 30);
   const [adding, setAdding] = useState<'pc' | 'remote' | null>(null);
   /** Starting Jupyter by hand instead of the Companion, for this PC. */
@@ -1175,7 +1183,8 @@ export function WhereDialog({
   const colabOk = colabAvailable(settings.googleClientId);
   // A mode that needs a server none has been added for opens the steps to start one at once,
   // rather than waiting for a click on a tile that reads like a hint.
-  const missing: 'pc' | 'remote' | null = mode === 'colab' ? null : mode === 'device' ? (devices.length ? null : 'pc') : !pcs.length ? 'pc' : mode === 'split' && !remotes.length && remoteId !== 'colab' ? 'remote' : null;
+  const missing: 'pc' | 'remote' | null =
+    mode === 'colab' ? null : mode === 'device' ? (devices.length ? null : 'pc') : mode === 'split' ? (!servers.length ? 'pc' : remoteId !== 'colab' && !servers.some((s) => s.id !== homeId) ? 'remote' : null) : !pcs.length ? 'pc' : null;
   useEffect(() => {
     if (missing) setAdding(missing);
   }, [missing]);
@@ -1189,6 +1198,11 @@ export function WhereDialog({
   useEffect(() => {
     if (!deviceId && devices[0]) setDeviceId(devices[0].id);
   }, [devices, deviceId]);
+  useEffect(() => {
+    if (!homeId && servers[0]) setHomeId((pcs[0] ?? servers[0]).id);
+    // The two ends are different machines: the code's server can't also be the one it runs on.
+    if (remoteId === homeId) setRemoteId(servers.find((s) => s.id !== homeId)?.id ?? 'colab');
+  }, [servers, pcs, homeId, remoteId]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
@@ -1212,8 +1226,8 @@ export function WhereDialog({
           ? device
             ? { compute: { kind: 'server', serverId: device.id }, home: { kind: 'server', serverId: device.id, root } }
             : null
-        : pc && (remoteId === 'colab' || serverById(remoteId))
-          ? { compute: remoteId === 'colab' ? { kind: 'colab', machine } : { kind: 'server', serverId: remoteId }, home: { kind: 'server', serverId: pc.id, root } }
+        : homeId && serverById(homeId) && (remoteId === 'colab' || (serverById(remoteId) && remoteId !== homeId))
+          ? { compute: remoteId === 'colab' ? { kind: 'colab', machine } : { kind: 'server', serverId: remoteId }, home: { kind: 'server', serverId: homeId, root } }
           : null;
   const usesColab = choice?.compute.kind === 'colab';
   const blocked = !choice || (usesColab && !colabOk) || !title.trim();
@@ -1229,20 +1243,36 @@ export function WhereDialog({
       ))}
     </div>
   );
-  const serverPicker = (list: JupyterServer[], picked: string | undefined, pick: (id: string) => void, kind: 'pc' | 'remote', extra?: React.ReactNode) => (
-    <div className="pg-opts" role="radiogroup" aria-label={kind === 'pc' ? 'This PC' : 'The GPU machine'}>
-      {list.map((server) => (
-        <button key={server.id} type="button" role="radio" aria-checked={picked === server.id} className={`pg-opt${picked === server.id ? ' is-on' : ''}`} onClick={() => pick(server.id)}>
-          <span className={`pg-mark ${kind === 'pc' ? 'is-pc' : 'is-gpu'}`}>{kind === 'pc' ? 'PC' : 'GPU'}</span>
-          <b>{server.name}</b>
-          <small className="mono">{safeHost(server.url)}</small>
-        </button>
-      ))}
+  const serverPicker = (list: JupyterServer[], picked: string | undefined, pick: (id: string) => void, kind: 'pc' | 'remote', extra?: React.ReactNode, label?: string, anyKind = false) => (
+    <div className="pg-opts" role="radiogroup" aria-label={label ?? (kind === 'pc' ? 'This PC' : 'The GPU machine')}>
+      {list.map((server) => {
+        const mark = anyKind ? (server.where === 'pc' ? 'pc' : 'remote') : kind;
+        return (
+          <button key={server.id} type="button" role="radio" aria-checked={picked === server.id} className={`pg-opt${picked === server.id ? ' is-on' : ''}`} onClick={() => pick(server.id)}>
+            <span className={`pg-mark ${mark === 'pc' ? 'is-pc' : 'is-gpu'}`}>{mark === 'pc' ? 'PC' : 'GPU'}</span>
+            <b>{server.name}</b>
+            <small className="mono">{safeHost(server.url)}</small>
+          </button>
+        );
+      })}
       {extra}
-      <button type="button" className="pg-opt is-add" onClick={() => setAdding(kind)}>
-        <b>+ {kind === 'pc' ? 'Connect this computer' : 'A GPU machine’s Jupyter server'}</b>
-        <small>{kind === 'pc' ? 'one command in a terminal' : 'a rented GPU, a lab server, an SSH tunnel'}</small>
-      </button>
+      {anyKind ? (
+        <>
+          <button type="button" className="pg-opt is-add" onClick={() => setAdding('pc')}>
+            <b>+ Connect this computer</b>
+            <small>one command in a terminal</small>
+          </button>
+          <button type="button" className="pg-opt is-add" onClick={() => setAdding('remote')}>
+            <b>+ Another machine’s Jupyter server</b>
+            <small>a lab server, a cloud VM, a rented GPU, another computer of yours</small>
+          </button>
+        </>
+      ) : (
+        <button type="button" className="pg-opt is-add" onClick={() => setAdding(kind)}>
+          <b>+ {kind === 'pc' ? 'Connect this computer' : 'A GPU machine’s Jupyter server'}</b>
+          <small>{kind === 'pc' ? 'one command in a terminal' : 'a rented GPU, a lab server, an SSH tunnel'}</small>
+        </button>
+      )}
     </div>
   );
 
@@ -1338,33 +1368,33 @@ export function WhereDialog({
               <span className="pg-mark is-pc">PC</span>
               <span className="pg-arrow">→</span>
               <span className="pg-mark is-gpu">GPU</span>
-              <b>Code on this PC, GPU in the cloud</b>
+              <b>Code on one machine, compute on another</b>
               <span className="pg-radio" aria-hidden="true" />
             </div>
             <div className="pg-flow">
-              <span>a folder on this PC</span>
+              <span>a folder on any machine of yours</span>
               <i>⇄ copied before each run ⇄</i>
-              <span>the GPU machine · kernel, shell</span>
+              <span>any other · kernel, shell</span>
               <i>→</i>
               <span>runs/ &amp; results back</span>
             </div>
             <ul>
-              <li className="good">The files live in a folder on your PC — edit them here, or in any editor</li>
-              <li className="good">Cells and the console run on the remote card</li>
-              <li className="good">What a run writes under runs/ and results/ comes back</li>
+              <li className="good">The code lives in a folder on one machine — this PC, another computer of yours, a lab server, a cloud disk</li>
+              <li className="good">Cells and the console run on another: a GPU box, a rented card, Colab</li>
+              <li className="good">What a run writes under runs/ and results/ comes back to the code’s folder</li>
             </ul>
             {mode === 'split' ? (
               <div className="pg-split" onClick={(event) => event.stopPropagation()}>
-                <small>The files, on</small>
-                {serverPicker(pcs, pcId, setPcId, 'pc')}
-                <small>The code runs on</small>
-                {serverPicker(remotes, remoteId, setRemoteId, 'remote', (
+                <small>The code is kept on</small>
+                {serverPicker(servers, homeId, setHomeId, 'pc', undefined, 'Where the code is kept', true)}
+                <small>It runs on</small>
+                {serverPicker(servers.filter((s) => s.id !== homeId), remoteId, setRemoteId, 'remote', (
                   <button type="button" role="radio" aria-checked={remoteId === 'colab'} className={`pg-opt${remoteId === 'colab' ? ' is-on' : ''}`} onClick={() => setRemoteId('colab')}>
                     <ColabMark />
                     <b>Your Colab</b>
                     <small>a GPU runtime — pick it below</small>
                   </button>
-                ))}
+                ), 'Where it runs', true)}
                 {remoteId === 'colab' ? colabPicker : null}
               </div>
             ) : null}
@@ -1372,7 +1402,7 @@ export function WhereDialog({
         </div>
         {adding ? (
           <div className="pg-adding" ref={addingRef}>
-            {missing === adding && adding === 'remote' ? <p className="pg-adding-lede">The GPU machine needs a Jupyter server too. Start one there with the commands below, then paste its address.</p> : null}
+            {missing === adding && adding === 'remote' ? <p className="pg-adding-lede">{mode === 'split' ? 'The second machine needs a Jupyter server too.' : 'The GPU machine needs a Jupyter server too.'} Start one there with the commands below, then paste its address.</p> : null}
             {adding === 'pc' && !manual ? (
               <CompanionConnect
                 onManual={() => setManual(true)}
@@ -1389,7 +1419,11 @@ export function WhereDialog({
                 onDone={() => (setAdding(null), setManual(false))}
                 onSaved={(saved) => {
                   if (saved.where === 'pc') setPcId(saved.id);
-                  else setRemoteId(saved.id);
+                  // In the split mode a new server fills whichever end is missing: the code's first, then where it runs.
+                  if (mode === 'split') {
+                    if (!homeId || !serverById(homeId)) setHomeId(saved.id);
+                    else if (saved.id !== homeId) setRemoteId(saved.id);
+                  } else if (saved.where !== 'pc') setRemoteId(saved.id);
                 }}
               />
             )}
@@ -1412,7 +1446,7 @@ export function WhereDialog({
               </span>
             </label>
           ) : missing ? (
-            <span className="pg-note">{missing === 'pc' ? 'Connect this computer above to create it here.' : 'Add the GPU machine’s Jupyter server above, or pick Your Colab.'}</span>
+            <span className="pg-note">{mode === 'split' ? (missing === 'pc' ? 'Add the machine that keeps the code above.' : 'Add a second machine to run it on above, or pick Your Colab.') : missing === 'pc' ? 'Connect this computer above to create it here.' : 'Add the GPU machine’s Jupyter server above, or pick Your Colab.'}</span>
           ) : (
             <span className="pg-note">A Jupyter server of yours stays up until you stop it; a rented one is billed by its provider while it is.</span>
           )}

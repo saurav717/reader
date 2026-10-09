@@ -696,7 +696,7 @@ export function reachOf(
   const computer = homeName ?? 'a computer this browser has never been connected to';
   return {
     code: `${computer} · ${home.root}`,
-    ran: sameMachine ? `${computeName}, where its code is — or ${anyMachine}` : `${computeName}, with the folder copied there — or ${anyMachine}`,
+    ran: sameMachine ? `${computeName}, where its code is — or ${anyMachine}` : `${computeName}, with the folder copied there — or any other machine of yours`,
     needs: `${homeName ?? 'That computer'} specifically: its code is there, and nowhere else`,
     blocked: ctx.serverName(home.serverId)
       ? undefined

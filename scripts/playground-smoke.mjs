@@ -77,7 +77,7 @@ await page.getByRole('button', { name: 'Test and save' }).click();
 await page.waitForSelector('.pg-machine-head:has-text("This PC")');
 check('the PC server is tested and kept', await page.locator('.pg-machine-head:has-text("This PC")').count() === 1);
 await page.getByRole('button', { name: '+ Add a server' }).click();
-await page.getByRole('radio', { name: 'A GPU elsewhere' }).click();
+await page.getByRole('radio', { name: 'Another machine' }).click();
 await page.locator('.pg-server-form input').nth(0).fill('GPU box');
 await page.locator('.pg-server-form input').nth(1).fill(GPU);
 await page.getByRole('button', { name: 'Test and save' }).click();
