@@ -2,6 +2,7 @@
 
 The double-click installers the site offers (scripts/build-companion.mjs) put
 the Companion on this computer with `uv tool install`, then run `setup`, which
+- makes the Reader app (see "the app" below);
 
 - installs the Reader extension into VS Code (and Cursor, VSCodium) when one is
   here and doesn't have it, from the .vsix the site serves;
@@ -10,8 +11,9 @@ the Companion on this computer with `uv tool install`, then run `setup`, which
   the Startup folder on Windows; and starts it now;
 - opens the page with a pairing link, which it asks the running Companion for.
 
-`reader-companion pair` opens a new pairing link for the Companion that is
-running, and `reader-companion uninstall` takes the login item away again.
+`reader-companion open` is what the app runs. `reader-companion pair` opens a
+new pairing link for the Companion that is running, and
+`reader-companion uninstall` takes the app and the login item away again.
 """
 
 from __future__ import annotations
@@ -33,6 +35,7 @@ from . import state
 
 LABEL = "io.github.saurav717.reader-companion"
 EXTENSION_ID = "saurav717.reader-playground"
+EDITOR_NAMES = {"code": "VS Code", "code-insiders": "VS Code Insiders", "cursor": "Cursor", "codium": "VSCodium"}
 LOG = "companion.log"
 PID = "companion.pid"
 
@@ -336,7 +339,205 @@ def install_extension(site: str, say=print) -> list[str]:
         for command in editors:
             result = editor_call(command, "--install-extension", str(vsix), "--force")
             if result and result.returncode == 0:
-                done.append(Path(command).stem)
+                done.append(EDITOR_NAMES.get(Path(command).stem.lower(), Path(command).stem))
     finally:
         shutil.rmtree(folder, ignore_errors=True)
     return done
+
+
+def extension_status() -> dict:
+    """The editors here, and which of them have the Reader extension: for the page's VS Code button."""
+    editors = []
+    for command in editor_commands():
+        listing = editor_call(command, "--list-extensions", timeout=60)
+        installed = bool(listing and listing.returncode == 0 and EXTENSION_ID in listing.stdout.lower().split())
+        editors.append({"name": EDITOR_NAMES.get(Path(command).stem.lower(), Path(command).stem), "installed": installed})
+    return {"editors": editors}
+
+
+# ---------------------------------------------------------------- the app ----
+#
+# The Reader app is made here, on this computer, by `setup`: a small .app in
+# ~/Applications on macOS, shortcuts in the Start menu and on the desktop on
+# Windows, an entry in the applications menu on Linux. Made locally, it carries
+# no "downloaded from the internet" mark, so macOS's Gatekeeper and Windows'
+# SmartScreen have nothing to ask about, and there is nothing to sign or
+# notarize. Opening it runs `reader-companion open`: the Companion is started
+# if it isn't running, and the site opens in a window of its own.
+
+APP_NAME = "Reader"
+
+
+def app_browser(system: str | None = None) -> list[str] | None:
+    """A Chromium browser that opens a site as an app window (`--app=`), and reaches 127.0.0.1 from an https page as Safari won't."""
+    system = system or platform.system()
+    if system == "Darwin":
+        for name in ("Google Chrome", "Microsoft Edge", "Brave Browser", "Chromium", "Vivaldi"):
+            for folder in (Path("/Applications"), Path.home() / "Applications"):
+                if (folder / f"{name}.app").exists():
+                    return ["open", "-na", str(folder / f"{name}.app"), "--args"]
+        return None
+    if system == "Windows":
+        roots = [os.environ.get(key) for key in ("PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA")]
+        for relative in (r"Google\Chrome\Application\chrome.exe", r"Microsoft\Edge\Application\msedge.exe", r"BraveSoftware\Brave-Browser\Application\brave.exe"):
+            for root in filter(None, roots):
+                if (Path(root) / relative).is_file():
+                    return [str(Path(root) / relative)]
+        return None
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge", "brave-browser"):
+        found = shutil.which(name)
+        if found:
+            return [found]
+    return None
+
+
+def open_window(url: str, system: str | None = None) -> None:
+    """The site in a window of its own when a Chromium browser is here, else in the default browser."""
+    browser = app_browser(system)
+    if browser:
+        try:
+            subprocess.Popen([*browser, f"--app={url}"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+            return
+        except OSError:
+            pass
+    import webbrowser
+
+    webbrowser.open(url)
+
+
+def kick(command: list[str], system: str | None = None) -> None:
+    """Starts the Companion in the background: through its login item when it has one, so there is only ever one."""
+    system = system or platform.system()
+    if system == "Darwin" and launch_agent_path().exists():
+        domain = f"gui/{os.getuid()}"
+        if not run_quietly("launchctl", "kickstart", f"{domain}/{LABEL}"):
+            run_quietly("launchctl", "bootstrap", domain, str(launch_agent_path()))
+        return
+    if system == "Windows" and startup_path().exists():
+        subprocess.Popen(["wscript", str(startup_path())], close_fds=True)
+        return
+    if system not in ("Darwin", "Windows") and systemd_unit_path().exists() and has_systemd():
+        run_quietly("systemctl", "--user", "start", "reader-companion.service")
+        return
+    start_detached(command)
+
+
+def icns(png_by_size: dict[int, bytes]) -> bytes:
+    """A macOS .icns of PNGs, which macOS reads as they are: ic08 is 256 px, ic09 512 px."""
+    kinds = {256: b"ic08", 512: b"ic09"}
+    body = b"".join(kinds[size] + (len(png) + 8).to_bytes(4, "big") + png for size, png in sorted(png_by_size.items()) if size in kinds)
+    return b"icns" + (len(body) + 8).to_bytes(4, "big") + body
+
+
+def ico(png: bytes, size: int = 256) -> bytes:
+    """A Windows .ico holding one PNG (Windows Vista and later read PNGs in an icon)."""
+    side = 0 if size >= 256 else size  # 0 means 256
+    header = (0).to_bytes(2, "little") + (1).to_bytes(2, "little") + (1).to_bytes(2, "little")
+    entry = bytes([side, side, 0, 0]) + (1).to_bytes(2, "little") + (32).to_bytes(2, "little") + len(png).to_bytes(4, "little") + (6 + 16).to_bytes(4, "little")
+    return header + entry + png
+
+
+def fetch_icons(site: str) -> dict[int, bytes]:
+    icons = {}
+    for size in (256, 512):
+        try:
+            with urllib.request.urlopen(f"{site.rstrip('/')}/icons/reader-{size}.png", timeout=20) as response:
+                icons[size] = response.read()
+        except (OSError, urllib.error.URLError):
+            pass
+    return icons
+
+
+def mac_app_path() -> Path:
+    return Path.home() / "Applications" / f"{APP_NAME}.app"
+
+
+def mac_app(command: list[str], icons: dict[int, bytes]) -> dict[str, bytes]:
+    """The files of Reader.app, by path inside it: a shell script that runs `reader-companion open`."""
+    script = "#!/bin/sh\n# Reader: starts the Reader Companion if it isn't running, and opens the site in its own window.\nexec " + " ".join(f"'{word}'" for word in [*command, "open"]) + "\n"
+    info = {
+        "CFBundleName": APP_NAME,
+        "CFBundleDisplayName": APP_NAME,
+        "CFBundleIdentifier": "io.github.saurav717.reader",
+        "CFBundleExecutable": APP_NAME,
+        "CFBundlePackageType": "APPL",
+        "CFBundleShortVersionString": "1.0",
+        "LSUIElement": True,  # the window is the browser's; the app itself needs no Dock icon of its own while it runs
+    }
+    files = {"Contents/Info.plist": plistlib.dumps(info), f"Contents/MacOS/{APP_NAME}": script.encode()}
+    if icons:
+        info["CFBundleIconFile"] = APP_NAME
+        files["Contents/Info.plist"] = plistlib.dumps(info)
+        files[f"Contents/Resources/{APP_NAME}.icns"] = icns(icons)
+    return files
+
+
+def linux_entry_path() -> Path:
+    return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share") / "applications" / "reader.desktop"
+
+
+def windows_shortcuts() -> list[Path]:
+    appdata = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+    return [appdata / "Microsoft" / "Windows" / "Start Menu" / "Programs" / f"{APP_NAME}.lnk", Path.home() / "Desktop" / f"{APP_NAME}.lnk"]
+
+
+def install_app(command: list[str], site: str, system: str | None = None) -> str:
+    """Makes the Reader app on this computer. Says where."""
+    system = system or platform.system()
+    icons = fetch_icons(site)
+    home = state.config_dir()
+    home.mkdir(parents=True, exist_ok=True)
+    if system == "Darwin":
+        app = mac_app_path()
+        shutil.rmtree(app, ignore_errors=True)
+        for name, data in mac_app(command, icons).items():
+            path = app / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        os.chmod(app / "Contents" / "MacOS" / APP_NAME, 0o755)
+        run_quietly("touch", str(app))  # Finder and the Dock pick up the icon
+        return str(app)
+    if system == "Windows":
+        launcher = home / "Reader.vbs"
+        line = " ".join(f'""{word}""' for word in [*command, "open"])
+        launcher.write_text(f'CreateObject("WScript.Shell").Run "{line}", 0, False\r\n', encoding="utf-8")
+        icon = home / "Reader.ico"
+        if 256 in icons:
+            icon.write_bytes(ico(icons[256]))
+        made = []
+        for shortcut in windows_shortcuts():
+            shortcut.parent.mkdir(parents=True, exist_ok=True)
+            make = (
+                "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($args[0]); "
+                "$s.TargetPath = 'wscript.exe'; $s.Arguments = '\"' + $args[1] + '\"'; "
+                "if (Test-Path $args[2]) { $s.IconLocation = $args[2] }; $s.Description = 'Reader'; $s.Save()"
+            )
+            if run_quietly("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", make, str(shortcut), str(launcher), str(icon)):
+                made.append(str(shortcut))
+        return " and ".join(made) or str(launcher)
+    icon = home / "reader.png"
+    if 512 in icons:
+        icon.write_bytes(icons[512])
+    entry = linux_entry_path()
+    entry.parent.mkdir(parents=True, exist_ok=True)
+    exec_line = " ".join(f'"{word}"' if " " in word else word for word in [*command, "open"])
+    entry.write_text(f"[Desktop Entry]\nType=Application\nName={APP_NAME}\nComment=Research papers, and a Playground on this computer\nExec={exec_line}\nIcon={icon}\nTerminal=false\nCategories=Education;Science;Development;\n")
+    return str(entry)
+
+
+def uninstall_app(system: str | None = None) -> list[str]:
+    system = system or platform.system()
+    removed = []
+    if system == "Darwin":
+        if mac_app_path().exists():
+            shutil.rmtree(mac_app_path(), ignore_errors=True)
+            removed.append(str(mac_app_path()))
+    elif system == "Windows":
+        for shortcut in windows_shortcuts():
+            if shortcut.exists():
+                shortcut.unlink()
+                removed.append(str(shortcut))
+    elif linux_entry_path().exists():
+        linux_entry_path().unlink()
+        removed.append(str(linux_entry_path()))
+    return removed

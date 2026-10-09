@@ -4,6 +4,11 @@ They sit beside Jupyter's own API on the same port but outside its login, and
 answer only the reader's own origin. /info says which computer this is;
 /pair trades the code the terminal shows for the server's address and token.
 
+/companion/vscode is for the page once paired (its origin, and the token): which
+VS Code-like editors are here and whether they have the Reader extension, and
+installing it into them from the .vsix the site serves — the extension isn't
+on the Marketplace, and a page can't run `code --install-extension` itself.
+
 /companion/link is for this computer's own programs, not the page: given the
 token, it hands out a pairing link with a fresh code. `reader-companion setup`
 and `reader-companion pair` open it, for a Companion running in the background.
@@ -16,8 +21,9 @@ import secrets
 
 from jupyter_server.utils import url_path_join
 from tornado import web
+from tornado.ioloop import IOLoop
 
-from . import state, tunnel
+from . import desktop, state, tunnel
 
 
 class CompanionHandler(web.RequestHandler):
@@ -34,7 +40,7 @@ class CompanionHandler(web.RequestHandler):
         if companion and origin == companion.origin:
             self.set_header("Access-Control-Allow-Origin", origin)
             self.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.set_header("Access-Control-Allow-Headers", "Content-Type")
+            self.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
             # Chrome's private-network preflight, for an https page calling 127.0.0.1.
             self.set_header("Access-Control-Allow-Private-Network", "true")
             self.set_header("Vary", "Origin")
@@ -95,6 +101,35 @@ class LinkHandler(CompanionHandler):
         self.reply(200, {"link": pair_link(companion.site, companion.fresh_code(announce=False), companion.port, companion.tunnel_url)})
 
 
+class VsCodeHandler(CompanionHandler):
+    def allowed(self) -> bool:
+        companion = state.current
+        given = self.request.headers.get("Authorization", "")
+        return super().allowed() and secrets.compare_digest(given, f"token {companion.token}")
+
+    def options(self, *_):
+        # The preflight carries no token: the origin is enough to ask.
+        self.set_status(204 if CompanionHandler.allowed(self) else 403)
+        self.finish()
+
+    async def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        self.reply(200, await IOLoop.current().run_in_executor(None, desktop.extension_status))
+
+    async def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        site = state.current.site
+        installed = await IOLoop.current().run_in_executor(None, lambda: desktop.install_extension(site, say=lambda *_: None))
+        status = await IOLoop.current().run_in_executor(None, desktop.extension_status)
+        if not status["editors"]:
+            return self.reply(404, {"error": "No VS Code here. Install it from code.visualstudio.com, then try again.", **status})
+        if not installed:
+            return self.reply(502, {"error": "VS Code didn't take the extension. Download the .vsix and use Extensions → … → Install from VSIX.", **status})
+        self.reply(200, status)
+
+
 def load(serverapp):
     base = serverapp.base_url
     serverapp.web_app.add_handlers(
@@ -103,5 +138,6 @@ def load(serverapp):
             (url_path_join(base, "companion/info"), InfoHandler),
             (url_path_join(base, "companion/pair"), PairHandler),
             (url_path_join(base, "companion/link"), LinkHandler),
+            (url_path_join(base, "companion/vscode"), VsCodeHandler),
         ],
     )

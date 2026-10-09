@@ -37,6 +37,7 @@ import { ColabMark } from './Colab';
 import { CloseIcon, CodeIcon, TrashIcon } from './icons';
 import CopyBlock from './CopyBlock';
 import PlaygroundWorkspace from './PlaygroundWorkspace';
+import VsCodeExtension from './VsCodeExtension';
 
 export default function Playground({ id, onOpen, onOpenPaper }: { id?: string; onOpen: (id?: string) => void; onOpenPaper: (id: string) => void }) {
   const list = usePlaygrounds();
@@ -367,10 +368,11 @@ function ServerRow({ server }: { server: JupyterServer }) {
       {state ? <p className={state.ok ? 'pg-ok' : 'pg-bad'}>{state.text}</p> : null}
       {state && !state.ok && (server.companionId || companionPort(server.url)) ? (
         <div className="pg-howto">
-          <small>It’s the Companion: start it again in a terminal on this computer. It opens a link here that reconnects it.</small>
+          <small>It’s the Companion: open the <b>Reader</b> app on this computer, or start it again in a terminal. Either opens a link here that reconnects it.</small>
           <CopyBlock code={companionCommands(siteBase(), { tunnel: isSafari() }).unix} />
         </div>
       ) : null}
+      <VsCodeExtension server={server} />
       <div className="pg-machine-actions">
         <button type="button" className="btn sm ghost" onClick={() => void test()} disabled={checking}>
           {checking ? 'Testing…' : 'Test'}
@@ -585,52 +587,50 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
         </>
       ) : (
         <>
-          {safari ? null : (
-            <div className="pg-companion-install">
-              <p className="pg-companion-lede">
-                <b>Install it once.</b> It sets up the Jupyter server this page runs on, puts the Reader extension into VS Code if you have it, starts at every login, and opens this page to pair. Nothing else to install first.
-              </p>
-              {system === 'linux' ? (
-                <CopyBlock code={download.command} />
+          <div className="pg-companion-install">
+            <p className="pg-companion-lede">
+              <b>Get the Reader app.</b> One install sets up the Jupyter server your projects run on (your files stay in <span className="mono">~/Reader</span>), adds the Reader extension to VS Code if you have it, and makes a <b>Reader</b> app: open it from the Dock, the Start menu or Spotlight, and the site opens in its own window, connected to this computer. Nothing else to install first.
+            </p>
+            {system === 'linux' ? (
+              <CopyBlock code={download.command} />
+            ) : (
+              <a className="btn primary pg-companion-download" href={download.href} download>
+                Download for {download.label}
+              </a>
+            )}
+            <small className="pg-companion-note">
+              {system === 'mac' ? (
+                <>
+                  Open the zip, then double-click <b>{download.file}</b>. macOS asks once about this file from the internet: right-click it and choose <b>Open</b> (on macOS 15 and later, <b>Open Anyway</b> in System Settings → Privacy &amp; Security). The Reader app it makes is made on your Mac, so that opens without asking.
+                </>
+              ) : system === 'windows' ? (
+                <>
+                  Double-click <b>{download.file}</b>. If Windows says it protected your PC, choose <b>More info</b> → <b>Run anyway</b>.
+                </>
               ) : (
-                <a className="btn primary pg-companion-download" href={download.href} download>
-                  Download for {download.label}
-                </a>
-              )}
-              <small className="pg-companion-note">
-                {system === 'mac' ? (
-                  <>
-                    Open the zip, then double-click <b>{download.file}</b>. macOS asks once about a file from the internet: right-click it and choose <b>Open</b>, or on macOS 15 and later click <b>Open Anyway</b> in System Settings → Privacy &amp; Security.
-                  </>
-                ) : system === 'windows' ? (
-                  <>
-                    Double-click <b>{download.file}</b>. If Windows says it protected your PC, choose <b>More info</b> → <b>Run anyway</b>.
-                  </>
-                ) : (
-                  <>
-                    Paste it into a terminal, or <a href={download.href} download>download the script</a> and run <span className="mono">sh {download.file}</span>.
-                  </>
-                )}{' '}
-                Your files go in <span className="mono">~/Reader</span>. <span className="mono">reader-companion uninstall</span> stops it starting at login.
-              </small>
-              <small className="pg-companion-note">
-                Other systems:{' '}
-                {(Object.keys(downloads) as (keyof typeof downloads)[])
-                  .filter((key) => key !== system)
-                  .map((key, index) => (
-                    <span key={key}>
-                      {index ? ' · ' : ''}
-                      <button type="button" className="link-btn" onClick={() => setSystem(key)}>
-                        {downloads[key].label}
-                      </button>
-                    </span>
-                  ))}
-              </small>
-            </div>
-          )}
+                <>
+                  Paste it into a terminal, or <a href={download.href} download>download the script</a> and run <span className="mono">sh {download.file}</span>.
+                </>
+              )}{' '}
+              <span className="mono">reader-companion uninstall</span> takes it away again.
+            </small>
+            <small className="pg-companion-note">
+              Other systems:{' '}
+              {(Object.keys(downloads) as (keyof typeof downloads)[])
+                .filter((key) => key !== system)
+                .map((key, index) => (
+                  <span key={key}>
+                    {index ? ' · ' : ''}
+                    <button type="button" className="link-btn" onClick={() => setSystem(key)}>
+                      {downloads[key].label}
+                    </button>
+                  </span>
+                ))}
+            </small>
+          </div>
           <p className="pg-companion-lede">
-            {safari ? 'Paste this into a terminal on this computer. It needs nothing installed beforehand, and it opens a page here to finish.' : 'Or run it just for now: paste this into a terminal, and it runs until you close it.'}
-            {safari ? ' Safari can’t reach a program on this computer directly, so the Companion also opens a private HTTPS address for it (a Cloudflare quick tunnel; everything through it needs the token). In Chrome, Edge or Firefox this card offers an installer instead.' : ''}
+            Or run it just for now: paste this into a terminal, and it runs until you close it.
+            {safari ? ' Safari can’t reach a program on this computer directly, so the Companion also opens a private HTTPS address for it (a Cloudflare quick tunnel; everything through it needs the token). The Reader app avoids that when Chrome or Edge is installed: it opens in one of them.' : ''}
           </p>
           <div className="segmented pg-seg" role="radiogroup" aria-label="This computer’s system">
             {(
