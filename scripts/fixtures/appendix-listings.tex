@@ -1,0 +1,115 @@
+% A single-column paper with an appendix of tables, listings and an
+% algorithm — made up — with what Reflow once read badly in papers set so:
+% headings in a bold sans set at the text's size, their numbers an em
+% apart, straight under a table and its notes; numbered paragraphs led by
+% a run-in heading, their lines turning over to the margin; listings of
+% code between them; a prompt set small in typewriter type at the foot of
+% a page, bold labels and all; and an algorithm ruled off as algorithmic's
+% "ruled" style sets one.
+% Rebuilt with: pdflatex appendix-listings.tex (TinyTeX: lm, booktabs, fancyvrb, float).
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern,amsmath,amssymb,booktabs,fancyvrb,float}
+\makeatletter
+\renewcommand\section{\@startsection{section}{1}{\z@}{-3ex \@plus -1ex}{1.5ex}{\normalfont\Large\sffamily\bfseries}}
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}{-2.5ex \@plus -1ex}{1ex}{\normalfont\normalsize\sffamily\bfseries}}
+\makeatother
+\title{\textbf{Compiling Spreadsheet Formulas to Vector Code}}
+\author{Ada Lindqvist \and Tomas Okafor}
+\date{}
+\begin{document}
+\maketitle
+\begin{abstract}
+Large spreadsheets recalculate slowly, because every formula is interpreted cell by cell. We compile each column of formulas into a single vectorized kernel instead, and check the compiled sheet against the interpreter on every recalculation of a test corpus.
+\end{abstract}
+\section{Introduction}
+Recalculating a large workbook takes most of the time its users spend waiting on it. The interpreter evaluates one cell at a time, and a column of ten thousand copies of one formula is evaluated ten thousand times. We compile such a column once, into code that evaluates it whole, and keep the interpreter as the reference it is checked against. This paragraph runs on for a few lines so that the page has a measure of its body text, as a real paper's would.
+
+The compiled sheets recalculate between ten and forty times faster, and agree with the interpreter on every workbook in the corpus.
+\appendix
+\section{Supplementary Details}
+\subsection{Workbook Corpus}
+We collected workbooks from two public archives and kept those with at least a thousand formulas. Both archives give similar speedups (Table~\ref{tab:corpus}), so the method does not depend on where a workbook came from.
+\begin{table}[H]
+\centering
+\caption{\textbf{Workbook corpus.} Formulas per sheet; recalculation time.}\label{tab:corpus}
+\begin{tabular}{llrrr}
+\toprule
+\textbf{Archive} & \textbf{Kind} & \textbf{Sheets} & \textbf{Formulas} & \textbf{Time} \\
+\midrule
+Finance & Ledger & 13 & 6.1k & 0.05\,s \\
+ & Forecast & 3 & 5.2k$^\S$ & 0.08\,s \\
+\midrule
+Science & Lab log & 20 & 69k & 3.26\,s \\
+ & Survey & 6 & 69k & --$^\dagger$ \\
+\bottomrule
+\end{tabular}
+
+\vspace{4pt}
+{\footnotesize $^\S$Volatile functions recomputed each time. $^\dagger$Not timed.}
+\end{table}
+\subsection{Interpreter Comparison Details}
+\textbf{Lab log (deep dependencies).}\quad The run checked only at the end of each recalculation took forty-two attempts to find a single wrong reference. Comparing every column as it was compiled found the same reference at once, and named the formula it was in.
+\subsection{Hardware Comparison}
+\begin{table}[H]
+\centering
+\caption{\textbf{Throughput elsewhere.} Cells per second.}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Machine} & \textbf{Cells/s} & \textbf{vs. Interpreter} \\
+\midrule
+Laptop & 13.1M & 29$\times$ \\
+Server & 1.4B & 23$\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+\subsection{Compilation Metrics}
+Compilation time was logged for every sheet. Most columns compiled in under a millisecond, and the slowest were those that mixed text and numbers in one formula.
+\section{Optimization Guide}
+The following patterns, distilled from the corpus, make a compiled sheet faster. They are ordered by how much they usually help.
+
+\medskip\noindent\textbf{1. Fixed-width columns.}\quad The compiler needs every column's type known in advance. Replace mixed columns (numbers, text, and empty cells side by side) with typed \texttt{float64} arrays padded to the sheet's height, and mark the empty cells with a sentinel value.
+
+\medskip\noindent\textbf{2. Branchless conditionals with \texttt{np.where}.}\quad Replace each \texttt{IF} with \texttt{np.where(condition, if\_true, if\_false)}, which computes both branches and selects the result by mask; this is faster on wide columns because the loop never stops to branch:
+\begin{Verbatim}[xleftmargin=1em]
+total = np.where(paid, amount, 0.0)
+column = compile_column(
+    formula,
+    dtype=np.float64
+)
+\end{Verbatim}
+\medskip\noindent\textbf{3. Cache the compiled kernels.}\quad Key each kernel by its formula's shape, so that a column copied elsewhere in the workbook reuses the code compiled for the first, and compile them once when the workbook is opened.
+\subsection{Recalculation Prompt}
+The following note is shown to whoever maintains the compiler. It says what a change may and may not do.
+\begin{Verbatim}[xleftmargin=1em,fontsize=\small,commandchars=\\\{\}]
+The compiled sheet agrees with the interpreter. Now make it
+faster without changing any result.
+\textbf{Target:}  Fewer seconds per recalculation, every check passing.
+\textbf{Constraints:}
+  - Every comparison must still pass afterwards
+  - Do not change the public API (open, recalc, cell
+    values)
+\end{Verbatim}
+\begin{figure}[H]
+\hrule height 0.6pt
+\vspace{3pt}
+\noindent\textbf{Algorithm 1 Column-by-column compilation.}
+\vspace{3pt}
+\hrule height 0.4pt
+\vspace{3pt}
+\noindent\begin{tabular}{@{}r@{\hspace{6pt}}l@{}}
+1: & \textbf{Phase 1: Column compilation} \\
+2: & \textbf{for} $k = 1$ \textbf{to} $K$ \textbf{do} \\
+3: & \hspace{1em}$c'_k \gets \textsc{Compile}(c_k)$ \\
+4: & \hspace{1em}\textbf{if} $\textsc{Compare}(c'_k) = \textsc{Same}$ \textbf{then} \\
+5: & \hspace{2em}\textbf{break} \\
+6: & \hspace{1em}\textbf{end if} \\
+7: & \textbf{end for} \\
+8: & \textbf{return} $S_\text{compiled}$ \\
+\end{tabular}
+\vspace{3pt}
+\hrule height 0.6pt
+\end{figure}
+Algorithm 1 sets out the loop the compiler runs, column by column, until every comparison passes.
+\end{document}

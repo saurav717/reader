@@ -1,0 +1,95 @@
+% A two-column paper in Times — made up — whose listings, algorithms and
+% numbered paragraphs sit in a column rather than across the page, set in
+% Inconsolata rather than Latin Modern's typewriter type: a listing in a
+% column, a numbered paragraph led by a run-in heading turning over in a
+% narrow column, a ruled algorithm in a column, an algorithm drawn in a box
+% with its caption under it, as algorithm2e's "boxed" style sets one, and
+% one set with no rules at all, its caption under its numbered steps, as
+% algorithm2e's "plain" style sets one.
+% Rebuilt with: pdflatex two-column-listings.tex (TinyTeX: times, helvetic, inconsolata, booktabs, fancyvrb).
+\documentclass[10pt,twocolumn]{article}
+\usepackage[margin=0.75in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{times}
+\usepackage[scaled=0.95]{inconsolata}
+\usepackage{amsmath,amssymb,booktabs,fancyvrb,float}
+\makeatletter
+\renewcommand\section{\@startsection{section}{1}{\z@}{-2.5ex \@plus -1ex}{1.2ex}{\normalfont\large\bfseries}}
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}{-2ex \@plus -1ex}{1ex}{\normalfont\normalsize\bfseries}}
+\makeatother
+\title{\textbf{Incremental Parsing for Structured Editors}}
+\author{Mira Castell \and Ravi Anand}
+\date{}
+\begin{document}
+\maketitle
+\begin{abstract}
+A structured editor reparses the whole file after every keystroke. We reparse only the smallest subtree an edit can have changed, and show that the trees we keep are the trees a full parse would build.
+\end{abstract}
+\section{Introduction}
+Editors that understand the code they hold parse it again after every change, and on a large file the parse takes longer than the gap between two keystrokes. Most edits change one token, and one token can change only the subtrees that contain it. We find the smallest such subtree, parse it again, and splice the result back into the tree. This paragraph runs on for several lines so that the column has a measure of its body text, as a real paper's column would, and the reader can tell a full line from a short one.
+
+The incremental parser is never slower than a full parse, and on files of ten thousand lines it is a hundred times faster.
+\section{Method}
+The parser keeps, for every node, the range of tokens it covers and the state the parser was in when it began the node. An edit is mapped to the tokens it touches, and the search for a subtree to reparse starts there.
+
+\medskip\noindent\textbf{1. Smallest enclosing node.}\quad Walk up from the edited token until the node's range covers the whole edit and its starting state is one the edit cannot have changed, then reparse that node alone.
+
+\medskip\noindent\textbf{2. Splicing.}\quad Replace the old node with the new one and shift the ranges of every node after it by the length the edit added:
+\begin{Verbatim}[xleftmargin=1em]
+node = enclosing(tree, edit)
+fresh = parse(text, node.start)
+tree.replace(node, fresh)
+for later in tree.after(node):
+    later.shift(edit.delta)
+\end{Verbatim}
+\begin{figure}[H]
+\hrule height 0.6pt
+\vspace{2pt}
+\noindent\textbf{Algorithm 1 Incremental reparse.}
+\vspace{2pt}
+\hrule height 0.4pt
+\vspace{2pt}
+\noindent\begin{tabular}{@{}r@{\hspace{5pt}}l@{}}
+1: & \textbf{input} tree $T$, edit $e$ \\
+2: & $n \gets \textsc{Token}(T, e)$ \\
+3: & \textbf{while} $\neg\textsc{Covers}(n, e)$ \textbf{do} \\
+4: & \hspace{1em}$n \gets \textsc{Parent}(n)$ \\
+5: & \textbf{end while} \\
+6: & \textbf{return} $\textsc{Splice}(T, n)$ \\
+\end{tabular}
+\vspace{2pt}
+\hrule height 0.6pt
+\end{figure}
+\noindent Algorithm 1 is all the parser does on an edit; the rest of its time is spent waiting for the next one.
+\section{Checking the Trees}
+After every edit in the test corpus we parse the file again in full, and compare the two trees node by node. They have never differed. The check runs in the background and costs the user nothing.
+
+\begin{figure}[H]
+\centering
+\fbox{\begin{minipage}{0.9\columnwidth}
+\textbf{input:} trees $A$, $B$\\
+1:\ \textbf{if} $\textsc{Kind}(A) \neq \textsc{Kind}(B)$ \textbf{then return} false\\
+2:\ \textbf{for} each child pair $(a, b)$ \textbf{do}\\
+3:\ \hspace{1em}\textbf{if not} $\textsc{Same}(a, b)$ \textbf{then return} false\\
+4:\ \textbf{return} true
+\end{minipage}}
+
+\vspace{3pt}
+\textbf{Algorithm 2:} Comparing two trees.
+\end{figure}
+Algorithm 2 compares two trees from the root down, and stops at the first pair of nodes that differ.
+
+\begin{figure}[H]
+\noindent 1:\ $q \gets [\,T\,]$\\
+2:\ \textbf{while} $q$ \textbf{is not empty} \textbf{do}\\
+3:\ \hspace{1em}$n \gets \textsc{Pop}(q)$; \textsc{Check}($n$)\\
+4:\ \hspace{1em}\textbf{push} the children of $n$ on $q$\\
+5:\ \textbf{end while}
+
+\vspace{3pt}
+\noindent\textbf{Algorithm 3:} Visiting every node.
+\end{figure}
+Algorithm 3 visits the nodes breadth first, so a difference near the root is found before one deep in the tree.
+\section{Conclusion}
+Reparsing the smallest subtree an edit can change keeps a structured editor responsive on files of any size, and costs nothing in correctness.
+\end{document}

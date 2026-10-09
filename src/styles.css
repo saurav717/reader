@@ -1340,6 +1340,9 @@ mark.hl.hl-underline[data-has-note='true'] { box-shadow: none; text-decoration-s
 .paper-body ul, .paper-body ol { margin: 0 0 18px; padding-left: 26px; }
 .paper-body li { margin: 0 0 6px; }
 .paper-body code { font-family: var(--mono); font-size: 0.86em; }
+/* A listing read out of a PDF — code, a prompt — its lines and indents as the paper sets them, wrapped rather than scrolled. */
+.paper-body .pdf-code { font: 12.5px/1.55 var(--mono); background: var(--panel); border-radius: 8px; padding: 10px 14px; margin: 0 0 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.paper-body .pdf-code code { font: inherit; }
 
 /* Which copy of the paper is on screen, and the list of the others. */
 .copy-bar { position: relative; flex-shrink: 0; border-bottom: 1px solid var(--border-soft); background: var(--paper); }
