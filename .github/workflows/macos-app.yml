@@ -2,9 +2,12 @@
 #
 # Every run uploads the .dmg as an artifact. With the signing secrets set it is
 # signed with your Developer ID and notarized by Apple, so it opens with no
-# warning; without them it is unsigned, for trying out. A tag app-v* (or a
-# manual run with "release" ticked) publishes a signed, notarized one as a
-# GitHub Release; the site's "Download for macOS" points at the newest.
+# warning; without them it is unsigned. A pull request only builds it, to check.
+# A merge into main that touches the app or the Companion publishes it as the
+# GitHub Release app-v<Companion version> (a new one, or the same version's
+# refreshed), as does a tag app-v* or a manual run with "release" ticked:
+# Reader.dmg when it is notarized, Reader-unsigned.dmg when it isn't. The
+# site's "Download for macOS" offers the newest.
 #
 # Secrets (Settings → Secrets and variables → Actions), see docs/macos-app.md:
 #   MACOS_CERTIFICATE           your Developer ID Application certificate, a .p12, base64
@@ -21,8 +24,11 @@ on:
         description: Publish the .dmg as a GitHub Release (notarized with the signing secrets, unsigned without)
         type: boolean
         default: false
+  # Merged into main: built and published, nothing to run by hand. Tags still work too.
   push:
+    branches: [main]
     tags: ['app-v*']
+    paths: ['desktop/macos/**', 'companion/**', 'public/icons/**', 'scripts/build-companion.mjs', '.github/workflows/macos-app.yml']
   pull_request:
     paths: ['desktop/macos/**', 'companion/**', 'public/icons/**', 'scripts/build-companion.mjs', '.github/workflows/macos-app.yml']
 
@@ -76,7 +82,7 @@ jobs:
           path: dist-macos/Reader.dmg
 
       - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/app-v') || inputs.release
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' || startsWith(github.ref, 'refs/tags/app-v') || inputs.release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

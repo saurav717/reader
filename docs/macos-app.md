@@ -31,7 +31,8 @@ The parts:
 
 Signing and notarizing cost US$99 a year (below). Without them the workflow
 still builds the very same Reader.app, and **Actions → macOS app → Run
-workflow** with *release* ticked publishes it as `Reader-unsigned.dmg`. The
+workflow** with *release* ticked, and every merge into `main` that touches the
+app or the Companion, publishes it as `Reader-unsigned.dmg`. The
 card offers that one, with the step it needs: macOS stops it the first time
 (*"Apple could not verify…"*). Click **Done**, then **Open Anyway** in System
 Settings → Privacy & Security, and **Open**. That is once per Mac; after it,
@@ -82,8 +83,9 @@ Actions → New repository secret**, add:
 | `APPLE_TEAM_ID` | the Team ID |
 | `APPLE_APP_PASSWORD` | the app-specific password |
 
-Then publish one: **Actions → macOS app → Run workflow**, with *release*
-ticked. Or push a tag: `git tag app-v0.4.0 && git push origin app-v0.4.0`.
+Then merge any pull request that touches the app or the Companion: each merge
+into `main` builds and publishes the release by itself. (Or **Actions → macOS
+app → Run workflow** with *release* ticked, or push a tag `app-v…`.)
 The workflow builds the app for Apple silicon and Intel, signs it with the
 hardened runtime, sends the `.dmg` to Apple's notary service, staples the
 ticket to it, checks it with `spctl`, and publishes it as a GitHub Release.
@@ -96,8 +98,8 @@ release publishes it as `Reader-unsigned.dmg` (see above).
 
 ## Updating
 
-Change the Companion (its version in `companion/pyproject.toml`), merge, and
-publish again (a new `app-v…` tag). Reader.app compares its own Companion with
+Change the Companion (its version in `companion/pyproject.toml`) and merge:
+the merge publishes `app-v<version>`. Reader.app compares its own Companion with
 the one installed and sets up again when they differ.
 
 ## Windows
