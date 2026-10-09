@@ -109,7 +109,8 @@ class AccountTest(AsyncHTTPTestCase):
         self.assertEqual(response.code, 200)
         self.assertIsNone(account.owner())
         self.assertNotEqual(state.load_config()["token"], claimed["token"])
-        self.assertTrue(self.beats[-1]["off"])
+        self.assertTrue(self.beats[-1]["forget"])
+        self.assertNotIn("token", self.beats[-1])
 
 
 class MaskTest(unittest.TestCase):

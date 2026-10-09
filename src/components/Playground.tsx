@@ -109,18 +109,26 @@ export function ComputeTag({ compute, home }: { compute: Compute; home?: FilesHo
 }
 
 /**
- * Which Companions answer now, looked at every half minute: an id is true when it does, false when it
- * doesn't, missing until the first look. Other Jupyter servers aren't looked at (they are kept as active).
+ * Which Companions answer now, looked at every half minute: 'up', 'down', or 'elsewhere' for one of your
+ * account's that answers but no longer says it is yours (released, or connected to another account), so the
+ * token kept for it is no good. Missing until the first look; other Jupyter servers aren't looked at.
  */
-function useLiveCompanions(servers: JupyterServer[]): Record<string, boolean> {
-  const [live, setLive] = useState<Record<string, boolean>>({});
-  const key = servers.filter(isCompanion).map((server) => `${server.id}@${server.url}`).join(' ');
+type Liveness = 'up' | 'down' | 'elsewhere';
+function useLiveCompanions(servers: JupyterServer[]): Record<string, Liveness> {
+  const [live, setLive] = useState<Record<string, Liveness>>({});
+  const key = servers.filter(isCompanion).map((server) => `${server.id}@${server.url}@${server.account ?? ''}`).join(' ');
   useEffect(() => {
     let alive = true;
     let timer = 0;
     const look = async () => {
       const companions = serversNow().filter(isCompanion);
-      const answers = await Promise.all(companions.map(async (server) => [server.id, Boolean(await findCompanion(server.url, 5000))] as const));
+      const answers = await Promise.all(
+        companions.map(async (server) => {
+          const info = await findCompanion(server.url, 5000);
+          const state: Liveness = !info ? 'down' : server.account && !(info.owned && info.owner === maskEmail(server.account)) ? 'elsewhere' : 'up';
+          return [server.id, state] as const;
+        }),
+      );
       if (!alive) return;
       setLive(Object.fromEntries(answers));
       timer = window.setTimeout(() => void look(), 30_000);
@@ -159,8 +167,8 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
   }, []);
   // Your compute lists what answers now; the rest are a click away, under Offline.
   const live = useLiveCompanions(servers);
-  const offline = servers.filter((server) => live[server.id] === false);
-  const active = servers.filter((server) => live[server.id] !== false);
+  const offline = servers.filter((server) => live[server.id] && live[server.id] !== 'up');
+  const active = servers.filter((server) => !live[server.id] || live[server.id] === 'up');
   const [showOffline, setShowOffline] = useState(false);
 
   const begin = (next: Draft) => {
@@ -376,7 +384,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
                     Offline · {offline.length}
                     <span className="pg-offline-names">{showOffline ? '' : offline.map((server) => server.name).join(', ')}</span>
                   </button>
-                  {showOffline ? offline.map((server) => <ServerRow key={server.id} server={server} offline />) : null}
+                  {showOffline ? offline.map((server) => <ServerRow key={server.id} server={server} offline={live[server.id] === 'elsewhere' ? 'elsewhere' : true} />) : null}
                 </div>
               ) : null}
             </div>
@@ -403,7 +411,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
 
 // -------------------------------------------------------------- servers ----
 
-function ServerRow({ server, offline = false }: { server: JupyterServer; offline?: boolean }) {
+function ServerRow({ server, offline = false }: { server: JupyterServer; offline?: boolean | 'elsewhere' }) {
   const [state, setState] = useState<{ ok: boolean; text: string } | null>(null);
   const [checking, setChecking] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -462,7 +470,7 @@ function ServerRow({ server, offline = false }: { server: JupyterServer; offline
         <span className="mono">{safeHost(server.url)}</span>
       </div>
       {state ? <p className={state.ok ? 'pg-ok' : 'pg-bad'}>{state.text}</p> : null}
-      {offline ? <p className="pg-machine-seen">Not answering{server.seen ? ` · last seen ${ago(server.seen)}` : ''}. {server.where === 'pc' ? 'Turn it on below, or open the Reader app.' : 'Start it on that computer: the Reader app, or reader-companion start.'}</p> : null}
+      {offline === 'elsewhere' ? <p className="pg-machine-seen">It runs, but it isn’t connected to {server.account} any more (released on that computer, or connected to another account). Connect it again from that computer — open the Reader app there — or Remove it here.</p> : offline ? <p className="pg-machine-seen">Not answering{server.seen ? ` · last seen ${ago(server.seen)}` : ''}. {server.where === 'pc' ? 'Turn it on below, or open the Reader app.' : 'Start it on that computer: the Reader app, or reader-companion start.'}</p> : null}
       {companion && server.account ? <p>Yours as {server.account}{server.where === 'pc' ? '' : ' · on another computer, through its tunnel'}. Its files stay on it.</p> : null}
       {note ? <p>{note}</p> : null}
       {state && !state.ok && companion ? (

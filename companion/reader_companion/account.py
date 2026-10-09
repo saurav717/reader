@@ -87,8 +87,8 @@ def claim(api: str, pass_: str, companion) -> tuple[str, str] | str:
     return body.get("error") or ("The site’s Worker didn’t answer." if not status else f"The site’s Worker said {status}.")
 
 
-def beat(companion, off: bool = False) -> bool:
-    """Tells the account's list how to reach this computer now (or that it is off)."""
+def beat(companion, off: bool = False, forget: bool = False) -> bool:
+    """Tells the account's list how to reach this computer now, that it is off, or (forget) to drop it."""
     held = owner()
     if not held or not companion:
         return False
@@ -97,7 +97,9 @@ def beat(companion, off: bool = False) -> bool:
         "hardware": companion.hardware, "version": companion.version, "root": companion.root, "token": companion.token,
         "url": companion.tunnel_url, "local": f"http://127.0.0.1:{companion.port}/" if companion.port else "", "off": off,
     }
-    status, _ = call(held.get("api", ""), "/devices/beat", body, timeout=5 if off else 10)
+    if forget:
+        body = {key: body[key] for key in ("email", "secret", "id")} | {"forget": True}
+    status, _ = call(held.get("api", ""), "/devices/beat", body, timeout=5 if off or forget else 10)
     return status == 200
 
 

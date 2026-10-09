@@ -310,7 +310,8 @@ class ReleaseHandler(LinkHandler):
             return self.reply(403, {"error": "Only this computer, with the Companion's token."})
         held = account.owner()
         if held:
-            await IOLoop.current().run_in_executor(None, lambda: account.beat(state.current, off=True))
+            # Off the account's list, not just marked off: its browsers would keep the old token and be refused.
+            await IOLoop.current().run_in_executor(None, lambda: account.beat(state.current, forget=True))
         config = state.load_config()
         config.pop("owner", None)
         state.save_config(config)
