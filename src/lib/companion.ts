@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.2.1';
+export const COMPANION_VERSION = '0.3.0';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 
@@ -111,6 +111,31 @@ export function companionCommands(site: string, { tunnel = false } = {}): { unix
     unix: `curl -LsSf ${base}companion.sh | sh${tunnel ? ' -s -- --tunnel' : ''}`,
     windows: `powershell -ExecutionPolicy ByPass -c "irm ${base}companion.ps1 | iex"`,
     uv: `uvx --from ${base}companion/reader_companion-${COMPANION_VERSION}-py3-none-any.whl reader-companion --site ${base}${tunnel ? ' --tunnel' : ''}`,
+  };
+}
+
+export type DesktopSystem = 'mac' | 'windows' | 'linux';
+
+/** Which installer to offer first: this computer's system, from what the browser says. */
+export function desktopSystem(userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent): DesktopSystem {
+  if (/Windows|Win64|Win32/i.test(userAgent)) return 'windows';
+  if (/Macintosh|Mac OS X/i.test(userAgent)) return 'mac';
+  return 'linux';
+}
+
+/**
+ * The installers to download and double-click (scripts/build-companion.mjs):
+ * each installs the Companion for good, with the VS Code extension, starts it
+ * at every login and opens the page to pair (`reader-companion setup`). Linux
+ * has no file manager that runs a script on a double-click, so there it is a
+ * line to paste, and the file for `sh` beside it.
+ */
+export function companionDownloads(site: string): Record<DesktopSystem, { label: string; href: string; file: string; command: string }> {
+  const base = site.replace(/\/?$/, '/');
+  return {
+    mac: { label: 'macOS', href: `${base}download/Reader-Companion-mac.zip`, file: 'Reader Companion.command', command: `curl -LsSf ${base}companion-setup.sh | sh` },
+    windows: { label: 'Windows', href: `${base}download/Reader-Companion-Setup.cmd`, file: 'Reader-Companion-Setup.cmd', command: `powershell -ExecutionPolicy ByPass -c "irm ${base}companion-setup.ps1 | iex"` },
+    linux: { label: 'Linux', href: `${base}download/reader-companion-setup.sh`, file: 'reader-companion-setup.sh', command: `curl -LsSf ${base}companion-setup.sh | sh` },
   };
 }
 

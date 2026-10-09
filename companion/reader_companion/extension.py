@@ -3,11 +3,16 @@
 They sit beside Jupyter's own API on the same port but outside its login, and
 answer only the reader's own origin. /info says which computer this is;
 /pair trades the code the terminal shows for the server's address and token.
+
+/companion/link is for this computer's own programs, not the page: given the
+token, it hands out a pairing link with a fresh code. `reader-companion setup`
+and `reader-companion pair` open it, for a Companion running in the background.
 """
 
 from __future__ import annotations
 
 import json
+import secrets
 
 from jupyter_server.utils import url_path_join
 from tornado import web
@@ -69,6 +74,27 @@ class PairHandler(CompanionHandler):
         self.reply(200, {"url": f"http://127.0.0.1:{companion.port}/", "tunnel": companion.tunnel_url, "token": companion.token, "id": companion.id, "name": companion.name, "hardware": companion.hardware, "root": companion.root, "version": companion.version})
 
 
+class LinkHandler(CompanionHandler):
+    def allowed(self) -> bool:
+        # Not for any page: no Origin, and the server's own token.
+        companion = state.current
+        given = self.request.headers.get("Authorization", "")
+        return bool(companion) and "Origin" not in self.request.headers and secrets.compare_digest(given, f"token {companion.token}")
+
+    def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Only this computer, with the Companion's token."})
+        self.reply(200, {"ok": True})
+
+    def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Only this computer, with the Companion's token."})
+        from .cli import pair_link
+
+        companion = state.current
+        self.reply(200, {"link": pair_link(companion.site, companion.fresh_code(announce=False), companion.port, companion.tunnel_url)})
+
+
 def load(serverapp):
     base = serverapp.base_url
     serverapp.web_app.add_handlers(
@@ -76,5 +102,6 @@ def load(serverapp):
         [
             (url_path_join(base, "companion/info"), InfoHandler),
             (url_path_join(base, "companion/pair"), PairHandler),
+            (url_path_join(base, "companion/link"), LinkHandler),
         ],
     )

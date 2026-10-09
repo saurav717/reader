@@ -3732,8 +3732,38 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
 ### Connect this computer: the Companion
 
 The quickest way to run on your own computer is the **Reader Companion**.
-Under **Your compute**, **Connect this computer** shows one line to paste into
-a terminal:
+Under **Your compute**, **Connect this computer** offers it two ways.
+
+**Install it once: Download for macOS / Windows.** The card's button
+downloads a small installer for the system the browser is on: on macOS a zip
+holding `Reader Companion.command`, on Windows `Reader-Companion-Setup.cmd`.
+Double-click it. On Linux the card gives the same thing as a line to paste,
+`curl -LsSf https://saurav717.github.io/reader/companion-setup.sh | sh`. It
+installs uv if needed, installs the Companion for good (`uv tool install`), and
+runs `reader-companion setup`, which:
+
+- puts the **Reader** extension into VS Code (and Cursor or VSCodium) when one
+  is installed, from the `.vsix` the site serves;
+- starts the Companion **at every login**, in the background: a LaunchAgent on
+  macOS, a systemd user service (or an autostart entry) on Linux, a hidden
+  launcher in the Startup folder on Windows. It also starts it now. Its output
+  goes to `~/.reader-companion/companion.log`;
+- opens the Playground with a pairing link, so one click on **Connect**
+  finishes.
+
+The installers aren't signed. The first time, macOS asks about a file from the
+internet: right-click it and choose **Open**, or on macOS 15 and later use
+**Open Anyway** in System Settings → Privacy & Security. Windows SmartScreen
+asks too: **More info** → **Run anyway**. Each installer fetches the setup
+script from the site, so an old download still installs the newest Companion,
+and running it again updates the Companion and restarts it.
+Afterwards, `reader-companion pair` opens a new pairing link for another
+browser, and `reader-companion uninstall` stops it starting at login. The
+folder and the settings stay. Safari can't use the installer (see the Safari
+note below), so in Safari the card shows only the command.
+
+**Run it just for now** with one line pasted into a terminal. It runs until
+the terminal closes:
 
 ```bash
 curl -LsSf https://saurav717.github.io/reader/companion.sh | sh                                  # macOS, Linux
@@ -3756,7 +3786,8 @@ a browser there, type the code it prints into the card instead.
   `--python /path/to/python`.
 - **Options** go after `sh -s --`: `--no-browser`, `--root DIR`, `--python PY`,
   `--port N`, `--name NAME`. They are remembered in
-  `~/.reader-companion/config.json`.
+  `~/.reader-companion/config.json`, and the Companion started at login uses
+  them too. `reader-companion setup` also takes `--no-vscode` and `--no-login`.
 - **A real terminal.** A playground on the Companion opens a terminal
   (xterm.js on Jupyter's terminals) in the project's folder. It runs your own
   shell: zsh with oh-my-zsh, bash or fish. Your rc files load first, and the
@@ -3819,8 +3850,8 @@ shell with its recent output.
   (`KernelManager.transport = ipc`), not TCP ports. That is also what
   ipykernel's "running over TCP without encryption" warning asks for.
 
-`npm run build:pages` builds the Companion's wheel and the two installers
-into the site (`scripts/build-companion.mjs`, in Node, so no Python is needed
+`npm run build:pages` builds the Companion's wheel, the one-line installers,
+the setup scripts and the double-click files (`download/`) into the site (`scripts/build-companion.mjs`, in Node, so no Python is needed
 to build). The design, and what comes next (a login service, live updates
 from disk, VS Code, GPU machines through a relay), is in
 [docs/companion.md](docs/companion.md).

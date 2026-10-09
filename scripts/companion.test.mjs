@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 
 import { cleanup, load } from './bundle.mjs';
-import { buildWheel, installers, projectOf } from './build-companion.mjs';
+import { buildWheel, installers, projectOf, setupInstallers } from './build-companion.mjs';
 
 const companion = await load('src/lib/companion.ts');
 after(cleanup);
@@ -78,6 +78,15 @@ describe('the page’s side', () => {
     assert.match(commands.windows, /irm https:\/\/saurav717\.github\.io\/reader\/companion\.ps1 \| iex/);
     assert.match(commands.uv, new RegExp(`reader_companion-${companion.COMPANION_VERSION.replace(/\./g, '\\.')}-py3-none-any\\.whl reader-companion --site https://saurav717\\.github\\.io/reader/$`));
   });
+  it('offers the installer for this computer’s system', () => {
+    assert.equal(companion.desktopSystem('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'), 'mac');
+    assert.equal(companion.desktopSystem('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'), 'windows');
+    assert.equal(companion.desktopSystem('Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0'), 'linux');
+    const downloads = companion.companionDownloads('https://saurav717.github.io/reader');
+    assert.equal(downloads.mac.href, 'https://saurav717.github.io/reader/download/Reader-Companion-mac.zip');
+    assert.equal(downloads.windows.href, 'https://saurav717.github.io/reader/download/Reader-Companion-Setup.cmd');
+    assert.equal(downloads.linux.command, 'curl -LsSf https://saurav717.github.io/reader/companion-setup.sh | sh');
+  });
   it('tells Safari from the browsers that say Safari too', () => {
     assert.equal(companion.isSafari('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15'), true);
     assert.equal(companion.isSafari('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'), false);
@@ -100,7 +109,7 @@ describe('the wheel and the installers', () => {
   });
   it('holds the package, its metadata and its command', () => {
     const info = `reader_companion-${project.version}.dist-info`;
-    for (const name of ['reader_companion/__init__.py', 'reader_companion/cli.py', 'reader_companion/env.py', 'reader_companion/extension.py', 'reader_companion/state.py', 'reader_companion/tunnel.py', `${info}/METADATA`, `${info}/WHEEL`, `${info}/RECORD`, `${info}/entry_points.txt`]) assert.ok(files.has(name), name);
+    for (const name of ['reader_companion/__init__.py', 'reader_companion/cli.py', 'reader_companion/desktop.py', 'reader_companion/env.py', 'reader_companion/extension.py', 'reader_companion/state.py', 'reader_companion/tunnel.py', `${info}/METADATA`, `${info}/WHEEL`, `${info}/RECORD`, `${info}/entry_points.txt`]) assert.ok(files.has(name), name);
     const metadata = files.get(`${info}/METADATA`).toString();
     assert.match(metadata, /^Name: reader-companion$/m);
     for (const dep of project.dependencies) assert.ok(metadata.includes(`Requires-Dist: ${dep}`), dep);
@@ -126,5 +135,23 @@ describe('the wheel and the installers', () => {
     assert.ok(sh.includes(`WHEEL="${url}"`) && sh.includes('SITE="https://example.org/reader/"'));
     assert.match(sh, /exec "\$UV" tool run --from "\$WHEEL" reader-companion --site "\$SITE" "\$@"/);
     assert.ok(ps1.includes(`$wheel = '${url}'`));
+  });
+  it('installs it for good from the setup scripts, and runs those from the double-click files', () => {
+    const setup = setupInstallers('https://example.org/reader', wheel.name);
+    const url = `https://example.org/reader/companion/${wheel.name}`;
+    assert.match(setup.sh, new RegExp(`tool install --force --quiet --from "\\$WHEEL" reader-companion`));
+    assert.ok(setup.sh.includes(`WHEEL="${url}"`));
+    assert.match(setup.sh, /exec "\$BIN\/reader-companion" setup --site "\$SITE" "\$@"/);
+    assert.ok(setup.ps1.includes(`$wheel = '${url}'`) && setup.ps1.includes("'reader-companion.exe') setup --site $site"));
+    // The Mac's .command, executable inside its zip, as a bare download wouldn't be.
+    const mac = unzip(setup.mac);
+    assert.deepEqual([...mac.keys()], ['Reader Companion.command']);
+    assert.ok(mac.get('Reader Companion.command').toString().includes('curl -LsSf https://example.org/reader/companion-setup.sh | sh'));
+    const end = setup.mac.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+    const central = setup.mac.readUInt32LE(end + 16);
+    assert.equal((setup.mac.readUInt32LE(central + 38) >>> 16) & 0o777, 0o755);
+    // Windows: CRLF, and the setup script through PowerShell.
+    assert.ok(!/[^\r]\n/.test(setup.cmd));
+    assert.ok(setup.cmd.includes('irm https://example.org/reader/companion-setup.ps1 | iex'));
   });
 });

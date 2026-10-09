@@ -1,8 +1,14 @@
-// Builds the Reader Companion into a site build: its wheel, and the two one-line
-// installers the Playground's "Connect this computer" card shows.
+// Builds the Reader Companion into a site build: its wheel, the two one-line
+// installers the Playground's "Connect this computer" card shows, and the
+// installers to download and double-click.
 //   node scripts/build-companion.mjs <outDir> [siteUrl]
 // writes <outDir>/companion/reader_companion-<version>-py3-none-any.whl,
-// <outDir>/companion.sh and <outDir>/companion.ps1. The wheel is made here, in
+// <outDir>/companion.sh and <outDir>/companion.ps1 (run it once, here),
+// <outDir>/companion-setup.sh and <outDir>/companion-setup.ps1 (install it for
+// good: `reader-companion setup`), and in <outDir>/download/ the files that run
+// those with a double-click: Reader-Companion-mac.zip (a .command, executable,
+// which a zip keeps and a bare download wouldn't), Reader-Companion-Setup.cmd
+// for Windows and reader-companion-setup.sh for Linux. The wheel is made here, in
 // Node, so building the site needs no Python: a wheel is a zip of the package
 // and a few metadata files. siteUrl is the address the build is served at
 // (https://saurav717.github.io/reader/ by default, or READER_SITE); the
@@ -26,14 +32,14 @@ export function projectOf(toml) {
 
 // ------------------------------------------------------------------ zip ----
 
-/** A zip of [name, bytes] pairs, deflated, with fixed dates so a rebuild is byte-for-byte the same. */
+/** A zip of [name, bytes, mode?] entries, deflated, with fixed dates so a rebuild is byte-for-byte the same. mode is the Unix one (0o755 for a script to double-click), 0o644 by default. */
 export function zip(files) {
   const local = [];
   const central = [];
   let offset = 0;
   const DOS_TIME = 0;
   const DOS_DATE = (2026 - 1980) << 9 | 1 << 5 | 1;
-  for (const [name, data] of files) {
+  for (const [name, data, mode = 0o644] of files) {
     const nameBytes = Buffer.from(name, 'utf8');
     const packed = deflateRawSync(data, { level: 9 });
     const crc = crc32(data) >>> 0;
@@ -62,7 +68,7 @@ export function zip(files) {
     entry.writeUInt32LE(packed.length, 20);
     entry.writeUInt32LE(data.length, 24);
     entry.writeUInt16LE(nameBytes.length, 28);
-    entry.writeUInt32LE((0o100644 << 16) >>> 0, 38); // -rw-r--r--
+    entry.writeUInt32LE(((0o100000 | mode) << 16) >>> 0, 38); // a regular file, with its permissions
     entry.writeUInt32LE(offset, 42);
     central.push(entry, nameBytes);
     offset += head.length + nameBytes.length + packed.length;
@@ -149,6 +155,79 @@ uv tool run --from $wheel reader-companion --site $site @args
   return { sh, ps1, wheel };
 }
 
+/**
+ * The installers that keep the Companion: `uv tool install` puts it on this
+ * computer for good, then `reader-companion setup` installs the VS Code
+ * extension, starts it at every login and now, and opens the page to pair.
+ * Then the double-click files that run them, for whoever would rather not
+ * open a terminal: each fetches the setup script, so an old download still
+ * installs the newest Companion.
+ */
+export function setupInstallers(site, wheelName) {
+  const base = site.replace(/\/?$/, '/');
+  const wheel = `${base}companion/${wheelName}`;
+  const sh = `#!/bin/sh
+# Reader Companion setup: installs the Companion on this computer for the reader at ${base},
+# with the VS Code extension, and starts it at every login.
+#   curl -LsSf ${base}companion-setup.sh | sh
+# Anything after "sh -s --" is passed on to reader-companion setup: --no-vscode, --no-login, --root DIR.
+set -e
+WHEEL="${wheel}"
+SITE="${base}"
+if command -v uv >/dev/null 2>&1; then
+  UV=uv
+elif [ -x "$HOME/.local/bin/uv" ]; then
+  UV="$HOME/.local/bin/uv"
+elif [ -x "$HOME/.cargo/bin/uv" ]; then
+  UV="$HOME/.cargo/bin/uv"
+else
+  echo "Installing uv, once (https://astral.sh/uv)…"
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  UV="$HOME/.local/bin/uv"
+fi
+echo "Installing the Reader Companion…"
+"$UV" tool install --force --quiet --from "$WHEEL" reader-companion
+BIN="$("$UV" tool dir --bin 2>/dev/null || echo "$HOME/.local/bin")"
+exec "$BIN/reader-companion" setup --site "$SITE" "$@"
+`;
+  const ps1 = `# Reader Companion setup: installs the Companion on this computer for the reader at ${base},
+# with the VS Code extension, and starts it at every login.
+#   powershell -ExecutionPolicy ByPass -c "irm ${base}companion-setup.ps1 | iex"
+$ErrorActionPreference = 'Stop'
+$wheel = '${wheel}'
+$site = '${base}'
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+  Write-Host 'Installing uv, once (https://astral.sh/uv)...'
+  irm https://astral.sh/uv/install.ps1 | iex
+  $env:Path = "$env:USERPROFILE\\.local\\bin;$env:Path"
+}
+Write-Host 'Installing the Reader Companion...'
+uv tool install --force --quiet --from $wheel reader-companion
+$bin = uv tool dir --bin
+& (Join-Path $bin 'reader-companion.exe') setup --site $site @args
+`;
+  // Double-clicked in Finder, a .command opens in Terminal.
+  const command = `#!/bin/sh
+# Reader Companion: double-click to set this Mac up for the reader at ${base}
+# (the Companion, the VS Code extension, and starting it at every login).
+cd "$HOME" || exit 1
+curl -LsSf ${base}companion-setup.sh | sh
+echo
+printf 'Press Return to close this window. '
+read -r _
+`;
+  // Double-clicked in Explorer, a .cmd opens in a console. Windows wants CRLF.
+  const cmd = `@echo off\r
+rem Reader Companion: double-click to set this PC up for the reader at ${base}\r
+rem (the Companion, the VS Code extension, and starting it at every login).\r
+title Reader Companion setup\r
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm ${base}companion-setup.ps1 | iex"\r
+echo.\r
+pause\r
+`;
+  return { sh, ps1, mac: zip([['Reader Companion.command', Buffer.from(command), 0o755]]), cmd, command };
+}
+
 // ------------------------------------------------------------------ main ----
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
@@ -164,5 +243,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const { sh, ps1, wheel } = installers(site, built.name);
   writeFileSync(join(out, 'companion.sh'), sh);
   writeFileSync(join(out, 'companion.ps1'), ps1);
-  console.log(`companion ${built.version}: ${wheel} (${built.bytes.length} bytes), companion.sh, companion.ps1`);
+  const setup = setupInstallers(site, built.name);
+  writeFileSync(join(out, 'companion-setup.sh'), setup.sh);
+  writeFileSync(join(out, 'companion-setup.ps1'), setup.ps1);
+  mkdirSync(join(out, 'download'), { recursive: true });
+  writeFileSync(join(out, 'download', 'Reader-Companion-mac.zip'), setup.mac);
+  writeFileSync(join(out, 'download', 'Reader-Companion-Setup.cmd'), setup.cmd);
+  writeFileSync(join(out, 'download', 'reader-companion-setup.sh'), setup.sh);
+  console.log(`companion ${built.version}: ${wheel} (${built.bytes.length} bytes), companion.sh, companion.ps1, companion-setup.sh, companion-setup.ps1, download/`);
 }

@@ -26,7 +26,12 @@ project. This document is the design.
 > projects, papers, the Companion's state, `¶` links, the shared Python and
 > **Start the Companion**, served as a `.vsix` from the site. It doesn't yet
 > pick the kernel through the Jupyter extension's server API, or run on a GPU
-> machine. Steps 2, 3, 5 and 6 are not built yet. The
+> machine. From step 3: **an installer to double-click** (a `.command` in a zip
+> for macOS, a `.cmd` for Windows, a line for Linux) that installs the
+> Companion with `uv tool install` and runs `reader-companion setup`. That
+> installs the VS Code extension, starts the Companion at every login (launchd,
+> systemd or the Startup folder; `reader-companion uninstall` undoes it), and
+> opens the page to pair. Steps 2, 3, 5 and 6 are not built yet. The
 pictures are static mock-ups in the app's own colours. Their sources are in
 [`mockups/companion-src/`](mockups/companion-src/), and
 `node docs/mockups/companion-src/render.mjs` renders them again.
