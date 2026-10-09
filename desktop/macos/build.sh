@@ -90,7 +90,17 @@ STAGE="$WORK/dmg"
 mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
-hdiutil create -volname Reader -srcfolder "$STAGE" -ov -format UDZO "$OUT/Reader.dmg" >/dev/null
+# hdiutil's own guess at the size is often too small ("No space left on device"),
+# and it now and then finds the disk busy: give it the size, and three tries.
+SIZE_MB=$(( $(du -sm "$STAGE" | cut -f1) + 40 ))
+for try in 1 2 3; do
+  if hdiutil create -volname Reader -srcfolder "$STAGE" -fs HFS+ -size "${SIZE_MB}m" -ov -format UDZO "$OUT/Reader.dmg"; then
+    break
+  fi
+  [ "$try" = 3 ] && exit 1
+  echo "hdiutil failed; trying again"
+  sleep 5
+done
 
 if [ -n "${MACOS_SIGN_IDENTITY:-}" ]; then
   codesign --force --timestamp --sign "$MACOS_SIGN_IDENTITY" "$OUT/Reader.dmg"
