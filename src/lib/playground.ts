@@ -412,7 +412,7 @@ export function syncPlaygrounds(): Promise<void> {
     deleted = merged.deleted;
     writes.push(db.setKv(DELETED_KEY, deleted));
     const result: PlaygroundSet = { playgrounds, deleted };
-    if (!remote || serialisePlaygrounds(remote) !== serialisePlaygrounds(result)) await writePlaygroundsToDrive(config.clientId, config.folderName, result, config.account);
+    if (!remote || !remote.copiesAgree || serialisePlaygrounds(remote) !== serialisePlaygrounds(result)) await writePlaygroundsToDrive(config.clientId, config.folderName, result, config.account);
     where = 'drive';
     lastSync = Date.now();
     emit();
