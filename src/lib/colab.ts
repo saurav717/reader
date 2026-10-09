@@ -66,6 +66,8 @@ export interface JupyterServer {
   token: string;
   /** On the PC the page is open on, or a machine elsewhere. */
   where: 'pc' | 'remote';
+  /** A Reader Companion's id: the same computer when it comes back at another address (a new tunnel). */
+  companionId?: string;
 }
 
 /** Where cells run: the person's own Colab, or a Jupyter server of theirs. */

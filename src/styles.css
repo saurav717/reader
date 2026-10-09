@@ -326,7 +326,9 @@ kbd {
   font-size: 11.5px; padding: 5px 12px; border: 0; border-radius: 7px;
   background: transparent; color: var(--ink-2); cursor: pointer;
 }
-.segmented button[aria-pressed='true'] {
+.segmented button[aria-pressed='true'],
+.segmented button[aria-checked='true'],
+.segmented button[aria-selected='true'] {
   background: var(--surface); color: var(--ink); font-weight: 500; box-shadow: var(--shadow-sm);
 }
 
@@ -5865,3 +5867,16 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .pg-pair .pg-pair-kv span { color: var(--muted); }
 .pg-pair .pg-pair-kv b { font-weight: 500; overflow-wrap: anywhere; }
 .pg-pair-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+
+/* The playground's terminal: xterm.js on the machine's own shell. */
+.pg-console.is-terminal { height: 46%; background: #15161a; }
+.pg-console.is-terminal .pg-console-head { background: var(--surface); }
+.pg-console-tabs { padding: 2px; }
+.pg-console-tabs button { padding: 3px 10px; font-size: 11.5px; }
+.pg-console-log[hidden], .pg-console-input[hidden] { display: none; }
+.pg-terminal { position: relative; flex: 1; min-height: 0; background: #15161a; padding: 6px 4px 4px 10px; }
+.pg-terminal-screen { width: 100%; height: 100%; }
+.pg-terminal-screen .xterm { height: 100%; }
+.pg-terminal-screen .xterm-viewport { background: #15161a !important; }
+.pg-terminal-veil { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(21, 22, 26, 0.86); color: #c3bfb4; font-size: 12.5px; }
+.pg-terminal-actions { display: flex; gap: 8px; }

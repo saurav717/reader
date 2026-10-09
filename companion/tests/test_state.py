@@ -6,7 +6,7 @@ from reader_companion.cli import pair_link
 
 
 def companion():
-    return state.Companion(name="Mac", token="t", site="https://saurav717.github.io/reader/", root="/tmp", version="0")
+    return state.Companion(name="Mac", token="t", id="c1", site="https://saurav717.github.io/reader/", root="/tmp", version="0")
 
 
 class StateTest(unittest.TestCase):
@@ -44,6 +44,16 @@ class StateTest(unittest.TestCase):
 
     def test_link(self):
         self.assertEqual(pair_link("https://x.io/reader/", "ABC-DEF", 47321), "https://x.io/reader/playground#pair=ABC-DEF&port=47321")
+        self.assertEqual(
+            pair_link("https://x.io/reader/", "ABC-DEF", 47321, "https://a-b.trycloudflare.com"),
+            "https://x.io/reader/playground#pair=ABC-DEF&port=47321&via=https%3A%2F%2Fa-b.trycloudflare.com",
+        )
+
+    def test_via_tunnel(self):
+        from reader_companion.tunnel import via_tunnel
+        self.assertFalse(via_tunnel("127.0.0.1:47321"))
+        self.assertFalse(via_tunnel("localhost:47321"))
+        self.assertTrue(via_tunnel("a-b.trycloudflare.com"))
 
 
 if __name__ == "__main__":

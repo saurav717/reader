@@ -19,6 +19,7 @@ import MetricsPane from './MetricsPane';
 import NotebookPage, { Editor } from './Notebook';
 import type { NbSide } from './Notebook';
 import RuntimePane from './RuntimePane';
+import Terminal, { hasTerminals } from './Terminal';
 import { WhereDialog } from './Playground';
 import { ArrowLeftIcon, CloseIcon } from './icons';
 
@@ -327,6 +328,21 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
   const [command, setCommand] = useState(playground.pending ?? '');
   const [base, setBase] = useState<string | null>(null);
   const current = files.find((file) => `${file.where}:${file.path}` === active) ?? null;
+  // A real terminal when the machine is a Jupyter server that offers one (a Reader Companion does); the command box otherwise, and on Colab.
+  const computeServer = playground.compute.kind === 'server' ? servers.find((server) => server.id === (playground.compute.kind === 'server' ? playground.compute.serverId : '')) : undefined;
+  const [terminals, setTerminals] = useState<boolean | null>(null);
+  useEffect(() => {
+    setTerminals(null);
+    if (!computeServer) return;
+    let live = true;
+    void hasTerminals(computeServer).then((yes) => live && setTerminals(yes));
+    return () => {
+      live = false;
+    };
+  }, [computeServer?.id, computeServer?.url, computeServer?.token]);
+  // In split mode the command box copies the folder over before each command and brings results back; the terminal doesn't, so the box stays first there.
+  const [shellView, setShellView] = useState<'terminal' | 'commands' | null>(null);
+  const view = terminals && computeServer ? shellView ?? (split ? 'commands' : 'terminal') : 'commands';
 
   const open = async (where: 'home' | 'machine', path: string) => {
     const key = `${where}:${path}`;
@@ -507,20 +523,33 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
           )}
           {problem ? <p className="pg-note is-problem">{problem}</p> : null}
         </div>
-        <div className="pg-console">
+        <div className={`pg-console${view === 'terminal' ? ' is-terminal' : ''}`}>
           <div className="pg-console-head">
-            <b>Console</b>
+            {terminals && computeServer ? (
+              <div className="segmented pg-seg pg-console-tabs" role="tablist" aria-label="Console">
+                <button type="button" role="tab" aria-selected={view === 'terminal'} className={view === 'terminal' ? 'on' : ''} onClick={() => setShellView('terminal')}>
+                  Terminal
+                </button>
+                <button type="button" role="tab" aria-selected={view === 'commands'} className={view === 'commands' ? 'on' : ''} onClick={() => setShellView('commands')}>
+                  {split ? 'Copy & run' : 'Commands'}
+                </button>
+              </div>
+            ) : (
+              <b>Console</b>
+            )}
             <span className="mono">
               {machineName}:{base ?? machineRoot(playground)}
             </span>
             <span className="spacer" />
-            {colab.running?.startsWith('pgsh:') ? (
+            {view === 'terminal' && split ? <span className="pg-note">The terminal doesn’t copy the folder over — use Sync, or Copy &amp; run.</span> : null}
+            {view === 'commands' && colab.running?.startsWith('pgsh:') ? (
               <button type="button" className="btn sm colab-stop" onClick={() => void interrupt()}>
                 ■ Stop
               </button>
             ) : null}
           </div>
-          <div className="pg-console-log" ref={consoleLog}>
+          {view === 'terminal' && computeServer ? <Terminal server={computeServer} cwd={machineRoot(playground)} sessionId={playground.id} label={machineName} /> : null}
+          <div className="pg-console-log" ref={consoleLog} hidden={view === 'terminal'}>
             {playground.console.slice(-12).map((entry) => {
               const key = consoleKey(playground.id, entry.id);
               const runNow = colab.runs[key];
@@ -538,6 +567,7 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
             })}
           </div>
           <form
+            hidden={view === 'terminal'}
             className="pg-console-input"
             onSubmit={(event) => {
               event.preventDefault();
