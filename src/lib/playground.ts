@@ -22,6 +22,7 @@ import type { JupyterServer, Machine, RuntimeEntry } from './colab';
 import { JupyterRequestError, jupyterList, jupyterRead, jupyterWrite, runQuietly } from './colab';
 import type { NbCell } from './notebook';
 import { newCell } from './notebook';
+import type { CompanionPairing } from './companion';
 import { secureAddress } from './companion';
 
 // ---------------------------------------------------------------- types ----
@@ -126,6 +127,12 @@ export function saveServer(server: Omit<JupyterServer, 'id'> & { id?: string }):
   const made: JupyterServer = { ...server, id: server.id ?? uid() };
   saveServers(servers.some((s) => s.id === made.id) ? servers.map((s) => (s.id === made.id ? made : s)) : [...servers, made]);
   return made;
+}
+
+/** Keeps a Companion's pairing as this browser's PC server, reached at `base` (its direct address or its tunnel's): the one already saved for that Companion, updated, or a new one. */
+export function saveCompanion(pairing: CompanionPairing, base: string): JupyterServer {
+  const same = servers.find((server) => (pairing.id && server.companionId === pairing.id) || server.url === base);
+  return saveServer({ id: same?.id, name: pairing.name, where: 'pc', url: base, token: pairing.token, companionId: pairing.id, root: pairing.root || same?.root });
 }
 
 /** Moves each Companion this browser reaches over plain http onto its https address, where this computer's certificate lets it: the same server, encrypted. */

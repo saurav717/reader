@@ -4,9 +4,10 @@
 // (/companion/update in companion/reader_companion/extension.py).
 
 import { useEffect, useState } from 'react';
+import type { CompanionInfo } from '../lib/companion';
 import type { JupyterServer } from '../lib/colab';
-import { COMPANION_VERSION, companionPort, findCompanion, isNewer, startCompanion, updateCompanion, waitForVersion } from '../lib/companion';
-import { useServers } from '../lib/playground';
+import { COMPANION_VERSION, companionPort, findCompanion, findLocalCompanion, isNewer, normaliseCode, pairCompanion, showCompanionCode, startCompanion, updateCompanion, waitForVersion } from '../lib/companion';
+import { saveCompanion, useServers } from '../lib/playground';
 import { isCompanion } from './VsCodeExtension';
 
 /** The first Companion that can update itself: an older one is updated once the way it was installed. */
@@ -91,10 +92,80 @@ function CompanionRow({ server }: { server: JupyterServer }) {
   );
 }
 
-/** Every Companion this browser is paired with, or nothing when there is none. */
+/**
+ * No Companion paired in this browser (another browser, or the Reader app's
+ * window, may be): the one running on this computer, if any, and its code to
+ * pair it here — the Playground's Connect this computer, in short.
+ */
+function UnpairedRow() {
+  const [found, setFound] = useState<{ base: string; info: CompanionInfo } | null | undefined>(undefined);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void findLocalCompanion().then((reached) => live && setFound(reached));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const ask = async () => {
+    if (!found) return;
+    const shown = await showCompanionCode(found.base);
+    setNote(shown ? 'The code is in a window on this computer’s screen.' : 'This computer can’t show it in a window: run reader-companion pair in a terminal, or open the Reader app.');
+  };
+  const pair = async () => {
+    if (!found) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      saveCompanion(await pairCompanion(code, found.base), found.base);
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="companion-update companion-unpaired">
+      <div>
+        <b>{found ? found.info.name : 'This computer'}</b>
+        <small>
+          {found === undefined
+            ? 'Looking for the Reader Companion…'
+            : found
+              ? `Companion ${found.info.version} is running here, but this window isn’t paired with it yet. Pair it to update it, shut it down and start it from here.`
+              : 'No Reader Companion answers on this computer: it is off, or not installed. Open the Reader app to start it, or Playground → Connect this computer to install it.'}
+        </small>
+        {found ? (
+          <span className="companion-pair">
+            <button type="button" className="btn sm" onClick={() => void ask()}>
+              Show the code on this computer
+            </button>
+            <input value={code} placeholder="ABC-DEF" aria-label="The code it shows" onChange={(event) => setCode(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && normaliseCode(code).length === 7 && void pair()} />
+            <button type="button" className="btn sm primary" disabled={busy || normaliseCode(code).length !== 7} onClick={() => void pair()}>
+              {busy ? 'Pairing…' : 'Pair'}
+            </button>
+          </span>
+        ) : null}
+        {note ? <small>{note}</small> : null}
+      </div>
+    </div>
+  );
+}
+
+/** Every Companion this browser is paired with, or the one on this computer to pair with. */
 export default function CompanionUpdates() {
   const companions = useServers().filter(isCompanion);
-  if (!companions.length) return null;
+  if (!companions.length)
+    return (
+      <section style={{ marginBottom: 22 }}>
+        <div className="eyebrow" style={{ marginBottom: 10 }}>
+          This computer
+        </div>
+        <UnpairedRow />
+      </section>
+    );
   return (
     <section style={{ marginBottom: 22 }}>
       <div className="eyebrow" style={{ marginBottom: 10 }}>

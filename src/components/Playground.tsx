@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
-import type { CompanionInfo, CompanionPairing, MacDmg } from '../lib/companion';
+import type { CompanionInfo, MacDmg } from '../lib/companion';
 import { COMPANION_PORT, COMPANION_TLS_PORT, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, findLocalCompanion, isSafari, latestMacDmg, normaliseCode, pairCompanion, pairFragment, showCompanionCode, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
@@ -25,6 +25,7 @@ import {
   removeServer,
   repoNameOf,
   repoUrlOf,
+  saveCompanion,
   saveServer,
   serverById,
   serversNow,
@@ -488,12 +489,6 @@ function ServerForm({ server, onDone, onSaved, defaultWhere = 'pc' }: { server?:
 
 /** This site's address with its base path: what the Companion's installers are served under. */
 const siteBase = () => (typeof window === 'undefined' ? 'https://saurav717.github.io/reader/' : `${window.location.origin}${import.meta.env.BASE_URL}`);
-
-/** Keeps a Companion's pairing as this browser's PC server, reached at `base` (its direct address or its tunnel's): the one already saved for that Companion, updated, or a new one. */
-function saveCompanion(pairing: CompanionPairing, base: string): JupyterServer {
-  const same = serversNow().find((server) => (pairing.id && server.companionId === pairing.id) || server.url === base);
-  return saveServer({ id: same?.id, name: pairing.name, where: 'pc', url: base, token: pairing.token, companionId: pairing.id, root: pairing.root || same?.root });
-}
 
 /** The first of these addresses a Companion answers on, trying for a while: a new tunnel can take some seconds to be found. */
 async function reachCompanion(routes: string[], forMs: number): Promise<{ base: string; info: CompanionInfo } | null> {
