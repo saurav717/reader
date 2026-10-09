@@ -1179,17 +1179,11 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
   // The rules drawn across the page: a table's own, top, bottom and between.
   const rules = page.graphics.filter((box) => box.y1 - box.y0 < 1.5 && box.x1 - box.x0 > 3 * em);
 
-  // An algorithm set as algorithmic's ruled style sets one: its caption
-  // between two rules, its steps under them as far as the rule that closes
-  // it — numbered, indented, its keywords in bold — painted as it is set.
+  // An algorithm, or a listing with a caption: ruled off, boxed, or set
+  // as bare numbered steps — painted as it is set.
   if (/^(algorithm|listing)/i.test(caption.caption!.label)) {
-    const across = (rule: GraphicBox) => rule.x1 - rule.x0 > 8 * em && overlapX(rule, caption) > 0.8 * (caption.x1 - caption.x0);
-    const under = rules.filter((rule) => across(rule) && rule.y0 >= captionBottom - 2 && rule.y0 - captionBottom < 1.5 * em).sort((a, b) => a.y0 - b.y0)[0];
-    const closing = under && rules.filter((rule) => Math.abs(rule.x0 - under.x0) < 3 && Math.abs(rule.x1 - under.x1) < 3 && rule.y0 > under.y1 + em).sort((a, b) => a.y0 - b.y0)[0];
-    if (under && closing) {
-      const held = free.filter((line) => !line.caption && line.top >= under.y0 - 1 && line.bottom <= closing.y1 + 1 && line.x0 >= under.x0 - em && line.x1 <= under.x1 + em);
-      if (held.length) return { kind, page: page.index, x0: under.x0, y0: under.y1 + 2, x1: under.x1, y1: closing.y1, caption, label: caption.caption!.label, lines: held };
-    }
+    const region = algorithmRegion(caption, captionBottom, free, clusters, rules, measures, page);
+    if (region) return region;
   }
 
   // A table captioned beside it, as Springer sets one in the margin: the
@@ -1455,6 +1449,92 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
   }
   if (second && sides[0] === (second.region.y0 >= captionBottom - 1 ? 'below' : 'above') && second.gap - first.gap < 0.5 * em) return second.region;
   return first.region;
+}
+
+/**
+ * An algorithm's steps, by its caption, in the three ways algorithm
+ * packages set them: ruled — the caption between two rules, the steps under
+ * them as far as the rule that closes them (algorithmic's "ruled",
+ * algorithm2e's "ruled" and "algoruled"); boxed — the steps in a frame
+ * drawn round them, the caption over or under it, or inside its top or its
+ * foot (algorithm2e's "boxed"); and plain — no rules at all, the caption
+ * over or under steps set tight one under another, numbered, led by a
+ * keyword in bold, or set in from the column (algorithm2e's "plain").
+ */
+function algorithmRegion(caption: Line, captionBottom: number, free: Line[], clusters: Cluster[], rules: GraphicBox[], measures: Measures, page: PageInput): Region | null {
+  const em = measures.bodySize;
+  const kind = caption.caption!.kind;
+  const make = (box: Box, held: Line[]): Region => ({ kind, page: page.index, ...box, caption, label: caption.caption!.label, lines: held });
+  const inside = (box: Box, line: Line) => line.top >= box.y0 - 1 && line.bottom <= box.y1 + 1 && line.x0 >= box.x0 - 2 && line.x1 <= box.x1 + 2;
+  const steps = (lines: Line[]) => lines.filter((line) => !line.caption);
+
+  // Ruled.
+  const across = (rule: GraphicBox) => rule.x1 - rule.x0 > 8 * em && overlapX(rule, caption) > 0.8 * (caption.x1 - caption.x0);
+  const under = rules.filter((rule) => across(rule) && rule.y0 >= captionBottom - 2 && rule.y0 - captionBottom < 1.5 * em).sort((a, b) => a.y0 - b.y0)[0];
+  const closing = under && rules.filter((rule) => Math.abs(rule.x0 - under.x0) < 3 && Math.abs(rule.x1 - under.x1) < 3 && rule.y0 > under.y1 + em).sort((a, b) => a.y0 - b.y0)[0];
+  if (under && closing) {
+    const box = { x0: under.x0, y0: under.y1 + 2, x1: under.x1, y1: closing.y1 };
+    const held = steps(free.filter((line) => inside({ ...box, x0: box.x0 - em, x1: box.x1 + em }, line)));
+    if (held.length) return make(box, held);
+  }
+
+  // Boxed: a frame of rules, or a shaded box, with text in it, set close
+  // over or under the caption — or with the caption inside it.
+  const framed = clusters
+    .filter((cluster) => !cluster.images && (cluster.rules >= 2 || cluster.bodies) && overlapX(cluster, caption) > 0.5 * (caption.x1 - caption.x0))
+    .filter((cluster) => {
+      const over = cluster.y1 <= caption.top + 2 && caption.top - cluster.y1 < 2 * em;
+      const beneath = cluster.y0 >= captionBottom - 2 && cluster.y0 - captionBottom < 2 * em;
+      const holds = cluster.y0 <= caption.top + 1 && cluster.y1 >= captionBottom - 1 && cluster.x0 <= caption.x0 + 1 && cluster.x1 >= caption.x1 - 1;
+      return over || beneath || holds;
+    })
+    .sort((a, b) => Math.min(Math.abs(a.y1 - caption.top), Math.abs(a.y0 - captionBottom)) - Math.min(Math.abs(b.y1 - caption.top), Math.abs(b.y0 - captionBottom)));
+  for (const cluster of framed) {
+    let box: Box = { x0: cluster.x0, y0: cluster.y0, x1: cluster.x1, y1: cluster.y1 };
+    // The caption inside the frame, at its top or its foot: the steps are the rest of it.
+    if (box.y0 <= caption.top + 1 && box.y1 >= captionBottom - 1) box = caption.top - box.y0 < box.y1 - captionBottom ? { ...box, y0: captionBottom + 1 } : { ...box, y1: caption.top - 1 };
+    const held = steps(free.filter((line) => inside(box, line)));
+    if (held.length >= 2) return make(box, held);
+  }
+
+  // Plain: the steps set tight over the caption, or under it — numbered
+  // ("3:", "3."), led by a keyword in bold ("while", "Input:"), or set in
+  // from the column — as far as a line of the text resuming.
+  const stepLike = (line: Line, left: number) => /^\d{1,3}[:.]?(?:\s|$)/.test(line.text) || boldAt(line, 'start') || line.x0 - left > 0.5 * em || !bodyLike(line, measures);
+  for (const side of ['above', 'below'] as const) {
+    const near = (box: { x0: number; x1: number }) => overlapX(box, caption) > 0 || overlapX(box, { x0: caption.x0 - measures.columnWidth * 0.2, x1: caption.x0 + measures.columnWidth }) > 0;
+    const candidates = free
+      .filter((line) => !line.caption && near(line) && (side === 'above' ? line.bottom <= caption.top + 1 : line.top >= captionBottom - 1))
+      .sort((a, b) => (side === 'above' ? b.baseline - a.baseline : a.baseline - b.baseline));
+    // Lines on one baseline — a step's number set apart from it — are one row.
+    const rows: Line[][] = [];
+    for (const line of candidates) {
+      const row = rows.find((one) => Math.abs(one[0].baseline - line.baseline) < 0.5 * line.size);
+      if (row) row.push(line);
+      else rows.push([line]);
+    }
+    const held: Line[] = [];
+    let edge = side === 'above' ? caption.top : captionBottom;
+    let numbered = 0;
+    for (const row of rows) {
+      const top = Math.min(...row.map((line) => line.top));
+      const bottom = Math.max(...row.map((line) => line.bottom));
+      const gap = side === 'above' ? edge - bottom : top - edge;
+      if (gap > (held.length ? 0.9 : 1.6) * em) break;
+      const first = row.slice().sort((a, b) => a.x0 - b.x0)[0];
+      const left = Math.min(first.x0, caption.x0);
+      if (!stepLike(first, left)) break;
+      if (/^\d{1,3}[:.]?(?:\s|$)/.test(first.text)) numbered += 1;
+      held.push(...row);
+      edge = side === 'above' ? top : bottom;
+    }
+    // Steps, not a paragraph that happens to sit by the caption: more than
+    // one, most of them numbered or led by a keyword.
+    if (held.length >= 2 && (numbered >= 2 || held.filter((line) => boldAt(line, 'start')).length >= 2)) {
+      return make({ x0: Math.min(...held.map((line) => line.x0)), y0: Math.min(...held.map((line) => line.top)), x1: Math.max(...held.map((line) => line.x1)), y1: Math.max(...held.map((line) => line.bottom)) }, held);
+    }
+  }
+  return null;
 }
 
 /**
@@ -3128,10 +3208,15 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
         // A figure or a table at the head of a column is read before the
         // abstract under it, and is not front matter: it follows the
         // abstract, as a float would.
-        const before = paras.slice(0, abstractAt);
+        // (A byline centred across both columns of a two-column paper is cut
+        // at the gutter, and its right half read at the head of the right
+        // column: what is set wholly above the abstract is front matter too.)
+        const abstractTop = paras[abstractAt].lines[0].top;
+        const overhead = paras.slice(abstractAt + 1).filter((paragraph) => !paragraph.region && !paragraph.lines[0].caption && paragraph.lines.every((line) => line.page === 0 && line.bottom < abstractTop - 1));
+        const before = [...paras.slice(0, abstractAt), ...overhead];
         const floats = before.filter((paragraph) => paragraph.region || paragraph.lines[0].caption);
         ({ front, byline } = frontMatter(before.filter((paragraph) => !floats.includes(paragraph)).flatMap((paragraph) => paragraph.lines), measures, options.title));
-        const after = paras.slice(abstractAt);
+        const after = paras.slice(abstractAt).filter((paragraph) => !overhead.includes(paragraph));
         // After the abstract's text, not between its heading and its text.
         const at = after.length > 1 && plain(spansOf(after[0].lines)).split(' ').length <= 2 ? 2 : 1;
         paras = [...after.slice(0, at), ...floats, ...after.slice(at)];
