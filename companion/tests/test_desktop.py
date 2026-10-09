@@ -268,3 +268,69 @@ class OffTest(Sandbox):
         with mock.patch.object(desktop, "wait_for", return_value=47400), mock.patch.object(desktop, "kick") as kick:
             cli.start(["--quiet", "reader-companion://start"])
         kick.assert_not_called()
+
+
+class DeletedAppTest(Sandbox):
+    """On a Mac, deleting Reader.app takes the Companion's login item and link away."""
+
+    def make_app(self, where: Path, bundle_id: str = desktop.MAC_BUNDLE_ID) -> Path:
+        (where / "Contents").mkdir(parents=True)
+        (where / "Contents" / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": bundle_id}))
+        return where
+
+    def test_finds_the_app_where_it_was_or_moved_but_not_in_the_trash(self):
+        home = Path(self.home.name)
+        app = self.make_app(home / "Apps" / "Reader.app")
+        self.assertEqual(desktop.find_mac_app(str(app)), str(app))
+        trashed = self.make_app(home / ".Trash" / "Reader.app")
+        other = self.make_app(home / "Other.app", "com.example.other")
+        moved = self.make_app(home / "Moved" / "Reader.app")
+        spotlight = mock.Mock(stdout=f"{trashed}\n{other}\n{moved}\n")
+        with mock.patch.object(desktop.subprocess, "run", return_value=spotlight):
+            self.assertEqual(desktop.find_mac_app(str(home / "Gone" / "Reader.app")), str(moved))
+        with mock.patch.object(desktop.subprocess, "run", return_value=mock.Mock(stdout=f"{trashed}\n")):
+            self.assertIsNone(desktop.find_mac_app(str(home / "Gone" / "Reader.app")))
+
+    def test_forget_install_removes_the_login_item_without_booting_out(self):
+        with mock.patch.object(desktop.os, "getuid", create=True, return_value=501):
+            desktop.install_login(["/x/reader-companion"], start_now=False, system="Darwin")
+        desktop.install_url_handler(["/x/reader-companion"], system="Darwin")
+        desktop.run_quietly.reset_mock()
+        removed = desktop.forget_install()
+        self.assertEqual(len(removed), 2)
+        self.assertFalse(desktop.launch_agent_path().exists())
+        self.assertFalse(desktop.url_handler_path("Darwin").exists())
+        self.assertFalse(any(call.args[:2] == ("launchctl", "bootout") for call in desktop.run_quietly.call_args_list))
+
+    def test_the_running_companion_stops_after_two_misses(self):
+        from reader_companion import cli, state
+
+        state.save_config({"token": "t", "app": "/Applications/Reader.app"})
+        server = mock.Mock()
+        callbacks = []
+
+        class Periodic:
+            def __init__(self, fn, ms):
+                callbacks.append(fn)
+
+            def start(self):
+                pass
+
+        with mock.patch("tornado.ioloop.PeriodicCallback", Periodic), mock.patch.object(desktop, "find_mac_app", return_value=None), mock.patch.object(desktop, "forget_install", return_value=["x"]) as forget:
+            cli.watch_app(server, state.load_config())  # looks once at once: one miss
+            server.stop.assert_not_called()
+            callbacks[0]()
+            forget.assert_called_once()
+            server.stop.assert_called_once()
+        self.assertNotIn("app", state.load_config())
+
+    def test_an_app_found_is_recorded_and_nothing_stops(self):
+        from reader_companion import cli, state
+
+        state.save_config({"token": "t"})
+        server = mock.Mock()
+        with mock.patch("tornado.ioloop.PeriodicCallback"), mock.patch.object(desktop, "find_mac_app", return_value="/Applications/Reader.app"):
+            config = state.load_config()
+            cli.watch_app(server, config)
+        self.assertEqual(state.load_config()["app"], "/Applications/Reader.app")
+        server.stop.assert_not_called()

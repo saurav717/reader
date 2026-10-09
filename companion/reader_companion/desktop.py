@@ -567,6 +567,54 @@ def uninstall_app(system: str | None = None) -> list[str]:
     return removed
 
 
+# --------------------------------------------- the app, deleted on macOS ----
+#
+# On a Mac the Companion belongs to Reader.app: the .dmg's in /Applications, or
+# the one `setup` makes in ~/Applications. Deleting the app is how a Mac user
+# removes a program, but the Companion runs from its LaunchAgent, not from the
+# app, so it kept running and starting at every login. Now `setup` records where
+# the app is, and the running Companion looks for it every minute: when it is
+# gone (deleted, or in the Trash), it removes its login item and its
+# reader-companion:// link, and stops. The folder, the settings and the
+# program stay; opening Reader again sets it all up again.
+
+MAC_BUNDLE_ID = "io.github.saurav717.reader"
+
+
+def mac_bundle_id(app: str | Path) -> str | None:
+    try:
+        return plistlib.loads((Path(app) / "Contents" / "Info.plist").read_bytes()).get("CFBundleIdentifier")
+    except (OSError, ValueError, plistlib.InvalidFileException):
+        return None
+
+
+def find_mac_app(recorded: str | None = None) -> str | None:
+    """Where Reader.app is now: where it was, where it is usually put, or wherever Spotlight finds it (not in the Trash)."""
+    for candidate in (recorded, "/Applications/Reader.app", str(mac_app_path())):
+        if candidate and "/.Trash/" not in candidate and mac_bundle_id(candidate) == MAC_BUNDLE_ID:
+            return candidate
+    try:
+        found = subprocess.run(["mdfind", f"kMDItemCFBundleIdentifier == '{MAC_BUNDLE_ID}'"], capture_output=True, text=True, timeout=20).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return next((path for path in found if path.endswith(".app") and "/.Trash/" not in path and mac_bundle_id(path) == MAC_BUNDLE_ID), None)
+
+
+def forget_install() -> list[str]:
+    """What the deleted app leaves behind, taken away by the running Companion itself: its login item and its link.
+
+    The LaunchAgent's file is only removed, not booted out: booting it out would stop this process
+    before it had finished. It stops by itself afterwards with 0, which launchd doesn't restart, and
+    without the file nothing starts it at the next login.
+    """
+    removed = []
+    path = launch_agent_path()
+    if path.exists():
+        path.unlink()
+        removed.append(str(path))
+    return removed + uninstall_url_handler("Darwin")
+
+
 # ------------------------------------------------- started from the page ----
 #
 # A page can't start a program, but it can open a link whose scheme this

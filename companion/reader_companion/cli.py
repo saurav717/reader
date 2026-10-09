@@ -197,6 +197,8 @@ def serve(config: dict, args):
             desktop.install_url_handler(desktop.executable())
         except OSError:
             pass
+    if platform.system() == "Darwin" and desktop.launch_agent_path().exists():
+        watch_app(app, config)
     pid_file = state.config_dir() / desktop.PID
     pid_file.write_text(str(os.getpid()))
     try:
@@ -212,6 +214,39 @@ def serve(config: dict, args):
         except OSError:
             pass
 
+
+
+def watch_app(app, config: dict) -> None:
+    """On a Mac, stops for good once Reader.app is deleted (desktop.forget_install): looked for every minute."""
+    # Set up before the app's place was recorded: it is looked for where apps are usually put and with
+    # Spotlight. A login item with no Reader.app anywhere is one whose app was deleted (setup always makes
+    # one, or is run by one), and goes too.
+    from tornado.ioloop import PeriodicCallback
+
+    missing = [0]
+
+    def look():
+        found = desktop.find_mac_app(config.get("app"))
+        if found:
+            missing[0] = 0
+            if found != config.get("app"):  # moved, not deleted
+                config["app"] = found
+                state.save_config(config)
+            return
+        # Twice in a row, so that an app being replaced by a newer copy isn't taken for a deleted one.
+        missing[0] += 1
+        if missing[0] < 2:
+            return
+        removed = desktop.forget_install()
+        stored = state.load_config()
+        stored.pop("app", None)
+        state.save_config(stored)
+        what = f" (removed {', '.join(removed)})" if removed else ""
+        print(f"  Reader.app was deleted, so the Companion stops and no longer starts at login{what}. Your files stay in {config.get('root') or '~/Reader'}; opening Reader again sets it up again.", flush=True)
+        app.stop()
+
+    look()
+    PeriodicCallback(look, 60_000).start()
 
 
 # ------------------------------------------------------- installed for good ----
@@ -256,6 +291,14 @@ def setup(argv):
     if not args.no_app:
         print(f"  {DIM}The app   {RESET} {desktop.install_app(command, site)}", flush=True)
     desktop.install_url_handler(command, force=True)
+    # Where Reader.app is, on a Mac: the .dmg's (it runs this with READER_APP set) or the one just made.
+    # The Companion stops for good once it is deleted (watch_app).
+    if platform.system() == "Darwin":
+        made = os.environ.get("READER_APP") or (None if args.no_app else str(desktop.mac_app_path()))
+        if made:
+            config = state.load_config()
+            config["app"] = made
+            state.save_config(config)
     link = desktop.fresh_link(config["token"], running)
     print(f"""  {DIM}Listening {RESET} http://127.0.0.1:{running}/  {DIM}(folder {Path(os.path.expanduser(config.get("root") or "~/Reader")).resolve()}){RESET}
 
@@ -284,6 +327,12 @@ def open_app(argv):
         make_trusted()
     port = int(config.get("port") or DEFAULT_PORT)
     state.set_off(False)  # opening the app is starting it on purpose
+    if platform.system() == "Darwin" and not desktop.login_installed() and desktop.is_lasting(desktop.executable()):
+        # Reader.app was deleted (watch_app took the login item away) and is back: so is starting at login.
+        desktop.install_login(desktop.executable(), start_now=False)
+        if os.environ.get("READER_APP"):
+            config["app"] = os.environ["READER_APP"]
+            state.save_config(config)
     running = desktop.wait_for(config["token"], port, 0)
     if running is None:
         desktop.kick(desktop.executable())
