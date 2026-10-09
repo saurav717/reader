@@ -258,7 +258,7 @@ export function ColabChip({ cells }: { cells: { key: string; code: string; label
                 <small>
                   A few lines of the reader's own, in a second kernel, every two seconds: {colab.runtime?.accelerator ? <code>nvidia-smi</code> : null}
                   {colab.runtime?.accelerator ? ', ' : ''}
-                  <code>/proc/stat</code>, <code>/proc/meminfo</code> and the disk. Drawn in the Runtime pane as GPU and CPU use, VRAM and RAM — not under the cells.{' '}
+                  the CPU and memory counters (<code>/proc</code> on Linux, the kernel's own on a Mac or Windows PC) and the disk. Drawn in the Runtime pane as GPU and CPU use, VRAM and RAM — not under the cells.{' '}
                   <button type="button" className="link" onClick={() => setProbe(!probe)}>
                     {probe ? 'Hide the probe' : 'Show the probe'}
                   </button>

@@ -213,30 +213,69 @@ export interface MachineSpecs {
  * The one thing the reader runs of its own, in a second kernel on the same
  * machine, every couple of seconds while a cell runs and once when the
  * runtime connects: nvidia-smi's numbers when there is a GPU, the CPUs' busy
- * share from /proc/stat over a quarter of a second, the memory from
- * /proc/meminfo, and the disk. One JSON line. Shown in the runtime menu, so
- * nothing runs unseen; it reads, and changes nothing.
+ * share over a quarter of a second, the memory in use, and the disk. On
+ * Linux — Colab, a lab machine — the CPU and memory come from /proc; on a
+ * Mac from the kernel's own counters (host_statistics, sysctl and vm_stat);
+ * on Windows from GetSystemTimes and GlobalMemoryStatusEx. One JSON line.
+ * Shown in the runtime menu, so nothing runs unseen; it reads, and changes
+ * nothing.
  */
-export const MACHINE_PROBE = `import json, os, shutil, subprocess, time
+export const MACHINE_PROBE = `import json, os, platform, shutil, subprocess, time
 def _safe(f):
     try: return f()
     except Exception: return None
-def _cpu():
-    def snap():
+def _run(*args):
+    return subprocess.run(list(args), capture_output=True, text=True, timeout=5).stdout
+def _ticks():
+    if os.path.exists('/proc/stat'):
         with open('/proc/stat') as f: v = [int(x) for x in f.readline().split()[1:]]
         return sum(v), v[3] + v[4]
-    a, ia = snap(); time.sleep(0.25); b, ib = snap()
+    import ctypes
+    if platform.system() == 'Darwin':
+        lib = ctypes.CDLL('/usr/lib/libSystem.B.dylib')
+        lib.mach_host_self.restype = ctypes.c_uint
+        host = globals().get('_mach_host') or lib.mach_host_self()
+        globals()['_mach_host'] = host
+        v = (ctypes.c_uint * 4)(); n = ctypes.c_uint(4)
+        if lib.host_statistics(ctypes.c_uint(host), 3, v, ctypes.byref(n)): raise OSError('host_statistics')
+        return sum(v), v[2]
+    if os.name == 'nt':
+        idle, kernel, user = ctypes.c_ulonglong(), ctypes.c_ulonglong(), ctypes.c_ulonglong()
+        if not ctypes.windll.kernel32.GetSystemTimes(ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)): raise OSError('GetSystemTimes')
+        return kernel.value + user.value, idle.value
+    raise OSError('no CPU counters here')
+def _cpu():
+    a, ia = _ticks(); time.sleep(0.25); b, ib = _ticks()
     return round(100 * (1 - (ib - ia) / max(1, b - a)))
 def _ram():
-    m = {}
-    with open('/proc/meminfo') as f:
-        for line in f:
-            k, v = line.split(':', 1); m[k] = int(v.split()[0])
-    return [(m['MemTotal'] - m['MemAvailable']) // 1024, m['MemTotal'] // 1024]
+    if os.path.exists('/proc/meminfo'):
+        m = {}
+        with open('/proc/meminfo') as f:
+            for line in f:
+                k, v = line.split(':', 1); m[k] = int(v.split()[0])
+        return [(m['MemTotal'] - m['MemAvailable']) // 1024, m['MemTotal'] // 1024]
+    if platform.system() == 'Darwin':
+        total = int(_run('sysctl', '-n', 'hw.memsize'))
+        out = _run('vm_stat')
+        page = int(out.split('page size of ')[1].split()[0])
+        pages = {}
+        for line in out.splitlines()[1:]:
+            k, _, v = line.partition(':'); v = v.strip().rstrip('.')
+            if v.isdigit(): pages[k.strip()] = int(v)
+        used = (pages['Pages active'] + pages['Pages wired down'] + pages.get('Pages occupied by compressor', 0)) * page
+        return [used // 2**20, total // 2**20]
+    if os.name == 'nt':
+        import ctypes
+        class M(ctypes.Structure):
+            _fields_ = [('size', ctypes.c_ulong), ('load', ctypes.c_ulong)] + [(k, ctypes.c_ulonglong) for k in ('total', 'avail', 'pt', 'pa', 'vt', 'va', 've')]
+        m = M(); m.size = ctypes.sizeof(M)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)): raise OSError('GlobalMemoryStatusEx')
+        return [(m.total - m.avail) // 2**20, m.total // 2**20]
+    raise OSError('no memory counters here')
 def _gpu():
-    return subprocess.run(['nvidia-smi', '--query-gpu=name,utilization.gpu,memory.used,memory.total', '--format=csv,noheader,nounits'], capture_output=True, text=True, timeout=5).stdout.strip()
+    return _run('nvidia-smi', '--query-gpu=name,utilization.gpu,memory.used,memory.total', '--format=csv,noheader,nounits').strip()
 def _disk():
-    d = shutil.disk_usage('/'); return [d.free // 2**30, d.total // 2**30]
+    d = shutil.disk_usage(os.path.abspath(os.sep)); return [d.free // 2**30, d.total // 2**30]
 print(json.dumps({'gpu': _safe(_gpu) or '', 'cpu': _safe(_cpu), 'cpus': os.cpu_count(), 'ram': _safe(_ram), 'disk': _safe(_disk)}))`;
 
 /** nvidia-smi's csv, read: the busiest GPU's utilisation, and memory summed. Null when the line is not that. */
