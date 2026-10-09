@@ -1,0 +1,63 @@
+<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><link rel="stylesheet" href="companion.css"><style>
+.term{white-space:pre;flex:none}
+.toast{position:fixed;z-index:9;left:560px;top:430px;display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:9px 12px;box-shadow:var(--shadow-md);font-size:12px}
+.conflict{margin:14px 28px 0;padding:10px 12px;border-radius:9px;border:1px solid #6b4a1e;background:#2a2116;display:flex;align-items:center;gap:10px;font-size:12px;color:#e8c48f}
+.conflict .sp{flex:1}
+.ed{flex:1;overflow:hidden;padding:12px 28px}
+.ed pre{margin:0;font:12.5px/1.7 var(--mono);color:var(--ink)}
+.ln{color:#55524a;display:inline-block;width:28px;text-align:right;margin-right:14px}
+.hl{background:rgba(87,169,143,.12);display:block;margin:0 -28px;padding:0 28px;border-left:2px solid var(--accent)}
+.kv{display:grid;grid-template-columns:96px 1fr;gap:7px 10px;font-size:12px}.kv span{color:var(--muted)}
+.box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 12px;display:flex;flex-direction:column;gap:8px}
+.box h5{margin:0;font:600 10.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+</style></head><body><div class="app"><!--RAIL--><main class="main">
+<div class="wbar"><div class="name"><b>attention-sweep</b><span class="mono">~/Reader/Projects/attention-sweep</span></div>
+ <div class="segm" style="margin-left:18px"><span>Notebook</span><span class="on">Files</span><span>Split</span></div>
+ <span class="spacer"></span>
+ <span class="btn sm"><svg class="i" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M17 3l4 2v14l-4 2-11-9 11-9zM17 7l-6 5 6 5z"/></svg>Open in VS Code</span>
+ <span class="btn sm">Reveal in Finder</span>
+ <span class="rt"><span class="live"></span>Saurav’s MacBook Pro<span class="m">mps · idle</span></span>
+</div>
+<div class="ws">
+ <div class="side"><h4>Files<i>+</i></h4>
+  <div class="tree">
+   <div class="f">notebook.ipynb<span class="st">disk</span></div>
+   <div class="f on">train.py<span class="st m">VS Code · now</span></div>
+   <div class="f">config.yaml<span class="st m">conflict</span></div>
+   <div class="f">requirements.txt<span class="st">disk</span></div>
+   <div class="dir open">runs/</div><div class="d1 f">r16-lr3e-4/metrics.jsonl<span class="st">2 MB</span></div>
+   <div class="dir">results/</div>
+   <div class="dir">.reader/</div>
+  </div>
+  <h4 style="margin-top:18px">Cites</h4>
+  <div class="pl"><div>FlashAttention-2<small>§3.1</small></div><div>LoRA<small>§4</small></div></div>
+ </div>
+ <div class="center">
+  <div class="conflict"><b>config.yaml</b> changed on disk while you were editing it here.<span class="sp"></span><span class="btn sm">Compare</span><span class="btn sm">Take the disk’s</span><span class="btn sm primary">Keep mine</span></div>
+  <div class="ed"><pre><span class="ln">1</span><span class="k1">import</span> torch
+<span class="ln">2</span><span class="k1">from</span> attn <span class="k1">import</span> flash_attention
+<span class="ln">3</span>
+<span class="ln">4</span><span class="k4"># ¶ FlashAttention-2 §3.1 · Alg. 1 — tile Q, loop over K/V blocks</span>
+<span class="ln">5</span><span class="k1">def</span> <span class="k2">step</span>(model, batch, block=<span class="k5">128</span>):
+<span class="hl"><span class="ln">6</span>    q, k, v = model.qkv(batch[<span class="k3">"x"</span>])           <span class="k4"># edited in VS Code</span></span><span class="hl"><span class="ln">7</span>    out = flash_attention(q, k, v, block=block, causal=<span class="k1">True</span>)</span><span class="ln">8</span>    loss = model.head(out, batch[<span class="k3">"y"</span>])
+<span class="ln">9</span>    <span class="k1">return</span> loss
+<span class="ln">10</span>
+<span class="ln">11</span><span class="k1">for</span> rank <span class="k1">in</span> [<span class="k5">4</span>, <span class="k5">8</span>, <span class="k5">16</span>, <span class="k5">64</span>]:
+<span class="ln">12</span>    run(rank, out=<span class="k3">f"runs/r{rank}"</span>)</pre></div>
+  <div class="term"><span class="d">console · Saurav’s MacBook Pro</span>
+<span class="p">$</span> python train.py --ranks 4 8
+<span class="d">[r4]  step 120/600  loss 2.913  12.4 it/s  (mps)</span>
+<span class="d">[r4]  step 240/600  loss 2.571  12.6 it/s</span></div>
+ </div>
+ <div class="pane"><div class="tabs"><span>Runtime</span><span>Metrics</span><span class="on">Companion</span></div>
+  <div class="body">
+   <div class="box"><h5>Connection</h5><div class="kv"><span>Computer</span><b>Saurav’s MacBook Pro</b><span>Route</span><span style="color:var(--ink)"><span class="live"></span>&nbsp; direct · 127.0.0.1</span><span>Kernel</span><span style="color:var(--ink)">python 3.12 · project env</span><span>Also open in</span><span style="color:var(--ink)">VS Code · 1 window</span></div></div>
+   <div class="box"><h5>Drive mirror</h5><div class="kv"><span>Text files</span><span style="color:var(--ink)">synced 40 s ago</span><span>runs/</span><span style="color:var(--ink)">listed, not uploaded</span><span>When off</span><span style="color:var(--ink)">readable here, read-only</span></div></div>
+   <div class="box"><h5>Environment</h5><div class="kv"><span>From</span><span class="mono" style="color:var(--ink)">requirements.txt</span><span>State</span><span style="color:var(--ink)">installed · 14 packages</span></div></div>
+  </div></div>
+</div></main></div>
+<div class="toast"><span class="live"></span><b>train.py</b> changed on disk (VS Code) — reloaded<span class="muted">· lines 6–7</span></div>
+<span class="pin" style="left:926px;top:14px">1</span><span class="pin" style="left:550px;top:424px">2</span><span class="pin" style="left:310px;top:96px">3</span>
+<div class="notes" style="left:330px;top:520px"><div class="callout" style="width:300px"><span class="n">1</span><b>Open in VS Code</b> opens the folder. It's a plain <code>vscode://</code> link, and it works even without the extension.</div><div class="callout" style="width:300px"><span class="n">2</span>The Companion watches the folder: an edit made anywhere shows up here at once, marked where it came from.</div><div class="callout" style="width:300px"><span class="n">3</span>If both sides changed a file, you choose. Nothing is overwritten silently.</div></div>
+<div class="step">4 · The project, live from disk</div>
+</body></html>

@@ -1,0 +1,88 @@
+<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><link rel="stylesheet" href="companion.css"><style>
+body{background:#1e1e1e;color:#cccccc;font-size:13px}
+.vs{display:grid;grid-template-columns:48px 290px 1fr;grid-template-rows:30px 1fr 22px;height:100vh}
+.title{grid-column:1/4;background:#2b2b2b;display:flex;align-items:center;justify-content:center;font:12px var(--sans);color:#9d9d9d;border-bottom:1px solid #1a1a1a;position:relative}
+.title .dots{position:absolute;left:12px;display:flex;gap:7px}.title .dots i{width:11px;height:11px;border-radius:50%;background:#ff5f57}.title .dots i:nth-child(2){background:#febc2e}.title .dots i:nth-child(3){background:#28c840}
+.act{background:#2b2b2b;display:flex;flex-direction:column;align-items:center;gap:20px;padding-top:12px;border-right:1px solid #1a1a1a}
+.act div{width:24px;height:24px;color:#858585;display:grid;place-items:center;font:600 13px var(--sans)}
+.act .on{color:#fff;border-left:2px solid #fff;margin-left:-2px;width:48px}
+.act .r{width:24px;height:24px;border-radius:6px;background:#57a98f;color:#10201c;font:700 14px var(--serif)}
+.sb{background:#252526;border-right:1px solid #1a1a1a;overflow:hidden;font-size:12.5px}
+.sb h6{margin:0;padding:10px 16px 6px;font:600 11px var(--sans);letter-spacing:.06em;color:#bbb}
+.sec{padding:3px 0 8px}
+.sec .hd{padding:4px 12px;font:700 11px var(--sans);color:#ccc;text-transform:uppercase;display:flex;gap:6px}
+.it{padding:3px 12px 3px 24px;display:flex;align-items:center;gap:7px;white-space:nowrap}
+.it small{margin-left:auto;color:#858585;font:11px var(--mono)}
+.it.on{background:#37373d}
+.it.d2{padding-left:40px;color:#bdbdbd}
+.main{display:flex;flex-direction:column;min-width:0}
+.tabs2{display:flex;background:#252526;height:35px}
+.tabs2 span{padding:0 14px;display:flex;align-items:center;font-size:12.5px;color:#969696;border-right:1px solid #1a1a1a}
+.tabs2 span.on{background:#1e1e1e;color:#fff;border-top:1px solid #57a98f}
+.code{flex:1;padding:8px 0;font:13px/1.65 var(--mono);color:#d4d4d4;position:relative;overflow:hidden;white-space:pre}
+.ln{color:#6e7681;display:inline-block;width:44px;text-align:right;margin-right:18px}
+.kw{color:#c586c0}.fn{color:#dcdcaa}.st{color:#ce9178}.nm{color:#b5cea8}.cm{color:#6a9955}
+.ct{color:#57a98f;text-decoration:underline;text-underline-offset:3px}
+.cl{color:#8b8b8b;font:11.5px var(--sans);padding-left:62px;display:block;line-height:1.4}
+.cl a{color:#8b8b8b}
+.hover{position:absolute;left:300px;top:118px;width:470px;background:#252526;border:1px solid #454545;border-radius:4px;box-shadow:0 6px 20px rgba(0,0,0,.5);font:12.5px/1.5 var(--sans);white-space:normal;color:#ccc}
+.hover .h{padding:8px 12px;border-bottom:1px solid #3a3a3a;display:flex;gap:8px;align-items:center}
+.hover .q{padding:10px 12px;font:14px/1.5 var(--serif);color:#e6e2d8;border-left:3px solid #57a98f;margin:10px 12px;background:#1e1e1e}
+.hover .l{padding:0 12px 10px;display:flex;gap:16px;color:#3794ff;font-size:12px}
+.panel{height:240px;border-top:1px solid #333;background:#1e1e1e;display:flex;flex-direction:column}
+.panel .pt{display:flex;gap:22px;padding:0 16px;height:32px;align-items:center;font:11px var(--sans);text-transform:uppercase;color:#969696}
+.panel .pt .on{color:#fff;border-bottom:1px solid #fff;padding-bottom:6px;margin-top:6px}
+.panel pre{margin:0;padding:4px 16px;font:12.5px/1.6 var(--mono);color:#ccc}
+.g{color:#89d185}.y{color:#e6c46f}.b{color:#3794ff}.dd{color:#858585}
+.status{grid-column:1/4;background:#1f5e52;color:#e8f4ef;display:flex;align-items:center;gap:18px;padding:0 10px;font:12px var(--sans)}
+.status .sp{flex:1}
+.palette{position:absolute;left:50%;transform:translateX(-50%);top:4px;width:520px;background:#252526;border:1px solid #454545;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:3;display:none}
+</style></head><body><div class="vs">
+<div class="title"><span class="dots"><i></i><i></i><i></i></span>train.py — attention-sweep</div>
+<div class="act"><div>⧉</div><div>⌕</div><div>⑂</div><div class="on"><span class="r">R</span></div><div>⊞</div></div>
+<div class="sb"><h6>READER</h6>
+ <div class="sec"><div class="hd">▾ Projects</div>
+  <div class="it on">▾ attention-sweep<small>● open</small></div>
+  <div class="it d2">notebook.ipynb</div><div class="it d2">train.py</div><div class="it d2">config.yaml</div>
+  <div class="it">▸ flash-attn-repro<small>2 d</small></div>
+  <div class="it">▸ lora-rank-sweep<small>5 d</small></div></div>
+ <div class="sec"><div class="hd">▾ Papers it cites</div>
+  <div class="it">¶ FlashAttention-2<small>§3.1</small></div>
+  <div class="it">¶ LoRA<small>§4</small></div></div>
+ <div class="sec"><div class="hd">▾ Machines</div>
+  <div class="it"><span class="live" style="width:7px;height:7px"></span>Saurav’s MacBook Pro<small>this</small></div>
+  <div class="it"><span class="live" style="width:7px;height:7px"></span>lab-a100<small>running</small></div>
+  <div class="it"><span class="off" style="width:7px;height:7px"></span>runpod-4090<small>offline</small></div></div>
+ <div class="sec"><div class="hd">▾ Companion</div>
+  <div class="it" style="color:#bdbdbd">connected · direct · Drive mirror 1 min ago</div></div>
+</div>
+<div class="main">
+ <div class="tabs2"><span class="on">train.py</span><span>config.yaml</span><span>notebook.ipynb</span></div>
+ <div class="code"><span class="ln">1</span><span class="kw">import</span> torch
+<span class="ln">2</span><span class="kw">from</span> attn <span class="kw">import</span> flash_attention
+<span class="ln">3</span>
+<span class="cl">▶ Run on lab-a100 | ▶ Run here | Open on the site</span><span class="ln">4</span><span class="cm"># ¶ <span class="ct">FlashAttention-2 §3.1 · Alg. 1</span> — tile Q, loop over K/V blocks</span>
+<span class="ln">5</span><span class="kw">def</span> <span class="fn">step</span>(model, batch, block=<span class="nm">128</span>):
+<span class="ln">6</span>    q, k, v = model.<span class="fn">qkv</span>(batch[<span class="st">"x"</span>])
+<span class="ln">7</span>    out = <span class="fn">flash_attention</span>(q, k, v, block=block, causal=<span class="kw">True</span>)
+<span class="ln">8</span>    loss = model.<span class="fn">head</span>(out, batch[<span class="st">"y"</span>])
+<span class="ln">9</span>    <span class="kw">return</span> loss
+<span class="ln">10</span>
+<span class="ln">11</span><span class="kw">for</span> rank <span class="kw">in</span> [<span class="nm">4</span>, <span class="nm">8</span>, <span class="nm">16</span>, <span class="nm">64</span>]:
+<span class="ln">12</span>    <span class="fn">run</span>(rank, out=<span class="st">f"runs/r{rank}"</span>)
+<div class="hover"><div class="h"><b style="color:#fff">FlashAttention-2</b><span style="color:#858585">Dao, 2023 · §3.1 · Algorithm 1</span></div>
+<div class="q">“We tile Q into blocks of size B<sub>r</sub> and, for each block, loop over the blocks of K and V, keeping the running max and sum so the softmax never needs the full row…”</div>
+<div class="l"><span>Open the paper at §3.1</span><span>Explain this</span><span>Cited in 2 projects</span></div></div></div>
+ <div class="panel"><div class="pt"><span>Problems</span><span>Output</span><span class="on">Terminal — Reader: lab-a100</span></div>
+<pre><span class="dd">Reader ▸ Run on lab-a100 · python train.py --ranks 16 64</span>
+<span class="b">↑ sync</span>   3 files changed · 14 KB  <span class="dd">(1.2 GB of data stays on the machine)</span>
+<span class="g">✓</span> env    requirements.txt unchanged · reused
+<span class="y">[r16]</span> step 300/600  loss 2.104  41.8 it/s  <span class="dd">cuda:0 · A100 80GB · 31.2 GB</span>
+<span class="y">[r64]</span> step 280/600  loss 2.087  39.5 it/s  <span class="dd">cuda:1</span>
+<span class="b">↓ back</span>   runs/r16/metrics.jsonl, runs/r64/metrics.jsonl  <span class="dd">· streaming</span></pre></div>
+</div>
+<div class="status"><span>⑂ main</span><span>● Reader: Saurav’s MacBook Pro · direct</span><span>⚙ kernel: python 3.12 (attention-sweep)</span><span class="sp"></span><span>lab-a100: 2 runs · 12 min</span><span>Drive ✓</span></div>
+</div>
+<span class="pin" style="left:24px;top:142px">1</span><span class="pin" style="left:384px;top:136px">2</span><span class="pin" style="left:1098px;top:176px">3</span><span class="pin" style="left:342px;top:688px">4</span>
+<div class="notes" style="right:16px;top:430px;flex-direction:column;width:330px"><div class="callout" style="width:330px"><span class="n">1</span>The <b>Reader extension</b> adds a sidebar fed by the Companion: projects, the papers they cite, and the machines.</div><div class="callout" style="width:330px"><span class="n">2</span>Above a cited line: <b>Run on lab-a100</b>, <b>Run here</b> and <b>Open on the site</b>.</div><div class="callout" style="width:330px"><span class="n">3</span>Hover a citation to read the passage; click to open the paper at that place on the site.</div><div class="callout" style="width:330px"><span class="n">4</span>A GPU run syncs only what changed, streams the output, and brings runs/ back — the same as the site’s split mode, because it's the same Companion.</div></div>
+</body></html>

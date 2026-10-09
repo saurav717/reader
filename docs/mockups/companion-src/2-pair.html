@@ -1,0 +1,47 @@
+<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><link rel="stylesheet" href="companion.css"><style>
+.sheet{position:fixed;z-index:7;left:870px;top:150px;width:470px;background:var(--surface);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow-md);padding:22px}
+.sheet h2{font:600 21px var(--serif);margin:4px 0 6px}
+.sheet p{margin:0 0 14px;color:var(--ink-2);font-size:12.5px;line-height:1.55}
+.kv{display:grid;grid-template-columns:120px 1fr;gap:7px 12px;font-size:12px;padding:12px 14px;border-radius:10px;background:var(--panel);margin-bottom:14px}
+.kv span{color:var(--muted)}.kv b{font-weight:500}
+.chk{display:flex;gap:9px;align-items:flex-start;font-size:12px;color:var(--ink-2);margin-bottom:8px;line-height:1.45}
+.chk i{width:15px;height:15px;border-radius:4px;background:var(--accent);flex:none;margin-top:1px;display:grid;place-items:center;color:var(--accent-on);font:700 10px var(--sans);font-style:normal}
+.row{display:flex;gap:10px;margin-top:16px}.row .sp{flex:1}
+</style></head><body><div class="app"><!--RAIL--><main class="main"><div class="scroll"></div></main></div>
+<div class="dim"></div>
+<div class="win" style="left:96px;top:110px;width:720px;height:560px"><div class="tb"><i></i><i></i><i></i><span>Terminal — zsh</span></div>
+<div class="tm"><span class="p">saurav@MacBook-Pro ~ %</span> <span class="w">uvx reader-companion</span>
+<span class="d">Installed 38 packages in 1.9s</span>
+
+  <span class="w">Reader Companion 0.1.0</span>
+  <span class="d">Projects  </span> ~/Reader/Projects
+  <span class="d">Python    </span> 3.12 (its own environment, made by uv)
+  <span class="d">GPU       </span> Apple M3 Pro · 36 GB unified (mps)
+  <span class="d">Listening </span> 127.0.0.1:47321
+
+  <span class="y">→ To pair, the page opened in your browser:</span>
+    <span class="b">https://saurav717.github.io/playground#pair=K7Q-4XM</span>
+    <span class="d">(or type the code K7Q-4XM on the page)</span>
+
+  <span class="g">✓ Paired with Reader as “Saurav’s MacBook Pro”</span>
+  <span class="g">✓ The page reaches this computer directly</span>
+
+  <span class="d">Leave this running while you work, or keep it on
+  in the background, starting at login:</span>
+    <span class="w">uvx reader-companion service install</span>
+
+  <span class="d">Ctrl-C stops it. Your files stay in ~/Reader/Projects.</span>
+<span class="p">▍</span></div></div>
+<div class="sheet">
+ <span class="eyebrow">Playground · pair a computer</span>
+ <h2>Connect this computer?</h2>
+ <p>A Reader Companion on your network asked to pair with this browser, with the code <b class="mono" style="font-size:12px">K7Q-4XM</b>.</p>
+ <div class="kv"><span>Computer</span><b>Saurav’s MacBook Pro</b><span>Hardware</span><b>Apple M3 Pro · 36 GB</b><span>Projects folder</span><b class="mono">~/Reader/Projects</b><span>Reached</span><b>directly · 127.0.0.1</b></div>
+ <div class="chk"><i>✓</i>Run code there, and read and write files in that folder only</div>
+ <div class="chk"><i>✓</i>Mirror each project’s text files to your Google Drive, so it can still be read when the computer is off</div>
+ <div class="row"><span class="muted" style="font-size:11.5px;align-self:center">Revoke any time in Settings → Devices</span><span class="sp"></span><span class="btn">Not this one</span><span class="btn primary">Connect</span></div>
+</div>
+<span class="pin" style="left:104px;top:340px">1</span><span class="pin" style="left:862px;top:290px">2</span><span class="pin" style="left:104px;top:526px">3</span>
+<div class="notes" style="left:96px;bottom:16px;z-index:8"><div class="callout" style="width:330px"><span class="n">1</span>The Companion opens the page with the code in the address’s <b>#fragment</b>, which never reaches a server or a log.</div><div class="callout" style="width:330px"><span class="n">2</span>One click on the page, and the browser saves a device token. Nothing is pasted.</div><div class="callout" style="width:330px"><span class="n">3</span>Run it each session, or install it once as a <b>login service</b> (launchd / systemd / Task Scheduler). That gives the "always there" of an app, without a .dmg.</div></div>
+<div class="step" style="z-index:9">2 · Pair in one click</div>
+</body></html>

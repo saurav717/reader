@@ -5,11 +5,35 @@ yourself: a `pip install`, a long `jupyter server` command with this site's
 origin in it, then you paste the token into a form. That works, but it is the
 wrong job to give a person, and it stops when the terminal closes.
 
-The **Companion** does that job. It is a small app you install once (a `.dmg`
-on a Mac, an installer on Windows, a single binary on Linux and GPU boxes).
-It keeps a Jupyter server running in the background, pairs with the site in
+The **Companion** does that job. It is one command, `uvx reader-companion`: the same on
+macOS, Windows, Linux and a GPU box, with no installer to download, sign or
+notarize. The Reader extension for VS Code runs the same thing for you, for
+anyone who would rather click. It keeps a Jupyter server running, pairs with the site in
 one click, and keeps a folder on disk, the site and VS Code showing the same
-project. This document is the design. **None of it is built yet.**
+project. This document is the design. **None of it is built yet.** The
+pictures are static mock-ups in the app's own colours. Their sources are in
+[`mockups/companion-src/`](mockups/companion-src/), and
+`node docs/mockups/companion-src/render.mjs` renders them again.
+
+### Why not a `.dmg`
+
+A desktop app has to be built per OS, signed and notarized (an Apple developer
+account), and shipped with its own updater, and a GPU box would still need
+something else. The Companion's real job — a Jupyter server, a file watcher,
+a pairing handshake — is a Python program, and
+[`uv`](https://github.com/astral-sh/uv) can fetch and run a Python program,
+with its own Python, in one command. So:
+
+| | `.dmg` app | `uvx reader-companion` (this design) |
+|---|---|---|
+| Get it | download, drag to Applications | paste one line |
+| Platforms | one build each, signed | the same package everywhere, GPU boxes included |
+| Updates | its own updater | `uvx` runs the newest release each time |
+| Always on | login item | `reader-companion service install` (launchd / systemd / Task Scheduler) |
+| Cost to ship | Apple developer account, notarizing, per-OS CI | `uv publish` to PyPI |
+| For people who'd rather click | yes | the VS Code extension, which runs it for them |
+
+A `.dmg` can still wrap the same package later. Nothing in the design depends on it.
 
 ---
 
@@ -28,7 +52,7 @@ new code on the page: pairing just produces the `{ url, token }` record the
 ```
             ┌────────────── your Mac ───────────────┐
             │                                       │
- browser ───┼──► Companion (menu bar)               │
+ browser ───┼──► Companion (uvx reader-companion)   │
  (site)     │      ├─ Jupyter server (kernels, files)
             │      ├─ file watcher ──► live updates │
  VS Code ───┼──►   ├─ pairing + device tokens       │
@@ -47,27 +71,27 @@ new code on the page: pairing just produces the `{ url, token }` record the
 
 ## What it looks like
 
-### 1 · Install
+### 1 · Connect this computer
 
-- **Download from the site.** Playground → **Your compute** → **Get the
-  Companion** detects the OS and offers `Reader-Companion.dmg` (Apple Silicon
-  and Intel in one universal build), a Windows installer, or for Linux and
-  GPU boxes:
-  `curl -fsSL https://…/install.sh | sh`.
-- **Signed and notarized.** The `.dmg` is signed with a Developer ID and
-  notarized, so macOS opens it without the "unidentified developer" warning.
-  It updates itself (Sparkle on macOS, the same feed for the other builds).
-- **No Python needed up front.** On first run it uses a bundled
-  [`uv`](https://github.com/astral-sh/uv) to create its own Python environment
-  with `jupyter_server` and `ipykernel`, in `~/Library/Application
-  Support/Reader`. A project can ask for more (a `requirements.txt` or
-  `pyproject.toml`), and the Companion installs it into that project's own
-  environment. Your system Python is never touched.
+![The Playground home with a Connect this computer card: the uv install line, uvx reader-companion, and the page waiting for the computer](mockups/companion-1-connect.png)
+
+- **One command from the page.** *Your compute* → **Connect this computer**
+  shows `uvx reader-companion`, with the one-time `uv` install line above it
+  for anyone who doesn't have `uv` yet (and the PowerShell line on Windows).
+  The **VS Code** tab says: install the Reader extension instead.
+- **Nothing to install up front.** `uvx` fetches the package from PyPI, makes
+  it its own Python 3.12, and runs it. Projects get their own environments
+  (from a `requirements.txt` or `pyproject.toml`). Your system Python is never
+  touched.
+- **The page waits for it.** While the card is open, the page looks for a
+  Companion; when the command starts, pairing finishes by itself.
 
 ### 2 · Pair with the site (one click)
 
-1. The Companion opens to a single screen: **Connect to Reader**.
-2. Clicking it opens the site at `/playground#pair=<one-time-code>`. The code
+![A terminal running uvx reader-companion, beside the page asking Connect this computer?](mockups/companion-2-pair.png)
+
+1. The Companion prints what it found (projects folder, Python, GPU) and opens
+   the site at `/playground#pair=<one-time-code>`. The code
    goes in the URL **fragment**, so it never reaches a server or a log.
 3. The page shows **"Connect this Mac (Saurav's MacBook Pro)?"**. You click
    **Connect**, and the page and Companion exchange the code for a long-lived
@@ -75,33 +99,25 @@ new code on the page: pairing just produces the `{ url, token }` record the
 4. **This PC** appears under *Your compute* with a green dot, and the
    "Where should it run?" dialog picks it by default. Nothing is typed or pasted.
 
-The other way round works too: the site shows a 6-digit code, and you type it
-into the Companion. That covers pairing a second browser, or a phone.
+The other way round works too: the Companion prints a 6-digit code, and you
+type it on the page. That covers pairing a second browser, or a phone.
 
 **Settings → Devices** lists every paired machine, with its last-seen time
 and a **Revoke** button.
 
-### 3 · The menu bar
+### 3 · Keeping it running
 
-```
- ● Reader Companion
- ─────────────────────────────
-   Connected · 2 browsers, VS Code
-   Kernel: python 3.12 · idle
- ─────────────────────────────
-   Projects
-     attention-sweep        ▸  Open in VS Code
-     flash-attn-repro       ▸  Reveal in Finder
- ─────────────────────────────
-   GPU machines
-     ● lab-a100   (idle)
-     ○ runpod-4090 (offline)
- ─────────────────────────────
-   Pause · Settings · Quit
-```
+- **For a session:** leave the terminal open. Ctrl-C stops it.
+- **Always:** `uvx reader-companion service install` registers it to start at
+  login (launchd on macOS, systemd on Linux, Task Scheduler on Windows), and
+  `service stop` / `service uninstall` undo that. That gives the "it's just
+  there" of an app without one.
+- **From VS Code:** the extension starts it when VS Code opens, if it isn't
+  already running.
+- **On the page:** *Your compute* shows each computer's state, and the
+  Companion stops kernels that have been idle for a set time.
 
-It starts at login (optional), uses no CPU while idle, and stops kernels that
-have been idle for a set time.
+![Where should it run? with This computer connected through the Companion and picked by default, and a headless GPU machine listed](mockups/companion-3-where.png)
 
 ### 4 · A project, three ways in
 
@@ -115,6 +131,8 @@ Each project is a plain folder:
   runs/   results/       ← what comes back from a GPU run
 ```
 
+![A project open on the site: Open in VS Code, a file changed in VS Code reloaded live, a conflict on config.yaml, and the Companion pane](mockups/companion-4-project.png)
+
 - **On the site.** The project opens exactly as it does today. Edits go through
   the Jupyter contents API straight to disk.
 - **In Finder or any editor.** Edit `train.py` in anything. The Companion's file
@@ -125,12 +143,15 @@ Each project is a plain folder:
 
 ### 5 · VS Code
 
-You need **no extension** to start: **Open in VS Code** on the site (and in
-the menu bar) uses VS Code's own `vscode://file/<path>` link to open the folder.
+You need **no extension** to start: **Open in VS Code** on the site uses VS Code's own `vscode://file/<path>` link to open the folder.
 VS Code's Jupyter support can then use the Companion's server as the kernel.
 
 The **Reader extension** (VS Code Marketplace and Open VSX) makes that
-seamless and adds the site's own features:
+seamless and adds the site's own features. It is also the no-terminal way in:
+it runs `uvx reader-companion` itself, installing `uv` first if needed, so
+someone who never opens a terminal installs one extension and is done.
+
+![VS Code with the Reader sidebar, a citation hover over a FlashAttention-2 passage, and a run on lab-a100 in the terminal](mockups/companion-5-vscode.png)
 
 - **Reader sidebar.** Your projects (the Companion lists them), the papers each
   one cites, and its GPU machines with their state.
@@ -146,13 +167,15 @@ seamless and adds the site's own features:
 - **Open on the site.** This opens the same project in the browser, with
   Metrics and the Explain pages.
 
-The extension holds no state and no sync logic of its own. It only talks to
+Apart from starting it, the extension holds no state and no sync logic of its own. It only talks to
 the Companion on `localhost`, so VS Code and the site can never disagree.
 
 ### 6 · GPU machines without SSH tunnels
 
-You install the same Companion on the GPU box in headless mode
-(`reader-companion --headless`) and pair it with a code. Then it appears
+![Your compute with a headless GPU machine paired by code, and a project on a computer that's off, readable from the Drive mirror](mockups/companion-6-gpu.png)
+
+You run the same command on the GPU box in headless mode
+(`uvx reader-companion --headless`) and type the code it prints on the page. Then it appears
 under *GPU machines* everywhere.
 
 - **It dials out.** It opens an outbound connection to the site's relay (see
@@ -227,12 +250,13 @@ and shows which one it is on in the machine chip.
 
 | Part | Choice | Why |
 |---|---|---|
-| Companion core | **Go**, one static binary | Cross-compiles to macOS, Windows, Linux (x86 and ARM) with no runtime. The same binary runs the GUI's backend and the headless GPU mode. |
-| Desktop shell | **Tauri** (menu bar + pairing screen) | A ~10 MB app instead of Electron's ~150 MB, and it uses the system web view. It packages to `.dmg` and `.msi`, with signing and auto-update built in. |
-| Kernels | `jupyter_server` + `ipykernel`, in a `uv`-managed env | The protocol the page already speaks. `uv` makes the first-run install take seconds. |
+| Companion | **A Python package on PyPI**, `reader-companion`: a `jupyter_server` extension plus a small CLI | Jupyter is already Python, and the page already speaks its protocol. The extension adds `/companion/*` (pairing, file events, sync) to the same server. |
+| Distribution | **`uvx`** (or `pipx run`) | One command on every OS, no installer, no signing, the newest release each run. |
+| Always on | `service install`: launchd / systemd / Task Scheduler | The OS's own way to keep a program running. |
+| File watching | `watchfiles` | Native events on macOS, Linux and Windows. |
 | Relay | The existing Cloudflare Worker + a Durable Object | It is already deployed, and it already relays a socket for Colab. |
 | Mirror | Google Drive, through the same `drive.file` scope the library uses | No new account, and no new consent. |
-| VS Code | A TypeScript extension, published to the Marketplace and Open VSX | Thin: it talks only to the Companion. |
+| VS Code | A TypeScript extension, published to the Marketplace and Open VSX | It starts the Companion and talks to it. It holds no state of its own. |
 
 ---
 
@@ -240,29 +264,29 @@ and shows which one it is on in the machine chip.
 
 Each step is useful on its own:
 
-1. **`reader-companion` CLI.** It starts Jupyter with the right flags, keeps it
-   running, and pairs through `/playground#pair=`. The page's only change is
-   to accept the fragment and save the server record it carries. That alone
-   removes the copy-and-paste.
-2. **The Mac app.** It wraps step 1 in Tauri as a signed, notarized `.dmg`, with
-   the menu bar, launch at login, and auto-update.
+1. **`uvx reader-companion`.** It starts Jupyter with the right flags, prints
+   what it found, and pairs through `/playground#pair=`. The page's only
+   change is the **Connect this computer** card, which accepts the fragment
+   and saves the server record it carries. That alone removes the
+   copy-and-paste.
+2. **`service install`**, so it is always there.
 3. **File watching and live updates.** It pushes disk changes to open pages,
    with the keep-mine/take-disk choice.
-4. **Open in VS Code** (a link, no extension), then the **extension**: the
-   sidebar, automatic kernel, citations, Run on GPU.
-5. **Relay and headless GPU mode.** Outbound pairing for GPU boxes, end-to-end
-   encryption, and Companion-to-Companion sync for split mode.
+4. **Open in VS Code** (a link, no extension), then the **extension**: it
+   starts the Companion, and adds the sidebar, the automatic kernel,
+   citations and Run on GPU.
+5. **Relay and headless GPU mode.** Pairing by code, end-to-end encryption,
+   and Companion-to-Companion sync for split mode.
 6. **The Drive mirror.** Read-only when offline, a second computer, and conflict
    copies.
-7. **Windows and Linux desktop builds.** The core already runs there from
-   step 1.
 
 ## Open questions
 
 - **Where projects live by default:** `~/Reader/Projects`, or ask on first run?
 - **The relay's cost and limits:** heavy kernel output through Durable Objects
   may need a cap, or the direct route, for large outputs.
-- **Apple Developer ID:** notarizing needs a paid Apple developer account
-  ($99/year).
+- **The name on PyPI:** `reader-companion`, if it is free.
+- **People without a terminal or VS Code:** a `.dmg` that wraps the same
+  package could come later, if anyone needs it.
 - **One Companion, many accounts:** pair it with one Google account at a time,
   matching the library's "one library per account"?

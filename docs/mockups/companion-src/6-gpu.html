@@ -1,0 +1,53 @@
+<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><link rel="stylesheet" href="companion.css"><style>
+.scroll{padding:30px 44px}
+.hero h1{font:600 30px/1.15 var(--serif)}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 430px;gap:22px;margin-top:20px}
+.sect{display:flex;align-items:center;margin:0 0 10px}.sect .eyebrow{flex:1}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 220px 90px;align-items:center;gap:12px;padding:12px 14px;border-top:1px solid var(--border-soft)}
+.row:first-child{border-top:0}
+.row b{display:block;font-size:13px}.row .t span{font-size:11.5px;color:var(--muted)}
+.where{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-2)}
+.ro{font:600 9.5px var(--mono);padding:1px 6px;border-radius:4px;background:#2d2640;color:#c3b2f0;text-transform:uppercase}
+.mach{padding:12px 14px;display:flex;flex-direction:column;gap:3px;border-top:1px solid var(--border-soft)}
+.mach:first-child{border-top:0}
+.mach .h{display:flex;align-items:center;gap:8px;font-weight:600;font-size:12.5px}
+.mach .h .r{margin-left:auto;font:500 11px var(--mono);color:var(--muted);display:flex;align-items:center;gap:6px}
+.mach .s{font-size:11.5px;color:var(--muted);padding-left:30px}
+.add{margin-top:14px;padding:16px;display:flex;flex-direction:column;gap:10px;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.add h3{font:600 15px var(--sans)}.add p{margin:0;font-size:12px;color:var(--ink-2);line-height:1.5}
+.add .cmd{font-size:11.5px;white-space:nowrap}
+.code6{display:flex;gap:6px;align-items:center}.code6 span{width:30px;height:38px;border:1px solid var(--border);border-radius:7px;display:grid;place-items:center;font:600 18px var(--mono);background:var(--panel)}
+.code6 i{color:var(--muted);font-style:normal}
+</style></head><body><div class="app"><!--RAIL--><main class="main"><div class="scroll">
+<span class="eyebrow">Playground</span><h1 class="serif" style="font-size:30px">Try something</h1>
+<div class="grid"><div>
+ <div class="sect"><span class="eyebrow">Your playgrounds</span><span class="muted" style="font-size:11.5px">folders on your computers · mirrored to Drive</span></div>
+ <div class="card">
+  <div class="row"><div class="t"><b>attention-sweep</b><span>Project · 7 files · cites 2 papers · runs on lab-a100</span></div><div class="where"><span class="pc">PC</span>→<span class="gpuico">A100</span> lab-a100 <span class="live"></span></div><span class="btn sm">Open</span></div>
+  <div class="row"><div class="t"><b>flash-attn-repro</b><span>Notebook · 22 cells · on the Mac mini at home</span></div><div class="where"><span class="pc">PC</span> Mac mini <span class="off"></span> <span class="ro">read-only</span></div><span class="btn sm">View</span></div>
+  <div class="row"><div class="t"><b>lora-rank-sweep</b><span>Project · 6 files · 4 runs</span></div><div class="where"><span class="pc">PC</span> MacBook Pro <span class="live"></span></div><span class="btn sm">Open</span></div>
+ </div>
+ <div class="card" style="margin-top:14px;padding:14px 16px;font-size:12.5px;color:var(--ink-2);line-height:1.55"><b style="color:var(--ink)">flash-attn-repro</b> is on a computer that's off. Its text files are shown from your Drive mirror (synced yesterday, 23:14). Open it on this MacBook to bring it here: <span class="btn sm" style="margin-left:6px">Copy to this computer</span></div>
+</div>
+<aside>
+ <div class="sect"><span class="eyebrow">Your compute</span></div>
+ <div class="card">
+  <div class="mach"><div class="h"><span class="co">CO</span>Google Colab<span class="r">ready</span></div></div>
+  <div class="mach"><div class="h"><span class="pc">PC</span>Saurav’s MacBook Pro<span class="r"><span class="live"></span>this · direct</span></div><div class="s">M3 Pro · 36 GB · ~/Reader/Projects</div></div>
+  <div class="mach"><div class="h"><span class="pc">PC</span>Mac mini<span class="r"><span class="off"></span>off · 14 h</span></div></div>
+  <div class="mach"><div class="h"><span class="gpuico">A100</span>lab-a100<span class="r"><span class="live"></span>running · relay</span></div><div class="s">4× A100 80 GB · 2 runs · headless Companion</div></div>
+ </div>
+ <div class="card add">
+  <h3>Add a GPU machine</h3>
+  <p>On the GPU machine (over SSH, in a RunPod terminal, anywhere with a shell):</p>
+  <div class="cmd"><span class="pr">$</span>uvx reader-companion --headless<span class="cp">Copy</span></div>
+  <p>It prints a code. Type it here:</p>
+  <div class="code6"><span>4</span><span>8</span><span>2</span><i>–</i><span>9</span><span>1</span><div class="btn primary" style="margin-left:auto">Pair</div></div>
+  <p class="muted" style="font-size:11.5px">It connects out to Reader, so it works behind a lab firewall or NAT. Traffic is encrypted end to end; the relay can’t read it.</p>
+ </div>
+</aside></div>
+</div></main></div>
+<span class="pin" style="left:956px;top:440px">1</span><span class="pin" style="left:592px;top:142px">2</span><span class="pin" style="left:96px;top:326px">3</span>
+<div class="notes" style="left:104px;bottom:16px"><div class="callout" style="width:290px"><span class="n">1</span>The <b>same command</b> with <code>--headless</code> on a GPU box. Pairing is by code, since there's no browser there.</div><div class="callout" style="width:290px"><span class="n">2</span>Each project shows where its files live and where it runs.</div><div class="callout" style="width:290px"><span class="n">3</span>When that computer is off, the Drive mirror keeps the project <b>readable</b>, and it can be copied to the computer you're on.</div></div>
+<div class="step">6 · GPU machines and other computers</div>
+</body></html>
