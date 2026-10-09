@@ -13,8 +13,10 @@
  * and needs the one click. The token goes when it expires, when Drive
  * refuses it, and on sign-out — which also revokes it.
  *
- * Sign-in asks only for identity. Drive is a second, incremental consent for
- * `drive.file` — the app can only ever see files it created itself.
+ * Sign-in asks for identity and `drive.file` together, in one window — the
+ * app can only ever see files it created itself, and the library is one of
+ * them. `connectDrive` is the same request again, for a sign-in where Drive
+ * was left unticked or has lapsed.
  *
  * Everything a click reaches is synchronous once the GIS script is in the page:
  * a browser only opens a popup for a window that still has the user's gesture,
@@ -277,8 +279,15 @@ async function fetchProfile(accessToken: string): Promise<GoogleUser> {
   return user;
 }
 
+/**
+ * Sign-in, with Drive in the same window: the library is kept in the
+ * account's own Drive, so signing in without it would open a library that
+ * has nowhere to live. Google lets the person untick Drive on its consent
+ * screen; then the sign-in still stands, and `hasDriveAccess` says Drive is
+ * not there, for the app to offer it again.
+ */
 export function signIn(clientId: string): Promise<GoogleUser> {
-  return tokenFor(clientId, IDENTITY_SCOPES, '').then((granted) => fetchProfile(granted.accessToken));
+  return tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`, '').then((granted) => fetchProfile(granted.accessToken));
 }
 
 /**
@@ -468,6 +477,32 @@ export async function listFiles(accessToken: string, parentId: string, mimeType:
     files: DriveFile[];
   };
   return payload.files ?? [];
+}
+
+/**
+ * Every file the app can see that matches a Drive query, following the pages
+ * to the end — with `drive.file` that is only ever the app's own files, so
+ * even a query with no folder in it stays within what the app made.
+ */
+export async function queryFiles(accessToken: string, q: string): Promise<(DriveFile & { parents?: string[] })[]> {
+  const found: (DriveFile & { parents?: string[] })[] = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({
+      q: `${q} and trashed = false`,
+      fields: 'nextPageToken,files(id,name,parents,modifiedTime)',
+      spaces: 'drive',
+      pageSize: '1000',
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+    const payload = (await (await driveFetch(accessToken, `https://www.googleapis.com/drive/v3/files?${params}`)).json()) as {
+      files?: (DriveFile & { parents?: string[] })[];
+      nextPageToken?: string;
+    };
+    found.push(...(payload.files ?? []));
+    pageToken = payload.nextPageToken;
+  } while (pageToken);
+  return found;
 }
 
 /**

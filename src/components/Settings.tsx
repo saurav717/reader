@@ -55,6 +55,10 @@ export default function Settings({ onClose }: { onClose: () => void }) {
     syncAll,
     papers,
     syncLog,
+    librarySync,
+    strays,
+    adoptStrays,
+    discardStrays,
     githubConnected,
     githubLog,
     githubPending,
@@ -106,9 +110,10 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           <div style={{ flexGrow: 1 }}>
             <h2>Settings</h2>
             <p className="lede">
-              Your library lives in this browser. Connect Google Drive to keep a copy of every paper you add,
-              with its highlights, in your own Drive — and a Git repository to keep the notes and the
-              bibliography under version control beside it.
+              Your library belongs to your Google account and lives in your own Drive — every paper with its
+              highlights, and the list of them all — so it is the same in any browser you sign in from, and
+              nobody else's. A Git repository can keep the notes and the bibliography under version control
+              beside it.
             </p>
           </div>
           <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close settings">
@@ -178,24 +183,63 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             <CloudCheckIcon size={20} style={{ color: driveConnected ? 'var(--accent)' : 'var(--muted)' }} />
             <div style={{ flexGrow: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 500 }}>
-                {driveConnected ? 'Google Drive connected' : 'Google Drive not connected'}
+                {driveConnected
+                  ? librarySync.state === 'loading'
+                    ? 'Reading your library from Drive…'
+                    : librarySync.state === 'saving'
+                      ? 'Saving your library to Drive…'
+                      : 'Library saved in your Drive'
+                  : user
+                    ? 'Google Drive not connected'
+                    : 'Signed out'}
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                {driveConnected
-                  ? `${synced} of ${papers.length} papers saved${pending ? ` · ${pending} in progress` : ''}`
-                  : 'Grants access only to the files this app creates.'}
+                {driveConnected ? (
+                  <>
+                    <span className="mono">{settings.driveFolderName || 'Papers_collection'}/library.json</span> ·{' '}
+                    {`${synced} of ${papers.length} papers saved${pending ? ` · ${pending} in progress` : ''}`}
+                  </>
+                ) : user ? (
+                  'Your library is kept in your Drive, so changes made now stay in this browser until it is reconnected.'
+                ) : (
+                  'Sign in to open your library. It is read from your Drive, with access only to the files this app creates.'
+                )}
               </div>
             </div>
             {driveConnected ? (
               <button type="button" className="btn sm" onClick={syncAll}>
                 Sync all
               </button>
-            ) : (
+            ) : user ? (
               <button type="button" className="btn primary sm" onClick={() => void connectDrive()}>
-                Connect Drive
+                Reconnect Drive
               </button>
-            )}
+            ) : null}
           </div>
+
+          {librarySync.state === 'error' ? (
+            <p className="banner error" style={{ marginTop: 10 }}>
+              The library could not be saved to Drive: {librarySync.message}
+            </p>
+          ) : null}
+
+          {user && strays ? (
+            <div className="banner warn" style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <span>
+                This browser still has {strays} paper{strays === 1 ? '' : 's'} from before libraries belonged to an
+                account, never saved to any Drive. Add {strays === 1 ? 'it' : 'them'} to {user.email}'s library only if{' '}
+                {strays === 1 ? 'it is' : 'they are'} yours.
+              </span>
+              <span style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="btn primary sm" onClick={() => void adoptStrays()}>
+                  Add to my library
+                </button>
+                <button type="button" className="btn sm" onClick={() => void discardStrays()}>
+                  Remove from this browser
+                </button>
+              </span>
+            </div>
+          ) : null}
 
           {failed.length ? (
             <p className="banner error" style={{ marginTop: 10 }}>

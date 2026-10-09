@@ -49,7 +49,7 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
         <p style={{ margin: '0 0 26px', fontSize: 14, lineHeight: 1.6, color: 'var(--ink-2)' }}>
           {returning
             ? 'A sign-in lasts as long as the token Google gives it, about an hour, and this one has run out. One click reconnects, and Google will not ask again what you have already agreed to. Papers you add then go to your Drive as you collect them.'
-            : 'Search arXiv, OpenAlex and Semantic Scholar, collect what you want to read, and highlight it. Sign in with Google and every paper you add is saved to your own Drive with its highlights alongside.'}
+            : 'Search arXiv, OpenAlex and Semantic Scholar, collect what you want to read, and highlight it. Sign in with Google and your library lives in your own Drive — every paper, its highlights, and your collections — the same in any browser you sign in from.'}
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
@@ -104,7 +104,7 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
               style={{ height: 42, padding: '0 16px', fontSize: 14 }}
             >
               <GoogleMark size={18} />
-              {returning ? 'Reconnect Google Drive' : user ? 'Connect Google Drive' : 'Sign in and connect Google Drive'}
+              {returning ? 'Reconnect Google Drive' : user ? 'Connect Google Drive' : 'Sign in with Google'}
             </button>
           ) : (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--accent)' }}>
@@ -134,8 +134,8 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
           One consent covers both: your name and address, and the <code>drive.file</code> scope — which reaches
           only the files this app creates, never the rest of your Drive.{' '}
           {mustSignIn
-            ? 'Signing in with Google is the way in; once you are in, Drive can wait for later.'
-            : "Drive is still optional; without it the app works the same, with your library and highlights in this browser's storage alone, and this screen will ask again next time."}{' '}
+            ? 'Signing in with Google is the way in.'
+            : "Without signing in the app works the same, with a library in this browser that belongs to no account; signing in opens your own, from your Drive."}{' '}
           Nothing is ever sent anywhere else.
         </p>
       </div>

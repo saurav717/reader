@@ -822,7 +822,10 @@ never hears about. The asking is cheap then: the app remembers *that* you
 connected, and reconnecting reuses the grant you already gave — Google's
 window opens and closes again without a question. Sign out, and it forgets.
 
-Settings keeps both consents separately, for signing in without Drive at all.
+Settings' **Sign in with Google** is the same single window: there is no
+sign-in without Drive any more, because the library lives in Drive (below). If
+Drive is unticked on Google's screen, the sign-in still stands and Settings
+offers **Reconnect Drive**.
 
 Allow the popup if the browser blocks it — every step opens one, and a blocked
 popup looks like nothing happening. The app says so when it can; see the table
@@ -845,11 +848,48 @@ for a new one using the grant you have already given, with no dialog, and a
 token Drive refuses is dropped at once so the next request asks afresh.
 **Sign out** revokes the token outright and forgets it.
 
+### Your library is your account's, and lives in its Drive
+
+The library — every paper, its collections, its highlights, and what is in
+Junk — is one file in the signed-in account's own Drive,
+`Papers_collection/library.json`. Sign in from any browser and that is the
+library you get; sign in with another account and you get that account's,
+which starts empty. Nothing of one account's is ever shown to, offered to, or
+written to the Drive of another: with `drive.file` the app cannot even see
+another account's files.
+
+The browser keeps a copy per account (an IndexedDB database named
+`reader:<email>`) so a reload opens at once; Drive's file is the record.
+Changes are written to Drive a moment after they stop, and when the tab is
+left. If another browser wrote in the meantime, the two are put together
+before the write rather than one replacing the other. **Sign out** writes
+what is waiting, then reloads the page with nobody's library on it.
+
+An account with no `library.json` yet — anyone who used the app before this
+— gets one made on first sign-in from:
+
+- its paper folders: each sidecar (below) is read back into a paper, its
+  highlights and the names of its collections;
+- the library this browser kept before libraries had owners, but only the
+  papers whose Drive folder this account can open — which proves they were
+  saved with this account's grant. Their reading progress, collection colours
+  and notes come with them.
+
+Papers in that old library that were never saved to any Drive cannot be
+proven anyone's. They are offered — **Add to my library** or **Remove from
+this browser**, in Settings — to the first account that proves any of the
+others its own (or, where none was ever saved to Drive, to the first account
+to sign in), and to no other account.
+
+Signed out, on a build that allows it, the app reads a library that belongs to
+no account (`reader`), as it always did.
+
 ### What lands in Drive
 
 ```
 My Drive/
   Papers_collection/                                  <- name configurable in Settings
+    library.json                                      <- the library itself
     Fourier Neural Operator … (arXiv 2010.08895)/     <- one folder per paper
       Fourier Neural Operator … (arXiv 2010.08895).pdf
       Fourier Neural Operator … (arXiv 2010.08895).json
@@ -3799,8 +3839,9 @@ server/profileReader.js DeepSeek reading Serply's profile snippets for a person'
 server/contributionReader.js  DeepSeek putting a paper's contributions statement to its authors
 src/lib/google.ts       Google Identity Services + Drive REST
 src/lib/driveSync.ts    what a synced paper looks like in Drive
-src/lib/store.tsx       app state, IndexedDB persistence, the sync queue
-src/lib/db.ts           IndexedDB wrapper
+src/lib/store.tsx       app state, the library's trips to and from Drive, the sync queue
+src/lib/driveLibrary.ts the library as library.json in the account's Drive
+src/lib/db.ts           IndexedDB wrapper, one database per account
 src/components/         the UI
 scripts/smoke.mjs       browser smoke test (see below)
 scripts/pdf-proxy.test.mjs  what the PDF proxy serves and what it refuses
@@ -3811,6 +3852,8 @@ scripts/locations.test.mjs  which copies of a paper are collected, how duplicate
                             fold together, the order they are tried in, and the
                             fall-through when one will not answer
 scripts/versions-drive.mjs  the whole chain in a browser (see below)
+scripts/account-library-smoke.mjs  one library per account: two fake Google accounts on one
+                            browser, and the library back from Drive on another
 scripts/scholar.test.mjs    reading Scholar's HTML, pinned to saved fixtures
 scripts/scholar-captcha.test.mjs  the captcha window's routes, and what they refuse to open
 scripts/serpapi.test.mjs    Scholar through SerpApi, pinned to its documented answers
@@ -3826,8 +3869,9 @@ scripts/proxy-setting.test.mjs  which proxy address wins, and what is refused
 scripts/bundle.mjs          loads the app's TypeScript into the test runner
 ```
 
-Your library, collections and highlights live in IndexedDB. Settings and the last
-view live in `localStorage`.
+Your library, collections and highlights live in your Drive
+(`Papers_collection/library.json`), with a copy per account in IndexedDB.
+Settings and the last view live in `localStorage`.
 
 ## Tests
 
