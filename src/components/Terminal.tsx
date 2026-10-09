@@ -37,8 +37,8 @@ export async function hasTerminals(server: JupyterServer): Promise<boolean> {
   }
 }
 
-/** This page's terminal on the server: the one it had, if the server still has it, else a new one in `cwd`. */
-async function terminalName(server: JupyterServer, key: string, cwd: string, fresh: boolean): Promise<string> {
+/** This page's terminal on the server: the one it had, if the server still has it (`again`), else a new one in `cwd`. */
+async function terminalName(server: JupyterServer, key: string, cwd: string, fresh: boolean): Promise<{ name: string; again: boolean }> {
   const saved = read(sessionKey(server, key));
   if (saved && fresh) {
     await jupyterFetch(server, `api/terminals/${encodeURIComponent(saved)}`, { method: 'DELETE' }).catch(() => undefined);
@@ -47,7 +47,7 @@ async function terminalName(server: JupyterServer, key: string, cwd: string, fre
       () => true,
       () => false,
     );
-    if (alive) return saved;
+    if (alive) return { name: saved, again: true };
   }
   let made: { name: string };
   try {
@@ -57,7 +57,7 @@ async function terminalName(server: JupyterServer, key: string, cwd: string, fre
     made = await jupyterFetch<{ name: string }>(server, 'api/terminals', { method: 'POST', body: {} });
   }
   write(sessionKey(server, key), made.name);
-  return made.name;
+  return { name: made.name, again: false };
 }
 
 // The terminal wears the site's theme: its paper, ink and accent, read from the page's own tokens, and
@@ -124,6 +124,7 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
     setState(retries.current ? 'reconnecting' : 'starting');
     setProblem(null);
     let retry = 0;
+    let redraw = 0;
     /** Another try in a while, while tries are left: true when one is scheduled. */
     const tryAgain = () => {
       if (retries.current >= 6) return false;
@@ -135,7 +136,7 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
     void (async () => {
       try {
         const [{ Terminal: XTerm }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
-        const name = await terminalName(server, sessionId, cwd, fresh.current);
+        const { name, again } = await terminalName(server, sessionId, cwd, fresh.current);
         fresh.current = false;
         if (disposed || !host.current) return;
         const look = pageTerminalTheme();
@@ -163,6 +164,16 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
           retries.current = 0;
           setState('live');
           resize();
+          // Back to a shell already running (another tab, the pane opened again): the server replays only its recent
+          // output, and for a program that draws the whole screen — an agent, nano, top — that is a run of small
+          // updates that leave fragments. A size a column narrower and back makes the program draw its screen afresh,
+          // as a real terminal's window being resized does (the kernel signals only a size that changed).
+          if (again) {
+            redraw = window.setTimeout(() => {
+              send(['set_size', term.rows, Math.max(2, term.cols - 1)]);
+              redraw = window.setTimeout(() => send(['set_size', term.rows, term.cols]), 80);
+            }, 250);
+          }
           term.focus();
           const type = (text: string) => send(['stdin', text]);
           typers.set(sessionId, type);
@@ -214,6 +225,7 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
     return () => {
       disposed = true;
       window.clearTimeout(retry);
+      window.clearTimeout(redraw);
       socket?.close();
       cleanup();
     };

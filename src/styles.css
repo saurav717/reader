@@ -5951,6 +5951,17 @@ a.btn { text-decoration: none; }
 .pg-agent-bar { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border-soft); }
 .pg-agent-bar select { flex: 1; min-width: 0; height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--paper); color: var(--ink); font: 12.5px var(--sans); }
 .pg-agent-term { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pg-agent-options { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; padding: 10px 14px 12px; border-bottom: 1px solid var(--border-soft); font-size: 12px; }
+.pg-agent-options label { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: var(--muted); }
+.pg-agent-options input:not([type]), .pg-agent-options select { height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--paper); color: var(--ink); font: 12px var(--sans); min-width: 0; }
+.pg-agent-options input:not([type]) { font-family: var(--mono); }
+.pg-agent-options label.pg-agent-check { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 8px; color: var(--ink-2); }
+.pg-agent-options label:has(input[placeholder^='anything']) { grid-column: 1 / -1; }
+.pg-agent-line { grid-column: 1 / -1; padding: 6px 8px; border-radius: 7px; background: var(--paper); color: var(--ink-2); font: 11.5px var(--mono); white-space: pre-wrap; word-break: break-all; }
+.pg-agent-keys { flex: none; display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 14px; border-bottom: 1px solid var(--border-soft); }
+.pg-agent-key { padding: 2px 8px; border: 1px solid var(--border-soft); border-radius: 6px; background: var(--paper); color: var(--ink-2); font-size: 11px; cursor: pointer; }
+.pg-agent-key:hover { border-color: var(--accent); color: var(--ink); }
+.pg-agent-key.is-key { font: 500 11px var(--sans); color: var(--muted); }
 .pg-agent-empty { padding: 14px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
 .pg-agent-empty code { white-space: pre-wrap; word-break: break-all; }
 .pg-offline { border-top: 1px solid var(--border-soft); }
@@ -5963,3 +5974,30 @@ a.btn { text-decoration: none; }
 .pg-machine.is-offline .pg-mark { filter: grayscale(1); }
 .pg-machine-seen { color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .pg-offline-chevron { transition: none; } }
+
+/* The project's panes, dragged and moved (Gutter.tsx): their sizes come in as variables on .pg-files. */
+.pg-files .pg-tree { width: var(--pg-tree-w, 252px); }
+.pg-files .pg-tree[hidden] { display: none; }
+.pg-files .pg-center .pg-console { height: var(--pg-console-h, 44%); min-height: 120px; }
+.pg-gutter { flex: none; position: relative; z-index: 2; background: transparent; touch-action: none; }
+.pg-gutter.is-x { width: 6px; margin: 0 -3px; cursor: col-resize; }
+.pg-gutter.is-y { height: 6px; margin: -3px 0; cursor: row-resize; }
+.pg-gutter::after { content: ''; position: absolute; background: var(--accent); opacity: 0; transition: opacity 0.12s; }
+.pg-gutter.is-x::after { top: 0; bottom: 0; left: 2px; width: 2px; }
+.pg-gutter.is-y::after { left: 0; right: 0; top: 2px; height: 2px; }
+.pg-gutter:hover::after, .pg-gutter:active::after { opacity: 0.7; }
+.pg-files.is-tree-folded > .pg-gutter:first-of-type { width: 8px; margin: 0; border-right: 1px solid var(--border-soft); }
+body.is-dragging-x, body.is-dragging-x * { cursor: col-resize !important; user-select: none; }
+body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-select: none; }
+.pg-files.is-side-left > .pg-side-pane { order: -2; border-left: 0; border-right: 1px solid var(--border-soft); }
+.pg-files.is-side-left > .pg-gutter.is-side { order: -1; }
+.pg-files.is-big-console .pg-editor, .pg-files.is-big-console .pg-disk-banner { display: none; }
+.pg-files.is-big-console .pg-center .pg-console { flex: 1; height: auto; }
+.pg-disk-banner { flex: none; display: flex; align-items: center; gap: 8px; margin: 0; border-radius: 0; }
+@media (min-width: 1101px) {
+  .pg-files > .pg-side-pane.nb-side { width: var(--pg-side-w, 360px); }
+  .pg-files.is-big-side > .pg-side-pane.nb-side { width: 72%; }
+}
+@media (max-width: 1100px) {
+  .pg-gutter.is-side { display: none; }
+}

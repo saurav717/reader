@@ -13,6 +13,8 @@ import type { ConsoleEntry, FileHost, Playground, SyncReport } from '../lib/play
 import { blankCells, filesAreOnMachine, homeHost, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import { STARTABLE, companionPort, companionTools, findCompanion, isSecure, shutdownCompanion, startCompanion, vscodeWeb } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
+import { AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
+import type { AgentOptions, AgentSpec } from '../lib/agents';
 import { ASSUMED_TOOLS, runPlan } from '../lib/languages';
 import type { MachineTools } from '../lib/languages';
 import type { RuntimeEntry } from '../lib/colab';
@@ -23,6 +25,8 @@ import MetricsPane from './MetricsPane';
 import NotebookPage, { Editor } from './Notebook';
 import type { NbSide } from './Notebook';
 import RuntimePane from './RuntimePane';
+import Gutter, { DEFAULT_LAYOUT, TREE_FOLD, loadLayout, readLayout, saveLayout } from './Gutter';
+import type { PaneLayout } from './Gutter';
 import Terminal, { forgetTerminal, hasTerminals, typeInTerminal } from './Terminal';
 import { WhereDialog } from './Playground';
 import VsCodeExtension, { VsCodeMark, isCompanion } from './VsCodeExtension';
@@ -446,24 +450,6 @@ const absoluteFolder = (server: JupyterServer | undefined, relative: string) => 
   return windows ? `${root}\\${relative.replace(/\//g, '\\')}` : `${root}/${relative}`;
 };
 
-/**
- * The coding agents the pane offers: the ones the Companion looks for
- * (companion/reader_companion/tools.py), each with the command that installs
- * it, typed into the pane's terminal when it isn't on the machine yet.
- */
-export const AGENT_CATALOG: { id: string; name: string; install: string }[] = [
-  { id: 'claude', name: 'Claude Code', install: 'npm install -g @anthropic-ai/claude-code' },
-  { id: 'codex', name: 'Codex', install: 'npm install -g @openai/codex' },
-  { id: 'gemini', name: 'Gemini CLI', install: 'npm install -g @google/gemini-cli' },
-  { id: 'copilot', name: 'GitHub Copilot CLI', install: 'npm install -g @github/copilot' },
-  { id: 'cursor-agent', name: 'Cursor Agent', install: 'curl https://cursor.com/install -fsS | bash' },
-  { id: 'aider', name: 'Aider', install: 'pipx install aider-chat' },
-  { id: 'opencode', name: 'opencode', install: 'npm install -g opencode-ai' },
-  { id: 'goose', name: 'Goose', install: 'curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash' },
-  { id: 'amp', name: 'Amp', install: 'npm install -g @sourcegraph/amp' },
-  { id: 'qwen', name: 'Qwen Code', install: 'npm install -g @qwen-code/qwen-code' },
-];
-
 const readSession = <T,>(name: string, fallback: T): T => {
   try {
     const raw = sessionStorage.getItem(name);
@@ -483,20 +469,33 @@ const shortId = () => Math.random().toString(36).slice(2, 8);
 
 /**
  * The agent pane: a coding agent picked from the list, run in a terminal of
- * its own in the project's folder, beside the editor as in VS Code. The
- * session lives on the machine, so closing the pane and opening it again
- * finds the same conversation; Start again begins a new one.
+ * its own in the project's folder, beside the editor as in VS Code. Before it
+ * starts, its options — the model, what it may do without asking, carrying
+ * on the last conversation, any other flags — make up its command line, shown
+ * as it will be typed; while it runs, its own slash commands and keys are
+ * buttons. The session lives on the machine, so closing the pane and opening
+ * it again finds the same conversation; Start again begins a new one.
  */
 function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgroundId }: { server: JupyterServer | undefined; machineName: string; agents: { id: string; name: string }[]; asked: boolean; cwd: string; inFolder: (command: string) => string; playgroundId: string }) {
   const installed = new Set(agents.map((agent) => agent.id));
-  // An agent the Companion found that the catalog doesn't name yet still shows, by its own name.
-  const catalog = [...AGENT_CATALOG, ...agents.filter((agent) => !AGENT_CATALOG.some((known) => known.id === agent.id)).map((agent) => ({ ...agent, install: '' }))];
+  // An agent the Companion found that the list doesn't name yet still shows, by its own name, with extra arguments only.
+  const catalog: AgentSpec[] = [...AGENTS, ...agents.filter((agent) => !AGENTS.some((known) => known.id === agent.id)).map((agent) => ({ ...agent, install: '' }))];
   const sorted = [...catalog].sort((a, b) => Number(installed.has(b.id)) - Number(installed.has(a.id)));
   const key = `pgagent:${playgroundId}`;
   const [session, setSession] = useState<{ agent: string; id: string; command: string } | null>(() => readSession(key, null));
   const [pick, setPick] = useState(() => session?.agent ?? sorted.find((agent) => installed.has(agent.id))?.id ?? 'claude');
+  const [allOptions, setAllOptions] = useState(savedAgentOptions);
+  const [showOptions, setShowOptions] = useState(!session);
   const chosen = catalog.find((agent) => agent.id === pick) ?? catalog[0];
+  const options = allOptions[chosen.id] ?? {};
+  const setOptions = (patch: Partial<AgentOptions>) => {
+    const next = { ...allOptions, [chosen.id]: { ...options, ...patch } };
+    setAllOptions(next);
+    saveAgentOptions(next);
+  };
+  const command = agentCommand(chosen, options);
   const isThere = installed.has(chosen.id);
+  const running = session ? catalog.find((agent) => agent.id === session.agent) : undefined;
   // What a new session types, once its shell is open (queued until then by typeInTerminal).
   const pending = useRef<{ id: string; text: string } | null>(null);
   useEffect(() => {
@@ -507,18 +506,21 @@ function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgrou
   }, [session]);
 
   if (!server) return <p className="pg-note pg-pad">An agent runs in a terminal on the machine: choose a Jupyter server of yours — a Reader Companion — from the machine menu.</p>;
-  const start = (command: string) => {
+  const start = (line: string) => {
     if (session) forgetTerminal(server, session.id);
-    const next = { agent: chosen.id, id: `${playgroundId}~agent~${shortId()}`, command };
-    pending.current = { id: next.id, text: `${inFolder(command)}\r` };
+    const next = { agent: chosen.id, id: `${playgroundId}~agent~${shortId()}`, command: line };
+    pending.current = { id: next.id, text: `${inFolder(line)}\r` };
     writeSession(key, next);
     setSession(next);
+    setShowOptions(false);
   };
   const stop = () => {
     if (session) forgetTerminal(server, session.id);
     writeSession(key, null);
     setSession(null);
+    setShowOptions(true);
   };
+  const send = (text: string) => session && typeInTerminal(session.id, text);
   return (
     <div className="pg-agent">
       <div className="pg-agent-bar">
@@ -531,7 +533,7 @@ function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgrou
           ))}
         </select>
         {isThere || !asked ? (
-          <button type="button" className="btn sm primary" onClick={() => start(chosen.id)} title={`${chosen.id}, in this project's folder on ${machineName}`}>
+          <button type="button" className="btn sm primary" onClick={() => start(command)} title={`${command} — in this project's folder on ${machineName}`}>
             {session ? 'Start again' : 'Start'}
           </button>
         ) : chosen.install ? (
@@ -544,12 +546,77 @@ function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgrou
             End
           </button>
         ) : null}
+        <button type="button" className={`icon-btn sm${showOptions ? ' is-on' : ''}`} aria-expanded={showOptions} onClick={() => setShowOptions(!showOptions)} title="Its options: the model, permissions, and more" aria-label="Options">
+          ⚙
+        </button>
       </div>
+      {showOptions ? (
+        <div className="pg-agent-options">
+          {chosen.model ? (
+            <label>
+              <span>Model</span>
+              <input list={`pg-agent-models-${chosen.id}`} value={options.model ?? ''} onChange={(event) => setOptions({ model: event.target.value })} placeholder={chosen.model.placeholder ?? 'its default'} spellCheck={false} />
+              {chosen.model.suggestions ? (
+                <datalist id={`pg-agent-models-${chosen.id}`}>
+                  {chosen.model.suggestions.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
+              ) : null}
+            </label>
+          ) : null}
+          {(chosen.choices ?? []).map((choice) => (
+            <label key={choice.key}>
+              <span>{choice.label}</span>
+              <select value={options.choices?.[choice.key] ?? ''} onChange={(event) => setOptions({ choices: { ...options.choices, [choice.key]: event.target.value } })}>
+                {choice.values.map((value) => (
+                  <option key={value.value} value={value.value}>
+                    {value.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+          {(chosen.toggles ?? []).map((toggle) => (
+            <label key={toggle.key} className="pg-agent-check">
+              <input type="checkbox" checked={Boolean(options.toggles?.[toggle.key])} onChange={(event) => setOptions({ toggles: { ...options.toggles, [toggle.key]: event.target.checked } })} />
+              <span>{toggle.label}</span>
+            </label>
+          ))}
+          {chosen.resume ? (
+            <label className="pg-agent-check">
+              <input type="checkbox" checked={Boolean(options.resume)} onChange={(event) => setOptions({ resume: event.target.checked })} />
+              <span>Carry on the last conversation in this folder</span>
+            </label>
+          ) : null}
+          <label>
+            <span>Other flags</span>
+            <input value={options.extra ?? ''} onChange={(event) => setOptions({ extra: event.target.value })} placeholder="anything else it takes, as typed" spellCheck={false} />
+          </label>
+          <code className="pg-agent-line" title="What Start types, in the project's folder">
+            $ {command}
+          </code>
+        </div>
+      ) : null}
       {!asked ? <p className="pg-note pg-pad">The Companion on {machineName} can’t say which agents are installed (update it in Settings → Updates): Start runs the command and the shell says if it is missing.</p> : null}
       {session ? (
-        <div className="pg-agent-term">
-          <Terminal key={session.id} server={server} cwd={cwd} sessionId={session.id} label={`${catalog.find((agent) => agent.id === session.agent)?.name ?? session.agent} on ${machineName}`} />
-        </div>
+        <>
+          <div className="pg-agent-keys" aria-label={`${running?.name ?? session.agent}: its commands`}>
+            {(running?.slash ?? []).map((slash) => (
+              <button key={slash} type="button" className="pg-agent-key mono" onClick={() => send(`${slash}\r`)} title={`Types ${slash} into ${running?.name ?? 'the agent'}`}>
+                {slash}
+              </button>
+            ))}
+            {AGENT_KEYS.map((key) => (
+              <button key={key.label} type="button" className="pg-agent-key is-key" onClick={() => send(key.text)} title={key.title}>
+                {key.label}
+              </button>
+            ))}
+          </div>
+          <div className="pg-agent-term">
+            <Terminal key={session.id} server={server} cwd={cwd} sessionId={session.id} label={`${running?.name ?? session.agent} on ${machineName}`} />
+          </div>
+        </>
       ) : (
         <div className="pg-agent-empty">
           <p>
@@ -593,6 +660,9 @@ function VsCodePane({ server, folder, playground }: { server: JupyterServer; fol
         if (!live) return;
         setStatus(now);
         if (now.state === 'starting' || (now.state === 'off' && !start)) timer = window.setTimeout(() => void look(now.state === 'off'), 1500);
+        // Up: asked again now and then (start checks that it answers, and starts it again if not), so VS Code
+        // stopping — the computer slept — shows here and comes back by itself.
+        else if (now.state === 'ready') timer = window.setTimeout(() => void look(true), 15_000);
       } catch (error) {
         if (live) setProblem(error instanceof Error ? error.message : String(error));
       }
@@ -604,6 +674,14 @@ function VsCodePane({ server, folder, playground }: { server: JupyterServer; fol
     };
   }, [server.id, server.url, server.token, folder, round]);
   const src = status?.state === 'ready' && status.path ? `${server.url.replace(/\/?$/, '/')}${status.path.replace(/^\//, '')}?folder=${encodeURIComponent(status.folder)}` : null;
+  // A frame that came up again after a restart is a new one, so it loads VS Code afresh.
+  const [frameRound, setFrameRound] = useState(0);
+  const wasReady = useRef(true);
+  useEffect(() => {
+    const ready = status?.state === 'ready';
+    if (ready && !wasReady.current) setFrameRound((n) => n + 1);
+    wasReady.current = ready;
+  }, [status?.state]);
   return (
     <div className="pg-vscode-pane">
       <div className="pg-tabs pg-vscode-head">
@@ -617,7 +695,7 @@ function VsCodePane({ server, folder, playground }: { server: JupyterServer; fol
         ) : null}
       </div>
       {src ? (
-        <iframe className="pg-vscode-frame" src={src} title={`VS Code on ${server.name}`} allow="clipboard-read; clipboard-write" />
+        <iframe key={frameRound} className="pg-vscode-frame" src={src} title={`VS Code on ${server.name}`} allow="clipboard-read; clipboard-write" />
       ) : (
         <div className="pg-vscode-wait">
           {problem || status?.state === 'failed' ? (
@@ -659,6 +737,54 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
   const [command, setCommand] = useState(playground.pending ?? '');
   const [base, setBase] = useState<string | null>(null);
   const current = files.find((file) => `${file.where}:${file.path}` === active) ?? null;
+  // The file shown is read again from its folder every couple of seconds, and when the window comes back: an agent, a
+  // terminal or another editor may have written it. Untouched here, it takes the new text; changed here too, the bar asks.
+  // The panes' sizes and places, dragged and toggled; kept for every project.
+  const [layout, setLayoutState] = useState<PaneLayout>(loadLayout);
+  const setLayout = (patch: Partial<PaneLayout>) =>
+    setLayoutState((now) => {
+      const next = readLayout({ ...now, ...patch });
+      saveLayout(next);
+      return next;
+    });
+  const dragFrom = useRef<PaneLayout>(layout);
+  const centerBox = useRef<HTMLElement>(null);
+  const sideKey = side === 'agent' ? 'agent' : 'side';
+  const [onDisk, setOnDisk] = useState<{ key: string; text: string } | null>(null);
+  const dismissed = useRef<{ key: string; text: string } | null>(null);
+  const currentKey = current ? `${current.where}:${current.path}` : null;
+  useEffect(() => {
+    if (!current || !currentKey) return;
+    const { where, path } = current;
+    const host = where === 'home' ? home : machine;
+    let live = true;
+    let reading = false;
+    const check = async () => {
+      if (reading || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return;
+      reading = true;
+      try {
+        const disk = (await host.read(path)) ?? '';
+        if (!live) return;
+        setFiles((list) => list.map((f) => (`${f.where}:${f.path}` === currentKey && disk !== f.saved && f.text === f.saved ? { ...f, text: disk, saved: disk } : f)));
+        const shown = filesRef.current.find((f) => `${f.where}:${f.path}` === currentKey);
+        const stale = shown && disk !== shown.saved && shown.text !== shown.saved && !(dismissed.current?.key === currentKey && dismissed.current.text === disk);
+        setOnDisk(stale ? { key: currentKey, text: disk } : null);
+      } catch {
+        // not reachable now (the machine not connected): the next read tries again
+      } finally {
+        reading = false;
+      }
+    };
+    const every = window.setInterval(() => void check(), 2000);
+    window.addEventListener('focus', check);
+    return () => {
+      live = false;
+      window.clearInterval(every);
+      window.removeEventListener('focus', check);
+    };
+  }, [currentKey, home, machine]);
+  const filesRef = useRef(files);
+  filesRef.current = files;
   // A real terminal when the machine is a Jupyter server that offers one (a Reader Companion does); the command box otherwise, and on Colab.
   const computeServer = playground.compute.kind === 'server' ? servers.find((server) => server.id === (playground.compute.kind === 'server' ? playground.compute.serverId : '')) : undefined;
   const [terminals, setTerminals] = useState<boolean | null>(null);
@@ -847,12 +973,25 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
   }
 
   return (
-    <div className="pg-files">
-      <aside className="pg-tree">
+    <div
+      className={`pg-files${layout.sideLeft ? ' is-side-left' : ''}${layout.big ? ` is-big-${layout.big}` : ''}${layout.tree === 0 ? ' is-tree-folded' : ''}`}
+      style={{ '--pg-tree-w': `${layout.tree}px`, '--pg-side-w': `${layout[sideKey]}px`, '--pg-console-h': `${layout.console}%` } as React.CSSProperties}
+    >
+      <aside className="pg-tree" hidden={layout.tree === 0}>
         <Tree key={`home-${refresh}`} host={home} label={split ? `Files · ${homeLabel}` : `Files · ${homeLabel}`} onOpen={(path) => void open('home', path)} activePath={current?.where === 'home' ? current.path : null} onNew={() => void newFile()} />
         {split ? <Tree key={`machine-${refresh}-${connected}`} host={machine} label={`On ${machineName}`} note={connected ? undefined : 'Connect to see the folder on the machine.'} disabled={!connected} onOpen={(path) => void open('machine', path)} activePath={current?.where === 'machine' ? current.path : null} /> : null}
       </aside>
-      <section className="pg-center">
+      <Gutter
+        axis="x"
+        label="The file tree’s width"
+        onStart={() => (dragFrom.current = layout)}
+        onMove={(delta) => {
+          const width = dragFrom.current.tree + delta;
+          setLayout({ tree: width < TREE_FOLD ? 0 : width });
+        }}
+        onReset={() => setLayout({ tree: DEFAULT_LAYOUT.tree })}
+      />
+      <section className="pg-center" ref={centerBox}>
         <div className="pg-tabs" role="tablist">
           {files.map((file) => {
             const key = `${file.where}:${file.path}`;
@@ -921,6 +1060,26 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
           )}
           {problem ? <p className="pg-note is-problem">{problem}</p> : null}
         </div>
+        {current && onDisk && onDisk.key === currentKey ? (
+          <div className="pg-banner pg-disk-banner">
+            {current.path.split('/').pop()} changed in its folder while you were editing it here.
+            <button type="button" className="btn sm" onClick={() => (setFiles((list) => list.map((f) => (f === current ? { ...f, text: onDisk.text, saved: onDisk.text } : f))), setOnDisk(null))}>
+              Load it
+            </button>
+            <button type="button" className="btn sm ghost" onClick={() => ((dismissed.current = onDisk), setOnDisk(null))} title="Keep what is here; Save writes it over the folder's">
+              Keep mine
+            </button>
+          </div>
+        ) : null}
+        {layout.big !== 'console' ? (
+          <Gutter
+            axis="y"
+            label="The console’s height"
+            onStart={() => (dragFrom.current = layout)}
+            onMove={(delta) => setLayout({ console: dragFrom.current.console - (delta / Math.max(1, centerBox.current?.clientHeight ?? 1)) * 100 })}
+            onReset={() => setLayout({ console: DEFAULT_LAYOUT.console })}
+          />
+        ) : null}
         <div className={`pg-console${view === 'terminal' ? ' is-terminal' : ''}`}>
           <div className="pg-console-head">
             {terminals && computeServer ? (
@@ -964,6 +1123,9 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
                 Agent
               </button>
             ) : null}
+            <button type="button" className={`icon-btn sm${layout.big === 'console' ? ' is-on' : ''}`} onClick={() => setLayout({ big: layout.big === 'console' ? null : 'console' })} aria-pressed={layout.big === 'console'} title={layout.big === 'console' ? 'Give the editor its room back' : 'Give the console the whole column'} aria-label={layout.big === 'console' ? 'Restore the console' : 'Expand the console'}>
+              {layout.big === 'console' ? '⤡' : '⤢'}
+            </button>
             {view === 'commands' && colab.running?.startsWith('pgsh:') ? (
               <button type="button" className="btn sm colab-stop" onClick={() => void interrupt()}>
                 ■ Stop
@@ -1011,6 +1173,16 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
         </div>
       </section>
       {side ? (
+        <Gutter
+          axis="x"
+          className="is-side"
+          label="The side pane’s width"
+          onStart={() => (dragFrom.current = layout)}
+          onMove={(delta) => setLayout({ [sideKey]: dragFrom.current[sideKey] + (layout.sideLeft ? delta : -delta), big: null })}
+          onReset={() => setLayout({ [sideKey]: DEFAULT_LAYOUT[sideKey], big: null })}
+        />
+      ) : null}
+      {side ? (
         <aside className={`nb-side pg-side-pane${side === 'agent' ? ' is-agent' : ''}`}>
           <div className="nb-side-tabs" role="tablist">
             {split ? (
@@ -1030,6 +1202,12 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
               Metrics
             </button>
             <span className="spacer" />
+            <button type="button" className="icon-btn sm" onClick={() => setLayout({ sideLeft: !layout.sideLeft })} title={layout.sideLeft ? 'Move the pane to the right of the editor' : 'Move the pane to the left of the editor'} aria-label={layout.sideLeft ? 'Move the pane right' : 'Move the pane left'}>
+              ⇄
+            </button>
+            <button type="button" className={`icon-btn sm${layout.big === 'side' ? ' is-on' : ''}`} onClick={() => setLayout({ big: layout.big === 'side' ? null : 'side' })} aria-pressed={layout.big === 'side'} title={layout.big === 'side' ? 'Back to its width' : 'Give the pane most of the width'} aria-label={layout.big === 'side' ? 'Restore the pane' : 'Expand the pane'}>
+              {layout.big === 'side' ? '⤡' : '⤢'}
+            </button>
             <button type="button" className="icon-btn sm" onClick={() => onSide(null)} aria-label="Close the pane">
               <CloseIcon size={14} />
             </button>

@@ -153,8 +153,14 @@ class VsCodeWeb:
 
     def start(self) -> dict:
         with self.lock:
-            if self.state in ("starting", "ready") and self.process and self.process.poll() is None:
+            if self.state == "starting" and self.process and self.process.poll() is None:
                 return self.status()
+            if self.state == "ready" and self.process and self.process.poll() is None:
+                if self.answers():
+                    return self.status()
+                # Running, but its server no longer answers (it stopped, the computer slept): start it again,
+                # or every page that asks is told it is ready and the frame shows an error.
+                self.stop()
             command = vscode_command()
             if not command:
                 self.state, self.error = "failed", "VS Code isn’t installed on this computer. Install it from code.visualstudio.com, then try again."
