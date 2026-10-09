@@ -6019,3 +6019,9 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 
 .pg-stop-with-app { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--ink-2); cursor: pointer; }
 .pg-mode-what { margin: 8px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+
+.menu .pg-chip-link { display: block; width: 100%; padding: 7px 12px; border-radius: 7px; color: inherit; text-decoration: none; font-size: 13px; }
+.menu .pg-chip-link:hover, .menu .pg-chip-link:focus-visible { background: var(--accent-soft); color: var(--accent-ink); outline: none; }
+.pg-chip-sub { display: block; font-size: 11px; color: var(--muted); }
+.pg-chip-menu.colab-menu { min-width: 320px; }
+.menu button.pg-chip-two { flex-direction: column; align-items: flex-start; gap: 1px; }

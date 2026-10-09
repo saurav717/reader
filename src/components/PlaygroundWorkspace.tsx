@@ -7,7 +7,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Backend, JupyterServer } from '../lib/colab';
-import { backendLabel, chooseBackend, colabAvailable, colabNow, connect, forgetRun, interrupt, lastActivityAt, runCell, runQuietly, setMachine, stopRuntime } from '../lib/colab';
+import { backendLabel, chooseBackend, colabAvailable, colabNow, connect, forgetRun, interrupt, lastActivityAt, machineLabel, restartKernel, runCell, runQuietly, setMachine, stopRuntime } from '../lib/colab';
+import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, Playground, SyncReport } from '../lib/playground';
 import { blankCells, filesAreOnMachine, homeHost, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
@@ -20,7 +21,7 @@ import type { MachineTools } from '../lib/languages';
 import type { RuntimeEntry } from '../lib/colab';
 import { useStore } from '../lib/store';
 import type { Screen } from '../lib/assistant';
-import { CellRunOutput, ColabMark, useColab } from './Colab';
+import { CellRunOutput, ColabMark, ConnectCard, MachinePicker, attachUrl, useColab } from './Colab';
 import MetricsPane from './MetricsPane';
 import NotebookPage, { Editor } from './Notebook';
 import type { NbSide } from './Notebook';
@@ -264,6 +265,17 @@ function MachineChip({ playground, name, usable, onChange, onNote }: { playgroun
     return () => window.removeEventListener('mousedown', away);
   }, [open]);
   const connected = colab.status === 'idle' || colab.status === 'busy';
+  const onColab = playground.compute.kind === 'colab';
+  const colabMachine: Machine = playground.compute.kind === 'colab' ? playground.compute.machine : colab.machine;
+  const [changingMachine, setChangingMachine] = useState(false);
+  useEffect(() => {
+    if (!open) setChangingMachine(false);
+  }, [open]);
+  /** The machine picked here becomes the playground's own, so it opens on it next time and in other browsers. */
+  const pickMachine = (machine: Machine) => {
+    setMachine(machine);
+    if (playground.compute.kind === 'colab') updatePlayground(playground.id, { compute: { kind: 'colab', machine } });
+  };
   // Whether the Companion answers, looked at when the menu opens and it isn't connected.
   useEffect(() => {
     if (!open || !companion || connected || power === 'stopping' || power === 'starting') return;
@@ -319,8 +331,34 @@ function MachineChip({ playground, name, usable, onChange, onNote }: { playgroun
         {name} · {state}
         {connected && colab.startedAt ? ` · ${clock(colab.startedAt, now)}` : ''}
       </button>
-      {open ? (
-        <div className="menu right pg-chip-menu" role="menu">
+      {open && onColab && !connected ? (
+        // Colab, not connected: the same card as a paper's cells — the machine, what Google is asked for, what the reader can and can't do.
+        <ConnectCard
+          playground
+          initial={colabMachine}
+          busy={colab.status === 'connecting'}
+          onClose={() => setOpen(false)}
+          onConnect={(machine) => {
+            setOpen(false);
+            pickMachine(machine);
+            void connect(machine).catch(() => undefined);
+          }}
+          footer={
+            <button
+              type="button"
+              className="colab-action"
+              onClick={() => {
+                setOpen(false);
+                onChange();
+              }}
+            >
+              <b>Change where it runs…</b>
+              <span>This PC, a computer of yours, a GPU server — or the code on one machine and run on another</span>
+            </button>
+          }
+        />
+      ) : open ? (
+        <div className={`menu right pg-chip-menu${onColab ? ' colab-menu' : ''}`} role="menu">
           <div className="menu-label">Where the code runs</div>
           <p className="pg-chip-note">
             <b>{name}</b>
@@ -371,6 +409,63 @@ function MachineChip({ playground, name, usable, onChange, onNote }: { playgroun
               Interrupt the running cell
             </button>
           )}
+          {onColab && connected ? (
+            <>
+              <div className="colab-stats">
+                <div>
+                  <span className="k">Machine</span>
+                  <span className="v">{colab.runtime ? machineLabel(colab.runtime) : machineLabel(colabMachine)}</span>
+                </div>
+                <div>
+                  <span className="k">Up for</span>
+                  <span className="v">{clock(colab.startedAt, now) || '—'}</span>
+                </div>
+                <div>
+                  <span className="k">Compute units</span>
+                  <span className="v">
+                    {colab.units?.balance !== undefined ? colab.units.balance.toFixed(1) : colab.runtime?.accelerator ? 'your tier’s' : '0'}
+                    {colab.units?.ratePerHour ? <small> · {colab.units.ratePerHour.toFixed(2)}/h</small> : !colab.runtime?.accelerator ? <small> · free</small> : null}
+                  </span>
+                </div>
+              </div>
+              {changingMachine ? (
+                <div className="colab-status">
+                  A new runtime on another machine; this one is stopped, and every variable with it.
+                  <MachinePicker
+                    machine={colabMachine}
+                    disabled={colab.status === 'busy'}
+                    onPick={(machine) => {
+                      setOpen(false);
+                      setChangingMachine(false);
+                      pickMachine(machine);
+                      void stopRuntime().then(() => connect(machine));
+                    }}
+                  />
+                </div>
+              ) : (
+                <button type="button" role="menuitem" className="pg-chip-two" disabled={colab.status === 'busy'} onClick={() => setChangingMachine(true)}>
+                  Change machine… <small className="pg-chip-sub">CPU, T4, L4, A100 — a new runtime</small>
+                </button>
+              )}
+              {colab.runtime && colab.backend.kind === 'colab' ? (
+                <a role="menuitem" className="pg-chip-link" href={attachUrl(colab.runtime.endpoint)} target="_blank" rel="noreferrer noopener" title="Colab's own notebook page on the same machine — for plots, a terminal, or Drive, on purpose">
+                  Open this runtime in Colab ↗
+                </a>
+              ) : null}
+              <button
+                type="button"
+                role="menuitem"
+                disabled={colab.status === 'busy'}
+                title="Forgets every variable; keeps the machine and the files on it"
+                onClick={() => {
+                  setOpen(false);
+                  void restartKernel();
+                }}
+              >
+                Restart the kernel
+              </button>
+            </>
+          ) : null}
           <button
             type="button"
             role="menuitem"
