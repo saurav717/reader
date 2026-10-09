@@ -125,6 +125,41 @@ async function authorized(request, env) {
   return owners && emailAllowed(pass.email, owners) ? { email: pass.email, owner: true } : { email: pass.email };
 }
 
+// Google sign-ins already checked with Google, by a hash of the token: the
+// Usage page asks a few routes at once, and Google needn't be asked each time.
+const ownersSeen = new Map();
+const OWNER_SEEN_MS = 5 * 60_000;
+
+async function tokenKey(token) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return btoa(String.fromCharCode(...new Uint8Array(digest)));
+}
+
+/**
+ * Who asks for the owner's routes (the Usage page): READER_TOKEN or an owner's
+ * pass, as `authorized` says; or else, with no pass at all, a Google sign-in
+ * itself (X-Google-Token) whose email Google vouches for, for this app's client
+ * ID, and READER_OWNERS names. The owner is known by the email they sign in
+ * with, with no pass or captcha first. Anyone else's sign-in gets nothing here.
+ */
+async function ownerAuthorized(request, env) {
+  const who = await authorized(request, env);
+  if (who?.owner) return who;
+  const owners = String(env.READER_OWNERS || '').trim();
+  const googleToken = (request.headers.get('X-Google-Token') || '').trim();
+  if (!owners || !googleToken || !env.GOOGLE_CLIENT_ID) return who;
+  const key = await tokenKey(googleToken);
+  const seen = ownersSeen.get(key);
+  let email = seen && seen.until > Date.now() ? seen.email : null;
+  if (!email) {
+    email = await googleEmail(googleToken, env.GOOGLE_CLIENT_ID).catch(() => null);
+    if (!email) return who;
+    if (ownersSeen.size > 200) ownersSeen.clear();
+    ownersSeen.set(key, { email, until: Date.now() + OWNER_SEEN_MS });
+  }
+  return emailAllowed(email, owners) ? { email, owner: true } : who;
+}
+
 /**
  * Whether a signed-in person is asking faster than a person does — the one
  * guard on the owner's paid accounts now that anyone with a Google account
@@ -348,7 +383,7 @@ export default {
       // The owner's alone — READER_TOKEN itself, or the pass of someone named
       // in READER_OWNERS; not anyone else's pass.
       if (path === '/usage') {
-        const who = await authorized(request, env);
+        const who = await ownerAuthorized(request, env);
         if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
         if (!env.USAGE) return json({ error: 'no USAGE object is bound here — see wrangler.toml' }, 501, headers);
         const days = Math.max(1, Math.min(90, Number(url.searchParams.get('days')) || 30));
@@ -360,7 +395,7 @@ export default {
       // balance now, and what it fell by each day — with DEEPSEEK_KEY set:
       // worker/deepseekBalance.js. The owner's alone, like /usage.
       if (path === '/usage/deepseek') {
-        const who = await authorized(request, env);
+        const who = await ownerAuthorized(request, env);
         if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
         const days = Math.max(1, Math.min(90, Number(url.searchParams.get('days')) || 30));
         const noStore = { ...headers, 'Cache-Control': 'no-store' };
@@ -375,7 +410,7 @@ export default {
       // the key and the plan have used this cycle, and what the key used each
       // day — with TAVILY_KEY set: worker/tavilyUsage.js. The owner's alone.
       if (path === '/usage/tavily') {
-        const who = await authorized(request, env);
+        const who = await ownerAuthorized(request, env);
         if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
         const days = Math.max(1, Math.min(90, Number(url.searchParams.get('days')) || 30));
         const noStore = { ...headers, 'Cache-Control': 'no-store' };

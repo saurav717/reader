@@ -1,5 +1,6 @@
+import { ownerFetch } from '../lib/owner';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { apiFetch, hasProxy } from '../lib/api';
+import { hasProxy } from '../lib/api';
 import AiUsage, { ROW_HEIGHT, ROWS_IN_VIEW, SearchBox, SortControl, SortHeading, card, cardHead, cardTitle, useSort } from './AiUsage';
 import WebUsage from './WebUsage';
 import type { SortOption } from './AiUsage';
@@ -59,9 +60,7 @@ export interface UsageReport {
 /** The report for the last `days` days, or null — which is what anyone but the owner gets. */
 async function fetchUsage(days: number, token?: string): Promise<UsageReport | null> {
   if (!hasProxy()) return null;
-  // With the token named: the one in Settings may be newer than the one api.ts holds,
-  // which the store hands it only after this render (setProxyToken, in an effect).
-  const response = await apiFetch(`/usage?days=${days}`, token ? { headers: { Authorization: `Bearer ${token.trim()}` } } : {});
+  const response = await ownerFetch(`/usage?days=${days}`, token);
   if (!response.ok) return null;
   const answer = (await response.json()) as UsageReport;
   return Array.isArray(answer?.people) ? answer : null;
@@ -73,10 +72,11 @@ async function fetchUsage(days: number, token?: string): Promise<UsageReport | n
  * READER_OWNERS, and to nobody else. Asked again whenever the token (or the
  * pass a sign-in fills in) changes.
  */
-export function useIsOwner(token: string): boolean {
+export function useIsOwner(token: string, signedInAs?: string | null): boolean {
   const [owner, setOwner] = useState(false);
   useEffect(() => {
-    if (!token.trim()) {
+    // A pass or token to show, or a Google sign-in: the owner is known by either.
+    if (!token.trim() && !signedInAs) {
       setOwner(false);
       return;
     }
@@ -96,7 +96,7 @@ export function useIsOwner(token: string): boolean {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [token]);
+  }, [token, signedInAs]);
   return owner;
 }
 

@@ -7,10 +7,13 @@
 // A browser can be signed in with Google and still hold no pass: signed in while
 // the site had no proxy, or with the pass gone. Nothing asks for one again until
 // the next sign-in, since only the sign-in screen shows the check; this does.
+// The owner needs none for Usage: the proxy knows them by their Google email
+// (READER_OWNERS), which this row also says.
 
 import { useCallback, useEffect, useState } from 'react';
-import { apiFetch, BUILT_IN_BASE, captchaSiteKey, hasProxy, isPass, mayAskForPass, passEmail, passExpires, passForGoogle } from '../lib/api';
+import { BUILT_IN_BASE, captchaSiteKey, hasProxy, isPass, mayAskForPass, passEmail, passExpires, passForGoogle } from '../lib/api';
 import * as google from '../lib/google';
+import { ownerFetch } from '../lib/owner';
 import { useStore } from '../lib/store';
 import { Captcha } from './Welcome';
 
@@ -19,7 +22,7 @@ type Owner = { state: 'checking' } | { state: 'owner' } | { state: 'not-owner'; 
 /** What the proxy says of this browser's token: the owner's (it answers /usage), or why not. */
 async function ownerCheck(token: string): Promise<Owner> {
   try {
-    const response = await apiFetch('/usage?days=1', { headers: { Authorization: `Bearer ${token}` } });
+    const response = await ownerFetch('/usage?days=1', token);
     if (response.ok) return { state: 'owner' };
     const body = (await response.json().catch(() => ({}))) as { error?: string };
     return { state: 'not-owner', why: body.error || `The proxy said ${response.status}.` };
@@ -43,14 +46,15 @@ export default function ProxyPass() {
   const [problem, setProblem] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!hasProxy() || !held) return setOwner({ state: 'unknown' });
+    // The owner is known by a pass, or by the Google sign-in alone (ownerFetch sends both).
+    if (!hasProxy() || (!held && !google.liveAccessToken())) return setOwner({ state: 'unknown' });
     let live = true;
     setOwner({ state: 'checking' });
     void ownerCheck(held).then((answer) => live && setOwner(answer));
     return () => {
       live = false;
     };
-  }, [held, settings.proxyBase]);
+  }, [held, settings.proxyBase, user?.email]);
 
   const start = useCallback(async () => {
     setProblem(null);
@@ -92,13 +96,13 @@ export default function ProxyPass() {
       <div>
         <b>Proxy sign-in.</b>{' '}
         {!held
-          ? 'This browser holds no pass for the proxy, so the proxy treats you as a visitor: no Usage dashboard, and the per-person limits.'
+          ? 'This browser holds no pass for the proxy: it gets one when you sign in.'
           : !pass
             ? 'A token pasted by hand (Paper proxy → Proxy token) is in use, not a pass from your sign-in.'
             : expired
               ? `The pass for ${email ?? 'you'} ran out on ${date}.`
               : `A pass for ${email ?? 'you'}, good until ${date}.`}{' '}
-        {owner.state === 'checking' ? 'Asking the proxy…' : owner.state === 'owner' ? 'The proxy knows you as its owner: Usage is on the rail.' : owner.state === 'not-owner' && held ? `The proxy doesn’t treat it as the owner’s: “${owner.why}”` : null}
+        {owner.state === 'checking' ? 'Asking the proxy…' : owner.state === 'owner' ? `The proxy knows ${user?.email ?? 'you'} as its owner: Usage is on the rail.` : owner.state === 'not-owner' ? `The proxy doesn’t treat it as the owner’s: “${owner.why}”` : null}
       </div>
       {asking ? (
         <div className="proxy-pass-ask">

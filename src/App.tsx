@@ -210,7 +210,7 @@ export default function App() {
   // The owner of the proxy — READER_TOKEN, or a Google sign-in named in
   // READER_OWNERS — gets a rail button for who uses it; nobody else sees one.
   const [usageOpen, setUsageOpen] = useState(() => typeof window !== 'undefined' && Boolean(placeFor(window.location.pathname)?.usage));
-  const isOwner = useIsOwner(settings.proxyToken);
+  const isOwner = useIsOwner(settings.proxyToken, user?.email);
   // Usage is a page of its own: it takes the main area, and the library and
   // the side panel step aside while it is open.
   const onUsage = usageOpen && isOwner;

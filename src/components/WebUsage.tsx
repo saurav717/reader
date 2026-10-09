@@ -1,5 +1,5 @@
+import { ownerFetch } from '../lib/owner';
 import { useEffect, useRef, useState } from 'react';
-import { apiFetch } from '../lib/api';
 import { BarChart, card, cardHead, cardTitle, daysBetween, muted } from './AiUsage';
 import type { UsageReport } from './UsageView';
 
@@ -54,7 +54,7 @@ function useTavilyAccount(days: number, refreshedAt: number): TavilyAccount | nu
     if (asked.current.days === days && Date.now() - asked.current.at < ACCOUNT_MS) return;
     asked.current = { at: Date.now(), days };
     let cancelled = false;
-    apiFetch(`/usage/tavily?days=${days}`)
+    ownerFetch(`/usage/tavily?days=${days}`)
       .then((response) => (response.ok ? response.json() : null))
       .then((answer) => !cancelled && answer && setAccount(answer as TavilyAccount))
       .catch(() => undefined);

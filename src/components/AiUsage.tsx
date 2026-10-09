@@ -1,5 +1,5 @@
+import { ownerFetch } from '../lib/owner';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { apiFetch } from '../lib/api';
 import { MODELS } from '../lib/assistant';
 import type { ByModel, UsageReport } from './UsageView';
 import { KEEP_DAYS, PERIOD_PRESETS, addDays, dayOf, daysSpanned } from '../lib/usagePeriod';
@@ -23,7 +23,7 @@ function useDeepSeekAccount(days: number, refreshedAt: string): DeepSeekAccount 
     if (asked.current.days === days && Date.now() - asked.current.at < BALANCE_MS) return;
     asked.current = { at: Date.now(), days };
     let cancelled = false;
-    apiFetch(`/usage/deepseek?days=${days}`)
+    ownerFetch(`/usage/deepseek?days=${days}`)
       .then((response) => (response.ok ? response.json() : null))
       .then((answer) => !cancelled && answer && setAccount(answer as DeepSeekAccount))
       .catch(() => undefined);
