@@ -12,6 +12,8 @@ name: Deploy site
 on:
   push:
     branches: [main]
+  # A pull request builds the site, to check it, and publishes nothing.
+  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -23,22 +25,20 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SITE_DEPLOY_TOKEN: ${{ secrets.SITE_DEPLOY_TOKEN }}
+      PUBLISH: ${{ github.event_name != 'pull_request' && secrets.SITE_DEPLOY_TOKEN != '' }}
     steps:
-      - name: Without the token, nothing to do
-        if: env.SITE_DEPLOY_TOKEN == ''
+      - name: Without the token, nothing to publish
+        if: github.event_name != 'pull_request' && env.SITE_DEPLOY_TOKEN == ''
         run: echo "::notice::SITE_DEPLOY_TOKEN isn't set, so the site isn't published from here (docs/deploy.md)."
 
       - uses: actions/checkout@v4
-        if: env.SITE_DEPLOY_TOKEN != ''
 
       - uses: actions/setup-node@v4
-        if: env.SITE_DEPLOY_TOKEN != ''
         with:
           node-version: 22
           cache: npm
 
       - name: Build the site
-        if: env.SITE_DEPLOY_TOKEN != ''
         env:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
         run: |
@@ -47,14 +47,14 @@ jobs:
           grep -q "reader-arxiv-proxy" dist-pages/assets/index-*.js || { echo "::error::The build has no proxy address in it"; exit 1; }
 
       - uses: actions/checkout@v4
-        if: env.SITE_DEPLOY_TOKEN != ''
+        if: env.PUBLISH == 'true'
         with:
           repository: saurav717/saurav717.github.io
           token: ${{ secrets.SITE_DEPLOY_TOKEN }}
           path: site
 
       - name: Publish it under reader/
-        if: env.SITE_DEPLOY_TOKEN != ''
+        if: env.PUBLISH == 'true'
         env:
           MESSAGE: ${{ github.event.head_commit.message }}
         run: |
