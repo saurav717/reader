@@ -11,7 +11,20 @@ import {
 import type { Collection, GoogleUser, Highlight, HighlightColor, JunkEntry, Paper, PaperRef, Settings } from '../types';
 import { COLLECTION_COLORS } from '../types';
 import { forgetNotes } from './notes';
-import { db } from './db';
+import { db, switchDb } from './db';
+import {
+  emptyLibrary,
+  libraryMark,
+  mergeLibraries,
+  readLibraryFromDrive,
+  rebuildFromSidecars,
+  serialise,
+  visibleInDrive,
+  writeLibraryToDrive,
+  LIBRARY_FILE,
+  type Library,
+  type RemoteMark,
+} from './driveLibrary';
 import { tidyByline } from './byline';
 import { ROOT_FOLDER, driveFolderUrl, isInDrive, junkPaperInDrive, restorePaperInDrive, syncPaperToDrive } from './driveSync';
 import { FINISHED_AT, type ReadingStatus } from './status';
@@ -29,6 +42,21 @@ const SETTINGS_KEY = 'reader.settings';
  * time.
  */
 const DRIVE_KEY = 'reader.drive.connected';
+/**
+ * The account that first signed in on this browser once libraries were tied
+ * to accounts. What the browser still held from before then, and could not be
+ * shown to be another account's, is offered to this account and no other.
+ */
+const GUEST_CLAIM_KEY = 'reader.guest.claimedBy';
+
+/** Kept beside an account's copy of its library: where library.json is, and whether a change here has not reached it yet. */
+const REMOTE_KEY = 'library:remote';
+const DIRTY_KEY = 'library:dirty';
+/** How long the library waits after a change before it is written to Drive. */
+const LIBRARY_DEBOUNCE_MS = 1500;
+
+/** The account a Google user's library belongs to, as the database is named. */
+const accountOf = (user: GoogleUser | null | undefined) => user?.email?.trim().toLowerCase() || null;
 
 const defaultSettings: Settings = {
   googleClientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || '',
@@ -102,6 +130,13 @@ export interface SyncOutcome {
  * caller asked for — remove the entry, leave Drive alone — or the one Drive
  * forced, by not being connected.
  */
+/** Where the library stands with the copy in Drive. */
+export interface LibrarySync {
+  state: 'local' | 'loading' | 'saving' | 'saved' | 'error';
+  message?: string;
+  at?: string;
+}
+
 export interface RemoveOutcome {
   drive: 'junked' | 'not-in-drive' | 'not-connected' | 'kept';
   junkFolderLink?: string;
@@ -117,6 +152,16 @@ interface StoreValue {
   driveConnected: boolean;
   authError: string | null;
   syncLog: SyncEntry[];
+  /** How the library itself — library.json in the account's Drive — stands. */
+  librarySync: LibrarySync;
+  /**
+   * Papers this browser kept from before libraries were tied to an account,
+   * that could not be shown to be this account's. Offered to the first
+   * account to sign in here, and to no other.
+   */
+  strays: number;
+  adoptStrays: () => Promise<void>;
+  discardStrays: () => Promise<void>;
 
   /**
    * `sync: false` for a caller that is going to put the paper in Drive itself
@@ -220,6 +265,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     junkNow.current = next;
     setJunk(next);
     void db.setKv(JUNK_KEY, next).catch(() => undefined);
+    touchRef.current();
   }, []);
   const [settings, setSettings] = useState<Settings>(readSettings);
   // A sign-in outlives the page load: the token is kept in this browser for
@@ -227,6 +273,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<GoogleUser | null>(google.restoredUser);
   const [driveConnected, setDriveConnected] = useState(google.hasDriveAccess);
   const [driveRemembered, setDriveRemembered] = useState(() => localStorage.getItem(DRIVE_KEY) === 'true');
+  /**
+   * Whose library is open: the signed-in account's, or — signed out — the one
+   * this browser keeps for nobody. It follows `user` into an account, and on
+   * the way out (sign-out, or another account) the page is reloaded, so
+   * nothing one account had open is left in memory for the next.
+   */
+  const [account, setAccount] = useState<string | null>(() => accountOf(google.restoredUser()));
+  const [librarySync, setLibrarySync] = useState<LibrarySync>({ state: 'local' });
+  const [strays, setStrays] = useState(0);
+  /** The account whose copy here has been read into the page — Drive is read only after it, or would be overwritten by it. */
+  const [loadedAccount, setLoadedAccount] = useState<string | null | undefined>(undefined);
+  const accountNow = useRef(account);
+  accountNow.current = account;
+  /** Marks the library changed, and has it written to Drive once the changes stop for a moment. Set below. */
+  const touchRef = useRef<() => void>(() => undefined);
   const [authError, setAuthError] = useState<string | null>(null);
   const [syncLog, setSyncLog] = useState<SyncEntry[]>([]);
   const [githubLog, setGithubLog] = useState<SyncEntry[]>([]);
@@ -238,6 +299,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   latest.current = { papers, collections, highlights, settings };
 
   const queue = useRef<string[]>([]);
+
+  /** Whether this account's library has been read from Drive since it was opened here. */
+  const pulled = useRef(false);
+  /** The library as it was last read from or written to Drive, to tell whether there is anything to write. */
+  const lastPushed = useRef<string | null>(null);
+  const remoteMark = useRef<RemoteMark | null>(null);
+  const dirty = useRef(false);
+  const libraryTimer = useRef<number | undefined>(undefined);
+  const pushing = useRef<Promise<void> | null>(null);
   /**
    * PDFs the reader has already fetched, waiting to be uploaded with them —
    * `replace` when it is a copy picked by hand, which goes over the one
@@ -258,6 +328,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    switchDb(account);
+    pulled.current = false;
+    setReady(false);
     (async () => {
       const [loadedPapers, loadedCollections, loadedHighlights, loadedJunk] = await Promise.all([
         db.allPapers(),
@@ -275,7 +348,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       });
       setPapers(tidied);
       setHighlights(loadedHighlights);
-      if (loadedCollections.length) {
+      if (loadedCollections.length || account) {
+        // An account's first collection is whatever its Drive says, once it
+        // has been read; seeding one here would add a second to it.
         setCollections(loadedCollections);
       } else {
         const seed: Collection = {
@@ -287,12 +362,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await db.putCollection(seed);
         setCollections([seed]);
       }
+      setLoadedAccount(account);
       setReady(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [account]);
 
   useEffect(() => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
@@ -338,6 +414,298 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, [user, settings.proxyToken, settings.proxyBase]);
 
+
+  // ------------------------------------------------------- the library in Drive ---
+
+  const driveNow = useRef(driveConnected);
+  driveNow.current = driveConnected;
+
+  /** Every write to the library goes through here, so that each one is also written to Drive. */
+  const lib = useMemo(() => {
+    const touched = <A extends unknown[], R>(write: (...args: A) => Promise<R>) => (...args: A) => {
+      touchRef.current();
+      return write(...args);
+    };
+    return {
+      putPaper: touched(db.putPaper),
+      deletePaper: touched(db.deletePaper),
+      putCollection: touched(db.putCollection),
+      deleteCollection: touched(db.deleteCollection),
+      putHighlight: touched(db.putHighlight),
+      deleteHighlight: touched(db.deleteHighlight),
+    };
+  }, []);
+
+  const currentLibrary = useCallback(
+    (): Library => ({
+      papers: latest.current.papers,
+      collections: latest.current.collections,
+      highlights: latest.current.highlights,
+      junk: junkNow.current,
+    }),
+    [],
+  );
+
+  /** Puts a whole library in place of the one open: in the page, and in this account's copy here. */
+  const applyLibrary = useCallback(async (next: Library) => {
+    latest.current = { ...latest.current, papers: next.papers, collections: next.collections, highlights: next.highlights };
+    junkNow.current = next.junk;
+    setPapers(next.papers);
+    setCollections(next.collections);
+    setHighlights(next.highlights);
+    setJunk(next.junk);
+    await Promise.all([db.replaceLibrary(next), db.setKv(JUNK_KEY, next.junk)]).catch(() => undefined);
+  }, []);
+
+  /**
+   * Writes the library to Drive, if it differs from what Drive was last
+   * known to hold. Another browser may have written in the meantime: what it
+   * added is folded in first, so the write does not take it away again.
+   */
+  const pushLibrary = useCallback(async () => {
+    const owner = accountNow.current;
+    if (!owner || !pulled.current || !driveNow.current) return;
+    while (pushing.current) await pushing.current;
+    const run = (async () => {
+      const library = currentLibrary();
+      if (serialise(library) === lastPushed.current) {
+        if (dirty.current) {
+          dirty.current = false;
+          await db.setKv(DIRTY_KEY, false).catch(() => undefined);
+        }
+        return;
+      }
+      const { googleClientId, driveFolderName } = latest.current.settings;
+      setLibrarySync((was) => ({ state: 'saving', message: was.state === 'error' ? undefined : was.message }));
+      try {
+        let toWrite = library;
+        const now = await libraryMark(googleClientId, driveFolderName);
+        if (now && now.modifiedTime !== remoteMark.current?.modifiedTime) {
+          const remote = await readLibraryFromDrive(googleClientId, driveFolderName);
+          if (remote) {
+            toWrite = mergeLibraries(library, remote.library);
+            await applyLibrary(toWrite);
+          }
+        }
+        if (accountNow.current !== owner) return;
+        const mark = await writeLibraryToDrive(googleClientId, driveFolderName, toWrite, {
+          account: owner,
+          fileId: now?.fileId ?? remoteMark.current?.fileId,
+        });
+        remoteMark.current = mark;
+        lastPushed.current = serialise(toWrite);
+        // Anything changed while the write was in flight is still to go.
+        dirty.current = serialise(currentLibrary()) !== lastPushed.current;
+        await Promise.all([db.setKv(REMOTE_KEY, mark), db.setKv(DIRTY_KEY, dirty.current)]).catch(() => undefined);
+        setLibrarySync((was) => ({ state: 'saved', at: new Date().toISOString(), message: was.message }));
+      } catch (error) {
+        setLibrarySync({ state: 'error', message: error instanceof Error ? error.message : String(error) });
+      }
+    })();
+    pushing.current = run;
+    try {
+      await run;
+    } finally {
+      if (pushing.current === run) pushing.current = null;
+    }
+  }, [applyLibrary, currentLibrary]);
+
+  touchRef.current = () => {
+    if (!accountNow.current) return;
+    if (!dirty.current) {
+      dirty.current = true;
+      void db.setKv(DIRTY_KEY, true).catch(() => undefined);
+    }
+    window.clearTimeout(libraryTimer.current);
+    libraryTimer.current = window.setTimeout(() => void pushLibrary(), LIBRARY_DEBOUNCE_MS);
+  };
+
+  /**
+   * What this browser kept from before libraries belonged to accounts, taken
+   * into the open one. With `onlyProven`, only the papers whose folder this
+   * account's Drive can open — which no other account's can. Otherwise all
+   * that is left, and only for the account that claimed them: the first to
+   * prove a paper its own, or the first to sign in at all where none of them
+   * was ever saved to Drive.
+   */
+  const takeFromGuest = useCallback(async (onlyProven: boolean): Promise<Library> => {
+    const owner = accountNow.current;
+    if (!owner) return emptyLibrary();
+    const guest = await db.guestContents().catch(() => null);
+    if (!guest?.papers.length) return emptyLibrary();
+    const claimant = localStorage.getItem(GUEST_CLAIM_KEY);
+    const driveIdOf = (paper: Paper) => paper.drive?.folderId || paper.drive?.metaFileId || paper.drive?.pdfFileId;
+    let taking: Paper[];
+    if (onlyProven) {
+      const ids = guest.papers.map(driveIdOf).filter((id): id is string => Boolean(id));
+      const seen = await visibleInDrive(latest.current.settings.googleClientId, ids).catch(() => new Set<string>());
+      taking = guest.papers.filter((paper) => {
+        const id = driveIdOf(paper);
+        return Boolean(id && seen.has(id));
+      });
+      if (!claimant && (taking.length || !ids.length)) localStorage.setItem(GUEST_CLAIM_KEY, owner);
+    } else {
+      if (claimant !== owner) return emptyLibrary();
+      taking = guest.papers;
+    }
+    if (!taking.length) return emptyLibrary();
+    const ids = new Set(taking.map((paper) => paper.id));
+    const highlights = guest.highlights.filter((highlight) => ids.has(highlight.paperId));
+    const used = new Set(taking.flatMap((paper) => paper.collectionIds));
+    const collections = guest.collections.filter((collection) => used.has(collection.id));
+    // Notes, explanations, boards: everything kept against one of these papers goes with it.
+    const kv = guest.kv.filter(([key]) => taking.some((paper) => key.endsWith(`:${paper.id}`)));
+    for (const [key, value] of kv) await db.setKv(key, value).catch(() => undefined);
+    await db.forgetGuestPapers([...ids], highlights.map((highlight) => highlight.id), kv.map(([key]) => key)).catch(() => undefined);
+    return { papers: taking, collections, highlights, junk: [] };
+  }, []);
+
+  const countStrays = useCallback(async () => {
+    const owner = accountNow.current;
+    if (!owner || localStorage.getItem(GUEST_CLAIM_KEY) !== owner) return setStrays(0);
+    const guest = await db.guestContents().catch(() => null);
+    setStrays(guest?.papers.length ?? 0);
+  }, []);
+
+  /**
+   * Reads this account's library from its Drive into the page. Drive's copy
+   * wins, unless a change made here never reached it: then, if Drive has not
+   * changed either, this copy is the newer one; if both have, the two are put
+   * together. An account with no library file yet has one made from what it
+   * already has — its paper folders' sidecars, and whatever of this
+   * browser's older library is provably its own.
+   */
+  const pullLibrary = useCallback(async () => {
+    const owner = accountNow.current;
+    if (!owner || pulled.current) return;
+    const { googleClientId, driveFolderName } = latest.current.settings;
+    setLibrarySync({ state: 'loading' });
+    try {
+      const [remote, wasDirty, knownMark] = await Promise.all([
+        readLibraryFromDrive(googleClientId, driveFolderName),
+        db.getKv<boolean>(DIRTY_KEY).catch(() => false),
+        db.getKv<RemoteMark>(REMOTE_KEY).catch(() => undefined),
+      ]);
+      if (accountNow.current !== owner) return;
+      const local = currentLibrary();
+      let next: Library;
+      let restored: string | undefined;
+      if (remote?.mark) {
+        next = !wasDirty
+          ? remote.library
+          : knownMark?.modifiedTime === remote.mark.modifiedTime
+            ? local
+            : mergeLibraries(local, remote.library);
+        remoteMark.current = remote.mark;
+        lastPushed.current = serialise(remote.library);
+        void db.setKv(REMOTE_KEY, remote.mark).catch(() => undefined);
+        if (remote.source === 'trash') restored = `${LIBRARY_FILE} was in Drive's trash, and has been put back.`;
+      } else if (remote) {
+        // The file itself is gone, and the spare copy stands in for it: it is
+        // put together with the copy here, and written back where it was.
+        next = mergeLibraries(local, remote.library);
+        remoteMark.current = null;
+        lastPushed.current = null;
+        restored = `${LIBRARY_FILE} was missing from Drive, and has been restored from the spare copy.`;
+      } else {
+        next = mergeLibraries(local, await takeFromGuest(true));
+        next = mergeLibraries(next, await rebuildFromSidecars(googleClientId, driveFolderName, newId));
+        remoteMark.current = null;
+        lastPushed.current = null;
+      }
+      if (accountNow.current !== owner) return;
+      if (!next.collections.length) {
+        next = {
+          ...next,
+          collections: [{ id: newId(), name: 'Reading list', color: COLLECTION_COLORS[0], createdAt: new Date().toISOString() }],
+        };
+      }
+      pulled.current = true;
+      dirty.current = Boolean(wasDirty) || !remote?.mark;
+      await applyLibrary(next);
+      setLibrarySync({ state: 'saved', at: new Date().toISOString(), message: restored });
+      void countStrays();
+      void pushLibrary();
+    } catch (error) {
+      setLibrarySync({ state: 'error', message: error instanceof Error ? error.message : String(error) });
+    }
+  }, [applyLibrary, countStrays, currentLibrary, pushLibrary, takeFromGuest]);
+
+  // Drive is read once the copy here has been: the other way round, the copy
+  // here would land on top of what came from Drive.
+  useEffect(() => {
+    if (ready && account && loadedAccount === account && driveConnected && !pulled.current) void pullLibrary();
+  }, [ready, account, loadedAccount, driveConnected, pullLibrary]);
+
+  // Leaving the tab writes what is waiting rather than leaving it to the
+  // debounce; coming back looks for a change another browser has written.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        if (dirty.current) {
+          window.clearTimeout(libraryTimer.current);
+          void pushLibrary();
+        }
+        return;
+      }
+      if (!pulled.current || dirty.current || !driveNow.current || !accountNow.current) return;
+      const { googleClientId, driveFolderName } = latest.current.settings;
+      void libraryMark(googleClientId, driveFolderName)
+        .then((mark) => {
+          if (!mark) {
+            // Gone from Drive while this tab was away: written again from here.
+            if (remoteMark.current) {
+              remoteMark.current = null;
+              lastPushed.current = null;
+              void pushLibrary();
+            }
+            return;
+          }
+          if (mark.modifiedTime !== remoteMark.current?.modifiedTime && !dirty.current) {
+            pulled.current = false;
+            void pullLibrary();
+          }
+        })
+        .catch(() => undefined);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [pullLibrary, pushLibrary]);
+
+  const adoptStrays = useCallback(async () => {
+    const taken = await takeFromGuest(false);
+    if (!taken.papers.length) return setStrays(0);
+    const next = mergeLibraries(currentLibrary(), taken);
+    await applyLibrary(next);
+    setStrays(0);
+    touchRef.current();
+  }, [applyLibrary, currentLibrary, takeFromGuest]);
+
+  const discardStrays = useCallback(async () => {
+    const guest = await db.guestContents().catch(() => null);
+    if (guest) {
+      const ids = guest.papers.map((paper) => paper.id);
+      const kv = guest.kv.filter(([key]) => ids.some((id) => key.endsWith(`:${id}`))).map(([key]) => key);
+      await db.forgetGuestPapers(ids, guest.highlights.map((highlight) => highlight.id), kv).catch(() => undefined);
+    }
+    setStrays(0);
+  }, []);
+
+  /**
+   * Into the library of whoever just signed in. From nobody's library that is
+   * done in place; from another account's the page starts again, so nothing
+   * the last one had open — notes, explanations, a notebook — stays in memory.
+   */
+  const enterAccount = useCallback((next: GoogleUser) => {
+    const key = accountOf(next);
+    if (!key || key === accountNow.current) return;
+    if (accountNow.current) {
+      window.location.reload();
+      return;
+    }
+    setAccount(key);
+  }, []);
+
   const githubConnected = Boolean(targetFrom(settings));
 
   const note = useCallback((paperId: string, state: SyncState, message?: string) => {
@@ -348,7 +716,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const savePaper = useCallback(async (paper: Paper) => {
-    await db.putPaper(paper);
+    await lib.putPaper(paper);
     setPapers((current) => {
       const index = current.findIndex((item) => item.id === paper.id);
       if (index === -1) return [paper, ...current];
@@ -645,11 +1013,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         keepJunk([entry, ...junkNow.current.filter((item) => item.paper.id !== id)]);
       }
 
-      await db.deletePaper(id);
+      await lib.deletePaper(id);
       latest.current.papers = latest.current.papers.filter((item) => item.id !== id);
       setPapers((items) => items.filter((item) => item.id !== id));
       const toRemove = latest.current.highlights.filter((highlight) => highlight.paperId === id);
-      await Promise.all(toRemove.map((highlight) => db.deleteHighlight(highlight.id)));
+      await Promise.all(toRemove.map((highlight) => lib.deleteHighlight(highlight.id)));
       latest.current.highlights = latest.current.highlights.filter((highlight) => highlight.paperId !== id);
       setHighlights((items) => items.filter((highlight) => highlight.paperId !== id));
       return outcome;
@@ -667,7 +1035,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const paper: Paper = { ...entry.paper, collectionIds: entry.paper.collectionIds.filter((item) => known.has(item)) };
       await savePaper(paper);
       latest.current.papers = [paper, ...latest.current.papers.filter((item) => item.id !== id)];
-      await Promise.all(entry.highlights.map((highlight) => db.putHighlight(highlight)));
+      await Promise.all(entry.highlights.map((highlight) => lib.putHighlight(highlight)));
       latest.current.highlights = [...latest.current.highlights.filter((highlight) => highlight.paperId !== id), ...entry.highlights];
       setHighlights((items) => [...items.filter((highlight) => highlight.paperId !== id), ...entry.highlights]);
       keepJunk(junkNow.current.filter((item) => item.paper.id !== id));
@@ -740,7 +1108,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       window.clearTimeout(progressTimer.current[id]);
       progressTimer.current[id] = window.setTimeout(() => {
         const paper = latest.current.papers.find((item) => item.id === id);
-        if (paper) void db.putPaper({ ...paper, progress });
+        if (paper) void lib.putPaper({ ...paper, progress });
       }, 800);
     },
     [],
@@ -817,7 +1185,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       color: COLLECTION_COLORS[latest.current.collections.length % COLLECTION_COLORS.length],
       createdAt: new Date().toISOString(),
     };
-    await db.putCollection(collection);
+    await lib.putCollection(collection);
     setCollections((current) => [...current, collection]);
     latest.current.collections = [...latest.current.collections, collection];
     return collection;
@@ -827,17 +1195,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const collection = latest.current.collections.find((item) => item.id === id);
     if (!collection) return;
     const updated = { ...collection, name: name.trim() || collection.name };
-    await db.putCollection(updated);
+    await lib.putCollection(updated);
     setCollections((current) => current.map((item) => (item.id === id ? updated : item)));
   }, []);
 
   const deleteCollection = useCallback(async (id: string) => {
-    await db.deleteCollection(id);
+    await lib.deleteCollection(id);
     setCollections((current) => current.filter((item) => item.id !== id));
     const affected = latest.current.papers.filter((paper) => paper.collectionIds.includes(id));
     await Promise.all(
       affected.map((paper) =>
-        db.putPaper({ ...paper, collectionIds: paper.collectionIds.filter((item) => item !== id) }),
+        lib.putPaper({ ...paper, collectionIds: paper.collectionIds.filter((item) => item !== id) }),
       ),
     );
     setPapers((current) =>
@@ -852,7 +1220,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const addHighlight = useCallback(
     async (input: Omit<Highlight, 'id' | 'createdAt'>) => {
       const highlight: Highlight = { ...input, id: newId(), createdAt: new Date().toISOString() };
-      await db.putHighlight(highlight);
+      await lib.putHighlight(highlight);
       setHighlights((current) => [...current, highlight]);
       latest.current.highlights = [...latest.current.highlights, highlight];
       if (settings.autoSync && driveConnected) syncPaper(highlight.paperId);
@@ -867,7 +1235,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const highlight = latest.current.highlights.find((item) => item.id === id);
       if (!highlight) return;
       const updated = { ...highlight, ...patch };
-      await db.putHighlight(updated);
+      await lib.putHighlight(updated);
       setHighlights((current) => current.map((item) => (item.id === id ? updated : item)));
       latest.current.highlights = latest.current.highlights.map((item) => (item.id === id ? updated : item));
       if (settings.autoSync && driveConnected) syncPaper(updated.paperId);
@@ -879,7 +1247,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const deleteHighlight = useCallback(
     async (id: string) => {
       const highlight = latest.current.highlights.find((item) => item.id === id);
-      await db.deleteHighlight(id);
+      await lib.deleteHighlight(id);
       setHighlights((current) => current.filter((item) => item.id !== id));
       latest.current.highlights = latest.current.highlights.filter((item) => item.id !== id);
       if (!highlight) return;
@@ -902,12 +1270,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      setUser(await google.signIn(clientId));
-      setDriveConnected(google.hasDriveAccess());
+      // One window asks for both: who you are, and Drive — the library lives there.
+      const signedIn = await google.signIn(clientId);
+      setUser(signedIn);
+      const drive = google.hasDriveAccess();
+      setDriveConnected(drive);
+      if (drive) {
+        localStorage.setItem(DRIVE_KEY, 'true');
+        setDriveRemembered(true);
+      }
+      enterAccount(signedIn);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : String(error));
     }
-  }, []);
+  }, [enterAccount]);
 
   const connectDrive = useCallback(async () => {
     setAuthError(null);
@@ -918,10 +1294,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     const quiet = localStorage.getItem(DRIVE_KEY) === 'true';
     try {
-      setUser(await google.connectDrive(clientId, quiet));
+      const signedIn = await google.connectDrive(clientId, quiet);
+      setUser(signedIn);
       setDriveConnected(google.hasDriveAccess());
       localStorage.setItem(DRIVE_KEY, 'true');
       setDriveRemembered(true);
+      enterAccount(signedIn);
     } catch (error) {
       // A quiet reconnect leans on a grant Google may have let go of. Forget
       // it, so the next click asks for consent properly rather than failing
@@ -932,17 +1310,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       setAuthError(error instanceof Error ? error.message : String(error));
     }
-  }, []);
+  }, [enterAccount]);
 
   const signOut = useCallback(() => {
-    google.signOut();
-    setUser(null);
-    // The proxy pass was this sign-in's; it goes with it. A pasted token stays.
-    setSettings((current) => (isPass(current.proxyToken.trim()) ? { ...current, proxyToken: '' } : current));
-    setDriveConnected(false);
-    localStorage.removeItem(DRIVE_KEY);
-    setDriveRemembered(false);
-  }, []);
+    void (async () => {
+      // What has not reached Drive yet goes now, while there is a token to send it with.
+      if (dirty.current) {
+        window.clearTimeout(libraryTimer.current);
+        await pushLibrary().catch(() => undefined);
+      }
+      google.signOut();
+      // The proxy pass was this sign-in's; it goes with it. A pasted token stays.
+      const current = latest.current.settings;
+      const next = isPass(current.proxyToken.trim()) ? { ...current, proxyToken: '' } : current;
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+      localStorage.removeItem(DRIVE_KEY);
+      // The page starts again with nobody's library, so nothing of this
+      // account's — in the page or in memory — is left for whoever is next.
+      window.location.reload();
+    })();
+  }, [pushLibrary]);
 
   const syncStateFor = useCallback(
     (id: string) => syncLog.find((entry) => entry.paperId === id)?.state ?? 'idle',
@@ -961,6 +1348,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       driveRemembered,
       authError,
       syncLog,
+      librarySync,
+      strays,
+      adoptStrays,
+      discardStrays,
       addPaper,
       removePaper,
       setPaperCollections,
@@ -995,7 +1386,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       pushToGitHub,
     }),
     [
-      ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog,
+      ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog, librarySync, strays, adoptStrays, discardStrays,
       addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile, setPaperAuthors,
       createCollection, renameCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,

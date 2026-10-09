@@ -13,8 +13,10 @@
  * and needs the one click. The token goes when it expires, when Drive
  * refuses it, and on sign-out — which also revokes it.
  *
- * Sign-in asks only for identity. Drive is a second, incremental consent for
- * `drive.file` — the app can only ever see files it created itself.
+ * Sign-in asks for identity and `drive.file` together, in one window — the
+ * app can only ever see files it created itself, and the library is one of
+ * them. `connectDrive` is the same request again, for a sign-in where Drive
+ * was left unticked or has lapsed.
  *
  * Everything a click reaches is synchronous once the GIS script is in the page:
  * a browser only opens a popup for a window that still has the user's gesture,
@@ -33,6 +35,16 @@ const IDENTITY_SCOPES = 'openid email profile';
 export const SIGN_IN_REQUIRED = (import.meta.env as ImportMetaEnv | undefined)?.VITE_REQUIRE_SIGN_IN === 'true';
 
 export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+/**
+ * The app's own hidden folder in the account's Drive (`appDataFolder`). It
+ * never shows in My Drive, so tidying folders there cannot delete what is in
+ * it; only "Delete hidden app data" under Drive's Manage apps does. A spare
+ * copy of the library is kept there (driveLibrary.ts). Google counts it as a
+ * non-sensitive scope, so asking for it needs no app review.
+ */
+export const APPDATA_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+/** Everything Drive is asked for, together: the app's own files, and its hidden folder. */
+const DRIVE_SCOPES = `${APPDATA_SCOPE} ${DRIVE_SCOPE}`;
 /**
  * Colab: the scope that lets the pages' Python cells run in the person's own
  * Colab runtimes (src/lib/colab.ts). Asked for late — at the first Run, not
@@ -256,6 +268,11 @@ export function hasDriveAccess(): boolean {
   return currentScopes().includes(DRIVE_SCOPE);
 }
 
+/** Whether the token can reach the app's hidden folder — a sign-in from before it was asked for cannot. */
+export function hasAppDataAccess(): boolean {
+  return currentScopes().includes(APPDATA_SCOPE);
+}
+
 export function hasColabAccess(): boolean {
   return currentScopes().includes(COLAB_SCOPE);
 }
@@ -277,8 +294,15 @@ async function fetchProfile(accessToken: string): Promise<GoogleUser> {
   return user;
 }
 
+/**
+ * Sign-in, with Drive in the same window: the library is kept in the
+ * account's own Drive, so signing in without it would open a library that
+ * has nowhere to live. Google lets the person untick Drive on its consent
+ * screen; then the sign-in still stands, and `hasDriveAccess` says Drive is
+ * not there, for the app to offer it again.
+ */
 export function signIn(clientId: string): Promise<GoogleUser> {
-  return tokenFor(clientId, IDENTITY_SCOPES, '').then((granted) => fetchProfile(granted.accessToken));
+  return tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPES}`, '').then((granted) => fetchProfile(granted.accessToken));
 }
 
 /**
@@ -292,7 +316,7 @@ export function signIn(clientId: string): Promise<GoogleUser> {
  * inside a click.
  */
 export function connectDrive(clientId: string, quiet = false): Promise<GoogleUser> {
-  return tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`, quiet ? '' : 'consent').then((granted) => {
+  return tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPES}`, quiet ? '' : 'consent').then((granted) => {
     if (!granted.scopes.includes(DRIVE_SCOPE)) throw new Error('Drive access was not granted');
     return fetchProfile(granted.accessToken);
   });
@@ -301,7 +325,7 @@ export function connectDrive(clientId: string, quiet = false): Promise<GoogleUse
 export async function ensureDriveToken(clientId: string): Promise<string> {
   if (token && token.expiresAt > Date.now() && token.scopes.includes(DRIVE_SCOPE)) return token.accessToken;
   // An empty prompt reuses the existing grant without showing the dialog again.
-  const granted = await tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`, '');
+  const granted = await tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPES}`, '');
   if (!granted.scopes.includes(DRIVE_SCOPE)) throw new Error('Drive access was not granted');
   return granted.accessToken;
 }
@@ -314,7 +338,7 @@ export async function ensureDriveToken(clientId: string): Promise<string> {
  * granted so far, so Drive keeps working on it.
  */
 export function connectColab(clientId: string): Promise<string> {
-  const scopes = [IDENTITY_SCOPES, hasDriveAccess() ? DRIVE_SCOPE : '', COLAB_SCOPE].filter(Boolean).join(' ');
+  const scopes = [IDENTITY_SCOPES, hasDriveAccess() ? DRIVE_SCOPES : '', COLAB_SCOPE].filter(Boolean).join(' ');
   return tokenFor(clientId, scopes, '').then((granted) => {
     if (!granted.scopes.includes(COLAB_SCOPE)) throw new Error('Colab access was not granted');
     return granted.accessToken;
@@ -325,7 +349,7 @@ export function connectColab(clientId: string): Promise<string> {
 export async function colabToken(clientId: string): Promise<string | null> {
   if (token && token.expiresAt > Date.now() && token.scopes.includes(COLAB_SCOPE)) return token.accessToken;
   if (!token?.scopes.includes(COLAB_SCOPE)) return null;
-  const scopes = [IDENTITY_SCOPES, token.scopes.includes(DRIVE_SCOPE) ? DRIVE_SCOPE : '', COLAB_SCOPE].filter(Boolean).join(' ');
+  const scopes = [IDENTITY_SCOPES, token.scopes.includes(DRIVE_SCOPE) ? DRIVE_SCOPES : '', COLAB_SCOPE].filter(Boolean).join(' ');
   const granted = await tokenFor(clientId, scopes, '');
   return granted.scopes.includes(COLAB_SCOPE) ? granted.accessToken : null;
 }
@@ -468,6 +492,70 @@ export async function listFiles(accessToken: string, parentId: string, mimeType:
     files: DriveFile[];
   };
   return payload.files ?? [];
+}
+
+/**
+ * The one item of this name under a parent (the top of Drive when none) that
+ * is in Drive's trash — for bringing back something put there by mistake.
+ */
+export async function findTrashed(accessToken: string, name: string, parentId?: string): Promise<DriveFile | null> {
+  const params = new URLSearchParams({
+    q: [`name = '${escapeQuery(name)}'`, 'trashed = true', parentId ? `'${escapeQuery(parentId)}' in parents` : "'root' in parents"].join(' and '),
+    fields: 'files(id,name,modifiedTime)',
+    spaces: 'drive',
+    orderBy: 'modifiedTime desc',
+    pageSize: '1',
+  });
+  const payload = (await (await driveFetch(accessToken, `https://www.googleapis.com/drive/v3/files?${params}`)).json()) as { files?: DriveFile[] };
+  return payload.files?.[0] ?? null;
+}
+
+/** Takes a file or folder the app owns back out of Drive's trash. */
+export async function untrash(accessToken: string, fileId: string): Promise<DriveFile> {
+  const response = await driveFetch(
+    accessToken,
+    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,modifiedTime`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ trashed: false }) },
+  );
+  return (await response.json()) as DriveFile;
+}
+
+/** A file in the app's hidden folder by name, or null. Uploads go there with `parentId: 'appDataFolder'`. */
+export async function findAppDataFile(accessToken: string, name: string): Promise<DriveFile | null> {
+  const params = new URLSearchParams({
+    q: `name = '${escapeQuery(name)}' and trashed = false`,
+    fields: 'files(id,name,modifiedTime)',
+    spaces: 'appDataFolder',
+    pageSize: '1',
+  });
+  const payload = (await (await driveFetch(accessToken, `https://www.googleapis.com/drive/v3/files?${params}`)).json()) as { files?: DriveFile[] };
+  return payload.files?.[0] ?? null;
+}
+
+/**
+ * Every file the app can see that matches a Drive query, following the pages
+ * to the end — with `drive.file` that is only ever the app's own files, so
+ * even a query with no folder in it stays within what the app made.
+ */
+export async function queryFiles(accessToken: string, q: string): Promise<(DriveFile & { parents?: string[] })[]> {
+  const found: (DriveFile & { parents?: string[] })[] = [];
+  let pageToken: string | undefined;
+  do {
+    const params = new URLSearchParams({
+      q: `${q} and trashed = false`,
+      fields: 'nextPageToken,files(id,name,parents,modifiedTime)',
+      spaces: 'drive',
+      pageSize: '1000',
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+    const payload = (await (await driveFetch(accessToken, `https://www.googleapis.com/drive/v3/files?${params}`)).json()) as {
+      files?: (DriveFile & { parents?: string[] })[];
+      nextPageToken?: string;
+    };
+    found.push(...(payload.files ?? []));
+    pageToken = payload.nextPageToken;
+  } while (pageToken);
+  return found;
 }
 
 /**

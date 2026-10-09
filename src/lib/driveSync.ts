@@ -196,7 +196,13 @@ export async function syncPaperToDrive(
     name: metaName,
     mimeType: 'application/json',
     parentId: folderId,
-    body: JSON.stringify(sidecar(paper, highlights, collectionNames), null, 2),
+    body: JSON.stringify(
+      sidecar(paper, highlights, collectionNames, {
+        colours: Object.fromEntries(context.collections.map((collection) => [collection.name, collection.color])),
+      }),
+      null,
+      2,
+    ),
     fileId: metaFileId,
   });
 

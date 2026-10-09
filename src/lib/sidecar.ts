@@ -47,7 +47,19 @@ export interface Sidecar {
  * The sidecar written next to the PDF. Shaped after the W3C Web Annotation
  * model so the export is the storage format rather than a lossy copy of it.
  */
-export function sidecar(paper: Paper, highlights: Highlight[], collectionNames: string[]): Sidecar {
+/**
+ * `drive` is for the copy in Drive, which is also what a library is rebuilt
+ * from if its library.json is ever lost (driveLibrary.ts): it adds where the
+ * reading had got to and the collections' colours, so that rebuild loses
+ * little. The Git copy leaves them out — a commit for every page turned
+ * would be noise.
+ */
+export function sidecar(
+  paper: Paper,
+  highlights: Highlight[],
+  collectionNames: string[],
+  drive?: { colours: Record<string, string> },
+): Sidecar {
   return {
     '@context': 'http://www.w3.org/ns/anno.jsonld',
     generator: 'reader',
@@ -67,6 +79,15 @@ export function sidecar(paper: Paper, highlights: Highlight[], collectionNames: 
       addedAt: paper.addedAt,
       tags: paper.tags,
       collections: collectionNames,
+      ...(drive
+        ? {
+            source: paper.source,
+            progress: paper.progress,
+            lastOpenedAt: paper.lastOpenedAt,
+            pdfChoice: paper.pdfChoice,
+            collectionColours: Object.fromEntries(collectionNames.filter((name) => drive.colours[name]).map((name) => [name, drive.colours[name]])),
+          }
+        : {}),
     },
     annotations: highlights.map((highlight) => ({
       id: highlight.id,
