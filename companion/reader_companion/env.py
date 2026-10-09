@@ -83,3 +83,43 @@ def use(root: Path, interpreter: Path) -> None:
         os.environ["VIRTUAL_ENV"] = str(venv)
     else:
         os.environ.pop("VIRTUAL_ENV", None)
+
+
+def shell_command(root: Path, interpreter: Path) -> list[str] | None:
+    """The terminal's shell: yours ($SHELL — zsh with oh-my-zsh, bash, fish), with your own rc files first and this environment on top.
+
+    zsh and bash read a small rc of ours that sources yours (~/.zshrc,
+    ~/.bashrc) and then puts the environment's bin/ first, the way VS Code
+    activates one in its terminal; your prompt, theme and plugins stay as they
+    are. Any other shell is started as it is. None leaves the default.
+    """
+    if os.name == "nt":
+        return None
+    shell = os.environ.get("SHELL") or shutil.which("zsh") or shutil.which("bash") or "/bin/sh"
+    name = Path(shell).name
+    bin_dir = interpreter.parent
+    venv = bin_dir.parent
+    activate = venv / "bin" / "activate"
+    on_top = (
+        f'[ -f "{activate}" ] && . "{activate}" || export PATH="{bin_dir}:$PATH"\n'
+        if (venv / "pyvenv.cfg").exists()
+        else f'export PATH="{bin_dir}:$PATH"\n'
+    )
+    folder = root / ".reader" / "shell"
+    folder.mkdir(parents=True, exist_ok=True)
+    if name == "zsh":
+        zdot = folder / "zsh"
+        zdot.mkdir(exist_ok=True)
+        # zsh reads $ZDOTDIR/.zshenv and .zshrc: ours, which hand over to yours.
+        (zdot / ".zshenv").write_text('[ -f "$HOME/.zshenv" ] && . "$HOME/.zshenv"\n')
+        (zdot / ".zshrc").write_text(
+            'ZDOTDIR="$HOME"\n'
+            '[ -f "$HOME/.zshrc" ] && . "$HOME/.zshrc"\n'
+            + on_top
+        )
+        return ["env", f"ZDOTDIR={zdot}", shell, "-i"]
+    if name == "bash":
+        rc = folder / "bashrc"
+        rc.write_text('[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"\n' + on_top)
+        return [shell, "--rcfile", str(rc), "-i"]
+    return [shell]

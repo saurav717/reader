@@ -38,11 +38,28 @@ function unzip(bytes) {
 
 describe('the page’s side', () => {
   it('reads the link the Companion opens', () => {
-    assert.deepEqual(companion.pairFragment('#pair=abc-def&port=47400'), { code: 'ABC-DEF', port: 47400 });
-    assert.deepEqual(companion.pairFragment('#pair=ABCDEF'), { code: 'ABC-DEF', port: companion.COMPANION_PORT });
-    assert.deepEqual(companion.pairFragment('#pair=ABC-DEF&port=99999'), { code: 'ABC-DEF', port: companion.COMPANION_PORT });
+    assert.deepEqual(companion.pairFragment('#pair=abc-def&port=47400'), { code: 'ABC-DEF', port: 47400, via: null });
+    assert.deepEqual(companion.pairFragment('#pair=ABCDEF'), { code: 'ABC-DEF', port: companion.COMPANION_PORT, via: null });
+    assert.deepEqual(companion.pairFragment('#pair=ABC-DEF&port=99999'), { code: 'ABC-DEF', port: companion.COMPANION_PORT, via: null });
+    assert.deepEqual(companion.pairFragment('#pair=ABC-DEF&port=47321&via=https%3A%2F%2Fbrave-otter.trycloudflare.com'), { code: 'ABC-DEF', port: 47321, via: 'https://brave-otter.trycloudflare.com/' });
     assert.equal(companion.pairFragment('#section-2'), null);
     assert.equal(companion.pairFragment(''), null);
+  });
+  it('takes only a quick tunnel’s address from a link, so a link can’t point the page at another server', () => {
+    assert.equal(companion.tunnelBase('https://brave-otter.trycloudflare.com'), 'https://brave-otter.trycloudflare.com/');
+    assert.equal(companion.tunnelBase('https://brave-otter.trycloudflare.com/x?y'), 'https://brave-otter.trycloudflare.com/');
+    assert.equal(companion.tunnelBase('http://brave-otter.trycloudflare.com'), null);
+    assert.equal(companion.tunnelBase('https://evil.example/?.trycloudflare.com'), null);
+    assert.equal(companion.tunnelBase('https://trycloudflare.com.evil.example'), null);
+    assert.equal(companion.tunnelBase('https://a.b.trycloudflare.com'), null);
+    assert.equal(companion.tunnelBase(null), null);
+  });
+  it('tries the direct address first, and only the tunnel in Safari', () => {
+    const via = 'https://brave-otter.trycloudflare.com/';
+    assert.deepEqual(companion.companionRoutes(47321, via, false), ['http://127.0.0.1:47321/', via]);
+    assert.deepEqual(companion.companionRoutes(47321, via, true), [via]);
+    assert.deepEqual(companion.companionRoutes(47321, null, false), ['http://127.0.0.1:47321/']);
+    assert.deepEqual(companion.companionRoutes(47321, null, true), []);
   });
   it('takes a code however it is typed', () => {
     assert.equal(companion.normaliseCode(' abc def '), 'ABC-DEF');
@@ -57,6 +74,7 @@ describe('the page’s side', () => {
   it('gives the commands for the site it is served from', () => {
     const commands = companion.companionCommands('https://saurav717.github.io/reader');
     assert.equal(commands.unix, 'curl -LsSf https://saurav717.github.io/reader/companion.sh | sh');
+    assert.equal(companion.companionCommands('https://saurav717.github.io/reader/', { tunnel: true }).unix, 'curl -LsSf https://saurav717.github.io/reader/companion.sh | sh -s -- --tunnel');
     assert.match(commands.windows, /irm https:\/\/saurav717\.github\.io\/reader\/companion\.ps1 \| iex/);
     assert.match(commands.uv, new RegExp(`reader_companion-${companion.COMPANION_VERSION.replace(/\./g, '\\.')}-py3-none-any\\.whl reader-companion --site https://saurav717\\.github\\.io/reader/$`));
   });
@@ -82,7 +100,7 @@ describe('the wheel and the installers', () => {
   });
   it('holds the package, its metadata and its command', () => {
     const info = `reader_companion-${project.version}.dist-info`;
-    for (const name of ['reader_companion/__init__.py', 'reader_companion/cli.py', 'reader_companion/extension.py', 'reader_companion/state.py', `${info}/METADATA`, `${info}/WHEEL`, `${info}/RECORD`, `${info}/entry_points.txt`]) assert.ok(files.has(name), name);
+    for (const name of ['reader_companion/__init__.py', 'reader_companion/cli.py', 'reader_companion/env.py', 'reader_companion/extension.py', 'reader_companion/state.py', 'reader_companion/tunnel.py', `${info}/METADATA`, `${info}/WHEEL`, `${info}/RECORD`, `${info}/entry_points.txt`]) assert.ok(files.has(name), name);
     const metadata = files.get(`${info}/METADATA`).toString();
     assert.match(metadata, /^Name: reader-companion$/m);
     for (const dep of project.dependencies) assert.ok(metadata.includes(`Requires-Dist: ${dep}`), dep);

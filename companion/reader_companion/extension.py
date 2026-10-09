@@ -12,7 +12,7 @@ import json
 from jupyter_server.utils import url_path_join
 from tornado import web
 
-from . import state
+from . import state, tunnel
 
 
 class CompanionHandler(web.RequestHandler):
@@ -50,7 +50,9 @@ class InfoHandler(CompanionHandler):
         if not self.allowed():
             return self.reply(403, {"error": "This Companion answers only its own site."})
         companion = state.current
-        self.reply(200, {"app": "reader-companion", "version": companion.version, "name": companion.name, "hardware": companion.hardware, "root": companion.root})
+        # Through the tunnel the address is public: say which Companion it is, and the rest after pairing.
+        remote = tunnel.via_tunnel(self.request.host)
+        self.reply(200, {"app": "reader-companion", "version": companion.version, "id": companion.id, "name": companion.name, "hardware": "" if remote else companion.hardware, "root": "" if remote else companion.root})
 
 
 class PairHandler(CompanionHandler):
@@ -64,7 +66,7 @@ class PairHandler(CompanionHandler):
         companion = state.current
         if not companion.pair(code):
             return self.reply(401, {"error": "That code isn’t the one the Companion shows. Check the terminal: it prints a new one after too many tries or 15 minutes."})
-        self.reply(200, {"url": f"http://127.0.0.1:{companion.port}/", "token": companion.token, "name": companion.name, "hardware": companion.hardware, "version": companion.version})
+        self.reply(200, {"url": f"http://127.0.0.1:{companion.port}/", "tunnel": companion.tunnel_url, "token": companion.token, "id": companion.id, "name": companion.name, "hardware": companion.hardware, "root": companion.root, "version": companion.version})
 
 
 def load(serverapp):

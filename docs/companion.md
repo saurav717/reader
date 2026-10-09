@@ -17,10 +17,16 @@ project. This document is the design.
 > the README's *Connect this computer*). It is served from the site rather
 > than PyPI: `curl -LsSf https://saurav717.github.io/reader/companion.sh | sh`
 > installs uv if needed and runs the wheel the site build carries. Your code
-> runs in `~/Reader/.venv`, or in the Python given with `--python`. Everything
-> from step 2 on is not built yet. Until the relay (step 5) exists, Safari
-> can't reach the Companion, because it won't let an `https` page call
-> `127.0.0.1`. The
+> runs in `~/Reader/.venv`, or in the Python given with `--python`. A real
+> terminal (xterm.js on Jupyter's terminals, your own shell) replaced the
+> command box. For Safari, which won't let an `https` page call `127.0.0.1`,
+> `--tunnel` opens a Cloudflare quick tunnel instead of the relay of step 5:
+> it needs no server of ours, but Cloudflare carries the traffic. From
+> step 4: **Open in VS Code**, and the extension's first version. It has
+> projects, papers, the Companion's state, `¶` links, the shared Python and
+> **Start the Companion**, served as a `.vsix` from the site. It doesn't yet
+> pick the kernel through the Jupyter extension's server API, or run on a GPU
+> machine. Steps 2, 3, 5 and 6 are not built yet. The
 pictures are static mock-ups in the app's own colours. Their sources are in
 [`mockups/companion-src/`](mockups/companion-src/), and
 `node docs/mockups/companion-src/render.mjs` renders them again.

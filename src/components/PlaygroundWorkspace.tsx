@@ -10,7 +10,7 @@ import type { Backend } from '../lib/colab';
 import { backendLabel, chooseBackend, colabAvailable, colabNow, connect, forgetRun, interrupt, lastActivityAt, runCell, runQuietly, setMachine, stopRuntime } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, Playground, SyncReport } from '../lib/playground';
-import { blankCells, filesAreOnMachine, homeHost, machineHost, machineRoot, notebookKey, pullBack, pushFolder, serverById, shellCell, takeSeed, updatePlayground, useServers } from '../lib/playground';
+import { blankCells, filesAreOnMachine, homeHost, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import type { RuntimeEntry } from '../lib/colab';
 import { useStore } from '../lib/store';
 import type { Screen } from '../lib/assistant';
@@ -19,6 +19,7 @@ import MetricsPane from './MetricsPane';
 import NotebookPage, { Editor } from './Notebook';
 import type { NbSide } from './Notebook';
 import RuntimePane from './RuntimePane';
+import Terminal, { hasTerminals } from './Terminal';
 import { WhereDialog } from './Playground';
 import { ArrowLeftIcon, CloseIcon } from './icons';
 
@@ -103,6 +104,14 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
   const connected = colab.status === 'idle' || colab.status === 'busy';
   const usable = Boolean(backend) && colabAvailable(settings.googleClientId);
 
+  const vscode = vscodeLink(playground);
+  // The folder says which playground it is, for VS Code's Reader extension; once per opening is enough.
+  useEffect(() => {
+    if (playground.home.kind !== 'server') return;
+    void markFolder(playground, `${window.location.origin}${import.meta.env.BASE_URL}`).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playground.id, playground.title, playground.cites.length, playground.home.kind === 'server' ? playground.home.serverId : '']);
+
   return (
     <main className="main pg-page pg-work">
       <header className="pg-bar">
@@ -135,6 +144,11 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
           </span>
         ) : null}
         <span className="spacer" />
+        {vscode ? (
+          <a className="btn sm ghost" href={vscode} title="Open this project's folder in VS Code (the Reader extension adds the papers, the machine and Open on the site)">
+            <VsCodeMark /> Open in VS Code
+          </a>
+        ) : null}
         <MachineChip playground={playground} name={machineName} usable={usable} onChange={() => setChanging(true)} />
         {tab === 'notebook' ? (
           <>
@@ -327,6 +341,21 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
   const [command, setCommand] = useState(playground.pending ?? '');
   const [base, setBase] = useState<string | null>(null);
   const current = files.find((file) => `${file.where}:${file.path}` === active) ?? null;
+  // A real terminal when the machine is a Jupyter server that offers one (a Reader Companion does); the command box otherwise, and on Colab.
+  const computeServer = playground.compute.kind === 'server' ? servers.find((server) => server.id === (playground.compute.kind === 'server' ? playground.compute.serverId : '')) : undefined;
+  const [terminals, setTerminals] = useState<boolean | null>(null);
+  useEffect(() => {
+    setTerminals(null);
+    if (!computeServer) return;
+    let live = true;
+    void hasTerminals(computeServer).then((yes) => live && setTerminals(yes));
+    return () => {
+      live = false;
+    };
+  }, [computeServer?.id, computeServer?.url, computeServer?.token]);
+  // In split mode the command box copies the folder over before each command and brings results back; the terminal doesn't, so the box stays first there.
+  const [shellView, setShellView] = useState<'terminal' | 'commands' | null>(null);
+  const view = terminals && computeServer ? shellView ?? (split ? 'commands' : 'terminal') : 'commands';
 
   const open = async (where: 'home' | 'machine', path: string) => {
     const key = `${where}:${path}`;
@@ -507,20 +536,33 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
           )}
           {problem ? <p className="pg-note is-problem">{problem}</p> : null}
         </div>
-        <div className="pg-console">
+        <div className={`pg-console${view === 'terminal' ? ' is-terminal' : ''}`}>
           <div className="pg-console-head">
-            <b>Console</b>
+            {terminals && computeServer ? (
+              <div className="segmented pg-seg pg-console-tabs" role="tablist" aria-label="Console">
+                <button type="button" role="tab" aria-selected={view === 'terminal'} className={view === 'terminal' ? 'on' : ''} onClick={() => setShellView('terminal')}>
+                  Terminal
+                </button>
+                <button type="button" role="tab" aria-selected={view === 'commands'} className={view === 'commands' ? 'on' : ''} onClick={() => setShellView('commands')}>
+                  {split ? 'Copy & run' : 'Commands'}
+                </button>
+              </div>
+            ) : (
+              <b>Console</b>
+            )}
             <span className="mono">
               {machineName}:{base ?? machineRoot(playground)}
             </span>
             <span className="spacer" />
-            {colab.running?.startsWith('pgsh:') ? (
+            {view === 'terminal' && split ? <span className="pg-note">The terminal doesn’t copy the folder over — use Sync, or Copy &amp; run.</span> : null}
+            {view === 'commands' && colab.running?.startsWith('pgsh:') ? (
               <button type="button" className="btn sm colab-stop" onClick={() => void interrupt()}>
                 ■ Stop
               </button>
             ) : null}
           </div>
-          <div className="pg-console-log" ref={consoleLog}>
+          {view === 'terminal' && computeServer ? <Terminal server={computeServer} cwd={machineRoot(playground)} sessionId={playground.id} label={machineName} /> : null}
+          <div className="pg-console-log" ref={consoleLog} hidden={view === 'terminal'}>
             {playground.console.slice(-12).map((entry) => {
               const key = consoleKey(playground.id, entry.id);
               const runNow = colab.runs[key];
@@ -538,6 +580,7 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
             })}
           </div>
           <form
+            hidden={view === 'terminal'}
             className="pg-console-input"
             onSubmit={(event) => {
               event.preventDefault();
@@ -690,5 +733,16 @@ function SyncPane({ playground, homeLabel, machineName, report, syncing, connect
         Keep these rules
       </button>
     </div>
+  );
+}
+
+/** VS Code's mark, drawn small in the bar's ink. */
+function VsCodeMark() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+      <path d="M17 2.8 21 4.8v14.4l-4 2-11-9.2L17 2.8Z" />
+      <path d="M17 7.6 10.6 12 17 16.4" />
+      <path d="M3 9.2 5.4 8 17 17.4M3 14.8 5.4 16 17 6.6" />
+    </svg>
   );
 }

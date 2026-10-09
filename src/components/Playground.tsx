@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
 import type { CompanionInfo, CompanionPairing } from '../lib/companion';
-import { COMPANION_PORT, companionCommands, companionPort, findCompanion, isSafari, normaliseCode, pairCompanion, pairFragment } from '../lib/companion';
+import { COMPANION_PORT, companionCommands, companionPort, companionRoutes, directBase, findCompanion, isSafari, normaliseCode, pairCompanion, pairFragment, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
@@ -365,10 +365,10 @@ function ServerRow({ server }: { server: JupyterServer }) {
         <span className="mono">{safeHost(server.url)}</span>
       </div>
       {state ? <p className={state.ok ? 'pg-ok' : 'pg-bad'}>{state.text}</p> : null}
-      {state && !state.ok && companionPort(server.url) ? (
+      {state && !state.ok && (server.companionId || companionPort(server.url)) ? (
         <div className="pg-howto">
-          <small>It’s the Companion: start it again in a terminal on this computer, and Test once more.</small>
-          <CopyBlock code={companionCommands(siteBase()).unix} />
+          <small>It’s the Companion: start it again in a terminal on this computer. It opens a link here that reconnects it.</small>
+          <CopyBlock code={companionCommands(siteBase(), { tunnel: isSafari() }).unix} />
         </div>
       ) : null}
       <div className="pg-machine-actions">
@@ -487,24 +487,40 @@ function ServerForm({ server, onDone, onSaved, defaultWhere = 'pc' }: { server?:
 /** This site's address with its base path: what the Companion's installers are served under. */
 const siteBase = () => (typeof window === 'undefined' ? 'https://saurav717.github.io/reader/' : `${window.location.origin}${import.meta.env.BASE_URL}`);
 
-/** Keeps a Companion's pairing as this browser's PC server: the one already saved for its address, updated, or a new one. */
-function saveCompanion(pairing: CompanionPairing): JupyterServer {
-  const same = serversNow().find((server) => server.url === pairing.url);
-  return saveServer({ id: same?.id, name: pairing.name, where: 'pc', url: pairing.url, token: pairing.token });
+/** Keeps a Companion's pairing as this browser's PC server, reached at `base` (its direct address or its tunnel's): the one already saved for that Companion, updated, or a new one. */
+function saveCompanion(pairing: CompanionPairing, base: string): JupyterServer {
+  const same = serversNow().find((server) => (pairing.id && server.companionId === pairing.id) || server.url === base);
+  return saveServer({ id: same?.id, name: pairing.name, where: 'pc', url: base, token: pairing.token, companionId: pairing.id, root: pairing.root || same?.root });
+}
+
+/** The first of these addresses a Companion answers on, trying for a while: a new tunnel can take some seconds to be found. */
+async function reachCompanion(routes: string[], forMs: number): Promise<{ base: string; info: CompanionInfo } | null> {
+  const until = Date.now() + forMs;
+  for (;;) {
+    for (const base of routes) {
+      const info = await findCompanion(base, 4000);
+      if (info) return { base, info };
+    }
+    if (Date.now() > until) return null;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
 }
 
 /** "Connect this computer": the Companion's one-line start, then the code it prints. The page looks for it while this is open. */
 function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server: JupyterServer) => void; onManual?: () => void; onClose?: () => void }) {
-  const commands = companionCommands(siteBase());
+  const safari = isSafari();
+  const commands = companionCommands(siteBase(), { tunnel: safari });
   const windows = typeof navigator !== 'undefined' && /Win/i.test(navigator.platform || navigator.userAgent);
-  const [os, setOs] = useState<'unix' | 'windows' | 'uv'>(windows ? 'windows' : 'unix');
+  const [os, setOs] = useState<'unix' | 'windows' | 'uv' | 'vscode'>(windows ? 'windows' : 'unix');
+  const vscode = vscodeInstall(siteBase(), windows);
   const [found, setFound] = useState<CompanionInfo | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [looks, setLooks] = useState(0);
-  const safari = isSafari();
   useEffect(() => {
+    // Safari can't call 127.0.0.1: there the Companion's link, with its tunnel, is the way in.
+    if (safari) return;
     let live = true;
     let timer = 0;
     const look = async () => {
@@ -519,12 +535,12 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
       live = false;
       window.clearTimeout(timer);
     };
-  }, []);
+  }, [safari]);
   const connect = async () => {
     setBusy(true);
     setProblem(null);
     try {
-      const saved = saveCompanion(await pairCompanion(code));
+      const saved = saveCompanion(await pairCompanion(code), directBase());
       onPaired?.(saved);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -566,13 +582,17 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
         </>
       ) : (
         <>
-          <p className="pg-companion-lede">Paste this into a terminal on this computer. It needs nothing installed beforehand, and it opens a page here to finish.</p>
+          <p className="pg-companion-lede">
+            Paste this into a terminal on this computer. It needs nothing installed beforehand, and it opens a page here to finish.
+            {safari ? ' Safari can’t reach a program on this computer directly, so the Companion also opens a private HTTPS address for it (a Cloudflare quick tunnel; everything through it needs the token).' : ''}
+          </p>
           <div className="segmented pg-seg" role="radiogroup" aria-label="This computer’s system">
             {(
               [
                 ['unix', 'macOS · Linux'],
                 ['windows', 'Windows'],
                 ['uv', 'Have uv'],
+                ['vscode', 'VS Code'],
               ] as const
             ).map(([key, label]) => (
               <button key={key} type="button" role="radio" aria-checked={os === key} className={os === key ? 'on' : ''} onClick={() => setOs(key)}>
@@ -580,16 +600,26 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
               </button>
             ))}
           </div>
-          <CopyBlock code={commands[os]} />
-          <small className="pg-companion-note">
-            {os === 'uv' ? 'Runs the Companion with the uv you have.' : 'It installs uv (a small Python tool) once if it isn’t there, then runs the Companion with its own Python.'} The page may use the folder <span className="mono">~/Reader</span>, and nothing outside it.
-          </small>
+          {os === 'vscode' ? (
+            <>
+              <CopyBlock code={vscode.command} />
+              <small className="pg-companion-note">
+                That installs the <b>Reader</b> extension (or <a href={vscode.vsix}>download the .vsix</a> and use Extensions → … → Install from VSIX). Then run <b>Reader: Start the Companion</b> from VS Code’s command palette: it starts the same Companion in VS Code’s terminal, and the projects, the papers they cite and the Python the site uses are in its Reader side bar.
+              </small>
+            </>
+          ) : (
+            <>
+              <CopyBlock code={commands[os]} />
+              <small className="pg-companion-note">
+                {os === 'uv' ? 'Runs the Companion with the uv you have.' : 'It installs uv (a small Python tool) once if it isn’t there, then runs the Companion with its own Python.'} The page may use the folder <span className="mono">~/Reader</span>, and nothing outside it.
+              </small>
+            </>
+          )}
           <div className="pg-companion-wait">
             <span className="pg-wait" />
-            {looks ? 'Waiting for this computer…' : 'Looking for it…'}
-            <span className="mono">127.0.0.1:{COMPANION_PORT}</span>
+            {safari ? 'Waiting for the link it opens…' : looks ? 'Waiting for this computer…' : 'Looking for it…'}
+            <span className="mono">{safari ? 'via tunnel' : `127.0.0.1:${COMPANION_PORT}`}</span>
           </div>
-          {safari ? <p className="pg-bad">Safari won’t let a site reach a program on this computer, so it can’t find the Companion. Open the Playground in Chrome, Edge or Firefox to connect.</p> : null}
         </>
       )}
       {problem ? <p className="pg-bad">{problem}</p> : null}
@@ -605,16 +635,17 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
 /** The page opened from the Companion's link, `#pair=CODE&port=N`: asks once, then connects with that code. */
 function PairFromLink() {
   const [pending, setPending] = useState(() => (typeof window === 'undefined' ? null : pairFragment(window.location.hash)));
-  const [info, setInfo] = useState<CompanionInfo | null | undefined>(undefined);
+  const [found, setFound] = useState<{ base: string; info: CompanionInfo } | null | undefined>(undefined);
+  const info = found === undefined ? undefined : found?.info ?? null;
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const [done, setDone] = useState<JupyterServer | null>(null);
+  const [done, setDone] = useState<{ server: JupyterServer; again: boolean } | null>(null);
   // A pairing link opened in a tab already on the Playground changes only the hash.
   useEffect(() => {
     const onHash = () => {
       const next = pairFragment(window.location.hash);
       if (!next) return;
-      setInfo(undefined);
+      setFound(undefined);
       setDone(null);
       setProblem(null);
       setPending(next);
@@ -626,36 +657,62 @@ function PairFromLink() {
     if (!pending) return;
     // The code is spent either way: off the address, out of history's way.
     window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
-    void findCompanion(pending.port, 4000).then(setInfo);
+    let live = true;
+    void reachCompanion(companionRoutes(pending.port, pending.via), pending.via ? 30_000 : 0).then((reached) => {
+      if (!live) return;
+      setFound(reached);
+      // A Companion this browser already knows, back at a new address (a new tunnel each start): reconnect without asking.
+      if (reached?.info.id && serversNow().some((server) => server.companionId === reached.info.id)) void connect(reached.base, true);
+    });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending]);
   if (!pending) return null;
   const close = () => setPending(null);
-  const connect = async () => {
+  async function connect(base: string, again = false) {
+    if (!pending) return;
     setBusy(true);
     setProblem(null);
     try {
-      setDone(saveCompanion(await pairCompanion(pending.code, pending.port)));
+      setDone({ server: saveCompanion(await pairCompanion(pending.code, base), base), again });
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
-  };
+  }
   return (
     <div className="scrim" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && close()}>
       <div className="sheet narrow pg-pair" role="dialog" aria-label="Connect this computer?">
         <span className="eyebrow">Playground · pair a computer</span>
-        <h2>{done ? 'Connected' : 'Connect this computer?'}</h2>
+        <h2>{done ? (done.again ? 'Reconnected' : 'Connected') : 'Connect this computer?'}</h2>
         {done ? (
           <p className="lede">
-            <b>{done.name}</b> is under <b>Your compute</b>, and new playgrounds can run on it. It stays paired while the Companion keeps the same settings: start it again whenever you want to use it.
+            {done.again ? (
+              <>
+                <b>{done.server.name}</b> is back, and its playgrounds run on it again.
+              </>
+            ) : (
+              <>
+                <b>{done.server.name}</b> is under <b>Your compute</b>, and new playgrounds can run on it. Start the Companion again whenever you want to use it: the link it opens reconnects it.
+              </>
+            )}
           </p>
         ) : info === undefined ? (
           <p className="lede">
             <span className="spinner" /> Looking for the Companion…
           </p>
         ) : info === null ? (
-          <p className="lede">{isSafari() ? 'Safari won’t let a site reach a program on this computer. Open this link in Chrome, Edge or Firefox instead — or start the Companion again and use the link it prints there.' : `Nothing answers on 127.0.0.1:${pending.port}. Is the Companion still running in the terminal?`}</p>
+          isSafari() && !pending.via ? (
+            <>
+              <p className="lede">Safari can’t reach a program on this computer directly. Stop the Companion (Ctrl-C) and start it with its HTTPS tunnel instead; the link it opens then works here:</p>
+              <CopyBlock code={companionCommands(siteBase(), { tunnel: true }).unix} />
+            </>
+          ) : (
+            <p className="lede">{pending.via ? 'Neither the Companion’s own address nor its tunnel answers. Is it still running in the terminal?' : `Nothing answers on 127.0.0.1:${pending.port}. Is the Companion still running in the terminal?`}</p>
+          )
         ) : (
           <>
             <p className="lede">
@@ -664,10 +721,20 @@ function PairFromLink() {
             <div className="pg-pair-kv">
               <span>Computer</span>
               <b>{info.name}</b>
-              <span>Hardware</span>
-              <b>{info.hardware}</b>
-              <span>Folder</span>
-              <b className="mono">{info.root}</b>
+              {info.hardware ? (
+                <>
+                  <span>Hardware</span>
+                  <b>{info.hardware}</b>
+                </>
+              ) : null}
+              {info.root ? (
+                <>
+                  <span>Folder</span>
+                  <b className="mono">{info.root}</b>
+                </>
+              ) : null}
+              <span>Reached</span>
+              <b>{found && found.base.startsWith('https:') ? 'through its HTTPS tunnel' : 'directly, on 127.0.0.1'}</b>
             </div>
             <p className="pg-note">The page may run code there, and read and write files in that folder only. Remove it any time under Your compute.</p>
           </>
@@ -683,7 +750,7 @@ function PairFromLink() {
               <button type="button" className="btn" onClick={close}>
                 Not this one
               </button>
-              <button type="button" className="btn primary" disabled={busy} onClick={() => void connect()}>
+              <button type="button" className="btn primary" disabled={busy || !found} onClick={() => found && void connect(found.base)}>
                 {busy ? 'Connecting…' : 'Connect'}
               </button>
             </>

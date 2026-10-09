@@ -3753,8 +3753,60 @@ a browser there, type the code it prints into the card instead.
 - **Options** go after `sh -s --`: `--no-browser`, `--root DIR`, `--python PY`,
   `--port N`, `--name NAME`. They are remembered in
   `~/.reader-companion/config.json`.
-- **Safari** won't let the site reach `127.0.0.1`. Use Chrome, Edge or Firefox
-  to connect and run on this computer.
+- **A real terminal.** A playground on the Companion opens a terminal
+  (xterm.js on Jupyter's terminals) in the project's folder. It runs your own
+  shell: zsh with oh-my-zsh, bash or fish. Your rc files load first, and the
+  project's Python is activated on top, as VS Code's terminal does. The shell
+  lives on the Companion, so leaving the tab and coming back finds it as it
+  was. **Commands** keeps the old command box, and in split mode it is still
+  the one that copies the folder over before a command.
+- **Safari** won't let an `https` site call `http://127.0.0.1`. In Safari the
+  card's command adds `--tunnel` (`… | sh -s -- --tunnel`). The Companion then
+  also opens a Cloudflare quick tunnel (`https://<words>.trycloudflare.com`,
+  no account needed; `cloudflared` is downloaded once), and its link carries
+  that address. The page accepts only a `trycloudflare.com` address from a
+  link. The tunnel's address changes each start, so the link the Companion
+  opens reconnects the computer the browser already knows, with no click.
+
+**VS Code.** A project on the Companion has **Open in VS Code** in its bar.
+It is a `vscode://file/…` link to the project's folder, so it works with
+nothing else installed. The **Reader Playground** extension (`vscode/`)
+adds the rest:
+- **Side bar:** the Companion's projects, the papers the open project cites,
+  and the Companion itself (running or not, its folder, its Python).
+- **Citations:** `¶ FlashAttention-2 §3.1` in a file becomes a link to that
+  paper on the site.
+- **Python:** in a Reader project, the Python extension uses the Companion's
+  environment, so notebooks and the terminal run the same Python as the site.
+- **Starting the Companion:** **Reader: Start the Companion** runs the card's
+  command in VS Code's terminal.
+
+The extension reads the Companion's settings and the `.reader/playground.json`
+the page writes into each project folder. It keeps nothing of its own. To
+install it, use the card's **VS Code** tab:
+`curl -LsSfo /tmp/reader-playground.vsix https://saurav717.github.io/reader/vscode/reader-playground.vsix && code --install-extension /tmp/reader-playground.vsix`.
+`npm run build:pages` builds that `.vsix` (`scripts/build-vscode.mjs`: esbuild,
+then the same zip writer as the Companion's wheel). To publish to the
+Marketplace instead, run `cd vscode && npx @vscode/vsce publish` with a
+publisher of your own.
+
+**The terminal's look** follows the site's theme: the page's paper, ink and
+accent, and ANSI colours from its own palette. It switches with the theme,
+light, dark or glass, while it's open.
+
+**What's protected, and how.**
+- **Who can call it:** everything needs the server's token (32 random bytes,
+  kept in `~/.reader-companion/config.json`, mode 600), and only this site's
+  origin is let in. The pairing code is single-use, and a new one is made
+  after 15 minutes or 10 wrong tries.
+- **Page to Companion:** on `127.0.0.1` it never leaves the machine. Through
+  the tunnel it is HTTPS to Cloudflare and an encrypted tunnel from there to
+  the Companion. Cloudflare can see that traffic, as for any site it fronts.
+  Use Chrome, Edge or Firefox without `--tunnel` to keep everything on the
+  machine.
+- **Server to kernel:** these talk over Unix sockets only your user can open
+  (`KernelManager.transport = ipc`), not TCP ports. That is also what
+  ipykernel's "running over TCP without encryption" warning asks for.
 
 `npm run build:pages` builds the Companion's wheel and the two installers
 into the site (`scripts/build-companion.mjs`, in Node, so no Python is needed

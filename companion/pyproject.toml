@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "reader-companion"
-version = "0.1.0"
+version = "0.2.0"
 description = "Connects this computer to the reader's Playground: a Jupyter server the page can reach, paired in one click."
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = ["jupyter_server>=2.0", "ipykernel>=6"]
+dependencies = ["jupyter_server>=2.0", "jupyter_server_terminals>=0.4", "ipykernel>=6"]
 
 [project.scripts]
 reader-companion = "reader_companion.cli:main"

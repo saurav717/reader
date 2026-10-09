@@ -94,11 +94,13 @@ def hardware() -> str:
 class Companion:
     name: str
     token: str
+    id: str
     site: str
     root: str
     version: str
     hardware: str = ""
     port: int = 0
+    tunnel_url: str = ""
     code: str = field(default_factory=new_code)
     code_made: float = field(default_factory=time.time)
     tries: int = 0
