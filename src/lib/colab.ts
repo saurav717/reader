@@ -70,6 +70,8 @@ export interface JupyterServer {
   companionId?: string;
   /** A Reader Companion's folder on its computer, absolute (~/Reader): what "Open in VS Code" opens. */
   root?: string;
+  /** The Google account a Companion belongs to: shown only while the page is signed in as it. */
+  account?: string;
 }
 
 /** Where cells run: the person's own Colab, or a Jupyter server of theirs. */

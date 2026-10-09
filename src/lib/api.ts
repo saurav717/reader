@@ -186,6 +186,15 @@ export function passExpires(value: string): number {
   }
 }
 
+/** The pass of whoever is signed in with Google, or null (signed out, or a token pasted by hand). */
+export const currentPass = (): string | null => (isPass(token) ? token : null);
+
+/** The Google account signed in, as its pass says: whose computers the Playground lists. */
+export function currentAccount(): string | null {
+  const pass = currentPass();
+  return pass ? passEmail(pass)?.toLowerCase() ?? null : null;
+}
+
 // The captcha on the sign-in screen: the proxy's Turnstile site key, asked
 // once per proxy address, and the answer the widget gave, kept until the
 // sign-in it was solved for uses it — each answer is good once.

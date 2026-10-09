@@ -10,8 +10,9 @@
 import { useEffect, useState } from 'react';
 import type { CompanionInfo } from '../lib/companion';
 import type { JupyterServer } from '../lib/colab';
-import { COMPANION_VERSION, companionPort, findCompanion, findLocalCompanion, isNewer, normaliseCode, pairCompanion, showCompanionCode, startCompanion, updateCompanion, waitForVersion } from '../lib/companion';
-import { saveCompanion, useServers } from '../lib/playground';
+import { COMPANION_VERSION, companionPort, findCompanion, findLocalCompanion, isNewer, normaliseCode, showCompanionCode, startCompanion, updateCompanion, waitForVersion } from '../lib/companion';
+import { useServers } from '../lib/playground';
+import { pairForAccount } from '../lib/devices';
 import { SITE_BUILD, isNewerBuild, publishedBuild } from '../lib/siteBuild';
 import type { SiteBuild } from '../lib/siteBuild';
 import { isCompanion } from './VsCodeExtension';
@@ -125,7 +126,7 @@ function UnpairedRow() {
     setBusy(true);
     setNote(null);
     try {
-      saveCompanion(await pairCompanion(code, found.base), found.base);
+      await pairForAccount(code, found.base);
     } catch (error) {
       setNote(error instanceof Error ? error.message : String(error));
     } finally {

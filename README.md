@@ -3841,8 +3841,33 @@ updated.
 The Playground's home page has the same as a switch: on the Companion's row
 under **Your compute**, and in **Connect this computer** for a Companion the
 page found but this browser hasn't paired with. Unpaired, the page sends no
-token, so the Companion (from 0.6.2) takes a shutdown without one only from
+token, so the Companion (from 0.7.0) takes a shutdown without one only from
 this computer itself (`127.0.0.1`), never through its tunnel.
+
+**Your computers follow your Google account; your files stay on them.** A
+browser signed in with Google that pairs with the Companion (the Reader app's
+link, or the code) also *claims* it for that account (`/companion/claim`, from
+0.7.0). The Companion then:
+
+- changes its token, so a browser that paired before, signed in as anyone
+  else, no longer gets in with the one it kept;
+- pairs only with a page signed in as that account: it asks the Worker whose
+  pass the page sent (`GET /me`), and refuses anyone else's, code or not;
+- opens its HTTPS tunnel and keeps the account's list of computers on the
+  Worker current (`worker/devices.js`, one Durable Object per account): its
+  name, its tunnel address and its token, when it starts, every five minutes,
+  and when it is shut down. Nothing else leaves the computer: projects and
+  data stay in `~/Reader` on it, and nothing goes to Drive.
+
+Every browser signed in as the account, on this computer or another, reads
+that list (`GET /devices`, with its pass) and shows the computer under **Your
+compute**: through `127.0.0.1` on the computer itself, through the tunnel
+anywhere else. A browser signed in as someone else shows a Companion it finds
+as "connected to sa•••@gmail.com" and can't pair with it. To give the computer
+to another account, run `reader-companion release` on it (a new token, and no
+owner), then connect again signed in as that account. A pairing from before
+0.7.0 has **Connect to my account** on its row. The Worker needs the `DEVICES`
+Durable Object in `wrangler.toml` (its `v3` migration), which a deploy makes.
 
 **Deleting the app removes it.** On a Mac the Companion runs from a login
 item, not from Reader.app, so deleting the app used to leave it running and

@@ -24,6 +24,7 @@ import type { NbCell } from './notebook';
 import { newCell } from './notebook';
 import type { CompanionPairing } from './companion';
 import { secureAddress } from './companion';
+import { currentAccount, onProxyChange } from './api';
 
 // ---------------------------------------------------------------- types ----
 
@@ -85,9 +86,16 @@ const readServers = (): JupyterServer[] => {
 };
 
 let servers: JupyterServer[] = typeof localStorage === 'undefined' ? [] : readServers();
+// What the page shows: a Companion that belongs to a Google account only while signed in as that account.
+const visibleOf = (all: JupyterServer[]) => {
+  const account = currentAccount();
+  return all.filter((server) => !server.account || server.account === account);
+};
+let visible = visibleOf(servers);
 const serverListeners = new Set<() => void>();
 const saveServers = (next: JupyterServer[]) => {
   servers = next;
+  visible = visibleOf(next);
   try {
     localStorage.setItem(SERVERS_KEY, JSON.stringify(next));
   } catch {
@@ -95,8 +103,17 @@ const saveServers = (next: JupyterServer[]) => {
   }
   serverListeners.forEach((listener) => listener());
 };
+// Signing in or out (or as someone else) changes whose computers show.
+onProxyChange(() => {
+  const next = visibleOf(servers);
+  if (next.length === visible.length && next.every((server, i) => server === visible[i])) return;
+  visible = next;
+  serverListeners.forEach((listener) => listener());
+});
 
-export const serversNow = () => servers;
+/** Every server this browser keeps, whoever's: for the account sync, not for showing. */
+export const allServers = () => servers;
+export const serversNow = () => visible;
 export const subscribeServers = (listener: () => void) => {
   serverListeners.add(listener);
   return () => {
@@ -104,7 +121,7 @@ export const subscribeServers = (listener: () => void) => {
   };
 };
 export const useServers = () => useSyncExternalStore(subscribeServers, serversNow);
-export const serverById = (id: string | undefined) => servers.find((server) => server.id === id);
+export const serverById = (id: string | undefined) => visible.find((server) => server.id === id);
 
 /** A Jupyter server's address as the page keeps it: the scheme, the host and the base path, with a trailing slash; any `?token=` lifted out. */
 export function parseServerUrl(input: string): { url: string; token?: string } | null {
@@ -132,7 +149,7 @@ export function saveServer(server: Omit<JupyterServer, 'id'> & { id?: string }):
 /** Keeps a Companion's pairing as this browser's PC server, reached at `base` (its direct address or its tunnel's): the one already saved for that Companion, updated, or a new one. */
 export function saveCompanion(pairing: CompanionPairing, base: string): JupyterServer {
   const same = servers.find((server) => (pairing.id && server.companionId === pairing.id) || server.url === base);
-  return saveServer({ id: same?.id, name: pairing.name, where: 'pc', url: base, token: pairing.token, companionId: pairing.id, root: pairing.root || same?.root });
+  return saveServer({ id: same?.id, name: pairing.name, where: 'pc', url: base, token: pairing.token, companionId: pairing.id, root: pairing.root || same?.root, account: same?.account });
 }
 
 /** Moves each Companion this browser reaches over plain http onto its https address, where this computer's certificate lets it: the same server, encrypted. */

@@ -15,7 +15,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import __version__, desktop, env, state, tls, tunnel
+from . import __version__, account, desktop, env, state, tls, tunnel
 
 DEFAULT_SITE = os.environ.get("READER_SITE", "https://saurav717.github.io/reader/")
 DEFAULT_PORT = 47321
@@ -37,7 +37,7 @@ def parse(argv=None, command=""):
         parser.add_argument("--no-login", action="store_true", help="don't start the Companion at login: run it here, in this terminal, as plain reader-companion does")
         parser.add_argument("--no-app", action="store_true", help="don't make the Reader app (Reader.app from the .dmg runs setup with this: it is the app)")
     else:
-        parser = argparse.ArgumentParser(prog="reader-companion", description="Connect this computer to the reader's Playground.", epilog="Also: reader-companion setup (install it for good: the Reader app, VS Code, start at login, pair), reader-companion open (what the Reader app runs), reader-companion start (start it in the background, also after a shutdown from the page), reader-companion pair (a new pairing link for the one running), reader-companion trust (let Safari reach it, on macOS), reader-companion uninstall (remove the Reader app and stop starting it at login).")
+        parser = argparse.ArgumentParser(prog="reader-companion", description="Connect this computer to the reader's Playground.", epilog="Also: reader-companion setup (install it for good: the Reader app, VS Code, start at login, pair), reader-companion open (what the Reader app runs), reader-companion start (start it in the background, also after a shutdown from the page), reader-companion pair (a new pairing link for the one running), reader-companion release (disconnect it from its Google account), reader-companion trust (let Safari reach it, on macOS), reader-companion uninstall (remove the Reader app and stop starting it at login).")
     parser.add_argument("--root", help="the folder the page may read, write and run in (default ~/Reader)")
     parser.add_argument("--port", type=int, help=f"the port on 127.0.0.1 (default {DEFAULT_PORT})")
     parser.add_argument("--site", help=f"the reader's address (default {DEFAULT_SITE})")
@@ -199,6 +199,7 @@ def serve(config: dict, args):
             pass
     if platform.system() == "Darwin" and desktop.launch_agent_path().exists():
         watch_app(app, config)
+    keep_listed(app)
     pid_file = state.config_dir() / desktop.PID
     pid_file.write_text(str(os.getpid()))
     try:
@@ -214,6 +215,18 @@ def serve(config: dict, args):
         except OSError:
             pass
 
+
+
+def keep_listed(app) -> None:
+    """Keeps the owning account's list of computers current (account.py): now, and every few minutes, in the background."""
+    from tornado.ioloop import PeriodicCallback
+
+    def beat():
+        if account.owner():
+            app.io_loop.run_in_executor(None, account.beat, state.current)
+
+    app.io_loop.add_callback(beat)
+    PeriodicCallback(beat, account.BEAT_MS).start()
 
 
 def watch_app(app, config: dict) -> None:
@@ -415,6 +428,22 @@ def pair(argv):
         webbrowser.open(link)
 
 
+def release(argv):
+    """Hands this computer back: no Google account owns it, and the token changes. Pair a browser again to connect it to one."""
+    argparse.ArgumentParser(prog="reader-companion release", description="Disconnect this computer from the Google account it belongs to (with a new token), so that another account can connect it.").parse_args(argv)
+    config = state.load_config()
+    held = config.get("owner") or {}
+    running = desktop.wait_for(config["token"], int(config.get("port") or DEFAULT_PORT), 0) if config.get("token") else None
+    if running is not None:
+        if desktop.local_call(running, config["token"], "companion/release", method="POST") is None:
+            sys.exit("reader-companion: the Companion running here didn't take it. Stop it, then run this again.")
+    else:
+        config.pop("owner", None)
+        config["token"] = secrets.token_urlsafe(32)
+        state.save_config(config)
+    print(f"Released from {held['email']}." if held.get("email") else "It wasn't connected to an account.", "Pair a browser to connect it again: the account that browser is signed in to gets it.")
+
+
 def uninstall(argv):
     """Removes the Reader app and the login item (and stops the Companion that runs). Keeps the folder and the settings."""
     argparse.ArgumentParser(prog="reader-companion uninstall", description="Remove the Reader app and stop starting the Companion at login. Your folder and settings stay.").parse_args(argv)
@@ -427,7 +456,7 @@ def uninstall(argv):
         print("To remove the program too: uv tool uninstall reader-companion")
 
 
-COMMANDS = {"setup": setup, "open": open_app, "start": start, "pair": pair, "trust": trust_command, "uninstall": uninstall}
+COMMANDS = {"setup": setup, "open": open_app, "start": start, "pair": pair, "release": release, "trust": trust_command, "uninstall": uninstall}
 
 
 if __name__ == "__main__":
