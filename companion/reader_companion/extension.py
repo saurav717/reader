@@ -4,6 +4,10 @@ They sit beside Jupyter's own API on the same port but outside its login, and
 answer only the reader's own origin. /info says which computer this is;
 /pair trades the code the terminal shows for the server's address and token.
 
+/companion/show-code is for a browser that found the Companion but has no code:
+it puts the code in a dialog on this computer's screen (a few seconds apart at
+most), so whoever reads it there is at the computer, as with the terminal.
+
 /companion/vscode is for the page once paired (its origin, and the token): which
 VS Code-like editors are here and whether they have the Reader extension, and
 installing it into them from the .vsix the site serves — the extension isn't
@@ -18,6 +22,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import time
 
 from jupyter_server.utils import url_path_join
 from tornado import web
@@ -76,8 +81,24 @@ class PairHandler(CompanionHandler):
             code = ""
         companion = state.current
         if not companion.pair(code):
-            return self.reply(401, {"error": "That code isn’t the one the Companion shows. Check the terminal: it prints a new one after too many tries or 15 minutes."})
+            return self.reply(401, {"error": "That code isn’t the one the Companion shows. Ask for it again: there is a new one after too many tries or 15 minutes."})
         self.reply(200, {"url": f"http://127.0.0.1:{companion.port}/", "tunnel": companion.tunnel_url, "token": companion.token, "id": companion.id, "name": companion.name, "hardware": companion.hardware, "root": companion.root, "version": companion.version})
+
+
+class ShowCodeHandler(CompanionHandler):
+    last = 0.0
+
+    def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "This Companion answers only its own site."})
+        companion = state.current
+        if time.time() - ShowCodeHandler.last < 5:
+            return self.reply(429, {"error": "It’s on the screen already."})
+        ShowCodeHandler.last = time.time()
+        if time.time() - companion.code_made > state.CODE_TTL_S:
+            companion.fresh_code(announce=False)
+        print(f"  A browser asked for the code: {companion.code}", flush=True)
+        self.reply(200, {"shown": desktop.show_code(companion.code, companion.name)})
 
 
 class LinkHandler(CompanionHandler):
@@ -137,6 +158,7 @@ def load(serverapp):
         [
             (url_path_join(base, "companion/info"), InfoHandler),
             (url_path_join(base, "companion/pair"), PairHandler),
+            (url_path_join(base, "companion/show-code"), ShowCodeHandler),
             (url_path_join(base, "companion/link"), LinkHandler),
             (url_path_join(base, "companion/vscode"), VsCodeHandler),
         ],

@@ -74,6 +74,22 @@ export async function pairCompanion(code: string, base = directBase()): Promise<
   return body as CompanionPairing;
 }
 
+/**
+ * Asks the Companion to put its pairing code on its computer's screen, for a
+ * browser that found it but has no code (it runs in the background, with no
+ * terminal to read). False when that computer has nothing to show it with.
+ */
+export async function showCompanionCode(base = directBase()): Promise<boolean> {
+  try {
+    const response = await fetch(`${base}companion/show-code`, { method: 'POST' });
+    if (response.status === 429) return true;
+    const body = (await response.json().catch(() => ({}))) as { shown?: boolean };
+    return response.ok && body.shown === true;
+  } catch {
+    return false;
+  }
+}
+
 /** "abc def", "ABCDEF" and "ABC-DEF" are the same code. */
 export function normaliseCode(code: string): string {
   const raw = code.toUpperCase().replace(/[^A-Z0-9]/g, '');

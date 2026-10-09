@@ -3777,6 +3777,15 @@ pairing link for another browser, and `reader-companion uninstall` removes the
 app and stops the Companion starting at login. The folder and the settings
 stay.
 
+**The app isn't the only way in.** Once installed, the Companion runs in the
+background, so the site in any Chrome, Edge or Firefox tab finds it too. A
+browser that hasn't paired yet asks for the code. There is no terminal to read
+it from, so **Show the code on this computer** has the Companion put it in a
+dialog on that computer's screen (`osascript` on macOS, a message box on
+Windows, `zenity`, `kdialog` or `notify-send` on Linux). Whoever reads it is at
+the computer, as with the terminal. The Reader app and the terminal's link
+connect without a code.
+
 **VS Code from the site.** The extension isn't on the Marketplace, and a page
 can't install one. The Companion can, though. Under *Your compute* the
 Companion's row says whether VS Code is there and has the Reader extension,

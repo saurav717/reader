@@ -104,6 +104,20 @@ class AppTest(Sandbox):
         self.assertEqual(desktop.subprocess.Popen.call_args[0][0], ["/usr/bin/google-chrome", "--app=https://saurav717.github.io/reader/playground"])
 
 
+class CodeOnScreenTest(unittest.TestCase):
+    def test_each_system_shows_it(self):
+        mac = desktop.code_dialog("ABC-DEF", 'Saurav\'s "Mac"', system="Darwin")
+        self.assertEqual(mac[:2], ["osascript", "-e"])
+        self.assertIn("ABC-DEF", mac[2])
+        self.assertIn('\\"Mac\\"', mac[2])  # quotes escaped for AppleScript
+        windows = desktop.code_dialog("ABC-DEF", "Saurav's PC", system="Windows")
+        self.assertIn("Saurav''s PC", windows[-1])  # and for PowerShell
+        with mock.patch.object(desktop.shutil, "which", side_effect=lambda tool: "/usr/bin/notify-send" if tool == "notify-send" else None):
+            self.assertEqual(desktop.code_dialog("ABC-DEF", "box", system="Linux")[0], "notify-send")
+        with mock.patch.object(desktop.shutil, "which", return_value=None):
+            self.assertIsNone(desktop.code_dialog("ABC-DEF", "box", system="Linux"))
+
+
 class EditorTest(unittest.TestCase):
     def test_no_editor_no_download(self):
         with mock.patch.object(desktop, "editor_commands", return_value=[]), mock.patch.object(desktop.urllib.request, "urlretrieve") as fetch:

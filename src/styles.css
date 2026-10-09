@@ -5864,6 +5864,7 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .pg-companion-row input:focus { border-color: var(--accent); }
 .pg-companion-manual { align-self: flex-start; padding: 0; height: auto; }
 .pg-companion-install { display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border-soft); }
+.pg-companion-ask { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .pg-companion-download { align-self: flex-start; text-decoration: none; }
 .pg-vscode { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--ink-2); }
 .pg-vscode small { font-size: 11.5px; }

@@ -541,3 +541,33 @@ def uninstall_app(system: str | None = None) -> list[str]:
         linux_entry_path().unlink()
         removed.append(str(linux_entry_path()))
     return removed
+
+
+# ------------------------------------------------------ the code, on screen ----
+
+def code_dialog(code: str, name: str, system: str | None = None) -> list[str] | None:
+    """The command that puts the pairing code on this computer's screen, or None when there is nothing to show it with."""
+    system = system or platform.system()
+    text = f"The code to connect a browser to {name}:\n\n{code}\n\nType it on the Reader page. It works once, for 15 minutes."
+    if system == "Darwin":
+        quoted = text.replace("\\", "\\\\").replace('"', '\\"')
+        return ["osascript", "-e", f'display dialog "{quoted}" with title "Reader" buttons {{"OK"}} default button 1 giving up after 300']
+    if system == "Windows":
+        quoted = text.replace("'", "''")
+        return ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", f"Add-Type -AssemblyName PresentationFramework; [void][System.Windows.MessageBox]::Show('{quoted}', 'Reader')"]
+    for tool, args in (("zenity", ["--info", "--title=Reader", f"--text={text}"]), ("kdialog", ["--title", "Reader", "--msgbox", text]), ("notify-send", ["--expire-time=300000", "Reader", text])):
+        if shutil.which(tool):
+            return [tool, *args]
+    return None
+
+
+def show_code(code: str, name: str) -> bool:
+    """Shows the pairing code on this computer's screen, without waiting for it to be closed. Whether it could."""
+    command = code_dialog(code, name)
+    if not command:
+        return False
+    try:
+        subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+        return True
+    except OSError:
+        return False

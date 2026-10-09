@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
 import type { CompanionInfo, CompanionPairing } from '../lib/companion';
-import { COMPANION_PORT, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, directBase, findCompanion, isSafari, normaliseCode, pairCompanion, pairFragment, vscodeInstall } from '../lib/companion';
+import { COMPANION_PORT, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, directBase, findCompanion, isSafari, normaliseCode, pairCompanion, pairFragment, showCompanionCode, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
@@ -523,6 +523,13 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [looks, setLooks] = useState(0);
+  const [asking, setAsking] = useState(false);
+  const [shown, setShown] = useState<boolean | null>(null);
+  const askForCode = async () => {
+    setAsking(true);
+    setShown(await showCompanionCode());
+    setAsking(false);
+  };
   useEffect(() => {
     // Safari can't call 127.0.0.1: there the Companion's link, with its tunnel, is the way in.
     if (safari) return;
@@ -574,8 +581,15 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
               </small>
             </div>
           </div>
+          <div className="pg-companion-ask">
+            <button type="button" className="btn sm" disabled={asking} onClick={() => void askForCode()}>
+              {asking ? 'Asking…' : 'Show the code on this computer'}
+            </button>
+            {shown === true ? <small className="pg-companion-note">It’s in a window on this computer’s screen.</small> : null}
+            {shown === false ? <small className="pg-companion-note">This computer can’t show it in a window. Open the <b>Reader</b> app instead, which connects with no code, or run <span className="mono">reader-companion pair</span>.</small> : null}
+          </div>
           <label className="pg-companion-code">
-            <span>Type the code the terminal shows</span>
+            <span>Type the code it shows</span>
             <span className="pg-companion-row">
               <input value={code} onChange={(event) => (setCode(event.target.value), setProblem(null))} onKeyDown={(event) => event.key === 'Enter' && normaliseCode(code).length === 7 && void connect()} placeholder="ABC-DEF" spellCheck={false} autoComplete="off" maxLength={9} />
               <button type="button" className="btn primary sm" disabled={busy || normaliseCode(code).length !== 7} onClick={() => void connect()}>
@@ -583,7 +597,7 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
               </button>
             </span>
           </label>
-          <small className="pg-companion-note">Or open the link the terminal printed: it connects with no code.</small>
+          <small className="pg-companion-note">Or open the Reader app, or the link the terminal printed: both connect with no code.</small>
         </>
       ) : (
         <>
