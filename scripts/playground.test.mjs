@@ -22,11 +22,11 @@ describe('the addresses', () => {
     [{ view: { kind: 'all' } }, '/reader/library'],
     [{ view: { kind: 'reading' } }, '/reader/reading'],
     [{ view: { kind: 'junk' } }, '/reader/junk'],
-    [{ view: { kind: 'collection', id: 'c-1' } }, '/reader/collection/c-1'],
-    [{ view: { kind: 'paper', id: 'arxiv:2010.08895' } }, '/reader/paper/arxiv%3A2010.08895'],
-    [{ view: { kind: 'paper', id: 'doi:10.1145/3442188.3445922' } }, '/reader/paper/doi%3A10.1145%2F3442188.3445922'],
+    [{ view: { kind: 'collection', id: 'c-1' } }, '/reader/collection/?id=c-1'],
+    [{ view: { kind: 'paper', id: 'arxiv:2010.08895' } }, '/reader/paper/?id=arxiv%3A2010.08895'],
+    [{ view: { kind: 'paper', id: 'doi:10.1145/3442188.3445922' } }, '/reader/paper/?id=doi%3A10.1145%2F3442188.3445922'],
     [{ view: { kind: 'playground' } }, '/reader/playground'],
-    [{ view: { kind: 'playground', id: 'a8c4d48f' } }, '/reader/playground/a8c4d48f'],
+    [{ view: { kind: 'playground', id: 'a8c4d48f' } }, '/reader/playground/?id=a8c4d48f'],
     [{ view: { kind: 'home' }, usage: true }, '/reader/usage'],
   ];
   for (const [place, path] of cases) {
@@ -50,9 +50,19 @@ describe('the addresses', () => {
     assert.equal(route.placeFor('/reader/library/extra', '/reader/'), null);
   });
   it('works at the root too, as in dev', () => {
-    assert.equal(route.pathFor({ view: { kind: 'playground', id: 'x' } }, '/'), '/playground/x');
+    assert.equal(route.pathFor({ view: { kind: 'playground', id: 'x' } }, '/'), '/playground/?id=x');
     assert.deepEqual(route.placeFor('/paper/arxiv%3A1', '/').view, { kind: 'paper', id: 'arxiv:1' });
     assert.equal(route.basePath('reader'), '/reader/');
+  });
+  it('still reads an id in the path, for links made before it moved to the query', () => {
+    assert.deepEqual(route.placeFor('/reader/playground/a8c4d48f', '/reader/').view, { kind: 'playground', id: 'a8c4d48f' });
+    assert.deepEqual(route.placeFor('/reader/paper/arxiv%3A1', '/reader/').view, { kind: 'paper', id: 'arxiv:1' });
+  });
+  it('reads ?id= only where a page has one, and keeps the rest of a query', () => {
+    assert.deepEqual(route.placeFor('/reader/library?id=x', '/reader/').view, { kind: 'all' });
+    assert.equal(route.placeFor('/reader/paper/?code=1', '/reader/'), null);
+    assert.equal(route.addressWith('/reader/playground/?id=a', '?code=1&id=b'), '/reader/playground/?code=1&id=a');
+    assert.equal(route.addressWith('/reader/library', '?id=b'), '/reader/library');
   });
 });
 

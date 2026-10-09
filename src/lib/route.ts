@@ -6,11 +6,16 @@
 //
 //   /                      Home
 //   /library               every paper     /reading /unread /finished /unsorted /junk
-//   /collection/<id>       a collection
-//   /paper/<id>            a paper
+//   /collection/?id=<id>   a collection
+//   /paper/?id=<id>        a paper
 //   /usage                 who used what (the owner's)
 //   /playground            the Playground's home
-//   /playground/<id>       one playground
+//   /playground/?id=<id>   one playground
+//
+// The id rides in the query, so every address is a folder that exists on a
+// static host (GitHub Pages): a reload is answered by that folder's
+// index.html, never by the host's 404 page. The older /paper/<id> form is
+// still read, for links made before.
 
 import type { View } from '../types.view';
 
@@ -25,7 +30,9 @@ export function basePath(base: string = import.meta.env?.BASE_URL ?? '/'): strin
   return withLead.endsWith('/') ? withLead : `${withLead}/`;
 }
 
-/** The path for a destination, under `base`. */
+const withId = (folder: string, id: string) => `${folder}/?id=${encodeURIComponent(id)}`;
+
+/** The address for a destination, under `base`: a path, and `?id=` for a page with an id. */
 export function pathFor(place: Place, base = basePath()): string {
   const { view } = place;
   const tail = place.usage
@@ -35,15 +42,31 @@ export function pathFor(place: Place, base = basePath()): string {
       : view.kind === 'all'
         ? 'library'
         : view.kind === 'collection'
-          ? `collection/${encodeURIComponent(view.id)}`
+          ? withId('collection', view.id)
           : view.kind === 'paper'
-            ? `paper/${encodeURIComponent(view.id)}`
+            ? withId('paper', view.id)
             : view.kind === 'playground'
               ? view.id
-                ? `playground/${encodeURIComponent(view.id)}`
+                ? withId('playground', view.id)
                 : 'playground'
               : view.kind;
   return `${base}${tail}`;
+}
+
+/** Where the tab is, as `placeFor` reads it: the path and its query. */
+export const currentAddress = () => `${window.location.pathname}${window.location.search}`;
+
+/**
+ * `path` (from `pathFor`) with what else `search` carries — a sign-in's
+ * answer — kept, and its own `id` in place of any there was.
+ */
+export function addressWith(path: string, search: string): string {
+  const [pathname, own = ''] = path.split('?');
+  const params = new URLSearchParams(search);
+  params.delete('id');
+  new URLSearchParams(own).forEach((value, key) => params.set(key, value));
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 const decode = (part: string) => {
@@ -55,11 +78,13 @@ const decode = (part: string) => {
 };
 
 /**
- * The destination a path names, or null for a path this app does not know
+ * The destination an address names, or null for one this app does not know
  * (the caller decides — usually Home). The base may be given with or without
- * its trailing slash, and a path may end in a slash or `index.html`.
+ * its trailing slash, a path may end in a slash or `index.html`, and a page's
+ * id comes from `?id=` or, in the older form, the path.
  */
-export function placeFor(pathname: string, base = basePath()): Place | null {
+export function placeFor(address: string, base = basePath()): Place | null {
+  const [pathname, query = ''] = address.split('?');
   const root = base.replace(/\/$/, '');
   if (pathname !== root && !pathname.startsWith(base)) return null;
   const rest = pathname
@@ -68,10 +93,12 @@ export function placeFor(pathname: string, base = basePath()): Place | null {
     .replace(/\/+$/, '');
   if (!rest) return { view: { kind: 'home' } };
   const [head, ...more] = rest.split('/');
-  const id = more.length ? decode(more.join('/')) : '';
-  if (head === 'library' && !id) return { view: { kind: 'all' } };
-  if ((LISTS as readonly string[]).includes(head) && !id) return { view: { kind: head as (typeof LISTS)[number] } };
-  if (head === 'usage' && !id) return { view: { kind: 'home' }, usage: true };
+  const extra = more.length ? decode(more.join('/')) : '';
+  // Only a page that has one reads `?id=`; anywhere else the query is not the route's.
+  const id = extra || (new URLSearchParams(query).get('id') ?? '');
+  if (head === 'library' && !extra) return { view: { kind: 'all' } };
+  if ((LISTS as readonly string[]).includes(head) && !extra) return { view: { kind: head as (typeof LISTS)[number] } };
+  if (head === 'usage' && !extra) return { view: { kind: 'home' }, usage: true };
   if (head === 'collection' && id) return { view: { kind: 'collection', id } };
   if (head === 'paper' && id) return { view: { kind: 'paper', id } };
   if (head === 'playground') return { view: id ? { kind: 'playground', id } : { kind: 'playground' } };

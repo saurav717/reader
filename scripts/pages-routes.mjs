@@ -1,15 +1,17 @@
 // After `vite build` for GitHub Pages: a copy of index.html in a folder for
 // each page with a fixed address (/reader/playground/, /reader/library/ …),
-// so GitHub Pages answers those with the app rather than its 404. Addresses
-// with an id in them (/reader/paper/<id>, /reader/playground/<id>) cannot be
-// files; the site's own 404 page sends them to /reader/?route=<the address>,
+// so GitHub Pages answers those with the app rather than its 404. A page with
+// an id keeps it in the query (/reader/playground/?id=<id>, src/lib/route.ts),
+// so paper/ and collection/ are folders here too, and a reload never needs the
+// 404. Older links with the id in the path (/reader/paper/<id>) still reach
+// the site's own 404 page, which sends them to /reader/?route=<the address>,
 // and the app puts the address back before it reads it (src/main.tsx).
 //
 //   node scripts/pages-routes.mjs dist-pages
 import { copyFile, mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export const STATIC_ROUTES = ['playground', 'library', 'reading', 'unread', 'finished', 'unsorted', 'junk', 'usage'];
+export const STATIC_ROUTES = ['playground', 'paper', 'collection', 'library', 'reading', 'unread', 'finished', 'unsorted', 'junk', 'usage'];
 
 const out = process.argv[2] || 'dist-pages';
 for (const route of STATIC_ROUTES) {
