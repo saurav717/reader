@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { zip } from './build-companion.mjs';
+import { themeFiles } from './vscode-themes.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const source = join(here, '..', 'vscode');
@@ -74,6 +75,8 @@ export async function buildVsix(dir = source) {
     logLevel: 'silent',
   });
   const files = [['extension/package.json', Buffer.from(`${JSON.stringify(pkg, null, 2)}\n`)], ['extension/dist/extension.js', Buffer.from(bundled.outputFiles[0].contents)]];
+  // The themes come from the site's stylesheet, so they are made fresh here, not read from vscode/themes/.
+  for (const [name, text] of Object.entries(themeFiles())) files.push([`extension/${name}`, Buffer.from(text)]);
   for (const extra of ['README.md', 'CHANGELOG.md', 'media/reader.svg', pkg.icon]) {
     if (extra && existsSync(join(dir, extra)) && !files.some(([name]) => name === `extension/${extra}`)) files.push([`extension/${extra}`, readFileSync(join(dir, extra))]);
   }

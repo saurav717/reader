@@ -5868,6 +5868,16 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .pg-pair .pg-pair-kv b { font-weight: 500; overflow-wrap: anywhere; }
 .pg-pair-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 
+/* The icons in shell prompts (powerlevel10k, starship, oh-my-posh): Nerd Fonts' symbols, served with the
+   site because Safari lets no page use a font the person installed. Fetched only when the terminal shows
+   one, since the range is only the private-use area and the few symbols Nerd Fonts places elsewhere.
+   MIT: src/fonts/SymbolsNerdFont-LICENSE.txt. */
+@font-face {
+  font-family: 'Reader Nerd Symbols';
+  src: url('./fonts/SymbolsNerdFontMono.woff2') format('woff2');
+  font-display: block;
+  unicode-range: U+23FB-23FE, U+2630, U+2665, U+26A1, U+276C-2771, U+2B58, U+E000-F8FF, U+F0000-FFFFD;
+}
 /* The playground's terminal: xterm.js on the machine's own shell, in the page's own paper and ink (Terminal.tsx reads the tokens). */
 .pg-console.is-terminal { height: 46%; }
 .pg-console-tabs { padding: 2px; }

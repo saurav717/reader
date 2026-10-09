@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.2.0';
+export const COMPANION_VERSION = '0.2.1';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 

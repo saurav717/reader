@@ -19,6 +19,10 @@ state, and it uses the same Python as the site.
   same interpreter with the same packages. **Reader: Use the Companion's Python
   for This Project** sets it again if you changed it, and
   `reader.setPythonInterpreter` turns the automatic choice off.
+- **The site's look:** **Reader Light** and **Reader Dark** colour themes use
+  the site's paper, ink, accent and code colours, made from its own
+  stylesheet. Pick one with **Reader: Use the Site's Look**, or under
+  **Preferences → Color Theme**.
 - **The Companion:** the status bar says whether it's running.
   **Reader: Start the Companion** starts it in a terminal here, with the same
   command the site's **Connect this computer** card gives.

@@ -3790,9 +3790,16 @@ then the same zip writer as the Companion's wheel). To publish to the
 Marketplace instead, run `cd vscode && npx @vscode/vsce publish` with a
 publisher of your own.
 
+The extension also brings the site's look to VS Code: **Reader Light** and
+**Reader Dark**, colour themes made from `src/styles.css`
+(`scripts/vscode-themes.mjs`, checked by the tests).
+
 **The terminal's look** follows the site's theme: the page's paper, ink and
 accent, and ANSI colours from its own palette. It switches with the theme,
-light, dark or glass, while it's open.
+light, dark or glass, while it's open. Prompt icons (powerlevel10k, starship) draw with Nerd Fonts' symbols, which
+the site serves (`src/fonts/`) because Safari won't let a page use a font you
+installed yourself. A dropped connection reconnects on its own, to the same
+shell with its recent output.
 
 **What's protected, and how.**
 - **Who can call it:** everything needs the server's token (32 random bytes,
