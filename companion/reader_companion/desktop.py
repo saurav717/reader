@@ -167,8 +167,8 @@ def install_login(command: list[str], start_now: bool = True, restart: bool = Fa
         run_quietly("launchctl", "bootout", f"{domain}/{LABEL}")
         path.write_bytes(launch_agent(command, environment))
         # Loading it runs it (RunAtLoad); left unloaded, launchd loads it at the next login.
-        if start_now and not run_quietly("launchctl", "bootstrap", domain, str(path)):
-            run_quietly("launchctl", "load", "-w", str(path))
+        if start_now:
+            launchd_start(path, domain)
         return f"a login item ({path})"
     if system == "Windows":
         path = startup_path()
@@ -196,6 +196,30 @@ def install_login(command: list[str], start_now: bool = True, restart: bool = Fa
     if start_now:
         start_detached(command)
     return f"an autostart entry ({path})"
+
+
+def launchd_loaded(domain: str) -> bool:
+    return run_quietly("launchctl", "print", f"{domain}/{LABEL}")
+
+
+def launchd_start(path: Path, domain: str) -> bool:
+    """Loads the LaunchAgent, which starts it.
+
+    Right after a bootout launchd is still letting the old one go, and a bootstrap
+    then fails ("Input/output error"): wait until it has, try a few times, and
+    if it is loaded after all, kickstart it, so the Companion is running either way.
+    """
+    for _ in range(20):
+        if not launchd_loaded(domain):
+            break
+        time.sleep(0.5)
+    for _ in range(5):
+        if run_quietly("launchctl", "bootstrap", domain, str(path)):
+            return True
+        if launchd_loaded(domain):
+            return run_quietly("launchctl", "kickstart", f"{domain}/{LABEL}")
+        time.sleep(1)
+    return run_quietly("launchctl", "load", "-w", str(path))
 
 
 def stop_running() -> None:
@@ -411,7 +435,7 @@ def kick(command: list[str], system: str | None = None) -> None:
     if system == "Darwin" and launch_agent_path().exists():
         domain = f"gui/{os.getuid()}"
         if not run_quietly("launchctl", "kickstart", f"{domain}/{LABEL}"):
-            run_quietly("launchctl", "bootstrap", domain, str(launch_agent_path()))
+            launchd_start(launch_agent_path(), domain)
         return
     if system == "Windows" and startup_path().exists():
         subprocess.Popen(["wscript", str(startup_path())], close_fds=True)

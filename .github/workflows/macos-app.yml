@@ -76,6 +76,23 @@ jobs:
           plutil -lint dist-macos/Reader.app/Contents/Info.plist
           echo "### Reader.dmg: $(cat dist-macos/status)" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Check Safari's certificate on a real Mac
+        run: |
+          # The certificate the Companion makes (companion/reader_companion/tls.py), trusted
+          # as setup trusts it: trustRoot, for SSL. Setup trusts it in the login keychain,
+          # which needs a person to type a password; a runner has none, so the system
+          # domain (sudo, -d) stands in: the same certificate, the same kind of trust.
+          export READER_COMPANION_HOME="$RUNNER_TEMP/companion-home"
+          UV=dist-macos/Reader.app/Contents/Resources/uv
+          CERT="$("$UV" run --quiet --python 3.12 --with cryptography python -c "import sys; sys.path.insert(0, 'companion'); from reader_companion import tls; tls.ensure_certificate(); print(tls.cert_path())")"
+          openssl x509 -in "$CERT" -noout -subject -ext subjectAltName,basicConstraints,extendedKeyUsage
+          # What setup asked for before (trustAsRoot), for the record: macOS turns it down for a self-signed certificate.
+          sudo security add-trusted-cert -d -r trustAsRoot -p ssl -k /Library/Keychains/System.keychain "$CERT" && echo "trustAsRoot: taken" || echo "trustAsRoot: refused"
+          sudo security add-trusted-cert -d -r trustRoot -p ssl -k /Library/Keychains/System.keychain "$CERT"
+          security verify-cert -c "$CERT" -p ssl -s localhost
+          security verify-cert -c "$CERT" -p ssl -s 127.0.0.1
+          echo "Safari's certificate: trusted for https://localhost and https://127.0.0.1" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         with:
           name: Reader-dmg

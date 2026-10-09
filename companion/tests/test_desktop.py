@@ -20,6 +20,7 @@ class Sandbox(unittest.TestCase):
             mock.patch.object(desktop, "run_quietly", return_value=True),
             mock.patch.object(desktop, "start_detached"),
             mock.patch.object(desktop.subprocess, "Popen"),
+            mock.patch.object(desktop.time, "sleep"),
         ]
         for patch in patches:
             patch.start()
@@ -64,6 +65,35 @@ class LoginItemTest(Sandbox):
     def test_a_uvx_run_cannot_start_at_login(self):
         self.assertFalse(desktop.is_lasting(["/home/me/.cache/uv/archive-v0/abc/bin/python", "-m", "reader_companion"]))
         self.assertTrue(desktop.is_lasting(["/home/me/.local/bin/reader-companion"]))
+
+
+class LaunchdTest(Sandbox):
+    def test_waits_for_the_old_one_then_loads_it(self):
+        calls = []
+        loaded = iter([True, True, False])  # still letting go, twice; then gone
+
+        def launchctl(*command):
+            calls.append(command[1])
+            if command[1] == "print":
+                return next(loaded, False)
+            if command[1] == "bootstrap":
+                return calls.count("bootstrap") > 1  # "Input/output error" the first time
+            return True
+
+        with mock.patch.object(desktop, "run_quietly", side_effect=launchctl):
+            self.assertTrue(desktop.launchd_start(Path("/x.plist"), "gui/501"))
+        self.assertEqual([c for c in calls if c != "print"], ["bootstrap", "bootstrap"])
+
+    def test_kickstarts_one_already_loaded(self):
+        calls = []
+
+        def launchctl(*command):
+            calls.append(command[1])
+            return command[1] in ("print", "kickstart")  # loaded, and won't bootstrap again
+
+        with mock.patch.object(desktop, "run_quietly", side_effect=launchctl):
+            self.assertTrue(desktop.launchd_start(Path("/x.plist"), "gui/501"))
+        self.assertIn("kickstart", calls)
 
 
 class AppTest(Sandbox):

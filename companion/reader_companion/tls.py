@@ -102,14 +102,25 @@ def needed(system: str | None = None) -> bool:
 
 
 def is_trusted() -> bool:
-    return cert_path().exists() and _quiet("security", "verify-cert", "-c", str(cert_path()), "-p", "ssl", "-s", "127.0.0.1")
+    """Whether macOS trusts the certificate for https to this Mac, by either of its names."""
+    if not cert_path().exists():
+        return False
+    return any(_quiet("security", "verify-cert", "-c", str(cert_path()), "-p", "ssl", "-s", host) for host in ("localhost", "127.0.0.1"))
 
 
-def trust() -> bool:
-    """Asks macOS to trust the certificate, for https only: it shows its own password prompt. Whether it now does."""
+def trust() -> tuple[bool, str]:
+    """Asks macOS to trust the certificate, for https only: it shows its own password prompt. Whether it now does, and what macOS said.
+
+    trustRoot, as for any self-signed certificate (it is its own issuer); trustAsRoot is
+    only for one issued by another, and macOS refuses it here without asking.
+    """
     keychain = Path.home() / "Library" / "Keychains" / "login.keychain-db"
-    _quiet("security", "add-trusted-cert", "-r", "trustAsRoot", "-p", "ssl", "-k", str(keychain), str(cert_path()), timeout=300)
-    return is_trusted()
+    try:
+        result = subprocess.run(["security", "add-trusted-cert", "-r", "trustRoot", "-p", "ssl", "-k", str(keychain), str(cert_path())], capture_output=True, text=True, timeout=300)
+        said = (result.stderr or result.stdout).strip()
+    except (OSError, subprocess.SubprocessError) as error:
+        said = str(error)
+    return is_trusted(), said
 
 
 def _quiet(*command: str, timeout: float = 30) -> bool:
