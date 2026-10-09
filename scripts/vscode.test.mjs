@@ -15,6 +15,7 @@ import { inflateRawSync } from 'node:zlib';
 
 import { cleanup, load } from './bundle.mjs';
 import { buildVsix, contentTypes, vsixManifest } from './build-vscode.mjs';
+import { siteTokens, themeFiles, vscodeTheme } from './vscode-themes.mjs';
 
 const ext = await load('vscode/src/companion.ts', { external: ['node:fs', 'node:os', 'node:path'] });
 const site = await load('src/lib/companion.ts');
@@ -126,5 +127,37 @@ describe('the site’s VS Code tab', () => {
   it('installs the .vsix the site serves', () => {
     assert.equal(site.vscodeInstall('https://x/reader').command, 'curl -LsSfo /tmp/reader-playground.vsix https://x/reader/vscode/reader-playground.vsix && code --install-extension /tmp/reader-playground.vsix');
     assert.match(site.vscodeInstall('https://x/reader/', true).command, /irm https:\/\/x\/reader\/vscode\/reader-playground\.vsix -OutFile \$env:TEMP\\reader-playground\.vsix; code --install-extension/);
+  });
+});
+
+describe('the site’s look in VS Code', () => {
+  const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
+  it('reads the site’s tokens, light and dark', () => {
+    const { light, dark } = siteTokens(css);
+    assert.equal(light.paper, '#fbfaf6');
+    assert.equal(dark.paper, '#15161a');
+    assert.equal(light['tok-k'], '#8a3b8f');
+    assert.equal(dark['tok-k'], '#d59ee0');
+    assert.equal(dark['tok-n'] !== undefined && dark['accent-on'] !== undefined, true);
+  });
+  it('makes every colour a real one', () => {
+    const { light, dark } = siteTokens(css);
+    for (const [tokens, isDark] of [[light, false], [dark, true]]) {
+      const theme = vscodeTheme(tokens, isDark);
+      for (const [key, value] of Object.entries(theme.colors)) assert.match(value, /^#[0-9a-f]{6}([0-9a-f]{2})?$/i, key);
+      for (const rule of theme.tokenColors) assert.match(rule.settings.foreground, /^#[0-9a-f]{6}$/i, String(rule.scope));
+      assert.equal(theme.colors['editor.background'], tokens.paper);
+      assert.equal(theme.colors['statusBar.background'], tokens.accent);
+    }
+  });
+  it('ships themes that match the stylesheet, and names them in the manifest', async () => {
+    const files = themeFiles(css);
+    const pkg = JSON.parse(readFileSync(new URL('../vscode/package.json', import.meta.url), 'utf8'));
+    for (const theme of pkg.contributes.themes) {
+      const name = theme.path.replace(/^\.\//, '');
+      assert.equal(readFileSync(new URL(`../vscode/${name}`, import.meta.url), 'utf8'), files[name], `${name} is out of date: node scripts/vscode-themes.mjs`);
+    }
+    const vsix = unzip((await buildVsix()).bytes);
+    for (const name of Object.keys(files)) assert.equal(vsix.get(`extension/${name}`).toString(), files[name]);
   });
 });

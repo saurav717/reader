@@ -156,6 +156,16 @@ export async function activate(context: vscode.ExtensionContext) {
       await vscode.env.openExternal(vscode.Uri.parse(marker?.page ?? `${companion.site}playground`));
     }),
     vscode.commands.registerCommand('reader.useEnvironment', () => pickInterpreter(true)),
+    vscode.commands.registerCommand('reader.useLook', async () => {
+      const pick = await vscode.window.showQuickPick(
+        [
+          { label: 'Reader Light', description: 'paper and ink, the site’s light theme' },
+          { label: 'Reader Dark', description: 'the site’s dark theme' },
+        ],
+        { title: 'The site’s look for VS Code' },
+      );
+      if (pick) await vscode.workspace.getConfiguration('workbench').update('colorTheme', pick.label, vscode.ConfigurationTarget.Global);
+    }),
     vscode.commands.registerCommand('reader.start', async () => {
       const existing = vscode.window.terminals.find((t) => t.name === 'Reader Companion');
       if (existing) return existing.show();

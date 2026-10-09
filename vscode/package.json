@@ -2,31 +2,64 @@
   "name": "reader-playground",
   "displayName": "Reader Playground",
   "description": "Your Reader playgrounds in VS Code: the Companion's projects, the papers they cite, and the machine they run on.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "saurav717",
   "icon": "media/icon.png",
-  "repository": { "type": "git", "url": "https://github.com/saurav717/reader" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/saurav717/reader"
+  },
   "homepage": "https://saurav717.github.io/reader/playground",
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Data Science", "Notebooks", "Other"],
-  "keywords": ["reader", "papers", "jupyter", "playground", "research"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Themes",
+    "Data Science",
+    "Notebooks",
+    "Other"
+  ],
+  "keywords": [
+    "reader",
+    "papers",
+    "jupyter",
+    "playground",
+    "research"
+  ],
   "main": "./dist/extension.js",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "viewsContainers": {
-      "activitybar": [{ "id": "reader", "title": "Reader", "icon": "media/reader.svg" }]
+      "activitybar": [
+        {
+          "id": "reader",
+          "title": "Reader",
+          "icon": "media/reader.svg"
+        }
+      ]
     },
     "views": {
       "reader": [
-        { "id": "reader.projects", "name": "Projects" },
-        { "id": "reader.papers", "name": "Papers it cites" },
-        { "id": "reader.companion", "name": "Companion" }
+        {
+          "id": "reader.projects",
+          "name": "Projects"
+        },
+        {
+          "id": "reader.papers",
+          "name": "Papers it cites"
+        },
+        {
+          "id": "reader.companion",
+          "name": "Companion"
+        }
       ]
     },
     "viewsWelcome": [
       {
         "view": "reader.projects",
-        "contents": "No projects yet. Make one on the site — Playground → Blank project, on This computer — and it appears here.\n[Open the Playground](command:reader.openPlayground)"
+        "contents": "No projects yet. Make one on the site \u2014 Playground \u2192 Blank project, on This computer \u2014 and it appears here.\n[Open the Playground](command:reader.openPlayground)"
       },
       {
         "view": "reader.papers",
@@ -34,27 +67,93 @@
       }
     ],
     "commands": [
-      { "command": "reader.start", "title": "Start the Companion", "category": "Reader", "icon": "$(play)" },
-      { "command": "reader.refresh", "title": "Refresh", "category": "Reader", "icon": "$(refresh)" },
-      { "command": "reader.openProject", "title": "Open Project", "category": "Reader", "icon": "$(folder-opened)" },
-      { "command": "reader.openOnSite", "title": "Open on the Site", "category": "Reader", "icon": "$(link-external)" },
-      { "command": "reader.openPlayground", "title": "Open the Playground", "category": "Reader", "icon": "$(globe)" },
-      { "command": "reader.openPaper", "title": "Open the Paper", "category": "Reader", "icon": "$(book)" },
-      { "command": "reader.useEnvironment", "title": "Use the Companion's Python for This Project", "category": "Reader" }
+      {
+        "command": "reader.start",
+        "title": "Start the Companion",
+        "category": "Reader",
+        "icon": "$(play)"
+      },
+      {
+        "command": "reader.refresh",
+        "title": "Refresh",
+        "category": "Reader",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "reader.openProject",
+        "title": "Open Project",
+        "category": "Reader",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "reader.openOnSite",
+        "title": "Open on the Site",
+        "category": "Reader",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "reader.openPlayground",
+        "title": "Open the Playground",
+        "category": "Reader",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "reader.openPaper",
+        "title": "Open the Paper",
+        "category": "Reader",
+        "icon": "$(book)"
+      },
+      {
+        "command": "reader.useEnvironment",
+        "title": "Use the Companion's Python for This Project",
+        "category": "Reader"
+      },
+      {
+        "command": "reader.useLook",
+        "title": "Use the Site's Look",
+        "category": "Reader",
+        "icon": "$(paintcan)"
+      }
     ],
     "menus": {
       "view/title": [
-        { "command": "reader.refresh", "when": "view == reader.projects", "group": "navigation" },
-        { "command": "reader.openPlayground", "when": "view == reader.projects", "group": "navigation" },
-        { "command": "reader.start", "when": "view == reader.companion && !reader.running", "group": "navigation" }
+        {
+          "command": "reader.refresh",
+          "when": "view == reader.projects",
+          "group": "navigation"
+        },
+        {
+          "command": "reader.openPlayground",
+          "when": "view == reader.projects",
+          "group": "navigation"
+        },
+        {
+          "command": "reader.start",
+          "when": "view == reader.companion && !reader.running",
+          "group": "navigation"
+        }
       ],
       "view/item/context": [
-        { "command": "reader.openOnSite", "when": "view == reader.projects && viewItem == project.onSite", "group": "inline" },
-        { "command": "reader.openProject", "when": "view == reader.projects && viewItem =~ /^project/", "group": "inline" }
+        {
+          "command": "reader.openOnSite",
+          "when": "view == reader.projects && viewItem == project.onSite",
+          "group": "inline"
+        },
+        {
+          "command": "reader.openProject",
+          "when": "view == reader.projects && viewItem =~ /^project/",
+          "group": "inline"
+        }
       ],
       "commandPalette": [
-        { "command": "reader.openProject", "when": "false" },
-        { "command": "reader.openPaper", "when": "false" }
+        {
+          "command": "reader.openProject",
+          "when": "false"
+        },
+        {
+          "command": "reader.openPaper",
+          "when": "false"
+        }
       ]
     },
     "configuration": {
@@ -71,6 +170,18 @@
           "description": "In a Reader project, point the Python extension at the Companion's environment (~/Reader/.venv), so notebooks and the terminal use the same Python as the site."
         }
       }
-    }
+    },
+    "themes": [
+      {
+        "label": "Reader Light",
+        "uiTheme": "vs",
+        "path": "./themes/reader-light-color-theme.json"
+      },
+      {
+        "label": "Reader Dark",
+        "uiTheme": "vs-dark",
+        "path": "./themes/reader-dark-color-theme.json"
+      }
+    ]
   }
 }

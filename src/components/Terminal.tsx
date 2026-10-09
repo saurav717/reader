@@ -99,17 +99,28 @@ export function pageTerminalTheme(root: HTMLElement = document.documentElement) 
 
 export default function Terminal({ server, cwd, sessionId, label }: { server: JupyterServer; cwd: string; sessionId: string; label: string }) {
   const host = useRef<HTMLDivElement>(null);
-  const [state, setState] = useState<'starting' | 'live' | 'closed' | 'failed'>('starting');
+  const [state, setState] = useState<'starting' | 'live' | 'reconnecting' | 'closed' | 'failed'>('starting');
   const [problem, setProblem] = useState<string | null>(null);
   const [round, setRound] = useState(0);
   const fresh = useRef(false);
+  /** Quiet reconnects in a row: a dropped socket (a tunnel restarting, the laptop asleep) is tried again before the veil asks. */
+  const retries = useRef(0);
 
   useEffect(() => {
     let disposed = false;
     let socket: WebSocket | null = null;
     let cleanup = () => undefined as void;
-    setState('starting');
+    setState(retries.current ? 'reconnecting' : 'starting');
     setProblem(null);
+    let retry = 0;
+    /** Another try in a while, while tries are left: true when one is scheduled. */
+    const tryAgain = () => {
+      if (retries.current >= 6) return false;
+      retries.current += 1;
+      setState('reconnecting');
+      retry = window.setTimeout(() => setRound((n) => n + 1), Math.min(15_000, 1000 * 2 ** (retries.current - 1)));
+      return true;
+    };
     void (async () => {
       try {
         const [{ Terminal: XTerm }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
@@ -117,7 +128,9 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
         fresh.current = false;
         if (disposed || !host.current) return;
         const look = pageTerminalTheme();
-        const term = new XTerm({ fontFamily: "'IBM Plex Mono', ui-monospace, Menlo, monospace", fontSize: 12.5, lineHeight: 1.25, cursorBlink: true, cursorStyle: 'bar', scrollback: 5000, theme: look.theme, macOptionIsMeta: true, allowTransparency: true });
+        // Reader Nerd Symbols (src/fonts, see styles.css) draws the icons in prompts like powerlevel10k and
+        // starship: Safari lets a page use no font the person installed, so the page brings its own.
+        const term = new XTerm({ fontFamily: "'IBM Plex Mono', 'Reader Nerd Symbols', ui-monospace, Menlo, monospace", fontSize: 12.5, lineHeight: 1.25, cursorBlink: true, cursorStyle: 'bar', scrollback: 5000, theme: look.theme, macOptionIsMeta: true, allowTransparency: true });
         const fit = new FitAddon();
         term.loadAddon(fit);
         term.open(host.current);
@@ -134,7 +147,9 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
           }
           send(['set_size', term.rows, term.cols]);
         };
+        let ended = false;
         socket.onopen = () => {
+          retries.current = 0;
           setState('live');
           resize();
           term.focus();
@@ -143,12 +158,21 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
           try {
             const [kind, data] = JSON.parse(String(event.data)) as [string, string];
             if (kind === 'stdout') term.write(data);
-            else if (kind === 'disconnect') setState('closed');
+            else if (kind === 'disconnect') {
+              // The shell itself ended (exit, logout): nothing to reconnect to.
+              ended = true;
+              setState('closed');
+            }
           } catch {
             // not terminado's: ignore
           }
         };
-        socket.onclose = () => !disposed && setState((now) => (now === 'live' || now === 'starting' ? 'closed' : now));
+        socket.onclose = () => {
+          if (disposed) return;
+          // The shell is still on the server; its recent output comes back with the new socket.
+          if (!ended && tryAgain()) return;
+          setState((now) => (now === 'failed' ? now : 'closed'));
+        };
         const typing = term.onData((data) => send(['stdin', data]));
         const observer = new ResizeObserver(() => resize());
         observer.observe(host.current);
@@ -165,12 +189,15 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
         };
       } catch (error) {
         if (disposed) return;
+        // Mid-reconnect, the machine may not be back yet (a tunnel coming up): keep trying before giving up.
+        if (retries.current > 0 && tryAgain()) return;
         setState('failed');
         setProblem(error instanceof Error ? error.message : String(error));
       }
     })();
     return () => {
       disposed = true;
+      window.clearTimeout(retry);
       socket?.close();
       cleanup();
     };
@@ -181,21 +208,22 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
       <div className="pg-terminal-screen" ref={host} aria-label={`Terminal on ${label}`} />
       {state !== 'live' ? (
         <div className="pg-terminal-veil">
-          {state === 'starting' ? (
+          {state === 'starting' || state === 'reconnecting' ? (
             <span>
-              <span className="spinner" /> Opening a shell on {label}…
+              <span className="spinner" /> {state === 'reconnecting' ? `Reconnecting to the shell on ${label}…` : `Opening a shell on ${label}…`}
             </span>
           ) : (
             <>
               <span>{state === 'closed' ? 'The shell ended, or the connection to it dropped.' : `No terminal: ${problem}`}</span>
               <span className="pg-terminal-actions">
-                <button type="button" className="btn sm" onClick={() => setRound((n) => n + 1)}>
+                <button type="button" className="btn sm" onClick={() => ((retries.current = 0), setRound((n) => n + 1))}>
                   Reconnect
                 </button>
                 <button
                   type="button"
                   className="btn sm"
                   onClick={() => {
+                    retries.current = 0;
                     fresh.current = true;
                     setRound((n) => n + 1);
                   }}

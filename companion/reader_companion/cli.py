@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import secrets
 import subprocess
@@ -100,9 +101,12 @@ def main(argv=None):
     # any program on this computer could connect to (and ipykernel's warning about them).
     if os.name != "nt":
         jupyter.KernelManager.transport = "ipc"
-    # Jupyter's websockets default their ping timeout to 3× the interval, which Tornado then
-    # warns about and cuts back to the interval: say so up front (milliseconds).
-    jupyter.ServerApp.tornado_settings = {"ws_ping_interval": 30000, "ws_ping_timeout": 30000}
+    # Keep-alive: Jupyter pings every websocket every 30 s and closes one whose last pong is older
+    # than ws_ping_timeout. Leave that at its default (90 s, three pings): a timeout equal to the
+    # interval closed healthy sockets whenever a pong came back a little late, as through a tunnel.
+    # Tornado also reads those millisecond values as seconds and warns that the timeout outlasts
+    # the interval; that warning is about its own pinger, which this never uses, so it is muted.
+    logging.getLogger("tornado.general").addFilter(lambda record: "websocket_ping_timeout" not in record.getMessage())
     jupyter.IdentityProvider.token = companion.token
     jupyter.ServerApp.log_level = "WARN"
     if config.get("tunnel"):
