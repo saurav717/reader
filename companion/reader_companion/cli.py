@@ -33,6 +33,7 @@ def parse(argv=None, command=""):
         parser = argparse.ArgumentParser(prog="reader-companion setup", description="Set this computer up for the reader's Playground: the VS Code extension, the Companion at every login, and a browser paired with it.")
         parser.add_argument("--no-vscode", action="store_true", help="don't install the Reader extension into VS Code")
         parser.add_argument("--no-login", action="store_true", help="don't start the Companion at login: run it here, in this terminal, as plain reader-companion does")
+        parser.add_argument("--no-app", action="store_true", help="don't make the Reader app (Reader.app from the .dmg runs setup with this: it is the app)")
     else:
         parser = argparse.ArgumentParser(prog="reader-companion", description="Connect this computer to the reader's Playground.", epilog="Also: reader-companion setup (install it for good: the Reader app, VS Code, start at login, pair), reader-companion open (what the Reader app runs), reader-companion pair (a new pairing link for the one running), reader-companion uninstall (remove the Reader app and stop starting it at login).")
     parser.add_argument("--root", help="the folder the page may read, write and run in (default ~/Reader)")
@@ -226,8 +227,8 @@ def setup(argv):
     running = desktop.wait_for(config["token"], port, 240)
     if running is None:
         sys.exit(f"\n  reader-companion: it didn't start. Its log is {state.config_dir() / desktop.LOG}; reader-companion on its own runs it here, where you can see why.")
-    app = desktop.install_app(command, site)
-    print(f"  {DIM}The app   {RESET} {app}", flush=True)
+    if not args.no_app:
+        print(f"  {DIM}The app   {RESET} {desktop.install_app(command, site)}", flush=True)
     link = desktop.fresh_link(config["token"], running)
     print(f"""  {DIM}Listening {RESET} http://127.0.0.1:{running}/  {DIM}(folder {Path(os.path.expanduser(config.get("root") or "~/Reader")).resolve()}){RESET}
 

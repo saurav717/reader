@@ -3758,13 +3758,20 @@ runs `reader-companion setup`, which:
   goes to `~/.reader-companion/companion.log`;
 - opens the site with a pairing link, so one click on **Connect** finishes.
 
-**Why there's no `.dmg`.** A downloaded app has to be signed and notarized
+**A signed `.dmg`.** Once there is a published, notarized `Reader.dmg` (the
+*macOS app* workflow, with an Apple Developer ID: see
+[docs/macos-app.md](docs/macos-app.md)), the card's macOS download is that
+instead. Drag Reader to Applications and open it: no warning, and it sets
+itself up the first time.
+
+**Without one.** A downloaded app has to be signed and notarized
 (Apple's $99 a year) or macOS won't open it without a fight; Windows'
 SmartScreen is the same. The Reader app isn't downloaded: the installer
 *makes* it on the computer, so it carries no "from the internet" mark and opens
 like any other app. Only the installer itself is downloaded, and it asks once.
-On macOS, right-click it and choose **Open**, or on macOS 15 and later use
-**Open Anyway** in System Settings → Privacy & Security. On Windows, choose
+On macOS it says *"Apple could not verify…"*: click **Done**, then **Open
+Anyway** in System Settings → Privacy & Security. Pasting the setup line into
+Terminal instead isn't stopped at all. On Windows, choose
 **More info** → **Run anyway**. Each installer fetches the setup script from
 the site, so an old download still installs the newest Companion, and running
 it again updates the Companion and the app.
