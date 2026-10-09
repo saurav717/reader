@@ -206,6 +206,19 @@ describe('the Worker, tallying', () => {
     assert.equal((await answer.json()).people[0].email, 'labmate@gmail.com', 'an owner by sign-in is tallied by their email');
   });
 
+  it('knows the owner by the email of their Google sign-in alone — no pass, no captcha — and nobody else by theirs', async () => {
+    const { env } = setup();
+    const byGoogle = (owners, token = 'g-live') => ask({ ...env, READER_OWNERS: owners }, '/usage?days=7', { headers: { 'X-Google-Token': token } });
+    assert.equal((await byGoogle('labmate@gmail.com')).status, 200, 'the owner, by the email Google vouches for');
+    assert.equal((await byGoogle('someone-else@gmail.com', 'g-other')).status, 401, 'a sign-in that is not the owner’s');
+    assert.equal((await byGoogle('')).status, 401, 'no READER_OWNERS: nobody is the owner by sign-in');
+    // A token Google doesn't vouch for, or one for another app, is nobody's.
+    globalThis.fetch = async () => Response.json({ aud: 'another-app', email: 'labmate@gmail.com', email_verified: 'true', expires_in: '3000' });
+    assert.equal((await byGoogle('labmate@gmail.com', 'g-elsewhere')).status, 401);
+    globalThis.fetch = async () => new Response('{}', { status: 400 });
+    assert.equal((await byGoogle('labmate@gmail.com', 'g-dead')).status, 401);
+  });
+
   it('says so when no USAGE object is bound', async () => {
     const { env } = setup();
     delete env.USAGE;

@@ -677,7 +677,11 @@ left rail, which only an owner sees — once the Worker knows your Google email
 npx --yes wrangler@4 secret put READER_OWNERS   # your Google email(s), comma-separated
 ```
 
-Signed in as one of them, you see everyone who has signed in, their totals and
+Signed in as one of them, the Worker knows you by that email alone: the page
+sends your Google sign-in with the Usage requests, the Worker asks Google whose
+it is (for this app's client ID), and an email `READER_OWNERS` names is the
+owner, with no pass or captcha first (`ownerAuthorized` in `worker/index.js`).
+You see everyone who has signed in, their totals and
 each day's — asked again every thirty seconds while the page is open and the
 tab in view, never while it is hidden, and at once with **Refresh** — and the
 per-person limit does not apply to you; nobody else sees it. Under the table,

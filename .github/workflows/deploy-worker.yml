@@ -1,0 +1,59 @@
+# Deploys the proxy: each merge into main that changes the Worker (worker/,
+# server/, wrangler.toml) runs `wrangler deploy`, as `npm run deploy:worker`
+# does by hand. A pull request that changes it builds it with --dry-run, to
+# check, and deploys nothing. The Worker's secrets (READER_TOKEN,
+# READER_OWNERS, the keys) stay as they are: deploying never touches them.
+#
+# It needs two secrets (see docs/deploy.md):
+#   CLOUDFLARE_API_TOKEN   a Cloudflare API token from the "Edit Cloudflare Workers" template
+#   CLOUDFLARE_ACCOUNT_ID  the account the Worker is in
+# Without them a merge says so and deploys nothing.
+name: Deploy worker
+
+on:
+  push:
+    branches: [main]
+    paths: ['worker/**', 'server/**', 'wrangler.toml', '.github/workflows/deploy-worker.yml']
+  pull_request:
+    paths: ['worker/**', 'server/**', 'wrangler.toml', '.github/workflows/deploy-worker.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: npm ci
+
+      - name: Test the Worker
+        run: node --test scripts/usage.test.mjs scripts/passes.test.mjs
+
+      - name: Build it, deploying nothing
+        if: github.event_name == 'pull_request'
+        run: npx --yes wrangler@4 deploy --dry-run --outdir "$RUNNER_TEMP/worker"
+
+      - name: Without the Cloudflare token, nothing to deploy
+        if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN == ''
+        run: echo "::notice::CLOUDFLARE_API_TOKEN isn't set, so the Worker isn't deployed from here (docs/deploy.md). npm run deploy:worker does it by hand."
+
+      - name: Deploy it
+        if: github.event_name != 'pull_request' && env.CLOUDFLARE_API_TOKEN != ''
+        run: |
+          npx --yes wrangler@4 deploy
+          echo "### Deployed the Worker (reader-arxiv-proxy) from saurav717/reader@${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
