@@ -314,6 +314,8 @@ export interface ProxyHealth {
   ai: { anthropic: boolean; deepseek: boolean; gemini: boolean };
   /** Whether it has a web search key, for Ask AI's Web button. */
   web: boolean;
+  /** The Google OAuth client ID it checks sign-ins against (public, as client IDs are): the one this site signs in, and reaches Drive and Colab, with. */
+  googleClientId: string;
 }
 
 const healthOf = new Map<string, Promise<ProxyHealth | null>>();
@@ -334,6 +336,7 @@ export function proxyHealth(): Promise<ProxyHealth | null> {
               // A proxy from before it held more than Gemini's key says only that.
               ai: { anthropic: Boolean(body.ai?.anthropic), deepseek: Boolean(body.ai?.deepseek), gemini: Boolean(body.ai?.gemini ?? body.gemini) },
               web: Boolean(body.web),
+              googleClientId: typeof body.googleClientId === 'string' ? body.googleClientId.trim() : '',
             }
           : null,
       )

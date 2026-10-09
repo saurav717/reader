@@ -251,6 +251,8 @@ describe('the Node proxy’s /colab routes', () => {
     await ready;
     const health = await (await realFetch(`${base}/health`)).json();
     assert.equal(health.colab, true);
+    // The client ID the site signs in (and reaches Colab) with, for a browser that has none typed in.
+    assert.equal(typeof health.googleClientId, 'string');
   });
   it('relays a list on the person’s Google token, and asks for one when there is none', async () => {
     await ready;
