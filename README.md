@@ -3838,6 +3838,17 @@ whether to open it). Opening the Reader app, or `reader-companion start` in a
 terminal, starts it too. A Companion from before 0.6.0 gets the link once it is
 updated.
 
+**Deleting the app removes it.** On a Mac the Companion runs from a login
+item, not from Reader.app, so deleting the app used to leave it running and
+starting at every login. Now `setup` records where Reader.app is, and the
+running Companion looks for it every minute (where it was, `/Applications`,
+`~/Applications`, then Spotlight; the Trash doesn't count). Once it is gone
+two looks in a row, the Companion removes its login item and its
+`reader-companion://` link and stops. Your folder, settings and the program
+stay; opening Reader again sets it all up again. `reader-companion uninstall`
+does the same from a terminal, and `uv tool uninstall reader-companion`
+removes the program too.
+
 **HTTPS.** The page reaches the Companion at `https://127.0.0.1:47331` when
 this computer trusts the Companion's certificate (`setup` asks for that once,
 on macOS), in every browser now, not only Safari. Pairings made over plain
