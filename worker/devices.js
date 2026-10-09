@@ -12,7 +12,8 @@
  * A row is made by the Companion itself (`POST /devices/claim`, with the pass
  * of the page that claimed it), which gets a secret back. With that secret it
  * keeps the row current (`POST /devices/beat`) when it starts, every few
- * minutes, when its tunnel changes and when it is shut down — no pass needed,
+ * minutes, when its tunnel changes and when it is shut down, and takes it off
+ * the list when it is released (`forget`) — no pass needed,
  * so it keeps working after the page's thirty days. Only the hash of the
  * secret is kept. `POST /devices/forget` drops a row.
  */
@@ -72,6 +73,11 @@ export class Devices {
     if (url.pathname === '/beat') {
       const row = await this.state.storage.get(key);
       if (!row || row.secretHash !== (await hashSecret(text(body.secret, 200)))) return Response.json({ error: 'not this computer’s' }, { status: 403 });
+      // Released from the account (reader-companion release): it comes off the list, with the token it no longer takes.
+      if (body.forget) {
+        await this.state.storage.delete(key);
+        return Response.json({ ok: true, forgotten: true });
+      }
       const next = { ...row, seen: now, off: Boolean(body.off), url: safeUrl(body.url), local: safeUrl(body.local), token: text(body.token, 200) };
       for (const field of ['name', 'hardware', 'version', 'root']) if (typeof body[field] === 'string') next[field] = text(body[field], 200);
       await this.state.storage.put(key, next);

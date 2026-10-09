@@ -86,6 +86,12 @@ describe('devices', () => {
     await beat({ secret: claimed.secret, off: true, url: 'https://x.trycloudflare.com/', token: 'tok' });
     assert.equal((await (await call(e, '/devices', { pass: a })).json()).devices[0].online, false);
 
+    // Released on the computer: the Companion takes itself off the list with its secret.
+    assert.equal((await beat({ secret: 'wrong', forget: true })).status, 403);
+    assert.equal((await (await call(e, '/devices', { pass: a })).json()).devices.length, 1);
+    assert.equal((await beat({ secret: claimed.secret, forget: true })).status, 200);
+    assert.deepEqual((await (await call(e, '/devices', { pass: a })).json()).devices, []);
+
     await call(e, '/devices/forget', { pass: a, body: { id: 'abcdef0123456789' } });
     assert.deepEqual((await (await call(e, '/devices', { pass: a })).json()).devices, []);
   });

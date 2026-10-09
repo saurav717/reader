@@ -11,17 +11,24 @@
 // the console both run in the machine's kernel, so a variable a cell set is
 // there for the next, and a command runs in a real shell on that machine.
 //
-// Kept in IndexedDB: each playground under `playground:<id>`, the files of
-// one that lives in this browser under `playground-files:<id>`. The servers
-// — addresses and tokens of Jupyter servers the person runs — stay in this
-// browser's localStorage and go nowhere else.
+// Kept in the signed-in account's Drive (playgroundsDrive.ts): each playground's
+// record — title, where it runs and where its files are, by the computer's
+// Companion id, its console and its notebook's cells — so any browser signed in
+// as the account opens it. IndexedDB keeps a copy under `playground:<id>`, for
+// a quick start and offline; the files of one that lives in this browser are
+// under `playground-files:<id>`, and stay in it. The servers — addresses and
+// tokens — stay in this browser's localStorage (or come from the account's
+// list of computers, devices.ts).
 
 import { useSyncExternalStore } from 'react';
 import { db } from './db';
 import type { JupyterServer, Machine, RuntimeEntry } from './colab';
 import { JupyterRequestError, jupyterList, jupyterRead, jupyterWrite, runQuietly } from './colab';
 import type { NbCell } from './notebook';
-import { newCell } from './notebook';
+import { newCell, notebookFor, subscribeNotebook } from './notebook';
+import type { CellType } from './notebook';
+import type { PlaygroundSet } from './playgroundsDrive';
+import { mergePlaygrounds, readPlaygroundsFromDrive, serialisePlaygrounds, writePlaygroundsToDrive } from './playgroundsDrive';
 import type { CompanionPairing } from './companion';
 import { secureAddress } from './companion';
 import { currentAccount, onProxyChange } from './api';
@@ -29,10 +36,10 @@ import { currentAccount, onProxyChange } from './api';
 // ---------------------------------------------------------------- types ----
 
 /** Where a playground's code runs. */
-export type Compute = { kind: 'colab'; machine: Machine } | { kind: 'server'; serverId: string };
+export type Compute = { kind: 'colab'; machine: Machine } | { kind: 'server'; serverId: string; /** The computer's Companion id: the same in every browser, where serverId is this browser's. */ deviceId?: string };
 
 /** Where its files are kept: this browser, or a folder on a Jupyter server. */
-export type FilesHome = { kind: 'browser' } | { kind: 'server'; serverId: string; root: string };
+export type FilesHome = { kind: 'browser' } | { kind: 'server'; serverId: string; root: string; /** The computer's Companion id, as in Compute. */ deviceId?: string };
 
 export interface Cite {
   paperId: string;
@@ -68,6 +75,8 @@ export interface Playground {
   pending?: string;
   /** How it started, for the home's list. */
   start: 'blank' | 'paper' | 'repo' | 'model' | 'file' | 'copy';
+  /** The notebook's cells as text (no outputs), so it opens in another browser: kept in Drive with the rest. */
+  cells?: { type: CellType; source: string }[];
 }
 
 export const DEFAULT_IGNORE = ['.git/', '__pycache__/', '.ipynb_checkpoints/', 'data/', '*.ckpt', '*.pt', '*.safetensors', 'wandb/'].join('\n');
@@ -191,10 +200,11 @@ export const slugOf = (title: string) =>
 export function loadPlaygrounds(): Promise<void> {
   if (loaded) return Promise.resolve();
   if (loading) return loading;
-  loading = db
-    .kvWithPrefix<Playground>('playground:')
-    .then((found) => {
+  loading = Promise.all([db.kvWithPrefix<Playground>('playground:'), db.getKv<Record<string, number>>(DELETED_KEY).catch(() => undefined)])
+    .then(([found, gone]) => {
       playgrounds = found.map(([, value]) => normalise(value)).filter((p): p is Playground => Boolean(p));
+      deleted = gone && typeof gone === 'object' ? gone : {};
+      playgrounds = playgrounds.map(rebind);
     })
     .catch(() => {
       playgrounds = [];
@@ -224,6 +234,7 @@ function normalise(value: Partial<Playground> | undefined): Playground | null {
     idleStopMin: typeof value.idleStopMin === 'number' ? value.idleStopMin : 30,
     pending: value.pending,
     start: value.start ?? 'blank',
+    cells: Array.isArray(value.cells) ? value.cells : undefined,
   };
 }
 
@@ -248,7 +259,139 @@ function put(next: Playground) {
   playgrounds = playgrounds.some((p) => p.id === next.id) ? playgrounds.map((p) => (p.id === next.id ? next : p)) : [next, ...playgrounds];
   emit();
   void db.setKv(KEY(next.id), next).catch(() => undefined);
+  scheduleSync();
 }
+
+// ------------------------------------------------- the computer, by id --
+
+/**
+ * A playground's computer as this browser knows it. Its record names the
+ * server by this browser's id and by the Companion's (`deviceId`); in another
+ * browser the first means nothing, so the server with that Companion id is
+ * put in its place. The record is changed here only, not marked as edited.
+ */
+function rebind(p: Playground): Playground {
+  const fix = <T extends Compute | FilesHome>(ref: T): T => {
+    if (ref.kind !== 'server') return ref;
+    const here = visible.find((server) => server.id === ref.serverId);
+    if (here) return here.companionId && ref.deviceId !== here.companionId ? { ...ref, deviceId: here.companionId } : ref;
+    const same = ref.deviceId ? visible.find((server) => server.companionId === ref.deviceId) : undefined;
+    return same ? { ...ref, serverId: same.id } : ref;
+  };
+  const compute = fix(p.compute);
+  const home = fix(p.home);
+  return compute === p.compute && home === p.home ? p : { ...p, compute, home };
+}
+
+function rebindAll() {
+  let changed = false;
+  playgrounds = playgrounds.map((p) => {
+    const next = rebind(p);
+    if (next !== p) {
+      changed = true;
+      void db.setKv(KEY(next.id), next).catch(() => undefined);
+    }
+    return next;
+  });
+  if (changed) emit();
+}
+
+// A computer that comes into this browser's list (the account's list synced, or one paired) takes its playgrounds.
+subscribeServers(rebindAll);
+
+// ---------------------------------------------------------- in Drive --
+
+const DELETED_KEY = 'pg-deleted';
+/** Playgrounds deleted here or in another browser: id → when, so a deletion carries over. */
+let deleted: Record<string, number> = {};
+let drive: { clientId: string; folderName?: string; account?: string } | null = null;
+let where: 'browser' | 'drive' | 'error' = 'browser';
+let syncTimer: ReturnType<typeof setTimeout> | undefined;
+let syncing: Promise<void> | null = null;
+let syncAgain = false;
+
+/** Where the list is kept now: this browser only (signed out, or Drive not connected), the account's Drive, or Drive failing. */
+export const playgroundsWhere = () => where;
+export const usePlaygroundsWhere = () => useSyncExternalStore(subscribePlaygrounds, playgroundsWhere);
+
+/** Signed in with Drive connected (or not): the store calls this, and the list is synced with that account's Drive. */
+export function configurePlaygroundDrive(next: { clientId: string; folderName?: string; account?: string } | null) {
+  const same = JSON.stringify(next) === JSON.stringify(drive);
+  drive = next;
+  if (!next) {
+    where = 'browser';
+    emit();
+  }
+  if (next && !same) void syncPlaygrounds();
+}
+
+function scheduleSync() {
+  if (!drive) return;
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => void syncPlaygrounds(), 1500);
+}
+
+/** This browser's list and the one in Drive, merged; both brought to the result. */
+export function syncPlaygrounds(): Promise<void> {
+  if (!drive) return Promise.resolve();
+  if (syncing) {
+    syncAgain = true;
+    return syncing;
+  }
+  const config = drive;
+  syncing = (async () => {
+    await loadPlaygrounds();
+    const remote = await readPlaygroundsFromDrive(config.clientId, config.folderName);
+    const local: PlaygroundSet = { playgrounds, deleted };
+    const merged = remote ? mergePlaygrounds(local, remote) : local;
+    const before = new Map(playgrounds.map((p) => [p.id, p]));
+    const next = merged.playgrounds.map((p) => normalise(p)).filter((p): p is Playground => Boolean(p)).map(rebind);
+    for (const p of next) if (JSON.stringify(before.get(p.id)) !== JSON.stringify(p)) void db.setKv(KEY(p.id), p).catch(() => undefined);
+    for (const id of before.keys()) if (!next.some((p) => p.id === id)) void db.deleteKv(KEY(id)).catch(() => undefined);
+    playgrounds = next;
+    deleted = merged.deleted;
+    void db.setKv(DELETED_KEY, deleted).catch(() => undefined);
+    const result: PlaygroundSet = { playgrounds, deleted };
+    if (!remote || serialisePlaygrounds(remote) !== serialisePlaygrounds(result)) await writePlaygroundsToDrive(config.clientId, config.folderName, result, config.account);
+    where = 'drive';
+    emit();
+  })()
+    .catch(() => {
+      where = 'error';
+      emit();
+    })
+    .finally(() => {
+      syncing = null;
+      if (syncAgain) {
+        syncAgain = false;
+        scheduleSync();
+      }
+    });
+  return syncing;
+}
+
+// ------------------------------------------------- the notebook's cells --
+
+// A playground's notebook, as text, goes into its record (and so to Drive) a moment after it changes.
+const cellsWaiting = new Map<string, Playground['cells']>();
+let cellsTimer: ReturnType<typeof setTimeout> | undefined;
+subscribeNotebook(() => {
+  for (const p of playgrounds) {
+    const nb = notebookFor(notebookKey(p.id));
+    if (!nb) continue;
+    const cells = nb.cells.map((cell) => ({ type: cell.type, source: cell.source }));
+    if (JSON.stringify(cells) !== JSON.stringify(p.cells)) cellsWaiting.set(p.id, cells);
+  }
+  if (!cellsWaiting.size) return;
+  if (cellsTimer) clearTimeout(cellsTimer);
+  cellsTimer = setTimeout(() => {
+    for (const [id, cells] of cellsWaiting) {
+      const current = playgroundById(id);
+      if (current) put({ ...current, cells, updated: Date.now() });
+    }
+    cellsWaiting.clear();
+  }, 2000);
+});
 
 export function updatePlayground(id: string, patch: Partial<Playground> | ((p: Playground) => Partial<Playground>)) {
   const current = playgroundById(id);
@@ -273,7 +416,13 @@ export interface NewPlayground {
 
 /** Notebook cells waiting for a playground's notebook to be opened the first time: its seed. */
 const seeds = new Map<string, NbCell[]>();
-export const takeSeed = (id: string) => seeds.get(id);
+export const takeSeed = (id: string): NbCell[] | undefined => {
+  const seeded = seeds.get(id);
+  if (seeded) return seeded;
+  // Opened in a browser that hasn't had it before: the cells its record carries (from Drive).
+  const kept = playgroundById(id)?.cells;
+  return kept?.length ? kept.map((cell) => newCell(cell.type, cell.source)) : undefined;
+};
 
 export async function createPlayground(spec: NewPlayground): Promise<Playground> {
   await loadPlaygrounds();
@@ -284,8 +433,11 @@ export async function createPlayground(spec: NewPlayground): Promise<Playground>
     kind: spec.kind,
     created: now,
     updated: now,
-    compute: spec.compute,
-    home: spec.home.kind === 'server' && !spec.home.root ? { ...spec.home, root: `playgrounds/${slugOf(spec.title)}` } : spec.home,
+    compute: spec.compute.kind === 'server' ? { ...spec.compute, deviceId: spec.compute.deviceId ?? serverById(spec.compute.serverId)?.companionId } : spec.compute,
+    home:
+      spec.home.kind === 'server'
+        ? { ...spec.home, root: spec.home.root || `playgrounds/${slugOf(spec.title)}`, deviceId: spec.home.deviceId ?? serverById(spec.home.serverId)?.companionId }
+        : spec.home,
     cites: spec.cites ?? [],
     console: [],
     pending: spec.pending,
@@ -331,7 +483,10 @@ export async function markFolder(playground: Playground, site: string): Promise<
 
 export async function deletePlayground(id: string) {
   playgrounds = playgrounds.filter((p) => p.id !== id);
+  deleted = { ...deleted, [id]: Date.now() };
+  void db.setKv(DELETED_KEY, deleted).catch(() => undefined);
   emit();
+  scheduleSync();
   await Promise.all([db.deleteKv(KEY(id)), db.deleteKv(FILES_KEY(id)), db.deleteKv(`notebook:${notebookKey(id)}`), db.deleteKv(`notebook-ask:${notebookKey(id)}`)]).catch(() => undefined);
 }
 

@@ -18,7 +18,10 @@ import {
   blankCells,
   createPlayground,
   deletePlayground,
+  configurePlaygroundDrive,
   loadPlaygrounds,
+  usePlaygroundsWhere,
+  syncPlaygrounds,
   modelCells,
   modelIdOf,
   paperCells,
@@ -43,12 +46,34 @@ import VsCodeExtension, { isCompanion } from './VsCodeExtension';
 
 export default function Playground({ id, onOpen, onOpenPaper }: { id?: string; onOpen: (id?: string) => void; onOpenPaper: (id: string) => void }) {
   const list = usePlaygrounds();
+  const { settings, driveConnected } = useStore();
   const [ready, setReady] = useState(playgroundsLoaded());
+  const [fromDrive, setFromDrive] = useState(false);
   useEffect(() => {
     void loadPlaygrounds().then(() => setReady(true));
   }, []);
+  // Signed in with Drive: the list is the account's, in its Drive, in every browser it signs in to.
+  const clientId = settings.googleClientId.trim();
+  useEffect(() => {
+    configurePlaygroundDrive(driveConnected && clientId ? { clientId, folderName: settings.driveFolderName, account: currentAccount() ?? undefined } : null);
+    if (driveConnected && clientId) void syncPlaygrounds().finally(() => setFromDrive(true));
+  }, [driveConnected, clientId, settings.driveFolderName]);
   if (id) {
     const found = list.find((p) => p.id === id);
+    // A link opened in a browser that hasn't got the list from Drive yet: wait for it before saying there is none.
+    if (!found && driveConnected && clientId && !fromDrive) {
+      return (
+        <main className="main pg-page">
+          <div className="pg-scroll">
+            <div className="pg-missing">
+              <p>
+                <span className="spinner" /> Looking for it in your Drive…
+              </p>
+            </div>
+          </div>
+        </main>
+      );
+    }
     if (!found) {
       return (
         <main className="main pg-page">
@@ -56,7 +81,7 @@ export default function Playground({ id, onOpen, onOpenPaper }: { id?: string; o
             {ready ? (
               <div className="pg-missing">
                 <h1>No playground here</h1>
-                <p>There is no playground at this address in this browser. Playgrounds are kept in the browser they were made in.</p>
+                <p>There is no playground at this address{driveConnected ? ' in your Drive' : ' in this browser'}. {driveConnected ? 'It may have been deleted, or made by another Google account.' : 'Signed out, playgrounds are kept in the browser they were made in: sign in with Google, with Drive, to have them in every browser.'}</p>
                 <button type="button" className="btn primary" onClick={() => onOpen()}>
                   Go to the Playground
                 </button>
@@ -103,24 +128,32 @@ export function ComputeTag({ compute, home }: { compute: Compute; home?: FilesHo
         </>
       ) : null}
       {compute.kind === 'colab' ? <ColabMark /> : <span className={`pg-mark ${server?.where === 'pc' ? 'is-pc' : 'is-gpu'}`}>{server?.where === 'pc' ? 'PC' : 'GPU'}</span>}
-      <span>{compute.kind === 'colab' ? `Colab ${MACHINES.find((m) => m.accelerator === compute.machine.accelerator)?.label ?? 'CPU'}` : server?.name ?? 'a server no longer here'}</span>
+      <span>{compute.kind === 'colab' ? `Colab ${MACHINES.find((m) => m.accelerator === compute.machine.accelerator)?.label ?? 'CPU'}` : server?.name ?? (compute.deviceId ? 'a computer not connected here' : 'a server no longer here')}</span>
     </span>
   );
 }
 
 /**
- * Which Companions answer now, looked at every half minute: an id is true when it does, false when it
- * doesn't, missing until the first look. Other Jupyter servers aren't looked at (they are kept as active).
+ * Which Companions answer now, looked at every half minute: 'up', 'down', or 'elsewhere' for one of your
+ * account's that answers but no longer says it is yours (released, or connected to another account), so the
+ * token kept for it is no good. Missing until the first look; other Jupyter servers aren't looked at.
  */
-function useLiveCompanions(servers: JupyterServer[]): Record<string, boolean> {
-  const [live, setLive] = useState<Record<string, boolean>>({});
-  const key = servers.filter(isCompanion).map((server) => `${server.id}@${server.url}`).join(' ');
+type Liveness = 'up' | 'down' | 'elsewhere';
+function useLiveCompanions(servers: JupyterServer[]): Record<string, Liveness> {
+  const [live, setLive] = useState<Record<string, Liveness>>({});
+  const key = servers.filter(isCompanion).map((server) => `${server.id}@${server.url}@${server.account ?? ''}`).join(' ');
   useEffect(() => {
     let alive = true;
     let timer = 0;
     const look = async () => {
       const companions = serversNow().filter(isCompanion);
-      const answers = await Promise.all(companions.map(async (server) => [server.id, Boolean(await findCompanion(server.url, 5000))] as const));
+      const answers = await Promise.all(
+        companions.map(async (server) => {
+          const info = await findCompanion(server.url, 5000);
+          const state: Liveness = !info ? 'down' : server.account && !(info.owned && info.owner === maskEmail(server.account)) ? 'elsewhere' : 'up';
+          return [server.id, state] as const;
+        }),
+      );
       if (!alive) return;
       setLive(Object.fromEntries(answers));
       timer = window.setTimeout(() => void look(), 30_000);
@@ -135,6 +168,7 @@ function useLiveCompanions(servers: JupyterServer[]): Record<string, boolean> {
 }
 
 function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; ready: boolean; onOpen: (id?: string) => void }) {
+  const where = usePlaygroundsWhere();
   const { papers, settings } = useStore();
   const servers = useServers();
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -159,8 +193,8 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
   }, []);
   // Your compute lists what answers now; the rest are a click away, under Offline.
   const live = useLiveCompanions(servers);
-  const offline = servers.filter((server) => live[server.id] === false);
-  const active = servers.filter((server) => live[server.id] !== false);
+  const offline = servers.filter((server) => live[server.id] && live[server.id] !== 'up');
+  const active = servers.filter((server) => !live[server.id] || live[server.id] === 'up');
   const [showOffline, setShowOffline] = useState(false);
 
   const begin = (next: Draft) => {
@@ -301,7 +335,9 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
 
             <div className="pg-section-head">
               <span className="eyebrow">Your playgrounds</span>
-              <span className="pg-aside">kept in this browser</span>
+              <span className="pg-aside" title={where === 'drive' ? 'Each playground’s name, machine, folder and notebook are in your Google Drive (playgrounds.json in your Reader folder); its files stay where they are.' : undefined}>
+                {where === 'drive' ? 'kept in your Drive' : where === 'error' ? 'kept in this browser · Drive didn’t answer' : 'kept in this browser · sign in with Drive to keep them there'}
+              </span>
             </div>
             {!ready ? (
               <p className="pg-note">
@@ -376,7 +412,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
                     Offline · {offline.length}
                     <span className="pg-offline-names">{showOffline ? '' : offline.map((server) => server.name).join(', ')}</span>
                   </button>
-                  {showOffline ? offline.map((server) => <ServerRow key={server.id} server={server} offline />) : null}
+                  {showOffline ? offline.map((server) => <ServerRow key={server.id} server={server} offline={live[server.id] === 'elsewhere' ? 'elsewhere' : true} />) : null}
                 </div>
               ) : null}
             </div>
@@ -403,7 +439,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
 
 // -------------------------------------------------------------- servers ----
 
-function ServerRow({ server, offline = false }: { server: JupyterServer; offline?: boolean }) {
+function ServerRow({ server, offline = false }: { server: JupyterServer; offline?: boolean | 'elsewhere' }) {
   const [state, setState] = useState<{ ok: boolean; text: string } | null>(null);
   const [checking, setChecking] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -462,7 +498,7 @@ function ServerRow({ server, offline = false }: { server: JupyterServer; offline
         <span className="mono">{safeHost(server.url)}</span>
       </div>
       {state ? <p className={state.ok ? 'pg-ok' : 'pg-bad'}>{state.text}</p> : null}
-      {offline ? <p className="pg-machine-seen">Not answering{server.seen ? ` · last seen ${ago(server.seen)}` : ''}. {server.where === 'pc' ? 'Turn it on below, or open the Reader app.' : 'Start it on that computer: the Reader app, or reader-companion start.'}</p> : null}
+      {offline === 'elsewhere' ? <p className="pg-machine-seen">It runs, but it isn’t connected to {server.account} any more (released on that computer, or connected to another account). Connect it again from that computer — open the Reader app there — or Remove it here.</p> : offline ? <p className="pg-machine-seen">Not answering{server.seen ? ` · last seen ${ago(server.seen)}` : ''}. {server.where === 'pc' ? 'Turn it on below, or open the Reader app.' : 'Start it on that computer: the Reader app, or reader-companion start.'}</p> : null}
       {companion && server.account ? <p>Yours as {server.account}{server.where === 'pc' ? '' : ' · on another computer, through its tunnel'}. Its files stay on it.</p> : null}
       {note ? <p>{note}</p> : null}
       {state && !state.ok && companion ? (
