@@ -110,9 +110,9 @@ class Companion:
     def origin(self) -> str:
         return origin_of(self.site)
 
-    def fresh_code(self) -> str:
+    def fresh_code(self, announce: bool = True) -> str:
         self.code, self.code_made, self.tries = new_code(), time.time(), 0
-        if callable(self.on_new_code):
+        if announce and callable(self.on_new_code):
             self.on_new_code(self.code)
         return self.code
 

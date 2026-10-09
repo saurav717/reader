@@ -6,13 +6,15 @@ import argparse
 import logging
 import os
 import secrets
+import shutil
 import subprocess
+import time
 from urllib.parse import quote
 import sys
 import webbrowser
 from pathlib import Path
 
-from . import __version__, env, state, tunnel
+from . import __version__, desktop, env, state, tunnel
 
 DEFAULT_SITE = os.environ.get("READER_SITE", "https://saurav717.github.io/reader/")
 DEFAULT_PORT = 47321
@@ -25,8 +27,13 @@ def pair_link(site: str, code: str, port: int, via: str = "") -> str:
     return f"{link}&via={quote(via, safe='')}" if via else link
 
 
-def parse(argv=None):
-    parser = argparse.ArgumentParser(prog="reader-companion", description="Connect this computer to the reader's Playground.")
+def parse(argv=None, command=""):
+    if command == "setup":
+        parser = argparse.ArgumentParser(prog="reader-companion setup", description="Set this computer up for the reader's Playground: the VS Code extension, the Companion at every login, and a browser paired with it.")
+        parser.add_argument("--no-vscode", action="store_true", help="don't install the Reader extension into VS Code")
+        parser.add_argument("--no-login", action="store_true", help="don't start the Companion at login: run it here, in this terminal, as plain reader-companion does")
+    else:
+        parser = argparse.ArgumentParser(prog="reader-companion", description="Connect this computer to the reader's Playground.", epilog="Also: reader-companion setup (install it for good: VS Code, start at login, pair), reader-companion pair (a new pairing link for the one running), reader-companion uninstall (stop starting it at login).")
     parser.add_argument("--root", help="the folder the page may read, write and run in (default ~/Reader)")
     parser.add_argument("--port", type=int, help=f"the port on 127.0.0.1 (default {DEFAULT_PORT})")
     parser.add_argument("--site", help=f"the reader's address (default {DEFAULT_SITE})")
@@ -38,8 +45,8 @@ def parse(argv=None):
     return parser.parse_args(argv)
 
 
-def main(argv=None):
-    args = parse(argv)
+def configure(args) -> dict:
+    """The saved settings with these arguments on top, saved again: a token and an id the first time."""
     config = state.load_config()
     # Kept across restarts, so a browser paired once stays paired.
     config.setdefault("token", secrets.token_urlsafe(32))
@@ -50,7 +57,19 @@ def main(argv=None):
     if args.tunnel is not None:
         config["tunnel"] = args.tunnel
     state.save_config(config)
+    return config
 
+
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in COMMANDS:
+        return COMMANDS[argv[0]](argv[1:])
+    args = parse(argv)
+    serve(configure(args), args)
+
+
+def serve(config: dict, args):
+    """Runs the Jupyter server the page pairs with, here, until Ctrl-C."""
     site = config.get("site") or DEFAULT_SITE
     try:
         origin = state.origin_of(site)
@@ -152,6 +171,8 @@ def main(argv=None):
             webbrowser.open(link)
         except Exception:  # no browser here: the link above is enough
             pass
+    pid_file = state.config_dir() / desktop.PID
+    pid_file.write_text(str(os.getpid()))
     try:
         app.start()
     except KeyboardInterrupt:
@@ -159,6 +180,89 @@ def main(argv=None):
     finally:
         if running_tunnel:
             running_tunnel.stop()
+        try:
+            if pid_file.read_text().strip() == str(os.getpid()):
+                pid_file.unlink()
+        except OSError:
+            pass
+
+
+
+# ------------------------------------------------------- installed for good ----
+
+def setup(argv):
+    """The double-click installers' last step: VS Code, the Companion at every login and now, and the page to pair."""
+    args = parse(argv, "setup")
+    config = configure(args)
+    site = config.get("site") or DEFAULT_SITE
+    port = int(config.get("port") or DEFAULT_PORT)
+    print(f"\n  {BOLD}Reader Companion {__version__}: setting up this computer{RESET}\n", flush=True)
+
+    if not args.no_vscode:
+        print(f"  {DIM}VS Code   {RESET} looking for it…", flush=True)
+        editors = desktop.install_extension(site)
+        print(f"  {DIM}VS Code   {RESET} " + (f"the Reader extension is in {', '.join(editors)}" if editors else "not found here; the Playground's card has the extension for later"), flush=True)
+
+    command = desktop.executable()
+    if args.no_login or not desktop.is_lasting(command):
+        if not args.no_login:
+            print(f"  {YELLOW}Run from uvx, so it can't start at login; the installers on the Playground's card install it for good.{RESET}", flush=True)
+        args.no_browser = False
+        return serve(config, args)
+
+    running = desktop.wait_for(config["token"], port, 0)
+    ours = desktop.login_installed()
+    # One running in a terminal stays as it is; the login item takes over from the next login.
+    how = desktop.install_login(command, start_now=ours or running is None, restart=ours and running is not None)
+    print(f"  {DIM}At login  {RESET} starts by itself, in the background: {how}", flush=True)
+    print(f"  {DIM}Starting  {RESET} the first start makes the Python your code runs in, which takes a minute…", flush=True)
+    time.sleep(2)  # a restarted one is let go of its port first
+    running = desktop.wait_for(config["token"], port, 240)
+    if running is None:
+        sys.exit(f"\n  reader-companion: it didn't start. Its log is {state.config_dir() / desktop.LOG}; reader-companion on its own runs it here, where you can see why.")
+    link = desktop.fresh_link(config["token"], running)
+    print(f"""  {DIM}Listening {RESET} http://127.0.0.1:{running}/  {DIM}(folder {Path(os.path.expanduser(config.get("root") or "~/Reader")).resolve()}){RESET}
+
+  {GREEN}Done.{RESET} Opening the Playground to pair this browser:
+    {BLUE}{link}{RESET}
+
+  {DIM}You can close this window. The Companion keeps running, and starts again at every login.
+  To pair another browser: reader-companion pair. To stop it starting at login: reader-companion uninstall.{RESET}
+""", flush=True)
+    try:
+        webbrowser.open(link)
+    except Exception:
+        pass
+
+
+def pair(argv):
+    """Opens a new pairing link for the Companion running on this computer."""
+    parser = argparse.ArgumentParser(prog="reader-companion pair", description="Open a new pairing link for the Companion running on this computer.")
+    parser.add_argument("--no-browser", action="store_true", help="print the link, don't open it")
+    args = parser.parse_args(argv)
+    config = state.load_config()
+    running = desktop.wait_for(config["token"], int(config.get("port") or DEFAULT_PORT), 0) if config.get("token") else None
+    link = desktop.fresh_link(config["token"], running) if running else None
+    if not link:
+        sys.exit("reader-companion: no Companion is running here. Start it with reader-companion (or log out and in again, if setup installed it).")
+    print(link)
+    if not args.no_browser:
+        webbrowser.open(link)
+
+
+def uninstall(argv):
+    """Stops the Companion starting at login (and the one that login item runs). Keeps the folder and the settings."""
+    argparse.ArgumentParser(prog="reader-companion uninstall", description="Stop starting the Companion at login. Your folder and settings stay.").parse_args(argv)
+    config = state.load_config()
+    running = bool(config.get("token")) and desktop.wait_for(config["token"], int(config.get("port") or DEFAULT_PORT), 0) is not None
+    removed = desktop.uninstall_login(running)
+    print("\n".join(f"Removed {path}" for path in removed) if removed else "It wasn't set to start at login.")
+    print(f"Your files are still in {Path(os.path.expanduser(config.get('root') or '~/Reader')).resolve()}, and the settings in {state.config_dir()}.")
+    if shutil.which("uv"):
+        print("To remove the program too: uv tool uninstall reader-companion")
+
+
+COMMANDS = {"setup": setup, "pair": pair, "uninstall": uninstall}
 
 
 if __name__ == "__main__":
