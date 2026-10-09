@@ -13,7 +13,7 @@
 
 import type { JupyterServer } from './colab';
 import { api, apiBase, apiHeaders, currentAccount, currentPass } from './api';
-import { claimCompanion, companionPort, findLocalCompanion, pairCompanion } from './companion';
+import { ACCOUNTS, claimCompanion, companionPort, findCompanion, findLocalCompanion, isNewer, isSafari, pairCompanion } from './companion';
 import { allServers, saveCompanion, saveServer, removeServer } from './playground';
 
 export interface Device {
@@ -64,7 +64,13 @@ export async function forgetDevice(id: string): Promise<void> {
 export async function claimForAccount(server: JupyterServer): Promise<{ server: JupyterServer; problem?: string }> {
   const pass = currentPass();
   const apiAt = absoluteApi();
-  if (!pass || !apiAt || !server.companionId) return { server, problem: pass ? undefined : 'Sign in with Google to have this computer under your account in every browser you sign in to.' };
+  if (!pass) return { server, problem: 'Sign in with Google to have this computer under your account in every browser you sign in to.' };
+  if (!apiAt) return { server, problem: 'This site has no Worker to keep your computers on.' };
+  // An older Companion has no /companion/claim, and its answer to the browser's check before the request
+  // carries no CORS headers, so the request fails as if nothing answered: ask its version first.
+  const info = await findCompanion(server.url, 4000);
+  if (!info) return { server, problem: 'The Companion isn’t answering. Open the Reader app on that computer, or start it again.' };
+  if (isNewer(ACCOUNTS, info.version)) return { server, problem: `This Companion is ${info.version}; connecting it to your account needs ${ACCOUNTS}. Update it in Settings → Updates (or open the newest Reader app), then try again.` };
   try {
     const claimed = await claimCompanion(server, pass, apiAt);
     return { server: saveServer({ ...server, token: claimed.token, account: claimed.email }) };
@@ -96,7 +102,9 @@ export function syncDevices(): Promise<void> {
       if (!device.token) continue;
       const same = allServers().find((server) => server.companionId === device.id && (!server.account || server.account === account));
       // This computer's own Companion keeps its 127.0.0.1 address, also while it is off.
-      const local = here?.info.id === device.id ? here.base : same?.where === 'pc' && companionPort(same.url) !== null ? same.url : null;
+      // (Not a plain-http one in Safari, which never reaches http://127.0.0.1 from this https page: the tunnel then.)
+      const keep = same?.where === 'pc' && companionPort(same.url) !== null && (!isSafari() || same.url.startsWith('https:'));
+      const local = here?.info.id === device.id ? here.base : keep && same ? same.url : null;
       const url = local ?? device.url ?? device.local;
       if (!url) continue;
       saveServer({ id: same?.id ?? `device-${device.id}`, name: device.name, where: local ? 'pc' : 'remote', url, token: device.token, companionId: device.id, root: device.root || same?.root, account });
