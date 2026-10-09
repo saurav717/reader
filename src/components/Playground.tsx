@@ -660,8 +660,10 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
     let live = true;
     let timer = 0;
     const look = async () => {
-      const reached = await findLocalCompanion(safari);
+      const here = await findLocalCompanion(safari);
       if (!live) return;
+      // A Companion another Google account owns isn't shown at all: not its name, its folder or its switch.
+      const reached = here && (!here.info.owned || here.info.owner === maskEmail(currentAccount())) ? here : null;
       setFound(reached?.info ?? null);
       setFoundAt(reached?.base ?? null);
       if (reached) setStopped(null);
@@ -697,21 +699,7 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
           </button>
         ) : null}
       </div>
-      {found && found.owned && found.owner !== maskEmail(currentAccount()) ? (
-        <>
-          <div className="pg-companion-found">
-            <span className="pg-live" />
-            <div>
-              <b>{found.name}</b>
-              <small>connected to {found.owner}</small>
-            </div>
-            <PowerSwitch power={power} onChange={(on) => void toggle(on)} />
-          </div>
-          <small className="pg-companion-note">
-            It is another Google account’s computer. {currentAccount() ? `You’re signed in as ${currentAccount()}: sign` : 'Sign'} in as that account to use it here — it then shows under Your compute in every browser signed in as it. To connect it to this account instead, run <span className="mono">reader-companion release</span> on it, then connect again.
-          </small>
-        </>
-      ) : found ? (
+      {found ? (
         <>
           <div className="pg-companion-found">
             <span className="pg-live" />
