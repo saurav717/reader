@@ -23,13 +23,13 @@ import MetricsPane from './MetricsPane';
 import NotebookPage, { Editor } from './Notebook';
 import type { NbSide } from './Notebook';
 import RuntimePane from './RuntimePane';
-import Terminal, { hasTerminals, typeInTerminal } from './Terminal';
+import Terminal, { forgetTerminal, hasTerminals, typeInTerminal } from './Terminal';
 import { WhereDialog } from './Playground';
 import VsCodeExtension, { VsCodeMark, isCompanion } from './VsCodeExtension';
 import { ArrowLeftIcon, CloseIcon } from './icons';
 
 type Tab = 'notebook' | 'files';
-type FilesSide = 'sync' | 'runtime' | 'metrics' | null;
+type FilesSide = 'sync' | 'agent' | 'runtime' | 'metrics' | null;
 
 const clock = (since: number | undefined, now: number) => {
   if (!since) return '';
@@ -176,6 +176,11 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
             {!filesAreOnMachine(playground) ? (
               <button type="button" className={`btn sm ghost${filesSide === 'sync' ? ' is-on' : ''}`} aria-pressed={filesSide === 'sync'} onClick={() => setFilesSide(filesSide === 'sync' ? null : 'sync')}>
                 Sync
+              </button>
+            ) : null}
+            {playground.compute.kind === 'server' ? (
+              <button type="button" className={`btn sm ghost${filesSide === 'agent' ? ' is-on' : ''}`} aria-pressed={filesSide === 'agent'} onClick={() => setFilesSide(filesSide === 'agent' ? null : 'agent')} title="A coding agent — Claude Code, Codex, Gemini CLI and more — in a pane beside the editor, working in this project's folder">
+                Agent
               </button>
             ) : null}
             <button type="button" className={`btn sm ghost${filesSide === 'runtime' ? ' is-on' : ''}`} aria-pressed={filesSide === 'runtime'} onClick={() => setFilesSide(filesSide === 'runtime' ? null : 'runtime')}>
@@ -441,56 +446,119 @@ const absoluteFolder = (server: JupyterServer | undefined, relative: string) => 
   return windows ? `${root}\\${relative.replace(/\//g, '\\')}` : `${root}/${relative}`;
 };
 
-const AGENT_INSTALLS = [
-  { name: 'Claude Code', command: 'npm install -g @anthropic-ai/claude-code' },
-  { name: 'Codex', command: 'npm install -g @openai/codex' },
-  { name: 'Gemini CLI', command: 'npm install -g @google/gemini-cli' },
-  { name: 'Aider', command: 'pipx install aider-chat' },
+/**
+ * The coding agents the pane offers: the ones the Companion looks for
+ * (companion/reader_companion/tools.py), each with the command that installs
+ * it, typed into the pane's terminal when it isn't on the machine yet.
+ */
+export const AGENT_CATALOG: { id: string; name: string; install: string }[] = [
+  { id: 'claude', name: 'Claude Code', install: 'npm install -g @anthropic-ai/claude-code' },
+  { id: 'codex', name: 'Codex', install: 'npm install -g @openai/codex' },
+  { id: 'gemini', name: 'Gemini CLI', install: 'npm install -g @google/gemini-cli' },
+  { id: 'copilot', name: 'GitHub Copilot CLI', install: 'npm install -g @github/copilot' },
+  { id: 'cursor-agent', name: 'Cursor Agent', install: 'curl https://cursor.com/install -fsS | bash' },
+  { id: 'aider', name: 'Aider', install: 'pipx install aider-chat' },
+  { id: 'opencode', name: 'opencode', install: 'npm install -g opencode-ai' },
+  { id: 'goose', name: 'Goose', install: 'curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash' },
+  { id: 'amp', name: 'Amp', install: 'npm install -g @sourcegraph/amp' },
+  { id: 'qwen', name: 'Qwen Code', install: 'npm install -g @qwen-code/qwen-code' },
 ];
 
-/** The coding agents on the machine, each started in the project's folder in the terminal below. */
-function AgentsMenu({ agents, asked, machineName, onStart }: { agents: { id: string; name: string }[]; asked: boolean; machineName: string; onStart: (command: string) => void }) {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
+const readSession = <T,>(name: string, fallback: T): T => {
+  try {
+    const raw = sessionStorage.getItem(name);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+const writeSession = (name: string, value: unknown) => {
+  try {
+    sessionStorage.setItem(name, JSON.stringify(value));
+  } catch {
+    // private mode: the tabs start over next time
+  }
+};
+const shortId = () => Math.random().toString(36).slice(2, 8);
+
+/**
+ * The agent pane: a coding agent picked from the list, run in a terminal of
+ * its own in the project's folder, beside the editor as in VS Code. The
+ * session lives on the machine, so closing the pane and opening it again
+ * finds the same conversation; Start again begins a new one.
+ */
+function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgroundId }: { server: JupyterServer | undefined; machineName: string; agents: { id: string; name: string }[]; asked: boolean; cwd: string; inFolder: (command: string) => string; playgroundId: string }) {
+  const installed = new Set(agents.map((agent) => agent.id));
+  // An agent the Companion found that the catalog doesn't name yet still shows, by its own name.
+  const catalog = [...AGENT_CATALOG, ...agents.filter((agent) => !AGENT_CATALOG.some((known) => known.id === agent.id)).map((agent) => ({ ...agent, install: '' }))];
+  const sorted = [...catalog].sort((a, b) => Number(installed.has(b.id)) - Number(installed.has(a.id)));
+  const key = `pgagent:${playgroundId}`;
+  const [session, setSession] = useState<{ agent: string; id: string; command: string } | null>(() => readSession(key, null));
+  const [pick, setPick] = useState(() => session?.agent ?? sorted.find((agent) => installed.has(agent.id))?.id ?? 'claude');
+  const chosen = catalog.find((agent) => agent.id === pick) ?? catalog[0];
+  const isThere = installed.has(chosen.id);
+  // What a new session types, once its shell is open (queued until then by typeInTerminal).
+  const pending = useRef<{ id: string; text: string } | null>(null);
   useEffect(() => {
-    if (!open) return;
-    const away = (event: MouseEvent) => !box.current?.contains(event.target as Node) && setOpen(false);
-    window.addEventListener('mousedown', away);
-    return () => window.removeEventListener('mousedown', away);
-  }, [open]);
+    if (session && pending.current?.id === session.id) {
+      typeInTerminal(session.id, pending.current.text);
+      pending.current = null;
+    }
+  }, [session]);
+
+  if (!server) return <p className="pg-note pg-pad">An agent runs in a terminal on the machine: choose a Jupyter server of yours — a Reader Companion — from the machine menu.</p>;
+  const start = (command: string) => {
+    if (session) forgetTerminal(server, session.id);
+    const next = { agent: chosen.id, id: `${playgroundId}~agent~${shortId()}`, command };
+    pending.current = { id: next.id, text: `${inFolder(command)}\r` };
+    writeSession(key, next);
+    setSession(next);
+  };
+  const stop = () => {
+    if (session) forgetTerminal(server, session.id);
+    writeSession(key, null);
+    setSession(null);
+  };
   return (
-    <div className="menu-wrap" ref={box}>
-      <button type="button" className="btn sm ghost" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title={`The coding agents on ${machineName}, started in this project's folder in the terminal`}>
-        Agents ▾
-      </button>
-      {open ? (
-        <div className="menu right up pg-agents-menu" role="menu">
-          <div className="menu-label">Agents on {machineName}</div>
-          {agents.map((agent) => (
-            <button
-              key={agent.id}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                onStart(agent.id);
-              }}
-            >
-              {agent.name} <span className="mono pg-note">{agent.id}</span>
-            </button>
+    <div className="pg-agent">
+      <div className="pg-agent-bar">
+        <select value={pick} onChange={(event) => setPick(event.target.value)} aria-label="The coding agent">
+          {sorted.map((agent) => (
+            <option key={agent.id} value={agent.id}>
+              {agent.name}
+              {installed.has(agent.id) ? '' : asked ? ' · not installed' : ''}
+            </option>
           ))}
-          {!agents.length ? (
-            <div className="pg-agents-none">
-              <p>{asked ? `None found on ${machineName}.` : `The Companion on ${machineName} can’t say (update it in Settings → Updates).`} Any of these, in the terminal, adds one:</p>
-              {AGENT_INSTALLS.map((agent) => (
-                <button key={agent.name} type="button" role="menuitem" onClick={() => (setOpen(false), onStart(agent.command))} title="Type it into the terminal below">
-                  {agent.name} <span className="mono pg-note">{agent.command}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
+        </select>
+        {isThere || !asked ? (
+          <button type="button" className="btn sm primary" onClick={() => start(chosen.id)} title={`${chosen.id}, in this project's folder on ${machineName}`}>
+            {session ? 'Start again' : 'Start'}
+          </button>
+        ) : chosen.install ? (
+          <button type="button" className="btn sm" onClick={() => start(chosen.install)} title={chosen.install}>
+            Install
+          </button>
+        ) : null}
+        {session ? (
+          <button type="button" className="btn sm ghost" onClick={stop} title="End this agent's terminal">
+            End
+          </button>
+        ) : null}
+      </div>
+      {!asked ? <p className="pg-note pg-pad">The Companion on {machineName} can’t say which agents are installed (update it in Settings → Updates): Start runs the command and the shell says if it is missing.</p> : null}
+      {session ? (
+        <div className="pg-agent-term">
+          <Terminal key={session.id} server={server} cwd={cwd} sessionId={session.id} label={`${catalog.find((agent) => agent.id === session.agent)?.name ?? session.agent} on ${machineName}`} />
         </div>
-      ) : null}
+      ) : (
+        <div className="pg-agent-empty">
+          <p>
+            <b>{chosen.name}</b> {isThere ? `is on ${machineName}. Start it and it works in this project's folder, in a terminal of its own here.` : asked ? `isn’t on ${machineName} yet. Install types its installer into a terminal here; then Start.` : ''}
+          </p>
+          {!isThere && chosen.install ? <code className="mono pg-note">{chosen.install}</code> : null}
+          <p className="pg-note">{agents.length ? `On ${machineName}: ${agents.map((agent) => agent.name).join(', ')}.` : asked ? `No agents found on ${machineName} yet.` : ''}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -613,10 +681,37 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
   const vscodeHere = Boolean(homeServer && isCompanion(homeServer) && homeTools.vscode);
   const terminalHere = Boolean(view === 'terminal' || (terminals && computeServer && !split));
   const projectFolder = terminalHere ? absoluteFolder(computeServer, machineRoot(playground)) : null;
-  /** A command into the terminal below, shown, in the project's folder: the Run button's and the Agents menu's. */
+  // The agent's terminal is its own, so it goes to the folder whatever the console below shows.
+  const agentFolder = terminals && computeServer ? absoluteFolder(computeServer, machineRoot(playground)) : null;
+  // Several shells, as tabs: the first is the playground's own (its session from before carries on), the others new ones. Each stays open while another is shown.
+  const shellsKey = `pgshells:${playground.id}`;
+  const [shells, setShells] = useState<string[]>(() => {
+    const kept = readSession<string[]>(shellsKey, []);
+    return kept.length ? kept : [playground.id];
+  });
+  const [activeShell, setActiveShell] = useState(shells[0]);
+  const keepShells = (next: string[]) => {
+    setShells(next);
+    writeSession(shellsKey, next);
+  };
+  const addShell = () => {
+    const id = `${playground.id}~${shortId()}`;
+    keepShells([...shells, id]);
+    setActiveShell(id);
+  };
+  const closeShell = (id: string) => {
+    if (computeServer) forgetTerminal(computeServer, id);
+    const left = shells.filter((shell) => shell !== id);
+    const next = left.length ? left : [`${playground.id}~${shortId()}`];
+    keepShells(next);
+    if (id === activeShell) setActiveShell(next[Math.max(0, shells.indexOf(id) - 1)] ?? next[0]);
+  };
+  /** A command, in the project's folder when the page knows it: the agent pane's. */
+  const inFolder = (command: string) => (agentFolder ? (machineTools.os === 'windows' ? `cd "${agentFolder}"; ${command}` : `cd '${agentFolder.replace(/'/g, `'\\''`)}' && ${command}`) : command);
+  /** A command into the terminal shown below, in the project's folder: the Run button's. */
   const inTerminal = (command: string) => {
     setShellView('terminal');
-    typeInTerminal(playground.id, `${command}\r`);
+    typeInTerminal(activeShell, `${command}\r`);
   };
 
   const open = async (where: 'home' | 'machine', path: string) => {
@@ -840,19 +935,48 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
             ) : (
               <b>Console</b>
             )}
+            {view === 'terminal' && terminals && computeServer ? (
+              <div className="pg-shell-tabs" role="tablist" aria-label="Terminals">
+                {shells.map((id, index) => (
+                  <span key={id} className={`pg-shell-tab${id === activeShell ? ' is-on' : ''}`}>
+                    <button type="button" role="tab" aria-selected={id === activeShell} onClick={() => setActiveShell(id)}>
+                      {index + 1}
+                    </button>
+                    {shells.length > 1 ? (
+                      <button type="button" className="pg-tab-x" aria-label={`Close terminal ${index + 1}`} title="Close this terminal (its shell ends)" onClick={() => closeShell(id)}>
+                        ×
+                      </button>
+                    ) : null}
+                  </span>
+                ))}
+                <button type="button" className="icon-btn sm" onClick={addShell} aria-label="A new terminal" title="A new terminal">
+                  +
+                </button>
+              </div>
+            ) : null}
             <span className="mono">
               {machineName}:{base ?? machineRoot(playground)}
             </span>
             <span className="spacer" />
             {view === 'terminal' && split ? <span className="pg-note">The terminal doesn’t copy the folder over — use Sync, or Copy &amp; run.</span> : null}
-            {terminals && computeServer && isCompanion(computeServer) ? <AgentsMenu agents={machineTools.agents} asked={asked} machineName={machineName} onStart={(command) => inTerminal(projectFolder ? (machineTools.os === 'windows' ? `cd "${projectFolder}"; ${command}` : `cd '${projectFolder.replace(/'/g, `'\\''`)}' && ${command}`) : command)} /> : null}
+            {terminals && computeServer && isCompanion(computeServer) ? (
+              <button type="button" className={`btn sm ghost${side === 'agent' ? ' is-on' : ''}`} onClick={() => onSide(side === 'agent' ? null : 'agent')} title={`A coding agent on ${machineName}, in a pane beside the editor`}>
+                Agent
+              </button>
+            ) : null}
             {view === 'commands' && colab.running?.startsWith('pgsh:') ? (
               <button type="button" className="btn sm colab-stop" onClick={() => void interrupt()}>
                 ■ Stop
               </button>
             ) : null}
           </div>
-          {view === 'terminal' && computeServer ? <Terminal server={computeServer} cwd={machineRoot(playground)} sessionId={playground.id} label={machineName} /> : null}
+          {view === 'terminal' && computeServer
+            ? shells.map((id) => (
+                <div key={id} className="pg-terminal-slot" hidden={id !== activeShell}>
+                  <Terminal server={computeServer} cwd={machineRoot(playground)} sessionId={id} label={machineName} />
+                </div>
+              ))
+            : null}
           <div className="pg-console-log" ref={consoleLog} hidden={view === 'terminal'}>
             {playground.console.slice(-12).map((entry) => {
               const key = consoleKey(playground.id, entry.id);
@@ -887,11 +1011,16 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
         </div>
       </section>
       {side ? (
-        <aside className="nb-side pg-side-pane">
+        <aside className={`nb-side pg-side-pane${side === 'agent' ? ' is-agent' : ''}`}>
           <div className="nb-side-tabs" role="tablist">
             {split ? (
               <button type="button" role="tab" aria-selected={side === 'sync'} onClick={() => onSide('sync')}>
                 Sync
+              </button>
+            ) : null}
+            {playground.compute.kind === 'server' ? (
+              <button type="button" role="tab" aria-selected={side === 'agent'} onClick={() => onSide('agent')}>
+                Agent
               </button>
             ) : null}
             <button type="button" role="tab" aria-selected={side === 'runtime'} onClick={() => onSide('runtime')}>
@@ -905,7 +1034,13 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
               <CloseIcon size={14} />
             </button>
           </div>
-          {side === 'sync' && split ? (
+          {side === 'agent' ? (
+            terminals === false ? (
+              <p className="pg-note pg-pad">{machineName} offers no terminals, so no agent can run there. A Reader Companion does.</p>
+            ) : (
+              <AgentPane server={computeServer} machineName={machineName} agents={machineTools.agents} asked={asked} cwd={machineRoot(playground)} inFolder={inFolder} playgroundId={playground.id} />
+            )
+          ) : side === 'sync' && split ? (
             <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} />
           ) : side === 'runtime' ? (
             connected ? <RuntimePane cells={consoleCells} onGoTo={() => undefined} /> : <p className="pg-note pg-pad">Connect from the bar, or run a command, and the machine is read here: GPU, memory, disk.</p>
