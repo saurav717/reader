@@ -13,7 +13,7 @@
 
 import type { JupyterServer } from './colab';
 import { api, apiBase, apiHeaders, currentAccount, currentPass } from './api';
-import { ACCOUNTS, claimCompanion, companionPort, findCompanion, findLocalCompanion, isNewer, pairCompanion } from './companion';
+import { ACCOUNTS, claimCompanion, companionPort, findCompanion, findLocalCompanion, isNewer, isSafari, pairCompanion } from './companion';
 import { allServers, saveCompanion, saveServer, removeServer } from './playground';
 
 export interface Device {
@@ -102,7 +102,9 @@ export function syncDevices(): Promise<void> {
       if (!device.token) continue;
       const same = allServers().find((server) => server.companionId === device.id && (!server.account || server.account === account));
       // This computer's own Companion keeps its 127.0.0.1 address, also while it is off.
-      const local = here?.info.id === device.id ? here.base : same?.where === 'pc' && companionPort(same.url) !== null ? same.url : null;
+      // (Not a plain-http one in Safari, which never reaches http://127.0.0.1 from this https page: the tunnel then.)
+      const keep = same?.where === 'pc' && companionPort(same.url) !== null && (!isSafari() || same.url.startsWith('https:'));
+      const local = here?.info.id === device.id ? here.base : keep && same ? same.url : null;
       const url = local ?? device.url ?? device.local;
       if (!url) continue;
       saveServer({ id: same?.id ?? `device-${device.id}`, name: device.name, where: local ? 'pc' : 'remote', url, token: device.token, companionId: device.id, root: device.root || same?.root, account });
