@@ -808,6 +808,11 @@ describe('glyphs', () => {
     assert.deepEqual(faceOf('TACTGM+NimbusRomNo9L-Medi'), { bold: true, italic: false, mono: false, math: false });
     assert.deepEqual(faceOf('FCXRUF+NimbusRomNo9L-ReguItal'), { bold: false, italic: true, mono: false, math: false });
     assert.deepEqual(faceOf('RRLDLB+CMTT9'), { bold: false, italic: false, mono: true, math: false });
+    // The typewriter faces other setups embed: newtx's, cm-super's, the EC fonts', TeX Gyre's, Courier's own files.
+    for (const font of ['ABCDEF+NewTXTT', 'ABCDEF+txtt', 'ABCDEF+t1xtt', 'ABCDEF+SFTT1000', 'ABCDEF+ectt1000', 'ABCDEF+TeXGyreCursor-Regular', 'ABCDEF+pcrr8r', 'LucidaConsole', 'Monaco', 'Cousine-Regular']) {
+      assert.equal(faceOf(font).mono, true, font);
+    }
+    for (const font of ['ABCDEF+SFRM1000', 'ABCDEF+ecrm1000', 'ABCDEF+NewTXMI', 'ABCDEF+TeXGyreTermes-Regular', 'Helvetica']) assert.equal(faceOf(font).mono, false, font);
     assert.deepEqual(faceOf('AZLOMJ+CMMI9'), { bold: false, italic: true, mono: false, math: true });
     assert.equal(faceOf('LiberationSerif-Bold').bold, true);
   });

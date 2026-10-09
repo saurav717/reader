@@ -1471,7 +1471,9 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   a justified line stretched until its spaces are wider than an em, in a
   footnote's small type or indented as a paragraph's first line, is one
   line again.
-- **Listings.** Lines set in a typewriter face — code, or a prompt —
+- **Listings.** Lines set in a typewriter face — code, or a prompt; the
+  face told by the font's name, Computer Modern's, Latin Modern's,
+  newtx's, cm-super's, Courier, Inconsolata and the usual system faces —
   are a listing, kept apart from the text and shown as the paper sets them: a line each, each set in as far as it is on the
   page, its bold labels ("Constraints:") bold, and a line parted by wide
   spaces one line again. One set small at the foot of a page is the

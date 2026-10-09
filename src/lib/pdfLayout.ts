@@ -195,7 +195,10 @@ export interface PaperByline {
 // OZ semibold, OC small capitals.
 const BOLD = /bold|black|heavy|semibold|demibold|extrab|ultrab|-medi|medium(?!ital)|cmbx|cmb\d|ptmb|ntxb|txb|sfbx|sfsx|cmssbx|lmssbx|,bold|-bd\b|\bbd\b|\.b$|-b$|lin(?:libertine|biolinum)o[bz]/i;
 const ITALIC = /italic|oblique|ital\b|-it\b|cmti|cmmi|cmsl|slanted|,italic|\.i$|-i$|\bit$|lin(?:libertine|biolinum)o[bz]?i\b/i;
-const MONO = /mono|cmtt|courier|typewriter|consolas|menlo|inconsolata|nimbusmon|luximono|lmtt|beramono|dejavusansmono|sourcecodepro|firamono/i;
+// Typewriter faces by the names TeX and word processors embed them under:
+// newtx's and txfonts' txtt, cm-super's SFTT, the EC fonts' ectt, TeX Gyre
+// Cursor, Courier's own pcr files, and the usual system faces.
+const MONO = /mono|cmtt|courier|typewriter|consolas|menlo|inconsolata|nimbusmon|luximono|lmtt|beramono|dejavusansmono|sourcecodepro|firamono|t1?xtt|sftt|ectt|tgcursor|texgyrecursor|\bpcr[rbo]\d|lucidaconsole|monaco|cousine/i;
 /** Fonts that only ever set mathematics. */
 const MATH = /xcharter-?math|newtxmath|newpxmath|zmath|cmmi|cmsy|cmex|cmmib|cmbsy|msam|msbm|rsfs|eufm|eufb|eurm|eusm|txsy|txmi|txex|pxsy|pxmi|pxex|stixmath|cambriamath|mathematica|symbol\b|standardsym|esint|wasy|stmary|mtsy|mtmi|mtex|lmmi|lmsy|lmex|xits-?math|latinmodernmath/i;
 
