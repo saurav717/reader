@@ -515,7 +515,18 @@ export function WhereDialog({
   const [idleStop, setIdleStop] = useState(current?.compute.kind === 'colab' ? current.idleStopMin : 30);
   const [adding, setAdding] = useState<'pc' | 'remote' | null>(null);
   const [busy, setBusy] = useState(false);
+  const addingRef = useRef<HTMLDivElement>(null);
   const colabOk = colabAvailable(settings.googleClientId);
+  // A mode that needs a server none has been added for opens the steps to start one at once,
+  // rather than waiting for a click on a tile that reads like a hint.
+  const missing: 'pc' | 'remote' | null = mode === 'colab' ? null : !pcs.length ? 'pc' : mode === 'split' && !remotes.length && remoteId !== 'colab' ? 'remote' : null;
+  useEffect(() => {
+    if (missing) setAdding(missing);
+  }, [missing]);
+  // The form opens below the three cards: bring it into view, or it is easy to miss.
+  useEffect(() => {
+    if (adding) addingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [adding]);
   useEffect(() => {
     if (!pcId && pcs[0]) setPcId(pcs[0].id);
   }, [pcs, pcId]);
@@ -667,8 +678,16 @@ export function WhereDialog({
           </section>
         </div>
         {adding ? (
-          <div className="pg-adding">
+          <div className="pg-adding" ref={addingRef}>
+            {missing === adding ? (
+              <p className="pg-adding-lede">
+                {adding === 'pc'
+                  ? 'This PC needs a Jupyter server the page can reach. Run the commands below in a terminal on this computer, then paste the address it prints.'
+                  : 'The GPU machine needs a Jupyter server too. Start one there with the commands below, then paste its address.'}
+              </p>
+            ) : null}
             <ServerForm
+              key={adding}
               defaultWhere={adding}
               onDone={() => setAdding(null)}
               onSaved={(saved) => {
@@ -694,6 +713,8 @@ export function WhereDialog({
                 with nothing running, while this tab is open
               </span>
             </label>
+          ) : missing ? (
+            <span className="pg-note">{missing === 'pc' ? 'Add this PC’s Jupyter server above to create it here.' : 'Add the GPU machine’s Jupyter server above, or pick Your Colab.'}</span>
           ) : (
             <span className="pg-note">A Jupyter server of yours stays up until you stop it; a rented one is billed by its provider while it is.</span>
           )}

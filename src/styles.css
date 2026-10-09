@@ -5753,7 +5753,8 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .pg-opt.is-add small { grid-column: 1; }
 .pg-split { display: flex; flex-direction: column; gap: 6px; }
 .pg-split > small { font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
-.pg-adding { padding: 0 24px 14px; max-width: 520px; }
+.pg-adding { padding: 0 24px 14px; max-width: 680px; }
+.pg-adding-lede { margin: 0 0 8px; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
 .pg-sheet-foot { display: flex; align-items: center; gap: 10px; padding: 14px 24px; border-top: 1px solid var(--border-soft); background: var(--panel); border-radius: 0 0 18px 18px; position: sticky; bottom: 0; }
 .pg-idle { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
 .pg-idle select { margin: 0 6px; font: 12px var(--sans); }
