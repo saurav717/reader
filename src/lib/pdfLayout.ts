@@ -1467,7 +1467,14 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
 function algorithmRegion(caption: Line, captionBottom: number, free: Line[], clusters: Cluster[], rules: GraphicBox[], measures: Measures, page: PageInput): Region | null {
   const em = measures.bodySize;
   const kind = caption.caption!.kind;
-  const make = (box: Box, held: Line[]): Region => ({ kind, page: page.index, ...box, caption, label: caption.caption!.label, lines: held });
+  // The page is painted a little beyond the region (see crop): on the
+  // caption's side, not so far as to take in its lettering.
+  const make = (box: Box, held: Line[]): Region => {
+    const clear = { ...box };
+    if (box.y0 >= caption.top) clear.y0 = Math.max(box.y0, captionBottom + 3);
+    else if (box.y1 <= captionBottom) clear.y1 = Math.min(box.y1, caption.top - 3);
+    return { kind, page: page.index, ...clear, caption, label: caption.caption!.label, lines: held };
+  };
   const inside = (box: Box, line: Line) => line.top >= box.y0 - 1 && line.bottom <= box.y1 + 1 && line.x0 >= box.x0 - 2 && line.x1 <= box.x1 + 2;
   const steps = (lines: Line[]) => lines.filter((line) => !line.caption);
 
