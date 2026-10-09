@@ -15,7 +15,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-from . import __version__, desktop, env, state, tunnel
+from . import __version__, desktop, env, state, tls, tunnel
 
 DEFAULT_SITE = os.environ.get("READER_SITE", "https://saurav717.github.io/reader/")
 DEFAULT_PORT = 47321
@@ -23,8 +23,10 @@ DEFAULT_PORT = 47321
 DIM, BOLD, GREEN, YELLOW, BLUE, RESET = ("\033[2m", "\033[1m", "\033[32m", "\033[33m", "\033[34m", "\033[0m") if sys.stdout.isatty() else ("",) * 6
 
 
-def pair_link(site: str, code: str, port: int, via: str = "") -> str:
+def pair_link(site: str, code: str, port: int, via: str = "", tls_port: int = 0) -> str:
     link = f"{site.rstrip('/')}/playground#pair={code}&port={port}"
+    if tls_port:
+        link += f"&tls={tls_port}"
     return f"{link}&via={quote(via, safe='')}" if via else link
 
 
@@ -35,7 +37,7 @@ def parse(argv=None, command=""):
         parser.add_argument("--no-login", action="store_true", help="don't start the Companion at login: run it here, in this terminal, as plain reader-companion does")
         parser.add_argument("--no-app", action="store_true", help="don't make the Reader app (Reader.app from the .dmg runs setup with this: it is the app)")
     else:
-        parser = argparse.ArgumentParser(prog="reader-companion", description="Connect this computer to the reader's Playground.", epilog="Also: reader-companion setup (install it for good: the Reader app, VS Code, start at login, pair), reader-companion open (what the Reader app runs), reader-companion pair (a new pairing link for the one running), reader-companion uninstall (remove the Reader app and stop starting it at login).")
+        parser = argparse.ArgumentParser(prog="reader-companion", description="Connect this computer to the reader's Playground.", epilog="Also: reader-companion setup (install it for good: the Reader app, VS Code, start at login, pair), reader-companion open (what the Reader app runs), reader-companion pair (a new pairing link for the one running), reader-companion trust (let Safari reach it, on macOS), reader-companion uninstall (remove the Reader app and stop starting it at login).")
     parser.add_argument("--root", help="the folder the page may read, write and run in (default ~/Reader)")
     parser.add_argument("--port", type=int, help=f"the port on 127.0.0.1 (default {DEFAULT_PORT})")
     parser.add_argument("--site", help=f"the reader's address (default {DEFAULT_SITE})")
@@ -147,7 +149,16 @@ def serve(config: dict, args):
         except Exception as error:  # the direct address still works in Chrome, Edge and Firefox
             print(f"  {YELLOW}The tunnel didn't open ({error}). Carrying on without it: Safari won't reach this.{RESET}", flush=True)
 
-    link = pair_link(site, companion.code, companion.port, companion.tunnel_url)
+    # https on 127.0.0.1 too, for Safari, when this computer trusts the certificate (`reader-companion trust`).
+    if config.get("tls", tls.needed()) and tls.days_left():
+        tls_port = int(config.get("tls_port") or tls.DEFAULT_PORT)
+        try:
+            app.io_loop.asyncio_loop.run_until_complete(tls.serve(tls_port, companion.port))
+            companion.tls_port = tls_port
+        except Exception as error:  # the http address still works in Chrome, Edge and Firefox
+            print(f"  {YELLOW}https on 127.0.0.1:{tls_port} didn't start ({error}): Safari won't reach this.{RESET}", flush=True)
+
+    link = pair_link(site, companion.code, companion.port, companion.tunnel_url, companion.tls_port)
     print(f"""
   {BOLD}Reader Companion {__version__}{RESET}
   {DIM}Computer  {RESET} {companion.name}
@@ -155,7 +166,7 @@ def serve(config: dict, args):
   {DIM}Folder    {RESET} {root}
   {DIM}Your code {RESET} {interpreter}  {DIM}(pip install in the console goes here){RESET}
   {DIM}Listening {RESET} http://127.0.0.1:{companion.port}/  {DIM}(only {origin} may call it){RESET}
-{f"  {DIM}Tunnel    {RESET} {companion.tunnel_url}  {DIM}(for Safari; everything through it needs the token){RESET}" + chr(10) if companion.tunnel_url else ""}
+{f"  {DIM}For Safari{RESET} https://127.0.0.1:{companion.tls_port}/" + chr(10) if companion.tls_port else ""}{f"  {DIM}Tunnel    {RESET} {companion.tunnel_url}  {DIM}(for Safari; everything through it needs the token){RESET}" + chr(10) if companion.tunnel_url else ""}
   {YELLOW}To pair, open this in your browser{RESET}{' (opening it now)' if not args.no_browser else ''}:
     {BLUE}{link}{RESET}
   {DIM}or type the code {RESET}{BOLD}{companion.code}{RESET}{DIM} under Playground → Your compute → Connect this computer.{RESET}
@@ -199,11 +210,12 @@ def setup(argv):
     site = config.get("site") or DEFAULT_SITE
     port = int(config.get("port") or DEFAULT_PORT)
     print(f"\n  {BOLD}Reader Companion {__version__}: setting up this computer{RESET}\n", flush=True)
-    if args.tunnel is None and "tunnel" not in config and platform.system() == "Darwin" and not desktop.app_browser():
-        # No Chrome, Edge or Brave: the site opens in Safari, which reaches the Companion only through the tunnel.
-        config["tunnel"] = True
-        state.save_config(config)
-        print(f"  {DIM}Safari    {RESET} no Chrome or Edge here, so it opens an HTTPS tunnel for Safari (--no-tunnel turns that off)", flush=True)
+    if tls.needed() and not make_trusted():
+        if args.tunnel is None and "tunnel" not in config and not desktop.app_browser():
+            # No https of its own, and no Chrome, Edge or Brave: the tunnel is Safari's only way in.
+            config["tunnel"] = True
+            state.save_config(config)
+            print(f"  {DIM}Safari    {RESET} it opens an HTTPS tunnel for Safari instead (--no-tunnel turns that off)", flush=True)
 
     if not args.no_vscode:
         print(f"  {DIM}VS Code   {RESET} looking for it…", flush=True)
@@ -262,6 +274,34 @@ def open_app(argv):
     desktop.open_window(link or site)
 
 
+def make_trusted() -> bool:
+    """The https certificate for Safari: made, and trusted by this Mac (it asks for the password once). Whether it is."""
+    renewed = tls.ensure_certificate()
+    if not renewed and tls.is_trusted():
+        print(f"  {DIM}Safari    {RESET} reaches the Companion at https://127.0.0.1:{tls.DEFAULT_PORT}", flush=True)
+        return True
+    print(f"  {DIM}Safari    {RESET} macOS now asks for your password once, to trust a certificate for this Mac's own address", flush=True)
+    print(f"  {DIM}          {RESET} (localhost and 127.0.0.1 only), so Safari can reach the Companion too…", flush=True)
+    if tls.trust():
+        print(f"  {DIM}Safari    {RESET} done: https://127.0.0.1:{tls.DEFAULT_PORT}", flush=True)
+        return True
+    print(f"  {YELLOW}Safari    It wasn't trusted, so Safari can't reach the Companion: Chrome, Edge and Firefox can. reader-companion trust asks again.{RESET}", flush=True)
+    return False
+
+
+def trust_command(argv):
+    """Makes the https certificate and asks this Mac to trust it, for Safari; then restarts the Companion so it listens on https."""
+    argparse.ArgumentParser(prog="reader-companion trust", description="Let Safari reach the Companion: a certificate for this Mac's own address (localhost and 127.0.0.1), trusted once with your password.").parse_args(argv)
+    if not tls.needed():
+        print("Only Safari needs this, and Safari is only on macOS: nothing to do here.")
+        return
+    if make_trusted() and desktop.login_installed():
+        config = state.load_config()
+        if config.get("token") and desktop.wait_for(config["token"], int(config.get("port") or DEFAULT_PORT), 0):
+            desktop.install_login(desktop.executable(), start_now=True, restart=True)
+            print("Restarted the Companion: it listens on https now.")
+
+
 def pair(argv):
     """Opens a new pairing link for the Companion running on this computer."""
     parser = argparse.ArgumentParser(prog="reader-companion pair", description="Open a new pairing link for the Companion running on this computer.")
@@ -289,7 +329,7 @@ def uninstall(argv):
         print("To remove the program too: uv tool uninstall reader-companion")
 
 
-COMMANDS = {"setup": setup, "open": open_app, "pair": pair, "uninstall": uninstall}
+COMMANDS = {"setup": setup, "open": open_app, "pair": pair, "trust": trust_command, "uninstall": uninstall}
 
 
 if __name__ == "__main__":

@@ -556,9 +556,15 @@ start command `npm start`, and it listens on `$PORT`.
 caveat. `npm run build:pages` produces `dist-pages/` for a `/reader/` sub-path:
 
 ```bash
-npm run build:pages                                   # no proxy compiled in
-VITE_API_BASE=https://…workers.dev npm run build:pages   # or name one now
+npm run build:pages                                      # this site's Worker compiled in
+VITE_API_BASE=https://…workers.dev npm run build:pages   # or another proxy
+VITE_API_BASE=none npm run build:pages                   # or no proxy at all
 ```
+
+`build:pages` compiles in the Worker the deployed site uses
+(`reader-arxiv-proxy.es16btech11007.workers.dev`), so a build for
+saurav717.github.io/reader keeps its PDFs, its sign-in check and the owner's
+usage dashboard without anything to remember.
 
 Without a proxy the app still runs, and says so in the UI: search falls back to
 OpenAlex, Crossref and Semantic Scholar (all of which send CORS headers, and all
@@ -3795,6 +3801,17 @@ Windows, `zenity`, `kdialog` or `notify-send` on Linux). Whoever reads it is at
 the computer, as with the terminal. The Reader app and the terminal's link
 connect without a code.
 
+**Updating.** Settings → **This computer** lists the Companions this browser
+is paired with, and their versions. When the site serves a newer one, **Update**
+asks that Companion to update itself (`/companion/update`, with its token): it
+reads `companion/latest.json` from the site, installs that wheel over itself
+with `uv tool install` (only a wheel from the site it pairs with), refreshes the
+VS Code extension where it is installed, and starts again, through its login
+item when it has one. The page waits until the new version answers. Reader.app
+from the `.dmg` only sets up again when it carries a newer Companion than the
+one installed, so an update from Settings stays. A Companion older than 0.5.0
+can't do this: update it once the way it was installed.
+
 **VS Code from the site.** The extension isn't on the Marketplace, and a page
 can't install one. The Companion can, though. Under *Your compute* the
 Companion's row says whether VS Code is there and has the Reader extension,
@@ -3841,8 +3858,15 @@ a browser there, type the code it prints into the card instead.
   lives on the Companion, so leaving the tab and coming back finds it as it
   was. **Commands** keeps the old command box, and in split mode it is still
   the one that copies the folder over before a command.
-- **Safari** won't let an `https` site call `http://127.0.0.1`. In Safari the
-  card's command adds `--tunnel` (`… | sh -s -- --tunnel`). The Companion then
+- **Safari** won't let an `https` site call `http://127.0.0.1`. So on a Mac
+  the installed Companion also listens on **`https://127.0.0.1:47331`**, and
+  hands every connection (websockets too) to its server on 47321. The
+  certificate is made on the Mac, for `localhost` and `127.0.0.1` only, and
+  isn't a CA, so it can vouch for nothing else. `reader-companion setup` asks
+  macOS to trust it, which asks for your password once (`reader-companion
+  trust` asks again). From then on Safari finds the Companion on its own,
+  through every restart. Without that,
+  the card's command adds `--tunnel` (`… | sh -s -- --tunnel`). The Companion then
   also opens a Cloudflare quick tunnel (`https://<words>.trycloudflare.com`,
   no account needed; `cloudflared` is downloaded once), and its link carries
   that address. The page accepts only a `trycloudflare.com` address from a

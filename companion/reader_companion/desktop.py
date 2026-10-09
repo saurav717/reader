@@ -571,3 +571,76 @@ def show_code(code: str, name: str) -> bool:
         return True
     except OSError:
         return False
+
+
+# ----------------------------------------------------------------- updating ----
+
+def latest(site: str) -> dict | None:
+    """The newest Companion the site serves: {"version", "wheel"} from companion/latest.json (scripts/build-companion.mjs)."""
+    try:
+        with urllib.request.urlopen(f"{site.rstrip('/')}/companion/latest.json", timeout=20) as response:
+            body = json.loads(response.read())
+    except (OSError, ValueError, urllib.error.URLError):
+        return None
+    version, wheel = str(body.get("version", "")), str(body.get("wheel", ""))
+    # Only a wheel from the site itself: the page can't point the Companion anywhere else.
+    if not version or not wheel.startswith(site.rstrip("/") + "/companion/") or not wheel.endswith(".whl"):
+        return None
+    return {"version": version, "wheel": wheel}
+
+
+def newer(version: str, than: str) -> bool:
+    def parts(value: str) -> tuple[int, ...]:
+        try:
+            return tuple(int(part) for part in value.split("."))
+        except ValueError:
+            return (0,)
+
+    return parts(version) > parts(than)
+
+
+def own_uv() -> str | None:
+    from . import env
+
+    found = env.find_uv()
+    if found:
+        return found
+    copy = state.config_dir() / "bin" / ("uv.exe" if os.name == "nt" else "uv")
+    return str(copy) if copy.is_file() else None
+
+
+def install_wheel(wheel: str) -> tuple[bool, str]:
+    """`uv tool install` of this wheel over the installed Companion. Whether it worked, and what uv said."""
+    uv = own_uv()
+    if not uv:
+        return False, "There is no uv here to install with. Run the installer from the Playground's card once."
+    environment = {**os.environ, "UV_PYTHON_PREFERENCE": "only-managed"}
+    try:
+        result = subprocess.run([uv, "tool", "install", "--force", "--python", "3.12", "--from", wheel, "reader-companion"], capture_output=True, text=True, timeout=600, env=environment)
+    except (OSError, subprocess.SubprocessError) as error:
+        return False, str(error)
+    return result.returncode == 0, (result.stdout + result.stderr)[-2000:]
+
+
+def restart_later(command: list[str], system: str | None = None) -> bool:
+    """Starts this Companion again, a moment after this answer: through its login item, else a new process once this one has gone.
+
+    True when something else restarts it; False when this process should exit itself to let the new one have the port.
+    """
+    system = system or platform.system()
+    detached = {"start_new_session": True} if os.name != "nt" else {"creationflags": 0x00000008 | 0x00000200 | 0x08000000}
+    quiet = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "close_fds": True}
+    if system == "Darwin" and launch_agent_path().exists():
+        subprocess.Popen(["/bin/sh", "-c", f"sleep 1; launchctl kickstart -k gui/{os.getuid()}/{LABEL}"], **quiet, **detached)
+        return True
+    if system not in ("Darwin", "Windows") and systemd_unit_path().exists() and has_systemd():
+        subprocess.Popen(["/bin/sh", "-c", "sleep 1; systemctl --user restart reader-companion.service"], **quiet, **detached)
+        return True
+    log = str(state.config_dir() / LOG)
+    if os.name == "nt":
+        line = subprocess.list2cmdline([*command, "--no-browser"])
+        subprocess.Popen(["cmd", "/c", f"timeout /t 3 /nobreak >nul & {line}"], **quiet, **detached)
+    else:
+        line = " ".join(f"'{word}'" for word in [*command, "--no-browser"])
+        subprocess.Popen(["/bin/sh", "-c", f"sleep 3; exec {line} >> '{log}' 2>&1"], **quiet, **detached)
+    return False

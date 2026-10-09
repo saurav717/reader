@@ -4,12 +4,16 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.4.0';
+export const COMPANION_VERSION = '0.5.0';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
+/** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
+export const COMPANION_TLS_PORT = 47331;
 
 export interface CompanionInfo {
   app: 'reader-companion';
+  /** Its https port on this computer, for Safari (0 when it has none). */
+  tls?: number;
   version: string;
   /** The same for a Companion across restarts, while its address (a tunnel's) may change. */
   id?: string;
@@ -33,6 +37,10 @@ export interface CompanionPairing {
 
 /** The Companion's direct address on this computer. */
 export const directBase = (port = COMPANION_PORT) => `http://127.0.0.1:${port}/`;
+/** Its https address on this computer: what Safari can reach, once the Mac trusts its certificate. */
+export const secureBase = (port = COMPANION_TLS_PORT) => `https://127.0.0.1:${port}/`;
+/** Where this browser can reach a Companion on this computer: https in Safari, http everywhere else. */
+export const localBase = (safari = isSafari(), port = COMPANION_PORT, tlsPort = COMPANION_TLS_PORT) => (safari ? secureBase(tlsPort) : directBase(port));
 
 /** A quick tunnel's address, and only that: a pairing link can't send the page to any other server. */
 export function tunnelBase(url: string | null | undefined): string | null {
@@ -46,7 +54,7 @@ export function tunnelBase(url: string | null | undefined): string | null {
 }
 
 /** The Companion at `base` (its direct address, or its tunnel's), or null when nothing answers (not running, another program on the port, or the browser won't let the page reach it). */
-export async function findCompanion(base = directBase(), timeoutMs = 1500): Promise<CompanionInfo | null> {
+export async function findCompanion(base = localBase(), timeoutMs = 1500): Promise<CompanionInfo | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -62,7 +70,7 @@ export async function findCompanion(base = directBase(), timeoutMs = 1500): Prom
 }
 
 /** Trades the code the Companion printed for its server's address and token. */
-export async function pairCompanion(code: string, base = directBase()): Promise<CompanionPairing> {
+export async function pairCompanion(code: string, base = localBase()): Promise<CompanionPairing> {
   let response: Response;
   try {
     response = await fetch(`${base}companion/pair`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: normaliseCode(code) }) });
@@ -79,7 +87,7 @@ export async function pairCompanion(code: string, base = directBase()): Promise<
  * browser that found it but has no code (it runs in the background, with no
  * terminal to read). False when that computer has nothing to show it with.
  */
-export async function showCompanionCode(base = directBase()): Promise<boolean> {
+export async function showCompanionCode(base = localBase()): Promise<boolean> {
   try {
     const response = await fetch(`${base}companion/show-code`, { method: 'POST' });
     if (response.status === 429) return true;
@@ -97,24 +105,27 @@ export function normaliseCode(code: string): string {
 }
 
 /** `#pair=ABC-DEF&port=47321[&via=https://….trycloudflare.com]`, as the Companion opens the page with, or null. */
-export function pairFragment(hash: string): { code: string; port: number; via: string | null } | null {
+export function pairFragment(hash: string): { code: string; port: number; tls: number | null; via: string | null } | null {
   const params = new URLSearchParams(hash.replace(/^#/, ''));
   const code = params.get('pair');
   if (!code) return null;
+  const valid = (value: number) => Number.isInteger(value) && value > 0 && value < 65536;
   const port = Number(params.get('port'));
-  return { code: normaliseCode(code), port: Number.isInteger(port) && port > 0 && port < 65536 ? port : COMPANION_PORT, via: tunnelBase(params.get('via')) };
+  const tls = Number(params.get('tls'));
+  return { code: normaliseCode(code), port: valid(port) ? port : COMPANION_PORT, tls: valid(tls) ? tls : null, via: tunnelBase(params.get('via')) };
 }
 
-/** Where to look for a Companion, in order: its direct address unless the browser can't reach it, then its tunnel. */
-export function companionRoutes(port: number, via: string | null, safari = isSafari()): string[] {
-  return [...(safari ? [] : [directBase(port)]), ...(via ? [via] : [])];
+/** Where to look for a Companion, in order: its address on this computer (https in Safari, when it has one), then its tunnel. */
+export function companionRoutes(port: number, via: string | null, safari = isSafari(), tls: number | null = COMPANION_TLS_PORT): string[] {
+  const local = safari ? (tls ? [secureBase(tls)] : []) : [directBase(port)];
+  return [...local, ...(via ? [via] : [])];
 }
 
 /** A saved server that is a Companion on this computer: its port, or null. */
 export function companionPort(url: string): number | null {
   try {
     const parsed = new URL(url);
-    return parsed.hostname === '127.0.0.1' && parsed.pathname === '/' && parsed.port ? Number(parsed.port) : null;
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname === '127.0.0.1' && parsed.pathname === '/' && parsed.port ? Number(parsed.port) : null;
   } catch {
     return null;
   }
@@ -240,4 +251,44 @@ export async function latestMacDmg(repo = MAC_RELEASES): Promise<MacDmg | null> 
     // fine
   }
   return found;
+}
+
+/** Whether `version` is newer than `than` (dotted numbers: 0.10.0 is newer than 0.9.2). */
+export function isNewer(version: string, than: string): boolean {
+  const parts = (value: string) => value.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const a = parts(version);
+  const b = parts(than);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+  }
+  return false;
+}
+
+/**
+ * Asks a paired Companion to update itself to the newest version the site
+ * serves (POST /companion/update): it installs it, refreshes the VS Code
+ * extension where it is installed, and starts again. Resolves with the version
+ * it is updating to, once it has installed it (it restarts after answering).
+ */
+export async function updateCompanion(server: { url: string; token: string }): Promise<{ version: string; updated: boolean }> {
+  let response: Response;
+  try {
+    response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/update`, { method: 'POST', headers: { Authorization: `token ${server.token}` } });
+  } catch {
+    throw new Error('The Companion isn’t answering. Open the Reader app, or start it again.');
+  }
+  const body = (await response.json().catch(() => ({}))) as { version?: string; updated?: boolean; error?: string };
+  if (!response.ok || typeof body.version !== 'string') throw new Error(body.error || `The Companion said ${response.status}.`);
+  return { version: body.version, updated: Boolean(body.updated) };
+}
+
+/** Waits for the Companion at `base` to answer as `version` (or newer) after it restarts. */
+export async function waitForVersion(base: string, version: string, forMs = 120_000): Promise<CompanionInfo | null> {
+  const until = Date.now() + forMs;
+  while (Date.now() < until) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const info = await findCompanion(base, 3000);
+    if (info && !isNewer(version, info.version)) return info;
+  }
+  return null;
 }

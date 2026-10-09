@@ -10,6 +10,7 @@ import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
 import { PAPER_LAYOUTS, setLayout, useLayout } from './paperCards';
 import { getState as assistantState, MODELS, PROVIDER_IDS, PROVIDERS, setExplainModel, setModel, subscribe as onAssistant } from '../lib/assistant';
 import { KeyRow } from './Assistant';
+import CompanionUpdates from './CompanionUpdate';
 
 /** Every model, grouped by who runs it, saying which still need a key. */
 function ModelOptions({ keys }: { keys: Record<string, boolean> }) {
@@ -589,6 +590,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             </p>
           ) : null}
         </section>
+
+        <CompanionUpdates />
 
         <section style={{ marginBottom: 22 }}>
           <div className="eyebrow" style={{ marginBottom: 10 }}>

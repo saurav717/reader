@@ -118,6 +118,30 @@ class CodeOnScreenTest(unittest.TestCase):
             self.assertIsNone(desktop.code_dialog("ABC-DEF", "box", system="Linux"))
 
 
+class UpdateTest(unittest.TestCase):
+    def test_versions(self):
+        self.assertTrue(desktop.newer("0.5.1", "0.5.0"))
+        self.assertTrue(desktop.newer("0.10.0", "0.9.9"))
+        self.assertFalse(desktop.newer("0.5.0", "0.5.0"))
+        self.assertFalse(desktop.newer("0.4.9", "0.5.0"))
+
+    def answer(self, body):
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = body.encode()
+        return mock.patch.object(desktop.urllib.request, "urlopen", return_value=response)
+
+    def test_takes_only_a_wheel_from_the_site_itself(self):
+        site = "https://saurav717.github.io/reader/"
+        with self.answer('{"version": "0.6.0", "wheel": "https://saurav717.github.io/reader/companion/reader_companion-0.6.0-py3-none-any.whl"}'):
+            self.assertEqual(desktop.latest(site)["version"], "0.6.0")
+        with self.answer('{"version": "0.6.0", "wheel": "https://evil.example/reader_companion-0.6.0-py3-none-any.whl"}'):
+            self.assertIsNone(desktop.latest(site))
+        with self.answer('{"version": "0.6.0", "wheel": "https://saurav717.github.io/reader/companion/payload.sh"}'):
+            self.assertIsNone(desktop.latest(site))
+        with self.answer("not json"):
+            self.assertIsNone(desktop.latest(site))
+
+
 class EditorTest(unittest.TestCase):
     def test_no_editor_no_download(self):
         with mock.patch.object(desktop, "editor_commands", return_value=[]), mock.patch.object(desktop.urllib.request, "urlretrieve") as fetch:
