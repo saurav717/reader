@@ -6,7 +6,7 @@
 // and the app puts the address back before it reads it (src/main.tsx).
 //
 //   node scripts/pages-routes.mjs dist-pages
-import { copyFile, mkdir } from 'node:fs/promises';
+import { copyFile, mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export const STATIC_ROUTES = ['playground', 'library', 'reading', 'unread', 'finished', 'unsorted', 'junk', 'usage'];
@@ -17,3 +17,11 @@ for (const route of STATIC_ROUTES) {
   await copyFile(join(out, 'index.html'), join(out, route, 'index.html'));
 }
 console.log(`pages-routes: index.html copied for ${STATIC_ROUTES.map((r) => `/${r}/`).join(' ')}`);
+
+// Jekyll, which builds the GitHub Pages site, publishes no file whose name starts with "_" or ".",
+// so a chunk named that way 404s and whatever imports it fails ("Importing a module script failed").
+const hidden = (await readdir(out, { recursive: true })).filter((path) => path.split(/[\\/]/).some((part) => /^[_.]/.test(part)));
+if (hidden.length) {
+  console.error(`pages-routes: GitHub Pages (Jekyll) would leave these out: ${hidden.join(', ')}`);
+  process.exit(1);
+}
