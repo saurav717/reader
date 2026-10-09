@@ -181,27 +181,40 @@ describe('a playground names its computer by its Companion', () => {
   });
 });
 
-describe('where a playground’s code is, and whether this browser can open it', () => {
+describe('where a playground’s code is, and what opening it takes', () => {
   const names = { pc: 'Saurav’s MacBook Air', gpu: 'GPU box' };
   const ctx = (extra = {}) => ({ serverName: (id) => names[id], down: () => false, browserHasFiles: true, ...extra });
-  const onPc = { kind: 'server', serverId: 'pc', root: 'playgrounds/cifar' };
-  it('says where its files are and where it runs', () => {
-    const at = pg.reachOf({ kind: 'project', home: onPc, compute: { kind: 'server', serverId: 'pc' } }, ctx());
-    assert.equal(at.files, 'Saurav’s MacBook Air · playgrounds/cifar');
-    assert.equal(at.runs, 'Saurav’s MacBook Air, where its files are');
+  const onPc = { kind: 'server', serverId: 'pc', root: 'playgrounds/cifar', deviceId: 'd-pc' };
+  const colab = { kind: 'colab', machine: {} };
+  it('names the computer with the code, where it last ran, and that it needs that computer', () => {
+    const at = pg.reachOf({ kind: 'project', home: onPc, compute: { kind: 'server', serverId: 'pc', deviceId: 'd-pc' } }, ctx());
+    assert.equal(at.code, 'Saurav’s MacBook Air · playgrounds/cifar');
+    assert.match(at.ran, /^Saurav’s MacBook Air, where its code is — or any machine of yours can run it/);
+    assert.match(at.needs, /^Saurav’s MacBook Air specifically/);
     assert.equal(at.blocked, undefined);
-    const split = pg.reachOf({ kind: 'project', home: onPc, compute: { kind: 'server', serverId: 'gpu' } }, ctx());
-    assert.equal(split.runs, 'GPU box — the folder is copied there to run');
+    assert.match(pg.reachOf({ kind: 'project', home: onPc, compute: { kind: 'server', serverId: 'gpu' } }, ctx()).ran, /^GPU box, with the folder copied there/);
   });
-  it('does not open a project whose files are on a computer this browser can’t reach, or in another browser', () => {
-    assert.match(pg.reachOf({ kind: 'project', home: { ...onPc, serverId: 'elsewhere' }, compute: { kind: 'colab', machine: {} } }, ctx()).blocked, /isn’t paired/);
-    assert.match(pg.reachOf({ kind: 'project', home: { kind: 'browser' }, compute: { kind: 'colab', machine: {} } }, ctx({ browserHasFiles: false })).blocked, /browser it was made in/);
-    // A notebook's cells are in Drive with the list: it opens anywhere.
-    assert.equal(pg.reachOf({ kind: 'notebook', home: { kind: 'browser' }, compute: { kind: 'colab', machine: {} } }, ctx({ browserHasFiles: false })).blocked, undefined);
+  it('names a computer this browser has never seen by the name its record carries, and says how to reach it', () => {
+    const away = { ...onPc, serverId: 'other-browser-id', name: 'Saurav’s MacBook Air' };
+    const at = pg.reachOf({ kind: 'project', home: away, compute: { kind: 'server', serverId: 'other-browser-id', name: 'Saurav’s MacBook Air', deviceId: 'd-pc' } }, ctx());
+    assert.equal(at.code, 'Saurav’s MacBook Air · playgrounds/cifar');
+    assert.match(at.blocked, /Its code is on Saurav’s MacBook Air, which isn’t connected to this browser\. Connect Saurav’s MacBook Air here/);
+    assert.match(at.blocked, /any machine can run it/);
   });
-  it('warns, without blocking, when the computer with its files is off', () => {
+  it('says which browser holds files kept in a browser, and opens a notebook anywhere', () => {
+    const kept = pg.reachOf({ kind: 'project', home: { kind: 'browser', browser: 'Chrome on a Mac' }, compute: colab }, ctx({ browserHasFiles: false }));
+    assert.equal(kept.code, 'Chrome on a Mac');
+    assert.match(kept.blocked, /kept in Chrome on a Mac, not in this one/);
+    assert.equal(pg.reachOf({ kind: 'notebook', home: { kind: 'browser' }, compute: colab }, ctx({ browserHasFiles: false })).blocked, undefined);
+  });
+  it('warns, without blocking, when the computer with its code is off', () => {
     const at = pg.reachOf({ kind: 'project', home: onPc, compute: { kind: 'server', serverId: 'pc' } }, ctx({ down: () => true }));
     assert.equal(at.blocked, undefined);
-    assert.match(at.warn, /isn’t answering/);
+    assert.match(at.warn, /isn’t answering now/);
+  });
+  it('labels a browser in a few words', () => {
+    assert.equal(pg.browserLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15'), 'Safari on a Mac');
+    assert.equal(pg.browserLabel('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36 Edg/129.0'), 'Edge on Windows');
+    assert.equal(pg.browserLabel('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36'), 'Chrome on a Mac');
   });
 });

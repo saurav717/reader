@@ -36,10 +36,23 @@ import { currentAccount, onProxyChange } from './api';
 // ---------------------------------------------------------------- types ----
 
 /** Where a playground's code runs. */
-export type Compute = { kind: 'colab'; machine: Machine } | { kind: 'server'; serverId: string; /** The computer's Companion id: the same in every browser, where serverId is this browser's. */ deviceId?: string };
+/** A computer as the record names it, for a browser that doesn't know it: its name, and whether it is a PC or a machine elsewhere. */
+interface Named {
+  name?: string;
+  where?: 'pc' | 'remote';
+}
+
+export type Compute = { kind: 'colab'; machine: Machine } | ({ kind: 'server'; serverId: string; /** The computer's Companion id: the same in every browser, where serverId is this browser's. */ deviceId?: string } & Named);
 
 /** Where its files are kept: this browser, or a folder on a Jupyter server. */
-export type FilesHome = { kind: 'browser' } | { kind: 'server'; serverId: string; root: string; /** The computer's Companion id, as in Compute. */ deviceId?: string };
+export type FilesHome = { kind: 'browser'; /** Which browser it was made in, in a few words ("Chrome on a Mac"), for the others. */ browser?: string } | ({ kind: 'server'; serverId: string; root: string; /** The computer's Companion id, as in Compute. */ deviceId?: string } & Named);
+
+/** This browser, in a few words: "Safari on a Mac", "Chrome on Windows". */
+export function browserLabel(agent = typeof navigator !== 'undefined' ? navigator.userAgent : ''): string {
+  const app = /Edg\//.test(agent) ? 'Edge' : /Firefox\//.test(agent) ? 'Firefox' : /Chrome\//.test(agent) ? 'Chrome' : /Safari\//.test(agent) ? 'Safari' : 'a browser';
+  const os = /iPhone|iPad/.test(agent) ? 'an iPhone or iPad' : /Mac OS X|Macintosh/.test(agent) ? 'a Mac' : /Windows/.test(agent) ? 'Windows' : /Android/.test(agent) ? 'Android' : /Linux/.test(agent) ? 'Linux' : '';
+  return os ? `${app} on ${os}` : app;
+}
 
 export interface Cite {
   paperId: string;
@@ -273,10 +286,11 @@ function put(next: Playground) {
 function rebind(p: Playground): Playground {
   const fix = <T extends Compute | FilesHome>(ref: T): T => {
     if (ref.kind !== 'server') return ref;
-    const here = visible.find((server) => server.id === ref.serverId);
-    if (here) return here.companionId && ref.deviceId !== here.companionId ? { ...ref, deviceId: here.companionId } : ref;
-    const same = ref.deviceId ? visible.find((server) => server.companionId === ref.deviceId) : undefined;
-    return same ? { ...ref, serverId: same.id } : ref;
+    const here = visible.find((server) => server.id === ref.serverId) ?? (ref.deviceId ? visible.find((server) => server.companionId === ref.deviceId) : undefined);
+    if (!here) return ref;
+    // Its id here, its Companion's id, and its name: the name goes with the record, so a browser that doesn't know the computer can still say which it is.
+    const next = { ...ref, serverId: here.id, deviceId: here.companionId ?? ref.deviceId, name: here.name, where: here.where === 'pc' ? 'pc' : 'remote' } as T;
+    return JSON.stringify(next) === JSON.stringify(ref) ? ref : next;
   };
   const compute = fix(p.compute);
   const home = fix(p.home);
@@ -460,7 +474,13 @@ subscribeNotebook(() => {
 export function updatePlayground(id: string, patch: Partial<Playground> | ((p: Playground) => Partial<Playground>)) {
   const current = playgroundById(id);
   if (!current) return;
-  put({ ...current, ...(typeof patch === 'function' ? patch(current) : patch), updated: Date.now() });
+  put(rebind({ ...current, ...(typeof patch === 'function' ? patch(current) : patch), updated: Date.now() }));
+}
+
+/** A playground kept in this browser, from before records said which browser: labelled now, so the others can say where its files are. */
+export function labelBrowserHome(id: string) {
+  const p = playgroundById(id);
+  if (p && p.home.kind === 'browser' && !p.home.browser) put({ ...p, home: { kind: 'browser', browser: browserLabel() } });
 }
 
 export interface NewPlayground {
@@ -491,7 +511,7 @@ export const takeSeed = (id: string): NbCell[] | undefined => {
 export async function createPlayground(spec: NewPlayground): Promise<Playground> {
   await loadPlaygrounds();
   const now = Date.now();
-  const made: Playground = normalise({
+  const made: Playground = rebind(normalise({
     id: uid(),
     title: spec.title,
     kind: spec.kind,
@@ -501,13 +521,13 @@ export async function createPlayground(spec: NewPlayground): Promise<Playground>
     home:
       spec.home.kind === 'server'
         ? { ...spec.home, root: spec.home.root || `playgrounds/${slugOf(spec.title)}`, deviceId: spec.home.deviceId ?? serverById(spec.home.serverId)?.companionId }
-        : spec.home,
+        : { kind: 'browser', browser: browserLabel() },
     cites: spec.cites ?? [],
     console: [],
     pending: spec.pending,
     start: spec.start,
     idleStopMin: spec.idleStopMin,
-  })!;
+  })!);
   if (spec.cells?.length) seeds.set(made.id, spec.cells);
   put(made);
   if (spec.files && Object.keys(spec.files).length) {
@@ -627,35 +647,61 @@ export async function filesHere(id: string): Promise<boolean> {
 }
 
 /**
- * Where a playground's code is, where it runs, and whether it can be opened
- * here. Its files stay where they were made — a folder on one computer, or
- * the browser it was made in — and the list in Drive reaches every browser,
- * so a browser that can't reach those files can't open it: the code isn't
- * there to run. Where it runs can be any machine: on the computer with the
- * files, or elsewhere with the folder copied over before each run.
+ * Where a playground's code is, where it last ran, and what this browser
+ * needs to open it. The code stays where it was made — a folder on one
+ * computer, or the browser it was made in — while the list reaches every
+ * browser through Drive, so a project needs that one place to open: its code
+ * isn't anywhere else. Where it runs can be any machine of yours: the
+ * computer with the code itself, or another with the folder copied there
+ * before each run. A notebook's cells travel with the list, so it opens
+ * anywhere. Computers are named from this browser's list, else by the name
+ * the record carries from the browser that knew them.
  */
+export interface Reach {
+  /** Where its code is. */
+  code: string;
+  /** Where it last ran, and whether it must run there. */
+  ran: string;
+  /** What opening it takes: a specific computer or browser, or nothing. */
+  needs: string;
+  /** Why this browser can't open it, and what to do. */
+  blocked?: string;
+  /** It opens, but the computer with its code isn't answering now. */
+  warn?: string;
+}
+
 export function reachOf(
   p: Pick<Playground, 'kind' | 'home' | 'compute'>,
   ctx: { serverName: (id: string) => string | undefined; down: (id: string) => boolean; browserHasFiles: boolean },
-): { files: string; runs: string; blocked?: string; warn?: string } {
-  const home = p.home;
-  const compute = p.compute;
-  const runsName = compute.kind === 'colab' ? 'your Colab' : ctx.serverName(compute.serverId) ?? 'a computer not paired here';
+): Reach {
+  const { home, compute } = p;
+  const nameOf = (ref: { serverId: string; name?: string }) => ctx.serverName(ref.serverId) ?? ref.name;
+  const homeName = home.kind === 'server' ? nameOf(home) : undefined;
+  const computeName = compute.kind === 'colab' ? 'your Colab' : nameOf(compute) ?? 'a computer of yours';
+  const sameMachine = home.kind === 'server' && compute.kind === 'server' && (compute.serverId === home.serverId || Boolean(compute.deviceId && compute.deviceId === home.deviceId));
+  const anyMachine = 'any machine of yours can run it, with the folder copied there';
+  if (p.kind === 'notebook' && home.kind === 'browser') {
+    return { code: 'the notebook’s cells, in your Drive with this list', ran: `${computeName} — any machine of yours can run it`, needs: 'Nothing: it opens in any browser signed in to your Drive' };
+  }
   if (home.kind === 'browser') {
-    const here = ctx.browserHasFiles || p.kind === 'notebook';
+    const there = home.browser ?? 'the browser it was made in';
+    const here = ctx.browserHasFiles;
     return {
-      files: p.kind === 'notebook' ? 'the notebook, in your Drive' : here ? 'this browser' : 'the browser it was made in',
-      runs: `${runsName}${p.kind === 'project' ? ' — the folder is copied there to run' : ''}`,
-      blocked: here ? undefined : 'Its files were kept in the browser it was made in, so they aren’t here: open it there.',
+      code: here ? `this browser${home.browser ? ` (${home.browser})` : ''}` : there,
+      ran: `${computeName} — ${anyMachine}`,
+      needs: here ? 'This browser: its files are kept here' : `${there}: its files are kept there, and nowhere else`,
+      blocked: here ? undefined : `Its files are kept in ${there}, not in this one, so its code isn’t here to open. Open it in ${there}; any machine can run it from there.`,
     };
   }
-  const filesName = ctx.serverName(home.serverId);
-  const same = compute.kind === 'server' && compute.serverId === home.serverId;
+  const computer = homeName ?? 'a computer this browser has never been connected to';
   return {
-    files: `${filesName ?? 'a computer not paired with this browser'} · ${home.root}`,
-    runs: same ? `${runsName}, where its files are` : `${runsName} — the folder is copied there to run`,
-    blocked: filesName ? undefined : 'Its files are on a computer this browser isn’t paired with. Pair it (Your compute → Add a server), or open the project on that computer.',
-    warn: filesName && ctx.down(home.serverId) ? `${filesName} isn’t answering now: its files open once its Companion is started.` : undefined,
+    code: `${computer} · ${home.root}`,
+    ran: sameMachine ? `${computeName}, where its code is — or ${anyMachine}` : `${computeName}, with the folder copied there — or any other machine of yours`,
+    needs: `${homeName ?? 'That computer'} specifically: its code is there, and nowhere else`,
+    blocked: ctx.serverName(home.serverId)
+      ? undefined
+      : `Its code is on ${computer}, which isn’t connected to this browser. Connect ${homeName ?? 'it'} here (Your compute → + Add a server, with the Reader app open on it), or sign in with the Google account it is under — or open the project on ${homeName ?? 'that computer'} itself. Once its code is reachable, any machine can run it.`,
+    warn: ctx.serverName(home.serverId) && ctx.down(home.serverId) ? `${homeName} isn’t answering now: its code opens once its Companion is started (the project’s machine menu can start it).` : undefined,
   };
 }
 
