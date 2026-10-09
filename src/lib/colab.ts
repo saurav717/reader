@@ -72,6 +72,8 @@ export interface JupyterServer {
   root?: string;
   /** The Google account a Companion belongs to: shown only while the page is signed in as it. */
   account?: string;
+  /** When that account's list last heard from it (ms): for "last seen" while it is offline. */
+  seen?: number;
 }
 
 /** Where cells run: the person's own Colab, or a Jupyter server of theirs. */
