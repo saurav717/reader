@@ -38,10 +38,11 @@ function unzip(bytes) {
 
 describe('the page’s side', () => {
   it('reads the link the Companion opens', () => {
-    assert.deepEqual(companion.pairFragment('#pair=abc-def&port=47400'), { code: 'ABC-DEF', port: 47400, via: null });
-    assert.deepEqual(companion.pairFragment('#pair=ABCDEF'), { code: 'ABC-DEF', port: companion.COMPANION_PORT, via: null });
-    assert.deepEqual(companion.pairFragment('#pair=ABC-DEF&port=99999'), { code: 'ABC-DEF', port: companion.COMPANION_PORT, via: null });
-    assert.deepEqual(companion.pairFragment('#pair=ABC-DEF&port=47321&via=https%3A%2F%2Fbrave-otter.trycloudflare.com'), { code: 'ABC-DEF', port: 47321, via: 'https://brave-otter.trycloudflare.com/' });
+    assert.deepEqual(companion.pairFragment('#pair=abc-def&port=47400'), { code: 'ABC-DEF', port: 47400, tls: null, via: null });
+    assert.deepEqual(companion.pairFragment('#pair=ABCDEF'), { code: 'ABC-DEF', port: companion.COMPANION_PORT, tls: null, via: null });
+    assert.deepEqual(companion.pairFragment('#pair=ABC-DEF&port=99999&tls=0'), { code: 'ABC-DEF', port: companion.COMPANION_PORT, tls: null, via: null });
+    assert.deepEqual(companion.pairFragment('#pair=ABC-DEF&port=47321&tls=47331'), { code: 'ABC-DEF', port: 47321, tls: 47331, via: null });
+    assert.deepEqual(companion.pairFragment('#pair=ABC-DEF&port=47321&via=https%3A%2F%2Fbrave-otter.trycloudflare.com'), { code: 'ABC-DEF', port: 47321, tls: null, via: 'https://brave-otter.trycloudflare.com/' });
     assert.equal(companion.pairFragment('#section-2'), null);
     assert.equal(companion.pairFragment(''), null);
   });
@@ -54,12 +55,18 @@ describe('the page’s side', () => {
     assert.equal(companion.tunnelBase('https://a.b.trycloudflare.com'), null);
     assert.equal(companion.tunnelBase(null), null);
   });
-  it('tries the direct address first, and only the tunnel in Safari', () => {
+  it('tries the address on this computer first (https in Safari), then the tunnel', () => {
     const via = 'https://brave-otter.trycloudflare.com/';
     assert.deepEqual(companion.companionRoutes(47321, via, false), ['http://127.0.0.1:47321/', via]);
-    assert.deepEqual(companion.companionRoutes(47321, via, true), [via]);
+    // Safari: the Companion's https address on this computer, then the tunnel.
+    assert.deepEqual(companion.companionRoutes(47321, via, true), ['https://127.0.0.1:47331/', via]);
     assert.deepEqual(companion.companionRoutes(47321, null, false), ['http://127.0.0.1:47321/']);
-    assert.deepEqual(companion.companionRoutes(47321, null, true), []);
+    assert.deepEqual(companion.companionRoutes(47321, null, true), ['https://127.0.0.1:47331/']);
+    assert.deepEqual(companion.companionRoutes(47321, null, true, 47400), ['https://127.0.0.1:47400/']);
+    assert.deepEqual(companion.companionRoutes(47321, via, true, null), [via]);
+    assert.equal(companion.localBase(true), 'https://127.0.0.1:47331/');
+    assert.equal(companion.localBase(false), 'http://127.0.0.1:47321/');
+    assert.equal(companion.companionPort('https://127.0.0.1:47331/'), 47331);
   });
   it('takes a code however it is typed', () => {
     assert.equal(companion.normaliseCode(' abc def '), 'ABC-DEF');
@@ -134,7 +141,7 @@ describe('the wheel and the installers', () => {
   });
   it('holds the package, its metadata and its command', () => {
     const info = `reader_companion-${project.version}.dist-info`;
-    for (const name of ['reader_companion/__init__.py', 'reader_companion/cli.py', 'reader_companion/desktop.py', 'reader_companion/env.py', 'reader_companion/extension.py', 'reader_companion/state.py', 'reader_companion/tunnel.py', `${info}/METADATA`, `${info}/WHEEL`, `${info}/RECORD`, `${info}/entry_points.txt`]) assert.ok(files.has(name), name);
+    for (const name of ['reader_companion/__init__.py', 'reader_companion/cli.py', 'reader_companion/desktop.py', 'reader_companion/env.py', 'reader_companion/extension.py', 'reader_companion/state.py', 'reader_companion/tls.py', 'reader_companion/tunnel.py', `${info}/METADATA`, `${info}/WHEEL`, `${info}/RECORD`, `${info}/entry_points.txt`]) assert.ok(files.has(name), name);
     const metadata = files.get(`${info}/METADATA`).toString();
     assert.match(metadata, /^Name: reader-companion$/m);
     for (const dep of project.dependencies) assert.ok(metadata.includes(`Requires-Dist: ${dep}`), dep);

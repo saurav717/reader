@@ -3847,8 +3847,15 @@ a browser there, type the code it prints into the card instead.
   lives on the Companion, so leaving the tab and coming back finds it as it
   was. **Commands** keeps the old command box, and in split mode it is still
   the one that copies the folder over before a command.
-- **Safari** won't let an `https` site call `http://127.0.0.1`. In Safari the
-  card's command adds `--tunnel` (`… | sh -s -- --tunnel`). The Companion then
+- **Safari** won't let an `https` site call `http://127.0.0.1`. So on a Mac
+  the installed Companion also listens on **`https://127.0.0.1:47331`**, and
+  hands every connection (websockets too) to its server on 47321. The
+  certificate is made on the Mac, for `localhost` and `127.0.0.1` only, and
+  isn't a CA, so it can vouch for nothing else. `reader-companion setup` asks
+  macOS to trust it, which asks for your password once (`reader-companion
+  trust` asks again). From then on Safari finds the Companion on its own,
+  through every restart. Without that,
+  the card's command adds `--tunnel` (`… | sh -s -- --tunnel`). The Companion then
   also opens a Cloudflare quick tunnel (`https://<words>.trycloudflare.com`,
   no account needed; `cloudflared` is downloaded once), and its link carries
   that address. The page accepts only a `trycloudflare.com` address from a

@@ -68,7 +68,7 @@ class InfoHandler(CompanionHandler):
         companion = state.current
         # Through the tunnel the address is public: say which Companion it is, and the rest after pairing.
         remote = tunnel.via_tunnel(self.request.host)
-        self.reply(200, {"app": "reader-companion", "version": companion.version, "id": companion.id, "name": companion.name, "hardware": "" if remote else companion.hardware, "root": "" if remote else companion.root})
+        self.reply(200, {"app": "reader-companion", "version": companion.version, "id": companion.id, "name": companion.name, "hardware": "" if remote else companion.hardware, "root": "" if remote else companion.root, "tls": companion.tls_port})
 
 
 class PairHandler(CompanionHandler):
@@ -119,7 +119,7 @@ class LinkHandler(CompanionHandler):
         from .cli import pair_link
 
         companion = state.current
-        self.reply(200, {"link": pair_link(companion.site, companion.fresh_code(announce=False), companion.port, companion.tunnel_url)})
+        self.reply(200, {"link": pair_link(companion.site, companion.fresh_code(announce=False), companion.port, companion.tunnel_url, companion.tls_port)})
 
 
 class VsCodeHandler(CompanionHandler):

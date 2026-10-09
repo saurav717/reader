@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
 import type { CompanionInfo, CompanionPairing, MacDmg } from '../lib/companion';
-import { COMPANION_PORT, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, directBase, findCompanion, isSafari, latestMacDmg, normaliseCode, pairCompanion, pairFragment, showCompanionCode, vscodeInstall } from '../lib/companion';
+import { COMPANION_PORT, COMPANION_TLS_PORT, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, isSafari, latestMacDmg, localBase, normaliseCode, pairCompanion, pairFragment, showCompanionCode, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
@@ -539,8 +539,7 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
     setAsking(false);
   };
   useEffect(() => {
-    // Safari can't call 127.0.0.1: there the Companion's link, with its tunnel, is the way in.
-    if (safari) return;
+    // Safari looks at the Companion's https address, the others at its http one (localBase).
     let live = true;
     let timer = 0;
     const look = async () => {
@@ -560,7 +559,7 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
     setBusy(true);
     setProblem(null);
     try {
-      const saved = saveCompanion(await pairCompanion(code), directBase());
+      const saved = saveCompanion(await pairCompanion(code), localBase());
       onPaired?.(saved);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -668,7 +667,7 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
           </div>
           <p className="pg-companion-lede">
             Or run it just for now: paste this into a terminal, and it runs until you close it.
-            {safari ? ' Safari can’t reach a program on this computer directly, so the Companion also opens a private HTTPS address for it (a Cloudflare quick tunnel; everything through it needs the token). The Reader app avoids that when Chrome or Edge is installed: it opens in one of them.' : ''}
+            {safari ? ' Safari reaches the installed Companion over https on this Mac (setup asks for your password once, to trust its certificate). Run just for now, it opens a private HTTPS address instead (a Cloudflare quick tunnel; everything through it needs the token).' : ''}
           </p>
           <div className="segmented pg-seg" role="radiogroup" aria-label="This computer’s system">
             {(
@@ -701,8 +700,8 @@ function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server:
           )}
           <div className="pg-companion-wait">
             <span className="pg-wait" />
-            {safari ? 'Waiting for the link it opens…' : looks ? 'Waiting for this computer…' : 'Looking for it…'}
-            <span className="mono">{safari ? 'via tunnel' : `127.0.0.1:${COMPANION_PORT}`}</span>
+            {looks ? 'Waiting for this computer…' : 'Looking for it…'}
+            <span className="mono">{safari ? `https://127.0.0.1:${COMPANION_TLS_PORT}` : `127.0.0.1:${COMPANION_PORT}`}</span>
           </div>
         </>
       )}
@@ -744,7 +743,7 @@ function PairFromLink() {
     // The code is spent either way: off the address, out of history's way.
     window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
     let live = true;
-    void reachCompanion(companionRoutes(pending.port, pending.via), pending.via ? 30_000 : 0).then((reached) => {
+    void reachCompanion(companionRoutes(pending.port, pending.via, isSafari(), pending.tls ?? COMPANION_TLS_PORT), pending.via ? 30_000 : 0).then((reached) => {
       if (!live) return;
       setFound(reached);
       // A Companion this browser already knows, back at a new address (a new tunnel each start): reconnect without asking.
@@ -801,7 +800,9 @@ function PairFromLink() {
         ) : info === null ? (
           isSafari() && !pending.via ? (
             <>
-              <p className="lede">Safari can’t reach a program on this computer directly. Stop the Companion (Ctrl-C) and start it with its HTTPS tunnel instead; the link it opens then works here:</p>
+              <p className="lede">Safari reaches the Companion only over https, and nothing answers on https://127.0.0.1:{pending.tls ?? COMPANION_TLS_PORT}. On this Mac, run this once (macOS asks for your password, to trust the Companion’s certificate for this Mac’s own address), then open the Reader app or this link again:</p>
+              <CopyBlock code="reader-companion trust" />
+              <p className="lede">Or run the Companion with an HTTPS tunnel instead; the link it opens then works here:</p>
               <CopyBlock code={companionCommands(siteBase(), { tunnel: true }).unix} />
             </>
           ) : (

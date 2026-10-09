@@ -101,6 +101,7 @@ class Companion:
     hardware: str = ""
     port: int = 0
     tunnel_url: str = ""
+    tls_port: int = 0
     code: str = field(default_factory=new_code)
     code_made: float = field(default_factory=time.time)
     tries: int = 0
