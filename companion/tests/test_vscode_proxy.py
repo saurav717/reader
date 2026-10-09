@@ -123,3 +123,52 @@ class LinkExtensionsTest(DetectTest):
             self.assertEqual(tools.link_extensions(source, target), 2)
             self.assertEqual(tools.link_extensions(source, target), 2)
             self.assertEqual(sorted(p.name for p in target.iterdir()), ["anthropic.claude-code-2.0.0", "github.copilot-1.0.0"])
+
+
+class StoppedTest(AsyncHTTPTestCase):
+    """VS Code marked ready whose server no longer answers (it stopped, the computer slept): never Tornado's bare 500."""
+
+    def setUp(self):
+        super().setUp()
+        state.current = state.Companion(name="Mac", token="t", id="abcdef0123456789", site=ORIGIN + "/reader/", root="/tmp", version="0.7.2")
+        web = tools.vscode_web
+        self.started = []
+        self.start = web.start
+        web.start = lambda: self.started.append(True)
+        web.secret, web.token, web.port, web.state = "s3cret", "tkn", tools.free_port(), "ready"
+
+    def tearDown(self):
+        tools.vscode_web.start = self.start
+        tools.vscode_web.state, tools.vscode_web.error = "off", ""
+        state.current = None
+        super().tearDown()
+
+    def get_app(self):
+        return Application([(r"/companion/vscode/([^/]+)/?(.*)", extension.VsCodeProxy)])
+
+    def test_it_is_started_again_behind_a_page_that_reloads(self):
+        response = self.fetch("/companion/vscode/s3cret/?folder=/tmp/p")
+        self.assertEqual(response.code, 503)
+        self.assertIn(b'http-equiv="refresh"', response.body)
+        self.assertIn(f"frame-ancestors 'self' {ORIGIN}", response.headers["Content-Security-Policy"])
+        self.assertEqual(self.started, [True])
+
+    def test_one_that_could_not_be_started_says_why(self):
+        tools.vscode_web.state, tools.vscode_web.error = "failed", "VS Code isn’t installed <here>"
+        response = self.fetch("/companion/vscode/s3cret/")
+        self.assertEqual(response.code, 503)
+        self.assertIn("VS Code isn’t installed &lt;here&gt;", response.body.decode())
+        self.assertEqual(self.fetch("/companion/vscode/guess/").code, 404)
+
+
+def test_start_restarts_a_server_that_does_not_answer(monkeypatch):
+    import subprocess
+
+    web = tools.VsCodeWeb()
+    web.process = subprocess.Popen(["sleep", "30"])
+    web.state, web.port = "ready", tools.free_port()
+    old = web.process
+    monkeypatch.setattr(tools, "vscode_command", lambda: None)
+    status = web.start()
+    assert old.poll() is not None, "the stuck one is stopped"
+    assert status["state"] == "failed" and "isn’t installed" in status["error"]

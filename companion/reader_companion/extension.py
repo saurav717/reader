@@ -63,6 +63,7 @@ from tornado.ioloop import IOLoop
 
 import atexit
 import hmac
+import html
 from pathlib import Path
 
 from tornado import httpclient, websocket
@@ -366,6 +367,15 @@ class VsCodeWebHandler(VsCodeHandler):
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade", "content-length", "host", "origin", "cookie"}
 
 
+RESTARTING_PAGE = """<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="3">
+<title>Starting VS Code again</title>
+<style>:root{color-scheme:light dark}body{margin:0;height:100vh;display:grid;place-items:center;font:14px system-ui,sans-serif;color:#8a877e;background:transparent}</style>
+<p>VS Code on this computer stopped answering — starting it again. This page reloads by itself.</p>"""
+FAILED_PAGE = """<!doctype html><meta charset="utf-8"><title>VS Code didn’t start</title>
+<style>:root{{color-scheme:light dark}}body{{margin:0;height:100vh;display:grid;place-items:center;font:14px system-ui,sans-serif;color:#b5435a;background:transparent;padding:0 24px;text-align:center}}</style>
+<p>{error}<br><br>Switch to Editor and back to VS Code to try again.</p>"""
+
+
 class VsCodeProxy(websocket.WebSocketHandler):
     """/companion/vscode/<secret>/…: to `code serve-web` on 127.0.0.1, pages and websockets, with its connection token added.
 
@@ -400,7 +410,20 @@ class VsCodeProxy(websocket.WebSocketHandler):
             headers["Origin"] = f"http://127.0.0.1:{web.port}"
         return headers
 
+    def failed_here(self, secret) -> bool:
+        """The right secret, but VS Code couldn't be started again: its error, said in the frame."""
+        web_ = tools.vscode_web
+        if web_.state != "failed" or not hmac.compare_digest(secret, web_.secret):
+            return False
+        self.set_status(503)
+        self.set_header("Content-Type", "text/html; charset=utf-8")
+        self.set_header("Content-Security-Policy", f"frame-ancestors 'self' {state.current.origin if state.current else ''}".strip())
+        self.finish(FAILED_PAGE.format(error=html.escape(web_.error or "VS Code stopped.")))
+        return True
+
     async def get(self, secret, rest=""):
+        if self.failed_here(secret):
+            return
         if not self.allowed(secret):
             self.set_status(404)
             return self.finish("Not found")
@@ -423,10 +446,12 @@ class VsCodeProxy(websocket.WebSocketHandler):
             self.target(secret, rest), method=self.request.method, headers=self.upstream_headers(), body=body,
             follow_redirects=False, decompress_response=False, request_timeout=300, allow_nonstandard_methods=True,
         )
-        response = await httpclient.AsyncHTTPClient().fetch(request, raise_error=False)
-        if response.code == 599:
-            self.set_status(502)
-            return self.finish("VS Code isn’t answering")
+        try:
+            response = await httpclient.AsyncHTTPClient().fetch(request, raise_error=False)
+        except Exception:  # refused, reset: raise_error=False passes only HTTP answers back
+            response = None
+        if response is None or response.code == 599:
+            return self.restarting()
         self.set_status(response.code, response.reason)
         self._headers.clear()
         for name, value in response.headers.get_all():
@@ -445,6 +470,19 @@ class VsCodeProxy(websocket.WebSocketHandler):
         self.finish()
 
     post = put = patch = delete = head = relay
+
+    def restarting(self):
+        """VS Code didn't answer: started again (start() sees it isn't answering), and a page that reloads until it does."""
+        IOLoop.current().run_in_executor(None, tools.vscode_web.start)
+        self.set_status(503)
+        self._headers.clear()
+        self.set_header("Retry-After", "3")
+        self.set_header("Cache-Control", "no-store")
+        self.set_header("Content-Security-Policy", f"frame-ancestors 'self' {state.current.origin if state.current else ''}".strip())
+        if self.request.method != "GET":
+            return self.finish("VS Code isn’t answering; it is being started again.")
+        self.set_header("Content-Type", "text/html; charset=utf-8")
+        self.finish(RESTARTING_PAGE)
 
     def on_message(self, message):
         if self.upstream:

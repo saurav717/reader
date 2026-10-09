@@ -660,6 +660,9 @@ function VsCodePane({ server, folder, playground }: { server: JupyterServer; fol
         if (!live) return;
         setStatus(now);
         if (now.state === 'starting' || (now.state === 'off' && !start)) timer = window.setTimeout(() => void look(now.state === 'off'), 1500);
+        // Up: asked again now and then (start checks that it answers, and starts it again if not), so VS Code
+        // stopping — the computer slept — shows here and comes back by itself.
+        else if (now.state === 'ready') timer = window.setTimeout(() => void look(true), 15_000);
       } catch (error) {
         if (live) setProblem(error instanceof Error ? error.message : String(error));
       }
@@ -671,6 +674,14 @@ function VsCodePane({ server, folder, playground }: { server: JupyterServer; fol
     };
   }, [server.id, server.url, server.token, folder, round]);
   const src = status?.state === 'ready' && status.path ? `${server.url.replace(/\/?$/, '/')}${status.path.replace(/^\//, '')}?folder=${encodeURIComponent(status.folder)}` : null;
+  // A frame that came up again after a restart is a new one, so it loads VS Code afresh.
+  const [frameRound, setFrameRound] = useState(0);
+  const wasReady = useRef(true);
+  useEffect(() => {
+    const ready = status?.state === 'ready';
+    if (ready && !wasReady.current) setFrameRound((n) => n + 1);
+    wasReady.current = ready;
+  }, [status?.state]);
   return (
     <div className="pg-vscode-pane">
       <div className="pg-tabs pg-vscode-head">
@@ -684,7 +695,7 @@ function VsCodePane({ server, folder, playground }: { server: JupyterServer; fol
         ) : null}
       </div>
       {src ? (
-        <iframe className="pg-vscode-frame" src={src} title={`VS Code on ${server.name}`} allow="clipboard-read; clipboard-write" />
+        <iframe key={frameRound} className="pg-vscode-frame" src={src} title={`VS Code on ${server.name}`} allow="clipboard-read; clipboard-write" />
       ) : (
         <div className="pg-vscode-wait">
           {problem || status?.state === 'failed' ? (
