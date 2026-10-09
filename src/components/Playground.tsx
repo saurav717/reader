@@ -20,6 +20,7 @@ import {
   deletePlayground,
   configurePlaygroundDrive,
   filesHere,
+  labelBrowserHome,
   reachOf,
   loadPlaygrounds,
   usePlaygroundsWhere,
@@ -129,8 +130,8 @@ export function ComputeTag({ compute, home }: { compute: Compute; home?: FilesHo
           <span className="pg-arrow">→</span>
         </>
       ) : null}
-      {compute.kind === 'colab' ? <ColabMark /> : <span className={`pg-mark ${server?.where === 'pc' ? 'is-pc' : 'is-gpu'}`}>{server?.where === 'pc' ? 'PC' : 'GPU'}</span>}
-      <span>{compute.kind === 'colab' ? `Colab ${MACHINES.find((m) => m.accelerator === compute.machine.accelerator)?.label ?? 'CPU'}` : server?.name ?? (compute.deviceId ? 'a computer not connected here' : 'a server no longer here')}</span>
+      {compute.kind === 'colab' ? <ColabMark /> : <span className={`pg-mark ${(server?.where ?? compute.where) === 'pc' ? 'is-pc' : 'is-gpu'}`}>{(server?.where ?? compute.where) === 'pc' ? 'PC' : 'GPU'}</span>}
+      <span>{compute.kind === 'colab' ? `Colab ${MACHINES.find((m) => m.accelerator === compute.machine.accelerator)?.label ?? 'CPU'}` : server?.name ?? (compute.name ? `${compute.name} · not connected here` : compute.deviceId ? 'a computer not connected here' : 'a server no longer here')}</span>
     </span>
   );
 }
@@ -200,7 +201,13 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
   const browserKept = list.filter((p) => p.home.kind === 'browser' && p.kind === 'project').map((p) => p.id);
   useEffect(() => {
     let alive = true;
-    void Promise.all(browserKept.map(async (id) => [id, await filesHere(id)] as const)).then((found) => alive && setFilesInBrowser(new Set(found.filter(([, here]) => here).map(([id]) => id))));
+    void Promise.all(browserKept.map(async (id) => [id, await filesHere(id)] as const)).then((found) => {
+      if (!alive) return;
+      const here = found.filter(([, has]) => has).map(([id]) => id);
+      setFilesInBrowser(new Set(here));
+      // The browser that holds them says so in the record, for the others.
+      for (const id of here) labelBrowserHome(id);
+    });
     return () => {
       alive = false;
     };
@@ -375,8 +382,15 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
                         {p.cites.length ? ` · cites ${p.cites.map((c) => c.title).join(', ').slice(0, 80)}` : ''}
                       </span>
                       <span className="pg-row-where">
-                        <span title="Where its code is: it stays there">Code · {at.files}</span>
-                        <span title="Where it runs: any machine of yours — change it from the machine menu in the project">Runs · {at.runs}</span>
+                        <span title="Where its code is: it stays there">
+                          <i>Code</i> {at.code}
+                        </span>
+                        <span title="Where it ran last; change it from the machine menu in the project">
+                          <i>Last ran on</i> {at.ran}
+                        </span>
+                        <span>
+                          <i>To open it</i> {at.needs}
+                        </span>
                       </span>
                       {at.blocked || at.warn ? <span className={`pg-row-note${at.blocked ? ' is-problem' : ''}`}>{at.blocked ?? at.warn}</span> : null}
                     </button>

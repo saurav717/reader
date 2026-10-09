@@ -6005,8 +6005,10 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .pg-vscode-log { flex: none; max-height: 30vh; overflow: auto; margin: 0; padding: 10px 14px; border-bottom: 1px solid var(--border-soft); background: var(--paper); color: var(--ink-2); font: 11.5px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; }
 .pg-vscode-pane > .pg-banner { flex: none; display: flex; align-items: center; gap: 10px; margin: 0; border-radius: 0; }
 
-.pg-row-main .pg-row-where { display: flex; flex-wrap: wrap; gap: 2px 14px; white-space: normal; }
-.pg-row-main .pg-row-where > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.pg-row-main .pg-row-where { display: flex; flex-direction: column; gap: 2px; white-space: normal; }
+.pg-row-main .pg-row-where i { font-style: normal; display: inline-block; width: 84px; color: var(--ink-2); font-weight: 500; }
+.pg-row-main .pg-row-where > span { display: flex; gap: 8px; white-space: normal; overflow: visible; }
+.pg-row-main .pg-row-where i { flex: none; }
 .pg-row-main .pg-row-note { white-space: normal; color: var(--ink-2); }
 .pg-row-main .pg-row-note.is-problem { color: var(--danger, #b5435a); }
 .pg-row.is-blocked .pg-row-main { cursor: default; }
