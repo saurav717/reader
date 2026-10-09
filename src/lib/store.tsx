@@ -30,7 +30,7 @@ import { ROOT_FOLDER, driveFolderUrl, isInDrive, junkPaperInDrive, restorePaperI
 import { FINISHED_AT, type ReadingStatus } from './status';
 import { pathFor, syncPapersToGitHub, targetFrom } from './github';
 import { setContactEmail } from './contact';
-import { isPass, passExpires, passForGoogle, setProxyBase, setProxyToken, SignInRefused } from './api';
+import { isPass, passEmail, passExpires, passForGoogle, setProxyBase, setProxyToken, SignInRefused } from './api';
 import * as google from './google';
 
 const SETTINGS_KEY = 'reader.settings';
@@ -395,11 +395,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!user) return;
     const current = settings.proxyToken.trim();
     if (current && !isPass(current)) return;
-    if (current && passExpires(current) - Date.now() > 7 * 86_400_000) return;
+    // A pass is someone's: one left from another Google account (signed in here before, as someone
+    // else) is not this sign-in's, however long it has left, and is swapped at once, not renewed.
+    const theirs = Boolean(current) && passEmail(current)?.toLowerCase() !== user.email?.trim().toLowerCase();
+    if (current && !theirs && passExpires(current) - Date.now() > 7 * 86_400_000) return;
     const googleToken = google.liveAccessToken();
     if (!googleToken) return;
     let cancelled = false;
-    void passForGoogle(googleToken, current || undefined)
+    void passForGoogle(googleToken, current && !theirs ? current : undefined)
       .then((pass) => {
         if (!cancelled && pass) setSettings((latestSettings) => ({ ...latestSettings, proxyToken: pass }));
       })
