@@ -5941,3 +5941,13 @@ a.btn { text-decoration: none; }
 .pg-agents-menu { min-width: 280px; }
 .pg-agents-menu .mono.pg-note { margin-left: 6px; font-size: 11px; }
 .pg-agents-none p { margin: 2px 10px 6px; font-size: 11.5px; color: var(--muted); line-height: 1.45; max-width: 300px; }
+.pg-offline { border-top: 1px solid var(--border-soft); }
+.pg-offline-toggle { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 14px; border: 0; background: none; color: var(--muted); font: 500 12px var(--sans); text-align: left; cursor: pointer; }
+.pg-offline-toggle:hover, .pg-offline-toggle:focus-visible { color: var(--ink-2); background: var(--accent-soft); outline: none; }
+.pg-offline-chevron { display: inline-block; width: 10px; font-size: 14px; line-height: 1; transition: transform 0.15s; }
+.pg-offline-chevron.is-open { transform: rotate(90deg); }
+.pg-offline-names { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+.pg-machine.is-offline > .pg-machine-head { opacity: 0.7; }
+.pg-machine.is-offline .pg-mark { filter: grayscale(1); }
+.pg-machine-seen { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .pg-offline-chevron { transition: none; } }

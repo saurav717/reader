@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
 import type { CompanionInfo, MacDmg } from '../lib/companion';
-import { claimForAccount, pairForAccount, syncDevices } from '../lib/devices';
+import { claimForAccount, forgetDevice, pairForAccount, syncDevices } from '../lib/devices';
 import { currentAccount, onProxyChange } from '../lib/api';
 import { COMPANION_PORT, COMPANION_TLS_PORT, STARTABLE, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, findLocalCompanion, isSafari, latestMacDmg, normaliseCode, pairFragment, showCompanionCode, shutdownCompanion, startCompanion, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
@@ -39,7 +39,7 @@ import { ColabMark } from './Colab';
 import { CloseIcon, CodeIcon, TrashIcon } from './icons';
 import CopyBlock from './CopyBlock';
 import PlaygroundWorkspace from './PlaygroundWorkspace';
-import VsCodeExtension from './VsCodeExtension';
+import VsCodeExtension, { isCompanion } from './VsCodeExtension';
 
 export default function Playground({ id, onOpen, onOpenPaper }: { id?: string; onOpen: (id?: string) => void; onOpenPaper: (id: string) => void }) {
   const list = usePlaygrounds();
@@ -108,6 +108,32 @@ export function ComputeTag({ compute, home }: { compute: Compute; home?: FilesHo
   );
 }
 
+/**
+ * Which Companions answer now, looked at every half minute: an id is true when it does, false when it
+ * doesn't, missing until the first look. Other Jupyter servers aren't looked at (they are kept as active).
+ */
+function useLiveCompanions(servers: JupyterServer[]): Record<string, boolean> {
+  const [live, setLive] = useState<Record<string, boolean>>({});
+  const key = servers.filter(isCompanion).map((server) => `${server.id}@${server.url}`).join(' ');
+  useEffect(() => {
+    let alive = true;
+    let timer = 0;
+    const look = async () => {
+      const companions = serversNow().filter(isCompanion);
+      const answers = await Promise.all(companions.map(async (server) => [server.id, Boolean(await findCompanion(server.url, 5000))] as const));
+      if (!alive) return;
+      setLive(Object.fromEntries(answers));
+      timer = window.setTimeout(() => void look(), 30_000);
+    };
+    void look();
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [key]);
+  return live;
+}
+
 function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; ready: boolean; onOpen: (id?: string) => void }) {
   const { papers, settings } = useStore();
   const servers = useServers();
@@ -123,8 +149,19 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
   // The signed-in account's computers, from any browser it signs in to: now, and at each sign-in.
   useEffect(() => {
     void syncDevices();
-    return onProxyChange(() => void syncDevices());
+    // Again every minute: a computer that starts again comes back at a new tunnel address.
+    const timer = window.setInterval(() => void syncDevices(), 60_000);
+    const stop = onProxyChange(() => void syncDevices());
+    return () => {
+      window.clearInterval(timer);
+      stop();
+    };
   }, []);
+  // Your compute lists what answers now; the rest are a click away, under Offline.
+  const live = useLiveCompanions(servers);
+  const offline = servers.filter((server) => live[server.id] === false);
+  const active = servers.filter((server) => live[server.id] !== false);
+  const [showOffline, setShowOffline] = useState(false);
 
   const begin = (next: Draft) => {
     setProblem(null);
@@ -327,9 +364,21 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
                 </div>
                 <p>{colabOk ? 'CPU, T4, L4, A100 — in your own Colab account, on your tier and units.' : 'Running on Colab needs a Google client ID and the reader’s proxy, in Settings.'}</p>
               </div>
-              {servers.map((server) => (
+              {active.map((server) => (
                 <ServerRow key={server.id} server={server} />
               ))}
+              {offline.length ? (
+                <div className="pg-offline">
+                  <button type="button" className="pg-offline-toggle" aria-expanded={showOffline} onClick={() => setShowOffline(!showOffline)}>
+                    <span className={`pg-offline-chevron${showOffline ? ' is-open' : ''}`} aria-hidden="true">
+                      ›
+                    </span>
+                    Offline · {offline.length}
+                    <span className="pg-offline-names">{showOffline ? '' : offline.map((server) => server.name).join(', ')}</span>
+                  </button>
+                  {showOffline ? offline.map((server) => <ServerRow key={server.id} server={server} offline />) : null}
+                </div>
+              ) : null}
             </div>
             {!servers.some((server) => server.where === 'pc') && !addingServer ? <CompanionConnect onManual={() => setAddingServer(true)} /> : null}
             {addingServer ? <ServerForm onDone={() => setAddingServer(false)} /> : null}
@@ -354,7 +403,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
 
 // -------------------------------------------------------------- servers ----
 
-function ServerRow({ server }: { server: JupyterServer }) {
+function ServerRow({ server, offline = false }: { server: JupyterServer; offline?: boolean }) {
   const [state, setState] = useState<{ ok: boolean; text: string } | null>(null);
   const [checking, setChecking] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -406,13 +455,14 @@ function ServerRow({ server }: { server: JupyterServer }) {
   };
   if (editing) return <ServerForm server={server} onDone={() => setEditing(false)} />;
   return (
-    <div className="pg-machine">
+    <div className={`pg-machine${offline ? ' is-offline' : ''}`}>
       <div className="pg-machine-head">
         <span className={`pg-mark ${server.where === 'pc' || companion ? 'is-pc' : 'is-gpu'}`}>{server.where === 'pc' || companion ? 'PC' : 'GPU'}</span>
         <b>{server.name}</b>
         <span className="mono">{safeHost(server.url)}</span>
       </div>
       {state ? <p className={state.ok ? 'pg-ok' : 'pg-bad'}>{state.text}</p> : null}
+      {offline ? <p className="pg-machine-seen">Not answering{server.seen ? ` · last seen ${ago(server.seen)}` : ''}. {server.where === 'pc' ? 'Turn it on below, or open the Reader app.' : 'Start it on that computer: the Reader app, or reader-companion start.'}</p> : null}
       {companion && server.account ? <p>Yours as {server.account}{server.where === 'pc' ? '' : ' · on another computer, through its tunnel'}. Its files stay on it.</p> : null}
       {note ? <p>{note}</p> : null}
       {state && !state.ok && companion ? (
@@ -429,7 +479,15 @@ function ServerRow({ server }: { server: JupyterServer }) {
         <button type="button" className="btn sm ghost" onClick={() => setEditing(true)}>
           Edit
         </button>
-        <button type="button" className="btn sm ghost danger" onClick={() => removeServer(server.id)}>
+        <button
+          type="button"
+          className="btn sm ghost danger"
+          title={server.account ? `Takes it off ${server.account}'s computers, in every browser. Connect it again from that computer to have it back.` : 'Forget it in this browser'}
+          onClick={() => {
+            if (server.account && server.companionId) void forgetDevice(server.companionId);
+            removeServer(server.id);
+          }}
+        >
           Remove
         </button>
         {companion && account && !server.account ? (

@@ -107,7 +107,7 @@ export function syncDevices(): Promise<void> {
       const local = here?.info.id === device.id ? here.base : keep && same ? same.url : null;
       const url = local ?? device.url ?? device.local;
       if (!url) continue;
-      saveServer({ id: same?.id ?? `device-${device.id}`, name: device.name, where: local ? 'pc' : 'remote', url, token: device.token, companionId: device.id, root: device.root || same?.root, account });
+      saveServer({ id: same?.id ?? `device-${device.id}`, name: device.name, where: local ? 'pc' : 'remote', url, token: device.token, companionId: device.id, root: device.root || same?.root, account, seen: device.seen });
     }
     const listed = new Set(devices.map((device) => device.id));
     for (const server of allServers()) if (server.account === account && server.companionId && !listed.has(server.companionId)) removeServer(server.id);
