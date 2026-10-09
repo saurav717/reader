@@ -114,7 +114,7 @@ export interface TableCell {
 
 export type Block =
   | { kind: 'heading'; level: 2 | 3 | 4; spans: Span[]; page: number }
-  | { kind: 'paragraph'; spans: Span[]; page: number; list?: 'bullet' | 'number' }
+  | { kind: 'paragraph'; spans: Span[]; page: number; list?: 'bullet' | 'number'; /** A listing — code, a prompt — its lines kept as they are set. */ code?: boolean }
   | { kind: 'figure'; crop: Crop; caption: Span[]; label: string; page: number }
   | { kind: 'table'; crop: Crop; caption: Span[]; label: string; rows: TableCell[][] | null; notes?: Span[]; page: number }
   | { kind: 'equation'; crop: Crop; label: string; page: number }
@@ -195,7 +195,10 @@ export interface PaperByline {
 // OZ semibold, OC small capitals.
 const BOLD = /bold|black|heavy|semibold|demibold|extrab|ultrab|-medi|medium(?!ital)|cmbx|cmb\d|ptmb|ntxb|txb|sfbx|sfsx|cmssbx|lmssbx|,bold|-bd\b|\bbd\b|\.b$|-b$|lin(?:libertine|biolinum)o[bz]/i;
 const ITALIC = /italic|oblique|ital\b|-it\b|cmti|cmmi|cmsl|slanted|,italic|\.i$|-i$|\bit$|lin(?:libertine|biolinum)o[bz]?i\b/i;
-const MONO = /mono|cmtt|courier|typewriter|consolas|menlo|inconsolata|nimbusmon|luximono|lmtt|beramono|dejavusansmono|sourcecodepro|firamono/i;
+// Typewriter faces by the names TeX and word processors embed them under:
+// newtx's and txfonts' txtt, cm-super's SFTT, the EC fonts' ectt, TeX Gyre
+// Cursor, Courier's own pcr files, and the usual system faces.
+const MONO = /mono|cmtt|courier|typewriter|consolas|menlo|inconsolata|nimbusmon|luximono|lmtt|beramono|dejavusansmono|sourcecodepro|firamono|t1?xtt|sftt|ectt|tgcursor|texgyrecursor|\bpcr[rbo]\d|lucidaconsole|monaco|cousine/i;
 /** Fonts that only ever set mathematics. */
 const MATH = /xcharter-?math|newtxmath|newpxmath|zmath|cmmi|cmsy|cmex|cmmib|cmbsy|msam|msbm|rsfs|eufm|eufb|eurm|eusm|txsy|txmi|txex|pxsy|pxmi|pxex|stixmath|cambriamath|mathematica|symbol\b|standardsym|esint|wasy|stmary|mtsy|mtmi|mtex|lmmi|lmsy|lmex|xits-?math|latinmodernmath/i;
 
@@ -1003,7 +1006,10 @@ function findCaptions(lines: Line[], measures: Measures): void {
     // The caption straight after the number: only where the label alone is
     // bold — "Fig. 1" in bold, then the caption in roman.
     const runOn = /^\s+$/.test(match[3]) && line.text.length > match[0].length;
-    if (runOn ? !labelApart(line, match[0].trim().length) : !styled && !punctuated) continue;
+    // An algorithm's caption is set bold whole, between the rules over it:
+    // "Algorithm 1 Column-by-column compilation."
+    const algorithm = /^(algorithm|listing)/i.test(match[1]) && line.allBold && line.text.length <= 120;
+    if (!algorithm && (runOn ? !labelApart(line, match[0].trim().length) : !styled && !punctuated)) continue;
     // "Table in" is not a table; Roman numerals are capitals.
     if (/^[ivxl]/i.test(match[2]) && match[2] !== match[2].toUpperCase()) continue;
     // A line of the text that happens to begin "Table 7. RoBERTa achieves…"
@@ -1128,7 +1134,7 @@ function bodyLike(line: Line, measures: Measures): boolean {
  * caption is above the table, and without these its second line would be
  * read as the table's first row.
  */
-function captionTail(caption: Line, lines: Line[]): Line[] {
+function captionTail(caption: Line, lines: Line[], graphics: GraphicBox[] = []): Line[] {
   const tail: Line[] = [];
   let last = caption;
   const middle = (line: Line) => (line.x0 + line.x1) / 2;
@@ -1138,6 +1144,8 @@ function captionTail(caption: Line, lines: Line[]): Line[] {
       .filter((line) => overlapX(line, caption) > 0)
       .sort((a, b) => a.baseline - b.baseline)[0];
     if (!next || next.baseline - last.baseline > 1.7 * caption.size || Math.abs(next.size - caption.size) > 0.4) break;
+    // Not across a rule drawn under it: an algorithm's caption is ruled off from its steps.
+    if (graphics.some((box) => box.y1 - box.y0 < 1.5 && overlapX(box, caption) > 0.5 * (caption.x1 - caption.x0) && box.y0 > last.baseline && box.y1 < next.top + 0.2 * next.size)) break;
     if (Math.abs(next.x0 - caption.x0) > 0.6 * caption.size && Math.abs(middle(next) - middle(caption)) > 0.6 * caption.size) break;
     // Not the first row of a table: nothing else on its baseline.
     if (lines.some((other) => other !== next && !other.taken && Math.abs(other.baseline - next.baseline) < 0.5 * next.size && overlapX(other, caption) > 0)) break;
@@ -1173,6 +1181,13 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
   const ours = (box: { x0: number; x1: number }) => (box.x0 + box.x1) / 2 > side0 && (box.x0 + box.x1) / 2 < side1;
   // The rules drawn across the page: a table's own, top, bottom and between.
   const rules = page.graphics.filter((box) => box.y1 - box.y0 < 1.5 && box.x1 - box.x0 > 3 * em);
+
+  // An algorithm, or a listing with a caption: ruled off, boxed, or set
+  // as bare numbered steps — painted as it is set.
+  if (/^(algorithm|listing)/i.test(caption.caption!.label)) {
+    const region = algorithmRegion(caption, captionBottom, free, clusters, rules, measures, page);
+    if (region) return region;
+  }
 
   // A table captioned beside it, as Springer sets one in the margin: the
   // rule over the table starts a little right of the caption, level with
@@ -1299,7 +1314,13 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
       const bare =
         /^(?:[A-Z]|\d{1,2})(?:\.\d{1,2})*\.?$/.test(line.text) &&
         lines.some((other) => other !== line && other.allBold && Math.abs(other.baseline - line.baseline) < 0.3 * line.size && other.x0 > line.x1 && other.x0 - line.x1 < 3 * em && /^\p{Lu}\p{Ll}/u.test(other.text));
-      const numbered = line.allBold && (titled || bare) && line.text.split(' ').length <= 14 && line.size >= measures.bodySize - 0.6;
+      // (Or the title itself, its number set apart beside it in the margin
+      // of the caption's span: "A.4" / "Compilation Metrics".)
+      const numberedBeside =
+        line.allBold &&
+        /^\p{Lu}/u.test(line.text) &&
+        lines.some((other) => other !== line && other.allBold && /^(?:[A-Z]|\d{1,2})(?:\.\d{1,2})*\.?$/.test(other.text) && Math.abs(other.baseline - line.baseline) < 0.3 * line.size && other.x1 <= line.x0 && line.x0 - other.x1 < 3 * em);
+      const numbered = line.allBold && (titled || bare || numberedBeside) && line.text.split(' ').length <= 14 && line.size >= measures.bodySize - 0.6;
       if (!drawnOver && (headingLine(line, measures, columnLeft) || numbered || (line.allBold && line.size >= measures.bodySize * 1.1))) return true;
       // A title, or a heading set large: never part of a figure.
       if (line.size >= measures.bodySize * 1.3 && !drawnOver) return true;
@@ -1431,6 +1452,99 @@ function regionFor(caption: Line, lines: Line[], clusters: Cluster[], measures: 
   }
   if (second && sides[0] === (second.region.y0 >= captionBottom - 1 ? 'below' : 'above') && second.gap - first.gap < 0.5 * em) return second.region;
   return first.region;
+}
+
+/**
+ * An algorithm's steps, by its caption, in the three ways algorithm
+ * packages set them: ruled — the caption between two rules, the steps under
+ * them as far as the rule that closes them (algorithmic's "ruled",
+ * algorithm2e's "ruled" and "algoruled"); boxed — the steps in a frame
+ * drawn round them, the caption over or under it, or inside its top or its
+ * foot (algorithm2e's "boxed"); and plain — no rules at all, the caption
+ * over or under steps set tight one under another, numbered, led by a
+ * keyword in bold, or set in from the column (algorithm2e's "plain").
+ */
+function algorithmRegion(caption: Line, captionBottom: number, free: Line[], clusters: Cluster[], rules: GraphicBox[], measures: Measures, page: PageInput): Region | null {
+  const em = measures.bodySize;
+  const kind = caption.caption!.kind;
+  // The page is painted a little beyond the region (see crop): on the
+  // caption's side, not so far as to take in its lettering.
+  const make = (box: Box, held: Line[]): Region => {
+    const clear = { ...box };
+    if (box.y0 >= caption.top) clear.y0 = Math.max(box.y0, captionBottom + 3);
+    else if (box.y1 <= captionBottom) clear.y1 = Math.min(box.y1, caption.top - 3);
+    return { kind, page: page.index, ...clear, caption, label: caption.caption!.label, lines: held };
+  };
+  const inside = (box: Box, line: Line) => line.top >= box.y0 - 1 && line.bottom <= box.y1 + 1 && line.x0 >= box.x0 - 2 && line.x1 <= box.x1 + 2;
+  const steps = (lines: Line[]) => lines.filter((line) => !line.caption);
+
+  // Ruled.
+  const across = (rule: GraphicBox) => rule.x1 - rule.x0 > 8 * em && overlapX(rule, caption) > 0.8 * (caption.x1 - caption.x0);
+  const under = rules.filter((rule) => across(rule) && rule.y0 >= captionBottom - 2 && rule.y0 - captionBottom < 1.5 * em).sort((a, b) => a.y0 - b.y0)[0];
+  const closing = under && rules.filter((rule) => Math.abs(rule.x0 - under.x0) < 3 && Math.abs(rule.x1 - under.x1) < 3 && rule.y0 > under.y1 + em).sort((a, b) => a.y0 - b.y0)[0];
+  if (under && closing) {
+    const box = { x0: under.x0, y0: under.y1 + 2, x1: under.x1, y1: closing.y1 };
+    const held = steps(free.filter((line) => inside({ ...box, x0: box.x0 - em, x1: box.x1 + em }, line)));
+    if (held.length) return make(box, held);
+  }
+
+  // Boxed: a frame of rules, or a shaded box, with text in it, set close
+  // over or under the caption — or with the caption inside it.
+  const framed = clusters
+    .filter((cluster) => !cluster.images && (cluster.rules >= 2 || cluster.bodies) && overlapX(cluster, caption) > 0.5 * (caption.x1 - caption.x0))
+    .filter((cluster) => {
+      const over = cluster.y1 <= caption.top + 2 && caption.top - cluster.y1 < 2 * em;
+      const beneath = cluster.y0 >= captionBottom - 2 && cluster.y0 - captionBottom < 2 * em;
+      const holds = cluster.y0 <= caption.top + 1 && cluster.y1 >= captionBottom - 1 && cluster.x0 <= caption.x0 + 1 && cluster.x1 >= caption.x1 - 1;
+      return over || beneath || holds;
+    })
+    .sort((a, b) => Math.min(Math.abs(a.y1 - caption.top), Math.abs(a.y0 - captionBottom)) - Math.min(Math.abs(b.y1 - caption.top), Math.abs(b.y0 - captionBottom)));
+  for (const cluster of framed) {
+    let box: Box = { x0: cluster.x0, y0: cluster.y0, x1: cluster.x1, y1: cluster.y1 };
+    // The caption inside the frame, at its top or its foot: the steps are the rest of it.
+    if (box.y0 <= caption.top + 1 && box.y1 >= captionBottom - 1) box = caption.top - box.y0 < box.y1 - captionBottom ? { ...box, y0: captionBottom + 1 } : { ...box, y1: caption.top - 1 };
+    const held = steps(free.filter((line) => inside(box, line)));
+    if (held.length >= 2) return make(box, held);
+  }
+
+  // Plain: the steps set tight over the caption, or under it — numbered
+  // ("3:", "3."), led by a keyword in bold ("while", "Input:"), or set in
+  // from the column — as far as a line of the text resuming.
+  const stepLike = (line: Line, left: number) => /^\d{1,3}[:.]?(?:\s|$)/.test(line.text) || boldAt(line, 'start') || line.x0 - left > 0.5 * em || !bodyLike(line, measures);
+  for (const side of ['above', 'below'] as const) {
+    const near = (box: { x0: number; x1: number }) => overlapX(box, caption) > 0 || overlapX(box, { x0: caption.x0 - measures.columnWidth * 0.2, x1: caption.x0 + measures.columnWidth }) > 0;
+    const candidates = free
+      .filter((line) => !line.caption && near(line) && (side === 'above' ? line.bottom <= caption.top + 1 : line.top >= captionBottom - 1))
+      .sort((a, b) => (side === 'above' ? b.baseline - a.baseline : a.baseline - b.baseline));
+    // Lines on one baseline — a step's number set apart from it — are one row.
+    const rows: Line[][] = [];
+    for (const line of candidates) {
+      const row = rows.find((one) => Math.abs(one[0].baseline - line.baseline) < 0.5 * line.size);
+      if (row) row.push(line);
+      else rows.push([line]);
+    }
+    const held: Line[] = [];
+    let edge = side === 'above' ? caption.top : captionBottom;
+    let numbered = 0;
+    for (const row of rows) {
+      const top = Math.min(...row.map((line) => line.top));
+      const bottom = Math.max(...row.map((line) => line.bottom));
+      const gap = side === 'above' ? edge - bottom : top - edge;
+      if (gap > (held.length ? 0.9 : 1.6) * em) break;
+      const first = row.slice().sort((a, b) => a.x0 - b.x0)[0];
+      const left = Math.min(first.x0, caption.x0);
+      if (!stepLike(first, left)) break;
+      if (/^\d{1,3}[:.]?(?:\s|$)/.test(first.text)) numbered += 1;
+      held.push(...row);
+      edge = side === 'above' ? top : bottom;
+    }
+    // Steps, not a paragraph that happens to sit by the caption: more than
+    // one, most of them numbered or led by a keyword.
+    if (held.length >= 2 && (numbered >= 2 || held.filter((line) => boldAt(line, 'start')).length >= 2)) {
+      return make({ x0: Math.min(...held.map((line) => line.x0)), y0: Math.min(...held.map((line) => line.top)), x1: Math.max(...held.map((line) => line.x1)), y1: Math.max(...held.map((line) => line.bottom)) }, held);
+    }
+  }
+  return null;
 }
 
 /**
@@ -1776,6 +1890,23 @@ const NUMBERED = /^(\(?\d{1,2}[.)]|\(?[a-z][.)]|\(?[ivx]{1,4}[.)])\s+\S/i;
  */
 const REFERENCES = /^(\d+(\.\d+)*\.?\s+)?(references|bibliography|literature cited)\s*$/i;
 
+/** A line set in typewriter type, all but a stray glyph: a line of a listing, or of an address. */
+const codeLine = (line: Line): boolean => line.monoShare >= 0.85 && line.text.trim().length >= 1 && !line.caption && !line.captionOf;
+
+/**
+ * Lines in typewriter type that are a listing — code, a prompt — and not
+ * an address or a name set on a line of its own: more than one line of it,
+ * or one set in from the column, or one that reads as code.
+ */
+function isListing(lines: Line[], columnLeft: number, measures: Measures): boolean {
+  if (!lines.length || !lines.every(codeLine)) return false;
+  if (lines.length >= 2) return true;
+  const [line] = lines;
+  // (An address — "{jqiu, zchen}@nju.edu.cn" included — is not code.)
+  if (/^(?:https?:\/\/|www\.)\S+$|@[\w-]+(?:\.[\w-]+)+$/.test(line.text.trim())) return false;
+  return line.x0 - columnLeft > 0.5 * measures.bodySize || /[=;{}()[\]#]|\/\//.test(line.text);
+}
+
 /** Whether the line's first, or last, run of letters is set bold. */
 function boldAt(line: Line, side: 'start' | 'end'): boolean {
   const worded = line.runs.filter((run) => /\p{L}{2}/u.test(run.str));
@@ -1807,6 +1938,14 @@ function paragraphs(ordered: Line[], measures: Measures, columns: Map<Line, numb
       // Same baseline: one line split by a gap — a heading's number an em
       // from its title, "A.1   One-shot vs. …", included.
       else if (Math.abs(line.baseline - previous.baseline) < em * 0.5 && line.page === previous.page && line.x0 > previous.x0) fresh = false;
+      // A listing — code, or a prompt set in typewriter type — is one block
+      // of lines, however they are indented or end, until the text resumes
+      // in its own type or a blank line's space or more parts it from the next.
+      else if (!references && codeLine(line) && current.lines.every(codeLine)) fresh = pitch < 0 || pitch > em * 2.4 || Math.abs(current.columnLeft - columnLeft) > 3 * em;
+      else if (!references && current.lines.every(codeLine) && isListing(current.lines, current.columnLeft, measures)) fresh = true;
+      // One starts where a line in typewriter type is set in from the
+      // column, or after a line ending in a colon, or with space over it.
+      else if (!references && codeLine(line) && (line.x0 - columnLeft > 0.5 * em || /:$/.test(previous.text) || pitch > 1.4 * measures.pitch)) fresh = true;
       // A heading is a paragraph of its own — two lines of one, set tight, still one.
       else if (headed[0] || headed[1]) fresh = !(headed[0] && headed[1] && line.baseline - previous.baseline > 0 && line.baseline - previous.baseline < 1.5 * Math.max(line.size, previous.size));
       // (A reference's lines hang an indent from its first: one column still.)
@@ -1856,7 +1995,13 @@ function paragraphs(ordered: Line[], measures: Measures, columns: Map<Line, numb
         const edge = Math.max(columnLeft + measures.columnWidth, ...current.lines.map((one) => one.x1));
         const flush = current.lines.slice(1).every((one) => one.x0 - columnLeft < em * 0.3);
         const turned = flush && current.lines[0].x0 - columnLeft >= em * 0.3 && previous.x1 >= edge - em;
-        fresh = BULLET.test(line.text) || NUMBERED.test(line.text) || (line.x0 - columnLeft < em * 0.3 && !turned);
+        // A paragraph that only opens with a number — "1. Fixed-width
+        // columns. The compiler needs…", its run-in heading in bold — turns over to
+        // the column's edge, the number flush with it: after a full line —
+        // to the column's edge, though a line of code overran it — the text
+        // runs on.
+        const numberedParagraph = flush && current.lines[0].x0 - columnLeft < em * 0.3 && previous.x1 >= Math.min(edge, columnLeft + measures.columnWidth) - em;
+        fresh = BULLET.test(line.text) || NUMBERED.test(line.text) || (line.x0 - columnLeft < em * 0.3 && !turned && !numberedParagraph);
       }
       else if (references) {
         // Hanging indents: an entry starts at the left, its turnover lines
@@ -1976,6 +2121,41 @@ function spansOf(lines: Line[], heading = false, keepFace = false): Span[] {
     spans[spans.length - 1].text = spans[spans.length - 1].text.replace(/\s+$/, '');
   }
   return spans.filter((span) => span.text.length);
+}
+
+/**
+ * A listing's lines as spans, a line each, broken where the listing breaks
+ * them and each set in as far as it is on the page — in characters of the
+ * typewriter type it is set in.
+ */
+function codeSpans(lines: Line[]): Span[] {
+  const widths = lines
+    .flatMap((line) => line.runs)
+    .filter((run) => run.mono && run.str.trim().length >= 3)
+    .map((run) => run.width / run.str.length)
+    .sort((a, b) => a - b);
+  const advance = widths.length ? widths[Math.floor(widths.length / 2)] : 0.5 * lines[0].size;
+  const left = Math.min(...lines.map((line) => line.x0));
+  // A line parted by wide spaces — "Current performance:   [X] SPS…" — is
+  // read as pieces on one baseline: one line of the listing again.
+  const rows: Line[][] = [];
+  for (const line of lines) {
+    const row = rows.find((one) => one[0].page === line.page && Math.abs(one[0].baseline - line.baseline) < 0.5 * line.size);
+    if (row) row.push(line);
+    else rows.push([line]);
+  }
+  const spans: Span[] = [];
+  rows.forEach((row, index) => {
+    if (index) spans.push({ text: '\n' });
+    let at = left;
+    for (const [part, line] of row.sort((a, b) => a.x0 - b.x0).entries()) {
+      const indent = Math.max(part ? 1 : 0, Math.round((line.x0 - at) / advance));
+      if (indent) spans.push({ text: ' '.repeat(indent), mono: true });
+      spans.push(...spansOf([line], false, true));
+      at = line.x1;
+    }
+  });
+  return spans;
 }
 
 export const plain = (spans: Span[]): string => norm(spans.map((span) => span.text).join(''));
@@ -2892,11 +3072,11 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
   let carryIndent: number | null = null;
   let carryColumn = 0;
 
-  for (const lines of pages) {
+  for (const [at, lines] of pages.entries()) {
     findCaptions(lines, measures);
     // Every caption's lines are known before any region is looked for: a
     // caption's second line, as wide as the column, is not running text.
-    for (const line of lines) if (line.caption && !line.taken) for (const next of captionTail(line, lines)) next.captionOf = line;
+    for (const line of lines) if (line.caption && !line.taken) for (const next of captionTail(line, lines, inputs[at].graphics)) next.captionOf = line;
   }
   const tableSide = tablesPlaced(pages, inputs, measures);
 
@@ -2943,8 +3123,11 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
     const listing = inReferences ? read : heading >= 0 ? read.slice(heading) : [];
     const after = listing.findIndex((line) => !REFERENCES_HEADING.test(line.text) && line.allBold && line.size >= measures.bodySize * 1.1 && line.text.split(' ').length <= 12);
     const listed = new Set(after >= 0 ? listing.slice(0, after) : listing);
+    // A listing set small at the foot of the page — a prompt in typewriter
+    // type, line under line — is the text's, not a footnote.
+    const inListing = (line: Line) => codeLine(line) && flow.some((other) => other !== line && codeLine(other) && overlapX(other, line) > 0 && Math.abs(other.baseline - line.baseline) < 2 * line.size && Math.abs(other.baseline - line.baseline) > 0.5 * line.size);
     for (const line of flow) {
-      if (line.caption || line.captionOf || line.allBold || listed.has(line)) continue;
+      if (line.caption || line.captionOf || line.allBold || listed.has(line) || inListing(line)) continue;
       // Small type, or a note's mark leading it at the very foot of the
       // page: "*Authors are ordered alphabetically…", set as large as the text.
       if ((line.size > measures.bodySize - 1 && !(noteMark(line) && line.baseline > page.height * 0.8)) || line.baseline < page.height * 0.6) continue;
@@ -3035,10 +3218,15 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
         // A figure or a table at the head of a column is read before the
         // abstract under it, and is not front matter: it follows the
         // abstract, as a float would.
-        const before = paras.slice(0, abstractAt);
+        // (A byline centred across both columns of a two-column paper is cut
+        // at the gutter, and its right half read at the head of the right
+        // column: what is set wholly above the abstract is front matter too.)
+        const abstractTop = paras[abstractAt].lines[0].top;
+        const overhead = paras.slice(abstractAt + 1).filter((paragraph) => !paragraph.region && !paragraph.lines[0].caption && paragraph.lines.every((line) => line.page === 0 && line.bottom < abstractTop - 1));
+        const before = [...paras.slice(0, abstractAt), ...overhead];
         const floats = before.filter((paragraph) => paragraph.region || paragraph.lines[0].caption);
         ({ front, byline } = frontMatter(before.filter((paragraph) => !floats.includes(paragraph)).flatMap((paragraph) => paragraph.lines), measures, options.title));
-        const after = paras.slice(abstractAt);
+        const after = paras.slice(abstractAt).filter((paragraph) => !overhead.includes(paragraph));
         // After the abstract's text, not between its heading and its text.
         const at = after.length > 1 && plain(spansOf(after[0].lines)).split(' ').length <= 2 ? 2 : 1;
         paras = [...after.slice(0, at), ...floats, ...after.slice(at)];
@@ -3100,6 +3288,20 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
         }
         continue;
       }
+      // A listing keeps its lines, and is no paragraph for the text to run on into.
+      if (isListing(paragraph.lines, paragraph.columnLeft, measures)) {
+        const spans = codeSpans(paragraph.lines);
+        characters += plain(spans).length;
+        carry = null;
+        // One carried over to the next page goes on there.
+        const previous = blocks[blocks.length - 1];
+        if (previous?.kind === 'paragraph' && previous.code && previous.page === page.index - 1 && paragraph === placed.find((one) => !one.region)) {
+          previous.spans = [...previous.spans, { text: '\n' }, ...spans];
+          continue;
+        }
+        blocks.push({ kind: 'paragraph', spans, page: page.index, code: true });
+        continue;
+      }
       const spans = spansOf(paragraph.lines, looksLikeHeading(paragraph, measures));
       const text = plain(spans);
       if (!text) continue;
@@ -3121,7 +3323,10 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
         const broken = paragraph.lines[0].page !== carryLast.page || Math.abs(paragraph.columnLeft - carryColumn) > carryLast.size;
         // A sentence closed, and then a footnote's mark — "…training examples.¹⁰" — is closed.
         const closing = plain(carry.spans.filter((span, index) => !(span.sup && carry!.spans.slice(index).every((rest) => rest.sup || !rest.text.trim()))));
-        const openEnded = !/[.!?:;"”’)\]]$/.test(closing) || /[a-z],$/.test(closing);
+        // (A colon or a semicolon before a sentence going on in lower case —
+        // "…as the timings show:" / "against a sheet its author had…" —
+        // across a table set at the head of the page, is not the end of it.)
+        const openEnded = !/[.!?:;"”’)\]]$/.test(closing) || /[a-z],$/.test(closing) || (/[:;]$/.test(closing) && /^\p{Ll}/u.test(text) && !inReferences);
         const continues = /^[a-z(]/.test(text) || last.endsWith('-');
         const indented = paragraph.lines[0].x0 - paragraph.columnLeft > paragraph.lines[0].size * 0.7;
         // In a bibliography, whose entries often end without a full stop —
@@ -4209,14 +4414,26 @@ export function renderHtml(layout: Layout, imageFor: (crop: Crop) => string | nu
         out.push(`<h${block.level}>${spansToHtml(block.spans)}</h${block.level}>`);
         break;
       case 'paragraph': {
-        if (block.list) {
+        if (block.code) {
+          out.push(`<pre class="pdf-code">${spansToHtml(block.spans).replace(/\n<br>/g, '\n')}</pre>`);
+        } else if (block.list) {
           if (list !== block.list) {
             closeList();
             list = block.list;
-            out.push(list === 'bullet' ? '<ul>' : '<ol>');
+            // A numbered list taken up again after a listing or a figure
+            // between its items goes on from the number it is at.
+            const number = list === 'number' ? /^\(?(\d{1,2})[.)]/.exec(plain(block.spans))?.[1] : undefined;
+            out.push(list === 'bullet' ? '<ul>' : number && number !== '1' ? `<ol start="${number}">` : '<ol>');
           }
           // The bullet and the space after it go; a dash set against its item is the whole match.
-          const spans = block.spans.map((span, index) => (index === 0 ? { ...span, text: span.text.replace(list === 'bullet' ? BULLET : NUMBERED, (match) => (match.length === 1 ? '' : match.slice(-1))) } : span));
+          let spans = block.spans.map((span, index) => (index === 0 ? { ...span, text: span.text.replace(list === 'bullet' ? BULLET : NUMBERED, (match) => (match.length === 1 ? '' : match.slice(-1))) } : span));
+          // A number set in a span of its own — "1." in bold before the
+          // run-in heading after it — goes with the space after it.
+          if (list === 'number' && spans.length > 1 && /^\s*\(?(?:\d{1,2}|[a-z]|[ivx]{1,4})[.)]\s*$/i.test(spans[0].text)) {
+            spans = spans.slice(1);
+            while (spans.length && !spans[0].text.trim()) spans = spans.slice(1);
+            if (spans.length) spans[0] = { ...spans[0], text: spans[0].text.replace(/^\s+/, '') };
+          }
           out.push(`<li>${spansToHtml(spans)}</li>`);
         } else {
           out.push(`<p>${spansToHtml(block.spans)}</p>`);

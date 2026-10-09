@@ -1243,10 +1243,16 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   ended. A dash set against its item, "—We provide…", as ACM's itemize
   sets them, is a bullet. An
   item set as a paragraph — its bullet indented, its lines turning over
-  to the column's edge — is one item, not a line and a paragraph. A
+  to the column's edge — is one item, not a line and a paragraph, and so
+  is a paragraph that only opens with its number, "1. Fixed-width
+  columns." in bold and its lines turning over flush with the number; a
+  numbered list taken up again after a listing between its items goes on
+  from the number it was at. A
   structured abstract's parts, each led by a heading run into its text
   ("Recent findings", "Summary"), are a paragraph each, even where the
-  abstract is set across both columns of a two-column paper.
+  abstract is set across both columns of a two-column paper. A byline
+  centred across both columns, cut at the gutter, is front matter whole:
+  its right half is not read at the head of the right column.
   Headings are the lines set larger or bolder than the body — bold and
   italic read from the font's name, Linux Libertine's and Biolinum's by
   the letter after their "O" (LinBiolinumOB is bold, LinLibertineOI
@@ -1444,7 +1450,10 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   a label for a group of rows in italics as wide as a line of text (*Our
   reimplementation (without NSP loss):*) is a row, not the text resuming,
   and the rule drawn under the heading ends the heading whatever the rows
-  under it hold. A heading cell set level with the gap between two rows of
+  under it hold. A heading set straight under a table, its number an em
+  apart from its title — "A.4" / "Compilation Metrics", in a
+  bold sans at the text's size — ends the table, and is never read into
+  its notes or its last row. A heading cell set level with the gap between two rows of
   the heading (*Model* beside *SQuAD 1.1* over *EM F1*) is the heading's,
   not a panel's title. On a page of nothing but tables — an appendix —
   a table reaches as far as its rules, there being no text to measure by.
@@ -1462,6 +1471,22 @@ drawings are handed to `src/lib/pdfLayout.ts`, which makes a document of them:
   a justified line stretched until its spaces are wider than an em, in a
   footnote's small type or indented as a paragraph's first line, is one
   line again.
+- **Listings.** Lines set in a typewriter face — code, or a prompt; the
+  face told by the font's name, Computer Modern's, Latin Modern's,
+  newtx's, cm-super's, Courier, Inconsolata and the usual system faces —
+  are a listing, kept apart from the text and shown as the paper sets them: a line each, each set in as far as it is on the
+  page, its bold labels ("Constraints:") bold, and a line parted by wide
+  spaces one line again. One set small at the foot of a page is the
+  text's, not a footnote. An algorithm is painted like a figure, under
+  its caption, its numbered and indented steps as they are typeset, in
+  whichever of the three ways algorithm packages set one: ruled — its
+  caption, "Algorithm 1 …", in bold between two rules, its steps under
+  them as far as the rule that closes it; boxed — its steps in a frame,
+  the caption over or under it or inside it; or plain — no rules at all,
+  the caption over or under steps set tight one under another, numbered
+  or led by a keyword in bold. And a paragraph that ends a page on a
+  colon, "…as the timings show:", goes on over a table at the head of
+  the next where it carries on in lower case.
 - **Footnotes** also include a line at the very foot of the page led by a
   note's mark, however large it is set; and the bibliography ends at the
   heading after it, so the footnotes of an appendix's first page are its own.
@@ -1513,7 +1538,14 @@ columns, a fraction in a line; `scripts/pdf-reflow-neurips.test.mjs` does the sa
 single-column paper set as NeurIPS sets them (`scripts/fixtures/neurips-single-column.tex`,
 after MINITRON, arXiv:2407.14679) — captions under their tables, labels set
 sideways, tables side by side, boxed links, a clipped figure and a byline
-parted by wide spaces; and `scripts/reflow-smoke.mjs` prints a two-column paper with Chromium
+parted by wide spaces; `scripts/pdf-reflow-appendix.test.mjs` an appendix
+of tables, listings and an algorithm (`scripts/fixtures/appendix-listings.tex`,
+made up) — headings in a bold sans straight under tables,
+numbered paragraphs, listings, a prompt at the foot of a page and a ruled
+algorithm; `scripts/pdf-reflow-two-column-listings.test.mjs` the same in
+the columns of a two-column paper in Times and Inconsolata
+(`scripts/fixtures/two-column-listings.tex`) — a ruled, a boxed and a plain
+algorithm, and a byline centred across both columns; and `scripts/reflow-smoke.mjs` prints a two-column paper with Chromium
 and reads it back through the app — with the worker, and again without it. Inline mathematics stays as the glyphs it
 was set in, which is legible for *x* and *n* and not for much more; a scan,
 or a PDF whose fonts carry no mapping back to letters, has no text to read,

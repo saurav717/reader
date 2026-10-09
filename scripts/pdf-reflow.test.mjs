@@ -89,6 +89,14 @@ describe('paragraphs', () => {
     ]);
   });
 
+  it('carries a paragraph on over a page after a colon, where it goes on in lower case', () => {
+    const first = page(column(54, 100, ['Not every workbook recalculates faster once compiled, least of all one', 'already tuned by hand. The ledger is one, as the timings show:']), [], 0);
+    const second = page(column(54, 100, ['against a sheet its author had already vectorized, the compiler only', 'matches it.']), [], 1);
+    assert.deepEqual(texts(layoutPages([first, second])), [
+      'Not every workbook recalculates faster once compiled, least of all one already tuned by hand. The ledger is one, as the timings show: against a sheet its author had already vectorized, the compiler only matches it.',
+    ]);
+  });
+
   it('keeps the hyphen of a word the paper writes hyphenated elsewhere', () => {
     const runs = [
       ...column(54, 100, ['The cost of the method is quasi-linear in the resolution, and', 'stays that way. A second sentence says again that it is quasi-', 'linear. And a broken word like infor-', 'mation is mended.']),
@@ -800,6 +808,11 @@ describe('glyphs', () => {
     assert.deepEqual(faceOf('TACTGM+NimbusRomNo9L-Medi'), { bold: true, italic: false, mono: false, math: false });
     assert.deepEqual(faceOf('FCXRUF+NimbusRomNo9L-ReguItal'), { bold: false, italic: true, mono: false, math: false });
     assert.deepEqual(faceOf('RRLDLB+CMTT9'), { bold: false, italic: false, mono: true, math: false });
+    // The typewriter faces other setups embed: newtx's, cm-super's, the EC fonts', TeX Gyre's, Courier's own files.
+    for (const font of ['ABCDEF+NewTXTT', 'ABCDEF+txtt', 'ABCDEF+t1xtt', 'ABCDEF+SFTT1000', 'ABCDEF+ectt1000', 'ABCDEF+TeXGyreCursor-Regular', 'ABCDEF+pcrr8r', 'LucidaConsole', 'Monaco', 'Cousine-Regular']) {
+      assert.equal(faceOf(font).mono, true, font);
+    }
+    for (const font of ['ABCDEF+SFRM1000', 'ABCDEF+ecrm1000', 'ABCDEF+NewTXMI', 'ABCDEF+TeXGyreTermes-Regular', 'Helvetica']) assert.equal(faceOf(font).mono, false, font);
     assert.deepEqual(faceOf('AZLOMJ+CMMI9'), { bold: false, italic: true, mono: false, math: true });
     assert.equal(faceOf('LiberationSerif-Bold').bold, true);
   });
