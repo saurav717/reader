@@ -97,6 +97,17 @@ export function pageTerminalTheme(root: HTMLElement = document.documentElement) 
   };
 }
 
+// What the page types into a playground's terminal (the Run button, the Agents menu): sent once its shell is open.
+const typers = new Map<string, (text: string) => void>();
+const waiting = new Map<string, string[]>();
+
+/** Types `text` into the terminal of `sessionId` — now if its shell is open, else as soon as it is. */
+export function typeInTerminal(sessionId: string, text: string): void {
+  const typer = typers.get(sessionId);
+  if (typer) typer(text);
+  else waiting.set(sessionId, [...(waiting.get(sessionId) ?? []), text]);
+}
+
 export default function Terminal({ server, cwd, sessionId, label }: { server: JupyterServer; cwd: string; sessionId: string; label: string }) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<'starting' | 'live' | 'reconnecting' | 'closed' | 'failed'>('starting');
@@ -153,6 +164,10 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
           setState('live');
           resize();
           term.focus();
+          const type = (text: string) => send(['stdin', text]);
+          typers.set(sessionId, type);
+          for (const text of waiting.get(sessionId) ?? []) type(text);
+          waiting.delete(sessionId);
         };
         socket.onmessage = (event) => {
           try {
@@ -182,6 +197,7 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
         });
         themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-glass'] });
         cleanup = () => {
+          typers.delete(sessionId);
           themeWatch.disconnect();
           observer.disconnect();
           typing.dispose();

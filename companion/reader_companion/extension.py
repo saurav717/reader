@@ -37,6 +37,14 @@ where a browser signed in as it finds it from any computer. After that,
 /companion/release is for this computer's own programs, like /link:
 `reader-companion release` hands the computer back to no account.
 
+/companion/tools is for the page once paired: the toolchains and coding agents
+here, for the Run button and the Agents menu (tools.py).
+
+/companion/vscode-web is for the page once paired: it starts VS Code for the
+browser (`code serve-web`, tools.VsCodeWeb) and says where it is, a path with a
+secret in it that /companion/vscode/<secret>/… proxies (VsCodeProxy), adding
+the connection token, for the page's VS Code pane.
+
 /companion/link is for this computer's own programs, not the page: given the
 token, it hands out a pairing link with a fresh code. `reader-companion setup`
 and `reader-companion pair` open it, for a Companion running in the background.
@@ -54,8 +62,12 @@ from tornado import web
 from tornado.ioloop import IOLoop
 
 import atexit
+import hmac
+from pathlib import Path
 
-from . import account, desktop, state, tunnel
+from tornado import httpclient, websocket
+
+from . import account, desktop, state, tools, tunnel
 
 
 class CompanionHandler(web.RequestHandler):
@@ -307,6 +319,152 @@ class ReleaseHandler(LinkHandler):
         self.reply(200, {"released": bool(held), "token": token})
 
 
+class ToolsHandler(VsCodeHandler):
+    """What runs here: toolchains, coding agents, and whether VS Code is."""
+
+    def initialize(self, serverapp=None):
+        self.serverapp = serverapp
+
+    async def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        shell = (getattr(self.serverapp, "terminado_settings", None) or {}).get("shell_command")
+        self.reply(200, await IOLoop.current().run_in_executor(None, tools.detect, shell))
+
+    async def post(self):
+        self.reply(405, {"error": "GET"})
+
+
+class VsCodeWebHandler(VsCodeHandler):
+    """VS Code in the page: GET says how it is, POST starts it; both with the folder to open, under the Companion's."""
+
+    def answer(self, folder: str):
+        status = tools.vscode_web.status()
+        root = Path(state.current.root)
+        target = (root / folder).resolve() if folder else root
+        if root != target and root not in target.parents:
+            return self.reply(400, {"error": "That folder isn’t under the Companion’s."})
+        self.reply(200, {**status, "folder": str(target)})
+
+    async def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        self.answer(self.get_argument("folder", ""))
+
+    async def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        try:
+            body = json.loads(self.request.body or b"{}")
+        except ValueError:
+            body = {}
+        await IOLoop.current().run_in_executor(None, tools.vscode_web.start)
+        self.answer(body.get("folder", "") if isinstance(body, dict) else "")
+
+
+HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers", "transfer-encoding", "upgrade", "content-length", "host", "origin", "cookie"}
+
+
+class VsCodeProxy(websocket.WebSocketHandler):
+    """/companion/vscode/<secret>/…: to `code serve-web` on 127.0.0.1, pages and websockets, with its connection token added.
+
+    The secret in the path is the credential (an iframe carries no Authorization header); the
+    page gets it from /companion/vscode-web with the token. Only the reader's site may frame it.
+    """
+
+    upstream = None
+
+    def check_xsrf_cookie(self):
+        return
+
+    def check_origin(self, origin):
+        # VS Code's own sockets come from inside the frame, which is this server's origin; the site's may too.
+        own = f"{self.request.protocol}://{self.request.host}"
+        return bool(state.current) and origin in (own, state.current.origin)
+
+    def allowed(self, secret: str) -> bool:
+        web = tools.vscode_web
+        return web.state in ("starting", "ready") and bool(web.port) and hmac.compare_digest(secret, web.secret)
+
+    def target(self, secret: str, rest: str, scheme: str = "http") -> str:
+        query = f"?{self.request.query}" if self.request.query else ""
+        return f"{scheme}://127.0.0.1:{tools.vscode_web.port}/companion/vscode/{secret}/{rest}{query}"
+
+    def upstream_headers(self) -> dict:
+        web = tools.vscode_web
+        headers = {name: value for name, value in self.request.headers.get_all() if name.lower() not in HOP and not name.lower().startswith("sec-websocket")}
+        headers["Host"] = f"127.0.0.1:{web.port}"
+        headers["Cookie"] = f"vscode-tkn={web.token}"
+        if "Origin" in self.request.headers:
+            headers["Origin"] = f"http://127.0.0.1:{web.port}"
+        return headers
+
+    async def get(self, secret, rest=""):
+        if not self.allowed(secret):
+            self.set_status(404)
+            return self.finish("Not found")
+        if self.request.headers.get("Upgrade", "").lower() == "websocket":
+            request = httpclient.HTTPRequest(self.target(secret, rest, "ws"), headers=self.upstream_headers())
+            try:
+                self.upstream = await websocket.websocket_connect(request, on_message_callback=self.from_upstream, max_message_size=256 * 1024 * 1024)
+            except Exception:
+                self.set_status(502)
+                return self.finish("VS Code isn’t answering")
+            return await super().get(secret, rest)
+        await self.relay(secret, rest)
+
+    async def relay(self, secret, rest=""):
+        if not self.allowed(secret):
+            self.set_status(404)
+            return self.finish("Not found")
+        body = self.request.body if self.request.method in ("POST", "PUT", "PATCH", "DELETE") else None
+        request = httpclient.HTTPRequest(
+            self.target(secret, rest), method=self.request.method, headers=self.upstream_headers(), body=body,
+            follow_redirects=False, decompress_response=False, request_timeout=300, allow_nonstandard_methods=True,
+        )
+        response = await httpclient.AsyncHTTPClient().fetch(request, raise_error=False)
+        if response.code == 599:
+            self.set_status(502)
+            return self.finish("VS Code isn’t answering")
+        self.set_status(response.code, response.reason)
+        self._headers.clear()
+        for name, value in response.headers.get_all():
+            lower = name.lower()
+            if lower in HOP or lower in ("x-frame-options", "set-cookie"):
+                continue
+            if lower == "content-security-policy":
+                # Its own framing rule is replaced by ours below; the rest of its policy stays.
+                value = "; ".join(part for part in value.split(";") if not part.strip().lower().startswith("frame-ancestors"))
+                if not value.strip():
+                    continue
+            self.add_header(name, value)
+        self.add_header("Content-Security-Policy", f"frame-ancestors 'self' {state.current.origin}")
+        if response.body:
+            self.write(response.body)
+        self.finish()
+
+    post = put = patch = delete = head = relay
+
+    def on_message(self, message):
+        if self.upstream:
+            self.upstream.write_message(message, binary=isinstance(message, bytes))
+
+    def from_upstream(self, message):
+        if message is None:
+            if self.ws_connection:
+                self.close()
+            return
+        try:
+            self.write_message(message, binary=isinstance(message, bytes))
+        except websocket.WebSocketClosedError:
+            pass
+
+    def on_close(self):
+        if self.upstream:
+            self.upstream.close()
+            self.upstream = None
+
+
 class ShutdownHandler(VsCodeHandler):
     def initialize(self, serverapp=None):
         self.serverapp = serverapp
@@ -342,5 +500,8 @@ def load(serverapp):
             (url_path_join(base, "companion/vscode"), VsCodeHandler),
             (url_path_join(base, "companion/update"), UpdateHandler),
             (url_path_join(base, "companion/shutdown"), ShutdownHandler, {"serverapp": serverapp}),
+            (url_path_join(base, "companion/tools"), ToolsHandler, {"serverapp": serverapp}),
+            (url_path_join(base, "companion/vscode-web"), VsCodeWebHandler),
+            (url_path_join(base, r"companion/vscode/([^/]+)/?(.*)"), VsCodeProxy),
         ],
     )

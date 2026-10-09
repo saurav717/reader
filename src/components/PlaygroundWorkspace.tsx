@@ -6,12 +6,15 @@
 // notebook has. The store is src/lib/playground.ts.
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import type { Backend } from '../lib/colab';
+import type { Backend, JupyterServer } from '../lib/colab';
 import { backendLabel, chooseBackend, colabAvailable, colabNow, connect, forgetRun, interrupt, lastActivityAt, runCell, runQuietly, setMachine, stopRuntime } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, Playground, SyncReport } from '../lib/playground';
 import { blankCells, filesAreOnMachine, homeHost, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
-import { STARTABLE, companionPort, findCompanion, isSecure, shutdownCompanion, startCompanion } from '../lib/companion';
+import { STARTABLE, companionPort, companionTools, findCompanion, isSecure, shutdownCompanion, startCompanion, vscodeWeb } from '../lib/companion';
+import type { VsCodeWeb } from '../lib/companion';
+import { ASSUMED_TOOLS, runPlan } from '../lib/languages';
+import type { MachineTools } from '../lib/languages';
 import type { RuntimeEntry } from '../lib/colab';
 import { useStore } from '../lib/store';
 import type { Screen } from '../lib/assistant';
@@ -20,7 +23,7 @@ import MetricsPane from './MetricsPane';
 import NotebookPage, { Editor } from './Notebook';
 import type { NbSide } from './Notebook';
 import RuntimePane from './RuntimePane';
-import Terminal, { hasTerminals } from './Terminal';
+import Terminal, { hasTerminals, typeInTerminal } from './Terminal';
 import { WhereDialog } from './Playground';
 import VsCodeExtension, { VsCodeMark, isCompanion } from './VsCodeExtension';
 import { ArrowLeftIcon, CloseIcon } from './icons';
@@ -415,6 +418,162 @@ interface OpenFile {
   saved: string;
 }
 
+/** What a server's computer can run: a Companion says (/companion/tools); anything else is taken to be a Linux box with Python and a compiler. */
+function useMachineTools(server: JupyterServer | undefined): { tools: MachineTools; asked: boolean } {
+  const [found, setFound] = useState<{ id: string; tools: MachineTools | null } | null>(null);
+  useEffect(() => {
+    if (!server || !isCompanion(server)) return;
+    let live = true;
+    void companionTools(server).then((tools) => live && setFound({ id: server.id, tools }));
+    return () => {
+      live = false;
+    };
+  }, [server?.id, server?.url, server?.token]);
+  const tools = server && found && found.id === server.id ? found.tools : null;
+  return { tools: tools ?? ASSUMED_TOOLS, asked: Boolean(tools) };
+}
+
+/** The project's folder on the server's computer, absolute, when the page knows the Companion's: /Users/me/Reader/<root>. */
+const absoluteFolder = (server: JupyterServer | undefined, relative: string) => {
+  if (!server?.root) return null;
+  const windows = /^[A-Za-z]:\\/.test(server.root);
+  const root = server.root.replace(/[\\/]+$/, '');
+  return windows ? `${root}\\${relative.replace(/\//g, '\\')}` : `${root}/${relative}`;
+};
+
+const AGENT_INSTALLS = [
+  { name: 'Claude Code', command: 'npm install -g @anthropic-ai/claude-code' },
+  { name: 'Codex', command: 'npm install -g @openai/codex' },
+  { name: 'Gemini CLI', command: 'npm install -g @google/gemini-cli' },
+  { name: 'Aider', command: 'pipx install aider-chat' },
+];
+
+/** The coding agents on the machine, each started in the project's folder in the terminal below. */
+function AgentsMenu({ agents, asked, machineName, onStart }: { agents: { id: string; name: string }[]; asked: boolean; machineName: string; onStart: (command: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: MouseEvent) => !box.current?.contains(event.target as Node) && setOpen(false);
+    window.addEventListener('mousedown', away);
+    return () => window.removeEventListener('mousedown', away);
+  }, [open]);
+  return (
+    <div className="menu-wrap" ref={box}>
+      <button type="button" className="btn sm ghost" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title={`The coding agents on ${machineName}, started in this project's folder in the terminal`}>
+        Agents ▾
+      </button>
+      {open ? (
+        <div className="menu right up pg-agents-menu" role="menu">
+          <div className="menu-label">Agents on {machineName}</div>
+          {agents.map((agent) => (
+            <button
+              key={agent.id}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onStart(agent.id);
+              }}
+            >
+              {agent.name} <span className="mono pg-note">{agent.id}</span>
+            </button>
+          ))}
+          {!agents.length ? (
+            <div className="pg-agents-none">
+              <p>{asked ? `None found on ${machineName}.` : `The Companion on ${machineName} can’t say (update it in Settings → Updates).`} Any of these, in the terminal, adds one:</p>
+              {AGENT_INSTALLS.map((agent) => (
+                <button key={agent.name} type="button" role="menuitem" onClick={() => (setOpen(false), onStart(agent.command))} title="Type it into the terminal below">
+                  {agent.name} <span className="mono pg-note">{agent.command}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** The page's editor or VS Code, for a project whose files are on a Companion with VS Code. */
+function EditorSwitch({ playground }: { playground: Playground }) {
+  const mode = playground.editor ?? 'reader';
+  return (
+    <div className="segmented pg-seg pg-editor-switch" role="radiogroup" aria-label="Editor">
+      <button type="button" role="radio" aria-checked={mode === 'reader'} className={mode === 'reader' ? 'on' : ''} onClick={() => updatePlayground(playground.id, () => ({ editor: 'reader' }))}>
+        Editor
+      </button>
+      <button type="button" role="radio" aria-checked={mode === 'vscode'} className={mode === 'vscode' ? 'on' : ''} onClick={() => updatePlayground(playground.id, () => ({ editor: 'vscode' }))} title="VS Code from that computer, in the page: your extensions and coding agents, on the same files">
+        VS Code
+      </button>
+    </div>
+  );
+}
+
+/** VS Code from the Companion's computer, in the page (code serve-web, through the Companion): started on first open. */
+function VsCodePane({ server, folder, playground }: { server: JupyterServer; folder: string; playground: Playground }) {
+  const [status, setStatus] = useState<VsCodeWeb | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [round, setRound] = useState(0);
+  useEffect(() => {
+    let live = true;
+    let timer = 0;
+    setProblem(null);
+    const look = async (start: boolean) => {
+      try {
+        const now = await vscodeWeb(server, folder, start);
+        if (!live) return;
+        setStatus(now);
+        if (now.state === 'starting' || (now.state === 'off' && !start)) timer = window.setTimeout(() => void look(now.state === 'off'), 1500);
+      } catch (error) {
+        if (live) setProblem(error instanceof Error ? error.message : String(error));
+      }
+    };
+    void look(true);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [server.id, server.url, server.token, folder, round]);
+  const src = status?.state === 'ready' && status.path ? `${server.url.replace(/\/?$/, '/')}${status.path.replace(/^\//, '')}?folder=${encodeURIComponent(status.folder)}` : null;
+  return (
+    <div className="pg-vscode-pane">
+      <div className="pg-tabs pg-vscode-head">
+        <EditorSwitch playground={playground} />
+        <span className="pg-note mono">{status?.folder || folder}</span>
+        <span className="spacer" />
+        {src ? (
+          <a className="btn sm ghost" href={src} target="_blank" rel="noreferrer" title="If the frame stays blank (some browsers keep a frame from another site out of its sign-in), it opens in a tab of its own">
+            Open in a new tab
+          </a>
+        ) : null}
+      </div>
+      {src ? (
+        <iframe className="pg-vscode-frame" src={src} title={`VS Code on ${server.name}`} allow="clipboard-read; clipboard-write" />
+      ) : (
+        <div className="pg-vscode-wait">
+          {problem || status?.state === 'failed' ? (
+            <>
+              <p className="pg-note is-problem">{problem || status?.error}</p>
+              <button type="button" className="btn sm" onClick={() => setRound((n) => n + 1)}>
+                Try again
+              </button>
+            </>
+          ) : (
+            <p>
+              <span className="spinner" /> Starting VS Code on {server.name}… The first time, it downloads VS Code’s server (a minute or two), and your extensions — coding agents included — come from the VS Code installed there. Starting it accepts the{' '}
+              <a href="https://code.visualstudio.com/license/server" target="_blank" rel="noreferrer">
+                VS Code Server license
+              </a>
+              .
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FilesView({ playground, side, onSide, connected, usable, machineName }: { playground: Playground; side: FilesSide; onSide: (next: FilesSide) => void; connected: boolean; usable: boolean; machineName: string }) {
   const colab = useColab();
   const servers = useServers();
@@ -447,6 +606,18 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
   // In split mode the command box copies the folder over before each command and brings results back; the terminal doesn't, so the box stays first there.
   const [shellView, setShellView] = useState<'terminal' | 'commands' | null>(null);
   const view = terminals && computeServer ? shellView ?? (split ? 'commands' : 'terminal') : 'commands';
+  const { tools: machineTools, asked } = useMachineTools(computeServer);
+  const homeServer = playground.home.kind === 'server' ? servers.find((server) => server.id === (playground.home.kind === 'server' ? playground.home.serverId : '')) : undefined;
+  const { tools: homeTools } = useMachineTools(homeServer);
+  // VS Code in the page: for files on a Companion whose computer has VS Code.
+  const vscodeHere = Boolean(homeServer && isCompanion(homeServer) && homeTools.vscode);
+  const terminalHere = Boolean(view === 'terminal' || (terminals && computeServer && !split));
+  const projectFolder = terminalHere ? absoluteFolder(computeServer, machineRoot(playground)) : null;
+  /** A command into the terminal below, shown, in the project's folder: the Run button's and the Agents menu's. */
+  const inTerminal = (command: string) => {
+    setShellView('terminal');
+    typeInTerminal(playground.id, `${command}\r`);
+  };
 
   const open = async (where: 'home' | 'machine', path: string) => {
     const key = `${where}:${path}`;
@@ -541,6 +712,14 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
     setRefresh((n) => n + 1);
   };
 
+  const plan = current ? runPlan(current.path, terminalHere ? projectFolder : null, machineTools) : null;
+  const runFile = async () => {
+    if (!current || !plan || !('command' in plan)) return;
+    if (current.text !== current.saved) await save(current);
+    if (terminalHere) inTerminal(plan.command);
+    else void run(plan.command);
+  };
+
   const consoleCells = playground.console.map((entry, index) => ({ key: consoleKey(playground.id, entry.id), id: entry.id, label: `command ${index + 1}` }));
   const nbCells = useSyncExternalStore(subscribeNotebook, () => notebookFor(notebookKey(playground.id)));
   const metricCells = useMemo(
@@ -567,6 +746,10 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
     const last = consoleLog.current?.querySelector<HTMLElement>('.pg-console-entry:last-of-type');
     if (last && consoleLog.current) consoleLog.current.scrollTop = last.offsetTop - 4;
   }, [playground.console.length]);
+
+  if (vscodeHere && homeServer && playground.editor === 'vscode' && playground.home.kind === 'server') {
+    return <VsCodePane server={homeServer} folder={playground.home.root} playground={playground} />;
+  }
 
   return (
     <div className="pg-files">
@@ -600,6 +783,18 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
             );
           })}
           <span className="spacer" />
+          {current && plan ? (
+            <button
+              type="button"
+              className="btn sm pg-run"
+              disabled={!('command' in plan) || !usable}
+              onClick={() => void runFile()}
+              title={'command' in plan ? `${plan.command}${asked ? '' : ` (${machineName} couldn’t say what is installed: this is a guess)`} — ⌘↵` : `Running ${plan.language} needs ${plan.missing} on ${machineName}`}
+            >
+              ▶ Run
+            </button>
+          ) : null}
+          {vscodeHere ? <EditorSwitch playground={playground} /> : null}
           {current ? (
             <button type="button" className="btn sm" disabled={!dirty} onClick={() => void save(current)} title="⌘S">
               {dirty ? 'Save' : 'Saved'}
@@ -613,10 +808,14 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
               event.preventDefault();
               void save(current);
             }
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && current) {
+              event.preventDefault();
+              void runFile();
+            }
           }}
         >
           {current ? (
-            <Editor value={current.text} python={/\.py$/.test(current.path)} onChange={(text) => setFiles((list) => list.map((f) => (f === current ? { ...f, text } : f)))} onKeyDown={() => undefined} />
+            <Editor value={current.text} python={/\.py$/.test(current.path)} path={current.path} onChange={(text) => setFiles((list) => list.map((f) => (f === current ? { ...f, text } : f)))} onKeyDown={() => undefined} />
           ) : (
             <div className="pg-editor-empty">
               <p>Open a file from the left, or make one.</p>
@@ -646,6 +845,7 @@ function FilesView({ playground, side, onSide, connected, usable, machineName }:
             </span>
             <span className="spacer" />
             {view === 'terminal' && split ? <span className="pg-note">The terminal doesn’t copy the folder over — use Sync, or Copy &amp; run.</span> : null}
+            {terminals && computeServer && isCompanion(computeServer) ? <AgentsMenu agents={machineTools.agents} asked={asked} machineName={machineName} onStart={(command) => inTerminal(projectFolder ? (machineTools.os === 'windows' ? `cd "${projectFolder}"; ${command}` : `cd '${projectFolder.replace(/'/g, `'\\''`)}' && ${command}`) : command)} /> : null}
             {view === 'commands' && colab.running?.startsWith('pgsh:') ? (
               <button type="button" className="btn sm colab-stop" onClick={() => void interrupt()}>
                 ■ Stop

@@ -375,6 +375,49 @@ export async function claimCompanion(server: { url: string; token: string }, pas
   return { email: body.email, token: body.token, tunnel: body.tunnel || '', id: body.id || '' };
 }
 
+/** What the paired Companion's computer can run (GET /companion/tools, from 0.7.0): null when it can't say. */
+export async function companionTools(server: { url: string; token: string }): Promise<{ os: 'mac' | 'linux' | 'windows'; tools: Record<string, string>; agents: { id: string; name: string }[]; vscode: boolean } | null> {
+  try {
+    const response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/tools`, { headers: { Authorization: `token ${server.token}` }, cache: 'no-store' });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { os?: string; tools?: Record<string, string>; agents?: { id: string; name: string }[]; vscode?: boolean };
+    if (!body.tools || !Array.isArray(body.agents)) return null;
+    return { os: body.os === 'windows' ? 'windows' : body.os === 'linux' ? 'linux' : 'mac', tools: body.tools, agents: body.agents, vscode: Boolean(body.vscode) };
+  } catch {
+    return null;
+  }
+}
+
+export interface VsCodeWeb {
+  state: 'off' | 'starting' | 'ready' | 'failed';
+  error: string;
+  /** Where it is on the Companion, with its secret, once ready: /companion/vscode/<secret>/. */
+  path: string;
+  /** The folder it opens, absolute on that computer. */
+  folder: string;
+}
+
+/**
+ * VS Code for the browser on the Companion's computer (/companion/vscode-web,
+ * from 0.7.0): `start` starts it (the first time downloads VS Code's server),
+ * otherwise only says how it is. `folder` is the project's, under the Companion's.
+ */
+export async function vscodeWeb(server: { url: string; token: string }, folder: string, start = false): Promise<VsCodeWeb> {
+  const base = `${server.url.replace(/\/?$/, '/')}companion/vscode-web`;
+  let response: Response;
+  try {
+    response = start
+      ? await fetch(base, { method: 'POST', headers: { Authorization: `token ${server.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ folder }) })
+      : await fetch(`${base}?folder=${encodeURIComponent(folder)}`, { headers: { Authorization: `token ${server.token}` }, cache: 'no-store' });
+  } catch {
+    throw new Error('The Companion isn’t answering.');
+  }
+  if (response.status === 404) throw new Error('This Companion is older than VS Code in the page (0.7.0): update it in Settings → Updates.');
+  const body = (await response.json().catch(() => ({}))) as Partial<VsCodeWeb> & { error?: string };
+  if (!response.ok) throw new Error(body.error || `The Companion said ${response.status}.`);
+  return { state: body.state ?? 'off', error: body.error ?? '', path: body.path ?? '', folder: body.folder ?? '' };
+}
+
 /** The link that starts the Companion on this computer: `reader-companion setup` hands the scheme to `reader-companion start`. */
 export const START_LINK = 'reader-companion://start';
 

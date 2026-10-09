@@ -54,6 +54,8 @@ export interface Playground {
   updated: number;
   compute: Compute;
   home: FilesHome;
+  /** How a project's files are edited: the page's own editor, or VS Code from the Companion's computer, in the page. */
+  editor?: 'reader' | 'vscode';
   /** The papers it came from or is about. */
   cites: Cite[];
   /** What is copied to the machine and what is left (gitignore-like, one a line), and what comes back after a run. */

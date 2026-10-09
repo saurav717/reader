@@ -3950,6 +3950,35 @@ a browser there, type the code it prints into the card instead.
   link. The tunnel's address changes each start, so the link the Companion
   opens reconnects the computer the browser already knows, with no click.
 
+**Run, agents, and VS Code in the page.** A project's **Files** tab has, for
+the open file, **▶ Run** (⌘↵), as VS Code's ▶ does: the command comes from
+the file's language and what the machine has (`src/lib/languages.ts`):
+`python main.py`, `node`/`bun`/`deno`, `go run`, `gcc`/`g++` into
+`.reader/bin/` and run, `rustc`, `java File.java`, Ruby, R, Julia, shell and
+more. It saves first and types the command into the terminal below, so
+`input()` and Ctrl-C work. The Companion says what is installed
+(`/companion/tools`), looked up through your own shell and rc files, since one
+started at login has a bare PATH. A language with nothing to run it says what
+to install. On Colab or a plain Jupyter server, the machine is taken to be
+Linux with Python and a compiler. The editor highlights those languages too.
+
+**Agents ▾** in the console lists the coding agents with a command line on the
+machine (Claude Code, Codex, Gemini CLI, Copilot CLI, Aider, …) and starts one
+in the project's folder, in the terminal. With none, it offers their installs.
+
+**Editor | VS Code** switches a project whose files are on a Companion to
+VS Code itself, in the page, on the same folder: `code serve-web`, Microsoft's
+VS Code for the browser, from the VS Code installed on that computer
+(`companion/reader_companion/tools.py`). It starts on first use (the first time
+downloads VS Code's server, a minute or two) on 127.0.0.1 with a connection
+token only the Companion knows. The page reaches it through the Companion at
+`/companion/vscode/<secret>/`, which adds the token and lets only the site
+frame it, so it works through the tunnel too. Your extensions, coding agents
+included, are linked in from `~/.vscode/extensions`. Settings and sign-ins
+are its own, in `~/.reader-companion/vscode`. Starting it accepts the
+[VS Code Server license](https://code.visualstudio.com/license/server). If a
+browser keeps the frame blank, **Open in a new tab** opens it on its own.
+
 **VS Code.** A project on the Companion has **Open in VS Code** in its bar.
 It is a `vscode://file/…` link to the project's folder, so it works with
 nothing else installed. The **Reader Playground** extension (`vscode/`)

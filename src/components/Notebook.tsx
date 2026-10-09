@@ -21,6 +21,7 @@ import type { CellRun, RuntimeEntry } from '../lib/colab';
 import { explanationFor, parseExplanation, subscribeExplain } from '../lib/explain';
 import type { Section } from '../lib/explain';
 import { commitFiles, targetFrom } from '../lib/github';
+import { highlightCode } from '../lib/languages';
 import { bundleOf, bundleZip, colabUrl, computeOf, implementationFor, notebookBundle, slugOf, subscribeImplement } from '../lib/implement';
 import type { Bundle } from '../lib/implement';
 import { askNotebook, dismissNotebookAsk, draftsOf, loadNotebookAsk, notebookAskFor, outputText, pickNotebookModel, rewriteNotebook, stopNotebookAsk, subscribeNotebookAsk, undoNotebookReply } from '../lib/notebookAsk';
@@ -74,7 +75,7 @@ function download(name: string, blob: Blob) {
 // what is highlighted; the two share a grid cell, so the height is the text's.
 // ---------------------------------------------------------------------------
 
-export function Editor({ value, python, autoFocus, onChange, onKeyDown, onBlur, placeholder }: { value: string; python: boolean; autoFocus?: boolean; onChange: (next: string) => void; onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void; onBlur?: () => void; placeholder?: string }) {
+export function Editor({ value, python, path, autoFocus, onChange, onKeyDown, onBlur, placeholder }: { value: string; python: boolean; /** A file's path: its language is highlighted. */ path?: string; autoFocus?: boolean; onChange: (next: string) => void; onKeyDown: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void; onBlur?: () => void; placeholder?: string }) {
   const box = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (autoFocus) {
@@ -86,7 +87,7 @@ export function Editor({ value, python, autoFocus, onChange, onKeyDown, onBlur, 
   return (
     <div className="nb-editor">
       <pre className="cell-code nb-shadow" aria-hidden="true">
-        <code dangerouslySetInnerHTML={{ __html: (python ? highlightPython(value) : esc(value)) + '\n' }} />
+        <code dangerouslySetInnerHTML={{ __html: (python ? highlightPython(value) : path ? highlightCode(value, path) : esc(value)) + '\n' }} />
       </pre>
       <textarea
         ref={box}
