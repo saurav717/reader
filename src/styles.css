@@ -6014,3 +6014,5 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .pg-row.is-blocked .pg-row-main { cursor: default; }
 .pg-row.is-blocked .pg-row-main:hover { background: transparent; }
 .pg-row.is-blocked .pg-row-main b, .pg-row.is-blocked .pg-where { opacity: 0.6; }
+
+.pg-across > p { margin: 0 0 8px; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }

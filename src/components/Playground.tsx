@@ -587,6 +587,33 @@ const safeHost = (url: string) => {
   }
 };
 
+/**
+ * The steps for code on one machine and compute on another, both away from the
+ * browser: a Reader Companion on each, through its HTTPS tunnel, connected to
+ * the Google account so every browser signed in as it has them.
+ */
+export function acrossMachinesSteps(site: string): { label: string; code: string }[] {
+  const base = site.replace(/\/?$/, '/');
+  return [
+    {
+      label: '1 · On the computer that keeps your code (at home, say): installs the Companion for good, with an HTTPS tunnel, starting at every login. It prints a link: open it in the browser you work in (copy it over from an SSH session), signed in with Google.',
+      code: `curl -LsSf ${base}companion-setup.sh | sh -s -- --tunnel --no-vscode --name "Home computer"\n# Windows (PowerShell):\n# & ([scriptblock]::Create((irm ${base}companion-setup.ps1))) --tunnel --no-vscode --name "Home computer"`,
+    },
+    {
+      label: '2 · On the GPU machine: the same line where it stays up (a lab server, your own box). On a pod or an SSH session that ends, run it in the foreground instead, in tmux so it survives the session closing; it prints the link the same way.',
+      code: `curl -LsSf ${base}companion-setup.sh | sh -s -- --tunnel --no-vscode --name "GPU box"\n# or, on a pod / for one session:\ntmux new -s reader\ncurl -LsSf ${base}companion.sh | sh -s -- --tunnel --no-browser --name "GPU box"`,
+    },
+    {
+      label: 'A new link at any time, on either machine (a link is good for a few minutes):',
+      code: '~/.local/bin/reader-companion pair --no-browser',
+    },
+    {
+      label: '3 · In the browser you work in: open both links. Signed in with Google, both computers are kept under your account and show up in every browser you sign in to. Then a new project → “Code on one machine, compute on another”: the code kept on the first, run on the GPU machine. Before each run the folder is copied there (through this browser, text files up to 2 MB); what it writes under runs/ and results/ comes back. Keep data and weights on the GPU machine and fetch them there.',
+      code: '',
+    },
+  ];
+}
+
 /** The commands that start a Jupyter server this page may talk to, for this site's origin. */
 export function serverCommands(where: 'pc' | 'remote', origin: string): { label: string; code: string }[] {
   // One flag a line, joined with backslashes: easy to read in a narrow card, and still one command when pasted.
@@ -603,6 +630,8 @@ export function serverCommands(where: 'pc' | 'remote', origin: string): { label:
 function ServerForm({ server, onDone, onSaved, defaultWhere = 'pc' }: { server?: JupyterServer; onDone: () => void; onSaved?: (server: JupyterServer) => void; defaultWhere?: 'pc' | 'remote' }) {
   const [name, setName] = useState(server?.name ?? (defaultWhere === 'pc' ? 'This PC' : 'Another machine'));
   const [where, setWhere] = useState<'pc' | 'remote'>(server?.where ?? defaultWhere);
+  /** The steps for code and compute both elsewhere, shown in place of the form. */
+  const [across, setAcross] = useState(false);
   const [address, setAddress] = useState(server ? `${server.url}${server.token ? `?token=${server.token}` : ''}` : '');
   const [token, setToken] = useState('');
   const [state, setState] = useState<{ ok: boolean; text: string } | null>(null);
@@ -632,13 +661,30 @@ function ServerForm({ server, onDone, onSaved, defaultWhere = 'pc' }: { server?:
         </button>
       </div>
       <div className="segmented pg-seg" role="radiogroup" aria-label="Where it runs">
-        <button type="button" role="radio" aria-checked={where === 'pc'} className={where === 'pc' ? 'on' : ''} onClick={() => setWhere('pc')}>
+        <button type="button" role="radio" aria-checked={!across && where === 'pc'} className={!across && where === 'pc' ? 'on' : ''} onClick={() => (setWhere('pc'), setAcross(false))}>
           On this PC
         </button>
-        <button type="button" role="radio" aria-checked={where === 'remote'} className={where === 'remote' ? 'on' : ''} onClick={() => setWhere('remote')}>
+        <button type="button" role="radio" aria-checked={!across && where === 'remote'} className={!across && where === 'remote' ? 'on' : ''} onClick={() => (setWhere('remote'), setAcross(false))}>
           Another machine
         </button>
+        {!server ? (
+          <button type="button" role="radio" aria-checked={across} className={across ? 'on' : ''} onClick={() => setAcross(true)} title="Code on one computer, compute on another, this browser on a third">
+            Across machines
+          </button>
+        ) : null}
       </div>
+      {across ? (
+        <div className="pg-howto pg-across">
+          <p>The browser here, your code on one computer, the GPU on another: a Reader Companion on each of the two, reached through its HTTPS tunnel from wherever you are.</p>
+          {acrossMachinesSteps(siteBase()).map((step) => (
+            <div key={step.label}>
+              <small>{step.label}</small>
+              {step.code ? <CopyBlock code={step.code} /> : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+      <>
       <details className="pg-howto" open={!server}>
         <summary>How to start one</summary>
         {serverCommands(where, origin).map((step) => (
@@ -670,6 +716,8 @@ function ServerForm({ server, onDone, onSaved, defaultWhere = 'pc' }: { server?:
         </button>
         {address && !parsed ? <span className="pg-bad">That is not an http(s) address.</span> : null}
       </div>
+      </>
+      )}
     </div>
   );
 }
