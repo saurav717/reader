@@ -27,6 +27,7 @@ import { CLOSE_EXPLAIN, OPEN_BOARD, OPEN_EXPLAIN, OPEN_NOTES } from './lib/notes
 import Reader from './components/Reader';
 import Settings from './components/Settings';
 import UsageView, { useIsOwner } from './components/UsageView';
+import { isPass, passEmail } from './lib/api';
 import Welcome from './components/Welcome';
 import Home from './components/Home';
 import { readHomePrefs, startVisit } from './lib/homeViews';
@@ -210,7 +211,16 @@ export default function App() {
   // The owner of the proxy — READER_TOKEN, or a Google sign-in named in
   // READER_OWNERS — gets a rail button for who uses it; nobody else sees one.
   const [usageOpen, setUsageOpen] = useState(() => typeof window !== 'undefined' && Boolean(placeFor(window.location.pathname)?.usage));
-  const isOwner = useIsOwner(settings.proxyToken, user?.email);
+  // Usage is for the owner signed in now. A pass outlives the Google sign-in it
+  // came from (weeks against an hour), so while the page asks to sign in or to
+  // reconnect, Usage is neither offered nor shown; and a pass is only used for
+  // the account it was given to. A site with no Google sign-in at all (a copy run
+  // on READER_TOKEN alone) goes by the token, as before.
+  const usesGoogle = Boolean(settings.googleClientId.trim());
+  const signedInNow = !usesGoogle || (Boolean(user) && driveConnected);
+  const heldToken = settings.proxyToken.trim();
+  const ownToken = isPass(heldToken) && passEmail(heldToken)?.toLowerCase() !== user?.email?.toLowerCase() ? '' : heldToken;
+  const isOwner = useIsOwner(signedInNow ? ownToken : '', signedInNow ? user?.email : null) && signedInNow;
   // Usage is a page of its own: it takes the main area, and the library and
   // the side panel step aside while it is open.
   const onUsage = usageOpen && isOwner;
