@@ -1,12 +1,19 @@
-// Settings → This computer: each Companion this browser is paired with, its
-// version, and Update when the site serves a newer one. The Companion installs
-// it itself, refreshes the VS Code extension, and starts again
-// (/companion/update in companion/reader_companion/extension.py).
+// Settings → Updates: the two parts of Reader and how each one is updated.
+// The website isn't installed anywhere: a new build reaches the Reader app and
+// every tab on the next load, and a window left open is offered Reload when a
+// newer one is published (src/lib/siteBuild.ts). The Reader Companion is the
+// part installed on a computer, so it is updated there: each one this browser
+// is paired with, its version, and Update when the site serves a newer one. The
+// Companion installs it itself, refreshes the VS Code extension, and starts
+// again (/companion/update in companion/reader_companion/extension.py).
 
 import { useEffect, useState } from 'react';
+import type { CompanionInfo } from '../lib/companion';
 import type { JupyterServer } from '../lib/colab';
-import { COMPANION_VERSION, companionPort, findCompanion, isNewer, startCompanion, updateCompanion, waitForVersion } from '../lib/companion';
-import { useServers } from '../lib/playground';
+import { COMPANION_VERSION, companionPort, findCompanion, findLocalCompanion, isNewer, normaliseCode, pairCompanion, showCompanionCode, startCompanion, updateCompanion, waitForVersion } from '../lib/companion';
+import { saveCompanion, useServers } from '../lib/playground';
+import { SITE_BUILD, isNewerBuild, publishedBuild } from '../lib/siteBuild';
+import type { SiteBuild } from '../lib/siteBuild';
 import { isCompanion } from './VsCodeExtension';
 
 /** The first Companion that can update itself: an older one is updated once the way it was installed. */
@@ -51,7 +58,7 @@ function CompanionRow({ server }: { server: JupyterServer }) {
   return (
     <div className="companion-update">
       <div>
-        <b>{server.name}</b>
+        <b>Companion on {server.name}</b>
         <small>
           {row.state === 'looking'
             ? 'Looking…'
@@ -91,21 +98,120 @@ function CompanionRow({ server }: { server: JupyterServer }) {
   );
 }
 
-/** Every Companion this browser is paired with, or nothing when there is none. */
+/**
+ * No Companion paired in this browser (another browser, or the Reader app's
+ * window, may be): the one running on this computer, if any, and its code to
+ * pair it here — the Playground's Connect this computer, in short.
+ */
+function UnpairedRow() {
+  const [found, setFound] = useState<{ base: string; info: CompanionInfo } | null | undefined>(undefined);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void findLocalCompanion().then((reached) => live && setFound(reached));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const ask = async () => {
+    if (!found) return;
+    const shown = await showCompanionCode(found.base);
+    setNote(shown ? 'The code is in a window on this computer’s screen.' : 'This computer can’t show it in a window: run reader-companion pair in a terminal, or open the Reader app.');
+  };
+  const pair = async () => {
+    if (!found) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      saveCompanion(await pairCompanion(code, found.base), found.base);
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="companion-update companion-unpaired">
+      <div>
+        <b>{found ? `Companion on ${found.info.name}` : 'Companion on this computer'}</b>
+        <small>
+          {found === undefined
+            ? 'Looking for the Reader Companion…'
+            : found
+              ? `Companion ${found.info.version} is running here, but this window isn’t paired with it yet. Pair it to update it, shut it down and start it from here.`
+              : 'No Reader Companion answers on this computer: it is off, or not installed. Open the Reader app to start it, or Playground → Connect this computer to install it.'}
+        </small>
+        {found ? (
+          <span className="companion-pair">
+            <button type="button" className="btn sm" onClick={() => void ask()}>
+              Show the code on this computer
+            </button>
+            <input value={code} placeholder="ABC-DEF" aria-label="The code it shows" onChange={(event) => setCode(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && normaliseCode(code).length === 7 && void pair()} />
+            <button type="button" className="btn sm primary" disabled={busy || normaliseCode(code).length !== 7} onClick={() => void pair()}>
+              {busy ? 'Pairing…' : 'Pair'}
+            </button>
+          </span>
+        ) : null}
+        {note ? <small>{note}</small> : null}
+      </div>
+    </div>
+  );
+}
+
+const when = (iso: string) => {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+};
+
+/** The website: nothing to install, and Reload when a newer build is published than the one this window loaded. */
+function WebsiteRow() {
+  const [published, setPublished] = useState<SiteBuild | null | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    void publishedBuild().then((build) => live && setPublished(build));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const newer = published && isNewerBuild(published);
+  const loaded = when(SITE_BUILD.time);
+  return (
+    <div className="companion-update">
+      <div>
+        <b>Website</b>
+        <small>
+          {newer
+            ? `A newer version was published ${when(published.time)}. Reload to use it; nothing to download.`
+            : `Up to date${loaded ? `: published ${loaded}` : ''} (${SITE_BUILD.commit}). It updates by itself — the Reader app and every tab load the newest one each time they open.`}
+        </small>
+      </div>
+      {newer ? (
+        <button type="button" className="btn sm primary" onClick={() => window.location.reload()}>
+          Reload
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/** The website, then every Companion this browser is paired with, or the one on this computer to pair with. */
 export default function CompanionUpdates() {
   const companions = useServers().filter(isCompanion);
-  if (!companions.length) return null;
   return (
     <section style={{ marginBottom: 22 }}>
       <div className="eyebrow" style={{ marginBottom: 10 }}>
-        This computer
+        Updates
       </div>
-      {companions.map((server) => (
-        <CompanionRow key={server.id} server={server} />
-      ))}
+      <WebsiteRow />
+      {companions.length ? companions.map((server) => <CompanionRow key={server.id} server={server} />) : <UnpairedRow />}
       <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-        The Reader Companion runs your playgrounds on this computer. Update installs the newest one from this site, refreshes
-        the Reader extension in VS Code, and starts it again; your files and settings stay as they are.
+        Reader has two parts. The <b>website</b> is what you see, here and in the Reader app; nothing of it is installed, so it
+        is always the newest. The <b>Companion</b> is the one part installed on your computer: the Jupyter server that runs
+        your playgrounds. A website can’t replace a program on your computer, so the Companion updates when you press Update:
+        it installs the newest one from this site, refreshes the Reader extension in VS Code, and starts again; your files and
+        settings stay as they are.
       </p>
     </section>
   );

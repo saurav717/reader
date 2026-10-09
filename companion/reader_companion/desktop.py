@@ -571,7 +571,7 @@ def uninstall_app(system: str | None = None) -> list[str]:
 #
 # A page can't start a program, but it can open a link whose scheme this
 # computer hands to one. The page's Start (the machine chip's menu, and
-# Settings → This computer) opens reader-companion://start, and what is made
+# Settings → Updates) opens reader-companion://start, and what is made
 # here runs `reader-companion start`: on macOS a small app in the settings
 # folder that declares the scheme, on Linux an applications entry for
 # x-scheme-handler/reader-companion, on Windows the URL protocol under

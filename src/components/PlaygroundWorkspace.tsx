@@ -293,7 +293,7 @@ function MachineChip({ playground, name, usable, onChange, onNote }: { playgroun
     const info = await startCompanion(companion.url);
     if (!info) {
       setPower('down');
-      onNote(`The Companion didn’t start from here. Open the Reader app on ${name}, or run reader-companion start in a terminal there. (The page can start a Companion from ${STARTABLE} on, installed with the Reader app or the installer: update it in Settings → This computer.)`);
+      onNote(`The Companion didn’t start from here. Open the Reader app on ${name}, or run reader-companion start in a terminal there. (The page can start a Companion from ${STARTABLE} on, installed with the Reader app or the installer: update it in Settings → Updates.)`);
       return;
     }
     setPower('up');
