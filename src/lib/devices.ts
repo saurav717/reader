@@ -13,7 +13,7 @@
 
 import type { JupyterServer } from './colab';
 import { api, apiBase, apiHeaders, currentAccount, currentPass } from './api';
-import { claimCompanion, companionPort, findLocalCompanion, pairCompanion } from './companion';
+import { ACCOUNTS, claimCompanion, companionPort, findCompanion, findLocalCompanion, isNewer, pairCompanion } from './companion';
 import { allServers, saveCompanion, saveServer, removeServer } from './playground';
 
 export interface Device {
@@ -64,7 +64,13 @@ export async function forgetDevice(id: string): Promise<void> {
 export async function claimForAccount(server: JupyterServer): Promise<{ server: JupyterServer; problem?: string }> {
   const pass = currentPass();
   const apiAt = absoluteApi();
-  if (!pass || !apiAt || !server.companionId) return { server, problem: pass ? undefined : 'Sign in with Google to have this computer under your account in every browser you sign in to.' };
+  if (!pass) return { server, problem: 'Sign in with Google to have this computer under your account in every browser you sign in to.' };
+  if (!apiAt) return { server, problem: 'This site has no Worker to keep your computers on.' };
+  // An older Companion has no /companion/claim, and its answer to the browser's check before the request
+  // carries no CORS headers, so the request fails as if nothing answered: ask its version first.
+  const info = await findCompanion(server.url, 4000);
+  if (!info) return { server, problem: 'The Companion isn’t answering. Open the Reader app on that computer, or start it again.' };
+  if (isNewer(ACCOUNTS, info.version)) return { server, problem: `This Companion is ${info.version}; connecting it to your account needs ${ACCOUNTS}. Update it in Settings → Updates (or open the newest Reader app), then try again.` };
   try {
     const claimed = await claimCompanion(server, pass, apiAt);
     return { server: saveServer({ ...server, token: claimed.token, account: claimed.email }) };
