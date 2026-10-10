@@ -271,7 +271,7 @@ const choice = page.getByRole('radiogroup', { name: /Where a project’s paper i
 await choice.waitFor({ timeout: 5000 }).catch(() => {});
 if (await choice.isVisible().catch(() => false)) {
   await choice.scrollIntoViewIfNeeded();
-  check('four choices, beside the default', (await choice.getByRole('radio').count()) === 4 && /default/.test(await choice.getByRole('radio').first().innerText()));
+  check('five choices, the Write tab the default', (await choice.getByRole('radio').count()) === 5 && /A Write tab · default/.test(await choice.getByRole('radio').first().innerText()));
   await shot('overleaf-settings');
 } else check('Settings opens', false);
 

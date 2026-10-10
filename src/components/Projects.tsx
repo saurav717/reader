@@ -46,6 +46,7 @@ import Playground, { ComputeTag, WhereDialog } from './Playground';
 import PaperWindow from './PaperWindow';
 import Reader from './Reader';
 import { CiteButtons, DraftEditor, OpenOverleaf, OverleafCard } from './Overleaf';
+import WritePage from './Write';
 import { ComputeSwitch } from './Compute';
 import { COLAB, computeId, isOn, serversOn, switchesOnCards } from '../lib/compute';
 import { overleafViewOf } from '../lib/overleaf';
@@ -136,7 +137,7 @@ export default function ProjectsPage({
     <ProjectBar
       projects={projects}
       current={project}
-      mode={view.kind === 'projects' ? 'board' : view.mode === 'workspace' ? 'workspace' : 'overview'}
+      mode={view.kind === 'projects' ? 'board' : view.mode === 'workspace' || view.mode === 'write' ? view.mode : 'overview'}
       onView={onView}
       onNew={() => setCreating(true)}
     />
@@ -157,6 +158,8 @@ export default function ProjectsPage({
         </div>
       </div>
     );
+  } else if (view.mode === 'write') {
+    body = <WritePage key={project.id} project={project} onView={onView} />;
   } else if (view.mode === 'workspace') {
     body = <ProjectWorkspace key={project.id} project={project} onView={onView} onOpenPaper={onOpenPaper} />;
   } else {
@@ -164,7 +167,7 @@ export default function ProjectsPage({
   }
 
   return (
-    <main className={`main pj-page${view.kind === 'project' && view.mode === 'workspace' ? ' is-workspace' : ''}`}>
+    <main className={`main pj-page${view.kind === 'project' && view.mode === 'workspace' ? ' is-workspace' : ''}${view.kind === 'project' && view.mode === 'write' ? ' is-workspace is-write' : ''}`}>
       {header}
       {body}
       {creating ? (
@@ -190,10 +193,12 @@ function ProjectBar({
 }: {
   projects: Project[];
   current: Project | undefined;
-  mode: 'board' | 'overview' | 'workspace';
+  mode: 'board' | 'overview' | 'workspace' | 'write';
   onView: (view: View) => void;
   onNew: () => void;
 }) {
+  const { settings } = useStore();
+  const writeTab = overleafViewOf(settings) === 'tab';
   const [picking, setPicking] = useState(false);
   const pickRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -227,7 +232,7 @@ function ProjectBar({
                 aria-current={project.id === current?.id ? 'true' : undefined}
                 onClick={() => {
                   setPicking(false);
-                  onView(mode === 'workspace' ? { kind: 'project', id: project.id, mode: 'workspace' } : { kind: 'project', id: project.id });
+                  onView(mode === 'workspace' || mode === 'write' ? { kind: 'project', id: project.id, mode } : { kind: 'project', id: project.id });
                 }}
               >
                 <span className="pj-dot" style={{ background: project.color }} />
@@ -251,6 +256,11 @@ function ProjectBar({
         <button type="button" aria-pressed={mode === 'workspace'} disabled={!target} onClick={() => target && onView({ kind: 'project', id: target.id, mode: 'workspace' })} title="A paper of the project beside its code">
           Workspace
         </button>
+        {writeTab ? (
+          <button type="button" aria-pressed={mode === 'write'} disabled={!target} onClick={() => target && onView({ kind: 'project', id: target.id, mode: 'write' })} title="The project’s paper: its LaTeX and the PDF it makes, synced with Overleaf">
+            Write
+          </button>
+        ) : null}
       </div>
       <div style={{ flex: 1 }} />
       <button type="button" className="btn sm" onClick={onNew}>
@@ -386,7 +396,7 @@ function ProjectOverview({
   onOpenPaper: (id: string) => void;
   onAddPapers: () => void;
 }) {
-  const { papers, highlights, updateCollection, setPaperCollections, renameCollection, deleteCollection } = useStore();
+  const { papers, highlights, updateCollection, setPaperCollections, renameCollection, deleteCollection, settings } = useStore();
   const info = project.project;
   const groups = byRole(project, papers);
   const reading = continueWith(project, papers);
@@ -511,6 +521,7 @@ function ProjectOverview({
         <OverleafCard
           project={project}
           onWrite={() => {
+            if (overleafViewOf(settings) === 'tab') return onView({ kind: 'project', id: project.id, mode: 'write' });
             writeWs(WS_LAYOUT, 'write');
             onView({ kind: 'project', id: project.id, mode: 'workspace' });
           }}

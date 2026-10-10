@@ -10,7 +10,7 @@
 // the outline, the \cite keys and which papers they are. The calls to GitHub
 // are at the end.
 
-import type { BrowserChoice, OverleafLink, OverleafView, Paper, Settings } from '../types';
+import type { BrowserChoice, OverleafLink, OverleafView, Paper, PaperFolder, Settings } from '../types';
 import { OVERLEAF_VIEWS } from '../types';
 import { citeKey, commitFiles, gh, parseRepo, toBibtex, type GitHubTarget } from './github';
 
@@ -63,6 +63,15 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
       };
     }
   }
+  const folders: Record<string, PaperFolder> = {};
+  if (value.folders && typeof value.folders === 'object') {
+    for (const [computer, raw] of Object.entries(value.folders as Record<string, unknown>)) {
+      const folder = raw as Partial<Record<keyof PaperFolder, unknown>> | null;
+      const path = typeof folder?.path === 'string' ? folder.path.replace(/^\/+|\/+$/g, '') : '';
+      if (!path || path.split('/').includes('..')) continue;
+      folders[computer] = { path, sync: folder?.sync === 'git' || folder?.sync === 'dropbox' ? folder.sync : 'folder' };
+    }
+  }
   return {
     url,
     ...(repo ? { repo: `${repo.owner}/${repo.repo}` } : {}),
@@ -70,6 +79,7 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
     ...(repo && text(value.folder) ? { folder: cleanFolder(text(value.folder)!) } : {}),
     ...(text(value.account) ? { account: text(value.account) } : {}),
     ...(Object.keys(browsers).length ? { browsers } : {}),
+    ...(Object.keys(folders).length ? { folders } : {}),
   };
 }
 
@@ -77,7 +87,7 @@ const cleanFolder = (folder: string) => folder.replace(/^\/+|\/+$/g, '');
 
 /** The choice in Settings, as it can be relied on: the default for anything else. */
 export function overleafViewOf(settings: Pick<Settings, 'overleafView'>): OverleafView {
-  return OVERLEAF_VIEWS.some((view) => view.id === settings.overleafView) ? settings.overleafView : 'beside';
+  return OVERLEAF_VIEWS.some((view) => view.id === settings.overleafView) ? settings.overleafView : 'tab';
 }
 
 /**
@@ -409,3 +419,38 @@ export async function writeDraft(target: GitHubTarget, changed: DraftFile[], mes
   const shas = new Map(after.tree.map((item) => [item.path, item.sha]));
   return changed.map((file) => ({ ...file, sha: shas.get(file.path) ?? file.sha }));
 }
+
+// ------------------------------------------------- the Write tab's files --
+
+/** Overleaf's Git address for a project, from its address in the editor; null for a share link or another host. */
+export function overleafGitUrl(url: string | undefined): string | null {
+  const parsed = parseOverleafUrl(url ?? '');
+  const id = parsed?.match(/^https:\/\/(?:www\.)?overleaf\.com\/project\/([0-9a-f]{24})$/)?.[1];
+  return id ? `https://git.overleaf.com/${id}` : null;
+}
+
+/** A file the editor opens: LaTeX and the text around it. */
+export const isTextFile = (path: string) => /\.(tex|bib|sty|cls|bst|bbx|cbx|txt|md|cfg|def|ltx|dtx|ins)$|(^|\/)(latexmkrc|\.latexmkrc)$/i.test(path);
+
+/** What compiling leaves behind, kept out of the file list. */
+export const isBuildFile = (path: string) => /\.(aux|log|fls|fdb_latexmk|synctex\.gz|synctex|out|toc|lof|lot|bbl|blg|bcf|run\.xml|nav|snm|vrb|xdv|dvi)$/i.test(path);
+
+/** The bib file with the paper's entry put at its end; null when the draft has one for it already. */
+export function withEntry(bib: string, paper: Paper, entries: BibEntry[]): string | null {
+  if (entryFor(paper, entries)) return null;
+  const key = keyFor(paper, entries);
+  if (entries.some((entry) => entry.key === key)) return null;
+  return `${bib.replace(/\s*$/, '')}${bib.trim() ? '\n\n' : ''}${bibtexFor(paper, entries)}\n`;
+}
+
+/** A folder for the paper under the Companion's: papers/<the project's name>. */
+export const paperFolderFor = (name: string) =>
+  `papers/${
+    name
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[^\w\s-]/g, '')
+      .trim()
+      .replace(/[\s_]+/g, '-')
+      .slice(0, 48) || 'paper'
+  }`;

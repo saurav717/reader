@@ -50,7 +50,13 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
   onFocus?: () => void;
   /** Shown, searched and selected, never changed: a snapshot of code that is somewhere else. */
   readOnly?: boolean;
-}>(function CodeEditor({ value, path, fontSize = 13, minimap = true, onChange, onKeyDown, onCursor, onFocus, readOnly = false }, ref) {
+  /**
+   * Long lines wrapped to the editor's width, as prose wants (the Write tab's
+   * LaTeX), a line number at the first row of each. For a language whose
+   * highlighting never spans lines, as LaTeX's doesn't.
+   */
+  wrap?: boolean;
+}>(function CodeEditor({ value, path, fontSize = 13, minimap = true, onChange, onKeyDown, onCursor, onFocus, readOnly = false, wrap = false }, ref) {
   const text = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const map = useRef<HTMLCanvasElement>(null);
@@ -104,16 +110,39 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
     const box = scroller.current;
     if (!element || !box) return;
     const { line, col } = lineCol(element.value, element.selectionEnd);
-    const y = PAD_Y + (line - 1) * lineHeight;
+    const y = topOf(line);
     const x = gutterWidth + PAD_X + (col - 1) * charWidth;
     if (y < box.scrollTop) box.scrollTop = y - lineHeight;
-    else if (y + lineHeight * 2 > box.scrollTop + box.clientHeight) box.scrollTop = y + lineHeight * 2 - box.clientHeight;
+    else if (y + heightOf(line) + lineHeight > box.scrollTop + box.clientHeight) box.scrollTop = y + heightOf(line) + lineHeight - box.clientHeight;
+    if (wrap) return;
     if (x < box.scrollLeft + gutterWidth + 20) box.scrollLeft = Math.max(0, x - gutterWidth - 40);
     else if (x + 30 > box.scrollLeft + box.clientWidth) box.scrollLeft = x + 60 - box.clientWidth;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineHeight, charWidth, lines.length]);
 
   const gutterWidth = Math.max(3, String(lines.length).length) * charWidth + 28;
+
+  // Wrapped, a line takes as many rows as it needs: its top and height are measured off the shadow's line boxes.
+  const shadowLines = useRef<HTMLDivElement>(null);
+  const [rows, setRows] = useState<{ tops: number[]; heights: number[] } | null>(null);
+  // Read by reveal, which is made once: the rows as they are now, not as they were then.
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  useLayoutEffect(() => {
+    if (!wrap) return;
+    const holder = shadowLines.current;
+    if (!holder) return;
+    const measure = () => {
+      const children = Array.from(holder.children) as HTMLElement[];
+      setRows({ tops: children.map((child) => child.offsetTop), heights: children.map((child) => child.offsetHeight) });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(holder);
+    return () => observer.disconnect();
+  }, [wrap, value, fontSize]);
+  const topOf = (line: number) => (wrap && rowsRef.current ? rowsRef.current.tops[line - 1] ?? PAD_Y + (line - 1) * lineHeight : PAD_Y + (line - 1) * lineHeight);
+  const heightOf = (line: number) => (wrap && rowsRef.current ? rowsRef.current.heights[line - 1] ?? lineHeight : lineHeight);
 
   /** One edit typed in through the browser, so undo keeps it; the selection placed after. */
   const apply = useCallback(
@@ -328,18 +357,33 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
   return (
     <div className={`ce${minimap ? ' has-map' : ''}`} style={{ '--ce-fs': `${fontSize}px`, '--ce-lh': `${lineHeight}px`, '--ce-gutter': `${gutterWidth}px` } as React.CSSProperties}>
       <div className="ce-scroll" ref={scroller} onScroll={(event) => setView({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>
-        <div className="ce-inner" style={{ height: PAD_Y * 2 + lines.length * lineHeight, width: `max(100%, ${gutterWidth + PAD_X * 2 + (widest + 4) * charWidth}px)` }}>
-          <pre className="ce-gutter" aria-hidden="true" dangerouslySetInnerHTML={{ __html: lines.map((_, index) => (index + 1 === caretLine ? `<b>${index + 1}</b>` : String(index + 1))).join('\n') }} />
-          <div className="ce-current" style={{ top: PAD_Y + (caretLine - 1) * lineHeight }} aria-hidden="true" />
+        <div className={`ce-inner${wrap ? ' is-wrap' : ''}`} style={wrap ? undefined : { height: PAD_Y * 2 + lines.length * lineHeight, width: `max(100%, ${gutterWidth + PAD_X * 2 + (widest + 4) * charWidth}px)` }}>
+          {wrap ? (
+            <div className="ce-gutter ce-gutter-rows" aria-hidden="true">
+              {lines.map((_, index) => (
+                <span key={index} style={{ top: topOf(index + 1) }} className={index + 1 === caretLine ? 'is-on' : undefined}>
+                  {index + 1}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <pre className="ce-gutter" aria-hidden="true" dangerouslySetInnerHTML={{ __html: lines.map((_, index) => (index + 1 === caretLine ? `<b>${index + 1}</b>` : String(index + 1))).join('\n') }} />
+          )}
+          <div className="ce-current" style={{ top: topOf(caretLine), height: heightOf(caretLine) }} aria-hidden="true" />
           {marks ? <pre className="ce-layer ce-marks" aria-hidden="true" dangerouslySetInnerHTML={{ __html: `${marks}\n` }} /> : null}
-          <pre className="ce-layer ce-shadow" aria-hidden="true">
-            <code dangerouslySetInnerHTML={{ __html: `${html}\n` }} />
-          </pre>
+          {wrap ? (
+            // A box a line, so each line's rows can be measured; the first in the flow, so it gives the editor its height.
+            <div className="ce-layer ce-shadow ce-shadow-lines" aria-hidden="true" ref={shadowLines} dangerouslySetInnerHTML={{ __html: html.split('\n').map((line) => `<div>${line}</div>`).join('') }} />
+          ) : (
+            <pre className="ce-layer ce-shadow" aria-hidden="true">
+              <code dangerouslySetInnerHTML={{ __html: `${html}\n` }} />
+            </pre>
+          )}
           <textarea
             ref={text}
             className="ce-layer ce-text"
             value={value}
-            wrap="off"
+            wrap={wrap ? 'soft' : 'off'}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"

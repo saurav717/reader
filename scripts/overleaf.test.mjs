@@ -59,9 +59,17 @@ describe('the link', () => {
     assert.equal(ol.overleafLinkOf({ url: 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5', browsers: { pc: { browser: '' } } }).browsers, undefined);
   });
 
+  it('keeps each computer’s paper folder, and drops one that climbs out', () => {
+    const link = ol.overleafLinkOf({
+      url: 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5',
+      folders: { mac: { path: '/papers/moe/', sync: 'git' }, pc: { path: '../etc', sync: 'git' }, lab: { path: 'linked/Overleaf', sync: 'weird' }, none: { sync: 'git' } },
+    });
+    assert.deepEqual(link.folders, { mac: { path: 'papers/moe', sync: 'git' }, lab: { path: 'linked/Overleaf', sync: 'folder' } });
+  });
+
   it('falls back to the default view for a choice it does not know', () => {
     assert.equal(ol.overleafViewOf({ overleafView: 'dock' }), 'dock');
-    assert.equal(ol.overleafViewOf({ overleafView: 'somewhere' }), 'beside');
+    assert.equal(ol.overleafViewOf({ overleafView: 'somewhere' }), 'tab');
   });
 
   it('puts the window on the right half of the screen', () => {
@@ -146,6 +154,34 @@ describe('the files', () => {
 
   it('highlights commands, comments and maths', () => {
     assert.equal(ol.highlightTex('\\cite{a} 50\\% $x$ % c <'), '<span class="tok-k">\\cite</span>{a} 50<span class="tok-k">\\%</span> <span class="tok-n">$x$</span> <span class="tok-c">% c &lt;</span>');
+  });
+});
+
+describe('the Write tab', () => {
+  it('finds Overleaf’s Git address for a project, not for a share link', () => {
+    assert.equal(ol.overleafGitUrl('https://www.overleaf.com/project/66F1C0A9E2B7D4A1B2C3D4E5'), 'https://git.overleaf.com/66f1c0a9e2b7d4a1b2c3d4e5');
+    assert.equal(ol.overleafGitUrl('https://www.overleaf.com/read/abcdefghjkmn'), null);
+    assert.equal(ol.overleafGitUrl('https://latex.example.edu/project/66f1c0a9e2b7d4a1b2c3d4e5'), null);
+    assert.equal(ol.overleafGitUrl(undefined), null);
+  });
+
+  it('opens LaTeX and its text, and leaves out what compiling makes', () => {
+    for (const path of ['main.tex', 'refs.bib', 'sections/a.tex', 'style.sty', 'latexmkrc']) assert.ok(ol.isTextFile(path), path);
+    for (const path of ['fig.png', 'main.pdf', 'main.aux']) assert.ok(!ol.isTextFile(path), path);
+    for (const path of ['main.aux', 'main.synctex.gz', 'main.fdb_latexmk', 'main.log']) assert.ok(ol.isBuildFile(path), path);
+    assert.ok(!ol.isBuildFile('main.tex'));
+  });
+
+  it('adds a paper’s entry to the bib once', () => {
+    const p = paper('n', { title: 'Novel Things', authors: ['Ada Lovelace'], published: '2025-01-01' });
+    const added = ol.withEntry('@misc{a,\n}\n', p, ol.bibEntries([{ path: 'r.bib', text: '@misc{a,\n}\n' }]));
+    assert.match(added, /^@misc\{a,\n\}\n\n@misc\{lovelace2025novel,/);
+    assert.equal(ol.withEntry(added, p, ol.bibEntries([{ path: 'r.bib', text: added }])), null);
+  });
+
+  it('names a folder for the paper after the project', () => {
+    assert.equal(ol.paperFolderFor('Sparse-gated MoE: 8B!'), 'papers/sparse-gated-moe-8b');
+    assert.equal(ol.paperFolderFor('???'), 'papers/paper');
   });
 });
 

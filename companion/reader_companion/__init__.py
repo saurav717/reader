@@ -1,6 +1,6 @@
 """Reader Companion: a Jupyter server the reader's Playground can pair with."""
 
-__version__ = "0.9.0"
+__version__ = "0.10.0"
 
 
 def _jupyter_server_extension_points():

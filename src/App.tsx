@@ -577,9 +577,10 @@ export default function App() {
     // Only the move onto and off Home; the panels' own state is read, not followed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onHome]);
-  // A project's workspace is a paper beside its code: the library and the dock
-  // step aside on the way in, and come back as they were on the way out.
-  const inWorkspace = view.kind === 'project' && view.mode === 'workspace';
+  // A project's workspace is a paper beside its code, and its Write tab the paper
+  // and its PDF: the library and the dock step aside on the way in, and come
+  // back as they were on the way out.
+  const inWorkspace = view.kind === 'project' && (view.mode === 'workspace' || view.mode === 'write');
   const panelsBeforeWorkspace = useRef<Layout | null>(null);
   useEffect(() => {
     if (inWorkspace) {

@@ -1069,6 +1069,28 @@ yet, and any `\cite` key with no BibTeX entry.
 
 Where you write is a choice in Settings → Projects, **Writing with Overleaf**:
 
+- **A Write tab** (the default): a fourth view on every project, **Board ·
+  Overview · Workspace · Write**, that is the paper. The whole page is
+  Overleaf's layout: the files (and a drawer of the project's papers to cite)
+  on the left, the LaTeX in the middle, wrapped as prose is, and the PDF on
+  the right.
+  - The PDF compiles a second after you stop typing. Errors and warnings are
+    counted at the foot of the page, and each one opens its file at its line.
+  - The paper is a folder on this computer. You choose it once per computer:
+    a clone of **Overleaf's Git** (recommended: a paid Overleaf feature, with
+    a Git token from Overleaf's Account Settings), **Overleaf's Dropbox
+    folder**, the project's **GitHub repository**, or any folder.
+  - The Companion (0.10.0 or later) compiles it. It uses `latexmk` when TeX
+    Live or MacTeX is installed, or else **Tectonic**, which it can fetch.
+  - With Git, edits go to Overleaf a few seconds after you stop typing.
+    Coauthors' edits come in while you aren't typing, and every 30 seconds.
+    Edits on the same lines are left marked for you to settle, never thrown
+    away. The token stays in the Companion, on this computer.
+  - **The Write tab** in Settings has five choices: when it compiles (as you
+    type, on save, by hand), which TeX (whichever is here, latexmk,
+    Tectonic), where the PDF is (beside the source, under it, a tab of its
+    own), when it syncs (as you type, on save, by hand), and the citations
+    drawer (on or off).
 - **Overleaf beside** (the default): the card's button opens Overleaf in a
   window on the right half of the screen. In the workspace, the paper you are
   reading has **\cite** and **BibTeX** buttons that copy its key and entry.

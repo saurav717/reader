@@ -72,7 +72,7 @@ from pathlib import Path
 
 from tornado import httpclient, websocket
 
-from . import account, browsers, desktop, folders, jobs, state, tools, tunnel
+from . import account, browsers, desktop, folders, jobs, paper, state, tools, tunnel
 
 
 class CompanionHandler(web.RequestHandler):
@@ -700,6 +700,70 @@ class BrowsersHandler(VsCodeHandler):
         self.reply(200, {"opened": True})
 
 
+class PaperHandler(VsCodeHandler):
+    """A project's paper on this computer (from 0.10.0). GET: what compiles it (latexmk, Tectonic) and whether git is here.
+    POST {action}: compile {folder, main?, engine} — the PDF as base64 and the log read into errors; install-tectonic;
+    clone {folder, url, token}; sync {folder, message, token?} — commit, pull, push; remote {folder}. Folders are
+    relative to the Companion's, and the token is kept for its remote in the Companion's config. The token, as for
+    every call that reaches files."""
+
+    def initialize(self, serverapp=None):
+        self.serverapp = serverapp
+
+    def found(self) -> dict:
+        shell = (getattr(self.serverapp, "terminado_settings", None) or {}).get("shell_command")
+        return paper.engines(tools.look_up(["latexmk", "tectonic", "git", "pdflatex", "xelatex"], shell))
+
+    async def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        self.reply(200, await IOLoop.current().run_in_executor(None, self.found))
+
+    async def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        try:
+            body = json.loads(self.request.body or b"{}")
+        except ValueError:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        action = body.get("action")
+        root = Path(state.current.root)
+        folder = str(body.get("folder", ""))
+        loop = IOLoop.current()
+        try:
+            if action == "compile":
+                found = await loop.run_in_executor(None, self.found)
+                engine = body.get("engine") if body.get("engine") in ("auto", "latexmk", "tectonic") else "auto"
+                main = str(body["main"]) if body.get("main") else None
+                return self.reply(200, await loop.run_in_executor(None, lambda: paper.compile_paper(root, folder, main, engine, found)))
+            if action == "install-tectonic":
+                return self.reply(200, {"tectonic": await loop.run_in_executor(None, paper.install_tectonic)})
+            git_path = (await loop.run_in_executor(None, self.found)).get("git") or ""
+            if action in ("clone", "sync") and not git_path:
+                return self.reply(501, {"error": "git isn't installed on this computer: install it (git-scm.com, or xcode-select --install on a Mac) to sync with Overleaf."})
+            if action == "clone":
+                url, token = str(body.get("url", "")), str(body.get("token", ""))
+                done = await loop.run_in_executor(None, lambda: paper.clone(root, folder, url, token, git_path))
+                paper.save_token(url, token)
+                return self.reply(200, done)
+            if action == "sync":
+                url = await loop.run_in_executor(None, lambda: paper.remote_of(root, folder, git_path))
+                token = str(body.get("token") or "") or paper.token_for(url)
+                if body.get("token"):
+                    paper.save_token(url, token)
+                return self.reply(200, await loop.run_in_executor(None, lambda: paper.sync(root, folder, token, str(body.get("message", "")), git_path)))
+            if action == "remote":
+                url = await loop.run_in_executor(None, lambda: paper.remote_of(root, folder, git_path or "git"))
+                return self.reply(200, {"url": url, "token": bool(paper.token_for(url))})
+        except paper.Refused as error:
+            return self.reply(400, {"error": str(error)})
+        except OSError as error:
+            return self.reply(500, {"error": str(error)})
+        self.reply(400, {"error": "compile, install-tectonic, clone, sync or remote"})
+
+
 class AppHandler(VsCodeHandler):
     """POST /companion/app: {event: "hello"} from the Reader window while it is open, {event: "goodbye"} as it closes,
     {event: "setting", stopWithApp} from the page's switch. The token, as for every call that changes something."""
@@ -745,6 +809,7 @@ def load(serverapp):
             (url_path_join(base, "companion/app"), AppHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/folders"), FoldersHandler),
             (url_path_join(base, "companion/browsers"), BrowsersHandler),
+            (url_path_join(base, "companion/paper"), PaperHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/tools"), ToolsHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/terminals"), TerminalsHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/vscode-web"), VsCodeWebHandler),

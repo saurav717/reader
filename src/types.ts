@@ -201,6 +201,19 @@ export interface OverleafLink {
    * a sign-in lives, so this is what opens it as the right Overleaf account.
    */
   browsers?: Record<string, BrowserChoice>;
+  /**
+   * The paper's folder on each computer, by its Companion's id, for the Write
+   * tab: a clone of Overleaf's Git (or a GitHub repository), or a folder
+   * Dropbox keeps in step with Overleaf.
+   */
+  folders?: Record<string, PaperFolder>;
+}
+
+export interface PaperFolder {
+  /** Relative to the Companion's folder (~/Reader): papers/loss-free-routing, linked/Overleaf-paper. */
+  path: string;
+  /** git: synced from here (Overleaf's Git or GitHub); dropbox: Dropbox syncs it; folder: not synced. */
+  sync: 'git' | 'dropbox' | 'folder';
 }
 
 export interface BrowserChoice {
@@ -317,6 +330,8 @@ export interface Settings {
   computeOff: string[];
   /** Where a project's paper is written with Overleaf: OVERLEAF_VIEWS. */
   overleafView: OverleafView;
+  /** How the Write tab compiles, lays out, syncs and cites: WRITE_OPTIONS. */
+  write: WriteOptions;
   /** What a project opens on from the rail and the board: its overview, or its workspace. */
   projectOpensOn: Exclude<ProjectView, 'board'>;
   /**
@@ -455,18 +470,83 @@ export const COMPUTE_CONTROLS: { id: ComputeControls; label: string; note: strin
 /**
  * Where a project's paper is written, once it is linked to Overleaf. The
  * overview has the paper's card in every one of them.
+ * - tab: a Write tab on the project, the whole page an editor with the compiled PDF beside it;
  * - beside: Overleaf in a window of its own, beside the reader, with the cite keys and BibTeX a click away;
  * - write: a Write layout in the workspace, the paper being read beside the .tex files;
  * - dock: a Draft tab in the dock, beside whatever paper is open;
  * - overview: the card on the overview and nothing else; Overleaf opens in a tab.
  */
-export type OverleafView = 'beside' | 'write' | 'dock' | 'overview';
+export type OverleafView = 'tab' | 'beside' | 'write' | 'dock' | 'overview';
 
 export const OVERLEAF_VIEWS: { id: OverleafView; label: string; note: string }[] = [
+  { id: 'tab', label: 'A Write tab', note: 'Board · Overview · Workspace · Write: the paper’s files, the LaTeX and its PDF, compiled on this computer and synced with Overleaf.' },
   { id: 'beside', label: 'Overleaf beside', note: 'Overleaf opens in a window beside the reader; cite keys and BibTeX are a click away. Works on any Overleaf plan.' },
   { id: 'write', label: 'Write in the workspace', note: 'The workspace gets a Write layout: the paper you read beside the .tex files, \\cite from the project’s papers.' },
   { id: 'dock', label: 'Draft in the dock', note: 'A Draft tab beside Discover and Notes, next to whatever paper is open: cite it or quote it into the draft.' },
   { id: 'overview', label: 'Just the overview', note: 'Only the paper’s card on the overview — sections, what is cited, what is read and not. Overleaf opens in a tab.' },
+];
+
+export interface WriteOptions {
+  /** When the PDF is made again: after a pause in typing, on ⌘S, or with Recompile only. */
+  compile: 'pause' | 'save' | 'manual';
+  /** What makes it: latexmk when TeX is installed else Tectonic, or one of the two. */
+  engine: 'auto' | 'latexmk' | 'tectonic';
+  /** Where the PDF is: beside the source, under it, or a tab of its own. */
+  layout: 'side' | 'stacked' | 'tabs';
+  /** When edits go to Overleaf (with Git): seconds after a pause, on ⌘S, or with Sync only. */
+  sync: 'pause' | 'save' | 'manual';
+  /** A drawer of the project's papers to cite, or none. */
+  citations: 'drawer' | 'off';
+}
+
+export const WRITE_DEFAULTS: WriteOptions = { compile: 'pause', engine: 'auto', layout: 'side', sync: 'pause', citations: 'drawer' };
+
+/** Each of the Write tab's choices, the default first. */
+export const WRITE_OPTIONS: { key: keyof WriteOptions; label: string; choices: { id: string; label: string; note: string }[] }[] = [
+  {
+    key: 'compile',
+    label: 'Compile',
+    choices: [
+      { id: 'pause', label: 'As you type', note: 'A second after you stop typing, as Overleaf’s auto-compile does.' },
+      { id: 'save', label: 'On save', note: 'When you press ⌘S.' },
+      { id: 'manual', label: 'By hand', note: 'Only with Recompile.' },
+    ],
+  },
+  {
+    key: 'engine',
+    label: 'TeX',
+    choices: [
+      { id: 'auto', label: 'Whichever is here', note: 'latexmk when TeX Live or MacTeX is installed, else Tectonic.' },
+      { id: 'latexmk', label: 'latexmk', note: 'Your TeX installation, as Overleaf compiles: pdfLaTeX unless the paper says otherwise.' },
+      { id: 'tectonic', label: 'Tectonic', note: 'One small program that fetches the packages a paper uses; the Companion can download it.' },
+    ],
+  },
+  {
+    key: 'layout',
+    label: 'The PDF',
+    choices: [
+      { id: 'side', label: 'Beside the source', note: 'Source on the left, PDF on the right, as in Overleaf.' },
+      { id: 'stacked', label: 'Under the source', note: 'For a tall, narrow window.' },
+      { id: 'tabs', label: 'A tab of its own', note: 'Source or PDF, one at a time, full width.' },
+    ],
+  },
+  {
+    key: 'sync',
+    label: 'Sync with Overleaf',
+    choices: [
+      { id: 'pause', label: 'As you type', note: 'A few seconds after you stop: Overleaf shows it, and what coauthors wrote comes in.' },
+      { id: 'save', label: 'On save', note: 'When you press ⌘S.' },
+      { id: 'manual', label: 'By hand', note: 'Only with Sync.' },
+    ],
+  },
+  {
+    key: 'citations',
+    label: 'Citations',
+    choices: [
+      { id: 'drawer', label: 'A drawer of papers', note: 'The project’s papers on the left, under the files: click one to \\cite it, with its BibTeX added.' },
+      { id: 'off', label: 'None', note: 'Just the files.' },
+    ],
+  },
 ];
 
 /** The PDF as the publisher set it, or the reflowed text you can highlight. */

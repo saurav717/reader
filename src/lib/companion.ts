@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.9.0';
+export const COMPANION_VERSION = '0.10.0';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -539,3 +539,80 @@ export const listBrowsers = (server: { url: string; token: string }) => browsers
 /** Opens an https link in that browser and profile on the Companion's computer ('default' for its default browser). */
 export const openInBrowser = (server: { url: string; token: string }, url: string, browser: string, profile?: string) =>
   browsersCall<{ opened: boolean }>(server, { method: 'POST', body: JSON.stringify({ url, browser, ...(profile ? { profile } : {}) }) });
+
+// ------------------------------------------- a project's paper here (0.10.0) --
+
+/** The first Companion that compiles a paper and syncs it with Overleaf's Git (/companion/paper). */
+export const PAPER_VERSION = '0.10.0';
+
+export interface PaperEngines {
+  /** Where each is, '' when it isn't here. */
+  latexmk: string;
+  tectonic: string;
+  git: string;
+  /** Whether the Companion can fetch Tectonic for this computer. */
+  tectonicInstallable: boolean;
+}
+
+export interface TexProblem {
+  file: string;
+  line: number | null;
+  message: string;
+}
+
+export interface Compiled {
+  ok: boolean;
+  main: string;
+  engine: string;
+  /** The PDF, base64; '' when none was made. */
+  pdf: string;
+  errors: TexProblem[];
+  warnings: TexProblem[];
+  log: string;
+  ms: number;
+}
+
+export interface Synced {
+  ok: boolean;
+  committed: boolean;
+  pushed: boolean;
+  /** Files changed elsewhere (in Overleaf) and taken in. */
+  incoming?: string[];
+  /** Files left with conflict markers. */
+  conflicts: string[];
+  error?: string;
+  at?: number;
+}
+
+async function paperCall<T>(server: { url: string; token: string }, init?: { action: string } & Record<string, unknown>): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/paper`, {
+      method: init ? 'POST' : 'GET',
+      headers: { Authorization: `token ${server.token}`, ...(init ? { 'Content-Type': 'application/json' } : {}) },
+      ...(init ? { body: JSON.stringify(init) } : {}),
+      cache: 'no-store',
+    });
+  } catch {
+    throw new Error('This computer’s Companion didn’t answer. Is it running?');
+  }
+  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (response.status === 404) throw new Error(`This computer’s Companion is older than ${PAPER_VERSION}: update it to compile and sync the paper here.`);
+  if (!response.ok) throw new Error(body.error || `The Companion said ${response.status}.`);
+  return body;
+}
+
+/** What compiles a paper on the Companion's computer, and whether git is there. */
+export const paperEngines = (server: { url: string; token: string }) => paperCall<PaperEngines>(server);
+/** Compiles the paper in `folder` (relative to the Companion's folder). */
+export const compilePaper = (server: { url: string; token: string }, folder: string, engine: 'auto' | 'latexmk' | 'tectonic', main?: string) =>
+  paperCall<Compiled>(server, { action: 'compile', folder, engine, ...(main ? { main } : {}) });
+/** Fetches Tectonic onto the Companion's computer. */
+export const installTectonic = (server: { url: string; token: string }) => paperCall<{ tectonic: string }>(server, { action: 'install-tectonic' });
+/** Clones Overleaf's Git (or a GitHub repository) into `folder`; the token is kept by the Companion for that remote. */
+export const clonePaper = (server: { url: string; token: string }, folder: string, url: string, token: string) => paperCall<{ folder: string }>(server, { action: 'clone', folder, url, token });
+/** Commits what changed here, takes in what changed in Overleaf, and pushes. */
+export const syncPaper = (server: { url: string; token: string }, folder: string, message: string, token?: string) =>
+  paperCall<Synced>(server, { action: 'sync', folder, message, ...(token ? { token } : {}) });
+/** Where the folder syncs to, and whether the Companion has a token for it. */
+export const paperRemote = (server: { url: string; token: string }, folder: string) => paperCall<{ url: string; token: boolean }>(server, { action: 'remote', folder });

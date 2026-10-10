@@ -3,7 +3,7 @@ import { useStore } from '../lib/store';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
 import { parseRepo } from '../lib/github';
-import { COMPUTE_CONTROLS, GLASS_WALLS, NAV_STYLES, OVERLEAF_VIEWS, PROJECT_NAVS } from '../types';
+import { COMPUTE_CONTROLS, GLASS_WALLS, NAV_STYLES, OVERLEAF_VIEWS, PROJECT_NAVS, WRITE_DEFAULTS, WRITE_OPTIONS } from '../types';
 import { computeControlsOf } from '../lib/compute';
 import { ComputeList } from './Compute';
 import { overleafViewOf } from '../lib/overleaf';
@@ -819,7 +819,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               >
                 <b>
                   {option.label}
-                  {option.id === 'beside' ? <small> · default</small> : null}
+                  {option.id === 'tab' ? <small> · default</small> : null}
                 </b>
                 <span>{option.note}</span>
               </button>
@@ -827,10 +827,47 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           </div>
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
             A project is linked to Overleaf from the paper card on its overview, which every choice keeps. Overleaf
-            can’t be opened inside another site or read from one, so writing here — the workspace or the dock — needs
-            the paper in GitHub too (Overleaf’s GitHub sync), with the token from Git mirror above; Overleaf pulls what you save from
-            its GitHub menu.
+            can’t be opened inside another site or read from one: the Write tab works on a copy of the paper on this
+            computer, synced with Overleaf’s Git or Dropbox; the workspace and the dock need the paper in GitHub too
+            (Overleaf’s GitHub sync), with the token from Git mirror above, and Overleaf pulls what you save from its GitHub menu.
           </p>
+          {overleafViewOf(settings) === 'tab' ? (
+            <>
+              <div className="eyebrow" style={{ margin: '16px 0 8px' }}>
+                The Write tab
+              </div>
+              {WRITE_OPTIONS.map((group) => {
+                const value = (settings.write ?? WRITE_DEFAULTS)[group.key] ?? WRITE_DEFAULTS[group.key];
+                return (
+                  <div key={group.key} className="write-choice">
+                    <span className="write-choice-label">{group.label}</span>
+                    <div className="nav-choices is-text" role="radiogroup" aria-label={`The Write tab: ${group.label}`}>
+                      {group.choices.map((choice, index) => (
+                        <button
+                          key={choice.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={value === choice.id}
+                          className={`nav-choice${value === choice.id ? ' is-on' : ''}`}
+                          onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), [group.key]: choice.id } })}
+                        >
+                          <b>
+                            {choice.label}
+                            {index === 0 ? <small> · default</small> : null}
+                          </b>
+                          <span>{choice.note}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+                The Write tab needs this computer’s Companion ({'0.10.0'} or later): it keeps the paper in a folder here,
+                compiles it with your TeX (or Tectonic, which it can fetch), and syncs it with Overleaf’s Git or Dropbox.
+              </p>
+            </>
+          ) : null}
         </section>
 
         <section id="settings-compute" style={{ marginBottom: 22 }}>

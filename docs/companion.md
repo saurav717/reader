@@ -281,6 +281,19 @@ and shows which one it is on in the machine chip.
   to its account. Only an `https://` link opens, and only in a browser and a
   profile the listing has, so nothing the page sends becomes an option of the
   command.
+- From 0.10.0, `/companion/paper` (token and origin) is the Write tab's.
+  `GET` says what compiles a paper here (`latexmk`, Tectonic) and whether
+  `git` is installed. `POST {action}` takes four actions:
+  - `compile {folder, engine}` returns the PDF (base64) and the log, read into
+    errors and warnings with their file and line.
+  - `install-tectonic` downloads Tectonic into `~/.reader-companion/bin`.
+  - `clone {folder, url, token}` clones Overleaf's Git or a GitHub repository;
+    no other remote is accepted.
+  - `sync {folder}` commits, pulls (merging) and pushes, and leaves a conflict
+    marked rather than resolving it.
+  Folders are relative to the Companion's, and one that climbs out is
+  refused. The token is kept in the Companion's config (0600), by remote, and
+  given to git through `GIT_ASKPASS`. It is never written into the clone.
 - Secrets (playground.md, step 8) live in the keychain and are passed to a
   kernel's environment. They are never put in the Drive mirror.
 

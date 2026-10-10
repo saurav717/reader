@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { Collection, GoogleUser, Highlight, HighlightColor, JunkEntry, Paper, PaperRef, Settings } from '../types';
-import { COLLECTION_COLORS } from '../types';
+import { COLLECTION_COLORS, WRITE_DEFAULTS } from '../types';
 import { forgetNotes } from './notes';
 import { db, switchDb } from './db';
 import {
@@ -76,7 +76,8 @@ const defaultSettings: Settings = {
   projectOpensOn: 'overview',
   navStyle: 'labelled',
   projectNav: 'switcher',
-  overleafView: 'beside',
+  overleafView: 'tab',
+  write: WRITE_DEFAULTS,
   computeControls: 'everywhere',
   computeOff: [],
   zenHaze: 'shadow',
@@ -102,7 +103,8 @@ function readSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return defaultSettings;
-    const saved = { ...defaultSettings, ...(JSON.parse(raw) as Partial<Settings>) };
+    const stored = JSON.parse(raw) as Partial<Settings>;
+    const saved = { ...defaultSettings, ...stored };
     // Anyone who opened the app before it had a client ID compiled in has an
     // empty one saved, which would otherwise shadow the new default forever.
     // An empty string here means "not set", not "deliberately blank".
@@ -110,6 +112,9 @@ function readSettings(): Settings {
     // Saved before a choice was added to it: the new choice starts at its default.
     saved.runningShows = { ...defaultSettings.runningShows, ...saved.runningShows };
     saved.awayShows = { ...defaultSettings.awayShows, ...saved.awayShows };
+    // Settings from before the Write tab: Overleaf beside was only the default then, and the Write tab is now.
+    if (!stored.write && stored.overleafView === 'beside') saved.overleafView = 'tab';
+    saved.write = { ...defaultSettings.write, ...(stored.write && typeof stored.write === 'object' ? stored.write : {}) };
     return saved;
   } catch {
     return defaultSettings;
