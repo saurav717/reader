@@ -1,0 +1,58 @@
+<!doctype html><html data-theme="dark" data-glass><head><meta charset="utf-8"><link rel="stylesheet" href="running.css"><style>
+.reader{flex:1;display:flex;min-height:0}
+.toc{width:220px;padding:26px 18px;border-right:1px solid rgba(255,255,255,.06);font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;gap:9px}
+.toc .on{color:var(--ink)}
+.paper{flex:1;padding:40px 0 0 60px;display:flex;overflow:hidden}
+.paper article{width:600px;font:16.5px/1.65 var(--serif);color:#d9d5cb}
+.paper h2{font:600 26px/1.2 var(--serif);margin:0 0 6px;color:var(--ink)}
+.paper h3{font:600 15px var(--sans);margin:26px 0 8px;color:var(--ink)}
+.paper .by{font:12.5px var(--sans);color:var(--muted);margin-bottom:22px}
+.paper p{margin:0 0 14px}
+.eq{font:italic 17px var(--serif);text-align:center;margin:16px 0;color:var(--ink)}
+.dock{position:fixed;right:24px;bottom:24px;width:380px;background:rgba(26,28,34,.94);border:1px solid rgba(255,255,255,.12);border-radius:14px;box-shadow:0 18px 50px rgba(0,0,0,.55);backdrop-filter:blur(14px);z-index:10}
+.dock .hd{display:flex;align-items:center;gap:9px;padding:11px 14px;border-bottom:1px solid rgba(255,255,255,.07);font-size:12.5px;font-weight:600}
+.dock .hd .m{margin-left:auto;font-weight:400;font-size:11.5px}
+.dock .j{padding:11px 14px;display:flex;flex-direction:column;gap:6px;border-bottom:1px solid rgba(255,255,255,.06)}
+.dock .j:last-child{border-bottom:0}
+.dock .j .a{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.dock .j .a b{font-weight:600;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.dock .j .a .mono{font-size:11px;color:var(--muted)}
+.dock .j .s{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted)}
+.dock .j .s span:first-child{flex:1}
+.dock .j .s a{color:var(--accent-ink);text-decoration:none;font-weight:500}
+.toast{position:fixed;right:24px;bottom:282px;width:340px;background:rgba(26,28,34,.96);border:1px solid rgba(76,195,138,.4);border-radius:12px;padding:12px 14px;box-shadow:0 18px 50px rgba(0,0,0,.5);display:flex;gap:11px;z-index:10}
+.toast .ic{width:28px;height:28px;border-radius:8px;background:rgba(76,195,138,.15);color:#8fdcb4;display:grid;place-items:center;font-size:14px;flex:none}
+.toast b{font-size:12.5px;display:block}
+.toast span{font-size:11.5px;color:var(--muted)}
+.toast .acts{display:flex;gap:6px;margin-top:8px}
+.pop{position:fixed;left:78px;top:206px;width:230px;background:rgba(26,28,34,.96);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:9px 11px;font-size:11.5px;color:var(--ink-2);z-index:11;box-shadow:var(--shadow-md)}
+.pop div{display:flex;align-items:center;gap:7px;padding:3px 0}
+</style></head><body><div class="app"><!--RAIL--><main class="main">
+<div class="reader">
+ <div class="toc"><span class="eyebrow">Contents</span><span>1 Introduction</span><span>2 Background</span><span class="on">3 FlashAttention-2</span><span style="padding-left:12px">3.1 Fewer non-matmul FLOPs</span><span style="padding-left:12px">3.2 Parallelism</span><span>4 Experiments</span><span>5 Discussion</span></div>
+ <div class="paper"><article>
+  <h2>FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning</h2>
+  <div class="by">Tri Dao · 2023</div>
+  <h3>3.1 Algorithm</h3>
+  <p>We tweak the algorithm from FlashAttention to reduce the number of non-matmul FLOPs. This is important because modern GPUs have specialized compute units that make matmul much faster.</p>
+  <p>The online softmax trick can be rewritten so that we do not rescale both terms of the output update every iteration. Instead we keep an un-scaled version of the output and only scale it once at the very end of the loop:</p>
+  <div class="eq">Õ<sup>(2)</sup> = diag(ℓ<sup>(1)</sup>)<sup>−1</sup> Õ<sup>(1)</sup> + e<sup>S<sup>(2)</sup>−m<sup>(2)</sup></sup> V<sup>(2)</sup></div>
+  <p>We also do not have to save both the max m<sup>(j)</sup> and the sum of exponentials ℓ<sup>(j)</sup> for the backward pass. We only need to store the logsumexp L<sup>(j)</sup> = m<sup>(j)</sup> + log(ℓ<sup>(j)</sup>).</p>
+  <h3>3.2 Parallelism</h3>
+  <p>The first version of FlashAttention parallelizes over batch size and number of heads. We use one thread block to process one attention head, and there are overall batch size × number of heads thread blocks…</p>
+ </article></div>
+</div>
+</main></div>
+<div class="toast"><div class="ic">✓</div><div><b>Tokenizer scratchpad finished</b><span>All 5 cells ran on MacBook Air · 3 plots, 0 errors</span><div class="acts"><span class="btn sm primary">See results</span><span class="btn sm">Later</span></div></div></div>
+<div class="dock">
+ <div class="hd"><span class="live"></span>Running · 2<span class="m">P to open · ⌄ to fold</span></div>
+ <div class="j"><div class="a"><span class="co">CO</span><b>Untitled project</b><span class="mono">epoch 6/10 · 25 min left</span></div><div class="prog"><i style="width:60%"></i></div><div class="s"><span class="mono">loss 0.4127 · 212 it/s</span><a>Stop</a><a>Open →</a></div></div>
+ <div class="j"><div class="a"><span class="pc">PC</span><b>Trying Automatic Generation of High…</b><span class="mono">cell 9/14</span></div><div class="prog"><i style="width:64%"></i></div><div class="s"><span class="mono">rollout 640k / 1M steps</span><a>Stop</a><a>Open →</a></div></div>
+ <div class="j" style="background:rgba(120,150,240,.06)"><div class="a"><span class="pc">PC</span><b>LoRA rank sweep</b><span class="state ask" style="padding:1px 7px;font-size:10.5px">waiting for you</span></div><div class="s"><span>cell 4 asks: “continue to rank 64?”</span><a>Answer →</a></div></div>
+</div>
+<div class="pop"><div><b style="color:var(--ink)">Playground</b><span class="m" style="margin-left:auto"><kbd>P</kbd></span></div><div><span class="live"></span>2 running</div><div><span class="dot" style="background:#a9bdf5"></span>1 waiting for you</div><div><span class="dot" style="background:#4cc38a"></span>1 just finished</div></div>
+<div class="notes" style="left:330px;bottom:22px;width:640px"><div class="callout" style="width:300px"><span class="n">1</span>The rail’s Playground icon carries a <b>live count</b>. Hover it for the breakdown, wherever you are in the site.</div><div class="callout" style="width:300px"><span class="n">2</span>A small <b>dock</b> follows you across pages while anything runs. It folds to a single pill; it disappears when nothing runs.</div><div class="callout" style="width:300px;margin-top:-4px"><span class="n">3</span>A <b>toast</b> when something finishes, fails or asks a question — so you don’t have to keep checking.</div></div>
+<span class="pin" style="left:62px;top:232px">1</span><span class="pin" style="left:1026px;top:626px">2</span><span class="pin" style="left:1066px;top:510px">3</span>
+<div class="step" style="right:auto;left:330px;top:12px;bottom:auto">B · Following you around the site</div>
+<script>document.querySelector(".rb.pg").classList.remove("on");document.querySelector(".rb").classList.add("on");document.querySelector(".rb.pg").insertAdjacentHTML("beforeend","<span class=badge-n>2</span>")</script>
+</body></html>

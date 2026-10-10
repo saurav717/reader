@@ -1,0 +1,25 @@
+/* Running playgrounds: what is live now, what can be picked back up. */
+@import url('../playground-src/playground.css');
+.scroll{padding:30px 44px;overflow:hidden}
+.hero{display:flex;align-items:flex-end;gap:20px;margin-bottom:20px}
+.hero h1{font:600 30px/1.15 var(--serif);letter-spacing:-.01em;margin:4px 0 0}
+.hero p{margin:6px 0 0;color:var(--ink-2);font-size:13.5px;max-width:640px}
+.sect{display:flex;align-items:center;gap:10px;margin:0 0 10px}
+.sect .eyebrow{flex:1}
+.live{width:8px;height:8px;border-radius:50%;background:#4cc38a;box-shadow:0 0 0 4px rgba(76,195,138,.18);flex:none}
+.idle{width:8px;height:8px;border-radius:50%;border:1.6px solid #e6b450;flex:none}
+.off{width:8px;height:8px;border-radius:50%;border:1.6px solid var(--muted);flex:none}
+.err{width:8px;height:8px;border-radius:50%;background:#e06c7a;flex:none}
+.state{display:inline-flex;align-items:center;gap:6px;font:500 11.5px var(--sans);padding:3px 9px;border-radius:999px;white-space:nowrap}
+.state.run{background:rgba(76,195,138,.12);color:#8fdcb4}
+.state.warm{background:rgba(230,180,80,.12);color:#ecc77c}
+.state.cold{background:rgba(255,255,255,.05);color:var(--muted)}
+.state.bad{background:rgba(224,108,122,.13);color:#f0a0aa}
+.state.ask{background:rgba(120,150,240,.14);color:#a9bdf5}
+.prog{height:4px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden}
+.prog i{display:block;height:100%;background:#4cc38a;border-radius:2px}
+.mono{font-family:var(--mono)}
+.m{color:var(--muted)}
+.btn.stop{color:#f0a0aa}
+.badge-n{position:absolute;top:2px;right:1px;min-width:15px;height:15px;border-radius:8px;background:#4cc38a;color:#0f2a1f;font:700 9.5px var(--mono);display:grid;place-items:center;padding:0 3px;box-shadow:0 0 0 2px #121317}
+.rb{position:relative}

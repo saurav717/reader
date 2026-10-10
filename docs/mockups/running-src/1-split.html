@@ -1,0 +1,68 @@
+<!doctype html><html data-theme="dark" data-glass><head><meta charset="utf-8"><link rel="stylesheet" href="running.css"><style>
+.runs{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px}
+.run{padding:14px 16px;display:flex;flex-direction:column;gap:9px;border-color:rgba(76,195,138,.35)!important;background:linear-gradient(180deg,rgba(76,195,138,.07),rgba(255,255,255,.02))!important}
+.run .h{display:flex;align-items:center;gap:9px}
+.run .h b{font-size:14px}
+.run .h .r{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-2)}
+.run .sub{font-size:11.5px;color:var(--muted);margin-top:-5px;padding-left:17px}
+.run .now{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2)}
+.run .tail{font:11.5px/1.5 var(--mono);color:#b9c7bf;background:rgba(0,0,0,.25);border-radius:7px;padding:7px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.run .f{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted)}
+.run .f .sp{flex:1}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 250px 150px 190px;align-items:center;gap:14px;padding:12px 16px;border-top:1px solid rgba(255,255,255,.06)}
+.row:first-child{border-top:0}
+.row .t b{display:block;font-size:13px}.row .t span{font-size:11.5px;color:var(--muted)}
+.row .why{font-size:11.5px;color:var(--ink-2);line-height:1.4}
+.row .why small{display:block;color:var(--muted);font-size:11px}
+.row .acts{display:flex;gap:6px;justify-content:flex-end}
+.where{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-2)}
+</style></head><body><div class="app"><!--RAIL--><main class="main"><div class="scroll">
+<div class="hero"><div><span class="eyebrow">Playground</span><h1>Try something</h1></div><span style="flex:1"></span><div class="chip"><kbd>P</kbd> from anywhere</div><span class="btn primary">+ New playground</span></div>
+
+<div class="sect"><span class="live"></span><span class="eyebrow" style="color:#8fdcb4">Running now · 2</span><span class="m" style="font-size:11.5px">keeps going when you leave this page — it runs on the machine, not in the tab</span></div>
+<div class="runs">
+ <div class="card run">
+  <div class="h"><span class="live"></span><b>Untitled project</b><span class="r"><span class="co">CO</span>Colab T4 GPU</span></div>
+  <div class="sub">Project · <span class="mono">python train.py --epochs 10</span></div>
+  <div class="now"><span>Epoch 6 of 10</span><span class="mono m">38 min · ~25 min left</span></div>
+  <div class="prog"><i style="width:60%"></i></div>
+  <div class="tail">epoch 6 | step 1840/3000 | loss 0.4127 | lr 2.0e-4 | 212 it/s</div>
+  <div class="f"><span>GPU 71% · 9.8 / 15 GB</span><span>·</span><span>1.3 units so far</span><span class="sp"></span><span class="btn sm stop">Stop</span><span class="btn sm primary">Open</span></div>
+ </div>
+ <div class="card run">
+  <div class="h"><span class="live"></span><b>Trying Automatic Generation of High…</b><span class="r"><span class="pc">PC</span>Saurav’s MacBook Air</span></div>
+  <div class="sub">Notebook · cites <i>Automatic Generation of High-Performance RL Environments</i></div>
+  <div class="now"><span>Cell 9 of 14 · <span class="mono">env.rollout(steps=1e6)</span></span><span class="mono m">4 min</span></div>
+  <div class="prog"><i style="width:64%"></i></div>
+  <div class="tail">rollout 640k / 1M steps · 41.2k steps/s · mean return 87.4</div>
+  <div class="f"><span>CPU 8 cores · 6.1 GB</span><span>·</span><span>cells 10–14 queued</span><span class="sp"></span><span class="btn sm stop">Stop</span><span class="btn sm primary">Open</span></div>
+ </div>
+</div>
+
+<div class="sect"><span class="eyebrow">Pick up where you left off</span><span class="m" style="font-size:11.5px">kept in your Drive</span></div>
+<div class="card">
+ <div class="row"><div class="t"><b>Flash-attention, by hand</b><span>Notebook · 14 cells · from <i>FlashAttention-2</i> §3</span></div>
+  <div class="why"><span class="state warm"><span class="idle"></span>Idle · variables kept</span><small style="margin-top:4px">Colab disconnects it in ~70 min if untouched</small></div>
+  <div class="where"><span class="co">CO</span>Colab T4 · 14 min ago</div>
+  <div class="acts"><span class="btn sm">Shut down</span><span class="btn sm primary">Resume</span></div></div>
+ <div class="row"><div class="t"><b>LoRA rank sweep</b><span>Project · 4 runs · cites 2 papers</span></div>
+  <div class="why"><span class="state ask"><span class="dot" style="background:#a9bdf5"></span>Waiting for you</span><small style="margin-top:4px"><span class="mono">input()</span> on cell 4: “continue to rank 64?”</small></div>
+  <div class="where"><span class="pc">PC</span>MacBook Air · 1 h ago</div>
+  <div class="acts"><span class="btn sm primary">Answer</span></div></div>
+ <div class="row"><div class="t"><b>Tokenizer scratchpad</b><span>Notebook · 5 cells · no paper</span></div>
+  <div class="why"><span class="state cold"><span class="dot" style="background:#4cc38a"></span>Finished · 3 plots</span><small style="margin-top:4px">all cells ran · outputs saved with the notebook</small></div>
+  <div class="where"><span class="pc">PC</span>MacBook Air · 3 h ago</div>
+  <div class="acts"><span class="btn sm">Results</span><span class="btn sm">Open</span></div></div>
+ <div class="row"><div class="t"><b>FNO on Darcy flow</b><span>Project · from <i>Fourier Neural Operator</i></span></div>
+  <div class="why"><span class="state bad"><span class="err"></span>Failed · CUDA out of memory</span><small style="margin-top:4px">at <span class="mono">train.py:88</span>, epoch 2 — code and logs kept</small></div>
+  <div class="where"><span class="co">CO</span>Colab T4 · yesterday</div>
+  <div class="acts"><span class="btn sm">See error</span><span class="btn sm">Open</span></div></div>
+ <div class="row"><div class="t"><b>Diffusion toy, 2-D</b><span>Notebook · 22 cells</span></div>
+  <div class="why"><span class="state cold"><span class="off"></span>Stopped · code saved</span><small style="margin-top:4px">variables gone — re-run to continue</small></div>
+  <div class="where"><span class="co">CO</span>Colab CPU · last week</div>
+  <div class="acts"><span class="btn sm">Open</span></div></div>
+</div>
+</div></main></div>
+<div class="notes" style="left:125px;bottom:22px"><div class="callout"><span class="n">1</span><b>Running now</b> gets its own shelf, above everything: what it is doing this second, its last line of output, time left and what it is costing.</div><div class="callout"><span class="n">2</span>Everything else says <b>what coming back will be like</b>: variables still there, a question waiting, finished with results, failed, or code only.</div><div class="callout"><span class="n">3</span>A warm-but-idle kernel is shown honestly: it is still using your Colab units, so <b>Shut down</b> sits next to Resume.</div></div>
+<div class="step">A · Two shelves: running, then resumable</div>
+<script>document.querySelector(".rb.pg").insertAdjacentHTML("beforeend","<span class=badge-n>2</span>")</script></body></html>

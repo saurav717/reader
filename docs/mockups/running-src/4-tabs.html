@@ -1,0 +1,53 @@
+<!doctype html><html data-theme="dark" data-glass><head><meta charset="utf-8"><link rel="stylesheet" href="running.css"><style>
+.strip{display:flex;align-items:flex-end;gap:2px;height:44px;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.08);background:rgba(0,0,0,.18);flex:none}
+.tab{display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border-radius:9px 9px 0 0;font-size:12px;color:var(--muted);max-width:240px;white-space:nowrap}
+.tab span.t{overflow:hidden;text-overflow:ellipsis}
+.tab.on{background:rgba(255,255,255,.06);color:var(--ink);border:1px solid rgba(255,255,255,.09);border-bottom:0}
+.tab .x{opacity:.5;font-size:11px}
+.tab .mono{font-size:10.5px;color:#8fdcb4}
+.tab.home{color:var(--ink-2)}
+.sep{width:1px;height:18px;background:rgba(255,255,255,.12);margin:0 6px 8px}
+.body{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 400px;min-height:0}
+.paper{padding:30px 40px;font:16px/1.6 var(--serif);color:#d9d5cb;overflow:hidden;border-right:1px solid rgba(255,255,255,.06)}
+.paper h2{font:600 22px/1.2 var(--serif);margin:0 0 14px;color:var(--ink)}
+.paper p{margin:0 0 12px}
+.paper mark{background:var(--hl-yellow);color:inherit;border-radius:2px}
+.side{background:rgba(0,0,0,.12);display:flex;flex-direction:column;width:auto;border:0}
+.side .hd{display:flex;align-items:center;gap:9px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.07);font-size:13px}
+.side .hd b{flex:1}
+.cellx{margin:12px 14px 0;border:1px solid rgba(255,255,255,.09);border-radius:9px;overflow:hidden}
+.cellx pre{margin:0;padding:9px 12px;font:11.5px/1.55 var(--mono);color:var(--ink)}
+.cellx .o{padding:7px 12px;border-top:1px solid rgba(255,255,255,.06);font:11px/1.5 var(--mono);color:#b9c7bf;background:rgba(0,0,0,.2)}
+.cellx .h{display:flex;gap:8px;padding:5px 10px;font-size:10.5px;color:var(--muted);border-bottom:1px solid rgba(255,255,255,.06)}
+.cellx.run{border-color:rgba(76,195,138,.45)}
+</style></head><body><div class="app"><!--RAIL--><main class="main">
+<div class="strip">
+ <div class="tab home">Library</div>
+ <div class="tab"><span class="t">FlashAttention-2</span><span class="x">✕</span></div>
+ <div class="tab on"><span class="t">Automatic Generation of High-Perf…</span><span class="x">✕</span></div>
+ <div class="sep"></div>
+ <div class="tab"><span class="live"></span><span class="t">Untitled project</span><span class="mono">6/10</span><span class="x">✕</span></div>
+ <div class="tab"><span class="live"></span><span class="t">Trying Automatic Gen…</span><span class="mono">9/14</span><span class="x">✕</span></div>
+ <div class="tab"><span class="idle"></span><span class="t">Flash-attention, by hand</span><span class="x">✕</span></div>
+ <span style="flex:1"></span><div class="tab" style="color:var(--accent-ink)">+</div>
+</div>
+<div class="body">
+ <div class="paper"><h2>Automatic Generation of High-Performance RL Environments</h2>
+  <p>Writing a fast simulator by hand takes weeks. We show that an agent can translate a reference environment into a vectorised JAX implementation, verify it against the original step-by-step, and reach <mark>a 40× throughput gain on a single GPU</mark>.</p>
+  <p>§4.2 — We measure steps per second for 1M-step rollouts with batch size 4096, averaging over five seeds. Returns agree with the reference implementation to within 0.3%.</p>
+  <p>Our pipeline has three stages: translation, differential testing against the reference, and profiling-guided rewriting of the hot loop. Each stage is checked before the next begins.</p>
+  <p>Table 3 lists the environments, their reference throughput, and the generated throughput on the same hardware…</p>
+ </div>
+ <div class="side">
+  <div class="hd"><span class="live"></span><b>Trying Automatic Gen…</b><span class="pc">PC</span><span class="m" style="font-size:11.5px">MacBook Air</span></div>
+  <div class="cellx"><div class="h"><span>[8]</span><span style="margin-left:auto">✓ 0.4 s</span></div><pre>env = make_env("CartPole-v1", batch=4096)</pre></div>
+  <div class="cellx run"><div class="h"><span style="color:#8fdcb4">[9] running · 4 min</span><span style="margin-left:auto">§4.2</span></div><pre>stats = env.rollout(steps=1e6)</pre><div class="o">640k / 1M steps · 41.2k steps/s<br>mean return 87.4</div></div>
+  <div class="cellx" style="opacity:.6"><div class="h"><span>[10] queued</span></div><pre>plot(stats.returns)</pre></div>
+  <div style="padding:12px 16px;font-size:11.5px;color:var(--muted)">Peeking — the full playground is the tab above.</div>
+ </div>
+</div>
+</main></div>
+<div class="notes" style="left:125px;bottom:22px"><div class="callout"><span class="n">1</span>Open playgrounds become <b>tabs that survive navigation</b>, next to papers. A live dot and progress on each tab, so the strip is the status bar.</div><div class="callout"><span class="n">2</span>Reading the paper a notebook cites shows a <b>peek of its live cells</b> on the right — the run continues, you never left the paper.</div><div class="callout"><span class="n">3</span>Closing a tab doesn’t stop anything: it moves to the dock / list until it finishes.</div></div>
+<div class="step">D · Tabs that outlive the page</div>
+<script>document.querySelector(".rb.pg").classList.remove("on");document.querySelector(".rb").classList.add("on");document.querySelector(".rb.pg").insertAdjacentHTML("beforeend","<span class=badge-n>2</span>")</script>
+</body></html>
