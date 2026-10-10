@@ -5,14 +5,14 @@
 // meters and the metrics the runs print — the same panes the paper's
 // notebook has. The store is src/lib/playground.ts.
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Backend, JupyterServer } from '../lib/colab';
 import { backendLabel, chooseBackend, colabAvailable, colabNow, connect, forgetRun, interrupt, lastActivityAt, machineLabel, restartKernel, runCell, runQuietly, setMachine, stopRuntime } from '../lib/colab';
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, FilesHome, Playground, SyncReport } from '../lib/playground';
 import { blankCells, filesAreOnMachine, homeHost, homeLabelOf, moveFilesOutOfBrowser, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
-import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeWeb, waitForVersion } from '../lib/companion';
+import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeFolder, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
 import { AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
 import type { AgentOptions, AgentSpec } from '../lib/agents';
@@ -23,7 +23,7 @@ import { useStore } from '../lib/store';
 import type { Screen } from '../lib/assistant';
 import { CellRunOutput, ColabMark, ConnectCard, MachinePicker, attachUrl, useColab } from './Colab';
 import MetricsPane from './MetricsPane';
-import NotebookPage, { Editor } from './Notebook';
+import NotebookPage from './Notebook';
 import type { NbSide } from './Notebook';
 import RuntimePane from './RuntimePane';
 import Gutter, { DEFAULT_LAYOUT, TREE_FOLD, loadLayout, readLayout, saveLayout } from './Gutter';
@@ -34,12 +34,55 @@ import VsCodeExtension, { VsCodeMark, isCompanion } from './VsCodeExtension';
 import { ArrowLeftIcon, ChartIcon, CloseIcon, DriveMark, PlusIcon, SearchIcon, SparkleIcon } from './icons';
 import FileIcon, { languageOf } from './FileIcon';
 import ProjectAgent from './ProjectAgent';
+import CodeEditor from './CodeEditor';
+import type { CodeEditorHandle, Cursor } from './CodeEditor';
+import { ContextMenu, FolderPlusGlyph, keyLabel, OpenEditors, OutlineGlyph, OutlineView, PaletteGlyph, QuickPick, SplitGlyph, SymbolMark } from './Workbench';
+import { symbolPath, symbolsOf } from '../lib/editing';
+import { clearAgentChat } from '../lib/projectAgent';
 import { listAll } from '../lib/projectAgent';
 import type { AgentChange, ProjectView } from '../lib/projectAgent';
 
 type Tab = 'notebook' | 'files';
 /** What the side bar shows, picked in the activity bar; null when it is folded away. */
-type Primary = 'explorer' | 'search' | 'sync' | 'runtime' | 'metrics' | null;
+type Primary = 'explorer' | 'search' | 'outline' | 'sync' | 'runtime' | 'metrics' | null;
+
+/** One editor group: its tabs (by `where:path`) and the one shown. */
+interface EditorGroupState {
+  tabs: string[];
+  active: string | null;
+}
+
+/** The editor's settings, kept in this browser for every project. */
+interface EditorSettings {
+  fontSize: number;
+  minimap: boolean;
+  autoSave: boolean;
+}
+const DEFAULT_EDITOR: EditorSettings = { fontSize: 13, minimap: true, autoSave: false };
+
+/** A menu opened with a right click: where, and what is in it. */
+interface MenuItem {
+  label: string;
+  keys?: string;
+  run?: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+}
+interface MenuState {
+  x: number;
+  y: number;
+  items: (MenuItem | 'sep')[];
+}
+
+/** A command, as the palette lists it. */
+export interface WorkbenchCommand {
+  id: string;
+  label: string;
+  keys?: string;
+  run: () => void;
+}
+
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 
 const readLocal = <T,>(name: string, fallback: T): T => {
   try {
@@ -760,6 +803,7 @@ function EditorSwitch({ playground }: { playground: Playground }) {
   );
 }
 
+
 /** VS Code from the Companion's computer, in the page (code serve-web, through the Companion): started on first open. */
 function VsCodePane({ server, folder, playground }: { server: JupyterServer; folder: string; playground: Playground }) {
   const [status, setStatus] = useState<VsCodeWeb | null>(null);
@@ -811,7 +855,7 @@ function VsCodePane({ server, folder, playground }: { server: JupyterServer; fol
       window.clearTimeout(timer);
     };
   }, [server.id, server.url, server.token, folder, round]);
-  const src = status?.state === 'ready' && status.path ? `${server.url.replace(/\/?$/, '/')}${status.path.replace(/^\//, '')}?folder=${encodeURIComponent(status.folder)}` : null;
+  const src = status?.state === 'ready' && status.path ? `${server.url.replace(/\/?$/, '/')}${status.path.replace(/^\//, '')}?folder=${encodeURIComponent(vscodeFolder(status.folder))}` : null;
   // A frame that came up again after a restart is a new one, so it loads VS Code afresh.
   const [frameRound, setFrameRound] = useState(0);
   const wasReady = useRef(true);
@@ -839,7 +883,7 @@ function VsCodePane({ server, folder, playground }: { server: JupyterServer; fol
       </div>
       {outdated ? (
         <div className="pg-banner is-problem">
-          {outdated.error ?? `The Companion on ${server.name} is ${outdated.version}; VS Code in the page needs ${COMPANION_VERSION}, which starts VS Code again when it stops answering instead of showing “500: Internal Server Error”.`}
+          {outdated.error ?? `The Companion on ${server.name} is ${outdated.version}; VS Code in the page needs ${COMPANION_VERSION}, which starts VS Code again when it stops answering and lets it connect through the HTTPS tunnel (before, it hung on “Reconnecting…” there).`}
           <button type="button" className="btn sm" disabled={outdated.updating} onClick={() => void update()}>
             {outdated.updating ? 'Updating…' : 'Update it'}
           </button>
@@ -889,7 +933,31 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   useEffect(() => writeLocal('reader.pgPrimary', primary), [primary]);
   useEffect(() => writeLocal('reader.pgAgentMode', agentMode), [agentMode]);
   const [files, setFiles] = useState<OpenFile[]>([]);
-  const [active, setActive] = useState<string | null>(null);
+  // The editor groups, as VS Code's split editor: one, or two side by side, each with its tabs and the one shown.
+  const [groups, setGroups] = useState<EditorGroupState[]>([{ tabs: [], active: null }]);
+  const [focus, setFocusState] = useState(0);
+  const focused = Math.min(focus, groups.length - 1);
+  const active = groups[focused]?.active ?? null;
+  const setFocus = (index: number) => setFocusState(index);
+  const editors = useRef<(CodeEditorHandle | null)[]>([]);
+  const goTo = useRef<{ group: number; line: number } | null>(null);
+  const [cursor, setCursor] = useState<Cursor | null>(null);
+  const [settings, setSettingsState] = useState<EditorSettings>(() => ({ ...DEFAULT_EDITOR, ...readLocal<Partial<EditorSettings>>('reader.pgEditor', {}) }));
+  const setSettings = (patch: Partial<EditorSettings>) =>
+    setSettingsState((now) => {
+      const next = { ...now, ...patch };
+      writeLocal('reader.pgEditor', next);
+      return next;
+    });
+  const [zen, setZen] = useState(false);
+  const [pick, setPick] = useState<string | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const [splitAt, setSplitAt] = useState(50);
+  const [dragging, setDragging] = useState<{ group: number; key: string } | null>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const groupsBox = useRef<HTMLDivElement>(null);
+  const splitFrom = useRef(50);
+  const closed = useRef<string[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [report, setReport] = useState<(SyncReport & { at: number; what: 'push' | 'pull' }) | null>(null);
@@ -962,8 +1030,16 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const { tools: machineTools, asked } = useMachineTools(computeServer);
   const homeServer = playground.home.kind === 'server' ? servers.find((server) => server.id === (playground.home.kind === 'server' ? playground.home.serverId : '')) : undefined;
   const { tools: homeTools } = useMachineTools(homeServer);
+  // VS Code in the page opens a folder on a Companion's computer: the project's, when its files are kept there —
+  // in a folder of its (home) or on its own disk as the machine the code runs on.
+  const vscodeAt: { server: JupyterServer; folder: string } | null =
+    playground.home.kind === 'server' && homeServer && isCompanion(homeServer) && homeTools.vscode
+      ? { server: homeServer, folder: playground.home.root }
+      : playground.home.kind === 'machine' && computeServer && isCompanion(computeServer) && machineTools.vscode
+        ? { server: computeServer, folder: machineRoot(playground) }
+        : null;
   // VS Code in the page: for files on a Companion whose computer has VS Code.
-  const vscodeHere = Boolean(homeServer && isCompanion(homeServer) && homeTools.vscode);
+  const vscodeHere = Boolean(vscodeAt);
   const terminalHere = Boolean(view === 'terminal' || (terminals && computeServer && !split));
   const projectFolder = terminalHere ? absoluteFolder(computeServer, machineRoot(playground)) : null;
   // The agent's terminal is its own, so it goes to the folder whatever the console below shows.
@@ -999,17 +1075,85 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     typeInTerminal(activeShell, `${command}\r`);
   };
 
-  const open = async (where: 'home' | 'machine', path: string) => {
+  /** A tab shown in a group (the focused one unless said; one past the last splits the editor), the group focused. */
+  const show = (key: string, group = focused) => {
+    setGroups((list) => {
+      const next = group >= list.length ? [...list, { tabs: [], active: null }] : [...list];
+      const g = next[Math.min(group, next.length - 1)];
+      next[Math.min(group, next.length - 1)] = { tabs: g.tabs.includes(key) ? g.tabs : [...g.tabs, key], active: key };
+      return next.slice(0, 2);
+    });
+    setFocus(Math.min(group, 1));
+  };
+  const open = async (where: 'home' | 'machine', path: string, at: { group?: number; line?: number } = {}) => {
     const key = `${where}:${path}`;
-    if (files.some((file) => `${file.where}:${file.path}` === key)) return setActive(key);
+    const group = at.group ?? focused;
+    if (at.line) goTo.current = { group: Math.min(group, 1), line: at.line };
+    if (files.some((file) => `${file.where}:${file.path}` === key)) return show(key, group);
     setProblem(null);
     try {
       const text = (await (where === 'home' ? home : machine).read(path)) ?? '';
-      setFiles((list) => [...list, { where, path, text, saved: text }]);
-      setActive(key);
+      setFiles((list) => (list.some((f) => `${f.where}:${f.path}` === key) ? list : [...list, { where, path, text, saved: text }]));
+      show(key, group);
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     }
+  };
+  // A line asked for (Go to Line, Outline, search, Quick Open), once its editor is there.
+  useEffect(() => {
+    const want = goTo.current;
+    if (!want) return;
+    const editor = editors.current[want.group];
+    if (!editor) return;
+    goTo.current = null;
+    window.requestAnimationFrame(() => editor.goToLine(want.line));
+  });
+  /** A tab closed in a group: asked first when it holds unsaved work shown nowhere else; the file let go when no group shows it. */
+  const closeTab = (group: number, key: string, ask = true) => {
+    const file = files.find((f) => `${f.where}:${f.path}` === key);
+    const elsewhere = groups.some((g, index) => index !== group && g.tabs.includes(key));
+    if (ask && file && file.text !== file.saved && !elsewhere && !window.confirm(`${file.path.split('/').pop()} has changes that aren’t saved. Close it and lose them?`)) return false;
+    const next = groups.map((g, index) => {
+      if (index !== group) return g;
+      const at = g.tabs.indexOf(key);
+      const tabs = g.tabs.filter((t) => t !== key);
+      return { tabs, active: g.active === key ? tabs[Math.min(at, tabs.length - 1)] ?? null : g.active };
+    });
+    const kept = next.filter((g, index) => g.tabs.length || index === 0 || next.length === 1);
+    const merged = kept.length ? kept : [{ tabs: [], active: null }];
+    setGroups(merged);
+    if (focused >= merged.length) setFocus(merged.length - 1);
+    if (!merged.some((g) => g.tabs.includes(key))) {
+      setFiles((list) => list.filter((f) => `${f.where}:${f.path}` !== key));
+      closed.current = [key, ...closed.current.filter((k) => k !== key)].slice(0, 20);
+    }
+    return true;
+  };
+  const closeMany = (group: number, keys: string[]) => {
+    for (const key of keys) if (!closeTabRef.current(group, key)) break;
+  };
+  const closeTabRef = useRef(closeTab);
+  closeTabRef.current = closeTab;
+  /** A tab moved to the other group (or to a new one on the right). */
+  const moveTab = (from: number, key: string, to: number) => {
+    if (from === to) return;
+    setGroups((list) => {
+      let next = list.map((g, index) => {
+        if (index !== from) return g;
+        const tabs = g.tabs.filter((t) => t !== key);
+        return { tabs, active: g.active === key ? tabs[tabs.length - 1] ?? null : g.active };
+      });
+      if (to >= next.length) next = [...next, { tabs: [], active: null }];
+      next[to] = { tabs: next[to].tabs.includes(key) ? next[to].tabs : [...next[to].tabs, key], active: key };
+      const kept = next.filter((g) => g.tabs.length);
+      return (kept.length ? kept : [{ tabs: [], active: null }]).slice(0, 2);
+    });
+    setFocus(Math.min(to, 1));
+  };
+  /** ⌘\\ — the file in front, opened in the other group too (a second one made on the right). */
+  const splitRight = () => {
+    if (!active) return;
+    show(active, groups.length === 1 ? 1 : focused === 0 ? 1 : 0);
   };
   const save = async (file: OpenFile) => {
     setProblem(null);
@@ -1020,18 +1164,79 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
       setProblem(error instanceof Error ? error.message : String(error));
     }
   };
-  const newFile = async () => {
-    const path = window.prompt('A new file — its path in the folder:', 'train.py');
-    if (!path?.trim()) return;
+  const fail = (error: unknown) => setProblem(error instanceof Error ? error.message : String(error));
+  const newFile = async (dir = '') => {
+    const path = window.prompt('A new file — its path in the folder:', dir ? `${dir}/` : 'train.py');
+    if (!path?.trim() || path.trim().endsWith('/')) return;
     const clean = path.trim().replace(/^\/+/, '');
     try {
-      await home.write(clean, '');
+      if ((await home.read(clean).catch(() => null)) === null) await home.write(clean, '');
       setRefresh((n) => n + 1);
       await open('home', clean);
     } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
+      fail(error);
     }
   };
+  const newFolder = async (dir = '') => {
+    const path = window.prompt('A new folder — its path in the folder:', dir ? `${dir}/` : 'src');
+    const clean = path?.trim().replace(/^\/+|\/+$/g, '');
+    if (!clean) return;
+    try {
+      // A host that can't make an empty folder gets one with a placeholder in it, as git keeps one.
+      if (home.mkdir) await home.mkdir(clean);
+      else await home.write(`${clean}/.gitkeep`, '');
+      setRefresh((n) => n + 1);
+    } catch (error) {
+      fail(error);
+    }
+  };
+  /** A path renamed in the folder; open tabs of it, or of anything under it, follow. */
+  const renamePath = async (from: string) => {
+    if (!home.rename) return;
+    const to = window.prompt(`Rename ${from} to:`, from)?.trim().replace(/^\/+|\/+$/g, '');
+    if (!to || to === from) return;
+    try {
+      await home.rename(from, to);
+      const moved = (key: string) => (key === `home:${from}` ? `home:${to}` : key.startsWith(`home:${from}/`) ? `home:${to}${key.slice(5 + from.length)}` : key);
+      setFiles((list) => list.map((f) => (f.where === 'home' ? { ...f, path: moved(`home:${f.path}`).slice(5) } : f)));
+      setGroups((list) => list.map((g) => ({ tabs: g.tabs.map(moved), active: g.active ? moved(g.active) : null })));
+      setRefresh((n) => n + 1);
+    } catch (error) {
+      fail(error);
+    }
+  };
+  /** A path deleted from the folder (Drive puts it in its trash), after asking; its tabs close. */
+  const removePath = async (path: string, dir: boolean) => {
+    if (!home.remove) return;
+    const where = playground.home.kind === 'drive' ? ' It goes to your Drive’s trash, where it can be restored for 30 days.' : ' This can’t be undone.';
+    if (!window.confirm(`Delete ${dir ? 'the folder ' : ''}${path}${dir ? ' and everything in it' : ''}?${where}`)) return;
+    try {
+      await home.remove(path);
+      const gone = (key: string) => key === `home:${path}` || key.startsWith(`home:${path}/`);
+      setFiles((list) => list.filter((f) => !gone(`${f.where}:${f.path}`)));
+      setGroups((list) => {
+        const next = list.map((g) => {
+          const tabs = g.tabs.filter((t) => !gone(t));
+          return { tabs, active: g.active && !gone(g.active) ? g.active : tabs[tabs.length - 1] ?? null };
+        });
+        const kept = next.filter((g, index) => g.tabs.length || index === 0);
+        return kept.length ? kept : [{ tabs: [], active: null }];
+      });
+      setRefresh((n) => n + 1);
+    } catch (error) {
+      fail(error);
+    }
+  };
+  const saveAll = async () => {
+    for (const file of filesRef.current) if (file.text !== file.saved) await save(file);
+  };
+  // Auto Save, as VS Code's afterDelay: a second after the typing stops, what has changed is saved.
+  useEffect(() => {
+    if (!settings.autoSave || !files.some((f) => f.text !== f.saved)) return;
+    const timer = window.setTimeout(() => void saveAll(), 1000);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, settings.autoSave]);
 
   const push = async () => {
     setSyncing('push');
@@ -1148,64 +1353,417 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     if (first && !files.length) void open('home', first.path);
   };
 
-  if (vscodeHere && homeServer && playground.editor === 'vscode' && playground.home.kind === 'server') {
-    return <VsCodePane server={homeServer} folder={playground.home.root} playground={playground} />;
+  // Back to the editor when a box closes — unless another has opened since (⇧⌘P, Esc, ⌘P in a row).
+  const focusEditor = () => window.requestAnimationFrame(() => !document.querySelector('.vs-pick') && editors.current[focused]?.focus());
+  const commands: WorkbenchCommand[] = [
+    { id: 'files', label: 'Go to File…', keys: 'mod+p', run: () => setPick('') },
+    { id: 'line', label: 'Go to Line/Column…', keys: 'ctrl+g', run: () => setPick(':') },
+    { id: 'symbol', label: 'Go to Symbol in Editor…', keys: 'mod+shift+o', run: () => setPick('@') },
+    { id: 'find', label: 'Find', keys: 'mod+f', run: () => editors.current[focused]?.openFind() },
+    { id: 'replace', label: 'Replace', keys: isMac ? 'mod+alt+f' : 'ctrl+h', run: () => editors.current[focused]?.openFind(true) },
+    { id: 'findFiles', label: 'Search: Find in Files', keys: 'mod+shift+f', run: () => setPrimary('search') },
+    { id: 'newFile', label: 'File: New File…', run: () => void newFile() },
+    { id: 'newFolder', label: 'File: New Folder…', run: () => void newFolder() },
+    { id: 'save', label: 'File: Save', keys: 'mod+s', run: () => current && void save(current) },
+    { id: 'saveAll', label: 'File: Save All', keys: 'mod+alt+s', run: () => void saveAll() },
+    { id: 'autoSave', label: `File: ${settings.autoSave ? 'Turn Off' : 'Turn On'} Auto Save`, run: () => setSettings({ autoSave: !settings.autoSave }) },
+    { id: 'close', label: 'View: Close Editor', keys: 'alt+w', run: () => active && closeTab(focused, active) },
+    { id: 'closeAll', label: 'View: Close All Editors in Group', run: () => closeMany(focused, groups[focused]?.tabs ?? []) },
+    { id: 'reopen', label: 'View: Reopen Closed Editor', keys: 'alt+shift+t', run: () => closed.current[0] && void open(closed.current[0].startsWith('home:') ? 'home' : 'machine', closed.current[0].slice(closed.current[0].indexOf(':') + 1)) },
+    { id: 'split', label: 'View: Split Editor Right', keys: 'mod+\\', run: splitRight },
+    { id: 'group1', label: 'View: Focus First Editor Group', keys: 'mod+1', run: () => (setFocus(0), focusEditor()) },
+    { id: 'group2', label: 'View: Focus Second Editor Group', keys: 'mod+2', run: () => (groups.length > 1 ? (setFocus(1), focusEditor()) : splitRight()) },
+    { id: 'sidebar', label: 'View: Toggle Primary Side Bar', keys: 'mod+b', run: () => setPrimary(primary ? null : 'explorer') },
+    { id: 'explorer', label: 'View: Show Explorer', keys: 'mod+shift+e', run: () => setPrimary('explorer') },
+    { id: 'outline', label: 'View: Show Outline', run: () => setPrimary('outline') },
+    { id: 'panel', label: 'View: Toggle Panel', keys: 'mod+j', run: () => setPanelOpen(!panelOpen) },
+    { id: 'terminal', label: 'View: Toggle Terminal', keys: 'ctrl+`', run: () => (setPanelOpen(!panelOpen || view !== 'terminal'), terminals && computeServer && setShellView('terminal')) },
+    ...(terminals && computeServer ? [{ id: 'newTerminal', label: 'Terminal: Create New Terminal', keys: 'ctrl+shift+`', run: () => (setPanelOpen(true), setShellView('terminal'), addShell()) }] : []),
+    { id: 'agent', label: 'View: Toggle Agent', keys: 'ctrl+alt+i', run: () => setAgentOpen(!agentOpen) },
+    { id: 'zen', label: 'View: Toggle Zen Mode', keys: 'mod+k z', run: () => setZen(!zen) },
+    { id: 'minimap', label: 'View: Toggle Minimap', run: () => setSettings({ minimap: !settings.minimap }) },
+    { id: 'zoomIn', label: 'View: Editor Font Bigger', keys: 'mod+=', run: () => setSettings({ fontSize: Math.min(24, settings.fontSize + 1) }) },
+    { id: 'zoomOut', label: 'View: Editor Font Smaller', keys: 'mod+-', run: () => setSettings({ fontSize: Math.max(10, settings.fontSize - 1) }) },
+    { id: 'zoomReset', label: 'View: Reset Editor Font Size', keys: 'mod+0', run: () => setSettings({ fontSize: DEFAULT_EDITOR.fontSize }) },
+    ...(current && plan && 'command' in plan ? [{ id: 'run', label: `Run: ${plan.command}`, keys: 'mod+enter', run: () => void runFile() }] : []),
+    ...(split ? [{ id: 'push', label: `Sync: Copy the Folder to ${machineName}`, run: () => void push() }, { id: 'pull', label: `Sync: Bring Results Back from ${machineName}`, run: () => void pull() }] : []),
+    { id: 'refresh', label: 'Explorer: Refresh', run: () => setRefresh((n) => n + 1) },
+    { id: 'newChat', label: 'Agent: New Chat', run: () => (setAgentOpen(true), clearAgentChat(playground.id, home)) },
+    ...(vscodeAt ? [{ id: 'vscode', label: 'Open in VS Code (in the page)', run: () => updatePlayground(playground.id, () => ({ editor: 'vscode' })) }] : []),
+  ];
+  const commandsRef = useRef(commands);
+  commandsRef.current = commands;
+  // The workbench's keys, VS Code's, while the page is on it: taken before the site's own (⌘J, ⌘\\ mean the panel and split here).
+  const chord = useRef(false);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (pick !== null || !root.current) return;
+      const target = document.activeElement;
+      if (target && target !== document.body && !root.current.contains(target)) return;
+      if (target instanceof HTMLElement && target.closest('.xterm') && !(event.metaKey || event.ctrlKey)) return;
+      const parts = [event.ctrlKey && !isMac ? 'mod' : event.ctrlKey ? 'ctrl' : '', event.metaKey && isMac ? 'mod' : '', event.altKey ? 'alt' : '', event.shiftKey ? 'shift' : ''].filter(Boolean);
+      const key = event.code === 'Backquote' ? '`' : event.code === 'Backslash' ? '\\' : event.code === 'Equal' ? '=' : event.code === 'Minus' ? '-' : event.code.startsWith('Key') ? event.code.slice(3).toLowerCase() : event.code.startsWith('Digit') ? event.code.slice(5) : event.key === 'Enter' ? 'enter' : event.key === 'F1' ? 'F1' : '';
+      if (!key) return;
+      const combo = [...parts, key].join('+');
+      if (chord.current) {
+        chord.current = false;
+        const hit = commandsRef.current.find((c) => c.keys === `mod+k ${combo}`);
+        if (hit) {
+          event.preventDefault();
+          event.stopPropagation();
+          hit.run();
+        }
+        return;
+      }
+      if (combo === 'mod+k') {
+        chord.current = true;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (combo === 'mod+shift+p' || combo === 'F1') {
+        event.preventDefault();
+        event.stopPropagation();
+        setPick('>');
+        return;
+      }
+      // ⌘F and ⌘H inside the editor are its own (it opens its find bar); from anywhere else in the workbench, the focused editor's.
+      const inEditor = target instanceof HTMLTextAreaElement && target.classList.contains('ce-text');
+      const hit = commandsRef.current.find((c) => c.keys === combo && !(inEditor && (c.id === 'find' || c.id === 'replace')));
+      if (!hit) return;
+      event.preventDefault();
+      event.stopPropagation();
+      hit.run();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [pick]);
+  // Zen mode leaves with Escape, as VS Code's does with a second press.
+  useEffect(() => {
+    if (!zen) return;
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && !document.querySelector('.ce-find') && setZen(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [zen]);
+  const symbols = useMemo(() => (current ? symbolsOf(current.text, current.path) : []), [current?.text, current?.path]);
+
+  if (vscodeAt && playground.editor === 'vscode') {
+    return <VsCodePane server={vscodeAt.server} folder={vscodeAt.folder} playground={playground} />;
   }
 
   const cliAgents = Boolean(terminals && computeServer && isCompanion(computeServer));
   const mode = cliAgents ? agentMode : 'reader';
   const sideKey = mode === 'cli' ? 'agent' : 'side';
-  const crumbs = current ? [current.where === 'home' ? homeLabel : machineName, ...current.path.split('/')] : [];
-  const views: { id: Primary; label: string; icon: React.ReactNode; hidden?: boolean }[] = [
-    { id: 'explorer', label: 'Explorer', icon: <FilesGlyph /> },
-    { id: 'search', label: 'Search the files', icon: <SearchIcon size={19} /> },
+  const views: { id: Primary; label: string; icon: React.ReactNode; keys?: string; hidden?: boolean }[] = [
+    { id: 'explorer', label: 'Explorer', icon: <FilesGlyph />, keys: 'mod+shift+e' },
+    { id: 'search', label: 'Search', icon: <SearchIcon size={19} />, keys: 'mod+shift+f' },
+    { id: 'outline', label: 'Outline', icon: <OutlineGlyph /> },
     { id: 'sync', label: `Sync with ${machineName}`, icon: <SyncGlyph />, hidden: !split },
     { id: 'runtime', label: 'Runtime — GPU, memory, disk', icon: <GaugeGlyph /> },
     { id: 'metrics', label: 'Metrics the runs print', icon: <ChartIcon size={19} /> },
   ];
   const togglePrimary = (id: Primary) => setPrimary(primary === id ? null : id);
+  const fileOf = (key: string | null) => (key ? files.find((f) => `${f.where}:${f.path}` === key) ?? null : null);
+  const canEdit = { rename: Boolean(home.rename), remove: Boolean(home.remove) };
+  const copy = (text: string) => void navigator.clipboard?.writeText(text).catch(() => undefined);
+  const openMenu = (event: React.MouseEvent, items: (MenuItem | 'sep')[]) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMenu({ x: event.clientX, y: event.clientY, items });
+  };
+  /** The explorer's right-click menu, on a file, a folder, or the empty space under them. */
+  const explorerMenu = (event: React.MouseEvent, entry: { path: string; dir: boolean } | null) => {
+    const dir = entry ? (entry.dir ? entry.path : entry.path.split('/').slice(0, -1).join('/')) : '';
+    openMenu(event, [
+      ...(entry && !entry.dir ? [{ label: 'Open', run: () => void open('home', entry.path) }, { label: 'Open to the Side', run: () => void open('home', entry.path, { group: groups.length === 1 ? 1 : focused === 0 ? 1 : 0 }) }, 'sep' as const] : []),
+      { label: 'New File…', run: () => void newFile(dir) },
+      { label: 'New Folder…', run: () => void newFolder(dir) },
+      ...(entry
+        ? [
+            'sep' as const,
+            { label: 'Copy Path', run: () => copy(entry.path) },
+            'sep' as const,
+            { label: 'Rename…', run: () => void renamePath(entry.path), disabled: !canEdit.rename },
+            { label: 'Delete', run: () => void removePath(entry.path, entry.dir), disabled: !canEdit.remove, danger: true },
+          ]
+        : ['sep' as const, { label: 'Refresh', run: () => setRefresh((n) => n + 1) }]),
+    ]);
+  };
+  const tabMenu = (event: React.MouseEvent, group: number, key: string) => {
+    const tabs = groups[group]?.tabs ?? [];
+    const at = tabs.indexOf(key);
+    const file = fileOf(key);
+    openMenu(event, [
+      { label: 'Close', keys: keyLabel('alt+w'), run: () => closeTab(group, key) },
+      { label: 'Close Others', run: () => closeMany(group, tabs.filter((t) => t !== key)), disabled: tabs.length < 2 },
+      { label: 'Close to the Right', run: () => closeMany(group, tabs.slice(at + 1)), disabled: at === tabs.length - 1 },
+      { label: 'Close Saved', run: () => closeMany(group, tabs.filter((t) => { const f = fileOf(t); return f && f.text === f.saved; })) },
+      { label: 'Close All', run: () => closeMany(group, tabs) },
+      'sep',
+      { label: 'Copy Path', run: () => file && copy(file.path) },
+      { label: 'Reveal in Explorer', run: () => setPrimary('explorer') },
+      'sep',
+      groups.length === 1 ? { label: 'Split Right', keys: keyLabel('mod+\\'), run: () => show(key, 1) } : { label: `Move to the ${group === 0 ? 'Right' : 'Left'} Group`, run: () => moveTab(group, key, group === 0 ? 1 : 0) },
+    ]);
+  };
+
+  /** One editor group: its tabs, the breadcrumbs, the editor; a drop target for a tab dragged from the other. */
+  const renderGroup = (g: EditorGroupState, index: number) => {
+    const file = fileOf(g.active);
+    const isFocused = index === focused;
+    const fileDirty = file ? file.text !== file.saved : false;
+    const filePlan = file ? runPlan(file.path, terminalHere ? projectFolder : null, machineTools) : null;
+    const path = file ? symbolPath(isFocused ? symbols : symbolsOf(file.text, file.path), isFocused ? cursor?.line ?? 1 : 1) : [];
+    return (
+      <section
+        key={index}
+        className={`vs-group${isFocused ? ' is-focused' : ''}`}
+        style={groups.length > 1 ? { flexBasis: `${index === 0 ? splitAt : 100 - splitAt}%` } : undefined}
+        onMouseDown={() => index !== focused && setFocus(index)}
+        onDragOver={(event) => dragging && event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          if (dragging) moveTab(dragging.group, dragging.key, index);
+          setDragging(null);
+        }}
+      >
+        <div className="pg-tabs vs-tabs" role="tablist" aria-label={groups.length > 1 ? `Editor group ${index + 1}` : 'Open editors'}>
+          {g.tabs.map((key) => {
+            const tab = fileOf(key);
+            if (!tab) return null;
+            const dirtyTab = tab.text !== tab.saved;
+            return (
+              <span
+                key={key}
+                className={`pg-tab vs-tab${key === g.active ? ' is-on' : ''}${dirtyTab ? ' is-dirty' : ''}`}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData('text/plain', tab.path);
+                  setDragging({ group: index, key });
+                }}
+                onDragEnd={() => setDragging(null)}
+                onAuxClick={(event) => event.button === 1 && closeTab(index, key)}
+                onContextMenu={(event) => tabMenu(event, index, key)}
+              >
+                <button type="button" role="tab" aria-selected={key === g.active} onClick={() => show(key, index)} title={`${tab.where === 'home' ? homeLabel : machineName} · ${tab.path}`}>
+                  <FileIcon path={tab.path} />
+                  {tab.where === 'machine' ? '⇣ ' : ''}
+                  {tab.path.split('/').pop()}
+                </button>
+                <button type="button" className="pg-tab-x" aria-label={`Close ${tab.path}`} title={`Close (${keyLabel('alt+w')})`} onClick={() => closeTab(index, key)}>
+                  <span className="vs-dot" aria-hidden="true">●</span>
+                  <span className="vs-x" aria-hidden="true">×</span>
+                </button>
+              </span>
+            );
+          })}
+          <span className="vs-tabs-fill" />
+          {file ? (
+            <span className="vs-tab-actions">
+              {filePlan ? (
+                <button
+                  type="button"
+                  className="vs-action is-run"
+                  disabled={!('command' in filePlan) || !usable}
+                  onClick={() => (setFocus(index), void runFile())}
+                  title={'command' in filePlan ? `${filePlan.command}${asked ? '' : ` (${machineName} couldn’t say what is installed: this is a guess)`} — ${keyLabel('mod+enter')}` : `Running ${filePlan.language} needs ${filePlan.missing} on ${machineName}`}
+                  aria-label="Run the file"
+                >
+                  ▶
+                </button>
+              ) : null}
+              <button type="button" className="vs-action" onClick={() => (setFocus(index), groups.length === 1 ? show(g.active!, 1) : show(g.active!, index === 0 ? 1 : 0))} title={`Split Editor Right (${keyLabel('mod+\\')})`} aria-label="Split the editor">
+                <SplitGlyph />
+              </button>
+              <button type="button" className="vs-action" onClick={(event) => openMenu(event, [
+                { label: 'Close All', run: () => closeMany(index, g.tabs) },
+                { label: 'Close Saved', run: () => closeMany(index, g.tabs.filter((t) => { const f = fileOf(t); return f && f.text === f.saved; })) },
+                'sep',
+                { label: settings.minimap ? 'Hide Minimap' : 'Show Minimap', run: () => setSettings({ minimap: !settings.minimap }) },
+                { label: settings.autoSave ? 'Turn Off Auto Save' : 'Turn On Auto Save', run: () => setSettings({ autoSave: !settings.autoSave }) },
+              ])} title="More Actions…" aria-label="More actions">
+                ⋯
+              </button>
+            </span>
+          ) : null}
+        </div>
+        {file ? (
+          <div className="vs-crumbs">
+            {[file.where === 'home' ? homeLabel : machineName, ...file.path.split('/')].map((part, i, all) => (
+              <span key={`${i}-${part}`} className={i === all.length - 1 && !path.length ? 'is-last' : ''}>
+                {i === all.length - 1 ? <FileIcon path={part} /> : null}
+                {part}
+              </span>
+            ))}
+            {path.map((symbol, i) => (
+              <button key={`${symbol.line}-${symbol.name}`} type="button" className={`vs-crumb-sym is-${symbol.kind}${i === path.length - 1 ? ' is-last' : ''}`} onClick={() => (setFocus(index), setPick('@'))} title="Go to Symbol in Editor">
+                <SymbolMark kind={symbol.kind} />
+                {symbol.name}
+              </button>
+            ))}
+            <span className="spacer" />
+            <button type="button" className="vs-action" disabled={!fileDirty} onClick={() => void save(file)} title={keyLabel('mod+s')}>
+              {fileDirty ? 'Save' : settings.autoSave ? 'Auto Save' : 'Saved'}
+            </button>
+            {vscodeHere && index === groups.length - 1 ? <EditorSwitch playground={playground} /> : null}
+          </div>
+        ) : null}
+        <div className="vs-editor">
+          {file ? (
+            <CodeEditor
+              key={g.active!}
+              ref={(handle) => (editors.current[index] = handle)}
+              value={file.text}
+              path={file.path}
+              fontSize={settings.fontSize}
+              minimap={settings.minimap}
+              onChange={(text) => setFiles((list) => list.map((f) => (f.where === file.where && f.path === file.path ? { ...f, text } : f)))}
+              onCursor={isFocused ? setCursor : undefined}
+              onFocus={() => setFocus(index)}
+            />
+          ) : (
+            <div className="pg-editor-empty vs-welcome">
+              <b>{playground.title}</b>
+              <dl className="vs-keys">
+                {[
+                  ['Show All Commands', 'mod+shift+p'],
+                  ['Go to File', 'mod+p'],
+                  ['Find in Files', 'mod+shift+f'],
+                  ['Toggle Panel', 'mod+j'],
+                  ['Toggle Agent', 'ctrl+alt+i'],
+                ].map(([label, combo]) => (
+                  <Fragment key={label}>
+                    <dt>{label}</dt>
+                    <dd>
+                      <kbd>{keyLabel(combo)}</kbd>
+                    </dd>
+                  </Fragment>
+                ))}
+              </dl>
+              <div className="vs-welcome-keys">
+                <button type="button" className="link" onClick={() => void newFile()}>
+                  New file…
+                </button>
+                <button type="button" className="link" onClick={() => setPick('')}>
+                  Open a file…
+                </button>
+                <button type="button" className="link" onClick={() => setAgentOpen(true)}>
+                  Ask the agent
+                </button>
+                {vscodeHere ? <EditorSwitch playground={playground} /> : null}
+              </div>
+              <p className="pg-note">
+                {playground.home.kind === 'server'
+                  ? `The folder is ${playground.home.root} on ${serverById(playground.home.serverId)?.name ?? 'the server'} — a plain folder: edit it in any editor too.`
+                  : playground.home.kind === 'drive'
+                    ? `The files are kept in your Google Drive, in Papers_collection/Playgrounds/${playground.home.folder}${split ? `, and copied onto ${machineName} before each command` : ''}.`
+                    : playground.home.kind === 'machine'
+                      ? playground.compute.kind === 'colab'
+                        ? 'The files are on the Colab runtime’s disk: they go when it stops. Change the machine to keep them in Drive.'
+                        : `The files are on ${machineName}.`
+                      : 'These files are still kept in this browser: move them out from the banner above.'}
+              </p>
+            </div>
+          )}
+          {dragging && groups.length === 1 ? (
+            <div
+              className="vs-drop-split"
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                moveTab(dragging.group, dragging.key, 1);
+                setDragging(null);
+              }}
+            >
+              Drop to split right
+            </div>
+          ) : null}
+        </div>
+        {file && onDisk && onDisk.key === `${file.where}:${file.path}` ? (
+          <div className="pg-banner pg-disk-banner">
+            {file.path.split('/').pop()} changed in its folder while you were editing it here.
+            <button type="button" className="btn sm" onClick={() => (setFiles((list) => list.map((f) => (f === file ? { ...f, text: onDisk.text, saved: onDisk.text } : f))), setOnDisk(null))}>
+              Load it
+            </button>
+            <button type="button" className="btn sm ghost" onClick={() => ((dismissed.current = onDisk), setOnDisk(null))} title="Keep what is here; Save writes it over the folder's">
+              Keep mine
+            </button>
+          </div>
+        ) : null}
+      </section>
+    );
+  };
+
+  const openEditors = groups.flatMap((g, index) => g.tabs.map((key) => ({ key, group: index })));
 
   return (
-    <div className="vs-shell">
+    <div className={`vs-shell${zen ? ' is-zen' : ''}`} ref={root}>
       <div
         className={`pg-files vs-work${layout.big ? ` is-big-${layout.big}` : ''}${!panelOpen ? ' is-panel-closed' : ''}`}
         style={{ '--pg-tree-w': `${Math.max(layout.tree, 200)}px`, '--pg-side-w': `${layout[sideKey]}px`, '--pg-console-h': `${layout.console}%` } as React.CSSProperties}
       >
-        <nav className="vs-activity" aria-label="Views">
-          {views
-            .filter((v) => !v.hidden)
-            .map((v) => (
-              <button key={v.id} type="button" className={`vs-act${primary === v.id ? ' is-on' : ''}`} aria-pressed={primary === v.id} onClick={() => togglePrimary(v.id)} title={v.label} aria-label={v.label}>
-                {v.icon}
+        {!zen ? (
+          <nav className="vs-activity" aria-label="Views">
+            {views
+              .filter((v) => !v.hidden)
+              .map((v) => (
+                <button key={v.id} type="button" className={`vs-act${primary === v.id ? ' is-on' : ''}`} aria-pressed={primary === v.id} onClick={() => togglePrimary(v.id)} title={`${v.label}${v.keys ? ` (${keyLabel(v.keys)})` : ''}`} aria-label={v.label}>
+                  {v.icon}
+                </button>
+              ))}
+            <span className="spacer" />
+            {vscodeHere ? (
+              <button type="button" className="vs-act" onClick={() => updatePlayground(playground.id, () => ({ editor: 'vscode' }))} title="Open in VS Code — the VS Code on that computer, in the page, with your extensions" aria-label="Open in VS Code">
+                <VsCodeMark />
               </button>
-            ))}
-          <span className="spacer" />
-          <button type="button" className={`vs-act is-agent${agentOpen ? ' is-on' : ''}`} aria-pressed={agentOpen} onClick={() => setAgentOpen(!agentOpen)} title="The agent: ask it to write, change or fix the code" aria-label="The agent">
-            <SparkleIcon size={19} />
-          </button>
-        </nav>
-        {primary ? (
+            ) : null}
+            <button type="button" className="vs-act" onClick={() => setPick('>')} title={`Command Palette (${keyLabel('mod+shift+p')})`} aria-label="Command palette">
+              <PaletteGlyph />
+            </button>
+            <button type="button" className={`vs-act is-agent${agentOpen ? ' is-on' : ''}`} aria-pressed={agentOpen} onClick={() => setAgentOpen(!agentOpen)} title={`The agent: ask it to write, change or fix the code (${keyLabel('ctrl+alt+i')})`} aria-label="The agent">
+              <SparkleIcon size={19} />
+            </button>
+          </nav>
+        ) : null}
+        {primary && !zen ? (
           <aside className="pg-tree vs-sidebar">
             <div className="vs-side-title">
               <span>{views.find((v) => v.id === primary)?.label.split(' —')[0]}</span>
               {primary === 'explorer' ? (
                 <>
-                  <button type="button" className="icon-btn sm" onClick={() => void newFile()} title="A new file" aria-label="A new file">
+                  <button type="button" className="icon-btn sm" onClick={() => void newFile()} title="New File…" aria-label="New file">
                     <PlusIcon size={14} />
                   </button>
-                  <button type="button" className="icon-btn sm" onClick={() => setRefresh((n) => n + 1)} title="Read the folder again" aria-label="Refresh">
+                  <button type="button" className="icon-btn sm" onClick={() => void newFolder()} title="New Folder…" aria-label="New folder">
+                    <FolderPlusGlyph />
+                  </button>
+                  <button type="button" className="icon-btn sm" onClick={() => setRefresh((n) => n + 1)} title="Refresh Explorer" aria-label="Refresh">
                     ↻
                   </button>
                 </>
               ) : null}
             </div>
             {primary === 'explorer' ? (
-              <>
-                <Tree key={`home-${refresh}`} host={home} label={homeLabel} icon={playground.home.kind === 'drive' ? <DriveMark size={12} /> : undefined} onOpen={(path) => void open('home', path)} activePath={current?.where === 'home' ? current.path : null} />
-                {split ? <Tree key={`machine-${refresh}-${connected}`} host={machine} label={`On ${machineName}`} note={connected ? undefined : 'Connect to see the folder on the machine.'} disabled={!connected} onOpen={(path) => void open('machine', path)} activePath={current?.where === 'machine' ? current.path : null} /> : null}
-              </>
+              <div className="vs-explorer" onContextMenu={(event) => explorerMenu(event, null)}>
+                {openEditors.length ? (
+                  <OpenEditors
+                    items={openEditors.map(({ key, group }) => ({ key, group, file: fileOf(key) })).filter((item): item is { key: string; group: number; file: OpenFile } => Boolean(item.file))}
+                    split={groups.length > 1}
+                    activeKey={active}
+                    focusedGroup={focused}
+                    onShow={(key, group) => show(key, group)}
+                    onClose={(key, group) => closeTab(group, key)}
+                  />
+                ) : null}
+                <Tree version={refresh} host={home} label={homeLabel} icon={playground.home.kind === 'drive' ? <DriveMark size={12} /> : undefined} onOpen={(path) => void open('home', path)} activePath={current?.where === 'home' ? current.path : null} onContext={explorerMenu} />
+                {split ? <Tree version={refresh + (connected ? 1000 : 0)} host={machine} label={`On ${machineName}`} note={connected ? undefined : 'Connect to see the folder on the machine.'} disabled={!connected} onOpen={(path) => void open('machine', path)} activePath={current?.where === 'machine' ? current.path : null} /> : null}
+              </div>
             ) : primary === 'search' ? (
-              <SearchView host={home} onOpen={(path) => void open('home', path)} />
+              <SearchView host={home} onOpen={(path, line) => void open('home', path, { line })} />
+            ) : primary === 'outline' ? (
+              <OutlineView file={current} symbols={symbols} line={cursor?.line ?? 1} onGo={(line) => editors.current[focused]?.goToLine(line)} />
             ) : primary === 'sync' && split ? (
               <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} />
             ) : primary === 'runtime' ? (
@@ -1215,7 +1773,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             )}
           </aside>
         ) : null}
-        {primary ? (
+        {primary && !zen ? (
           <Gutter
             axis="x"
             label="The side bar’s width"
@@ -1229,113 +1787,28 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
           />
         ) : null}
         <section className="pg-center" ref={centerBox}>
-          <div className="pg-tabs vs-tabs" role="tablist">
-            {files.map((file) => {
-              const key = `${file.where}:${file.path}`;
-              const dirtyTab = file.text !== file.saved;
-              return (
-                <span key={key} className={`pg-tab vs-tab${key === active ? ' is-on' : ''}${dirtyTab ? ' is-dirty' : ''}`}>
-                  <button type="button" role="tab" aria-selected={key === active} onClick={() => setActive(key)} title={`${file.where === 'home' ? homeLabel : machineName} · ${file.path}`}>
-                    <FileIcon path={file.path} />
-                    {file.where === 'machine' ? '⇣ ' : ''}
-                    {file.path.split('/').pop()}
-                  </button>
-                  <button
-                    type="button"
-                    className="pg-tab-x"
-                    aria-label={`Close ${file.path}`}
-                    onClick={() => {
-                      setFiles((list) => list.filter((f) => f !== file));
-                      if (key === active) setActive(null);
-                    }}
-                  >
-                    <span className="vs-dot" aria-hidden="true">●</span>
-                    <span className="vs-x" aria-hidden="true">×</span>
-                  </button>
-                </span>
-              );
-            })}
+          <div className={`vs-groups${groups.length > 1 ? ' is-split' : ''}`} ref={groupsBox}>
+            {renderGroup(groups[0], 0)}
+            {groups.length > 1 ? (
+              <Gutter
+                axis="x"
+                label="The editor groups’ widths"
+                onStart={() => (splitFrom.current = splitAt)}
+                onMove={(delta) => setSplitAt(Math.min(85, Math.max(15, splitFrom.current + (delta / Math.max(1, groupsBox.current?.clientWidth ?? 1)) * 100)))}
+                onReset={() => setSplitAt(50)}
+              />
+            ) : null}
+            {groups.length > 1 ? renderGroup(groups[1], 1) : null}
           </div>
-          {current ? (
-            <div className="vs-crumbs">
-              {crumbs.map((part, index) => (
-                <span key={`${index}-${part}`} className={index === crumbs.length - 1 ? 'is-last' : ''}>
-                  {index === crumbs.length - 1 ? <FileIcon path={part} /> : null}
-                  {part}
-                </span>
-              ))}
-              <span className="spacer" />
-              {plan ? (
-                <button
-                  type="button"
-                  className="vs-action is-run"
-                  disabled={!('command' in plan) || !usable}
-                  onClick={() => void runFile()}
-                  title={'command' in plan ? `${plan.command}${asked ? '' : ` (${machineName} couldn’t say what is installed: this is a guess)`} — ⌘↵` : `Running ${plan.language} needs ${plan.missing} on ${machineName}`}
-                >
-                  ▶ Run
-                </button>
-              ) : null}
-              <button type="button" className="vs-action" disabled={!dirty} onClick={() => void save(current)} title="⌘S">
-                {dirty ? 'Save' : 'Saved'}
+          {problem ? (
+            <p className="pg-note is-problem vs-problem">
+              {problem}
+              <button type="button" className="icon-btn sm" aria-label="Dismiss" onClick={() => setProblem(null)}>
+                <CloseIcon size={12} />
               </button>
-              {vscodeHere ? <EditorSwitch playground={playground} /> : null}
-            </div>
+            </p>
           ) : null}
-          <div
-            className="pg-editor"
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's' && current) {
-                event.preventDefault();
-                void save(current);
-              }
-              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && current) {
-                event.preventDefault();
-                void runFile();
-              }
-            }}
-          >
-            {current ? (
-              <Editor value={current.text} python={/\.py$/.test(current.path)} path={current.path} onChange={(text) => setFiles((list) => list.map((f) => (f === current ? { ...f, text } : f)))} onKeyDown={() => undefined} />
-            ) : (
-              <div className="pg-editor-empty vs-welcome">
-                <b>{playground.title}</b>
-                <p>Open a file from the explorer, make one, or ask the agent on the right to write it.</p>
-                <div className="vs-welcome-keys">
-                  <button type="button" className="link" onClick={() => void newFile()}>
-                    New file…
-                  </button>
-                  <button type="button" className="link" onClick={() => setAgentOpen(true)}>
-                    Ask the agent
-                  </button>
-                </div>
-                <p className="pg-note">
-                  {playground.home.kind === 'server'
-                    ? `The folder is ${playground.home.root} on ${serverById(playground.home.serverId)?.name ?? 'the server'} — a plain folder: edit it in any editor too.`
-                    : playground.home.kind === 'drive'
-                      ? `The files are kept in your Google Drive, in Papers_collection/Playgrounds/${playground.home.folder}${split ? `, and copied onto ${machineName} before each command` : ''}.`
-                      : playground.home.kind === 'machine'
-                        ? playground.compute.kind === 'colab'
-                          ? 'The files are on the Colab runtime’s disk: they go when it stops. Change the machine to keep them in Drive.'
-                          : `The files are on ${machineName}.`
-                        : 'These files are still kept in this browser: move them out from the banner above.'}
-                </p>
-              </div>
-            )}
-            {problem ? <p className="pg-note is-problem">{problem}</p> : null}
-          </div>
-          {current && onDisk && onDisk.key === currentKey ? (
-            <div className="pg-banner pg-disk-banner">
-              {current.path.split('/').pop()} changed in its folder while you were editing it here.
-              <button type="button" className="btn sm" onClick={() => (setFiles((list) => list.map((f) => (f === current ? { ...f, text: onDisk.text, saved: onDisk.text } : f))), setOnDisk(null))}>
-                Load it
-              </button>
-              <button type="button" className="btn sm ghost" onClick={() => ((dismissed.current = onDisk), setOnDisk(null))} title="Keep what is here; Save writes it over the folder's">
-                Keep mine
-              </button>
-            </div>
-          ) : null}
-          {panelOpen && layout.big !== 'console' ? (
+          {panelOpen && !zen && layout.big !== 'console' ? (
             <Gutter
               axis="y"
               label="The panel’s height"
@@ -1344,7 +1817,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
               onReset={() => setLayout({ console: DEFAULT_LAYOUT.console })}
             />
           ) : null}
-          <div className={`pg-console vs-panel${view === 'terminal' ? ' is-terminal' : ''}`} hidden={!panelOpen}>
+          <div className={`pg-console vs-panel${view === 'terminal' ? ' is-terminal' : ''}`} hidden={!panelOpen || zen}>
             <div className="pg-console-head vs-panel-head">
               <div className="vs-panel-tabs" role="tablist" aria-label="Panel">
                 {terminals && computeServer ? (
@@ -1370,7 +1843,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                       ) : null}
                     </span>
                   ))}
-                  <button type="button" className="icon-btn sm" onClick={addShell} aria-label="A new terminal" title="A new terminal">
+                  <button type="button" className="icon-btn sm" onClick={addShell} aria-label="A new terminal" title={`New Terminal (${keyLabel('ctrl+shift+`')})`}>
                     +
                   </button>
                 </div>
@@ -1385,10 +1858,10 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                   ■ Stop
                 </button>
               ) : null}
-              <button type="button" className={`icon-btn sm${layout.big === 'console' ? ' is-on' : ''}`} onClick={() => setLayout({ big: layout.big === 'console' ? null : 'console' })} aria-pressed={layout.big === 'console'} title={layout.big === 'console' ? 'Give the editor its room back' : 'Give the panel the whole column'} aria-label={layout.big === 'console' ? 'Restore the panel' : 'Maximise the panel'}>
+              <button type="button" className={`icon-btn sm${layout.big === 'console' ? ' is-on' : ''}`} onClick={() => setLayout({ big: layout.big === 'console' ? null : 'console' })} aria-pressed={layout.big === 'console'} title={layout.big === 'console' ? 'Restore Panel Size' : 'Maximize Panel Size'} aria-label={layout.big === 'console' ? 'Restore the panel' : 'Maximise the panel'}>
                 {layout.big === 'console' ? '⤡' : '⤢'}
               </button>
-              <button type="button" className="icon-btn sm" onClick={() => (setPanelOpen(false), layout.big === 'console' && setLayout({ big: null }))} aria-label="Hide the panel" title="Hide the panel (the status bar brings it back)">
+              <button type="button" className="icon-btn sm" onClick={() => (setPanelOpen(false), layout.big === 'console' && setLayout({ big: null }))} aria-label="Hide the panel" title={`Hide Panel (${keyLabel('mod+j')})`}>
                 <CloseIcon size={13} />
               </button>
             </div>
@@ -1432,7 +1905,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             </form>
           </div>
         </section>
-        {agentOpen ? (
+        {agentOpen && !zen ? (
           <Gutter
             axis="x"
             className="is-side"
@@ -1442,7 +1915,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             onReset={() => setLayout({ [sideKey]: DEFAULT_LAYOUT[sideKey], big: null })}
           />
         ) : null}
-        {agentOpen ? (
+        {agentOpen && !zen ? (
           <aside className={`nb-side pg-side-pane vs-agent${mode === 'cli' ? ' is-agent' : ''}`}>
             <div className="vs-agent-head">
               <span className="vs-agent-title">
@@ -1487,43 +1960,80 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
           </aside>
         ) : null}
       </div>
-      <footer className="vs-status" aria-label="Status">
-        <span className={`vs-status-item is-machine is-${connected ? 'on' : colab.status === 'connecting' ? 'busy' : 'off'}`} title={`Runs on ${machineName}`}>
-          <span className="colab-dot" aria-hidden="true" /> {machineName}
-          {colab.status === 'busy' ? ' · running' : connected ? '' : ' · not connected'}
-        </span>
-        <span className="vs-status-item" title="Where the files are kept">
-          {playground.home.kind === 'drive' ? <DriveMark size={11} /> : null} {homeLabel}
-        </span>
-        {split ? (
-          <>
-            <button type="button" className="vs-status-item is-btn" disabled={!connected || Boolean(syncing)} onClick={() => void push()} title={`Copy the folder to ${machineName}`}>
-              {syncing === 'push' ? 'Copying…' : '↑ Copy'}
+      {zen ? (
+        <button type="button" className="vs-zen-exit" onClick={() => setZen(false)}>
+          Zen mode · Esc to leave
+        </button>
+      ) : (
+        <footer className="vs-status" aria-label="Status">
+          <span className={`vs-status-item is-machine is-${connected ? 'on' : colab.status === 'connecting' ? 'busy' : 'off'}`} title={`Runs on ${machineName}`}>
+            <span className="colab-dot" aria-hidden="true" /> {machineName}
+            {colab.status === 'busy' ? ' · running' : connected ? '' : ' · not connected'}
+          </span>
+          <span className="vs-status-item" title="Where the files are kept">
+            {playground.home.kind === 'drive' ? <DriveMark size={11} /> : null} {homeLabel}
+          </span>
+          {split ? (
+            <>
+              <button type="button" className="vs-status-item is-btn" disabled={!connected || Boolean(syncing)} onClick={() => void push()} title={`Copy the folder to ${machineName}`}>
+                {syncing === 'push' ? 'Copying…' : '↑ Copy'}
+              </button>
+              <button type="button" className="vs-status-item is-btn" disabled={!connected || Boolean(syncing)} onClick={() => void pull()} title={`Bring results back from ${machineName}`}>
+                {syncing === 'pull' ? 'Bringing back…' : '↓ Bring back'}
+              </button>
+            </>
+          ) : null}
+          <span className="spacer" />
+          {current && cursor ? (
+            <>
+              <button type="button" className="vs-status-item is-btn" onClick={() => setPick(':')} title={`Go to Line/Column (${keyLabel('ctrl+g')})`}>
+                Ln {cursor.line}, Col {cursor.col}
+                {cursor.selected ? ` (${cursor.selected} selected)` : ''}
+              </button>
+              <span className="vs-status-item">Spaces: 4</span>
+              <span className="vs-status-item">UTF-8</span>
+              <span className="vs-status-item">LF</span>
+            </>
+          ) : null}
+          {current ? <span className="vs-status-item">{languageOf(current.path)}</span> : null}
+          {settings.autoSave ? (
+            <button type="button" className="vs-status-item is-btn" onClick={() => setSettings({ autoSave: false })} title="Auto Save is on: a second after typing stops, changes are saved. Click to turn it off.">
+              Auto Save
             </button>
-            <button type="button" className="vs-status-item is-btn" disabled={!connected || Boolean(syncing)} onClick={() => void pull()} title={`Bring results back from ${machineName}`}>
-              {syncing === 'pull' ? 'Bringing back…' : '↓ Bring back'}
-            </button>
-          </>
-        ) : null}
-        <span className="spacer" />
-        {current ? (
-          <>
-            <span className="vs-status-item">{languageOf(current.path)}</span>
+          ) : current ? (
             <span className="vs-status-item">{dirty ? '● Unsaved' : 'Saved'}</span>
-          </>
-        ) : null}
-        <button type="button" className={`vs-status-item is-btn${panelOpen ? ' is-on' : ''}`} onClick={() => setPanelOpen(!panelOpen)} title="Show or hide the panel: the console and terminals">
-          {view === 'terminal' ? 'Terminal' : 'Console'}
-        </button>
-        <button type="button" className={`vs-status-item is-btn is-agent${agentOpen ? ' is-on' : ''}`} onClick={() => setAgentOpen(!agentOpen)} title="Show or hide the agent">
-          <SparkleIcon size={11} /> Agent
-        </button>
-      </footer>
+          ) : null}
+          {settings.fontSize !== DEFAULT_EDITOR.fontSize ? (
+            <button type="button" className="vs-status-item is-btn" onClick={() => setSettings({ fontSize: DEFAULT_EDITOR.fontSize })} title={`Reset the editor's font size (${keyLabel('mod+0')})`}>
+              {settings.fontSize}px
+            </button>
+          ) : null}
+          <button type="button" className={`vs-status-item is-btn${panelOpen ? ' is-on' : ''}`} onClick={() => setPanelOpen(!panelOpen)} title={`Toggle Panel (${keyLabel('mod+j')})`}>
+            {view === 'terminal' ? 'Terminal' : 'Console'}
+          </button>
+          <button type="button" className={`vs-status-item is-btn is-agent${agentOpen ? ' is-on' : ''}`} onClick={() => setAgentOpen(!agentOpen)} title={`Toggle Agent (${keyLabel('ctrl+alt+i')})`}>
+            <SparkleIcon size={11} /> Agent
+          </button>
+        </footer>
+      )}
+      {menu ? <ContextMenu menu={menu} onClose={() => setMenu(null)} /> : null}
+      {pick !== null ? (
+        <QuickPick
+          initial={pick}
+          host={home}
+          commands={commands}
+          symbols={symbols}
+          lines={current ? current.text.split('\n').length : 0}
+          onClose={() => (setPick(null), focusEditor())}
+          onFile={(path, side) => void open('home', path, side ? { group: groups.length === 1 ? 1 : focused === 0 ? 1 : 0 } : {})}
+          onLine={(line) => editors.current[focused]?.goToLine(line)}
+        />
+      ) : null}
     </div>
   );
 }
 
-function Tree({ host, label, icon, note, disabled, onOpen, activePath }: { host: FileHost; label: string; icon?: React.ReactNode; note?: string; disabled?: boolean; onOpen: (path: string) => void; activePath: string | null }) {
+function Tree({ host, label, icon, note, disabled, onOpen, activePath, version = 0, onContext }: { host: FileHost; label: string; icon?: React.ReactNode; note?: string; disabled?: boolean; onOpen: (path: string) => void; activePath: string | null; version?: number; onContext?: (event: React.MouseEvent, entry: { path: string; dir: boolean } | null) => void }) {
   const [open, setOpen] = useState(true);
   return (
     <div className="pg-tree-part">
@@ -1532,13 +2042,13 @@ function Tree({ host, label, icon, note, disabled, onOpen, activePath }: { host:
         {icon}
         <span>{label}</span>
       </button>
-      {!open ? null : disabled ? <p className="pg-note pg-pad">{note}</p> : <Folder host={host} path="" depth={0} onOpen={onOpen} activePath={activePath} />}
+      {!open ? null : disabled ? <p className="pg-note pg-pad">{note}</p> : <Folder host={host} path="" depth={0} onOpen={onOpen} activePath={activePath} version={version} onContext={onContext} />}
     </div>
   );
 }
 
 /** Search, as VS Code's: every text file in the folder read, and the lines that hold the words, by file. */
-function SearchView({ host, onOpen }: { host: FileHost; onOpen: (path: string) => void }) {
+function SearchView({ host, onOpen }: { host: FileHost; onOpen: (path: string, line?: number) => void }) {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<{ path: string; lines: { n: number; text: string }[] }[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -1583,7 +2093,7 @@ function SearchView({ host, onOpen }: { host: FileHost; onOpen: (path: string) =
                   <small>{hit.lines.length}</small>
                 </button>
                 {hit.lines.map((line) => (
-                  <button key={line.n} type="button" className="vs-hit-line mono" onClick={() => onOpen(hit.path)} title={`Line ${line.n}`}>
+                  <button key={line.n} type="button" className="vs-hit-line mono" onClick={() => onOpen(hit.path, line.n)} title={`Line ${line.n}`}>
                     <i>{line.n}</i> {line.text}
                   </button>
                 ))}
@@ -1634,7 +2144,7 @@ function MoveOutOfBrowser({ playground, machineName, onNote }: { playground: Pla
   );
 }
 
-function Folder({ host, path, depth, onOpen, activePath }: { host: FileHost; path: string; depth: number; onOpen: (path: string) => void; activePath: string | null }) {
+function Folder({ host, path, depth, onOpen, activePath, version, onContext }: { host: FileHost; path: string; depth: number; onOpen: (path: string) => void; activePath: string | null; version: number; onContext?: (event: React.MouseEvent, entry: { path: string; dir: boolean } | null) => void }) {
   const [entries, setEntries] = useState<RuntimeEntry[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [openDirs, setOpenDirs] = useState<Set<string>>(new Set());
@@ -1647,7 +2157,7 @@ function Folder({ host, path, depth, onOpen, activePath }: { host: FileHost; pat
     return () => {
       live = false;
     };
-  }, [host, path]);
+  }, [host, path, version]);
   if (problem) return <p className="pg-note is-problem pg-pad">{problem}</p>;
   if (!entries) return <p className="pg-note pg-pad">…</p>;
   if (!entries.length && depth === 0) return <p className="pg-note pg-pad">Empty.</p>;
@@ -1661,6 +2171,7 @@ function Folder({ host, path, depth, onOpen, activePath }: { host: FileHost; pat
                 type="button"
                 className={`pg-entry is-dir${openDirs.has(entry.path) ? ' is-open' : ''}`}
                 style={{ paddingLeft: 8 + depth * 14 }}
+                onContextMenu={(event) => onContext?.(event, { path: entry.path, dir: true })}
                 onClick={() =>
                   setOpenDirs((set) => {
                     const next = new Set(set);
@@ -1674,10 +2185,10 @@ function Folder({ host, path, depth, onOpen, activePath }: { host: FileHost; pat
                 <FileIcon path={entry.path} folder open={openDirs.has(entry.path)} />
                 {entry.name}
               </button>
-              {openDirs.has(entry.path) ? <Folder host={host} path={entry.path} depth={depth + 1} onOpen={onOpen} activePath={activePath} /> : null}
+              {openDirs.has(entry.path) ? <Folder host={host} path={entry.path} depth={depth + 1} onOpen={onOpen} activePath={activePath} version={version} onContext={onContext} /> : null}
             </>
           ) : (
-            <button type="button" className={`pg-entry${activePath === entry.path ? ' is-on' : ''}`} style={{ paddingLeft: 8 + depth * 14 }} onClick={() => onOpen(entry.path)}>
+            <button type="button" className={`pg-entry${activePath === entry.path ? ' is-on' : ''}`} style={{ paddingLeft: 8 + depth * 14 }} onClick={() => onOpen(entry.path)} onContextMenu={(event) => onContext?.(event, { path: entry.path, dir: false })}>
               <FileIcon path={entry.path} />
               {entry.name}
               {entry.size !== null ? <small>{entry.size < 1024 ? `${entry.size} B` : entry.size < 1048576 ? `${Math.round(entry.size / 1024)} KB` : `${(entry.size / 1048576).toFixed(1)} MB`}</small> : null}

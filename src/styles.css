@@ -6185,3 +6185,97 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .vs-history button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
 .vs-history button span { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
 .vs-history button small { color: var(--muted); font-size: 11px; }
+
+/* ------------------------------------------------- the code editor (CodeEditor.tsx) -- */
+.vs-groups { flex: 1; min-height: 0; display: flex; }
+.vs-group { flex: 1 1 50%; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.vs-groups.is-split .vs-group + .pg-gutter + .vs-group, .vs-groups.is-split .vs-group:last-child { border-left: 1px solid var(--border-soft); }
+.vs-groups.is-split .vs-group:not(.is-focused) .vs-tab.is-on::before { background: var(--muted); opacity: 0.5; }
+.vs-editor { flex: 1; min-height: 0; position: relative; display: flex; background: var(--paper); }
+.vs-work.is-big-console .vs-groups { display: none; }
+.vs-tabs-fill { flex: 1; min-width: 12px; }
+.vs-tab-actions { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px; }
+.vs-tab-actions .vs-action { height: 26px; min-width: 26px; padding: 0 6px; display: inline-grid; place-items: center; margin: 0; color: var(--ink-2); }
+.vs-tab[draggable='true'] { cursor: grab; }
+.vs-drop-split { position: absolute; top: 0; right: 0; bottom: 0; width: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 16%, transparent); border: 2px dashed color-mix(in srgb, var(--accent) 60%, transparent); color: var(--accent-ink); font: 600 13px var(--sans); z-index: 5; }
+.vs-crumb-sym { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; color: var(--muted); font: inherit; padding: 0; cursor: pointer; white-space: nowrap; }
+.vs-crumb-sym::before { content: '›'; margin: 0 7px; opacity: 0.7; }
+.vs-crumb-sym.is-last { color: var(--ink); }
+.vs-sym { flex: none; display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 4px; font: 700 10px/1 var(--mono); color: #fff; background: #8c5a9e; }
+.vs-sym.is-class { background: #b27414; }
+.vs-sym.is-heading { background: var(--accent); }
+.vs-problem { flex: none; display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 14px; border-top: 1px solid var(--border-soft); }
+.vs-problem button { margin-left: auto; }
+
+.ce { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; font: var(--ce-fs)/var(--ce-lh) var(--mono); --ce-view: color-mix(in srgb, var(--ink) 12%, transparent); }
+.ce-scroll { flex: 1; min-width: 0; overflow: auto; position: relative; }
+.ce-inner { position: relative; }
+.ce-gutter { position: sticky; left: 0; z-index: 2; display: block; width: var(--ce-gutter); height: 100%; margin: 0; padding: 10px 14px 10px 0; box-sizing: border-box; text-align: right; color: color-mix(in srgb, var(--muted) 75%, transparent); background: var(--paper); font: inherit; user-select: none; border-right: 1px solid transparent; }
+.ce-gutter b { color: var(--ink); font-weight: 400; }
+.ce-current { position: absolute; left: var(--ce-gutter); right: 0; height: var(--ce-lh); background: color-mix(in srgb, var(--ink) 4.5%, transparent); border-top: 1px solid color-mix(in srgb, var(--ink) 6%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--ink) 6%, transparent); box-sizing: border-box; pointer-events: none; z-index: 1; }
+.ce-layer { position: absolute; top: 0; left: var(--ce-gutter); right: 0; bottom: 0; margin: 0; padding: 10px 14px; box-sizing: border-box; font: inherit; white-space: pre; tab-size: 4; border: 0; overflow: hidden; }
+.ce-shadow { pointer-events: none; color: var(--ink); z-index: 1; }
+.ce-shadow code { font: inherit; }
+.ce-marks { color: transparent; pointer-events: none; z-index: 1; }
+.ce-marks mark { color: transparent; background: rgba(232, 170, 40, 0.28); border-radius: 2px; }
+.ce-marks mark.is-current { background: rgba(232, 170, 40, 0.6); box-shadow: 0 0 0 1px rgba(232, 170, 40, 0.9); }
+.ce-text { z-index: 2; resize: none; outline: 0; background: transparent; color: transparent; caret-color: var(--accent); -webkit-text-fill-color: transparent; }
+.ce-text::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); -webkit-text-fill-color: transparent; }
+.ce-map { flex: none; width: 76px; height: 100%; border-left: 1px solid var(--border-soft); color: var(--ink); cursor: pointer; background: var(--paper); }
+.ce-find { position: absolute; top: 4px; right: 92px; z-index: 6; display: flex; align-items: stretch; gap: 2px; padding: 4px 6px 4px 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-md); font: 12px var(--sans); }
+.ce:not(.has-map) .ce-find { right: 16px; }
+.ce-find-fold { width: 18px; border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: 4px; }
+.ce-find-fold:hover { background: var(--accent-soft); }
+.ce-find-rows { display: flex; flex-direction: column; gap: 4px; }
+.ce-find-row { display: flex; align-items: center; gap: 2px; }
+.ce-find input { width: 200px; height: 24px; padding: 0 7px; border: 1px solid var(--border); border-radius: 5px; background: var(--paper); color: var(--ink); font: 12.5px var(--sans); outline: 0; margin-right: 4px; }
+.ce-find input:focus { border-color: var(--accent); }
+.ce-find input.is-bad { border-color: var(--danger); }
+.ce-opt { min-width: 24px; height: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: 5px; background: none; color: var(--ink-2); font: 600 11.5px var(--mono); cursor: pointer; display: inline-grid; place-items: center; }
+.ce-opt:hover:not(:disabled) { background: var(--accent-soft); }
+.ce-opt.is-on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+.ce-opt:disabled { opacity: 0.4; cursor: default; }
+.ce-opt.is-word { font: 500 11.5px var(--sans); padding: 0 8px; }
+.ce-count { min-width: 74px; padding: 0 6px; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+
+/* Quick Open and the command palette. */
+.vs-pick-scrim { position: fixed; inset: 0; z-index: 90; display: flex; justify-content: center; align-items: flex-start; padding-top: 9vh; background: rgb(0 0 0 / 0.08); }
+.vs-pick { width: min(620px, calc(100vw - 32px)); max-height: 60vh; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-lg); overflow: hidden; }
+.vs-pick input { flex: none; height: 40px; margin: 8px; padding: 0 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--paper); color: var(--ink); font: 14px var(--sans); outline: 0; }
+.vs-pick ul { list-style: none; margin: 0; padding: 0 6px 6px; overflow-y: auto; }
+.vs-pick li button { width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: 13px var(--sans); text-align: left; cursor: pointer; }
+.vs-pick li button.is-on { background: var(--accent-soft); color: var(--accent-ink); }
+.vs-pick-title b { color: var(--accent); font-weight: 700; }
+.vs-pick-sub { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-pick li button kbd, .vs-menu kbd, .vs-keys kbd { margin-left: auto; padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--paper); color: var(--ink-2); font: 11px var(--sans); white-space: nowrap; }
+.vs-pick-none { padding: 10px 12px; color: var(--muted); font-size: 13px; }
+
+/* Right-click menus. */
+.vs-menu { position: fixed; z-index: 95; min-width: 230px; }
+.vs-menu button { justify-content: space-between; gap: 18px; }
+.vs-menu button:disabled { opacity: 0.45; cursor: default; background: none; }
+.vs-menu button.is-danger:not(:disabled) { color: var(--danger); }
+.vs-menu kbd { margin-left: 0; border: 0; background: none; color: var(--muted); }
+
+/* Outline, Open Editors, the welcome's keys, Zen. */
+.vs-outline { list-style: none; margin: 0; padding: 0 6px 12px; overflow-y: auto; }
+.vs-outline .pg-entry { font-family: var(--sans); }
+.vs-explorer { flex: 1; min-height: 0; overflow-y: auto; }
+.vs-oe { display: flex; align-items: center; border-radius: 5px; }
+.vs-oe.is-on { background: var(--accent-soft); }
+.vs-oe .pg-entry { padding-left: 2px; }
+.vs-oe .pg-entry small { margin-left: 6px; overflow: hidden; text-overflow: ellipsis; }
+.vs-oe-x { flex: none; width: 20px; height: 20px; display: grid; place-items: center; margin-left: 4px; border: 0; border-radius: 4px; background: none; color: var(--muted); cursor: pointer; visibility: hidden; font-size: 9px; }
+.vs-oe:hover .vs-oe-x, .vs-oe-x:has(.vs-dot) { visibility: visible; }
+.vs-oe-x:hover { background: var(--accent-soft); }
+.vs-oe-group { padding: 4px 10px 2px 28px; font: 600 10.5px var(--sans); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.vs-keys { display: grid; grid-template-columns: auto auto; gap: 8px 18px; margin: 14px 0 6px; font-size: 13px; color: var(--ink-2); }
+.vs-keys dt { text-align: right; }
+.vs-keys dd { margin: 0; text-align: left; }
+.vs-keys kbd { margin: 0; }
+.vs-shell.is-zen .vs-tabs, .vs-shell.is-zen .vs-crumbs { opacity: 0.6; }
+.vs-zen-exit { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 20; padding: 4px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font: 12px var(--sans); cursor: pointer; box-shadow: var(--shadow-sm); }
+.vs-shell { position: relative; }
+:root[data-glass='on'] :is(.vs-pick, .ce-find, .vs-menu) { background: rgb(var(--float-rgb) / max(0.94, var(--float-a))); -webkit-backdrop-filter: blur(var(--blur)) saturate(1.4); backdrop-filter: blur(var(--blur)) saturate(1.4); border-color: var(--border); }
+:root[data-glass='on'] .vs-pick input, :root[data-glass='on'] .ce-find input { background: rgb(var(--float-rgb) / 0.9); }
+:root[data-glass='on'] .ce-gutter, :root[data-glass='on'] .ce-map { background: rgb(var(--float-rgb) / 0.55); }

@@ -6,7 +6,7 @@
 // remembered for the session, so a save is one request.
 
 import type { RuntimeEntry } from './colab';
-import { driveFetch, ensureDriveToken, ensureFolder, escapeQuery, FOLDER_MIME, uploadFile } from './google';
+import { driveFetch, ensureDriveToken, ensureFolder, escapeQuery, FOLDER_MIME, trashFile, uploadFile } from './google';
 import type { FileHost } from './playground';
 import { ROOT_FOLDER } from './sidecar';
 
@@ -97,6 +97,10 @@ export function driveHost(config: () => DriveConfig | null, folder: string): Fil
     }
     return at;
   };
+  /** A path and everything under it, no longer remembered: it moved or went. */
+  const forget = (path: string) => {
+    for (const key of [...ids.keys()]) if (key.slice(2) === path || key.slice(2).startsWith(`${path}/`)) ids.delete(key);
+  };
   const split = (path: string) => {
     const parts = path.split('/').filter(Boolean);
     return { dir: parts.slice(0, -1).join('/'), name: parts[parts.length - 1] ?? '' };
@@ -141,6 +145,32 @@ export function driveHost(config: () => DriveConfig | null, folder: string): Fil
       const existing = await fileId(t, path);
       const saved = await uploadFile(t, { name, mimeType: mimeOf(name), parentId: parent, body: text, fileId: existing ?? undefined });
       ids.set(`f:${path}`, saved.id);
+    },
+    /** Into Drive's trash, where it can be restored for thirty days. */
+    async remove(path) {
+      const t = await token();
+      const id = (await fileId(t, path)) ?? (await folderId(t, path, false));
+      if (!id) return;
+      await trashFile(t, id);
+      forget(path);
+    },
+    async rename(from, to) {
+      const t = await token();
+      const id = (await fileId(t, from)) ?? (await folderId(t, from, false));
+      if (!id) throw new Error(`${from} isn’t in the folder.`);
+      const { dir: oldDir } = split(from);
+      const { dir, name } = split(to);
+      const params = new URLSearchParams({ fields: 'id' });
+      if (dir !== oldDir) {
+        const [now, next] = await Promise.all([folderId(t, oldDir, false), folderId(t, dir, true)]);
+        if (next) params.set('addParents', next);
+        if (now) params.set('removeParents', now);
+      }
+      await driveFetch(t, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?${params}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      forget(from);
+    },
+    async mkdir(path) {
+      await folderId(await token(), path, true);
     },
   };
 }

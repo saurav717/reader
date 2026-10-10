@@ -23,7 +23,7 @@
 import { useSyncExternalStore } from 'react';
 import { db } from './db';
 import type { JupyterServer, Machine, RuntimeEntry } from './colab';
-import { JupyterRequestError, jupyterList, jupyterRead, jupyterWrite, runQuietly } from './colab';
+import { JupyterRequestError, jupyterDelete, jupyterFetch, jupyterList, jupyterRead, jupyterRename, jupyterWrite, runQuietly } from './colab';
 import type { NbCell } from './notebook';
 import { newCell, notebookFor, subscribeNotebook } from './notebook';
 import type { CellType } from './notebook';
@@ -655,6 +655,12 @@ export interface FileHost {
   list(path?: string): Promise<RuntimeEntry[]>;
   read(path: string): Promise<string | null>;
   write(path: string, text: string): Promise<void>;
+  /** A file or folder deleted (a folder with what is in it), where the host can. */
+  remove?(path: string): Promise<void>;
+  /** A file or folder renamed or moved, where the host can. */
+  rename?(from: string, to: string): Promise<void>;
+  /** An empty folder made, where the host can. */
+  mkdir?(path: string): Promise<void>;
 }
 
 const joinPath = (...parts: string[]) => parts.filter(Boolean).join('/').replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '');
@@ -784,6 +790,22 @@ export function serverHost(server: JupyterServer, root: string): FileHost {
     async write(path, text) {
       await jupyterWrite(server, under(path), text);
     },
+    async remove(path) {
+      await jupyterDelete(server, under(path));
+    },
+    async rename(from, to) {
+      await jupyterRename(server, under(from), under(to));
+    },
+    async mkdir(path) {
+      const parts = under(path).split('/').filter(Boolean);
+      for (let i = 1; i <= parts.length; i++) {
+        try {
+          await jupyterFetch(server, `api/contents/${parts.slice(0, i).map(encodeURIComponent).join('/')}`, { method: 'PUT', body: { type: 'directory' } });
+        } catch (error) {
+          if (!(error instanceof JupyterRequestError) || error.status === 0 || error.status === 401 || error.status === 403) throw error;
+        }
+      }
+    },
   };
 }
 
@@ -827,6 +849,15 @@ export function kernelHost(label: string, root: string): FileHost {
     async write(path, text) {
       const data = base64Of(new TextEncoder().encode(text));
       await run(`import os, base64\np = os.path.join(${py(root)}, ${py(path)})\nos.makedirs(os.path.dirname(p) or '.', exist_ok=True)\nopen(p, 'wb').write(base64.b64decode(${py(data)}))\nprint('ok')`);
+    },
+    async remove(path) {
+      await run(`import os, shutil\np = os.path.join(${py(root)}, ${py(path)})\nshutil.rmtree(p) if os.path.isdir(p) else os.remove(p)\nprint('ok')`);
+    },
+    async rename(from, to) {
+      await run(`import os\na = os.path.join(${py(root)}, ${py(from)})\nb = os.path.join(${py(root)}, ${py(to)})\nos.makedirs(os.path.dirname(b) or '.', exist_ok=True)\nos.rename(a, b)\nprint('ok')`);
+    },
+    async mkdir(path) {
+      await run(`import os\nos.makedirs(os.path.join(${py(root)}, ${py(path)}), exist_ok=True)\nprint('ok')`);
     },
   };
 }

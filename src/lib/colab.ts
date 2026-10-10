@@ -800,6 +800,16 @@ export async function jupyterWrite(server: Pick<JupyterServer, 'url' | 'token'>,
   return { modified: model?.last_modified ?? null };
 }
 
+/** A file or folder on a Jupyter server, deleted (a folder with what is in it). */
+export async function jupyterDelete(server: Pick<JupyterServer, 'url' | 'token'>, path: string): Promise<void> {
+  await jupyterFetch(server, contentsUrl(path), { method: 'DELETE' });
+}
+
+/** A file or folder on a Jupyter server, renamed or moved within it. */
+export async function jupyterRename(server: Pick<JupyterServer, 'url' | 'token'>, from: string, to: string): Promise<void> {
+  await jupyterFetch(server, contentsUrl(from), { method: 'PATCH', body: { path: to.split('/').filter(Boolean).join('/') } });
+}
+
 /** Whether a Jupyter server answers with this token: its version, or why not. */
 export async function checkJupyter(server: Pick<JupyterServer, 'url' | 'token'>): Promise<{ ok: true; version?: string } | { ok: false; error: string }> {
   try {
