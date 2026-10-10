@@ -721,6 +721,33 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           </p>
         </section>
 
+        <section style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Projects
+          </div>
+          <div className="segmented" style={{ width: 'fit-content' }} role="group" aria-label="What a project opens on">
+            <button
+              type="button"
+              aria-pressed={settings.projectOpensOn === 'overview'}
+              onClick={() => updateSettings({ projectOpensOn: 'overview' })}
+            >
+              Overview
+            </button>
+            <button
+              type="button"
+              aria-pressed={settings.projectOpensOn === 'workspace'}
+              onClick={() => updateSettings({ projectOpensOn: 'workspace' })}
+            >
+              Workspace
+            </button>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+            What a project’s mark on the rail opens: its overview — what to read next, its papers by role, its to-do
+            list and code — or its workspace, a paper of the project beside the project’s code. The switch at the top
+            of every project page goes between the board, the overview and the workspace whichever you pick.
+          </p>
+        </section>
+
         <section>
           <div className="eyebrow" style={{ marginBottom: 10 }}>
             Appearance

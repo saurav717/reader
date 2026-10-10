@@ -16,6 +16,7 @@ import { notebookFor, runKey } from './lib/notebook';
 import { cellsBlock } from './lib/notebookAsk';
 import { explainDrive } from './lib/explainDrive';
 import CollectionView from './components/CollectionView';
+import ProjectsPage, { RailProjects, projectView } from './components/Projects';
 import JunkView from './components/JunkView';
 import CommandPalette from './components/CommandPalette';
 import Discover from './components/Discover';
@@ -498,12 +499,12 @@ export default function App() {
   // The tab's title names the page, so a history of them can be told apart.
   useEffect(() => {
     if (view.kind === 'playground' && view.id) return; // the playground names itself
-    const lists: Partial<Record<View['kind'], string>> = { all: 'Library', reading: 'Reading', unread: 'Not started', finished: 'Finished', unsorted: 'Unsorted', junk: 'Junk', playground: 'Playground' };
+    const lists: Partial<Record<View['kind'], string>> = { all: 'Library', reading: 'Reading', unread: 'Not started', finished: 'Finished', unsorted: 'Unsorted', junk: 'Junk', playground: 'Playground', projects: 'Projects' };
     const name = usageOpen
       ? 'Usage'
       : view.kind === 'paper'
         ? papers.find((paper) => paper.id === view.id)?.title
-        : view.kind === 'collection'
+        : view.kind === 'collection' || view.kind === 'project'
           ? collections.find((collection) => collection.id === view.id)?.name
           : lists[view.kind];
     document.title = name ? `${name} · Reader` : 'Reader';
@@ -531,8 +532,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // Put away for Home is not a choice to remember: what is kept is how they were.
-    const panels = JSON.stringify(panelsBeforeHome.current ?? ({ libraryOpen, dock } satisfies Layout));
+    // Put away for Home or a project's workspace is not a choice to remember: what is kept is how they were.
+    const panels = JSON.stringify(panelsBeforeHome.current ?? panelsBeforeWorkspace.current ?? ({ libraryOpen, dock } satisfies Layout));
     tabState.set(LAYOUT_KEY, panels);
     localStorage.setItem(LAYOUT_KEY, panels);
   }, [libraryOpen, dock]);
@@ -555,6 +556,26 @@ export default function App() {
     // Only the move onto and off Home; the panels' own state is read, not followed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onHome]);
+  // A project's workspace is a paper beside its code: the library and the dock
+  // step aside on the way in, and come back as they were on the way out.
+  const inWorkspace = view.kind === 'project' && view.mode === 'workspace';
+  const panelsBeforeWorkspace = useRef<Layout | null>(null);
+  useEffect(() => {
+    if (inWorkspace) {
+      if (panelsBeforeWorkspace.current || isNarrow()) return;
+      panelsBeforeWorkspace.current = { libraryOpen, dock };
+      setLibraryOpen(false);
+      setDock(null);
+      return;
+    }
+    const before = panelsBeforeWorkspace.current;
+    if (!before) return;
+    panelsBeforeWorkspace.current = null;
+    setLibraryOpen((current) => current || before.libraryOpen);
+    setDock((current) => current ?? before.dock);
+    // Only the move onto and off the workspace.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inWorkspace]);
   /** A panel opened by hand on Home is the reader's choice, not something to undo on leaving. */
   const panelTouched = () => {
     panelsBeforeHome.current = null;
@@ -829,11 +850,16 @@ export default function App() {
         };
       }
     }
-    const name = view.kind === 'collection' ? collections.find((c) => c.id === view.id)?.name : undefined;
+    const name = view.kind === 'collection' || view.kind === 'project' ? collections.find((c) => c.id === view.id)?.name : undefined;
+    const question = view.kind === 'project' ? collections.find((c) => c.id === view.id)?.project?.question : undefined;
     const where =
       view.kind === 'collection'
         ? `Browsing the collection “${name ?? 'Collection'}”`
-        : { home: 'On Home — the paper last read, what is in progress and the latest highlights', all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library', playground: 'In the Playground — code of their own, not tied to one paper' }[view.kind];
+        : view.kind === 'project'
+          ? `${view.mode === 'workspace' ? 'In the workspace of' : 'Looking over'} the research project “${name ?? 'Project'}”${question ? `, which asks: ${question}` : ''}`
+          : view.kind === 'projects'
+            ? 'Looking over every research project side by side'
+            : { home: 'On Home — the paper last read, what is in progress and the latest highlights', all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library', playground: 'In the Playground — code of their own, not tied to one paper' }[view.kind];
     const library = Array.from(document.querySelectorAll('.paper-name'), (el) => el.textContent?.trim() ?? '').filter(Boolean);
     return { where, library };
   }, [view, papers, collections, highlights, explainOpen]);
@@ -1146,6 +1172,20 @@ export default function App() {
         </button>
         {shows.dock ? <RailRunBadge onOpen={goToPlayground} /> : null}
         </div>
+        {!showWelcome ? (
+          <RailProjects
+            current={view.kind === 'project' && !onUsage ? view.id : undefined}
+            onBoardActive={view.kind === 'projects' && !onUsage}
+            onBoard={() => {
+              setUsageOpen(false);
+              setView({ kind: 'projects' });
+            }}
+            onOpen={(id) => {
+              setUsageOpen(false);
+              setView(projectView(id, settings.projectOpensOn));
+            }}
+          />
+        ) : null}
         {isOwner ? (
           <button
             type="button"
@@ -1237,6 +1277,8 @@ export default function App() {
         <Home returnTo={returnPaper} returnFromThisVisit={Boolean(lastPaperId && returnPaper?.id === lastPaperId)} onOpenPaper={openPaper} onOpenHighlight={openHighlight} onSearch={() => setPaletteOpen(true)} onDiscover={addPapers} onShowNotes={() => openNotesRef.current()} />
       ) : view.kind === 'playground' ? (
         <Playground id={view.id} onOpen={(id) => setView(id ? { kind: 'playground', id } : { kind: 'playground' })} onOpenPaper={openPaper} />
+      ) : view.kind === 'projects' || view.kind === 'project' ? (
+        <ProjectsPage view={view} onView={setView} onOpenPaper={openPaper} onAddPapers={addPapers} />
       ) : view.kind === 'junk' ? (
         <JunkView />
       ) : (
@@ -1269,7 +1311,7 @@ export default function App() {
               onClose={closeDock}
               onOpen={openFromDiscover}
               ask={discoverAsk}
-              here={view.kind === 'collection' ? view.id : undefined}
+              here={view.kind === 'collection' || view.kind === 'project' ? view.id : undefined}
               focus={discoverFocus}
             />
           ) : (

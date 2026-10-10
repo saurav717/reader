@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import {
   arxivIdFromQuery,
@@ -33,6 +33,8 @@ import { titleFits } from '../lib/citations';
 import { googleBook, googleBooksIdFromLink, linkFromQuery, paperFromLink } from '../lib/books';
 import type { AuthorRef, PaperLocation, PaperOrder, PaperRef, SourceId } from '../types';
 import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
+import { AddToProject } from './Projects';
+import { projectsOf } from '../lib/projects';
 
 interface Props {
   onClose: () => void;
@@ -218,6 +220,7 @@ function Profile({ author }: { author: AuthorRef }) {
 
 export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
   const { papers, collections, addPaper, createCollection, driveConnected, settings, syncPaperNow } = useStore();
+  const projects = useMemo(() => projectsOf(collections), [collections]);
   const [query, setQuery] = useState('');
   /** The query as it was searched, which is what the panel is about until the next one. */
   const [asked, setAsked] = useState('');
@@ -805,9 +808,11 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
 
         {results.map((result) => {
           const saved = papers.find((paper) => paper.id === result.id);
+          // Projects get pills of their own, below; this one names a plain collection.
           const collectionName = saved?.collectionIds
-            .map((id) => collections.find((collection) => collection.id === id)?.name)
+            .map((id) => collections.find((collection) => collection.id === id && !collection.project)?.name)
             .filter(Boolean)[0];
+          const inProjects = saved ? projects.filter((project) => saved.collectionIds.includes(project.id)) : [];
           const isOpen = openId === result.id;
           return (
             <article key={result.id} className={`result ${isOpen ? 'is-open' : ''}`}>
@@ -823,12 +828,18 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
                   {result.venue ? <span>{result.venue}</span> : null}
                   {result.citedBy ? <span>{compact(result.citedBy)} citations</span> : null}
                   {result.scholarVersions ? <span>{result.scholarVersions} versions</span> : null}
-                  {saved ? (
+                  {saved && (collectionName || !inProjects.length) ? (
                     <span className="pill-added">
                       <CheckIcon size={11} />
                       {collectionName ? `In ${collectionName}` : 'In library'}
                     </span>
                   ) : null}
+                  {inProjects.map((project) => (
+                    <span key={project.id} className="pj-pill" title={`In the project ${project.name}`}>
+                      <span className="pj-dot" style={{ background: project.color }} />
+                      {project.name}
+                    </span>
+                  ))}
                 </div>
               </ResultHead>
 
@@ -880,6 +891,7 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
                         Source <ExternalIcon size={12} />
                       </a>
                     ) : null}
+                    <AddToProject paperRef={result} compact />
                   </div>
                   {saveBlocked ? (
                     <p className="save-blocked" id={SAVE_BLOCKED_ID}>

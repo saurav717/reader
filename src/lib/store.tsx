@@ -73,6 +73,7 @@ const defaultSettings: Settings = {
   glassLight: 1,
   explainOpacity: null,
   readingMode: 'pdf',
+  projectOpensOn: 'overview',
   zenHaze: 'shadow',
   passageLook: 'marker',
   chatMarks: 'auto',
@@ -215,6 +216,8 @@ interface StoreValue {
 
   createCollection: (name: string) => Promise<Collection>;
   renameCollection: (id: string, name: string) => Promise<void>;
+  /** Change a collection in place — its colour, or the project it is (src/lib/projects.ts). */
+  updateCollection: (id: string, change: Partial<Collection> | ((collection: Collection) => Partial<Collection>)) => Promise<void>;
   deleteCollection: (id: string) => Promise<void>;
 
   addHighlight: (highlight: Omit<Highlight, 'id' | 'createdAt'>) => Promise<Highlight>;
@@ -1236,6 +1239,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setCollections((current) => current.map((item) => (item.id === id ? updated : item)));
   }, []);
 
+  const updateCollection = useCallback(
+    async (id: string, change: Partial<Collection> | ((collection: Collection) => Partial<Collection>)) => {
+      const collection = latest.current.collections.find((item) => item.id === id);
+      if (!collection) return;
+      const updated: Collection = { ...collection, ...(typeof change === 'function' ? change(collection) : change), id };
+      latest.current.collections = latest.current.collections.map((item) => (item.id === id ? updated : item));
+      setCollections((current) => current.map((item) => (item.id === id ? updated : item)));
+      await lib.putCollection(updated);
+    },
+    [],
+  );
+
   const deleteCollection = useCallback(async (id: string) => {
     await lib.deleteCollection(id);
     setCollections((current) => current.filter((item) => item.id !== id));
@@ -1419,6 +1434,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setPaperAuthors,
       createCollection,
       renameCollection,
+      updateCollection,
       deleteCollection,
       addHighlight,
       updateHighlight,
@@ -1439,7 +1455,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [
       ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog, librarySync, strays, adoptStrays, discardStrays,
       addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile, setPaperAuthors,
-      createCollection, renameCollection, deleteCollection, addHighlight, updateHighlight,
+      createCollection, renameCollection, updateCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, askingTabs, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
       githubConnected, githubLog, githubPending, pushToGitHub,
     ],

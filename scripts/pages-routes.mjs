@@ -11,7 +11,7 @@
 import { copyFile, mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-export const STATIC_ROUTES = ['playground', 'paper', 'collection', 'library', 'reading', 'unread', 'finished', 'unsorted', 'junk', 'usage'];
+export const STATIC_ROUTES = ['playground', 'paper', 'collection', 'library', 'reading', 'unread', 'finished', 'unsorted', 'junk', 'usage', 'projects', 'project'];
 
 const out = process.argv[2] || 'dist-pages';
 for (const route of STATIC_ROUTES) {

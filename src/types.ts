@@ -147,7 +147,40 @@ export interface Collection {
   name: string;
   color: string;
   createdAt: string;
+  /**
+   * Set on a collection that is a project: a piece of research with a
+   * question, papers in roles, a to-do list and code of its own. Its papers
+   * are the collection's — membership, not copies — so a paper can be in
+   * several projects, and Drive keeps a project as it keeps any collection.
+   */
+  project?: ProjectInfo;
 }
+
+/** What a paper is to a project. */
+export type PaperRole = 'core' | 'baseline' | 'method' | 'related';
+
+export interface ProjectTodo {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
+export interface ProjectInfo {
+  /** The question the project is asking, in a sentence; may be empty. */
+  question: string;
+  startedAt: string;
+  /** A paper's role here, by paper id; a paper with none is unsorted. */
+  roles: Record<string, PaperRole>;
+  /** The playground that holds the project's code, once it has some. */
+  playgroundId?: string;
+  todos: ProjectTodo[];
+}
+
+/**
+ * The three ways into projects: every project side by side, one project's
+ * overview, or its workspace — a paper beside its code.
+ */
+export type ProjectView = 'board' | 'overview' | 'workspace';
 
 export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink';
 
@@ -230,6 +263,8 @@ export interface Settings {
   explainOpacity: number | null;
   /** Which view a paper opens in when both are available. */
   readingMode: ReadingMode;
+  /** What a project opens on from the rail and the board: its overview, or its workspace. */
+  projectOpensOn: Exclude<ProjectView, 'board'>;
   /**
    * What falls over the page when a side pane is brought out in zen mode: a
    * shadow cast from the pane, a frosted mist, or a glow in the accent colour.
