@@ -55,7 +55,18 @@ export function projectView(id: string, opensOn: 'overview' | 'workspace'): View
 
 /** The project opened last on this device: where the switch goes from the board. */
 const LAST_PROJECT = 'reader.project.last';
-const lastProject = () => {
+const NEW_PROJECT = 'reader.project.new';
+/** Asks the Projects page to open with the new-project dialog; the caller then goes there. */
+export function askForNewProject() {
+  try {
+    sessionStorage.setItem(NEW_PROJECT, '1');
+  } catch {
+    // the page opens without it
+  }
+  window.dispatchEvent(new Event(NEW_PROJECT));
+}
+
+export const lastProject = () => {
   try {
     return localStorage.getItem(LAST_PROJECT);
   } catch {
@@ -77,9 +88,31 @@ export default function ProjectsPage({
 }) {
   const { collections, settings } = useStore();
   const projects = useMemo(() => projectsOf(collections), [collections]);
-  const [creating, setCreating] = useState(false);
+  // "New project…" from the rail's project menus: the page opens with the dialog up.
+  const [creating, setCreating] = useState(() => {
+    try {
+      const asked = sessionStorage.getItem(NEW_PROJECT) === '1';
+      sessionStorage.removeItem(NEW_PROJECT);
+      return asked;
+    } catch {
+      return false;
+    }
+  });
   const project = view.kind === 'project' ? projects.find((item) => item.id === view.id) : undefined;
   const opensOn = settings.projectOpensOn;
+  // Asked for while the page is already open: the page is not mounted afresh, so it is told.
+  useEffect(() => {
+    const ask = () => {
+      try {
+        sessionStorage.removeItem(NEW_PROJECT);
+      } catch {
+        // nothing kept
+      }
+      setCreating(true);
+    };
+    window.addEventListener(NEW_PROJECT, ask);
+    return () => window.removeEventListener(NEW_PROJECT, ask);
+  }, []);
   useEffect(() => {
     if (!project) return;
     try {

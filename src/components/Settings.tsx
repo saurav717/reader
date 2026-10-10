@@ -3,7 +3,7 @@ import { useStore } from '../lib/store';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
 import { parseRepo } from '../lib/github';
-import { GLASS_WALLS, NAV_STYLES } from '../types';
+import { GLASS_WALLS, NAV_STYLES, PROJECT_NAVS } from '../types';
 import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
@@ -748,9 +748,31 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               </button>
             ))}
           </div>
+          <div className="eyebrow" style={{ margin: '16px 0 8px' }}>
+            Projects in the rail
+          </div>
+          <div className="nav-choices is-text" role="radiogroup" aria-label="How projects show in the rail">
+            {PROJECT_NAVS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={settings.projectNav === option.id}
+                className={`nav-choice${settings.projectNav === option.id ? ' is-on' : ''}`}
+                onClick={() => updateSettings({ projectNav: option.id })}
+              >
+                <b>
+                  {option.label}
+                  {option.id === 'switcher' ? <small> · default</small> : null}
+                </b>
+                <span>{option.note}</span>
+              </button>
+            ))}
+          </div>
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
             Every layout but Classic keeps pages (Home, Reading, Library, Projects, Code) apart from the panels that open
             beside the page (Library, Discover, Notes, Ask AI). On a phone the wide ones use the narrow rail with its tray.
+            How projects show applies to the rails; the sidebar names every project, and Classic keeps its marks.
           </p>
         </section>
 

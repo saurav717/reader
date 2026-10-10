@@ -269,6 +269,8 @@ export interface Settings {
    * icons it had before.
    */
   navStyle: NavStyle;
+  /** How the projects are reached from the rail (not the sidebar, which names them all, or the classic rail). */
+  projectNav: ProjectNav;
   /** What a project opens on from the rail and the board: its overview, or its workspace. */
   projectOpensOn: Exclude<ProjectView, 'board'>;
   /**
@@ -366,6 +368,25 @@ export const NAV_STYLES: { id: NavStyle; label: string; note: string }[] = [
   { id: 'sidebar', label: 'Sidebar', note: 'A wide sidebar: pages by name with your projects under Projects, the panels as switches. Folds to a narrow rail.' },
   { id: 'edge', label: 'Edge tabs', note: 'A rail of pages; the panels are tabs on the right edge of the page, pulled out like drawers.' },
   { id: 'classic', label: 'Classic', note: 'The one rail of icons as it was: pages and panels side by side.' },
+];
+
+/**
+ * - switcher: a tile under the brand naming the project you are in, opening a list of the others;
+ * - menu: one Projects item with a count, opening a menu of every project by name;
+ * - current: under Projects, only the project you are in (or were in last), named;
+ * - dots: a row of colour dots under Projects;
+ * - folder: Projects opens and folds a list of named projects in place;
+ * - marks: a mark for each project, stacked under Projects.
+ */
+export type ProjectNav = 'switcher' | 'menu' | 'current' | 'dots' | 'folder' | 'marks';
+
+export const PROJECT_NAVS: { id: ProjectNav; label: string; note: string }[] = [
+  { id: 'switcher', label: 'Switcher at the top', note: 'A tile under the R shows the project you are in, by name. Click it for the others.' },
+  { id: 'menu', label: 'Menu from Projects', note: 'One Projects item with a count; it opens a menu of every project by name.' },
+  { id: 'current', label: 'Just the current one', note: 'Under Projects, only the project you are in, or were in last, with its name.' },
+  { id: 'dots', label: 'Colour dots', note: 'A row of small dots under Projects, one a project; hover one for its name.' },
+  { id: 'folder', label: 'Opens like a folder', note: 'Projects opens a list of your projects by name right in the rail, and folds it again.' },
+  { id: 'marks', label: 'Stacked marks', note: 'A lettered mark for each project, stacked under Projects.' },
 ];
 
 /** The PDF as the publisher set it, or the reflowed text you can highlight. */
