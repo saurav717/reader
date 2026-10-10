@@ -43,7 +43,7 @@ export function targetFrom(settings: Settings): GitHubTarget | null {
   };
 }
 
-async function gh<T>(target: GitHubTarget, path: string, init: RequestInit = {}): Promise<T> {
+export async function gh<T>(target: GitHubTarget, path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API}/repos/${target.owner}/${target.repo}${path}`, {
     ...init,
     headers: {

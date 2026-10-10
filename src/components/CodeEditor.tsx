@@ -9,6 +9,7 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { highlightCode } from '../lib/languages';
+import { highlightTex } from '../lib/overleaf';
 import type { Edit, FindOptions, Selection } from '../lib/editing';
 import { commentFor, copyLines, deleteLines, deletePair, findAll, lineCol, lineSpan, moveLines, newLine, offsetOfLine, replaceAll, toggleComment, typeBracket } from '../lib/editing';
 import { highlightPython } from './Explain';
@@ -20,6 +21,8 @@ export interface CodeEditorHandle {
   goToLine: (line: number) => void;
   /** The find bar, or find and replace; with the selection as the query when there is one. */
   openFind: (replace?: boolean) => void;
+  /** Types text in over the selection, or at the caret, so undo takes it back. */
+  insert: (text: string) => void;
 }
 
 export interface Cursor {
@@ -64,7 +67,7 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
 
   const lines = useMemo(() => value.split('\n'), [value]);
   const widest = useMemo(() => lines.reduce((most, line) => Math.max(most, line.replace(/\t/g, '    ').length), 0), [lines]);
-  const html = useMemo(() => (/\.py$/i.test(path) ? highlightPython(value) : highlightCode(value, path)), [value, path]);
+  const html = useMemo(() => (/\.py$/i.test(path) ? highlightPython(value) : /\.(tex|bib|sty|cls)$/i.test(path) ? highlightTex(value) : highlightCode(value, path)), [value, path]);
   const found = useMemo(() => (findOpen ? findAll(value, query, options) : { matches: [] as Selection[] }), [findOpen, value, query, options]);
   const marks = useMemo(() => {
     if (!found.matches.length) return '';
@@ -148,6 +151,13 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
     () => ({
       focus: () => text.current?.focus(),
       goToLine: (line: number) => go(offsetOfLine(text.current?.value ?? value, line)),
+      insert: (insert: string) => {
+        const element = text.current;
+        if (!element) return;
+        const from = element.selectionStart;
+        const at = from + insert.length;
+        apply({ from, to: element.selectionEnd, insert, select: { start: at, end: at } });
+      },
       openFind: (replace = false) => {
         const element = text.current;
         const picked = element ? element.value.slice(element.selectionStart, element.selectionEnd) : '';
@@ -159,7 +169,7 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
         });
       },
     }),
-    [go, value],
+    [go, value, apply],
   );
 
   // A new query goes to the match nearest after the caret.

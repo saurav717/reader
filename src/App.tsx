@@ -24,6 +24,7 @@ import CommandPalette from './components/CommandPalette';
 import Discover from './components/Discover';
 import Library from './components/Library';
 import NotesRail from './components/NotesRail';
+import { DraftDock, useDraftDock } from './components/Overleaf';
 import NotesWindow from './components/NotesWindow';
 import NotesBoard from './components/NotesBoard';
 import { CLOSE_EXPLAIN, OPEN_BOARD, OPEN_EXPLAIN, OPEN_NOTES } from './lib/notes';
@@ -131,7 +132,8 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 /** What the right-hand dock is showing, if anything. */
-type Dock = 'discover' | 'notes' | null;
+/** draft: a project's paper being written, when Settings puts the writing in the dock. */
+type Dock = 'discover' | 'notes' | 'draft' | null;
 
 interface Layout {
   libraryOpen: boolean;
@@ -203,6 +205,7 @@ function readLayout(): Layout {
 
 export default function App() {
   const { ready, papers, collections, highlights, user, driveConnected, settings, askingTabs } = useStore();
+  const draftDock = useDraftDock();
   const [layout] = useState(readLayout);
   const [libraryOpen, setLibraryOpen] = useState(layout.libraryOpen);
   const [dock, setDock] = useState<Dock>(layout.dock);
@@ -961,7 +964,8 @@ export default function App() {
   const showWelcome = needsSignIn || (!skippedConnect && (needsDrive || (!welcomed && !papers.length)));
   const reading = view.kind === 'paper' ? view.id : null;
   // With no paper open the notes pane lists every paper's notes, a card to each.
-  const dockPane: Dock = dock;
+  // The Draft tab goes when Settings no longer puts the writing in the dock: Discover takes its place.
+  const dockPane: Dock = dock === 'draft' && !draftDock ? 'discover' : dock;
   const inZen = zenOn && !showWelcome;
   const explained = reading ? papers.find((paper) => paper.id === reading) : undefined;
   // In zen mode the right edge always has something to bring out: the dock as
@@ -1454,9 +1458,16 @@ export default function App() {
             >
               Notes
             </button>
+            {draftDock ? (
+              <button type="button" role="tab" aria-selected={shownDock === 'draft'} onClick={() => setDock('draft')}>
+                Draft
+              </button>
+            ) : null}
           </div>
 
-          {shownDock === 'discover' ? (
+          {shownDock === 'draft' ? (
+            <DraftDock paperId={reading ?? ''} />
+          ) : shownDock === 'discover' ? (
             <Discover
               onClose={closeDock}
               onOpen={openFromDiscover}

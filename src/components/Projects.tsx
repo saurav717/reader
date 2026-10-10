@@ -39,7 +39,9 @@ import type { View } from '../types.view';
 import Playground, { ComputeTag, WhereDialog } from './Playground';
 import PaperWindow from './PaperWindow';
 import Reader from './Reader';
-import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, CloseIcon, CodeIcon, GridIcon, PlusIcon, TrashIcon } from './icons';
+import { CiteButtons, DraftEditor, OverleafCard, openOverleaf } from './Overleaf';
+import { overleafViewOf } from '../lib/overleaf';
+import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, CloseIcon, CodeIcon, ExternalIcon, GridIcon, PlusIcon, TrashIcon } from './icons';
 
 type ProjectPageView = Extract<View, { kind: 'projects' } | { kind: 'project' }>;
 
@@ -497,6 +499,16 @@ function ProjectOverview({
         </section>
       </div>
 
+      <div className="pj-paper-row">
+        <OverleafCard
+          project={project}
+          onWrite={() => {
+            writeWs(WS_LAYOUT, 'write');
+            onView({ kind: 'project', id: project.id, mode: 'workspace' });
+          }}
+        />
+      </div>
+
       <div className="pj-section-head">
         <span className="eyebrow">Papers in this project · {mine.length}</span>
         <span className="pj-hint">Give each a role: what the project builds on, measures against, borrows, or cites.</span>
@@ -692,11 +704,20 @@ const WS_PAPER = (id: string) => `reader.project.${id}.paper`;
 const WS_LAYOUT = 'reader.project.layout';
 const WS_SPLIT = 'reader.project.split';
 const WS_TREE = 'reader.project.tree';
-type WsLayout = 'paper' | 'both' | 'code';
+/** Write: the paper being read beside the draft, when Settings puts the writing in the workspace. */
+type WsLayout = 'paper' | 'both' | 'code' | 'write';
 
 function rememberWorkspacePaper(projectId: string, paperId: string) {
   try {
     localStorage.setItem(WS_PAPER(projectId), paperId);
+  } catch {
+    // only a convenience
+  }
+}
+
+function writeWs(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
   } catch {
     // only a convenience
   }
@@ -712,8 +733,10 @@ function readWs<T extends string>(key: string, allowed: readonly T[], fallback: 
 }
 
 function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; onView: (view: View) => void; onOpenPaper: (id: string) => void }) {
-  const { papers, highlights, updateCollection } = useStore();
+  const { papers, highlights, updateCollection, settings } = useStore();
   const mine = papersIn(project.id, papers);
+  const writing = overleafViewOf(settings);
+  const overleaf = project.project.overleaf;
   const [paperId, setPaperId] = useState<string | null>(() => {
     try {
       return localStorage.getItem(WS_PAPER(project.id));
@@ -723,7 +746,9 @@ function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; 
   });
   const shown = mine.find((paper) => paper.id === paperId) ?? continueWith(project, papers) ?? mine[0];
   // Full code is where a project's work is done: the papers are a strip above it, a card each, and a window over it.
-  const [layout, setLayoutState] = useState<WsLayout>(() => readWs(WS_LAYOUT, ['paper', 'both', 'code'] as const, 'code'));
+  const [chosenLayout, setLayoutState] = useState<WsLayout>(() => readWs(WS_LAYOUT, ['paper', 'both', 'code', 'write'] as const, 'code'));
+  // Write is there only while Settings puts the writing in the workspace.
+  const layout: WsLayout = chosenLayout === 'write' && writing !== 'write' ? 'both' : chosenLayout;
   const [floating, setFloating] = useState<string | null>(null);
   const setLayout = (next: WsLayout) => {
     setLayoutState(next);
@@ -790,7 +815,8 @@ function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; 
   const floatPaper = mine.find((paper) => paper.id === floating);
   const link = (id: string | undefined) => void updateCollection(project.id, (collection) => ({ project: { ...project.project, ...(collection.project ?? {}), playgroundId: id } }));
   const showPaper = layout !== 'code';
-  const showCode = layout !== 'paper';
+  const showWrite = layout === 'write';
+  const showCode = layout === 'both' || layout === 'code';
   const fullCode = layout === 'code';
 
   return (
@@ -811,8 +837,21 @@ function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; 
           <button type="button" aria-pressed={layout === 'paper'} onClick={() => setLayout('paper')} title="Just the paper">
             Paper
           </button>
+          {writing === 'write' ? (
+            <button type="button" aria-pressed={layout === 'write'} onClick={() => setLayout('write')} title="The paper beside the draft you are writing">
+              Write
+            </button>
+          ) : null}
         </div>
         {!fullCode && shown ? <span className="pj-ws-now">{shown.title}</span> : null}
+        {writing === 'beside' && overleaf && !fullCode ? (
+          <span className="pj-ws-overleaf">
+            <CiteButtons project={project} paper={shown} />
+            <button type="button" className="btn sm" onClick={() => openOverleaf(overleaf, project.id, 'beside')} title="Overleaf in a window beside this one">
+              <ExternalIcon size={13} /> Overleaf
+            </button>
+          </span>
+        ) : null}
       {fullCode ? (
         <PaperStrip
           project={project}
@@ -872,7 +911,7 @@ function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; 
         ) : null}
         <div className="pj-ws-panes" ref={panes}>
         {showPaper ? (
-          <div className="pj-ws-pane pj-ws-paper" style={showCode ? { flex: `0 0 ${split * 100}%` } : undefined}>
+          <div className="pj-ws-pane pj-ws-paper" style={showCode || showWrite ? { flex: `0 0 ${split * 100}%` } : undefined}>
             {shown ? (
               <Reader
                 key={shown.id}
@@ -899,7 +938,7 @@ function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; 
             )}
           </div>
         ) : null}
-        {showPaper && showCode ? (
+        {showPaper && (showCode || showWrite) ? (
           <div
             className="pj-ws-split"
             role="separator"
@@ -912,6 +951,11 @@ function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; 
               if (step) setSplit((current) => Math.min(0.78, Math.max(0.22, current + step)));
             }}
           />
+        ) : null}
+        {showWrite ? (
+          <div className="pj-ws-pane pj-ws-code">
+            <DraftEditor project={project} paper={shown} />
+          </div>
         ) : null}
         {showCode ? (
           <div className="pj-ws-pane pj-ws-code">
