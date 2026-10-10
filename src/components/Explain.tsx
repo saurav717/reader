@@ -48,6 +48,8 @@ import { motionText } from '../lib/motion';
 import { MotionView, Stage } from './Motion';
 import { typesetMath } from '../lib/typesetMath';
 import { CloseIcon, ColabIcon, ExplainIcon, MoonIcon, NoteIcon, OpacityIcon, PlanIcon, SparkleIcon, SunIcon } from './icons';
+import PlaygroundWorkspace from './PlaygroundWorkspace';
+import { usePlaygrounds } from '../lib/playground';
 import { ComputeBlock, FileBlock, HardwareSummary, ImplementEmpty, LocalMenu, PlanContext, RunConsole, runLocally, TreeBlock, useLocal } from './Implement';
 import { attachUrl, CellRunOutput, ColabBanner, ColabChip, ColabMark, ConnectCard, RunState, useColab } from './Colab';
 import MetricsPane from './MetricsPane';
@@ -984,6 +986,16 @@ export default function Explain({ paperId, title, authors, published, screen, on
   const assistant = useSyncExternalStore(subscribe, getState);
   const [page, setPage] = useState<ExplainPage>(() => (askedPage?.paperId === paperId ? askedPage.page : 'explain'));
   // The written page under the notebook: Colab in the bar opens the notebook over it, and a second click comes back to it.
+  // The plan set up as a project (Local → Open as a project): its editor opens here, over the page, not on the Playground.
+  const playgrounds = usePlaygrounds();
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const project = projectId ? playgrounds.find((p) => p.id === projectId) : undefined;
+  const projectOpen = Boolean(project);
+  const paperProject = useMemo(() => playgrounds.filter((p) => p.kind === 'project' && p.start === 'paper' && p.cites.some((c) => c.paperId === paperId)).sort((a, b) => b.updated - a.updated)[0], [playgrounds, paperId]);
+  const goTo = (next: ExplainPage) => {
+    setProjectId(null);
+    setPage(next);
+  };
   const written = useRef<WrittenPage>('explain');
   useEffect(() => {
     if (page !== 'colab') written.current = page;
@@ -1068,7 +1080,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
       // Judged by where the key was pressed, not where focus is now: an editor that closed on this Escape has already let focus go.
       const from = event.target instanceof Element ? event.target : document.activeElement;
       // Nor while a figure is open close up: its Esc puts the figure back, not the page away.
-      if (event.key === 'Escape' && !from?.closest('.assistant-win, .explain-ask, .nb-page') && !document.querySelector('.scrim, .figure-closeup')) onClose();
+      if (event.key === 'Escape' && !from?.closest('.assistant-win, .explain-ask, .nb-page, .pg-work') && !document.querySelector('.scrim, .figure-closeup')) onClose();
       // "/" goes to the bar at the top, as it does to a search box.
       if (event.key === '/' && !(event.target as HTMLElement | null)?.closest('input, textarea, [contenteditable="true"]')) {
         event.preventDefault();
@@ -1156,6 +1168,13 @@ export default function Explain({ paperId, title, authors, published, screen, on
     return explanation?.content && !streaming ? bundleOf(title, shown, sections, implementing ? 'plan' : 'page', writer) : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, nb?.updated, explanation?.content, streaming, shown, sections, implementing, title, writer]);
+  // The plan's scaffold, whichever page is open: what Local sets up as a project, in the Playground's editor.
+  const planBundle = useMemo(() => {
+    if (implementing) return explanation?.content && !streaming ? bundleOf(title, shown, sections, 'plan', writer) : null;
+    const plan = implementationFor(paperId);
+    return plan?.content ? bundleOf(title, plan.content, parseExplanation(plan.content), 'plan', modelSpec(plan.model ?? model).label) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [implementing, explanation?.content, streaming, shown, sections, title, writer, paperId]);
   const [nbRewrite, setNbRewriteState] = useState<NotebookRewrite>(readNotebookRewrite);
   // Snip is the pages' own; on the Colab tab its layer would only sit over the cells.
   useEffect(() => {
@@ -1342,7 +1361,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
   };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey || layout === 'beside' || page === 'colab') return;
+      if (event.metaKey || event.ctrlKey || event.altKey || layout === 'beside' || page === 'colab' || projectOpen) return;
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
       if (event.key.toLowerCase() === 's') {
@@ -1355,7 +1374,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [layout, snipping, page]);
+  }, [layout, snipping, page, projectOpen]);
   const keepSection = (section: Section, element: HTMLElement) => {
     // Its rows, not the section itself: a copy that called itself a section of the page would be taken for one.
     const rows = document.createDocumentFragment();
@@ -1513,7 +1532,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
         </span>
         <div className="segmented explain-pages" role="tablist" aria-label="Page">
           {PAGES.map((option) => (
-            <button key={option.id} type="button" role="tab" aria-selected={page === option.id} aria-pressed={page === option.id} title={option.note} onClick={() => setPage(option.id)}>
+            <button key={option.id} type="button" role="tab" aria-selected={page === option.id && !projectOpen} aria-pressed={page === option.id && !projectOpen} title={option.note} onClick={() => goTo(option.id)}>
               {option.id === 'implement' ? <PlanIcon size={13} /> : <ExplainIcon size={13} />}
               <span>{option.label}</span>
             </button>
@@ -1546,14 +1565,14 @@ export default function Explain({ paperId, title, authors, published, screen, on
         </button>
         <button
           type="button"
-          className={`btn sm colab-open${page === 'colab' ? ' is-on' : ''}`}
-          aria-pressed={page === 'colab'}
-          onClick={() => setPage(page === 'colab' ? written.current : 'colab')}
+          className={`btn sm colab-open${page === 'colab' && !projectOpen ? ' is-on' : ''}`}
+          aria-pressed={page === 'colab' && !projectOpen}
+          onClick={() => goTo(page === 'colab' && !projectOpen ? written.current : 'colab')}
           title={page === 'colab' ? `Back to the ${written.current === 'implement' ? 'Implementation' : 'Explanation'} page` : NOTEBOOK_NOTE}
         >
           <ColabIcon size={15} /> <span>Colab</span>
         </button>
-        <LocalMenu title={title} bundle={bundle} sections={page === 'colab' ? [] : sections} />
+        <LocalMenu title={title} bundle={bundle} sections={page === 'colab' ? [] : sections} plan={planBundle} paper={{ paperId, title, authors, published }} onPlan={() => goTo('implement')} existing={paperProject} projectOpen={projectOpen} onProject={setProjectId} />
         {page === 'colab' ? (
           nbBusy ? (
             <button type="button" className="btn sm" onClick={stopNotebookAsk}>
@@ -1616,7 +1635,11 @@ export default function Explain({ paperId, title, authors, published, screen, on
       </header>
       <ColabBanner />
 
-      {page === 'colab' ? (
+      {project ? (
+        <div className="explain-project">
+          <PlaygroundWorkspace key={project.id} playground={project} onBack={() => setProjectId(null)} onOpenPaper={(id) => id === paperId && setProjectId(null)} backLabel={written.current === 'implement' ? 'Implementation' : 'Explanation'} />
+        </div>
+      ) : page === 'colab' ? (
         <NotebookPage paperId={paperId} title={title} screen={screen} side={side} onSide={pickSide} sections={STORES.explain.get(paperId)?.content ? parseExplanation(STORES.explain.get(paperId)!.content) : sections} planSections={() => (implementationFor(paperId)?.content ? parseExplanation(implementationFor(paperId)!.content) : null)} />
       ) : (
         <>

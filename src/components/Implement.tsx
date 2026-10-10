@@ -29,6 +29,9 @@ import { CloseIcon, ExplainIcon, LocalIcon } from './icons';
 import { highlightPython } from './Explain';
 import { KeepButton } from './Keep';
 import CopyBlock from './CopyBlock';
+import { WhereDialog } from './Playground';
+import { createPlayground, OPEN_PLAYGROUND, paperCells, paperFiles } from '../lib/playground';
+import type { Playground } from '../lib/playground';
 
 /** The plan the page is showing — its title and sections — for the pieces that need more than their own block, such as the Colab panel under the budget. */
 export const PlanContext = createContext<{ title: string; sections: Section[] } | null>(null);
@@ -581,9 +584,55 @@ export function ImplementEmpty({ title, byline, children }: { title: string; byl
  * the output in a console at the bottom of the page. Without the proxy, or
  * without READER_WORKSPACE, it says what to set.
  */
-export function LocalMenu({ title, bundle, sections }: { title: string; bundle: Bundle | null; sections: Section[] }) {
+/** The paper a page is about, for the project Local sets up from its plan. */
+export interface PlanPaper {
+  paperId: string;
+  title: string;
+  authors?: string[];
+  published?: string;
+}
+
+/**
+ * The plan's scaffold as a Playground project: its starter files, PLAN.md and notebook at the top of the folder,
+ * the briefing the terminal agents read (AGENTS.md, CLAUDE.md) and a README unless the plan wrote its own, citing the paper.
+ */
+export function planProjectFiles(plan: Bundle, paper: PlanPaper & { abstract?: string; arxivId?: string; doi?: string }): Record<string, string> {
+  const files: Record<string, string> = {};
+  for (const [path, text] of Object.entries(plan.files)) files[plan.folder && path.startsWith(`${plan.folder}/`) ? path.slice(plan.folder.length + 1) : path] = text;
+  const brief = paperFiles(paper.title, paper);
+  for (const name of ['README.md', 'AGENTS.md', 'CLAUDE.md']) if (!(name in files)) files[name] = brief[name];
+  return files;
+}
+
+export function LocalMenu({
+  title,
+  bundle,
+  sections,
+  plan = null,
+  paper,
+  onPlan,
+  existing,
+  projectOpen = false,
+  onProject,
+}: {
+  title: string;
+  bundle: Bundle | null;
+  sections: Section[];
+  plan?: Bundle | null;
+  paper?: PlanPaper;
+  onPlan?: () => void;
+  /** The project already set up from this paper's plan, to open again rather than make another. */
+  existing?: Playground;
+  /** Its editor is the one showing. */
+  projectOpen?: boolean;
+  /** Opens a project in the page's own place; without it, the Playground opens on it. */
+  onProject?: (id: string) => void;
+}) {
   const { status, checking, project } = useLocal();
+  const { papers } = useStore();
   const [open, setOpen] = useState(false);
+  /** The Playground's own "Where should it run?", for the plan as a project. */
+  const [projecting, setProjecting] = useState(false);
   const [writing, setWriting] = useState<'idle' | 'writing' | 'error'>('idle');
   const [error, setError] = useState('');
   const box = useRef<HTMLDivElement>(null);
@@ -631,22 +680,80 @@ export function LocalMenu({ title, bundle, sections }: { title: string; bundle: 
     }
   };
 
+  const draft = useMemo(() => {
+    if (!plan || !paper) return null;
+    const known = papers.find((p) => p.id === paper.paperId);
+    const about = { ...paper, abstract: known?.abstract, arxivId: known?.arxivId, doi: known?.doi, authors: paper.authors ?? known?.authors };
+    const head = paper.title.split(/[:—–]/)[0].trim();
+    // Cut at a word, not inside one, when the title is long.
+    const name = `${head.length > 70 ? `${head.slice(0, 70).replace(/\s+\S*$/, '')}…` : head} — implementation`;
+    return { title: name, kind: 'project' as const, start: 'paper' as const, cites: [{ paperId: paper.paperId, title: paper.title }], files: planProjectFiles(plan, about), cells: paperCells(paper.title, about), note: `The plan's ${plan.what} go into the project's folder, with an AGENTS.md that tells a coding agent about the paper. It opens in the editor: files, a console, and the agent.` };
+  }, [plan, paper, papers]);
+
   return (
     <div className="menu-wrap" ref={box}>
       <button
         type="button"
-        className={`btn sm local-open${mine ? ' is-on' : ''}`}
+        className={`btn sm local-open${mine || projectOpen ? ' is-on' : ''}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        disabled={!bundle}
+        disabled={!bundle && !draft}
         onClick={() => setOpen(!open)}
         title={bundle ? `Write ${what} onto this machine, through the reader's proxy, and run it there` : 'Ready once the page is written'}
       >
         <LocalIcon size={15} /> Local
       </button>
-      {open && bundle ? (
+      {open && (bundle || draft) ? (
         <div className="menu right local-menu" role="menu" aria-label="Local workspace">
-          {checking && !status ? (
+          {paper ? (
+            <>
+              <div className="menu-label">Set up the implementation</div>
+              {existing && onProject ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="colab-action local-project"
+                  disabled={projectOpen}
+                  onClick={() => {
+                    setOpen(false);
+                    onProject(existing.id);
+                  }}
+                >
+                  <b>{projectOpen ? 'Open below' : `Open ${existing.title}`}</b>
+                  <span>the project set up from this plan — its files, a terminal and the agent, here on this page</span>
+                </button>
+              ) : null}
+              {draft ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="colab-action local-project"
+                  onClick={() => {
+                    setOpen(false);
+                    setProjecting(true);
+                  }}
+                >
+                  <b>{existing ? 'Set up another project…' : 'Open as a project…'}</b>
+                  <span>the plan's {Object.keys(draft.files).length} files in an editor on this page — on this computer, Colab, or a GPU machine of yours</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="colab-action local-project"
+                  onClick={() => {
+                    setOpen(false);
+                    onPlan?.();
+                  }}
+                >
+                  <b>Plan it first</b>
+                  <span>the Implementation page writes the plan its project is set up from</span>
+                </button>
+              )}
+              {bundle ? <div className="menu-label">Or write {what} through the proxy</div> : null}
+            </>
+          ) : null}
+          {!bundle ? null : checking && !status ? (
             <div className="colab-status">Asking the proxy about this machine…</div>
           ) : !status?.available ? (
             <div className="colab-status">
@@ -726,6 +833,18 @@ export function LocalMenu({ title, bundle, sections }: { title: string; bundle: 
             </>
           )}
         </div>
+      ) : null}
+      {projecting && draft ? (
+        <WhereDialog
+          draft={draft}
+          onClose={() => setProjecting(false)}
+          onCreate={async (spec) => {
+            const made = await createPlayground(spec);
+            setProjecting(false);
+            if (onProject) onProject(made.id);
+            else window.dispatchEvent(new CustomEvent(OPEN_PLAYGROUND, { detail: { id: made.id } }));
+          }}
+        />
       ) : null}
     </div>
   );
