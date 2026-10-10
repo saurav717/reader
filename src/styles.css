@@ -6958,3 +6958,19 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
   .pj-strip-todo { display: none; }
   .pj-pop { left: 8px; width: calc(100% - 16px); }
 }
+
+/* Project menus and cards float over the page: under glass they are frosted
+   nearly solid, like the other menus, rather than the see-through --surface;
+   and the row they open from is lifted over the rows below it, whose buttons
+   would otherwise be drawn across the menu. */
+:root[data-glass='on'] .pj-menu,
+:root[data-glass='on'] .pj-pop {
+  background: rgb(var(--float-rgb) / max(var(--float-a), 0.94));
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
+}
+:root[data-glass='on'] .pj-add-row > button,
+:root[data-glass='on'] .pj-menu > button { color: var(--ink); }
+.find-row:has(.pj-add-menu), .find-row:has(.find-pick) { z-index: 30; }
+.result:has(.pj-add-menu) { position: relative; z-index: 30; }
+.pj-add:has(.pj-add-menu) { z-index: 31; }
