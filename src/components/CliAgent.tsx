@@ -83,7 +83,8 @@ async function follow(projectId: string, agent: CliAgentId, job: string, host: F
       if (!chat || !turn || turn.done) break;
       let read: Awaited<ReturnType<typeof readJob>>;
       try {
-        read = await readJob(job, turn.offset);
+        // On the playground's own machine, whichever page is open now: the run is followed to its end.
+        read = await readJob(job, turn.offset, projectId);
       } catch {
         await new Promise((r) => setTimeout(r, 3000));
         continue;
@@ -178,7 +179,7 @@ export default function CliAgent({
     setBusy('status');
     setProblem(null);
     try {
-      setStatus(await cliStatus(agent, env));
+      setStatus(await cliStatus(agent, env, projectId));
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {
@@ -208,7 +209,7 @@ export default function CliAgent({
     let offset = 0;
     let all = '';
     for (;;) {
-      const read = await readJob(job, offset);
+      const read = await readJob(job, offset, projectId);
       offset = read.offset;
       all += read.data;
       setJobLog(all);
@@ -222,7 +223,7 @@ export default function CliAgent({
     setProblem(null);
     try {
       const job = `install-${agent}`;
-      await startJob(job, installArgv(agent));
+      await startJob(job, installArgv(agent), {}, projectId);
       const code = await watch(job);
       if (code) setProblem(`The install ended with an error (${code}): its last lines are above.`);
     } catch (error) {
@@ -238,7 +239,7 @@ export default function CliAgent({
     setPasted('');
     const job = `login-${agent}`;
     try {
-      await startJob(job, loginArgv(agent, console), { stdin: true });
+      await startJob(job, loginArgv(agent, console), { stdin: true }, projectId);
       setLogin({ job });
       const code = await watch(job, (all) => {
         const found = loginPrompt(all);
@@ -256,7 +257,7 @@ export default function CliAgent({
   const sendCode = async () => {
     if (!login || !pasted.trim()) return;
     try {
-      await writeJob(login.job, `${pasted.trim()}\n`);
+      await writeJob(login.job, `${pasted.trim()}\n`, projectId);
       setPasted('');
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -266,7 +267,7 @@ export default function CliAgent({
     setBusy('logout');
     try {
       const job = `logout-${agent}`;
-      await startJob(job, logoutArgv(agent));
+      await startJob(job, logoutArgv(agent), {}, projectId);
       await watch(job);
     } finally {
       setBusy(null);
@@ -286,7 +287,7 @@ export default function CliAgent({
     setChat(projectId, agent, { ...chat, turns: [...chat.turns, turn].slice(-TURNS_KEPT) });
     try {
       const context = `You are running inside Reader's Playground, on ${machineName}, in the project's folder (the working directory). The person reads your replies in a panel beside their editor and can't answer questions while you work: do what they ask, then say in a few sentences what you did and how to run it. Long trainings belong in the console, which they start themselves; keep your own runs short.`;
-      await startJob(job, runArgv(agent, { prompt, session: chat.session, model: prefs.model || undefined, commands: prefs.commands, context }), { cwd: folder, env });
+      await startJob(job, runArgv(agent, { prompt, session: chat.session, model: prefs.model || undefined, commands: prefs.commands, context }), { cwd: folder, env }, projectId);
       await persist(projectId, host);
       void follow(projectId, agent, job, host, afterRun);
     } catch (error) {
@@ -297,7 +298,7 @@ export default function CliAgent({
   };
   const stop = () => {
     const open = chat.turns.find((turn) => !turn.done);
-    if (open) void stopJob(open.job);
+    if (open) void stopJob(open.job, projectId);
   };
   const newSession = () => {
     if (running) return;

@@ -2,12 +2,13 @@
 // running now and how far it has got, which can be picked back up (its
 // kernel still holds its variables), and how the last run of each ended.
 //
-// The kernel and its runs already live outside React, in src/lib/colab.ts, so
-// a run goes on when its page is left. What the colab store does not say is
-// whose run it is — a notebook cell's key is `nb:<cell>` — nor how a run that
-// is over ended once the page is reloaded. This module watches the colab
-// store, puts each run with its playground, keeps the last outcome of each
-// in this browser, and says when a run ends, for a toast.
+// Each playground has its own kernel session in src/lib/colab.ts — its own
+// Python, on its own machine — and the sessions run side by side, outside
+// React, so a run goes on when its page is left and while others run. What
+// the colab store does not keep is how a run that is over ended once the page
+// is reloaded, nor what runs in a playground's terminals or agents. This
+// module watches the sessions and those, keeps the last outcome of each
+// playground in this browser, and says when a run ends, for a toast.
 //
 // What the page shows of it — a shelf on the Playground's home, a dock on
 // every page, a switcher on P, tabs — is the person's choice: Settings →
@@ -16,7 +17,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { CellRun, ColabState, Output } from './colab';
-import { backendLabel, chooseBackend, colabNow, keptKernelFor, machineLabel, shutDownKernelOn, stopRuns, stopRuntime, stripAnsi, subscribeColab } from './colab';
+import { backendLabel, colabNow, keptKernelFor, machineLabel, PAGES, sessionsNow, shutDownScope, stopRunsIn, stripAnsi, subscribeColab } from './colab';
 import { notebookFor, setOutputs, subscribeNotebook } from './notebook';
 import type { Playground } from './playground';
 import { notebookKey, playgroundById, playgroundsNow, serverById, subscribePlaygrounds } from './playground';
@@ -55,6 +56,10 @@ export interface PlaygroundRun {
   detail?: string;
   /** Idle, with its kernel still up: how its last run ended. */
   last?: 'ran' | 'failed' | 'stopped';
+  /** The kernel session (colab.ts) it is running or idle in, when it is connected. */
+  session?: string;
+  /** What else runs for it at the same time: its terminals' commands, its agents. */
+  also?: string[];
   /** Run all's cells still to run. */
   queued?: number;
 }
@@ -170,7 +175,6 @@ export function whereOf(p: Playground): string {
 // ------------------------------------------------------ the store ----
 
 const OUTCOMES_KEY = 'reader.playground.outcomes';
-const HELD_KEY = 'reader.playground.kernel-holders';
 const TABS_KEY = 'reader.playground.tabs';
 
 const readJson = <T>(storage: Storage | undefined, key: string, fallback: T): T => {
@@ -192,27 +196,43 @@ const local = () => (typeof localStorage === 'undefined' ? undefined : localStor
 const session = () => (typeof sessionStorage === 'undefined' ? undefined : sessionStorage);
 
 let outcomes: Record<string, Outcome> = readJson(local(), OUTCOMES_KEY, {});
-/** The playground whose page last took the kernel: its variables are the kernel's while it is connected. */
-let holder: string | null = null;
-/**
- * On each Jupyter server, the playground that last had this tab's kernel there. The tab keeps that kernel
- * after the page is left (and goes back to it), so its variables are that playground's.
- */
-let heldOn: Record<string, string> = readJson(session(), HELD_KEY, {});
 /** The playgrounds whose page is open now (one, or none). */
 const mounted = new Set<string>();
 /** Playgrounds opened in this tab, for the tabs: newest last. */
 let tabs: string[] = readJson(session(), TABS_KEY, []);
 
-/** The run going on now, from its first cell to its last: whose it is, when it began, and the keys it ran. */
+/**
+ * What else runs for a playground besides its cells: a command in one of its
+ * terminals, a coding agent at work. Reported by whatever follows it
+ * (src/lib/terminalWatch.ts, the agent panes); shown, stopped and toasted as
+ * a cell's run is.
+ */
+export interface SideJob {
+  /** Unique within its playground: "terminal:<name>", "agent:claude". */
+  id: string;
+  playgroundId: string;
+  kind: 'terminal' | 'agent';
+  /** What it is doing, in a few words: "terminal · python train.py", "Claude Code · working". */
+  label: string;
+  busy: boolean;
+  /** The last line it printed. */
+  tail?: string;
+  /** When what it is doing began. */
+  since?: number;
+  /** Stops what it is doing: Ctrl-C to a terminal, the agent's job ended. */
+  stop?: () => void | Promise<void>;
+}
+const sideJobs = new Map<string, SideJob>();
+const jobKey = (playgroundId: string, id: string) => `${playgroundId}|${id}`;
+
+/** The run going on in one session, from its first cell to its last: when it began, the keys it ran, and how many Run all queued. */
 interface Batch {
   id: string;
   startedAt: number;
   keys: string[];
-  /** Run all's cells, all of them, when it is one. */
   total: number;
 }
-let batch: Batch | null = null;
+const batches = new Map<string, Batch>();
 
 let version = 0;
 const listeners = new Set<() => void>();
@@ -221,6 +241,7 @@ const bump = () => {
   listeners.forEach((listener) => listener());
 };
 const ended = new Set<(event: RunEnded) => void>();
+const say = (event: RunEnded) => ended.forEach((listener) => listener(event));
 
 export const subscribeRuns = (listener: () => void) => {
   listeners.add(listener);
@@ -236,23 +257,26 @@ export const onRunEnded = (listener: (event: RunEnded) => void) => {
   };
 };
 
-/** The playground whose run is going on now, if any. */
-export function runningPlayground(state: ColabState = colabNow()): string | undefined {
-  if (state.running) return ownerOf(state.running) ?? batch?.id;
-  if (state.queue.length) return ownerOf(state.queue[0]) ?? batch?.id;
-  return undefined;
-}
-
-/** A playground's page took the kernel: it is what the kernel's variables are. */
-export function holdKernel(id: string) {
-  holder = id;
-  const p = playgroundById(id);
-  if (p?.compute.kind === 'server' && heldOn[p.compute.serverId] !== id) {
-    heldOn = { ...heldOn, [p.compute.serverId]: id };
-    writeJson(session(), HELD_KEY, heldOn);
+/** A terminal or an agent says what it is doing; when it was busy and is not any more, that run has ended. */
+export function reportJob(job: SideJob) {
+  const key = jobKey(job.playgroundId, job.id);
+  const before = sideJobs.get(key);
+  sideJobs.set(key, job);
+  if (before?.busy && !job.busy) {
+    const p = playgroundById(job.playgroundId);
+    const at = Date.now();
+    const detail = `${before.label} ended`;
+    outcomes = { ...outcomes, [job.playgroundId]: { phase: 'ran', at, detail, where: p ? whereOf(p) : '' } };
+    writeJson(local(), OUTCOMES_KEY, outcomes);
+    if (p) say({ id: p.id, title: p.title, phase: 'ran', detail, at });
   }
   bump();
 }
+export function clearJob(playgroundId: string, id: string) {
+  if (sideJobs.delete(jobKey(playgroundId, id))) bump();
+}
+/** The terminals and agents of a playground busy now. */
+export const busyJobs = (playgroundId: string): SideJob[] => [...sideJobs.values()].filter((job) => job.playgroundId === playgroundId && job.busy);
 
 /** A playground's page is open; called back when it closes. It joins the tabs. */
 export function openedPlayground(id: string): () => void {
@@ -275,48 +299,55 @@ export function closeTab(id: string) {
   bump();
 }
 
-/** Where a playground stands now. */
-export function runOf(p: Playground, state: ColabState = colabNow()): PlaygroundRun {
+const liveStatus = (s: ColabState) => s.status === 'idle' || s.status === 'busy';
+const kernelRunning = (s: ColabState) => Boolean(s.running || s.queue.length);
+
+/** Where a playground stands now: its sessions (a kernel on each machine it has run on in this tab), its terminals and agents, its last outcome. */
+export function runOf(p: Playground, all: ColabState[] = sessionsNow()): PlaygroundRun {
   const base = { id: p.id, title: p.title, kind: p.kind, where: whereOf(p) };
-  const live = state.status === 'idle' || state.status === 'busy' || state.status === 'connecting';
-  const mine = runningPlayground(state) === p.id;
-  if (mine) {
-    const key = state.running ?? state.queue[0];
-    const run = state.running ? state.runs[state.running] : undefined;
+  const mine = all.filter((s) => s.scope === p.id);
+  const jobs = busyJobs(p.id);
+  const live = mine.find(kernelRunning) ?? mine.find((s) => s.status === 'connecting');
+  if (live) {
+    const key = live.running ?? live.queue[0];
+    const run = live.running ? live.runs[live.running] : undefined;
     const tail = run ? tailOf(run.outputs) : undefined;
-    const total = batch?.id === p.id ? batch.total : 0;
-    const done = total ? total - state.queue.length - (state.running ? 1 : 0) : 0;
-    const { label, code } = describeKey(p, key);
+    const batch = batches.get(live.id);
+    const total = batch?.total ?? 0;
+    const done = total ? total - live.queue.length - (live.running ? 1 : 0) : 0;
+    const { label, code } = key ? describeKey(p, key) : { label: 'connecting', code: undefined };
     return {
       ...base,
-      where: state.runtime ? backendLabel(state.backend, state.runtime) : base.where,
-      phase: state.paused && !state.running ? 'paused' : state.status === 'connecting' ? 'connecting' : 'running',
+      where: live.runtime ? backendLabel(live.backend, live.runtime) : base.where,
+      phase: live.paused && !live.running ? 'paused' : live.status === 'connecting' && !live.running ? 'connecting' : 'running',
       label,
       code,
       tail,
       progress: total > 1 ? Math.max(0, done) / total : progressIn(tail),
-      startedAt: batch?.id === p.id ? batch.startedAt : run?.startedAt,
-      queued: state.queue.length,
+      startedAt: batch?.startedAt ?? run?.startedAt,
+      queued: live.queue.length,
+      session: live.id,
+      also: jobs.map((job) => job.label),
     };
   }
-  if (holder === p.id && live && !state.running && !state.queue.length) {
-    const outcome = outcomes[p.id];
-    return { ...base, where: state.runtime ? backendLabel(state.backend, state.runtime) : base.where, phase: state.status === 'connecting' ? 'connecting' : 'idle', at: outcome?.at, detail: outcome?.detail, last: outcome?.phase };
+  if (jobs.length) {
+    const job = jobs[0];
+    return { ...base, phase: 'running', label: job.label, tail: job.tail, progress: progressIn(job.tail), startedAt: job.since, also: jobs.slice(1).map((other) => other.label) };
   }
   const outcome = outcomes[p.id];
-  // Its page closed, its kernel kept on its server: opening it goes back to the same variables.
-  if (p.compute.kind === 'server' && heldOn[p.compute.serverId] === p.id && keptKernelFor(p.compute.serverId) && !(live && state.backend.kind === 'jupyter' && state.backend.server.id === p.compute.serverId && holder !== p.id)) {
-    return { ...base, phase: 'idle', at: outcome?.at, detail: outcome?.detail, last: outcome?.phase };
-  }
+  const held = mine.find((s) => liveStatus(s) && s.kernel);
+  if (held) return { ...base, where: held.runtime ? backendLabel(held.backend, held.runtime) : base.where, phase: 'idle', at: outcome?.at, detail: outcome?.detail, last: outcome?.phase, session: held.id };
+  // Its page closed and its kernel let go, but kept on its server: opening it goes back to the same variables.
+  if (p.compute.kind === 'server' && keptKernelFor(p.compute.serverId, p.id)) return { ...base, phase: 'idle', at: outcome?.at, detail: outcome?.detail, last: outcome?.phase };
   if (outcome) return { ...base, phase: outcome.phase, at: outcome.at, detail: outcome.detail, where: outcome.where || base.where };
   return { ...base, phase: 'never' };
 }
 
 /** Every playground's standing, the ones that need a look first: running, then idle with a kernel, then the rest, newest first. */
-export function boardOf(list: Playground[], state: ColabState = colabNow()): PlaygroundRun[] {
+export function boardOf(list: Playground[], all: ColabState[] = sessionsNow()): PlaygroundRun[] {
   const rank: Record<RunPhase, number> = { running: 0, connecting: 0, paused: 1, idle: 2, failed: 3, ran: 4, stopped: 4, never: 5 };
   return list
-    .map((p) => ({ run: runOf(p, state), updated: p.updated }))
+    .map((p) => ({ run: runOf(p, all), updated: p.updated }))
     .sort((a, b) => rank[a.run.phase] - rank[b.run.phase] || Math.max(b.run.at ?? 0, b.updated) - Math.max(a.run.at ?? 0, a.updated))
     .map(({ run }) => run);
 }
@@ -325,27 +356,22 @@ export const isLive = (run: Pick<PlaygroundRun, 'phase'>) => run.phase === 'runn
 
 // ------------------------------------------------- watching colab ----
 
-/** Ends the batch: its outcome kept, a toast said, its notebook's outputs saved. */
-function finish(state: ColabState) {
-  const done = batch;
-  batch = null;
-  if (!done) return;
+/** Ends a session's batch: its outcome kept, a toast said. */
+function finish(s: ColabState, done: Batch) {
+  batches.delete(s.id);
   const p = playgroundById(done.id);
-  const runs = done.keys.map((key) => state.runs[key]).filter((run): run is CellRun => Boolean(run));
-  // A run left 'running' had its kernel closed under it (another machine, the runtime stopped).
+  const list = done.keys.map((key) => s.runs[key]).filter((run): run is CellRun => Boolean(run));
   // Stop interrupts the cell, and Python answers with a KeyboardInterrupt: that is a stop, not a failure.
   const interrupted = (run: CellRun) => run.outputs.some((output) => output.type === 'error' && output.ename === 'KeyboardInterrupt');
-  const failed = runs.some((run) => run.state === 'failed' && !interrupted(run));
-  const stopped = runs.some((run) => run.state === 'interrupted' || run.state === 'running' || run.stale || interrupted(run));
+  const failed = list.some((run) => run.state === 'failed' && !interrupted(run));
+  // A run left 'running' had its kernel closed under it.
+  const stopped = list.some((run) => run.state === 'interrupted' || run.state === 'running' || run.stale || interrupted(run));
   const phase: Outcome['phase'] = failed ? 'failed' : stopped ? 'stopped' : 'ran';
-  const detail = detailOf(runs, phase);
+  const detail = detailOf(list, phase);
   const at = Date.now();
-  outcomes = { ...outcomes, [done.id]: { phase, at, detail, where: runs[runs.length - 1]?.where ?? '' } };
+  outcomes = { ...outcomes, [done.id]: { phase, at, detail, where: list[list.length - 1]?.where ?? '' } };
   writeJson(local(), OUTCOMES_KEY, outcomes);
-  if (p) ended.forEach((listener) => listener({ id: p.id, title: p.title, phase, detail, at }));
-  // With no playground's page open to hold it, the jupyter kernel's socket is let go now that nothing runs: the
-  // paper pages' cells run in Colab again, as the workspace leaves it on closing. The kernel stays on its server.
-  if (!mounted.size && state.backend.kind === 'jupyter' && !state.running && !state.queue.length) chooseBackend({ kind: 'colab' });
+  if (p) say({ id: p.id, title: p.title, phase, detail, at });
 }
 
 /** A cell that ended with its page closed: its outputs go into the notebook, as the page would have put them. */
@@ -358,45 +384,44 @@ function keepOutputs(key: string, run: CellRun) {
   if (cell && cell.outputs !== run.outputs) setOutputs(nbKey, cell.id, run.outputs, run.executionCount ?? cell.count, run.startedAt);
 }
 
-let previous: ColabState | null = null;
+const previous = new Map<string, ColabState>();
+let previousRuns: ColabState['runs'] = {};
 function onColab() {
-  const state = colabNow();
-  const before = previous;
-  previous = state;
-  const begin = (owner: string) => {
-    if (batch && batch.id !== owner) finish(state);
-    if (!batch) batch = { id: owner, startedAt: Date.now(), keys: [], total: 0 };
-    return batch;
-  };
-  // Run all marks every cell queued at once, before the first runs: that is how many there are.
-  if (state.queue.length > (before?.queue.length ?? 0)) {
-    const owner = ownerOf(state.queue[0]);
-    if (owner) {
-      const now = begin(owner);
+  const all = sessionsNow();
+  for (const state of all) {
+    if (state.scope === PAGES) continue;
+    const before = previous.get(state.id);
+    previous.set(state.id, state);
+    let batch = batches.get(state.id);
+    const begin = () => (batch ??= (batches.set(state.id, { id: state.scope, startedAt: Date.now(), keys: [], total: 0 }), batches.get(state.id)!));
+    // Run all marks every cell queued at once, before the first runs: that is how many there are.
+    if (state.queue.length > (before?.queue.length ?? 0)) {
+      const now = begin();
       now.total = now.keys.length + state.queue.length;
     }
+    if (state.running && before?.running !== state.running) {
+      const now = begin();
+      if (!now.keys.includes(state.running)) now.keys.push(state.running);
+    }
+    if (batch && !state.running && !state.queue.length && !state.paused) finish(state, batch);
   }
-  if (state.running && before?.running !== state.running) {
-    const owner = ownerOf(state.running);
-    const now = owner ? begin(owner) : batch;
-    if (now && !now.keys.includes(state.running)) now.keys.push(state.running);
+  const runs = all[0]?.runs ?? {};
+  if (runs !== previousRuns) {
+    for (const [key, run] of Object.entries(runs)) if (previousRuns[key] !== run) keepOutputs(key, run);
+    previousRuns = runs;
   }
-  if (before && before.runs !== state.runs) {
-    for (const [key, run] of Object.entries(state.runs)) if (before.runs[key] !== run) keepOutputs(key, run);
-  }
-  if (batch && !state.running && !state.queue.length && !state.paused) finish(state);
   bump();
 }
 
-/** On Colab: a runtime left idle longer than its playground asks is stopped, its page open or not. */
+/** On Colab: a playground's kernel left idle longer than it asks is shut down — the runtime stopped when it is the last — its page open or not. */
 function idleCheck() {
-  const state = colabNow();
-  if (state.status !== 'idle' || state.backend.kind !== 'colab' || !holder || mounted.has(holder)) return;
-  const p = playgroundById(holder);
-  if (!p || p.compute.kind !== 'colab' || !p.idleStopMin) return;
-  const outcome = outcomes[holder];
-  const since = Math.max(outcome?.at ?? 0, state.startedAt ?? 0);
-  if (since && Date.now() - since > p.idleStopMin * 60_000) void stopRuntime();
+  for (const state of sessionsNow()) {
+    if (state.scope === PAGES || state.status !== 'idle' || state.backend.kind !== 'colab' || mounted.has(state.scope)) continue;
+    const p = playgroundById(state.scope);
+    if (!p || p.compute.kind !== 'colab' || !p.idleStopMin) continue;
+    const since = Math.max(outcomes[p.id]?.at ?? 0, state.startedAt ?? 0);
+    if (since && Date.now() - since > p.idleStopMin * 60_000) void shutDownScope(p.id);
+  }
 }
 
 let watching = 0;
@@ -405,7 +430,8 @@ let stopWatch: (() => void) | null = null;
 export function watchPlaygroundRuns(): () => void {
   watching += 1;
   if (watching === 1) {
-    previous = colabNow();
+    for (const state of sessionsNow()) previous.set(state.id, state);
+    previousRuns = colabNow().runs;
     const offColab = subscribeColab(onColab);
     const offPlaygrounds = subscribePlaygrounds(bump);
     const offNotebook = subscribeNotebook(bump);
@@ -428,18 +454,19 @@ export function watchPlaygroundRuns(): () => void {
 
 // ------------------------------------------------------- actions ----
 
-/** Stops a playground's run: Run all's queue dropped, the cell running interrupted. */
+/** Stops what a playground is running: its kernels' runs (Run all's queue dropped, the cell interrupted), its terminals' commands, its agents' jobs. */
 export async function stopPlayground(id: string): Promise<void> {
-  if (runningPlayground() === id) await stopRuns();
+  const work: Promise<unknown>[] = [];
+  for (const state of sessionsNow()) if (state.scope === id && kernelRunning(state)) work.push(stopRunsIn(state.id));
+  for (const job of busyJobs(id)) if (job.stop) work.push(Promise.resolve(job.stop()));
+  await Promise.all(work);
 }
 
-/** Shuts down the kernel a playground holds: its variables go; on Colab, the runtime stops and costs nothing more. */
+/** Shuts down the kernel a playground holds, connected or kept: its variables go; on Colab the runtime stops when it is the last. */
 export async function shutDownPlayground(id: string): Promise<void> {
-  if (runningPlayground() === id) return;
   const p = playgroundById(id);
-  const server = p?.compute.kind === 'server' ? serverById(p.compute.serverId) : undefined;
-  if (server) await shutDownKernelOn(server);
-  else if (holder === id) await stopRuntime();
+  if (!p) return;
+  await shutDownScope(id, p.compute.kind === 'server' ? serverById(p.compute.serverId) : undefined);
   bump();
 }
 
@@ -450,8 +477,8 @@ const versionNow = () => version;
 /** Every playground's standing, kept current; re-read each second while something runs, for the clocks. */
 export function useRunBoard(list: Playground[]): PlaygroundRun[] {
   useSyncExternalStore(subscribeRuns, versionNow);
-  const state = useSyncExternalStore(subscribeColab, colabNow);
-  const board = boardOf(list, state);
+  const all = useSyncExternalStore(subscribeColab, sessionsNow);
+  const board = boardOf(list, all);
   const busy = board.some(isLive);
   const [, setTick] = useState(0);
   useEffect(() => {

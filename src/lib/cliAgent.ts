@@ -122,8 +122,9 @@ def _ra_status(agent, env=None):
 
 const py = (value: unknown) => JSON.stringify(value);
 
-async function call(code: string): Promise<string> {
-  const answer = await runQuietly(`${HELPER}\n${code}`);
+/** Runs the helper on the machine of `scope`'s session — a playground's, whichever page is open — or the foreground's. */
+async function call(code: string, scope?: string): Promise<string> {
+  const answer = await runQuietly(`${HELPER}\n${code}`, scope);
   if (!answer) throw new Error('The machine isn’t connected: connect from the bar, or run a cell, first.');
   if (!answer.ok) throw new Error(answer.text.trim().split('\n').pop() || 'The machine couldn’t do that.');
   return answer.text.trim().split('\n').pop() ?? '';
@@ -143,8 +144,8 @@ export interface CliStatus {
 }
 
 /** Whether an agent is on the machine, and whether it is signed in. `env` carries an API key, when one is used instead. */
-export async function cliStatus(agent: CliAgentId, env: Record<string, string> = {}): Promise<CliStatus> {
-  const raw = JSON.parse(await call(`_ra_status(${py(agent)}, ${py(env)})`)) as { installed: boolean; version?: string; node: boolean; npm: boolean; curl: boolean; root: boolean; auth?: string; authCode?: number; error?: string };
+export async function cliStatus(agent: CliAgentId, env: Record<string, string> = {}, scope?: string): Promise<CliStatus> {
+  const raw = JSON.parse(await call(`_ra_status(${py(agent)}, ${py(env)})`, scope)) as { installed: boolean; version?: string; node: boolean; npm: boolean; curl: boolean; root: boolean; auth?: string; authCode?: number; error?: string };
   let loggedIn = false;
   let method: string | undefined;
   if (agent === 'claude' && raw.auth) {
@@ -210,17 +211,17 @@ export function runArgv(agent: CliAgentId, options: RunOptions): string[] {
   return options.session ? [...head, 'resume', options.session, prompt] : [...head, prompt];
 }
 
-export async function startJob(name: string, argv: string[], options: { cwd?: string; env?: Record<string, string>; stdin?: boolean } = {}): Promise<void> {
-  await call(`_ra_start(${py(name)}, ${py(argv)}, cwd=${options.cwd ? py(options.cwd) : 'None'}, env=${py(options.env ?? {})}, stdin=${options.stdin ? 'True' : 'False'})`);
+export async function startJob(name: string, argv: string[], options: { cwd?: string; env?: Record<string, string>; stdin?: boolean } = {}, scope?: string): Promise<void> {
+  await call(`_ra_start(${py(name)}, ${py(argv)}, cwd=${options.cwd ? py(options.cwd) : 'None'}, env=${py(options.env ?? {})}, stdin=${options.stdin ? 'True' : 'False'})`, scope);
 }
-export async function readJob(name: string, offset: number): Promise<{ data: string; offset: number; done: boolean; code: number | null }> {
-  return JSON.parse(await call(`_ra_read(${py(name)}, ${offset})`));
+export async function readJob(name: string, offset: number, scope?: string): Promise<{ data: string; offset: number; done: boolean; code: number | null }> {
+  return JSON.parse(await call(`_ra_read(${py(name)}, ${offset})`, scope));
 }
-export async function writeJob(name: string, text: string): Promise<void> {
-  await call(`_ra_write(${py(name)}, ${py(text)})`);
+export async function writeJob(name: string, text: string, scope?: string): Promise<void> {
+  await call(`_ra_write(${py(name)}, ${py(text)})`, scope);
 }
-export async function stopJob(name: string): Promise<void> {
-  await call(`_ra_stop(${py(name)})`);
+export async function stopJob(name: string, scope?: string): Promise<void> {
+  await call(`_ra_stop(${py(name)})`, scope);
 }
 
 /** The sign-in page an agent's login printed, and the code to enter there (Codex's device code). */

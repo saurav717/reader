@@ -11,7 +11,6 @@ import { backendLabel, chooseBackend, colabAvailable, colabNow, connect, forgetR
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, FilesHome, Playground, SyncReport } from '../lib/playground';
-import { OPEN_PLAYGROUND, playgroundById } from '../lib/playground';
 import { blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, moveFilesOutOfBrowser, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeFolder, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
@@ -21,7 +20,7 @@ import { ASSUMED_TOOLS, runPlan } from '../lib/languages';
 import type { MachineTools } from '../lib/languages';
 import type { RuntimeEntry } from '../lib/colab';
 import { useStore } from '../lib/store';
-import { holdKernel, openedPlayground, runningPlayground, stopPlayground } from '../lib/playgroundRuns';
+import { openedPlayground } from '../lib/playgroundRuns';
 import type { Screen } from '../lib/assistant';
 import { CellRunOutput, ColabMark, ConnectCard, MachinePicker, attachUrl, useColab } from './Colab';
 import MetricsPane from './MetricsPane';
@@ -171,19 +170,14 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
 
   // This page is open: the dock and the toasts leave its own runs to it.
   useEffect(() => openedPlayground(playground.id), [playground.id]);
-  // Another playground's run, on another machine, has this tab's kernel: switching now would cut it off, so
-  // this one waits for it to end (or to be stopped) before it takes the kernel.
-  const busyWith = runningPlayground(colab);
-  const sameKernel = Boolean(backend) && colab.backend.kind === backend?.kind && (backend.kind === 'colab' || (colab.backend.kind === 'jupyter' && colab.backend.server.id === backend.server.id));
-  const waitingOn = busyWith && busyWith !== playground.id && !sameKernel ? busyWith : null;
-  // The kernel follows the playground: its machine is the one the next cell runs on.
+  // The kernel follows the playground: its own kernel, on its machine, comes to the foreground — the one this tab
+  // already has for it, if it has one. Whatever another playground is running goes on in its own, behind.
   useEffect(() => {
-    if (!backend || waitingOn) return;
-    chooseBackend(backend);
+    if (!backend) return;
+    chooseBackend(backend, playground.id);
     if (playground.compute.kind === 'colab') setMachine(playground.compute.machine);
-    holdKernel(playground.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [waitingOn, playground.compute.kind === 'server' ? playground.compute.serverId : 'colab', playground.compute.kind === 'colab' ? playground.compute.machine.accelerator : '', backend?.kind === 'jupyter' ? backend.server.url + backend.server.token : '']);
+  }, [playground.id, playground.compute.kind === 'server' ? playground.compute.serverId : 'colab', playground.compute.kind === 'colab' ? playground.compute.machine.accelerator : '', backend?.kind === 'jupyter' ? backend.server.url + backend.server.token : '']);
 
   // A Companion paired over plain http moves to its https address once this computer trusts its certificate.
   useEffect(() => {
@@ -193,11 +187,11 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
   useEffect(() => {
     document.title = `${playground.title} · Playground · Reader`;
   }, [playground.title]);
-  // Off the playground, the paper pages' cells run in Colab again, as their buttons say. The kernel on a
-  // Jupyter server stays there, and this tab goes back to the same one when the playground opens again.
+  // Off the playground, the paper pages' cells run in their own Colab kernel again, as their buttons say. This
+  // playground's kernel stays connected behind, running or idle, and comes back to the front when it opens again.
   useEffect(
     () => () => {
-      if (colabNow().backend.kind === 'jupyter' && !colabNow().running && !colabNow().queue.length) chooseBackend({ kind: 'colab' });
+      chooseBackend({ kind: 'colab' });
     },
     [],
   );
@@ -299,19 +293,6 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
         <div className="pg-banner is-problem">Colab needs Settings → Google (a client ID) and Settings → Paper proxy before cells can run — or choose a Jupyter server of yours from the machine menu.</div>
       ) : colab.error && colab.status !== 'connecting' ? (
         <div className="pg-banner is-problem">{colab.error}</div>
-      ) : null}
-      {waitingOn ? (
-        <div className="pg-banner">
-          <span>
-            “{playgroundById(waitingOn)?.title ?? 'Another playground'}” is running in this tab, on {backendLabel(colab.backend, colab.runtime)}. This one connects to {machineName} as soon as that run ends — its cells wait till then.
-          </span>
-          <button type="button" className="btn sm" onClick={() => window.dispatchEvent(new CustomEvent(OPEN_PLAYGROUND, { detail: { id: waitingOn } }))}>
-            Go to it
-          </button>
-          <button type="button" className="btn sm" onClick={() => void stopPlayground(waitingOn)}>
-            Stop it
-          </button>
-        </div>
       ) : null}
       {note ? (
         <div className="pg-banner">
