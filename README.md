@@ -24,7 +24,9 @@ shown, and whether the library and the dock are put away while you are on Home
 
 - **Find papers** — the default. A large search box (<kbd>/</kbd> from anywhere on
   Home) over the indexes you pick, or an arXiv id, and **Save to**: the
-  collection the **+** on each result adds it to. Its **▾** picks another
+  collection the **+** on each result adds it to (collections only: a project
+  takes a paper only from the result's own **+ Project** menu, never because
+  it was the last thing saved to). Its **▾** picks another
   (<kbd>1</kbd>–<kbd>9</kbd>) or makes a new one; a result can also be dragged onto
   a collection on the right, and each save says so with **Undo**. A paper
   already in the library says where it is instead. Click a result, or press
