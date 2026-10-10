@@ -305,7 +305,9 @@ short path.
    as the Drive token is — this tab, an hour, never on disk — and
    **Disconnect Colab** revokes only that grant. The reader does not ask
    for `cloud-platform`.
-4. **It is the person's runtime, and it says so.** One runtime per browser,
+4. **It is the person's runtime, and it says so.** One runtime per browser
+   for the paper pages, and one for each playground on a machine of its own
+   (its own notebook id; a playground set to share uses the browser's),
    the machine chosen explicitly (CPU unless you pick otherwise), the tier
    and the cost in the chip's menu, a **Stop** that works, and the runtime
    visible in Colab's own *Manage sessions*, so it can be killed from there

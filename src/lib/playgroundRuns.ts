@@ -168,7 +168,7 @@ function describeKey(p: Playground, key: string): { label: string; code?: string
 
 /** The machine a playground runs on, in a few words. */
 export function whereOf(p: Playground): string {
-  if (p.compute.kind === 'colab') return `Colab · ${machineLabel(p.compute.machine)}`;
+  if (p.compute.kind === 'colab') return `Colab · ${machineLabel(p.compute.machine)}${p.compute.shared ? ' · shared' : ''}`;
   return serverById(p.compute.serverId)?.name ?? p.compute.name ?? 'a computer not connected here';
 }
 

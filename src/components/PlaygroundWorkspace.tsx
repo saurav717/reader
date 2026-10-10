@@ -7,11 +7,11 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Backend, JupyterServer } from '../lib/colab';
-import { backendLabel, chooseBackend, colabAvailable, colabNow, connect, forgetRun, interrupt, lastActivityAt, machineLabel, restartKernel, runCell, runQuietly, setMachine, stopRuntime } from '../lib/colab';
+import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, connect, forgetRun, interrupt, lastActivityAt, machineLabel, restartKernel, runCell, runQuietly, setMachine, stopRuntime } from '../lib/colab';
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, FilesHome, Playground, SyncReport } from '../lib/playground';
-import { blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, moveFilesOutOfBrowser, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
+import { backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, moveFilesOutOfBrowser, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeFolder, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
 import { AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
@@ -149,12 +149,8 @@ const clock = (since: number | undefined, now: number) => {
 const consoleKey = (playgroundId: string, entryId: string) => `pgsh:${playgroundId}:${entryId}`;
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-/** The backend a playground's compute names, when it can be had: a server that is still in the list. */
-function backendOf(playground: Playground): Backend | null {
-  if (playground.compute.kind === 'colab') return { kind: 'colab' };
-  const server = serverById(playground.compute.serverId);
-  return server ? { kind: 'jupyter', server } : null;
-}
+/** The backend a playground's compute names, when it can be had: its Colab machine, or a server that is still in the list. */
+const backendOf = (playground: Playground): Backend | null => backendOfPlayground(playground);
 
 export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }: { playground: Playground; onBack: () => void; onOpenPaper: (id: string) => void }) {
   const colab = useColab();
@@ -177,7 +173,7 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
     chooseBackend(backend, playground.id);
     if (playground.compute.kind === 'colab') setMachine(playground.compute.machine);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playground.id, playground.compute.kind === 'server' ? playground.compute.serverId : 'colab', playground.compute.kind === 'colab' ? playground.compute.machine.accelerator : '', backend?.kind === 'jupyter' ? backend.server.url + backend.server.token : '']);
+  }, [playground.id, playground.compute.kind === 'server' ? playground.compute.serverId : playground.compute.shared ? 'colab-shared' : 'colab', playground.compute.kind === 'colab' ? playground.compute.machine.accelerator : '', backend?.kind === 'jupyter' ? backend.server.url + backend.server.token : '']);
 
   // A Companion paired over plain http moves to its https address once this computer trusts its certificate.
   useEffect(() => {
@@ -293,6 +289,8 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
         <div className="pg-banner is-problem">Colab needs Settings → Google (a client ID) and Settings → Paper proxy before cells can run — or choose a Jupyter server of yours from the machine menu.</div>
       ) : colab.error && colab.status !== 'connecting' ? (
         <div className="pg-banner is-problem">{colab.error}</div>
+      ) : colab.sharing && colab.scope === playground.id ? (
+        <div className="pg-banner">{colab.sharing}</div>
       ) : null}
       {note ? (
         <div className="pg-banner">
@@ -319,6 +317,9 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
           onClose={() => setChanging(false)}
           onCreate={(spec) => {
             const movedFiles = JSON.stringify(spec.home) !== JSON.stringify(playground.home);
+            // Off a Colab machine of its own: that machine is stopped (when nothing runs on it), not left to use units until Colab's idle limit.
+            const ownColab = (c: Playground['compute']) => c.kind === 'colab' && !c.shared;
+            if (ownColab(playground.compute) && !ownColab(spec.compute)) void shutDownScope(playground.id);
             updatePlayground(playground.id, { compute: spec.compute, home: spec.home.kind === 'server' && !spec.home.root ? { ...spec.home, root: playground.home.kind === 'server' ? playground.home.root : `playgrounds/${playground.id}` } : spec.home, idleStopMin: spec.idleStopMin });
             setChanging(false);
             setNote(movedFiles ? 'The files now live in the new place; the ones kept in the old place stay there — copy what you need across from the Files tab.' : `Cells now run on ${spec.compute.kind === 'colab' ? 'your Colab' : serverById(spec.compute.serverId)?.name}. The kernel there starts fresh: re-run the cells that set things up.`);

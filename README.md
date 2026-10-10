@@ -4222,6 +4222,19 @@ first two are on to begin with.
 
   ![a paper's page with the playground that cites it beside it: a cell run from there, its output under it](docs/playground-running-peek.png)
 
+**On Colab, a machine of its own.** A playground on Colab gets a Colab machine
+(a runtime) of its own, with its own GPU, memory and disk, of the kind it asks
+for: one playground on an A100 and another on a T4 run side by side. Colab
+assigns a machine per notebook, and each playground has its own notebook id,
+made from the playground's id, so it is the same machine from any browser you
+sign in to. Each machine uses compute units of its own. **Shared**, in the
+playground's *Where it runs*, puts it on the browser's machine instead, the one
+the paper pages use, with the other playgrounds set to share: fewer units, one
+GPU between them (each still has its own Python). Shut down, or moving the
+playground off Colab or to Shared, stops its own machine and only that one.
+When your Colab plan allows no more machines at once, the playground shares the
+browser's for now and says so, until one is stopped in Colab.
+
 **Terminals and agents.** A command in a playground's terminal shows like a cell's
 run, with its last line, and **Stop** sends it Ctrl-C:
 - **On a Companion**, the Companion says exactly what each terminal runs
@@ -4239,8 +4252,7 @@ files, and Claude Code or Codex while a request runs on the machine.
 **What is kept, and where the code is.** How each run ended is kept in this
 browser. A notebook cell that finishes while its page is closed has its outputs
 saved with the notebook, as if the page had been open. On Colab, a playground's
-idle stop works from any page. When the last kernel on the runtime is shut down,
-the runtime itself is stopped.
+idle stop works from any page, and stops its machine when nothing else is on it.
 - `src/lib/colab.ts` keeps a session per playground: a kernel per scope, and the
   foreground one is what `colabNow()` shows.
 - `src/lib/playgroundRuns.ts` follows the runs, and `src/lib/jobWatch.ts` the
@@ -4254,6 +4266,10 @@ the runtime itself is stopped.
   end against two real Jupyter servers.
 - `scripts/running-jobs-smoke.mjs` drives the terminals, on a Companion and on a
   plain Jupyter server.
+- `scripts/colab-machines-smoke.mjs` drives Colab playgrounds against a stand-in
+  Colab that assigns a machine per notebook: two on machines of their own (a T4
+  and an A100) at once, one shared, Shut down stopping one machine, and the tier
+  limit.
 
 ## Addresses
 

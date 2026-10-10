@@ -77,7 +77,13 @@ export interface JupyterServer {
 }
 
 /** Where cells run: the person's own Colab, or a Jupyter server of theirs. */
-export type Backend = { kind: 'colab' } | { kind: 'jupyter'; server: JupyterServer };
+/**
+ * Colab, on a machine of its own — `notebook`, the id Colab assigns a runtime
+ * by (a playground's own, playgroundNotebook) — or, without one, on the
+ * browser's machine, the one the paper pages use; `machine` is the kind it
+ * asks for. Or a Jupyter server of the person's.
+ */
+export type Backend = { kind: 'colab'; notebook?: string; machine?: Machine } | { kind: 'jupyter'; server: JupyterServer };
 
 export interface Runtime {
   endpoint: string;
@@ -157,6 +163,8 @@ export interface ColabState {
   queue: string[];
   /** Run all is paused: the cell running finishes, and the rest wait for Resume. */
   paused: boolean;
+  /** On Colab: why this session is on the browser's machine rather than one of its own (the tier allowed no more). */
+  sharing?: string;
 }
 
 // ------------------------------------------------------------ the store ----
@@ -212,6 +220,49 @@ function notebookId(): string {
   return made;
 }
 
+/**
+ * A playground's own notebook id, so Colab gives it a machine of its own:
+ * made from the playground's id, so it is the same in every browser the
+ * account signs in to (and the same machine, while Colab keeps it), with
+ * nothing to store. UUID-shaped, as Colab's assignment asks.
+ */
+export function playgroundNotebook(playgroundId: string): string {
+  const words = [0x811c9dc5, 0x01000193, 0x9e3779b9, 0x85ebca6b].map((seed) => {
+    let hash = seed >>> 0;
+    for (const ch of `reader-playground:${playgroundId}`) {
+      hash ^= ch.charCodeAt(0);
+      hash = Math.imul(hash, 16777619) >>> 0;
+    }
+    return hash.toString(16).padStart(8, '0');
+  });
+  const hex = words.join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+/** The notebook a Colab backend's machine is assigned by: its own, or the browser's. */
+const notebookOf = (backend: Backend) => (backend.kind === 'colab' ? backend.notebook ?? notebookId() : undefined);
+
+/** The runtimes this tab holds, by notebook: the browser's under RUNTIME_KEY (as before), the playgrounds' own under RUNTIMES_KEY. */
+const RUNTIMES_KEY = 'reader.colab.runtimes';
+function readRuntime(notebook: string): Runtime | undefined {
+  if (notebook === notebookId()) return read<Runtime>(session(), RUNTIME_KEY) ?? undefined;
+  return read<Record<string, Runtime>>(session(), RUNTIMES_KEY)?.[notebook];
+}
+function writeRuntime(notebook: string, runtime: Runtime | null) {
+  if (notebook === notebookId()) return write(session(), RUNTIME_KEY, runtime);
+  const all = { ...(read<Record<string, Runtime>>(session(), RUNTIMES_KEY) ?? {}) };
+  if (runtime) all[notebook] = runtime;
+  else delete all[notebook];
+  write(session(), RUNTIMES_KEY, all);
+}
+/** Every runtime held under any notebook that is this machine (`endpoint`) let go — it stopped. */
+function forgetRuntime(endpoint: string) {
+  if (read<Runtime>(session(), RUNTIME_KEY)?.endpoint === endpoint) write(session(), RUNTIME_KEY, null);
+  const all = read<Record<string, Runtime>>(session(), RUNTIMES_KEY) ?? {};
+  write(session(), RUNTIMES_KEY, Object.fromEntries(Object.entries(all).filter(([, runtime]) => runtime.endpoint !== endpoint)));
+  forgetColabKernels(endpoint);
+}
+
 const savedPulse = (): Pulse => {
   const saved = read<unknown>(local(), PULSE_KEY);
   return isPulse(saved) ? saved : 'live';
@@ -240,14 +291,16 @@ interface Session {
   resume: (() => void) | null;
   /** When the last cell finished, or started: the idle stop counts from here. */
   lastActivity: number;
+  /** On Colab: the notebook whose machine it is on — its own, or the browser's when the tier allowed no more. */
+  notebook?: string;
 }
 
-const backendKey = (backend: Backend) => (backend.kind === 'colab' ? 'colab' : `jupyter:${backend.server.id}`);
+const backendKey = (backend: Backend) => (backend.kind === 'colab' ? (backend.notebook ? `colab:${backend.notebook}` : 'colab') : `jupyter:${backend.server.id}`);
 const sessionIdOf = (backend: Backend, scope: string) => `${backendKey(backend)}#${scope}`;
 
 /** The kernel this tab keeps on each Jupyter server, by server and scope, so a reload — or a playground opened again — comes back to the same Python. */
 const SERVER_KERNELS_KEY = 'reader.jupyter.kernels';
-/** The kernels this tab keeps on its Colab runtime, by scope; the machine watch's own is under MONITOR. */
+/** The kernels this tab keeps on its Colab runtimes, by the runtime's endpoint and then by scope; the machine watch's own is under MONITOR. */
 const COLAB_KERNELS_KEY = 'reader.colab.kernels';
 const MONITOR = '#monitor';
 /** The paper pages' kernel is kept under the server's id alone, as it was before playgrounds had their own. */
@@ -261,13 +314,29 @@ function keepKernel(serverId: string, scope: string, kernelId: string | undefine
   else delete all[keptName(serverId, scope)];
   write(session(), SERVER_KERNELS_KEY, all);
 }
-function colabKernels(): Record<string, string> {
-  return read<Record<string, string>>(session(), COLAB_KERNELS_KEY) ?? {};
+type KeptColab = Record<string, Record<string, string>>;
+const allColabKernels = (): KeptColab => {
+  const kept = read<Record<string, unknown>>(session(), COLAB_KERNELS_KEY) ?? {};
+  // Kept by scope alone, before playgrounds had machines of their own: those are the browser's runtime's.
+  if (Object.values(kept).some((value) => typeof value === 'string')) {
+    const endpoint = read<Runtime>(session(), RUNTIME_KEY)?.endpoint;
+    return endpoint ? { [endpoint]: kept as Record<string, string> } : {};
+  }
+  return kept as KeptColab;
+};
+function colabKernels(endpoint: string): Record<string, string> {
+  return allColabKernels()[endpoint] ?? {};
 }
-function keepColabKernel(scope: string, kernelId: string | undefined) {
-  const all = { ...colabKernels() };
-  if (kernelId) all[scope] = kernelId;
-  else delete all[scope];
+function keepColabKernel(endpoint: string, scope: string, kernelId: string | undefined) {
+  const all = allColabKernels();
+  const mine = { ...(all[endpoint] ?? {}) };
+  if (kernelId) mine[scope] = kernelId;
+  else delete mine[scope];
+  write(session(), COLAB_KERNELS_KEY, { ...all, [endpoint]: mine });
+}
+function forgetColabKernels(endpoint: string) {
+  const all = allColabKernels();
+  delete all[endpoint];
   write(session(), COLAB_KERNELS_KEY, all);
 }
 
@@ -280,9 +349,10 @@ function makeSession(backend: Backend, scope: string): Session {
   return {
     id,
     scope,
-    state: { id, scope, backend, status: 'off', kernel: kept, machine: shared.machine, gpuWatch: shared.gpuWatch, history: [], pulse: shared.pulse, queue: [], paused: false },
+    state: { id, scope, backend, status: 'off', kernel: kept, machine: backend.kind === 'colab' && backend.machine ? backend.machine : shared.machine, gpuWatch: shared.gpuWatch, history: [], pulse: shared.pulse, queue: [], paused: false },
     kernel: null,
     keys: new Set(),
+    notebook: notebookOf(backend),
     watching: null,
     pulsing: null,
     resume: null,
@@ -353,10 +423,11 @@ export function setGpuWatch(on: boolean) {
   emit();
 }
 
+/** The kind of machine the foreground session asks for at its next connection (a playground's own, its own), and the default for the rest. */
 export function setMachine(machine: Machine) {
   write(local(), MACHINE_KEY, machine);
   shared.machine = machine;
-  for (const s of sessions.values()) s.state = { ...s.state, machine };
+  current.state = { ...current.state, machine };
   emit();
 }
 
@@ -1021,10 +1092,10 @@ function ensureMonitor(host: Host): Promise<Kernel | null> {
   if (starting) return starting;
   const made = (async () => {
     try {
-      const keptId = host.runtime.proxy.kind === 'jupyter' ? undefined : colabKernels()[MONITOR];
+      const keptId = host.runtime.proxy.kind === 'jupyter' ? undefined : colabKernels(endpoint)[MONITOR];
       const listed = keptId ? await host.listKernels().catch(() => null) : null;
       const id = keptId && listed?.some((k) => k.id === keptId) ? keptId : await host.startKernel();
-      if (host.runtime.proxy.kind !== 'jupyter') keepColabKernel(MONITOR, id);
+      if (host.runtime.proxy.kind !== 'jupyter') keepColabKernel(endpoint, MONITOR, id);
       const attached = new Kernel(
         host.runtime.proxy,
         id,
@@ -1224,7 +1295,7 @@ const wake = (s: Session) => {
 
 const lost = (s: Session, reason: string) => {
   closeKernel(s);
-  if (s.state.backend.kind === 'colab') write(session(), RUNTIME_KEY, null);
+  if (s.state.backend.kind === 'colab') writeRuntime(s.notebook ?? notebookOf(s.state.backend)!, null);
   const next = { ...runs };
   for (const key of s.keys) {
     const run = next[key];
@@ -1244,13 +1315,13 @@ async function attach(s: Session, host: Host): Promise<Kernel> {
   let id: string | undefined;
   if (s.state.backend.kind === 'jupyter') id = has(s.state.kernel) ? s.state.kernel : undefined;
   else {
-    const kept = colabKernels();
+    const kept = colabKernels(host.runtime.endpoint);
     id = has(s.state.kernel) ? s.state.kernel : has(kept[s.scope]) ? kept[s.scope] : undefined;
     // The paper pages' kernel from before kernels were kept by scope: the runtime's first, if no other scope claims it.
     if (!id && s.scope === PAGES && !Object.keys(kept).length) id = listed?.[0]?.id;
   }
   if (!id) id = await host.startKernel();
-  if (s.state.backend.kind === 'colab') keepColabKernel(s.scope, id);
+  if (s.state.backend.kind === 'colab') keepColabKernel(host.runtime.endpoint, s.scope, id);
   const attached = new Kernel(
     host.runtime.proxy,
     id,
@@ -1269,7 +1340,7 @@ async function attach(s: Session, host: Host): Promise<Kernel> {
 /** The kernel this tab keeps on a Jupyter server for a scope — its variables in it — if it keeps one. */
 export const keptKernelFor = (serverId: string, scope: string = PAGES) => keptKernel(serverId, scope);
 
-const sameBackend = (a: Backend, b: Backend) => (a.kind === 'colab' ? b.kind === 'colab' : b.kind === 'jupyter' && a.server.id === b.server.id && a.server.url === b.server.url && a.server.token === b.server.token);
+const sameBackend = (a: Backend, b: Backend) => (a.kind === 'colab' ? b.kind === 'colab' && (a.notebook ?? '') === (b.notebook ?? '') : b.kind === 'jupyter' && a.server.id === b.server.id && a.server.url === b.server.url && a.server.token === b.server.token);
 
 /** The session for a backend and a scope, made if there is none; the foreground stays as it is. */
 function sessionFor(backend: Backend, scope: string): Session {
@@ -1288,6 +1359,9 @@ function sessionFor(backend: Backend, scope: string): Session {
     sessions.set(id, s);
   } else if (backend.kind === 'jupyter' && s.state.backend.kind === 'jupyter' && backend.server.name !== s.state.backend.server.name) {
     s.state = { ...s.state, backend };
+  } else if (backend.kind === 'colab' && backend.machine && backend.machine.accelerator !== s.state.machine.accelerator) {
+    // The kind of machine asked for, at the next connection; one already up is changed from the machine menu.
+    s.state = { ...s.state, backend, machine: backend.machine };
   }
   return s;
 }
@@ -1316,8 +1390,8 @@ export function chooseBackend(backend: Backend, scope: string = PAGES) {
   emit();
 }
 
-/** The runtime any Colab session holds now, so a second scope's kernel goes onto the same machine. */
-const colabRuntimeHeld = (): Runtime | undefined => [...sessions.values()].find((s) => s.state.backend.kind === 'colab' && s.state.runtime && s.kernel)?.state.runtime;
+/** The runtime a Colab session holds now for a notebook, so another scope on the same machine joins it. */
+const colabRuntimeHeld = (notebook: string): Runtime | undefined => [...sessions.values()].find((s) => s.notebook === notebook && s.state.runtime && s.kernel)?.state.runtime;
 
 /**
  * A runtime and a kernel, from what is held or afresh. On Colab: Google's
@@ -1351,19 +1425,35 @@ async function connectSession(s: Session, machine: Machine = s.state.machine): P
   write(local(), MACHINE_KEY, machine);
   try {
     const googleToken = await tokenOrConnect();
-    const held = s.state.runtime ?? colabRuntimeHeld() ?? read<Runtime>(session(), RUNTIME_KEY) ?? undefined;
-    let runtime = held && held.proxy.expiresAt > Date.now() + 60_000 && held.proxy.kind !== 'jupyter' ? held : undefined;
-    if (!runtime) {
-      // The runtime Colab already has for this notebook, or one it starts now.
-      runtime = (await relay<{ runtime: Runtime }>('/colab/runtimes', googleToken, { method: 'POST', body: { notebook: notebookId(), accelerator: machine.accelerator, highMem: Boolean(machine.highMem) } })).runtime;
-      // A new runtime: the kernels kept for the last one are gone with it.
-      if (held?.endpoint !== runtime.endpoint) write(session(), COLAB_KERNELS_KEY, null);
+    const own = notebookOf(s.state.backend)!;
+    const usable = (runtime: Runtime | undefined) => (runtime && runtime.proxy.expiresAt > Date.now() + 60_000 && runtime.proxy.kind !== 'jupyter' ? runtime : undefined);
+    /** The runtime for a notebook: the one held, or the one Colab has for it (or starts now). */
+    const runtimeFor = async (notebook: string) => {
+      const held = usable((s.notebook === notebook ? s.state.runtime : undefined) ?? colabRuntimeHeld(notebook) ?? readRuntime(notebook));
+      if (held) return held;
+      const made = (await relay<{ runtime: Runtime }>('/colab/runtimes', googleToken, { method: 'POST', body: { notebook, accelerator: machine.accelerator, highMem: Boolean(machine.highMem) } })).runtime;
+      // A machine new to this tab: no kernels are kept on it yet.
+      forgetColabKernels(made.endpoint);
+      return made;
+    };
+    let runtime: Runtime;
+    let notebook = own;
+    let sharing: string | undefined;
+    try {
+      runtime = await runtimeFor(own);
+    } catch (error) {
+      // The tier allows no more machines at once: this one runs on the browser's machine, beside the paper pages, and says so.
+      if (!(error instanceof ColabRequestError && error.flags.limit) || own === notebookId()) throw error;
+      notebook = notebookId();
+      runtime = await runtimeFor(notebook);
+      sharing = 'Colab allows no more machines at once on your plan, so this playground shares your other Colab machine for now. Stop one in Colab (Runtime → Manage sessions), then reconnect, for a machine of its own.';
     }
     closeKernel(s);
+    s.notebook = notebook;
     s.kernel = await attach(s, colabHost(runtime, tokenOrConnect));
-    write(session(), RUNTIME_KEY, runtime);
+    writeRuntime(notebook, runtime);
     const same = s.state.runtime?.endpoint === runtime.endpoint;
-    set(s, { status: 'idle', runtime, kernel: s.kernel.id, via: s.kernel.via, reconnecting: false, startedAt: same && s.state.startedAt ? s.state.startedAt : Date.now(), error: undefined, history: same ? s.state.history : [] });
+    set(s, { status: 'idle', runtime, kernel: s.kernel.id, via: s.kernel.via, reconnecting: false, startedAt: same && s.state.startedAt ? s.state.startedAt : Date.now(), error: undefined, history: same ? s.state.history : [], sharing });
     void refreshUnits(googleToken);
     // What the machine is, read once as it connects, so the page can say so before anything runs; then the pulse, if it is on.
     void probeSession(s).finally(() => schedulePulse(s));
@@ -1371,8 +1461,8 @@ async function connectSession(s: Session, machine: Machine = s.state.machine): P
     const flags = error instanceof ColabRequestError ? error.flags : {};
     if (flags.gone) {
       lost(s, 'Colab has ended that runtime.');
-      write(session(), RUNTIME_KEY, null);
-      write(session(), COLAB_KERNELS_KEY, null);
+      if (s.state.runtime) forgetRuntime(s.state.runtime.endpoint);
+      writeRuntime(s.notebook ?? notebookOf(s.state.backend)!, null);
       set(s, { runtime: undefined });
       return;
     }
@@ -1553,10 +1643,10 @@ function released(s: Session) {
 
 /**
  * Releases the foreground runtime. The cells keep what they printed, marked
- * as from a runtime that is gone. On Colab the machine stops, so every
- * session on it goes with it; on a Jupyter server of the person's own the
- * server is theirs and stays up, and the page shuts down this session's
- * kernel there.
+ * as from a runtime that is gone. On Colab this machine stops, so every
+ * session on it goes with it (a playground on a machine of its own stops
+ * alone); on a Jupyter server of the person's own the server is theirs and
+ * stays up, and the page shuts down this session's kernel there.
  */
 export const stopRuntime = (): Promise<void> => stopSessionRuntime(current);
 
@@ -1565,9 +1655,10 @@ async function stopSessionRuntime(s: Session): Promise<void> {
   const backend = s.state.backend;
   const kernelId = s.state.kernel;
   if (backend.kind === 'colab') {
-    write(session(), RUNTIME_KEY, null);
-    write(session(), COLAB_KERNELS_KEY, null);
-    for (const other of sessions.values()) if (other.state.backend.kind === 'colab') released(other);
+    // This machine stops, and every session on it with it — the other Colab machines go on.
+    if (runtime) forgetRuntime(runtime.endpoint);
+    writeRuntime(s.notebook ?? notebookOf(backend)!, null);
+    for (const other of sessions.values()) if (other === s || (runtime && other.state.runtime?.endpoint === runtime.endpoint)) released(other);
   } else {
     keepKernel(backend.server.id, s.scope, undefined);
     released(s);
@@ -1588,9 +1679,10 @@ async function stopSessionRuntime(s: Session): Promise<void> {
 /**
  * Shuts a scope's kernel down — a playground's, from anywhere: its variables
  * go. On a Jupyter server, the kernel is shut down there, connected or only
- * kept. On Colab, the machine stops when no other scope has a kernel on it
- * (so it uses no more units); otherwise this scope's kernel is restarted
- * empty and let go, the others left running.
+ * kept. On Colab, its machine stops when no other scope has a kernel on it
+ * (so it uses no more units) — always, for a playground on a machine of its
+ * own; otherwise this scope's kernel is restarted empty and let go, the
+ * others left running.
  */
 export async function shutDownScope(scope: string, server?: JupyterServer): Promise<void> {
   const mine = [...sessions.values()].filter((s) => s.scope === scope);
@@ -1601,11 +1693,13 @@ export async function shutDownScope(scope: string, server?: JupyterServer): Prom
       continue;
     }
     if (!s.kernel) continue;
-    const others = [...sessions.values()].some((o) => o !== s && o.state.backend.kind === 'colab' && o.kernel);
+    // Its machine stops when nothing else is on it — a machine of its own always — else its kernel alone is emptied.
+    const endpoint = s.state.runtime?.endpoint;
+    const others = [...sessions.values()].some((o) => o !== s && o.kernel && o.state.runtime?.endpoint === endpoint);
     if (!others) await stopSessionRuntime(s);
     else {
       await restartSession(s);
-      keepColabKernel(scope, undefined);
+      if (endpoint) keepColabKernel(endpoint, scope, undefined);
       released(s);
     }
   }
@@ -1623,6 +1717,7 @@ export async function shutDownScope(scope: string, server?: JupyterServer): Prom
 /** Forgets Colab in this tab: the connections, the runtime's address and the token. The runtime itself is left to Colab's idle timeout unless stopped first. */
 export function disconnect(): void {
   write(session(), RUNTIME_KEY, null);
+  write(session(), RUNTIMES_KEY, null);
   write(session(), COLAB_KERNELS_KEY, null);
   if (current.state.backend.kind === 'colab') dropColab();
   for (const s of sessions.values()) {

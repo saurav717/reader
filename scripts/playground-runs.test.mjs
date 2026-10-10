@@ -157,3 +157,17 @@ _rt_close('t')
     assert.equal(after.alive, true);
   });
 });
+
+describe('a Colab machine of a playground’s own', () => {
+  it('its notebook id is UUID-shaped, the same every time for a playground, and different between playgrounds', async () => {
+    const colab = await load('src/lib/colab.ts', { external: ['react', '@anthropic-ai/sdk'], imports: true });
+    const server = await import('../server/colab.js');
+    const a = colab.playgroundNotebook('a8c4d48f');
+    assert.match(a, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.equal(colab.playgroundNotebook('a8c4d48f'), a);
+    const ids = new Set(Array.from({ length: 500 }, (_, i) => colab.playgroundNotebook(`pg${i}`)));
+    assert.equal(ids.size, 500);
+    // The proxy takes it as Colab's notebook hash does.
+    assert.equal(server.notebookHash(a).length, 44);
+  });
+});

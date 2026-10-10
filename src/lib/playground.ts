@@ -23,7 +23,7 @@
 import { useSyncExternalStore } from 'react';
 import { db } from './db';
 import type { Backend, JupyterServer, Machine, RuntimeEntry } from './colab';
-import { JupyterRequestError, jupyterDelete, jupyterFetch, jupyterList, jupyterRead, jupyterRename, jupyterWrite, runQuietly } from './colab';
+import { JupyterRequestError, playgroundNotebook, jupyterDelete, jupyterFetch, jupyterList, jupyterRead, jupyterRename, jupyterWrite, runQuietly } from './colab';
 import type { NbCell } from './notebook';
 import { newCell, notebookFor, subscribeNotebook } from './notebook';
 import type { CellType } from './notebook';
@@ -43,7 +43,7 @@ interface Named {
   where?: 'pc' | 'remote';
 }
 
-export type Compute = { kind: 'colab'; machine: Machine } | ({ kind: 'server'; serverId: string; /** The computer's Companion id: the same in every browser, where serverId is this browser's. */ deviceId?: string } & Named);
+export type Compute = { kind: 'colab'; machine: Machine; /** On the browser's Colab machine, with the paper pages and the other playgrounds that share it, rather than a machine of its own. */ shared?: boolean } | ({ kind: 'server'; serverId: string; /** The computer's Companion id: the same in every browser, where serverId is this browser's. */ deviceId?: string } & Named);
 
 /**
  * Where its files are kept: a folder in the account's Google Drive, a folder
@@ -271,7 +271,8 @@ export const usePlaygrounds = () => useSyncExternalStore(subscribePlaygrounds, s
 export const playgroundsLoaded = () => loaded;
 /** The kernel backend a playground's compute names, when it can be had: Colab, or a server still in the list. */
 export function backendOfPlayground(p: Playground): Backend | null {
-  if (p.compute.kind === 'colab') return { kind: 'colab' };
+  // On Colab: a machine of its own (its own notebook id, so Colab assigns it its own runtime), unless it shares the browser's.
+  if (p.compute.kind === 'colab') return { kind: 'colab', notebook: p.compute.shared ? undefined : playgroundNotebook(p.id), machine: p.compute.machine };
   const server = serverById(p.compute.serverId);
   return server ? { kind: 'jupyter', server } : null;
 }
