@@ -7478,3 +7478,5 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .wr-switch-form .wr-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .wr-switch-back { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .wr-danger { color: var(--danger) !important; }
+
+.wr-update { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }

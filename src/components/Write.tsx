@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
 import { jupyterDelete, jupyterList, jupyterMkdir, jupyterRead, jupyterRename, jupyterWrite, jupyterWriteBase64 } from '../lib/colab';
-import { PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEXLIVE_VERSION, TEX_COMPILERS, applyTemplate, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, chooseFolder, clonePaper, compilePaper, deleteTemplate, forgetOverleafToken, installTectonic, isNewer, linkFolder, listTemplates, paperEngines, paperRemote, saveTemplate, syncPaper, tokenKnown, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
+import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEXLIVE_VERSION, TEX_COMPILERS, applyTemplate, updateCompanion, waitForVersion, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, chooseFolder, clonePaper, compilePaper, deleteTemplate, forgetOverleafToken, installTectonic, isNewer, linkFolder, listTemplates, paperEngines, paperRemote, saveTemplate, syncPaper, tokenKnown, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
 import { bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
 import { complete as completeLatex } from '../lib/latexComplete';
 import { openPdf } from '../lib/pdfReflow';
@@ -284,6 +284,45 @@ function PaneTools({ layout, onLayout, swapped, onSwap, big, onBig }: { layout: 
       <button type="button" className="wr-icon" aria-pressed={big} onClick={onBig} title={big ? 'Back to both panes' : 'The source alone, filling the space'} aria-label={big ? 'Back to both panes' : 'Expand the source'}>
         {big ? '⤡' : '⤢'}
       </button>
+    </span>
+  );
+}
+
+// ------------------------------------------------- the Companion, updated --
+
+/** From this version the Companion updates itself when asked; an older one is updated the way it was installed. */
+const SELF_UPDATING = '0.5.0';
+
+/** Update the Companion from here, and the page comes back to it once the new one answers. */
+function UpdateCompanion({ server, version }: { server: Here['server']; version: string }) {
+  const [state, setState] = useState<'idle' | 'updating' | 'failed'>('idle');
+  const [problem, setProblem] = useState<string | null>(null);
+  if (isNewer(SELF_UPDATING, version)) {
+    return <span className="wr-quiet">This Companion ({version}) is from before it could update itself: install it again the way you did (the Reader app’s .dmg, or the line on the Connect card), once.</span>;
+  }
+  return (
+    <span className="wr-update">
+      <button
+        type="button"
+        className="btn primary sm"
+        disabled={state === 'updating'}
+        onClick={async () => {
+          setState('updating');
+          setProblem(null);
+          try {
+            const done = await updateCompanion(server);
+            const back = done.updated ? await waitForVersion(server.url, done.version) : true;
+            if (!back) throw new Error('It installed the update but hasn’t answered since. Open the Reader app to start it.');
+            window.location.reload();
+          } catch (error) {
+            setState('failed');
+            setProblem(error instanceof Error ? error.message : String(error));
+          }
+        }}
+      >
+        {state === 'updating' ? 'Updating the Companion…' : `Update the Companion (${version} → ${COMPANION_VERSION})`}
+      </button>
+      {problem ? <span className="wr-bad">{problem}</span> : null}
     </span>
   );
 }
@@ -1440,9 +1479,14 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
       {compiled && !compiled.pdf && !compiled.errors.length && !compiling ? (
         <div className="wr-banner">
           <b>No PDF came out, and TeX reported no error.</b>{' '}
-          {isNewer('0.11.1', here.version)
-            ? 'latexmk skips a file it failed on until the file changes — after installing a package, say. Change anything in it (a space will do) and Recompile, or update the Companion, which then always compiles.'
-            : 'Check the main document above is the file with \\documentclass, and see what the compiler said:'}
+          {isNewer('0.11.1', here.version) ? (
+            <>
+              This Companion skips a file that failed until the file changes. Update it, and it compiles every time — and can install TeX Live and missing packages for you:{' '}
+              <UpdateCompanion server={server} version={here.version} />
+            </>
+          ) : (
+            'Check the main document above is the file with \\documentclass, and see what the compiler said:'
+          )}
           {compiled.log.trim() ? (
             <details className="wr-raw">
               <summary>What the compiler said</summary>
@@ -1604,7 +1648,9 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
                 onTectonic={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), engine: 'tectonic' } })}
                 first={
                   !canOwnTex ? (
-                    <p className="wr-quiet">Update the Companion to {TEXLIVE_VERSION} and Reader can install TeX Live — and any missing package — for you, without a password.</p>
+                    <p className="wr-quiet">
+                      Update the Companion and Reader can install TeX Live — and any missing package — for you, without a password: <UpdateCompanion server={server} version={here.version} />
+                    </p>
                   ) : engines?.texlive?.installed ? (
                     <InstallMissing server={server} names={missing} onDone={() => void compile()} />
                   ) : (
@@ -1645,11 +1691,9 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
           <span>{compiling ? 'Compiling…' : 'Not compiled yet'}</span>
         )}
         <span className="wr-sp" />
-        {canOwnTex ? (
-          <button type="button" className="link-btn" aria-expanded={texShown} onClick={() => setTexShown(!texShown)} title="The TeX that compiles the paper: Reader can install TeX Live for you">
-            TeX
-          </button>
-        ) : null}
+        <button type="button" className="link-btn" aria-expanded={texShown} onClick={() => setTexShown(!texShown)} title="The TeX that compiles the paper: Reader can install TeX Live for you">
+          TeX
+        </button>
         {git ? (
           <button type="button" className="link-btn" aria-expanded={tokenShown} onClick={() => setTokenShown(!tokenShown)} title="The Overleaf Git token on this computer: where it is, and how to remove it">
             Overleaf token
@@ -1657,10 +1701,16 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
         ) : null}
         <OpenOverleaf project={project} view="beside" primary={false} compact />
       </footer>
-      {texShown && canOwnTex ? (
+      {texShown ? (
         <div className="wr-sync-banner">
           <span className="wr-quiet">{engines?.texVersion ? `Compiling with ${engines.texVersion}.` : 'No TeX found yet.'}</span>
-          <OwnTex server={server} status={engines?.texlive} onStatus={setOwnTex} onReady={() => void paperEngines(server).then(setEngines).then(() => compile())} />
+          {canOwnTex ? (
+            <OwnTex server={server} status={engines?.texlive} onStatus={setOwnTex} onReady={() => void paperEngines(server).then(setEngines).then(() => compile())} />
+          ) : (
+            <span>
+              Update the Companion ({here.version}) and Reader can install TeX Live for you: <UpdateCompanion server={server} version={here.version} />
+            </span>
+          )}
         </div>
       ) : null}
       {tokenShown ? (
