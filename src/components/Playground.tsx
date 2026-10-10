@@ -46,6 +46,8 @@ import { ColabMark } from './Colab';
 import { CloseIcon, CodeIcon, DriveMark, TrashIcon } from './icons';
 import CopyBlock from './CopyBlock';
 import PlaygroundWorkspace from './PlaygroundWorkspace';
+import { RunRowAction, RunRowState, RunningChooser, RunningShelf } from './PlaygroundRuns';
+import { useRunBoard } from '../lib/playgroundRuns';
 import VsCodeExtension, { isCompanion } from './VsCodeExtension';
 
 export default function Playground({ id, onOpen, onOpenPaper }: { id?: string; onOpen: (id?: string) => void; onOpenPaper: (id: string) => void }) {
@@ -183,6 +185,11 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const filePick = useRef<HTMLInputElement>(null);
   const sorted = useMemo(() => [...list].sort((a, b) => b.updated - a.updated), [list]);
+  // What each is doing — running, idle with its variables, how its last run ended — when the shelf is chosen.
+  const runs = useRunBoard(list);
+  const runById = useMemo(() => new Map(runs.map((run) => [run.id, run])), [runs]);
+  const shows = settings.runningShows;
+  const [choosing, setChoosing] = useState(false);
   const colabOk = colabAvailable(settings.googleClientId);
   // The signed-in account's computers, from any browser it signs in to: now, and at each sign-in.
   useEffect(() => {
@@ -290,7 +297,24 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
           <span className="pg-key">
             <kbd>P</kbd> from anywhere
           </span>
+          <span className="pr-choose-wrap">
+            <button type="button" className="pg-key pr-choose-btn" aria-expanded={choosing} onClick={() => setChoosing(!choosing)} title="How running playgrounds are shown around the app">
+              Show running as…
+            </button>
+            {choosing ? (
+              <div className="pr-choose-pop" role="dialog" aria-label="How running playgrounds are shown">
+                <div className="pr-choose-pop-head">
+                  <b>Running playgrounds</b>
+                  <button type="button" className="icon-btn sm" aria-label="Close" onClick={() => setChoosing(false)}>
+                    <CloseIcon size={14} />
+                  </button>
+                </div>
+                <RunningChooser compact />
+              </div>
+            ) : null}
+          </span>
         </header>
+        {shows.shelf ? <RunningShelf runs={runs} onOpen={(id) => onOpen(id)} /> : null}
         <div className="pg-grid">
           <section>
             <div className="pg-section-head">
@@ -374,10 +398,12 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
               <ul className="pg-list">
                 {sorted.map((p) => {
                   const at = reach(p);
+                  const run = shows.shelf ? runById.get(p.id) : undefined;
                   return (
                   <li key={p.id} className={`pg-row${at.blocked ? ' is-blocked' : ''}`}>
                     <button type="button" className="pg-row-main" onClick={() => !at.blocked && onOpen(p.id)} disabled={Boolean(at.blocked)} title={at.blocked}>
                       <b>{p.title}</b>
+                      {run && run.phase !== 'never' ? <RunRowState run={run} /> : null}
                       <span>
                         {p.kind === 'project' ? 'Project' : 'Notebook'}
                         {p.cites.length ? ` · cites ${p.cites.map((c) => c.title).join(', ').slice(0, 80)}` : ''}
@@ -396,7 +422,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
                       {at.blocked || at.warn ? <span className={`pg-row-note${at.blocked ? ' is-problem' : ''}`}>{at.blocked ?? at.warn}</span> : null}
                     </button>
                     <ComputeTag compute={p.compute} home={p.home} />
-                    <span className="pg-when">{ago(p.updated)}</span>
+                    <span className="pg-when">{ago(run?.at && run.at > p.updated ? run.at : p.updated)}</span>
                     {confirmDelete === p.id ? (
                       <span className="pg-confirm">
                         <button type="button" className="btn sm danger" onClick={() => void deletePlayground(p.id).then(() => setConfirmDelete(null))}>
@@ -411,8 +437,9 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
                         <TrashIcon size={15} />
                       </button>
                     )}
-                    <button type="button" className="btn sm" onClick={() => onOpen(p.id)} disabled={Boolean(at.blocked)} title={at.blocked}>
-                      Open
+                    {run ? <RunRowAction run={run} /> : null}
+                    <button type="button" className={`btn sm${run?.phase === 'idle' ? ' primary' : ''}`} onClick={() => onOpen(p.id)} disabled={Boolean(at.blocked)} title={at.blocked}>
+                      {run?.phase === 'idle' ? 'Resume' : run?.phase === 'ran' ? 'Results' : 'Open'}
                     </button>
                   </li>
                   );

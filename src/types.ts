@@ -239,6 +239,8 @@ export interface Settings {
   passageLook: PassageLook;
   /** How bold words and links to passages are marked in Ask Claude's answers; `auto` suits each theme. */
   chatMarks: ChatMarks;
+  /** How playgrounds that are running, or can be picked back up, are shown around the app — any of them, or none. */
+  runningShows: RunningShows;
   /**
    * Used for the OpenAlex and Crossref "polite pools" — which are faster and
    * more reliable than the anonymous ones — and required by Unpaywall. Left
@@ -255,6 +257,20 @@ export interface Settings {
    */
   githubToken: string;
   githubSync: boolean;
+}
+
+/**
+ * The ways running playgrounds are shown, each on or off:
+ * - shelf: on the Playground's home, a "Running now" shelf, and each playground's state in the list;
+ * - dock: on every page, a count on the rail's Playground button, a dock of what runs, and a toast when one ends;
+ * - switcher: P opens a switcher, running first, instead of going straight to the Playground;
+ * - tabs: the playgrounds opened in this tab, as tabs across the top of every page.
+ */
+export interface RunningShows {
+  shelf: boolean;
+  dock: boolean;
+  switcher: boolean;
+  tabs: boolean;
 }
 
 export type GlassWall = 'spotlight' | 'sage' | 'paper' | 'mist' | 'graphite' | 'lavender' | 'dusk' | 'ocean' | 'spectrum';

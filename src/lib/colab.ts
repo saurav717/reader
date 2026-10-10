@@ -1109,6 +1109,19 @@ const keepKernel = (serverId: string, kernelId: string | undefined) => {
   write(session(), SERVER_KERNELS_KEY, all);
 };
 
+/** The kernel this tab keeps on a Jupyter server to go back to — its variables in it — if it keeps one. */
+export const keptKernelFor = (serverId: string) => keptKernel(serverId);
+
+/** Shuts down the kernel this tab keeps on a server: the one connected now, or one kept from before. Its variables go. */
+export async function shutDownKernelOn(server: JupyterServer): Promise<void> {
+  if (state.backend.kind === 'jupyter' && state.backend.server.id === server.id && state.kernel) return stopRuntime();
+  const kernelId = keptKernel(server.id);
+  if (!kernelId) return;
+  keepKernel(server.id, undefined);
+  set({});
+  await jupyterFetch(server, `api/kernels/${encodeURIComponent(kernelId)}`, { method: 'DELETE' }).catch(() => undefined);
+}
+
 const sameBackend = (a: Backend, b: Backend) => (a.kind === 'colab' ? b.kind === 'colab' : b.kind === 'jupyter' && a.server.id === b.server.id && a.server.url === b.server.url && a.server.token === b.server.token);
 
 /**

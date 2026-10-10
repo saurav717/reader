@@ -76,6 +76,7 @@ const defaultSettings: Settings = {
   zenHaze: 'shadow',
   passageLook: 'marker',
   chatMarks: 'auto',
+  runningShows: { shelf: true, dock: true, switcher: false, tabs: false },
   contactEmail: '',
   githubRepo: '',
   githubBranch: 'main',
@@ -99,6 +100,8 @@ function readSettings(): Settings {
     // empty one saved, which would otherwise shadow the new default forever.
     // An empty string here means "not set", not "deliberately blank".
     if (!saved.googleClientId) saved.googleClientId = defaultSettings.googleClientId;
+    // Saved before a choice was added to it: the new choice starts at its default.
+    saved.runningShows = { ...defaultSettings.runningShows, ...saved.runningShows };
     return saved;
   } catch {
     return defaultSettings;

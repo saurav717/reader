@@ -12,6 +12,7 @@ import { getState as assistantState, MODELS, PROVIDER_IDS, PROVIDERS, setExplain
 import { KeyRow } from './Assistant';
 import CompanionUpdates from './CompanionUpdate';
 import ProxyPass from './ProxyPass';
+import { RunningChooser } from './PlaygroundRuns';
 
 /** Every model, grouped by who runs it, saying which still need a key. */
 function ModelOptions({ keys }: { keys: Record<string, boolean> }) {
@@ -842,6 +843,17 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             Ask AI <i>“show me where…”</i> and the paper scrolls to the passage, which is{' '}
             {PASSAGE_LOOKS.find((look) => look.id === settings.passageLook)?.note}
           </p>
+        </section>
+
+        <section style={{ marginTop: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Running playgrounds
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
+            A playground goes on running when you leave its page — on Colab, or on the computer it runs on. Choose
+            how what runs, and what can be picked back up, is shown around the app: any of these, or none.
+          </p>
+          <RunningChooser />
         </section>
       </div>
     </>

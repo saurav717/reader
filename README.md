@@ -4139,7 +4139,8 @@ machine, and its files can be opened and edited there too.
 
 - **On Colab, an idle stop.** A playground on Colab can stop its runtime
   after 10 minutes to 2 hours with nothing running. The default is 30
-  minutes, and the stop only happens while the tab is open.
+  minutes, and the stop only happens while the tab is open — on any page of
+  it, not only the playground's own.
 - **From a paper's notebook.** **Export → Copy into a new playground** takes
   the cells as they are into a playground that cites the paper, and opens it.
 - **What is kept.** The playground, its notebook and the files of one that
@@ -4156,6 +4157,64 @@ checks the addresses, the parsers and the sync rules.
 real Jupyter servers, one for this PC and one for the GPU machine, and
 photographs it. The design behind it, and what is not built yet, is in
 [docs/playground.md](docs/playground.md).
+
+### Running playgrounds
+
+A playground goes on running when you leave its page. The run belongs to the
+machine, and the page only watches it, so you can go and read a paper while a
+cell trains. How what runs, and what can be picked back up, is shown around the
+app is yours to choose: **Show running as…** on the Playground's home, or
+**Settings → Running playgrounds**. There are four ways, each on or off. The
+first two are on to begin with.
+
+- **A · Running now, on the Playground's home.** A shelf at the top with each
+  playground running now. Each card shows what it is on (*cell 9 of 14*,
+  *$ python train.py*), the last line it printed, how long it has run, a bar
+  when the output or Run all says how far it has got, **Stop** and **Open**.
+  Each playground in the list says what coming back to it will be like:
+  *Running*; *Idle · variables kept*, with **Shut down** beside **Resume**,
+  since a kernel left up keeps its variables and, on Colab, uses units;
+  *Finished*; *Failed*, with its error; or *Stopped*, with the code kept and the
+  variables gone.
+
+  ![the Playground's home with a playground running: its card on the Running now shelf, and its state in the list](docs/playground-running-shelf.png)
+  ![the list after two runs: each kept its kernel on its own server, idle with its variables; a toast says the first finished](docs/playground-running-states.png)
+
+- **B · A dock and a count, on every page.** The rail's **</>** button counts
+  what runs. Hover it for each run and where it has got to. A dock in the
+  corner of every page shows each run's bar and last line, with **Stop** and
+  **Open**; it folds to a pill and goes when nothing runs. A toast says when a
+  run finishes, fails or is stopped, with a button to its results or its
+  error.
+
+  ![the library, with a playground running: the count on the rail, its pop-up, and the dock](docs/playground-running-dock.png)
+
+- **C · P opens a switcher.** <kbd>P</kbd> from anywhere lists the playgrounds,
+  the running ones first, then the ones that need a look, then the rest. Type
+  to narrow it, and use the arrows and Enter.
+
+  ![P's switcher over the library: running first, then one idle with its variables kept](docs/playground-running-switcher.png)
+
+- **D · Tabs across the top.** The playgrounds opened in this tab stay as tabs
+  above every page, each with a live dot (and how far it has got). Closing a
+  tab stops nothing.
+
+  ![tabs for two playgrounds above the library, one of them running](docs/playground-running-tabs.png)
+
+A tab has one kernel connection at a time. Opening a playground on another
+machine while one runs doesn't cut that run off. The new page says what is
+running and waits: it connects to its own machine as soon as that run ends,
+or once you stop it from there.
+
+![a second playground, on the GPU box, waiting for the first to finish on this PC](docs/playground-running-waits.png)
+
+How each run ended is kept in this browser. A notebook cell that finishes
+while its page is closed has its outputs saved with the notebook, as if the
+page had been open. `src/lib/playgroundRuns.ts` follows the runs, and
+`src/components/PlaygroundRuns.tsx` draws them.
+`scripts/playground-runs.test.mjs` checks the reading of a run's output.
+`scripts/running-smoke.mjs` drives all four ways, end to end, against two
+real Jupyter servers.
 
 ## Addresses
 

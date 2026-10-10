@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useStore } from './lib/store';
 import type { View } from './types.view';
 import { HIGHLIGHT_COLORS } from './types';
@@ -41,6 +41,8 @@ import { FINISHED_AT } from './lib/status';
 import { addressWith, currentAddress, pathFor, placeFor } from './lib/route';
 import Playground from './components/Playground';
 import { OPEN_PLAYGROUND } from './lib/playground';
+import { watchPlaygroundRuns } from './lib/playgroundRuns';
+import { RailRunBadge, RunDock, RunSwitcher, RunTabs } from './components/PlaygroundRuns';
 
 const WELCOME_KEY = 'reader.welcomed';
 const VIEW_KEY = 'reader.view';
@@ -208,6 +210,8 @@ export default function App() {
   const [selectedHighlightId, setSelectedHighlightId] = useState<string | null>(null);
   const [orphanIds, setOrphanIds] = useState<string[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /** P's switcher, when Settings → Running playgrounds has it. */
+  const [switcherOpen, setSwitcherOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The owner of the proxy — READER_TOKEN, or a Google sign-in named in
   // READER_OWNERS — gets a rail button for who uses it; nobody else sees one.
@@ -230,6 +234,16 @@ export default function App() {
   const onUsage = usageOpen && isOwner;
   /** The Playground is a page of its own too: the library and the dock step aside for it. */
   const onPlayground = view.kind === 'playground' && !onUsage;
+  // What the playgrounds are doing, followed on every page: a run goes on when its page is left.
+  // (Each of its views reads it itself: what runs re-renders them each second, not the whole app.)
+  useEffect(() => watchPlaygroundRuns(), []);
+  const shows = settings.runningShows;
+  /** The playground whose page is open, if one is. */
+  const openPlayground = onPlayground && view.kind === 'playground' ? view.id : undefined;
+  const goToPlayground = (id?: string) => {
+    setUsageOpen(false);
+    setView(id ? { kind: 'playground', id } : { kind: 'playground' });
+  };
   /** The last page that was not the Playground: where the library's and the dock's buttons go back to from it. */
   const beforePlayground = useRef<View>({ kind: 'home' });
   useEffect(() => {
@@ -581,6 +595,12 @@ export default function App() {
       // P, on its own and not while typing, opens the Playground.
       if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'p' && !isTyping(event.target)) {
         if (document.querySelector('.scrim, .sheet, .palette, .desk-scrim, .explain')) return;
+        // With the switcher chosen, P opens it, on any page — the Playground's own too.
+        if (settings.runningShows.switcher) {
+          event.preventDefault();
+          setSwitcherOpen(true);
+          return;
+        }
         if (view.kind !== 'playground') {
           event.preventDefault();
           setUsageOpen(false);
@@ -658,7 +678,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toggleZen, toggleExplain, toggleFullscreen, readingNow, view]);
+  }, [toggleZen, toggleExplain, toggleFullscreen, readingNow, view, settings.runningShows.switcher]);
 
   // Full screen is for reading: leaving the paper leaves it too.
   useEffect(() => {
@@ -989,6 +1009,14 @@ export default function App() {
         },
       }
     : {};
+  const tabsShown = shows.tabs && !showWelcome && !onUsage;
+  // Always the same wrapper, tabs or not: turning them on or off doesn't open the page afresh.
+  const wrapTabs = (page: ReactNode) => (
+    <div className="pr-col">
+      {tabsShown ? <RunTabs current={openPlayground} onOpen={goToPlayground} /> : null}
+      {page}
+    </div>
+  );
   /** The rail's book is the paper that is open: nothing to go back to. */
   const readingReturn = view.kind === 'paper' && returnPaper?.id === view.id && !onUsage;
   return (
@@ -1096,9 +1124,10 @@ export default function App() {
         >
           <SparkleIcon size={19} />
         </button>
+        <div className="rail-run">
         <button
           type="button"
-          className={`icon-btn${onPlayground ? ' is-active' : ''}`}
+          className={`icon-btn rail-playground${onPlayground ? ' is-active' : ''}`}
           aria-current={onPlayground ? 'page' : undefined}
           aria-label="Playground"
           title="Playground — code of your own, on Colab, your PC or a GPU elsewhere (P)"
@@ -1109,6 +1138,8 @@ export default function App() {
         >
           <CodeIcon size={19} />
         </button>
+        {shows.dock ? <RailRunBadge onOpen={goToPlayground} /> : null}
+        </div>
         {isOwner ? (
           <button
             type="button"
@@ -1167,7 +1198,8 @@ export default function App() {
         />
       ) : null}
 
-      {onUsage ? (
+      {/* With tabs chosen, the open playgrounds sit in a strip above whatever page is open. */}
+      {wrapTabs(onUsage ? (
         <UsageView />
       ) : showWelcome ? (
         // A tab opened beside a signed-in one is handed its sign-in in a moment: no reconnect screen flashes up first.
@@ -1203,7 +1235,7 @@ export default function App() {
         <JunkView />
       ) : (
         <CollectionView view={view} onOpenPaper={openPaper} onDiscover={addPapers} />
-      )}
+      ))}
 
       {shownDock && !showWelcome && !onUsage && !onPlayground ? (
         <div className="dock">
@@ -1270,6 +1302,8 @@ export default function App() {
         </>
       ) : null}
 
+      {shows.dock && !showWelcome ? <RunDock current={openPlayground} onOpen={goToPlayground} /> : null}
+      {switcherOpen ? <RunSwitcher onOpen={goToPlayground} onHome={() => goToPlayground()} onClose={() => setSwitcherOpen(false)} /> : null}
       {usesGoogle ? <GoogleRenewal clientId={settings.googleClientId.trim()} /> : null}
       {paletteOpen ? (
         <CommandPalette

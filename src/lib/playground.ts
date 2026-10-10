@@ -269,6 +269,8 @@ export const subscribePlaygrounds = (listener: () => void) => {
 };
 export const usePlaygrounds = () => useSyncExternalStore(subscribePlaygrounds, snapshot);
 export const playgroundsLoaded = () => loaded;
+/** Every playground, as the store holds them now. */
+export const playgroundsNow = () => playgrounds;
 export const playgroundById = (id: string | undefined) => playgrounds.find((p) => p.id === id);
 
 /** Asks the app to open a playground — from a page that is not the Playground, like a paper's notebook. */
