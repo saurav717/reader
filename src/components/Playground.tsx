@@ -919,7 +919,7 @@ function PowerSwitch({ power, onChange, canStart = true }: { power: Power; onCha
 }
 
 /** "Connect this computer": the Companion's one-line start, then the code it prints. The page looks for it while this is open. */
-function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server: JupyterServer) => void; onManual?: () => void; onClose?: () => void }) {
+export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (server: JupyterServer) => void; onManual?: () => void; onClose?: () => void }) {
   const safari = isSafari();
   const commands = companionCommands(siteBase(), { tunnel: safari });
   const windows = typeof navigator !== 'undefined' && /Win/i.test(navigator.platform || navigator.userAgent);

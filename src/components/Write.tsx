@@ -21,40 +21,77 @@ import type { PaperFolder, WriteOptions } from '../types';
 import { WRITE_DEFAULTS } from '../types';
 import type { View } from '../types.view';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
-import { OpenOverleaf } from './Overleaf';
+import { DraftEditor, OpenOverleaf } from './Overleaf';
+import { CompanionConnect } from './Playground';
 
 type Here = Extract<ThisComputer, { server: unknown }>;
 
 /** The tab, for a project: this computer's Companion, then the paper's folder on it, then the desk. */
 export default function WritePage({ project, onView }: { project: Project; onView: (view: View) => void }) {
   const [here, setHere] = useState<ThisComputer | null>(null);
+  const [inBrowser, setInBrowser] = useState(false);
   const ask = useCallback((again = false) => {
     setHere(null);
     void thisComputer(PAPER_VERSION, 'write the paper here', again).then(setHere);
   }, []);
   useEffect(() => ask(), [ask]);
+  // Missing, it is looked for again every few seconds: started (the Reader app, or the command), the tab goes on by itself.
+  const missing = Boolean(here && 'error' in here);
+  useEffect(() => {
+    if (!missing) return;
+    let live = true;
+    const timer = window.setInterval(() => {
+      void thisComputer(PAPER_VERSION, 'write the paper here', true).then((found) => live && !('error' in found) && setHere(found));
+    }, 4000);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [missing]);
   const link = project.project.overleaf;
   const folder = here && 'id' in here ? link?.folders?.[here.id] : undefined;
+  const { papers } = useStore();
+  const mine = useMemo(() => papersIn(project.id, papers), [project.id, papers]);
 
   if (!here) return <div className="wr-center"><p className="wr-quiet">Looking for this computer’s Companion…</p></div>;
   if ('error' in here) {
+    if (inBrowser && link?.repo) {
+      return (
+        <div className="wr-browser">
+          <div className="wr-browser-bar">
+            <span className="pj-sub">Writing in the browser: each Save is a commit to {link.repo}, which Overleaf pulls. Compiling needs the Companion, or Overleaf.</span>
+            <span style={{ flex: 1 }} />
+            <button type="button" className="btn sm" onClick={() => setInBrowser(false)}>
+              Write on this computer
+            </button>
+          </div>
+          <DraftEditor project={project} paper={mine[0]} />
+        </div>
+      );
+    }
     return (
-      <div className="wr-center">
+      <div className="wr-center wr-start">
         <div className="wr-card">
           <span className="eyebrow">The paper</span>
           <h2>Write it on this computer</h2>
-          <p>The Write tab keeps the paper in a folder on your computer, compiles it there and syncs it with Overleaf, so it needs the Companion.</p>
-          <p className="wr-bad">{here.error}</p>
-          <div className="wr-row">
-            <button type="button" className="btn primary" onClick={() => ask(true)}>
-              Try again
-            </button>
-            <button type="button" className="btn" onClick={() => onView({ kind: 'playground' })}>
-              Connect this computer
-            </button>
-            {link ? <OpenOverleaf project={project} view="beside" primary={false} /> : null}
-          </div>
+          <p>The Write tab keeps the paper in a folder on your computer, compiles it there and keeps it in step with Overleaf — your coauthors’ edits come in, yours go out. That takes the Companion, connected once here; after that this tab finds it by itself.</p>
+          {here.why === 'old' ? <p className="wr-bad">{here.error}</p> : null}
+          {link ? (
+            <div className="wr-row">
+              <OpenOverleaf project={project} view="beside" primary={false} />
+              {link.repo ? (
+                <button type="button" className="btn" onClick={() => setInBrowser(true)} title="Edit the .tex files in the browser and commit them to the project’s GitHub repository: no Companion">
+                  Write in the browser instead
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
+        {here.why === 'old' ? null : (
+          <div className="wr-connect">
+            <CompanionConnect onPaired={() => ask(true)} onManual={() => onView({ kind: 'playground' })} />
+          </div>
+        )}
       </div>
     );
   }
@@ -269,6 +306,9 @@ function WriteSetUp({ project, here }: { project: Project; here: Here }) {
         <h2>Where should the paper’s files be?</h2>
         <p>The Write tab edits the paper in a folder on this computer, compiles it here as Overleaf does, and keeps it in step with Overleaf. Pick how, once for this computer: the project keeps it until you change it.</p>
         {!link ? <p className="wr-bad">Link the Overleaf project on the project’s overview first (the paper card), so the tab knows which paper it is.</p> : null}
+        <p className="wr-note">
+          <b>Writing with coauthors:</b> the Overleaf project is where everyone’s edits meet. Share it with them in Overleaf (Share → their email), and each of you links the same Overleaf address here and clones it with your own Overleaf Git token. Every sync pulls the others’ edits in before pushing yours, and anyone can still write straight in Overleaf.
+        </p>
         <div className="wr-ways" role="radiogroup" aria-label="Where the paper’s files come from">
           <button type="button" role="radio" aria-checked={way === 'git'} className={`wr-way${way === 'git' ? ' is-on' : ''}`} onClick={() => setWay('git')} disabled={!gitUrl}>
             <b>

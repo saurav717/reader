@@ -5,7 +5,8 @@
 import { findLocalCompanion, isNewer } from './companion';
 import { allServers } from './playground';
 
-export type ThisComputer = { server: { url: string; token: string }; id: string; name: string; version: string } | { error: string };
+/** `why`: nothing running here, one too old, or one running but not paired with this browser. */
+export type ThisComputer = { server: { url: string; token: string }; id: string; name: string; version: string } | { error: string; why: 'missing' | 'old' | 'unpaired' };
 
 const asked = new Map<string, Promise<ThisComputer>>();
 
@@ -14,10 +15,10 @@ export function thisComputer(needs: string, what: string, again = false): Promis
   if (!answer || again) {
     answer = (async (): Promise<ThisComputer> => {
       const local = await findLocalCompanion();
-      if (!local?.info.id) return { error: `To ${what}, this computer’s Companion has to be running (Playground → Connect this computer).` };
-      if (isNewer(needs, local.info.version)) return { error: `This computer’s Companion is ${local.info.version}; to ${what} it needs ${needs}. Update it from Your compute in the Playground.` };
+      if (!local?.info.id) return { error: `To ${what}, this computer’s Companion has to be running.`, why: 'missing' };
+      if (isNewer(needs, local.info.version)) return { error: `This computer’s Companion is ${local.info.version}; to ${what} it needs ${needs}. Update it from Your compute in the Playground.`, why: 'old' };
       const server = allServers().find((item) => item.companionId === local.info.id && item.token);
-      if (!server) return { error: 'This computer’s Companion is running but not paired with this browser yet: connect it from the Playground first.' };
+      if (!server) return { error: 'This computer’s Companion is running but not paired with this browser yet.', why: 'unpaired' };
       return { server, id: local.info.id, name: local.info.name, version: local.info.version };
     })();
     asked.set(needs, answer);
