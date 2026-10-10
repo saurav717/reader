@@ -11,7 +11,7 @@ import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, c
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, FilesHome, Playground, SyncReport } from '../lib/playground';
-import { backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, moveFilesOutOfBrowser, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
+import { OPEN_PLAYGROUND, backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, moveFilesOutOfBrowser, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeFolder, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
 import { AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
@@ -43,7 +43,11 @@ import type { CodeEditorHandle, Cursor } from './CodeEditor';
 import { ContextMenu, FolderPlusGlyph, keyLabel, OpenEditors, OutlineGlyph, OutlineView, PaletteGlyph, QuickPick, SplitGlyph, SymbolMark } from './Workbench';
 import { symbolPath, symbolsOf } from '../lib/editing';
 import { clearAgentChat } from '../lib/projectAgent';
-import { listAll } from '../lib/projectAgent';
+import { agentChatFor, listAll, loadAgentChats, subscribeAgent } from '../lib/projectAgent';
+import { implementationFor, loadImplementation, subscribeImplement } from '../lib/implement';
+import ProjectStart from './ProjectStart';
+import { AwayCard, BringDialog, SnapshotView, useSnapshots } from './PlaygroundAway';
+import { computerOf, useReach } from '../lib/away';
 import type { AgentChange, ProjectView } from '../lib/projectAgent';
 
 type Tab = 'notebook' | 'files';
@@ -162,7 +166,19 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
   const [changing, setChanging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const backend = backendOf(playground);
-  const machineName = backend ? backendLabel(backend, colab.backend.kind === backend.kind ? colab.runtime : undefined) : 'a server no longer in the list';
+  const machineName = backend
+    ? backendLabel(backend, colab.backend.kind === backend.kind ? colab.runtime : undefined)
+    : playground.compute.kind === 'server' && playground.compute.name
+      ? `${playground.compute.name}, not connected here`
+      : 'a computer not connected here';
+  // Where the code is, when it is on one computer: here, or away — and what the reader chose to see of that.
+  const [reach, retryReach] = useReach(playground);
+  const away = reach.state === 'down' || reach.state === 'unknown' ? reach : null;
+  const shows = settings.awayShows;
+  const driveOn = useDriveConnected();
+  const [snapView, setSnapView] = useState(false);
+  const [bringing, setBringing] = useState(false);
+  useSnapshots(playground, shows.snapshot && reach.state === 'here' && playground.home.kind === 'server' && driveOn);
 
   // This page is open: the dock and the toasts leave its own runs to it.
   useEffect(() => openedPlayground(playground.id), [playground.id]);
@@ -266,6 +282,11 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
           </a>
         ) : null}
         {vscode && homeServer ? <VsCodeExtension server={homeServer} compact /> : null}
+        {shows.bring && computerOf(playground) && reach.state === 'here' ? (
+          <button type="button" className="btn sm ghost" onClick={() => setBringing(true)} title={`Its code is on ${computerOf(playground)} only: copy it, or move it to Drive so every computer opens it`}>
+            Open everywhere…
+          </button>
+        ) : null}
         <MachineChip playground={playground} name={machineName} usable={usable} onChange={() => setChanging(true)} onNote={setNote} />
         {tab === 'notebook' ? (
           <>
@@ -278,9 +299,9 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
           </>
         ) : null}
       </header>
-      {!backend ? (
+      {!backend && away && shows.card && tab === 'files' ? null : !backend ? (
         <div className="pg-banner is-problem">
-          This playground runs on a Jupyter server that is no longer in this browser’s list.{' '}
+          This playground runs on {playground.compute.kind === 'server' && playground.compute.name ? playground.compute.name : 'a computer'}, which isn’t connected to this browser.{' '}
           <button type="button" className="link" onClick={() => setChanging(true)}>
             Choose where it runs
           </button>
@@ -306,10 +327,23 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
           <div className="pg-notebook">
             <NotebookPage paperId={nbKey} title={playground.title} screen={screen} side={side} onSide={setSide} sections={[]} playground={{ hasPaper: cited.some(Boolean), seed }} />
           </div>
+        ) : snapView && shows.snapshot ? (
+          <SnapshotView playground={playground} reach={reach} onBring={shows.bring ? () => setBringing(true) : undefined} onBack={() => setSnapView(false)} />
+        ) : away && shows.card ? (
+          <AwayCard
+            playground={playground}
+            reach={away}
+            onSnapshot={() => setSnapView(true)}
+            onBring={() => setBringing(true)}
+            onRetry={retryReach}
+            onConnect={onBack}
+            onNotebook={() => setTab('notebook')}
+          />
         ) : (
           <FilesView key={JSON.stringify(playground.home)} playground={playground} connected={connected} usable={usable} machineName={machineName} />
         )}
       </div>
+      {bringing ? <BringDialog playground={playground} reach={reach} onClose={() => setBringing(false)} onOpen={(id) => window.dispatchEvent(new CustomEvent(OPEN_PLAYGROUND, { detail: { id } }))} /> : null}
       {changing ? (
         <WhereDialog
           draft={{ title: playground.title, kind: playground.kind }}
@@ -413,7 +447,7 @@ function MachineChip({ playground, name, usable, onChange, onNote }: { playgroun
   return (
     <div className="menu-wrap" ref={box}>
       <button type="button" className={`colab-chip pg-chip is-${dot}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title={colab.error || (state === 'kernel not started' ? `Cells run on ${name}. Its kernel starts with the first cell or command; the terminal, the files and the agent don't need it — they reach the computer through its Companion.` : `Cells run on ${name}`)}>
-        {playground.compute.kind === 'colab' ? <ColabMark /> : <span className={`pg-mark ${serverById(playground.compute.serverId)?.where === 'pc' ? 'is-pc' : 'is-gpu'}`}>{serverById(playground.compute.serverId)?.where === 'pc' ? 'PC' : 'GPU'}</span>}
+        {playground.compute.kind === 'colab' ? <ColabMark /> : <span className={`pg-mark ${(serverById(playground.compute.serverId)?.where ?? playground.compute.where) === 'pc' ? 'is-pc' : 'is-gpu'}`}>{(serverById(playground.compute.serverId)?.where ?? playground.compute.where) === 'pc' ? 'PC' : 'GPU'}</span>}
         <span className={`colab-dot is-${dot}`} aria-hidden="true" />
         {name} · {state}
         {connected && colab.startedAt ? ` · ${clock(colab.startedAt, now)}` : ''}
@@ -1392,10 +1426,25 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   }, [playground.console.length]);
 
   const cited = playground.cites.map((cite) => papers.find((paper) => paper.id === cite.paperId)).find(Boolean);
+  // The paper's Implementation page, when it has one: the plan goes with the agent's requests.
+  useEffect(() => {
+    if (cited) void loadImplementation(cited.id);
+  }, [cited?.id]);
+  const paperPlan = useSyncExternalStore(subscribeImplement, () => (cited ? implementationFor(cited.id)?.content : undefined));
+  // A project from a paper starts with the model choosing and writing its files, until that is done or put aside.
+  const startKey = `reader.pgStart:${playground.id}`;
+  const [startState, setStartState] = useState(() => readLocal<'done' | 'dismissed' | null>(startKey, null));
+  const settleStart = (state: 'done' | 'dismissed') => (setStartState(state), writeLocal(startKey, state));
+  const agentChat = useSyncExternalStore(subscribeAgent, () => agentChatFor(playground.id));
+  useEffect(() => {
+    if (playground.start === 'paper') void loadAgentChats(playground.id, home).catch(() => undefined);
+  }, [playground.id, home]);
+  const wroteBefore = agentChat.turns.some((turn) => turn.role === 'agent' && turn.changes?.length);
+  const showStart = playground.start === 'paper' && !startState && !wroteBefore && Boolean(cited);
   /** The project as the agent reads it: the folder's files, the ones open, the last commands and what they printed. */
   const agentView = async (): Promise<ProjectView> => ({
     where: `Files kept in ${homeLabel}; code runs on ${machineName}${split ? ', the folder copied there before each command' : ''}.`,
-    paper: cited ? { title: cited.title, authors: cited.authors, published: cited.published, abstract: cited.abstract } : undefined,
+    paper: cited ? { title: cited.title, authors: cited.authors, published: cited.published, abstract: cited.abstract, plan: paperPlan } : undefined,
     listing: await listAll(home),
     open: files.filter((file) => file.where === 'home').map((file) => ({ path: file.path, text: file.text, active: `${file.where}:${file.path}` === active, unsaved: file.text !== file.saved })),
     console: playground.console.slice(-4).map((entry) => {
@@ -1889,7 +1938,27 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
           />
         ) : null}
         <section className="pg-center" ref={centerBox}>
-          <div className={`vs-groups${groups.length > 1 ? ' is-split' : ''}`} ref={groupsBox}>
+          {showStart && cited ? (
+            <div className="pg-write-wrap">
+              <ProjectStart
+                projectId={playground.id}
+                host={home}
+                machineName={machineName}
+                paperTitle={cited.title}
+                hasPlan={Boolean(paperPlan)}
+                view={agentView}
+                onWriting={() => (setAgentMode('reader'), setRightTab('agent'), setAgentOpen(true))}
+                onWrote={(changes) => {
+                  tookAgentFiles(changes);
+                  const first = changes.find((c) => c.path === 'main.py' && c.after) ?? changes.find((c) => c.after && !/\.md$/.test(c.path));
+                  if (first) void open('home', first.path);
+                }}
+                onDone={() => settleStart('done')}
+                onDismiss={() => settleStart('dismissed')}
+              />
+            </div>
+          ) : null}
+          <div className={`vs-groups${groups.length > 1 ? ' is-split' : ''}`} ref={groupsBox} hidden={showStart}>
             {renderGroup(groups[0], 0)}
             {groups.length > 1 ? (
               <Gutter

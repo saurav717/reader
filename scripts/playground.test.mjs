@@ -13,6 +13,7 @@ import { cleanup, load } from './bundle.mjs';
 
 const route = await load('src/lib/route.ts');
 const pg = await load('src/lib/playground.ts', { external: ['react', '@anthropic-ai/sdk'], imports: true });
+const away = await load('src/lib/away.ts', { external: ['react', '@anthropic-ai/sdk'], imports: true });
 
 after(cleanup);
 
@@ -107,6 +108,28 @@ describe('the starts', () => {
     assert.match(files['AGENTS.md'], /reproduces the method of the paper \*\*LoRA/);
     assert.equal(files['CLAUDE.md'], '@AGENTS.md\n');
     assert.match(files['main.py'], /torch\.cuda\.is_available\(\)/);
+  });
+  it('takes a folder’s code and leaves its data, checkpoints, caches and large files', () => {
+    const plan = away.snapshotPlan([
+      { path: 'main.py', size: 120 },
+      { path: 'src/model.py', size: 900 },
+      { path: 'src/__pycache__/model.cpython-311.pyc', size: 4000 },
+      { path: 'data/train.jsonl', size: 50 },
+      { path: '.git/HEAD', size: 20 },
+      { path: 'ckpt/model.safetensors', size: 10 },
+      { path: 'notes/big.txt', size: 900_000 },
+      { path: 'README.md', size: null },
+    ]);
+    assert.deepEqual(plan.take.map((f) => f.path), ['main.py', 'src/model.py', 'README.md']);
+    assert.deepEqual(plan.left, ['.git/', 'ckpt/model.safetensors', 'data/', 'notes/big.txt', 'src/__pycache__/']);
+  });
+  it('says how long ago, in words', () => {
+    const now = 1_000_000_000;
+    assert.equal(away.since(now - 20_000, now), 'just now');
+    assert.equal(away.since(now - 5 * 60_000, now), '5 min ago');
+    assert.equal(away.since(now - 3 * 3600_000, now), '3 h ago');
+    assert.equal(away.since(now - 3 * 86_400_000, now), '3 days ago');
+    assert.equal(away.since(undefined, now), 'some time ago');
   });
   it('names a folder from a title', () => {
     assert.equal(pg.slugOf('LoRA rank sweep on Llama-3.2!'), 'lora-rank-sweep-on-llama-32');

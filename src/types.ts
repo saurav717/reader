@@ -241,6 +241,8 @@ export interface Settings {
   chatMarks: ChatMarks;
   /** How playgrounds that are running, or can be picked back up, are shown around the app — any of them, or none. */
   runningShows: RunningShows;
+  /** What the Playground shows of a project whose code is on another computer — any of them, or none. */
+  awayShows: AwayShows;
   /**
    * Used for the OpenAlex and Crossref "polite pools" — which are faster and
    * more reliable than the anonymous ones — and required by Unpaywall. Left
@@ -273,6 +275,20 @@ export interface RunningShows {
   switcher: boolean;
   tabs: boolean;
   peek: boolean;
+}
+
+/**
+ * The ways a project whose code is on another computer is shown, each on or off (src/lib/away.ts):
+ * - group: the Playground's list grouped by where each project's code is, with a filter for what opens here;
+ * - card: in the editor's place, which computer has the code, when it was seen, and what to do;
+ * - snapshot: a read-only copy of the code kept in Drive by the computer that has it, to open elsewhere;
+ * - bring: copy the project here, or move it to Drive so it opens on every computer.
+ */
+export interface AwayShows {
+  group: boolean;
+  card: boolean;
+  snapshot: boolean;
+  bring: boolean;
 }
 
 export type GlassWall = 'spotlight' | 'sage' | 'paper' | 'mist' | 'graphite' | 'lavender' | 'dusk' | 'ocean' | 'spectrum';

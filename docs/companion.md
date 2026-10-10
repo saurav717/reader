@@ -265,7 +265,14 @@ and shows which one it is on in the machine chip.
   extension (with a token it gets over a local socket), or from the relay with
   a valid device token.
 - Kernels run as you, inside the projects folder. The file API serves nothing
-  outside `~/Reader/Projects` unless you add a folder in Settings.
+  outside the Companion's folder (`~/Reader`, or `--root`) — except a folder
+  you link in: from 0.8.0, `/companion/folders` (the page's token and origin,
+  as every call that reaches files) lists folders anywhere on the computer
+  (`GET ?path=`), shows the computer's own folder chooser (`POST {action:
+  "choose"}`), and links the folder picked into `~/Reader/linked/` (`POST
+  {action: "link", path}`) — a symbolic link (a junction on Windows), which
+  Jupyter follows, so a project uses that folder in place. The terminal could
+  already reach the whole computer; this makes it a click and says so.
 - Secrets (playground.md, step 8) live in the keychain and are passed to a
   kernel's environment. They are never put in the Drive mirror.
 

@@ -99,6 +99,14 @@ export interface Playground {
   start: 'blank' | 'paper' | 'repo' | 'model' | 'file' | 'copy';
   /** The notebook's cells as text (no outputs), so it opens in another browser: kept in Drive with the rest. */
   cells?: { type: CellType; source: string }[];
+  /** The last read-only copy of its code in Drive, taken by the computer that has it (src/lib/away.ts). */
+  snapshot?: Snapshot;
+}
+
+export interface Snapshot {
+  at: number;
+  computer: string;
+  files: number;
 }
 
 export const DEFAULT_IGNORE = ['.git/', '.reader/', 'reader-meta/', '__pycache__/', '.ipynb_checkpoints/', 'data/', '*.ckpt', '*.pt', '*.safetensors', 'wandb/'].join('\n');
@@ -257,6 +265,7 @@ function normalise(value: Partial<Playground> | undefined): Playground | null {
     pending: value.pending,
     start: value.start ?? 'blank',
     cells: Array.isArray(value.cells) ? value.cells : undefined,
+    snapshot: value.snapshot && typeof value.snapshot.at === 'number' ? value.snapshot : undefined,
   };
 }
 

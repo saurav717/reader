@@ -1,0 +1,40 @@
+/* The "code is on another computer" mock-ups: the Playground kit, plus what these four add. */
+@import url('../playground-src/playground.css');
+.dev{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:999px;border:1px solid var(--border);background:var(--panel);font:500 11px var(--sans);color:var(--ink-2);white-space:nowrap}
+.dev .dot{width:7px;height:7px}
+.on-g{background:#3c9160;box-shadow:0 0 0 3px rgba(60,145,96,.18)}
+.on-a{background:#c9781e}
+.on-o{background:#7d7a72}
+.here{background:var(--accent-soft);color:var(--accent-ink);border-color:transparent}
+.away-card{max-width:640px;margin:56px auto 0;padding:26px 28px;border:1px solid var(--border);border-radius:16px;background:var(--surface);box-shadow:var(--shadow-md)}
+.away-card h2{font:500 24px/1.25 var(--serif);margin:10px 0 8px}
+.away-card p{margin:0 0 14px;font-size:13px;line-height:1.55;color:var(--ink-2)}
+.away-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:10px;background:var(--panel);font-size:12.5px;margin-bottom:8px}
+.away-row .mono{color:var(--muted);font-size:11.5px}
+.away-row .r{margin-left:auto}
+.bigdev{display:grid;place-items:center;width:46px;height:46px;border-radius:12px;background:var(--accent-soft);color:var(--accent-ink);font:700 13px var(--mono)}
+.acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.ghosttree div{opacity:.5}
+.lock{font-size:10px;color:var(--muted)}
+.banner{display:flex;align-items:center;gap:10px;padding:8px 18px;font-size:12.5px;border-bottom:1px solid var(--border-soft)}
+.banner.a{background:rgba(201,120,30,.13);color:#e8b878}
+.banner .sp{flex:1}
+.opt{display:grid;grid-template-columns:22px 1fr;gap:4px 10px;padding:12px 14px;border:1px solid var(--border);border-radius:11px;background:var(--panel);margin-bottom:8px}
+.opt.sel{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);background:var(--surface)}
+.opt .rd{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--muted);margin-top:2px}
+.opt.sel .rd{border:4px solid var(--accent)}
+.opt b{font-size:13px}
+.opt small{grid-column:2;font-size:11.5px;color:var(--muted);line-height:1.45}
+.scrim{position:fixed;inset:0;background:rgba(10,10,12,.55);z-index:10}
+.dlg{position:fixed;z-index:11;left:50%;top:70px;transform:translateX(-50%);width:560px;border-radius:16px;background:var(--surface);border:1px solid var(--border);box-shadow:0 30px 80px rgba(0,0,0,.5);padding:22px 24px}
+.dlg h2{font:500 22px var(--serif);margin:6px 0 6px}
+.dlg p{font-size:12.5px;color:var(--ink-2);margin:0 0 14px;line-height:1.5}
+.grp{margin:18px 0 6px;display:flex;align-items:center;gap:10px}
+.grp b{font-size:12.5px}
+.grp .ln{flex:1;height:1px;background:var(--border-soft)}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:14px;align-items:center;padding:12px 14px;border:1px solid var(--border);border-radius:11px;background:var(--surface);margin-bottom:8px}
+.row.dim{background:var(--panel)}
+.row.dim .t{opacity:.7}
+.row .t b{font-size:13.5px}
+.row .t div{font-size:11.5px;color:var(--muted);margin-top:3px}
+.ro{font:600 9.5px var(--mono);padding:1px 6px;border-radius:4px;background:#3b2f1c;color:#e8b878;text-transform:uppercase;letter-spacing:.05em}
