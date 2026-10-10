@@ -372,8 +372,6 @@ export interface Settings {
    * that means.
    */
   githubToken: string;
-  /** The private repository GitHub Actions compiles papers in (owner/repo), made from the Write tab; '' until then. */
-  latexRepo: string;
   githubSync: boolean;
 }
 
@@ -524,7 +522,7 @@ export const WRITE_OPTIONS: { key: keyof WriteOptions; label: string; choices: {
     label: 'Compile on',
     choices: [
       { id: 'here', label: 'This computer', note: 'The Companion compiles it with the TeX installed here, and the PDF is beside the source.' },
-      { id: 'github', label: 'GitHub Actions', note: 'GitHub’s compiler, not a sync: all of TeX Live, nothing to install: GitHub Actions compiles it in a private repository of yours, free up to 2,000 minutes a month, and the PDF comes back here — in a minute or two.' },
+      { id: 'github', label: 'GitHub Actions', note: 'Reader’s own compiler, not a sync: GitHub Actions compiles it with all of TeX Live and the PDF comes back here, in a minute or two. Nothing to install or set up; the files are never kept.' },
       { id: 'overleaf', label: 'By Overleaf', note: 'Nothing to install: edits go to Overleaf a moment after you stop typing, and the PDF is in Overleaf’s window, beside.' },
     ],
   },

@@ -38,6 +38,7 @@ import { aiForEveryone, aiKey, aiKeys, AiRefused, checkAi, KEY_NAMES, relayAi, r
 import { readPage, searchWeb, webAvailable, WebRefused } from '../server/webSearch.js';
 import { handleColab, isColabPath, readSocketTicket } from '../server/colab.js';
 import { bridgeSocket } from './colabSocket.js';
+import { handleLatex, isLatexPath, latexAvailable } from './latex.js';
 import { readBalance } from './deepseekBalance.js';
 import { FRESH_MS as TAVILY_FRESH_MS, readTavilyUsage } from './tavilyUsage.js';
 import * as browse from './browse.js';
@@ -330,14 +331,14 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && path !== '/usage/ai' && !AI_ROUTES[path] && !isColabPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && path !== '/usage/ai' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
           200,
           headers,
         );
@@ -379,6 +380,9 @@ export default {
         const { expires } = await readPass(pass, secret);
         return json({ pass, email, expires }, 200, { ...headers, 'Cache-Control': 'no-store' });
       }
+
+      // LaTeX compiled on GitHub Actions for anyone signed in: worker/latex.js.
+      if (isLatexPath(path)) return await handleLatex(request, env, path, { json, headers, authorized, personOverLimit });
 
       // Whose pass this is: the Companion asks, to know which account a page
       // that wants to pair or claim it is signed in as (it can't read a pass).

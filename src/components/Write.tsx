@@ -22,8 +22,9 @@ import { WRITE_DEFAULTS } from '../types';
 import type { View } from '../types.view';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
 import CopyBlock from './CopyBlock';
-import { DraftEditor, GitHubConnect, OpenOverleaf } from './Overleaf';
-import { branchFor, hasWorkflow, makeCompileRepo, pushPaper, putWorkflow, readTexLog, resultFor, runFor, type CompileFile } from '../lib/latexGithub';
+import { DraftEditor, OpenOverleaf } from './Overleaf';
+import { readTexLog, type CompileFile } from '../lib/latexGithub';
+import { apiFetch } from '../lib/api';
 import { CompanionConnect } from './Playground';
 
 type Here = Extract<ThisComputer, { server: unknown }>;
@@ -215,58 +216,15 @@ function useElapsed(since: number | undefined, running: boolean): string {
 }
 
 /**
- * The PDF pane's line about GitHub: setting it up once (GitHub connected, a
- * private repository with the compile workflow), then how a compile is going.
+ * The PDF pane's line about compiling on GitHub: Reader's own compiler, so
+ * there is nothing to set up — how a compile is going, and a note for later.
  */
-function GithubCompilePanel({ token, repo, state, onRepo, onCompile }: { token: string; repo: string; state: GithubState; onRepo: (repo: string) => void; onCompile: () => void }) {
-  const [making, setMaking] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
+function GithubCompilePanel({ state, onCompile }: { state: GithubState; onCompile: () => void }) {
   const running = state.phase === 'sending' || state.phase === 'queued' || state.phase === 'compiling';
   const elapsed = useElapsed(state.startedAt, running);
-  const note = (
-    <p className="wr-later">
-      <b>Note for later:</b> look into a compile server on Google Cloud Run — your own, with all of TeX Live, a PDF in seconds rather than minutes, and likely within its free tier.
-    </p>
-  );
-  if (!token || !repo) {
-    return (
-      <div className="wr-ghc">
-        <b>Compile on GitHub — set up once</b>
-        <span>GitHub Actions compiles the paper with all of TeX Live, in a private repository of yours, and the PDF comes back here. Free up to 2,000 minutes a month; a compile is a minute or two, and only ⌘↵ or Recompile starts one.</span>
-        {!token ? <GitHubConnect /> : null}
-        {token ? (
-          <>
-            <small>The token needs, on that repository: Contents, Workflows and Actions — read and write (and Administration to make it).</small>
-            <p className="wr-row">
-              <button
-                type="button"
-                className="btn primary sm"
-                disabled={making}
-                onClick={async () => {
-                  setMaking(true);
-                  setProblem(null);
-                  try {
-                    onRepo(await makeCompileRepo(token));
-                  } catch (error) {
-                    setProblem(error instanceof Error ? error.message : String(error));
-                  } finally {
-                    setMaking(false);
-                  }
-                }}
-              >
-                {making ? 'Making it…' : 'Make my private compile repository (reader-latex)'}
-              </button>
-            </p>
-          </>
-        ) : null}
-        {problem ? <p className="wr-bad">{problem}</p> : null}
-        {note}
-      </div>
-    );
-  }
   const said =
     state.phase === 'sending'
-      ? 'Sending the paper to GitHub…'
+      ? 'Sending the paper to Reader’s compiler…'
       : state.phase === 'queued'
         ? 'Waiting for GitHub to start…'
         : state.phase === 'compiling'
@@ -275,27 +233,21 @@ function GithubCompilePanel({ token, repo, state, onRepo, onCompile }: { token: 
             ? `Compiled on GitHub in ${elapsed}.`
             : state.phase === 'failed'
               ? state.error ?? 'It didn’t compile.'
-              : 'Press ⌘↵ or Recompile: GitHub compiles it with all of TeX Live, and the PDF comes back here in a minute or two.';
+              : 'Press ⌘↵ or Compile on GitHub: Reader’s compiler (GitHub Actions, all of TeX Live) makes the PDF and it comes back here in a minute or two. Nothing to set up.';
   return (
     <div className={`wr-ghc is-line${state.phase === 'failed' ? ' is-bad' : ''}`}>
       <span>
         {running ? <span className="spinner" /> : null} {said} {running && elapsed ? <span className="mono">{elapsed}</span> : null}
-        {state.runUrl ? (
-          <>
-            {' '}
-            <a href={state.runUrl} target="_blank" rel="noreferrer noopener">
-              the run on GitHub
-            </a>
-          </>
-        ) : null}
       </span>
       {state.phase === 'failed' ? (
         <button type="button" className="link-btn" onClick={onCompile}>
           Try again
         </button>
       ) : null}
-      <small className="mono">{repo}</small>
-      {note}
+      <small>The files pass through Reader’s server and a GitHub runner to be compiled; they are never put in a repository, and are deleted within the hour.</small>
+      <p className="wr-later">
+        <b>Note for later:</b> look into a compile server on Google Cloud Run — a PDF in seconds rather than minutes, and likely within its free tier.
+      </p>
     </div>
   );
 }
@@ -1517,47 +1469,42 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
    * opens, so the PDF there is of what was just written. A project set to
    * open in another browser isn't opened from here: this page can't reach it.
    */
-  // ---- compiling on GitHub
+  // ---- compiling on GitHub: Reader's compiler, GitHub Actions in its own repository, through its Worker (worker/latex.js)
   const [gh, setGh] = useState<GithubState>({ phase: 'idle' });
-  const ghChecked = useRef(false);
   const compileOnGithub = async () => {
-    const token = settings.githubToken.trim();
-    const repo = settings.latexRepo;
-    if (!token || !repo) return setGh({ phase: 'setup' });
     const started = Date.now();
     setCompiling(true);
     setCompileError(null);
     try {
-      if (!ghChecked.current && !(await hasWorkflow(token, repo))) await putWorkflow(token, repo);
-      ghChecked.current = true;
       setGh({ phase: 'sending', startedAt: started });
-      const paths = (await listAll(server, folder.path)).filter((path) => !path.startsWith('.reader'));
+      const paths = await listAll(server, folder.path);
       const files: CompileFile[] = [];
       for (const path of paths) files.push({ path, base64: await jupyterReadBase64(server, `${folder.path}/${path}`) });
-      const branch = branchFor(project.id);
       const main = mainDoc ?? compiled?.main ?? 'main.tex';
-      const sha = await pushPaper(token, repo, branch, files, { main, compiler });
+      const asked = await apiFetch('/latex/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files, main, compiler }) });
+      const job = (await asked.json().catch(() => ({}))) as { id?: string; error?: string };
+      if (!asked.ok || !job.id) throw new Error(job.error ?? `The compiler didn’t take it (${asked.status}).`);
       setGh({ phase: 'queued', startedAt: started });
-      const until = Date.now() + 15 * 60_000;
+      const until = Date.now() + 12 * 60_000;
       while (Date.now() < until) {
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-        const run = await runFor(token, repo, sha).catch(() => null);
-        const result = await resultFor(token, repo, branch, sha).catch(() => null);
-        if (result) {
-          const read = readTexLog(result.log);
-          setCompiled({ ok: Boolean(result.pdf) && result.exit === 0, main, engine: 'GitHub · all of TeX Live', compiler, pdf: result.pdf ? 'github' : '', errors: read.errors, warnings: read.warnings, log: result.log, ms: Date.now() - started });
-          if (result.pdf) setPdf(result.pdf);
-          if (read.errors.length && !result.pdf) setShowLog(true);
-          setGh({ phase: 'done', startedAt: started, runUrl: run?.url, finishedAt: Date.now() });
-          return;
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        const now = (await (await apiFetch(`/latex/jobs/${job.id}`, { cache: 'no-store' })).json().catch(() => null)) as { state?: string; pdf?: boolean; exit?: number | null; error?: string | null } | null;
+        if (!now?.state) continue;
+        if (now.state === 'failed') throw new Error(now.error ?? 'The compile didn’t start.');
+        if (now.state !== 'done') {
+          setGh({ phase: now.state === 'compiling' ? 'compiling' : 'queued', startedAt: started });
+          continue;
         }
-        if (run?.status === 'completed' && run.conclusion && run.conclusion !== 'success') {
-          setGh({ phase: 'failed', startedAt: started, runUrl: run.url, error: `The run on GitHub ended: ${run.conclusion}.` });
-          return;
-        }
-        setGh({ phase: run?.status === 'in_progress' ? 'compiling' : 'queued', startedAt: started, runUrl: run?.url });
+        const log = await (await apiFetch(`/latex/jobs/${job.id}/log`, { cache: 'no-store' })).text().catch(() => '');
+        const blob = now.pdf ? await (await apiFetch(`/latex/jobs/${job.id}/pdf`, { cache: 'no-store' })).blob() : null;
+        const read = readTexLog(log);
+        setCompiled({ ok: Boolean(blob) && now.exit === 0, main, engine: 'GitHub · all of TeX Live', compiler, pdf: blob ? 'github' : '', errors: read.errors, warnings: read.warnings, log, ms: Date.now() - started });
+        if (blob) setPdf(new Blob([blob], { type: 'application/pdf' }));
+        if (read.errors.length && !blob) setShowLog(true);
+        setGh({ phase: 'done', startedAt: started, finishedAt: Date.now() });
+        return;
       }
-      setGh({ phase: 'failed', startedAt: started, error: 'No PDF came back from GitHub within 15 minutes.' });
+      throw new Error('No PDF came back within 12 minutes.');
     } catch (error) {
       setGh({ phase: 'failed', startedAt: started, error: error instanceof Error ? error.message : String(error) });
     } finally {
@@ -1661,13 +1608,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
         ) : null}
       </div>
       {options.pdf === 'github' ? (
-        <GithubCompilePanel
-          token={settings.githubToken.trim()}
-          repo={settings.latexRepo}
-          state={gh}
-          onRepo={(repo) => updateSettings({ latexRepo: repo })}
-          onCompile={recompile}
-        />
+        <GithubCompilePanel state={gh} onCompile={recompile} />
       ) : null}
       {noTex && options.pdf === 'here' ? (
         <div className="wr-pad">
