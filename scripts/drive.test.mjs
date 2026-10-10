@@ -87,6 +87,9 @@ function stubDrive() {
     },
   };
   globalThis.document = { querySelector: () => ({}), head: { appendChild() {} }, createElement: () => ({ addEventListener() {} }) };
+  // Saving a paper starts from a click (Save to Drive), the moment a browser lets the page ask Google for a token;
+  // a renewal outside one waits for the page's prompt instead (google.ts, renewQuietly).
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { userActivation: { isActive: true }, userAgent: 'node' } });
 
   const json = (body) => new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
   const folderById = (folderId) => {

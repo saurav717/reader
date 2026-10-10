@@ -29,6 +29,7 @@ import Settings from './components/Settings';
 import UsageView, { useIsOwner } from './components/UsageView';
 import { isPass, passEmail } from './lib/api';
 import Welcome from './components/Welcome';
+import GoogleRenewal from './components/GoogleRenewal';
 import Home from './components/Home';
 import { readHomePrefs, startVisit } from './lib/homeViews';
 import Desk from './components/Desk';
@@ -1269,6 +1270,7 @@ export default function App() {
         </>
       ) : null}
 
+      {usesGoogle ? <GoogleRenewal clientId={settings.googleClientId.trim()} /> : null}
       {paletteOpen ? (
         <CommandPalette
           onClose={() => setPaletteOpen(false)}
