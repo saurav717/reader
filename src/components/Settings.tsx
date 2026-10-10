@@ -3,7 +3,7 @@ import { useStore } from '../lib/store';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
 import { parseRepo } from '../lib/github';
-import { GLASS_WALLS } from '../types';
+import { GLASS_WALLS, NAV_STYLES } from '../types';
 import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
@@ -718,6 +718,39 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             What a paper opens in. The PDF is the paper as it was published; Reflow is the text rendering, which is
             the one you can highlight. Either way the switch in the top bar changes a paper you already have open —
             and sets this.
+          </p>
+        </section>
+
+        <section style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Navigation
+          </div>
+          <div className="nav-choices" role="radiogroup" aria-label="How the navigation is laid out">
+            {NAV_STYLES.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={settings.navStyle === option.id}
+                className={`nav-choice${settings.navStyle === option.id ? ' is-on' : ''}`}
+                onClick={() => updateSettings({ navStyle: option.id })}
+              >
+                <span className={`nav-choice-pic is-${option.id}`} aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <b>
+                  {option.label}
+                  {option.id === 'labelled' ? <small> · default</small> : null}
+                </b>
+                <span>{option.note}</span>
+              </button>
+            ))}
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+            Every layout but Classic keeps pages (Home, Reading, Library, Projects, Code) apart from the panels that open
+            beside the page (Library, Discover, Notes, Ask AI). On a phone the wide ones use the narrow rail with its tray.
           </p>
         </section>
 

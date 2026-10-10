@@ -406,3 +406,10 @@ export const CodeIcon = (props: IconProps) => (
     <path d="M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14" />
   </Icon>
 );
+
+export const HomeIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4 11.2 12 4.5l8 6.7V20H4z" />
+    <path d="M10 20v-5.5h4V20" />
+  </Icon>
+);

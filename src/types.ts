@@ -263,6 +263,12 @@ export interface Settings {
   explainOpacity: number | null;
   /** Which view a paper opens in when both are available. */
   readingMode: ReadingMode;
+  /**
+   * How the app's navigation is laid out (src/components/Nav.tsx): pages and
+   * the panels beside them told apart in different ways, or the one rail of
+   * icons it had before.
+   */
+  navStyle: NavStyle;
   /** What a project opens on from the rail and the board: its overview, or its workspace. */
   projectOpensOn: Exclude<ProjectView, 'board'>;
   /**
@@ -343,6 +349,23 @@ export const GLASS_WALLS: { id: GlassWall; label: string; note: string }[] = [
   { id: 'dusk', label: 'Dusk', note: 'Peach and amber, like evening light.' },
   { id: 'ocean', label: 'Ocean', note: 'Blue and teal, the most saturated.' },
   { id: 'spectrum', label: 'Spectrum', note: 'The accent and the four highlight colours. The liveliest, and the busiest.' },
+];
+
+/**
+ * - labelled: a rail of named pages; the panels are switches in a bar at the top of the page;
+ * - zones: one rail, the pages at the top and the panels in a tray at the bottom;
+ * - sidebar: a wide sidebar, pages as a list (projects under Projects) and panels as switches;
+ * - edge: a rail of pages; the panels are tabs on the page's right edge;
+ * - classic: the one rail of icons, pages and panels alike.
+ */
+export type NavStyle = 'labelled' | 'zones' | 'sidebar' | 'edge' | 'classic';
+
+export const NAV_STYLES: { id: NavStyle; label: string; note: string }[] = [
+  { id: 'labelled', label: 'Labelled', note: 'A rail of named pages. Library, Discover, Notes and Ask AI are switches at the top of the page.' },
+  { id: 'zones', label: 'Two zones', note: 'One narrow rail: pages at the top, the panels in a tray at the bottom.' },
+  { id: 'sidebar', label: 'Sidebar', note: 'A wide sidebar: pages by name with your projects under Projects, the panels as switches. Folds to a narrow rail.' },
+  { id: 'edge', label: 'Edge tabs', note: 'A rail of pages; the panels are tabs on the right edge of the page, pulled out like drawers.' },
+  { id: 'classic', label: 'Classic', note: 'The one rail of icons as it was: pages and panels side by side.' },
 ];
 
 /** The PDF as the publisher set it, or the reflowed text you can highlight. */
