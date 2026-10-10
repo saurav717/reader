@@ -10,7 +10,7 @@
 // the outline, the \cite keys and which papers they are. The calls to GitHub
 // are at the end.
 
-import type { OverleafLink, OverleafView, Paper, Settings } from '../types';
+import type { BrowserChoice, OverleafLink, OverleafView, Paper, Settings } from '../types';
 import { OVERLEAF_VIEWS } from '../types';
 import { citeKey, commitFiles, gh, parseRepo, toBibtex, type GitHubTarget } from './github';
 
@@ -51,11 +51,25 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
   if (!url) return undefined;
   const repo = typeof value.repo === 'string' ? parseRepo(value.repo) : null;
   const text = (field: unknown) => (typeof field === 'string' && field.trim() ? field.trim() : undefined);
+  const browsers: Record<string, BrowserChoice> = {};
+  if (value.browsers && typeof value.browsers === 'object') {
+    for (const [computer, raw] of Object.entries(value.browsers as Record<string, unknown>)) {
+      const choice = raw as Partial<Record<keyof BrowserChoice, unknown>> | null;
+      if (!choice || typeof choice.browser !== 'string' || !/^[a-z]+$/.test(choice.browser)) continue;
+      browsers[computer] = {
+        browser: choice.browser,
+        ...(text(choice.profile) ? { profile: text(choice.profile) } : {}),
+        label: text(choice.label) ?? choice.browser,
+      };
+    }
+  }
   return {
     url,
     ...(repo ? { repo: `${repo.owner}/${repo.repo}` } : {}),
     ...(repo && text(value.branch) ? { branch: text(value.branch) } : {}),
     ...(repo && text(value.folder) ? { folder: cleanFolder(text(value.folder)!) } : {}),
+    ...(text(value.account) ? { account: text(value.account) } : {}),
+    ...(Object.keys(browsers).length ? { browsers } : {}),
   };
 }
 

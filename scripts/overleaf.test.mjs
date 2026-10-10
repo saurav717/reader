@@ -48,6 +48,17 @@ describe('the link', () => {
     assert.equal(pj.projectInfo({ id: 'p', name: 'P', color: '#000', createdAt: '2026-01-01', project: { overleaf: { url: 'bad' } } }).overleaf, undefined);
   });
 
+  it('keeps the account and each computer’s browser, and drops a browser that is not one', () => {
+    const link = ol.overleafLinkOf({
+      url: 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5',
+      account: ' me@lab.edu ',
+      browsers: { mac: { browser: 'chrome', profile: 'Profile 1', label: 'Google Chrome · Work' }, pc: { browser: '--evil', label: 'x' }, old: { browser: 'firefox' }, gone: null },
+    });
+    assert.equal(link.account, 'me@lab.edu');
+    assert.deepEqual(link.browsers, { mac: { browser: 'chrome', profile: 'Profile 1', label: 'Google Chrome · Work' }, old: { browser: 'firefox', label: 'firefox' } });
+    assert.equal(ol.overleafLinkOf({ url: 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5', browsers: { pc: { browser: '' } } }).browsers, undefined);
+  });
+
   it('falls back to the default view for a choice it does not know', () => {
     assert.equal(ol.overleafViewOf({ overleafView: 'dock' }), 'dock');
     assert.equal(ol.overleafViewOf({ overleafView: 'somewhere' }), 'beside');

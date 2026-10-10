@@ -25,9 +25,11 @@ import {
 } from '../lib/overleaf';
 import { parseRepo } from '../lib/github';
 import { papersIn, projectsOf, type Project } from '../lib/projects';
-import type { OverleafLink, OverleafView, Paper, Settings } from '../types';
+import type { BrowserChoice, OverleafLink, OverleafView, Paper, Settings } from '../types';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
-import { CheckIcon, CopyIcon, ExternalIcon } from './icons';
+import { CheckIcon, ChevronDownIcon, CopyIcon, ExternalIcon } from './icons';
+import { BROWSERS_VERSION, findLocalCompanion, isNewer, listBrowsers, openInBrowser, type InstalledBrowser } from '../lib/companion';
+import { allServers } from '../lib/playground';
 
 // -------------------------------------------------- opening Overleaf --
 
@@ -57,6 +59,192 @@ async function copy(text: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ------------------------------------------------ in another browser --
+// A page can't choose the browser a link opens in, nor sign in to Overleaf;
+// this computer's Companion can open any browser here, in any of its profiles,
+// and a profile is where a sign-in lives. So each project remembers, for each
+// computer, the browser and profile that are signed in to its Overleaf account.
+
+type Opener = { server: { url: string; token: string }; id: string } | { error: string };
+
+let openerAsked: Promise<Opener> | null = null;
+
+/** This computer's Companion, paired with this browser and new enough to open browsers; or why not. Asked once, again after a miss. */
+function localOpener(again = false): Promise<Opener> {
+  if (!openerAsked || again) {
+    openerAsked = (async (): Promise<Opener> => {
+      const local = await findLocalCompanion();
+      if (!local?.info.id) return { error: 'To open Overleaf in another browser, this computer’s Companion has to be running (Playground → Connect this computer).' };
+      if (isNewer(BROWSERS_VERSION, local.info.version)) return { error: `This computer’s Companion is ${local.info.version}; opening another browser needs ${BROWSERS_VERSION}. Update it from Your compute in the Playground.` };
+      const server = allServers().find((item) => item.companionId === local.info.id && item.token);
+      if (!server) return { error: 'This computer’s Companion is running but not paired with this browser yet: connect it from the Playground first.' };
+      return { server, id: local.info.id };
+    })();
+    void openerAsked.then((opener) => {
+      if ('error' in opener) openerAsked = null;
+    });
+  }
+  return openerAsked;
+}
+
+function rememberBrowser(updateCollection: ReturnType<typeof useStore>['updateCollection'], project: Project, computer: string, choice: BrowserChoice | undefined) {
+  void updateCollection(project.id, (collection) => {
+    const info = { ...project.project, ...(collection.project ?? {}) };
+    const link = info.overleaf;
+    if (!link) return {};
+    const browsers = { ...(link.browsers ?? {}) };
+    if (choice) browsers[computer] = choice;
+    else delete browsers[computer];
+    const { browsers: _old, ...rest } = link;
+    return { project: { ...info, overleaf: { ...rest, ...(Object.keys(browsers).length ? { browsers } : {}) } } };
+  });
+}
+
+const choiceLabel = (browser: InstalledBrowser, profile?: { name: string; account: string }) => (profile ? `${browser.name} · ${profile.name}` : browser.name);
+
+/**
+ * The project's Open button: in the browser and profile this computer opens it
+ * in, once one is picked, else as Settings says (beside, or a tab). Its menu
+ * picks another — every browser and profile here, through the Companion — or
+ * copies the link for any other.
+ */
+export function OpenOverleaf({ project, view, primary = true, compact = false }: { project: Project; view: OverleafView; primary?: boolean; compact?: boolean }) {
+  const { updateCollection } = useStore();
+  const link = project.project.overleaf;
+  const [opener, setOpener] = useState<Opener | null>(null);
+  const [menu, setMenu] = useState(false);
+  const [found, setFound] = useState<InstalledBrowser[] | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const [keep, setKeep] = useState(true);
+  const box = useRef<HTMLSpanElement>(null);
+  const hasChoices = Boolean(link?.browsers && Object.keys(link.browsers).length);
+  useEffect(() => {
+    if (hasChoices) void localOpener().then(setOpener);
+  }, [hasChoices]);
+  useEffect(() => {
+    if (!menu) return;
+    const away = (event: PointerEvent) => {
+      if (!box.current?.contains(event.target as Node)) setMenu(false);
+    };
+    window.addEventListener('pointerdown', away);
+    return () => window.removeEventListener('pointerdown', away);
+  }, [menu]);
+  if (!link) return null;
+  const here = opener && 'id' in opener ? opener : null;
+  const chosen = here ? link.browsers?.[here.id] : undefined;
+  const say = (text: string) => {
+    setSaid(text);
+    window.setTimeout(() => setSaid((current) => (current === text ? null : current)), 2400);
+  };
+
+  const openWith = async (choice: BrowserChoice, remember: boolean) => {
+    setProblem(null);
+    const now = here ?? (await localOpener().then((result) => (setOpener(result), 'id' in result ? result : null)));
+    if (!now) return setProblem(opener && 'error' in opener ? opener.error : 'This computer’s Companion didn’t answer.');
+    try {
+      await openInBrowser(now.server, link.url, choice.browser, choice.profile);
+      if (remember) rememberBrowser(updateCollection, project, now.id, choice);
+      setMenu(false);
+      say(`Opened in ${choice.label}`);
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const showMenu = async () => {
+    if (menu) return setMenu(false);
+    setMenu(true);
+    setProblem(null);
+    const result = await localOpener(true);
+    setOpener(result);
+    if ('error' in result) return setFound(null);
+    try {
+      setFound(await listBrowsers(result.server));
+    } catch (error) {
+      setFound(null);
+      setProblem(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const plain = view === 'beside' ? 'Open Overleaf beside' : 'Open in Overleaf';
+  return (
+    <span className={`ol-open${compact ? ' is-compact' : ''}`} ref={box}>
+      <span className="ol-open-split">
+        <button
+          type="button"
+          className={`btn sm${primary ? ' primary' : ''}`}
+          title={chosen ? `Opens in ${chosen.label} on this computer, signed in as that profile is` : view === 'beside' ? 'Overleaf in a window beside this one' : 'Overleaf in a new tab'}
+          onClick={() => (chosen ? void openWith(chosen, false) : openOverleaf(link, project.id, view))}
+        >
+          <ExternalIcon size={13} /> {compact ? 'Overleaf' : chosen ? `Open in ${chosen.label}` : plain}
+        </button>
+        <button type="button" className={`btn sm ol-open-more${primary ? ' primary' : ''}`} aria-haspopup="menu" aria-expanded={menu} aria-label="Open in another browser" title="Open in another browser, or copy the link" onClick={() => void showMenu()}>
+          <ChevronDownIcon size={13} />
+        </button>
+      </span>
+      {said ? <span className="ol-said">{said}</span> : null}
+      {menu ? (
+        <div className="ol-menu" role="menu">
+          <span className="ol-menu-head">Open in</span>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              if (here && chosen && keep) rememberBrowser(updateCollection, project, here.id, undefined);
+              setMenu(false);
+              openOverleaf(link, project.id, view === 'beside' ? 'beside' : 'overview');
+            }}
+          >
+            This browser <small>{view === 'beside' ? 'a window beside' : 'a new tab'}</small>
+            {!chosen ? <CheckIcon size={12} /> : null}
+          </button>
+          {found === null && !problem && !(opener && 'error' in opener) ? <span className="ol-menu-note">Asking this computer for its browsers…</span> : null}
+          {found?.flatMap((browser) => {
+            const options = browser.profiles.length ? browser.profiles.map((profile) => ({ profile, label: choiceLabel(browser, profile) })) : [{ profile: undefined, label: choiceLabel(browser) }];
+            return options.map(({ profile, label }) => {
+              const on = chosen?.browser === browser.id && (chosen.profile ?? '') === (profile?.id ?? '');
+              return (
+                <button key={`${browser.id}/${profile?.id ?? ''}`} type="button" role="menuitem" onClick={() => void openWith({ browser: browser.id, ...(profile ? { profile: profile.id } : {}), label }, keep)}>
+                  {label}
+                  {profile?.account ? <small>{profile.account}</small> : null}
+                  {on ? <CheckIcon size={12} /> : null}
+                </button>
+              );
+            });
+          })}
+          {found && !found.length ? <span className="ol-menu-note">The Companion found no other browser on this computer.</span> : null}
+          {opener && 'error' in opener ? <span className="ol-menu-note">{opener.error}</span> : null}
+          {problem ? <span className="ol-menu-note is-bad">{problem}</span> : null}
+          <button
+            type="button"
+            role="menuitem"
+            className="ol-menu-copy"
+            onClick={() =>
+              void copy(link.url).then((ok) => {
+                setMenu(false);
+                say(ok ? 'Link copied — paste it in any browser' : link.url);
+              })
+            }
+          >
+            <CopyIcon size={12} /> Copy link
+          </button>
+          {found?.length ? (
+            <label className="ol-menu-keep">
+              <input type="checkbox" checked={keep} onChange={(event) => setKeep(event.target.checked)} /> Open this project there every time, on this computer
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+      {link.account && !compact ? (
+        <span className="ol-account" title="Reader can’t sign in to Overleaf for you: open it in a browser profile that is signed in as this account">
+          Overleaf account: {link.account}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 // ---------------------------------------------------------- the draft --
@@ -187,6 +375,7 @@ function LinkForm({ project, onDone }: { project: Project; onDone: () => void })
   const [repo, setRepo] = useState(link?.repo ?? '');
   const [branch, setBranch] = useState(link?.branch ?? '');
   const [folder, setFolder] = useState(link?.folder ?? '');
+  const [account, setAccount] = useState(link?.account ?? '');
   const parsed = parseOverleafUrl(url);
   const repoParsed = repo.trim() ? parseRepo(repo) : null;
   const bad = (url.trim() && !parsed) || (repo.trim() && !repoParsed);
@@ -201,6 +390,8 @@ function LinkForm({ project, onDone }: { project: Project; onDone: () => void })
           ...(repoParsed ? { repo: `${repoParsed.owner}/${repoParsed.repo}` } : {}),
           ...(repoParsed && branch.trim() ? { branch: branch.trim() } : {}),
           ...(repoParsed && folder.trim() ? { folder: folder.trim().replace(/^\/+|\/+$/g, '') } : {}),
+          ...(account.trim() ? { account: account.trim() } : {}),
+          ...(link?.browsers ? { browsers: link.browsers } : {}),
         });
         onDone();
       }}
@@ -210,6 +401,10 @@ function LinkForm({ project, onDone }: { project: Project; onDone: () => void })
         <input autoFocus value={url} placeholder="https://www.overleaf.com/project/…" onChange={(event) => setUrl(event.target.value)} />
       </label>
       {url.trim() && !parsed ? <p className="ol-bad">That is not an Overleaf project’s address — copy it from the address bar with the project open.</p> : null}
+      <label className="ol-field">
+        <span>Overleaf account it is in (a reminder; optional)</span>
+        <input value={account} placeholder="you@lab.edu" onChange={(event) => setAccount(event.target.value)} />
+      </label>
       <details className="ol-more" open={Boolean(link?.repo)}>
         <summary>Also in GitHub? Edit and check the draft here</summary>
         <p className="pj-sub">
@@ -316,9 +511,7 @@ export function OverleafCard({ project, onWrite }: { project: Project; /** The w
                 Write beside the papers
               </button>
             ) : null}
-            <button type="button" className={`btn sm${view === 'write' ? '' : ' primary'}`} onClick={() => openOverleaf(link, project.id, view)}>
-              <ExternalIcon size={13} /> {view === 'beside' ? 'Open Overleaf beside' : 'Open in Overleaf'}
-            </button>
+            <OpenOverleaf project={project} view={view} primary={view !== 'write'} />
           </div>
           {!link.repo ? (
             <p className="ol-note">Overleaf can’t be read from another site, so this is only the link. If the project syncs with GitHub, add the repository (Change) to see its sections and citations here.</p>

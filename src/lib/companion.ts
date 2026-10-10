@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.8.0';
+export const COMPANION_VERSION = '0.9.0';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -498,3 +498,44 @@ export const linkFolder = (server: { url: string; token: string }, path: string)
 
 /** That computer's own folder chooser, on its screen: the folder picked, or null when cancelled. */
 export const chooseFolder = (server: { url: string; token: string }) => foldersCall<{ path: string | null }>(server, { method: 'POST', body: JSON.stringify({ action: 'choose' }) });
+
+// ------------------------------------------- browsers on this computer (0.9.0) --
+
+/** The first Companion that lists this computer's browsers and their profiles, and opens a link in one (/companion/browsers). */
+export const BROWSERS_VERSION = '0.9.0';
+
+export interface BrowserProfile {
+  /** What the browser calls it on the command line: a Chromium profile's folder ("Profile 1"), a Firefox profile's name. */
+  id: string;
+  name: string;
+  /** The Google account signed in to a Chromium profile, when there is one. */
+  account: string;
+}
+
+export interface InstalledBrowser {
+  id: string;
+  name: string;
+  profiles: BrowserProfile[];
+}
+
+const browsersUrl = (server: { url: string }) => `${server.url.replace(/\/?$/, '/')}companion/browsers`;
+
+async function browsersCall<T>(server: { url: string; token: string }, init?: RequestInit): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(browsersUrl(server), { ...init, headers: { Authorization: `token ${server.token}`, ...(init?.body ? { 'Content-Type': 'application/json' } : {}) }, cache: 'no-store' });
+  } catch {
+    throw new Error('The Companion on this computer didn’t answer. Is it running?');
+  }
+  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (response.status === 404) throw new Error(`This computer’s Companion is older than ${BROWSERS_VERSION}: update it to open links in another browser.`);
+  if (!response.ok) throw new Error(body.error || `The Companion said ${response.status}.`);
+  return body;
+}
+
+/** The browsers on the Companion's computer, each with its profiles. */
+export const listBrowsers = (server: { url: string; token: string }) => browsersCall<{ browsers: InstalledBrowser[] }>(server).then((body) => body.browsers);
+
+/** Opens an https link in that browser and profile on the Companion's computer ('default' for its default browser). */
+export const openInBrowser = (server: { url: string; token: string }, url: string, browser: string, profile?: string) =>
+  browsersCall<{ opened: boolean }>(server, { method: 'POST', body: JSON.stringify({ url, browser, ...(profile ? { profile } : {}) }) });

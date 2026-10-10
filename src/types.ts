@@ -193,6 +193,23 @@ export interface OverleafLink {
   branch?: string;
   /** The folder in the repository the paper is in; the top when empty. */
   folder?: string;
+  /** The Overleaf account the project belongs to: a reminder by the Open button, as the page can't sign in for you. */
+  account?: string;
+  /**
+   * The browser and profile it opens in, on each computer — by its Companion's
+   * id, as browsers and their profiles are a computer's own. A profile is where
+   * a sign-in lives, so this is what opens it as the right Overleaf account.
+   */
+  browsers?: Record<string, BrowserChoice>;
+}
+
+export interface BrowserChoice {
+  /** The Companion's id for the browser (chrome, firefox, safari…), or 'default'. */
+  browser: string;
+  /** A Chromium profile's folder, a Firefox profile's name. */
+  profile?: string;
+  /** What the button says: "Google Chrome · Work". */
+  label: string;
 }
 
 /**

@@ -72,7 +72,7 @@ from pathlib import Path
 
 from tornado import httpclient, websocket
 
-from . import account, desktop, folders, jobs, state, tools, tunnel
+from . import account, browsers, desktop, folders, jobs, state, tools, tunnel
 
 
 class CompanionHandler(web.RequestHandler):
@@ -670,6 +670,36 @@ class FoldersHandler(VsCodeHandler):
         self.reply(400, {"error": "link or choose"})
 
 
+class BrowsersHandler(VsCodeHandler):
+    """GET /companion/browsers: the browsers on this computer and their profiles (from 0.9.0). POST {url, browser,
+    profile}: that https link opened there — the browser and profile must be ones the listing has. The token, as
+    for every call that does something on this computer."""
+
+    async def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        self.reply(200, {"browsers": await IOLoop.current().run_in_executor(None, browsers.installed)})
+
+    async def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        try:
+            body = json.loads(self.request.body or b"{}")
+        except ValueError:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        url, browser, profile = str(body.get("url", "")), str(body.get("browser", "")), body.get("profile")
+        profile = str(profile) if profile else None
+        try:
+            await IOLoop.current().run_in_executor(None, lambda: browsers.open_url(url, browser, profile))
+        except browsers.Refused as error:
+            return self.reply(400, {"error": str(error)})
+        except OSError as error:
+            return self.reply(500, {"error": f"The browser didn't start: {error}"})
+        self.reply(200, {"opened": True})
+
+
 class AppHandler(VsCodeHandler):
     """POST /companion/app: {event: "hello"} from the Reader window while it is open, {event: "goodbye"} as it closes,
     {event: "setting", stopWithApp} from the page's switch. The token, as for every call that changes something."""
@@ -714,6 +744,7 @@ def load(serverapp):
             (url_path_join(base, "companion/shutdown"), ShutdownHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/app"), AppHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/folders"), FoldersHandler),
+            (url_path_join(base, "companion/browsers"), BrowsersHandler),
             (url_path_join(base, "companion/tools"), ToolsHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/terminals"), TerminalsHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/vscode-web"), VsCodeWebHandler),

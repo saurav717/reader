@@ -39,9 +39,9 @@ import type { View } from '../types.view';
 import Playground, { ComputeTag, WhereDialog } from './Playground';
 import PaperWindow from './PaperWindow';
 import Reader from './Reader';
-import { CiteButtons, DraftEditor, OverleafCard, openOverleaf } from './Overleaf';
+import { CiteButtons, DraftEditor, OpenOverleaf, OverleafCard } from './Overleaf';
 import { overleafViewOf } from '../lib/overleaf';
-import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, CloseIcon, CodeIcon, ExternalIcon, GridIcon, PlusIcon, TrashIcon } from './icons';
+import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, CloseIcon, CodeIcon, GridIcon, PlusIcon, TrashIcon } from './icons';
 
 type ProjectPageView = Extract<View, { kind: 'projects' } | { kind: 'project' }>;
 
@@ -847,9 +847,7 @@ function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; 
         {writing === 'beside' && overleaf && !fullCode ? (
           <span className="pj-ws-overleaf">
             <CiteButtons project={project} paper={shown} />
-            <button type="button" className="btn sm" onClick={() => openOverleaf(overleaf, project.id, 'beside')} title="Overleaf in a window beside this one">
-              <ExternalIcon size={13} /> Overleaf
-            </button>
+            <OpenOverleaf project={project} view="beside" primary={false} compact />
           </span>
         ) : null}
       {fullCode ? (
