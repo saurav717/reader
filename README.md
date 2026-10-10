@@ -3774,12 +3774,35 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
   they are in, and one Undo in the agent's pane puts them all back.
   The others: a GitHub repository (the clone
   waits in the console for a click), a Hugging Face model or dataset id
-  (cells that load it and run it once), or **a file or a folder**: an
-  `.ipynb` opens as a notebook and a `.py` starts a project, and a whole
-  folder picked from your computer becomes a project with its code and small
-  text files — data, checkpoints, caches and files over 200 KB are left out,
-  and the sheet says which. Like every start, it then asks where the code is
-  kept and where it runs.
+  (cells that load it and run it once), or **a file or a folder** (below).
+
+#### Open a file or folder
+
+It asks **where it is** first, and guides by what that place can do:
+
+- **Your computers.** At the top, which computers have the Reader app signed
+  in as you, online or not — or that none do, with **Connect this computer** —
+  or, signed out, that only the computers paired with this browser are listed.
+  Pick a computer and browse it where it is: with Companion 0.8.0 on, the
+  whole computer from its home folder (Home, Desktop, Documents, code
+  folders, a path typed in, hidden folders on request, and on the computer
+  you're at, its own folder chooser); with an older Companion or another
+  Jupyter server, the folder it serves. Pick a folder, or a file — an
+  `.ipynb` opens as a notebook, any other file opens its folder — then
+  **Use it where it is** (the folder is linked into `~/Reader/linked/`, so
+  edits change it itself, nothing copied), **Copy it into your Drive**, or
+  **Copy it into a new folder** on that computer, and **Run it on** that
+  computer, another of yours, or Colab (the folder copied there before each
+  run). A computer that doesn't answer says so, and when it was last seen.
+- **Upload from this browser.** A copy of a file or folder from the computer
+  the browser is on — code and small text files; data, checkpoints, caches
+  and files over 200 KB are left out, and the next sheet says which — then
+  the usual where-it's-kept and where-it-runs sheet. When this computer has
+  the Reader app, it points you to open the folder in place instead.
+- **Google Drive** and **Colab** say what they can't do from here — Reader
+  sees only the Drive files it made, and a Colab runtime's disk goes when it
+  stops — and what to do instead: mount Drive in a Colab notebook, sync it
+  to a computer, or keep the code in Drive and run it on Colab.
 - **Where it runs.** The sheet that follows offers three modes. **Colab, in
   the browser** is the runtime the Explain pages use, with nothing to
   install, and its files are kept in this browser. **This PC** is a Jupyter

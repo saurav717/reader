@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.7.6';
+export const COMPANION_VERSION = '0.8.0';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -464,3 +464,37 @@ export async function setStopWithApp(server: { url: string; token: string }, on:
   if (!response.ok || typeof body.stopWithApp !== 'boolean') throw new Error(body.error || `The Companion said ${response.status}: update it in Settings → Updates.`);
   return body.stopWithApp;
 }
+
+// ------------------------------------------------- folders anywhere (0.8.0) --
+
+/** The first Companion that lists folders anywhere on its computer and links one in (/companion/folders). */
+export const FOLDERS_VERSION = '0.8.0';
+
+export interface FolderListing {
+  /** The folder listed, absolute on that computer. */
+  path: string;
+  parent: string | null;
+  home: string;
+  sep: string;
+  entries: { name: string; dir: boolean; size: number | null }[];
+  more: boolean;
+  places: { name: string; path: string }[];
+}
+
+const foldersUrl = (server: { url: string }) => `${server.url.replace(/\/?$/, '/')}companion/folders`;
+
+async function foldersCall<T>(server: { url: string; token: string }, init?: RequestInit, query = ''): Promise<T> {
+  const response = await fetch(`${foldersUrl(server)}${query}`, { ...init, headers: { Authorization: `token ${server.token}`, ...(init?.body ? { 'Content-Type': 'application/json' } : {}) }, cache: 'no-store' });
+  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (!response.ok) throw new Error(body.error || (response.status === 404 ? 'This Companion can’t list folders: update it.' : `The Companion answered ${response.status}.`));
+  return body;
+}
+
+/** A folder anywhere on the Companion's computer, listed: '' is its home folder. */
+export const listFolder = (server: { url: string; token: string }, path = '', hidden = false) => foldersCall<FolderListing>(server, undefined, `?path=${encodeURIComponent(path)}${hidden ? '&hidden=1' : ''}`);
+
+/** A folder on the Companion's computer linked into its own folder: the root a project then uses, relative to it. */
+export const linkFolder = (server: { url: string; token: string }, path: string) => foldersCall<{ root: string; path: string }>(server, { method: 'POST', body: JSON.stringify({ action: 'link', path }) });
+
+/** That computer's own folder chooser, on its screen: the folder picked, or null when cancelled. */
+export const chooseFolder = (server: { url: string; token: string }) => foldersCall<{ path: string | null }>(server, { method: 'POST', body: JSON.stringify({ action: 'choose' }) });

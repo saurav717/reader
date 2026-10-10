@@ -6638,11 +6638,65 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .away-done { padding: 12px 14px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12.5px; }
 .away-dlg-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 @media (max-width: 720px) { .away-snap-tree { width: 180px; } .away-banner { flex-wrap: wrap; } }
-/* Open a file or folder: the two, side by side. */
-.pg-open-choices { display: flex; align-items: stretch; gap: 10px; }
-.pg-open-choice { flex: 1; display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
-.pg-open-choice:hover { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(var(--accent-rgb) / 0.12); }
-.pg-open-choice b { font-size: 13px; }
-.pg-open-choice span { font-size: 12px; line-height: 1.45; color: var(--muted); }
-.pg-open .pg-note { margin: 10px 0 0; }
-@media (max-width: 640px) { .pg-open-choices { flex-direction: column; } }
+/* Open a file or folder (src/components/PlaygroundOpen.tsx): where it is, the file or folder, how to use it. */
+.op-scrim { display: grid; place-items: start center; padding: 40px 16px; z-index: 60; overflow: auto; }
+.op-dlg { width: min(1060px, 100%); display: flex; flex-direction: column; border-radius: 16px; border: 1px solid var(--border); background: var(--surface); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); overflow: hidden; }
+.op-head { display: flex; align-items: flex-start; justify-content: space-between; padding: 18px 22px 6px; }
+.op-head h2 { font: 500 24px var(--serif); margin: 4px 0 0; color: var(--ink); }
+.op-account { margin: 6px 22px 12px; padding: 9px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--border-soft); font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+.op-account.is-warn { background: rgba(201, 120, 30, 0.12); border-color: rgba(201, 120, 30, 0.35); }
+.op-account .link, .op-empty .link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+.op-body { display: flex; min-height: 380px; max-height: 52vh; border-top: 1px solid var(--border-soft); }
+.op-sources { width: 250px; flex: none; overflow: auto; padding: 10px 8px; border-right: 1px solid var(--border-soft); background: var(--panel); display: flex; flex-direction: column; gap: 2px; }
+.op-group { margin: 8px 8px 4px; font: 600 10.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.op-source { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.op-source:hover { background: var(--surface); }
+.op-source.is-on { background: var(--surface); border-color: var(--border); box-shadow: var(--shadow-sm); }
+.op-source-text { display: flex; flex-direction: column; min-width: 0; }
+.op-source-text b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-source-text small { font-size: 11px; color: var(--muted); }
+.op-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--muted); }
+.op-dot.is-here { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.op-dot.is-up { background: #3c9160; }
+.op-dot.is-down { background: #c9781e; }
+.op-dot.is-checking { background: var(--border); }
+.op-empty { margin: 4px 10px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.op-main { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; }
+.op-guide h3 { font: 600 15px var(--sans); margin: 0 0 6px; color: var(--ink); }
+.op-guide p, .op-guide li { font-size: 13px; line-height: 1.55; color: var(--ink-2); }
+.op-guide ul { padding-left: 18px; }
+.op-guide code, .op-tip code { font: 11.5px var(--mono); padding: 0 4px; border-radius: 4px; background: var(--panel); }
+.op-tip { margin: 0 0 10px; padding: 8px 11px; border-radius: 9px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12.5px; line-height: 1.5; }
+.op-acts { display: flex; gap: 8px; margin-top: 12px; }
+.op-browse { display: flex; flex-direction: column; gap: 8px; min-height: 100%; }
+.op-path { display: flex; align-items: center; gap: 8px; }
+.op-path form { flex: 1; min-width: 0; }
+.op-path input:not([type]) { width: 100%; height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); color: var(--ink); font: 12px var(--mono); }
+.op-hidden { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.op-places { display: flex; flex-wrap: wrap; gap: 6px; }
+.op-chip { height: 24px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); color: var(--ink-2); font: 500 11.5px var(--sans); cursor: pointer; }
+.op-chip.is-on { background: var(--accent-soft); color: var(--accent-ink); border-color: transparent; }
+.op-list { flex: 1; overflow: auto; border: 1px solid var(--border-soft); border-radius: 10px; padding: 4px; background: var(--panel); }
+.op-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 5px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--ink-2); font: 12.5px var(--mono); text-align: left; cursor: pointer; }
+.op-row:hover { background: var(--surface); }
+.op-row.is-on { background: var(--accent-soft); color: var(--accent-ink); }
+.op-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-row small { font: 11px var(--sans); color: var(--muted); }
+.op-in { font: 11px var(--sans); color: var(--accent); padding: 1px 6px; border-radius: 5px; }
+.op-in:hover { background: var(--surface); }
+.op-folder { width: 14px; height: 11px; flex: none; border-radius: 2px; background: color-mix(in srgb, var(--accent) 55%, transparent); position: relative; }
+.op-folder::before { content: ''; position: absolute; left: 0; top: -2px; width: 6px; height: 3px; border-radius: 2px 2px 0 0; background: inherit; }
+.op-foot { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; align-items: start; padding: 14px 22px 16px; border-top: 1px solid var(--border-soft); background: var(--panel); }
+.op-picked { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.op-picked b { font: 12.5px var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+.op-picked small { font-size: 11.5px; color: var(--muted); }
+.op-how { display: flex; flex-direction: column; gap: 4px; }
+.op-how label { display: flex; gap: 8px; align-items: flex-start; padding: 6px 9px; border-radius: 9px; border: 1px solid transparent; cursor: pointer; }
+.op-how label.is-on { border-color: var(--accent); background: var(--surface); }
+.op-how label span { display: flex; flex-direction: column; }
+.op-how b { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.op-how small { font-size: 11.5px; line-height: 1.4; color: var(--muted); }
+.op-run { display: flex; flex-direction: column; gap: 8px; }
+.op-run label { display: flex; flex-direction: column; gap: 3px; }
+.op-run input, .op-run select { height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font: 12.5px var(--sans); min-width: 0; }
+@media (max-width: 800px) { .op-body { flex-direction: column; max-height: none; } .op-sources { width: auto; border-right: 0; border-bottom: 1px solid var(--border-soft); } .op-foot { grid-template-columns: 1fr; } }

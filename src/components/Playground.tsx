@@ -50,6 +50,7 @@ import PlaygroundWorkspace from './PlaygroundWorkspace';
 import { RunRowAction, RunRowState, RunningChooser, RunningShelf } from './PlaygroundRuns';
 import { AwayChooser, homeGroupOf } from './PlaygroundAway';
 import { snapshotPlan } from '../lib/away';
+import OpenDialog from './PlaygroundOpen';
 import type { HomeGroup } from './PlaygroundAway';
 import { useRunBoard } from '../lib/playgroundRuns';
 import VsCodeExtension, { isCompanion } from './VsCodeExtension';
@@ -182,13 +183,14 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
   const { papers, settings } = useStore();
   const servers = useServers();
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [asking, setAsking] = useState<'paper' | 'repo' | 'model' | 'open' | null>(null);
+  const [asking, setAsking] = useState<'paper' | 'repo' | 'model' | null>(null);
   const [answer, setAnswer] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const [addingServer, setAddingServer] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const filePick = useRef<HTMLInputElement>(null);
   const folderPick = useRef<HTMLInputElement>(null);
+  const [opening, setOpening] = useState(false);
   const sorted = useMemo(() => [...list].sort((a, b) => b.updated - a.updated), [list]);
   // What each is doing — running, idle with its variables, how its last run ended — when the shelf is chosen.
   const runs = useRunBoard(list);
@@ -306,7 +308,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
     { key: 'paper', mark: '¶', title: 'From a paper', text: 'A paper from your library, as a project: files, an editor, a console, and an agent that has read its abstract.', go: () => (setAsking('paper'), setAnswer(''), setProblem(null)) },
     { key: 'repo', mark: '⑂', title: 'From a repository', text: 'A GitHub address — the paper’s own code, cloned onto the machine you pick.', go: () => (setAsking('repo'), setAnswer(''), setProblem(null)) },
     { key: 'model', mark: 'HF', title: 'From a model card', text: 'A Hugging Face model or dataset id: loaded, run once, ready to change.', go: () => (setAsking('model'), setAnswer(''), setProblem(null)) },
-    { key: 'open', mark: '.nb', title: 'Open a file or folder', text: 'An .ipynb or a .py — or a whole folder of code, as a project. Then pick where the code lives and where it runs.', go: () => (setAsking('open'), setProblem(null)) },
+    { key: 'open', mark: '.nb', title: 'Open a file or folder', text: 'An .ipynb or a .py — or a whole folder of code, as a project. Then pick where the code lives and where it runs.', go: () => (setOpening(true), setProblem(null)) },
   ];
 
   const renderRow = (p: PlaygroundRecord) => {
@@ -437,25 +439,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
             </div>
             <input ref={filePick} type="file" accept=".ipynb,.py,.txt,.md,application/json" hidden onChange={(event) => void fromFile(event.target.files?.[0]).then(() => (event.target.value = ''))} />
             <input ref={folderPick} type="file" hidden {...{ webkitdirectory: '', directory: '' }} multiple onChange={(event) => void fromFolder(event.target.files).then(() => (event.target.value = ''))} />
-            {asking === 'open' ? (
-              <div className="pg-ask pg-open">
-                <div className="pg-open-choices">
-                  <button type="button" className="pg-open-choice" onClick={() => filePick.current?.click()}>
-                    <b>A file</b>
-                    <span>An .ipynb opens as a notebook; a .py, .md or .txt starts a project with it.</span>
-                  </button>
-                  <button type="button" className="pg-open-choice" onClick={() => folderPick.current?.click()}>
-                    <b>A folder</b>
-                    <span>Its code and small text files become a project, with the editor, console and agent. Data, checkpoints, caches and large files are left where they are.</span>
-                  </button>
-                  <button type="button" className="icon-btn sm" aria-label="Cancel" onClick={() => setAsking(null)}>
-                    <CloseIcon size={14} />
-                  </button>
-                </div>
-                <p className="pg-note">Next: where its code is kept — your Drive, a folder on a computer of yours, or this browser — and where it runs, as for any new playground.</p>
-                {problem ? <p className="pg-note is-problem">{problem}</p> : null}
-              </div>
-            ) : asking ? (
+            {asking ? (
               <div className="pg-ask">
                 <form
                   onSubmit={(event) => {
@@ -594,6 +578,15 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
         </div>
       </div>
       <PairFromLink />
+      {opening ? (
+        <OpenDialog
+          onClose={() => setOpening(false)}
+          onOpen={(id) => onOpen(id)}
+          onUploadFile={() => (setOpening(false), filePick.current?.click())}
+          onUploadFolder={() => (setOpening(false), folderPick.current?.click())}
+          onConnect={() => (setOpening(false), setAddingServer(true))}
+        />
+      ) : null}
       {draft ? (
         <WhereDialog
           draft={draft}

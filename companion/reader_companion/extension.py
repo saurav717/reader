@@ -72,7 +72,7 @@ from pathlib import Path
 
 from tornado import httpclient, websocket
 
-from . import account, desktop, jobs, state, tools, tunnel
+from . import account, desktop, folders, jobs, state, tools, tunnel
 
 
 class CompanionHandler(web.RequestHandler):
@@ -629,6 +629,47 @@ class AppWindow:
 app_window = AppWindow()
 
 
+class FoldersHandler(VsCodeHandler):
+    """GET /companion/folders?path=…: the folders and files in a folder anywhere on this computer (from 0.8.0).
+    POST {action: "link", path}: that folder linked into the Companion's folder, so a project can use it in place — the
+    path the page uses comes back as {root}. POST {action: "choose"}: this computer's own folder chooser, on its screen,
+    and the folder picked as {path} (null when cancelled). The token, as for every call that reaches the files."""
+
+    async def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        path = self.get_query_argument("path", "")
+        hidden = self.get_query_argument("hidden", "") == "1"
+        try:
+            self.reply(200, await IOLoop.current().run_in_executor(None, lambda: folders.listing(path, hidden)))
+        except PermissionError:
+            self.reply(403, {"error": f"This computer doesn't let the Companion read {path or 'that folder'}."})
+        except OSError as error:
+            self.reply(404, {"error": str(error) or "That folder isn't there."})
+
+    async def post(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        try:
+            body = json.loads(self.request.body or b"{}")
+        except ValueError:
+            body = {}
+        action = body.get("action") if isinstance(body, dict) else None
+        loop = IOLoop.current()
+        try:
+            if action == "link":
+                root = Path(state.current.root)
+                linked = await loop.run_in_executor(None, lambda: folders.link(str(body.get("path", "")), root))
+                return self.reply(200, {"root": linked, "path": str(folders.resolve(str(body.get("path", ""))))})
+            if action == "choose":
+                return self.reply(200, {"path": await loop.run_in_executor(None, folders.choose)})
+        except LookupError as error:
+            return self.reply(501, {"error": str(error)})
+        except OSError as error:
+            return self.reply(400, {"error": str(error) or "That folder can't be linked."})
+        self.reply(400, {"error": "link or choose"})
+
+
 class AppHandler(VsCodeHandler):
     """POST /companion/app: {event: "hello"} from the Reader window while it is open, {event: "goodbye"} as it closes,
     {event: "setting", stopWithApp} from the page's switch. The token, as for every call that changes something."""
@@ -672,6 +713,7 @@ def load(serverapp):
             (url_path_join(base, "companion/update"), UpdateHandler),
             (url_path_join(base, "companion/shutdown"), ShutdownHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/app"), AppHandler, {"serverapp": serverapp}),
+            (url_path_join(base, "companion/folders"), FoldersHandler),
             (url_path_join(base, "companion/tools"), ToolsHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/terminals"), TerminalsHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/vscode-web"), VsCodeWebHandler),
