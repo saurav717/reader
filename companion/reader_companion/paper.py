@@ -180,7 +180,9 @@ def compile_command(engine: str, main: str, available: dict, compiler: str = "pd
         flag = COMPILERS.get(compiler, "-pdf")
         return [
             available["latexmk"], "-cd", f"-jobname={JOB}", f"-auxdir={outdir}", f"-outdir={outdir}", "-synctex=1",
-            "-interaction=batchmode", "-file-line-error", "-halt-on-error" if halt else "-f", flag, main,
+            # -g: compile every time asked, as Overleaf does. Without it latexmk skips a file it failed on until the
+            # file changes ("files unchanged since last error"), so a package installed since then changes nothing.
+            "-interaction=batchmode", "-file-line-error", "-g", "-halt-on-error" if halt else "-f", flag, main,
         ]
     if engine == "tectonic" and available.get("tectonic"):
         return [available["tectonic"], "-X", "compile", "--synctex", "--keep-logs", "--outdir", outdir, main]

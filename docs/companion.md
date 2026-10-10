@@ -308,6 +308,7 @@ and shows which one it is on in the machine chip.
   - `token {url}` says whether a token is kept. It is stored for the remote
     and its host too, so an Overleaf account's other projects need none.
   - `forget-token {host}` forgets them.
+- From 0.11.1, `compile` passes `latexmk -g`: it compiles every time it is asked, as Overleaf does. Without it, latexmk skips a file it failed on until the file changes, so a package installed after a failed compile changed nothing until the next edit.
 - Secrets (playground.md, step 8) live in the keychain and are passed to a
   kernel's environment. They are never put in the Drive mirror.
 

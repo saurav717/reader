@@ -1204,6 +1204,20 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
         </div>
       ) : null}
       {compileError ? <p className="wr-banner">{compileError}</p> : null}
+      {compiled && !compiled.pdf && !compiled.errors.length && !compiling ? (
+        <div className="wr-banner">
+          <b>No PDF came out, and TeX reported no error.</b>{' '}
+          {isNewer('0.11.1', here.version)
+            ? 'latexmk skips a file it failed on until the file changes — after installing a package, say. Change anything in it (a space will do) and Recompile, or update the Companion, which then always compiles.'
+            : 'Check the main document above is the file with \\documentclass, and see what the compiler said:'}
+          {compiled.log.trim() ? (
+            <details className="wr-raw">
+              <summary>What the compiler said</summary>
+              <pre>{compiled.log.trim().split('\n').slice(-40).join('\n')}</pre>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
       {missing.length && !showLog ? (
         <p className="wr-banner">
           <b>{missing.map((name) => `${name}.sty`).join(', ')}</b> isn’t on this computer.{' '}
