@@ -1,5 +1,7 @@
 import base64
+import io
 import os
+import zipfile
 import shutil
 import subprocess
 import tempfile
@@ -38,6 +40,9 @@ class Compiling(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root)
+        home = mock.patch.dict(os.environ, {"READER_COMPANION_HOME": str(self.root / ".home")})
+        home.start()
+        self.addCleanup(home.stop)
         self.folder = self.root / "papers" / "moe"
         self.folder.mkdir(parents=True)
         (self.folder / "main.tex").write_text("\\documentclass{article}\\begin{document}Hi\\end{document}")
@@ -70,10 +75,26 @@ class Compiling(unittest.TestCase):
         self.assertIn("lepikhin2020gshard", read["warnings"][0]["message"])
         self.assertEqual(len(read["warnings"]), 2)
 
+    def test_overleafs_own_command(self):
+        argv = paper.compile_command("latexmk", "main.tex", {"latexmk": "latexmk"}, "pdflatex", "/b")
+        self.assertEqual(argv, ["latexmk", "-cd", "-jobname=output", "-auxdir=/b", "-outdir=/b", "-synctex=1", "-interaction=batchmode", "-file-line-error", "-f", "-pdf", "main.tex"])
+        self.assertIn("-xelatex", paper.compile_command("latexmk", "main.tex", {"latexmk": "latexmk"}, "xelatex", "/b"))
+        self.assertIn("-lualatex", paper.compile_command("latexmk", "main.tex", {"latexmk": "latexmk"}, "lualatex", "/b"))
+        self.assertIn("-pdfdvi", paper.compile_command("latexmk", "main.tex", {"latexmk": "latexmk"}, "latex", "/b"))
+        halted = paper.compile_command("latexmk", "main.tex", {"latexmk": "latexmk"}, "pdflatex", "/b", halt=True)
+        self.assertIn("-halt-on-error", halted)
+        self.assertNotIn("-f", halted)
+
+    def test_the_build_is_kept_out_of_the_paper(self):
+        build = paper.build_dir(self.folder)
+        self.assertNotIn(self.folder.resolve(), build.resolve().parents)
+        self.assertEqual(build, paper.build_dir(self.folder))
+
     def test_compile_returns_the_pdf_and_the_log(self):
         def run(argv, cwd, **kwargs):
-            Path(cwd, "main.pdf").write_bytes(b"%PDF-1.5 fake")
-            Path(cwd, "main.log").write_text("LaTeX Warning: Reference `fig:x' on page 1 undefined on input line 3.\n")
+            out = Path(next(arg for arg in argv if arg.startswith("-outdir=")).split("=", 1)[1])
+            (out / "output.pdf").write_bytes(b"%PDF-1.5 fake")
+            (out / "output.log").write_text("LaTeX Warning: Reference `fig:x' on page 1 undefined on input line 3.\n")
             return subprocess.CompletedProcess(argv, 0, stdout="Latexmk: done", stderr="")
 
         result = paper.compile_paper(self.root, "papers/moe", None, "auto", {"latexmk": "latexmk"}, run=run)
@@ -83,18 +104,36 @@ class Compiling(unittest.TestCase):
         self.assertEqual(len(result["warnings"]), 1)
 
     def test_an_old_pdf_is_not_passed_off_as_new(self):
-        (self.folder / "main.pdf").write_bytes(b"%PDF old")
+        out = paper.build_dir(self.folder)
+        out.mkdir(parents=True)
+        (out / "output.pdf").write_bytes(b"%PDF old")
         old = time.time() - 600
-        os.utime(self.folder / "main.pdf", (old, old))
+        os.utime(out / "output.pdf", (old, old))
 
         def run(argv, cwd, **kwargs):
-            Path(cwd, "main.log").write_text("./main.tex:1: Emergency stop.\n")
+            (out / "output.log").write_text("./main.tex:1: Emergency stop.\n")
             return subprocess.CompletedProcess(argv, 12, stdout="", stderr="")
 
         result = paper.compile_paper(self.root, "papers/moe", None, "auto", {"latexmk": "latexmk"}, run=run)
         self.assertFalse(result["ok"])
         self.assertEqual(result["pdf"], "")
         self.assertEqual(result["errors"][0]["line"], 1)
+
+    @unittest.skipUnless(shutil.which("latexmk") and shutil.which("pdflatex"), "TeX isn't installed")
+    def test_a_real_compile_as_overleaf_does_it(self):
+        paper_dir = self.root / "papers" / "real"
+        (paper_dir / "chapters").mkdir(parents=True)
+        (paper_dir / "main.tex").write_text("\\documentclass{article}\n\\begin{document}\n\\section{One}\\label{s:one}See \\S\\ref{s:one}.\n\\include{chapters/two}\n\\end{document}\n")
+        (paper_dir / "chapters" / "two.tex").write_text("\\section{Two}\nA line with \\nosuchmacro in it.\n")
+        found = {"latexmk": shutil.which("latexmk"), "pdflatex": shutil.which("pdflatex")}
+        result = paper.compile_paper(self.root, "papers/real", None, "auto", found)
+        self.assertTrue(result["pdf"], result["log"][-500:])
+        self.assertEqual(base64.b64decode(result["pdf"])[:5], b"%PDF-")
+        self.assertEqual(result["errors"][0]["file"], "chapters/two.tex")
+        self.assertEqual(result["errors"][0]["line"], 2)
+        left = sorted(path.relative_to(paper_dir).as_posix() for path in paper_dir.rglob("*") if path.is_file())
+        self.assertEqual(left, ["chapters/two.tex", "main.tex"], "nothing compiling makes is left in the paper's folder")
+        self.assertTrue(paper.engines(found)["texVersion"].startswith("pdfTeX"))
 
     def test_tectonic_for_this_computer(self):
         self.assertTrue(paper.tectonic_asset("Darwin", "arm64").endswith("aarch64-apple-darwin.tar.gz"))
@@ -175,6 +214,9 @@ class Syncing(unittest.TestCase):
         with mock.patch.dict(os.environ, {"READER_COMPANION_HOME": str(self.tmp / "home")}):
             paper.save_token("https://git.overleaf.com/66f1c0a9e2b7d4a1b2c3d4e5.git", "olp_secret")
             self.assertEqual(paper.token_for("https://git.overleaf.com/66f1c0a9e2b7d4a1b2c3d4e5"), "olp_secret")
+            # An Overleaf token is the account's: another of its projects needs none asked for.
+            self.assertEqual(paper.token_for("https://git.overleaf.com/77f1c0a9e2b7d4a1b2c3d4e5"), "olp_secret")
+            self.assertEqual(paper.token_for("https://github.com/me/paper"), "")
             calls = []
 
             def run(argv, **kwargs):
@@ -186,6 +228,54 @@ class Syncing(unittest.TestCase):
             self.assertNotIn("olp_secret", " ".join(argv))
             self.assertEqual(env["READER_GIT_TOKEN"], "olp_secret")
             self.assertTrue(env["GIT_ASKPASS"])
+            self.assertEqual(paper.forget_tokens("https://git.overleaf.com"), 2)
+            self.assertEqual(paper.token_for("https://git.overleaf.com/66f1c0a9e2b7d4a1b2c3d4e5"), "")
+
+
+def kit(files: dict[str, bytes | str]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as bundle:
+        for name, data in files.items():
+            bundle.writestr(name, data)
+    return buffer.getvalue()
+
+
+class Templates(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root)
+
+    def test_a_kit_is_kept_without_the_folder_it_comes_in(self):
+        data = kit({"NeurIPS_2026/neurips_2026.sty": "%sty", "NeurIPS_2026/neurips_2026.tex": "\\documentclass{article}\n", "__MACOSX/._x": "", "NeurIPS_2026/figs/a.png": b"\x89PNG"})
+        made = paper.save_template(self.root, "NeurIPS 2026", data)
+        self.assertEqual(made, {"slug": "neurips-2026", "name": "NeurIPS 2026", "files": 3, "main": "neurips_2026.tex"})
+        self.assertTrue((self.root / "templates" / "neurips-2026" / "figs" / "a.png").is_file())
+        self.assertEqual([item["slug"] for item in paper.list_templates(self.root)], ["neurips-2026"])
+        with self.assertRaises(paper.Refused):
+            paper.save_template(self.root, "NeurIPS 2026", data)
+
+    def test_a_kit_that_climbs_out_is_refused(self):
+        with self.assertRaises(paper.Refused):
+            paper.save_template(self.root, "evil", kit({"../../escape.tex": "x"}))
+        self.assertFalse((self.root.parent / "escape.tex").exists())
+        self.assertFalse((self.root / "templates" / "evil").exists())
+        with self.assertRaises(paper.Refused):
+            paper.save_template(self.root, "not a zip", b"hello")
+
+    def test_a_new_paper_from_a_kit(self):
+        paper.save_template(self.root, "ICML", kit({"icml.tex": "\\documentclass{article}", "icml.sty": "%"}))
+        (self.root / "papers" / "mine" / ".git").mkdir(parents=True)
+        done = paper.apply_template(self.root, "icml", "papers/mine")
+        self.assertEqual(done["files"], 2)
+        self.assertTrue((self.root / "papers" / "mine" / "icml.tex").is_file())
+        with self.assertRaises(paper.Refused):
+            paper.apply_template(self.root, "icml", "papers/mine")
+        # A blank Overleaf project's main.tex gives way, in a clone whose history keeps it.
+        again = paper.apply_template(self.root, "icml", "papers/mine", replace=True)
+        self.assertEqual(sorted(again["replaced"]), ["icml.sty", "icml.tex"])
+        self.assertEqual(again["main"], "icml.tex")
+        paper.delete_template(self.root, "icml")
+        self.assertEqual(paper.list_templates(self.root), [])
 
 
 if __name__ == "__main__":

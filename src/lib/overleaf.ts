@@ -80,6 +80,8 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
     ...(text(value.account) ? { account: text(value.account) } : {}),
     ...(Object.keys(browsers).length ? { browsers } : {}),
     ...(Object.keys(folders).length ? { folders } : {}),
+    ...(value.compiler === 'xelatex' || value.compiler === 'lualatex' || value.compiler === 'latex' || value.compiler === 'pdflatex' ? { compiler: value.compiler } : {}),
+    ...(typeof value.main === 'string' && /\.tex$/i.test(value.main) && !value.main.split('/').includes('..') ? { main: value.main.replace(/^\/+/, '') } : {}),
   };
 }
 

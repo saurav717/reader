@@ -207,6 +207,10 @@ export interface OverleafLink {
    * Dropbox keeps in step with Overleaf.
    */
   folders?: Record<string, PaperFolder>;
+  /** The compiler, as the Overleaf project is set to (Menu → Compiler): pdfLaTeX when unset, as in Overleaf. */
+  compiler?: 'pdflatex' | 'xelatex' | 'lualatex' | 'latex';
+  /** The main document, as Overleaf's Menu → Main document: the file with \documentclass when unset. */
+  main?: string;
 }
 
 export interface PaperFolder {
@@ -497,9 +501,11 @@ export interface WriteOptions {
   sync: 'pause' | 'save' | 'manual';
   /** A drawer of the project's papers to cite, or none. */
   citations: 'drawer' | 'off';
+  /** On an error: keep going, as Overleaf does, or stop at the first (Overleaf's "Stop on first error"). */
+  errors: 'continue' | 'halt';
 }
 
-export const WRITE_DEFAULTS: WriteOptions = { compile: 'pause', engine: 'auto', layout: 'side', sync: 'pause', citations: 'drawer' };
+export const WRITE_DEFAULTS: WriteOptions = { compile: 'pause', engine: 'auto', layout: 'side', sync: 'pause', citations: 'drawer', errors: 'continue' };
 
 /** Each of the Write tab's choices, the default first. */
 export const WRITE_OPTIONS: { key: keyof WriteOptions; label: string; choices: { id: string; label: string; note: string }[] }[] = [
@@ -513,12 +519,20 @@ export const WRITE_OPTIONS: { key: keyof WriteOptions; label: string; choices: {
     ],
   },
   {
+    key: 'errors',
+    label: 'On an error',
+    choices: [
+      { id: 'continue', label: 'Keep going', note: 'As Overleaf does: the PDF is made as far as TeX can, and the errors are listed.' },
+      { id: 'halt', label: 'Stop at the first', note: 'Overleaf’s “Stop on first error”: no PDF until it is fixed.' },
+    ],
+  },
+  {
     key: 'engine',
     label: 'TeX',
     choices: [
       { id: 'auto', label: 'Whichever is here', note: 'latexmk when TeX Live or MacTeX is installed, else Tectonic.' },
-      { id: 'latexmk', label: 'latexmk', note: 'Your TeX installation, as Overleaf compiles: pdfLaTeX unless the paper says otherwise.' },
-      { id: 'tectonic', label: 'Tectonic', note: 'One small program that fetches the packages a paper uses; the Companion can download it.' },
+      { id: 'latexmk', label: 'latexmk', note: 'Your TeX installation, run as Overleaf runs it, with the project’s compiler and main document.' },
+      { id: 'tectonic', label: 'Tectonic', note: 'One small program that fetches the packages a paper uses; the Companion can download it. Always XeLaTeX, so not quite Overleaf’s pdfLaTeX.' },
     ],
   },
   {

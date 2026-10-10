@@ -7269,7 +7269,7 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
 .wr-field small { font-size: 11.5px; }
 @media (max-width: 760px) { .wr-ways { grid-template-columns: 1fr; } }
 
-.wr-desk { flex: 1; min-height: 0; display: grid; grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto auto; grid-template-areas: 'side panes' 'side log' 'banner banner' 'status status'; background: var(--paper); }
+.wr-desk { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto auto; grid-template-areas: 'side panes' 'side log' 'banner banner' 'status status'; background: var(--paper); }
 .wr-side { grid-area: side; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border-soft); background: var(--panel); }
 .wr-side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px 6px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: none; border: 0; width: 100%; text-align: left; }
 .wr-side-head b { font-weight: 600; }
@@ -7340,3 +7340,32 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
 .ce-gutter-rows span.is-on { color: var(--ink); }
 .wr-tree-dir { color: var(--muted); }
 .wr-tree-item small, .wr-tree-item i { margin-left: 5px; }
+/* The Write tab, more: its file operations, template picker, compiler and main document */
+.wr-file-ops { display: inline-flex; gap: 2px; text-transform: none; letter-spacing: 0; }
+.wr-file-ops button { border: 0; background: none; color: var(--accent); font: 500 11px var(--sans); padding: 2px 4px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+.wr-file-ops button:hover { background: var(--accent-soft); }
+.wr-tree-row { position: relative; display: flex; align-items: center; border-radius: 6px; }
+.wr-tree-row:hover { background: rgba(127, 127, 127, 0.1); }
+.wr-tree-row .wr-tree-item { flex: 1; min-width: 0; }
+.wr-tree-row .wr-tree-item:hover { background: none; }
+.wr-tree-ops { display: none; gap: 1px; padding-right: 4px; }
+.wr-tree-row:hover .wr-tree-ops, .wr-tree-row:focus-within .wr-tree-ops { display: inline-flex; }
+.wr-tree-ops button { border: 0; background: none; color: var(--muted); font-size: 12px; width: 20px; height: 20px; border-radius: 4px; cursor: pointer; }
+.wr-tree-ops button:hover { color: var(--ink); background: rgba(127, 127, 127, 0.16); }
+.wr-pick { height: 26px; max-width: 160px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--ink); font-size: 12px; padding: 0 4px; }
+.wr-banner.is-soft { color: #8a5212; background: color-mix(in srgb, #c9781e 12%, var(--surface)); }
+.wr-ok { margin: 0; font-size: 12.5px; color: var(--accent-ink); }
+.wr-templates { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border: 1px dashed var(--border); border-radius: 10px; }
+.wr-field-label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.wr-field-label small { font-weight: 400; color: var(--muted); }
+.wr-template-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.wr-template { display: inline-flex; align-items: stretch; border: 1px solid var(--border); border-radius: 8px; background: var(--paper); }
+.wr-template.is-on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.wr-template > button:first-child, button.wr-template { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 10px; border: 0; background: none; text-align: left; cursor: pointer; }
+button.wr-template { border: 1px solid var(--border); }
+button.wr-template.is-on { border-color: var(--accent); }
+.wr-template b { font-size: 12.5px; color: var(--ink); }
+.wr-template small { font-size: 11px; color: var(--muted); }
+.wr-template-x { border: 0; border-left: 1px solid var(--border-soft); background: none; color: var(--muted); padding: 0 8px; cursor: pointer; }
+.wr-template-x:hover { color: #b0384f; }
+.wr-template-name { height: 28px; min-width: 220px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--paper); color: var(--ink); font-size: 12.5px; }

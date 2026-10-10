@@ -21,9 +21,12 @@ if they would leave it.
 from __future__ import annotations
 
 import base64
+import hashlib
+import io
 import os
 import platform
 import re
+import shutil
 import stat
 import subprocess
 import tarfile
@@ -83,13 +86,28 @@ def tectonic_path() -> Path:
     return state.config_dir() / "bin" / ("tectonic.exe" if os.name == "nt" else "tectonic")
 
 
-def engines(found: dict[str, str]) -> dict:
-    """Which ways to compile there are: latexmk (with the TeX it drives), Tectonic, and git for the sync."""
+def tex_version(found: dict[str, str], run=subprocess.run) -> str:
+    """The TeX installed, as it says: "pdfTeX 3.141592653-2.6-1.40.26 (TeX Live 2024)"."""
+    program = found.get("pdflatex") or found.get("xelatex")
+    if not program:
+        return ""
+    try:
+        done = run([program, "--version"], capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL)
+        return (done.stdout or "").splitlines()[0].strip() if done.returncode == 0 and done.stdout else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def engines(found: dict[str, str], run=subprocess.run) -> dict:
+    """Which ways to compile there are: latexmk (with the TeX it drives), Tectonic, git for the sync, and the TeX's version."""
     tectonic = found.get("tectonic") or (str(tectonic_path()) if tectonic_path().is_file() else "")
     return {
         "latexmk": found.get("latexmk", ""),
         "tectonic": tectonic,
         "git": found.get("git", ""),
+        "bibtex": found.get("bibtex", ""),
+        "biber": found.get("biber", ""),
+        "texVersion": tex_version(found, run) if found.get("latexmk") else "",
         "tectonicInstallable": bool(tectonic_asset()),
     }
 
@@ -140,15 +158,32 @@ def install_tectonic(fetch=urllib.request.urlopen) -> str:
     return str(target)
 
 
-def compile_command(engine: str, main: str, available: dict) -> list[str]:
-    """The command that makes the PDF, run in the paper's folder."""
+COMPILERS = {"pdflatex": "-pdf", "xelatex": "-xelatex", "lualatex": "-lualatex", "latex": "-pdfdvi"}
+JOB = "output"
+
+
+def build_dir(folder: Path) -> Path:
+    """Where a paper's build goes: the Companion's own folder, never the paper's, so nothing compiling makes is synced to Overleaf."""
+    key = hashlib.sha1(str(folder.resolve()).encode("utf-8")).hexdigest()[:16]
+    return state.config_dir() / "build" / key
+
+
+def compile_command(engine: str, main: str, available: dict, compiler: str = "pdflatex", outdir: str = JOB, halt: bool = False) -> list[str]:
+    """
+    The command that makes the PDF, run in the paper's folder. With latexmk it is Overleaf's own: -cd into the main
+    file's folder, the job called output, the build in a folder of its own, SyncTeX, batch mode, and -f to keep going
+    past errors (or -halt-on-error, Overleaf's "Stop on first error"), with the compiler the project is set to.
+    """
     if engine == "auto":
         engine = "latexmk" if available.get("latexmk") else "tectonic" if available.get("tectonic") else ""
     if engine == "latexmk" and available.get("latexmk"):
-        # -pdf runs pdflatex; a paper that sets $pdf_mode in its own latexmkrc keeps it.
-        return [available["latexmk"], "-pdf", "-interaction=nonstopmode", "-file-line-error", "-synctex=1", main]
+        flag = COMPILERS.get(compiler, "-pdf")
+        return [
+            available["latexmk"], "-cd", f"-jobname={JOB}", f"-auxdir={outdir}", f"-outdir={outdir}", "-synctex=1",
+            "-interaction=batchmode", "-file-line-error", "-halt-on-error" if halt else "-f", flag, main,
+        ]
     if engine == "tectonic" and available.get("tectonic"):
-        return [available["tectonic"], "-X", "compile", "--synctex", "--keep-logs", main]
+        return [available["tectonic"], "-X", "compile", "--synctex", "--keep-logs", "--outdir", outdir, main]
     raise Refused("No TeX here to compile with: install TeX Live or MacTeX, or let the Companion fetch Tectonic.")
 
 
@@ -195,13 +230,22 @@ def read_log(log: str, folder: Path | None = None) -> dict:
     return {"errors": unique(errors), "warnings": unique(warnings)[:200]}
 
 
-def compile_paper(root: Path, folder_rel: str, main: str | None, engine: str, available: dict, run=subprocess.run) -> dict:
+def compile_paper(root: Path, folder_rel: str, main: str | None, engine: str, available: dict, run=subprocess.run, compiler: str = "pdflatex", halt: bool = False) -> dict:
     """Compiles the paper; the PDF (base64) when there is one, the log read, and how long it took."""
     folder = inside(root, folder_rel)
     if not folder.is_dir():
         raise Refused(f"{folder_rel} isn't a folder.")
     main = main_file(folder, main)
-    argv = compile_command(engine, main, available)
+    out = build_dir(folder)
+    out.mkdir(parents=True, exist_ok=True)
+    # TeX writes an .aux beside each \include in the build folder, and won't make the folders for them.
+    for sub in folder.rglob("*"):
+        if sub.is_dir() and ".git" not in sub.relative_to(folder).parts:
+            (out / sub.relative_to(folder)).mkdir(parents=True, exist_ok=True)
+    argv = compile_command(engine, main, available, compiler, str(out), halt)
+    tectonic = Path(argv[0]).stem.lower() == "tectonic"
+    stem = Path(main).stem if tectonic else JOB
+    pdf_path, log_path = out / f"{stem}.pdf", out / f"{stem}.log"
     started = time.time()
     try:
         done = run(argv, cwd=str(folder), capture_output=True, text=True, timeout=COMPILE_TIMEOUT_S, stdin=subprocess.DEVNULL, errors="replace")
@@ -209,11 +253,14 @@ def compile_paper(root: Path, folder_rel: str, main: str | None, engine: str, av
         code = done.returncode
     except subprocess.TimeoutExpired:
         output, code = f"Compiling took longer than {COMPILE_TIMEOUT_S} s and was stopped.", -1
-    stem = main[:-4]
-    log_path = folder / f"{stem}.log"
-    log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() else ""
+    log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.is_file() and log_path.stat().st_mtime >= started - 1 else ""
     read = read_log(log + "\n" + output, folder)
-    pdf_path = folder / f"{stem}.pdf"
+    main_dir = str(Path(main).parent)
+    if main_dir not in ("", "."):
+        # With -cd, TeX names files from the main file's folder: put them back in the paper's terms.
+        for item in read["errors"] + read["warnings"]:
+            if item["file"] and not (folder / item["file"]).exists() and (folder / main_dir / item["file"]).exists():
+                item["file"] = f"{main_dir}/{item['file']}"
     pdf = ""
     if pdf_path.is_file() and pdf_path.stat().st_mtime >= started - 1 and pdf_path.stat().st_size <= MAX_PDF_BYTES:
         pdf = base64.b64encode(pdf_path.read_bytes()).decode("ascii")
@@ -221,6 +268,7 @@ def compile_paper(root: Path, folder_rel: str, main: str | None, engine: str, av
         "ok": code == 0 and not read["errors"],
         "main": main,
         "engine": Path(argv[0]).stem,
+        "compiler": "xelatex" if tectonic else compiler,
         "pdf": pdf,
         "errors": read["errors"],
         "warnings": read["warnings"],
@@ -327,22 +375,140 @@ def remote_of(root: Path, folder_rel: str, git_path: str = "git", run=subprocess
 # page sends it once, and syncs after name the folder only.
 
 
+def _remote_key(url: str) -> str:
+    return re.sub(r"\.git/?$", "", (url or "").rstrip("/"))
+
+
+def _host(url: str) -> str:
+    match = re.match(r"^(https://[^/]+)", url or "")
+    return match.group(1) if match else ""
+
+
 def save_token(url: str, token: str) -> None:
+    """Kept for the remote, and for its host: an Overleaf Git token is the account's, good for each of its projects."""
     config = state.load_config()
     tokens = config.get("git_tokens") if isinstance(config.get("git_tokens"), dict) else {}
-    key = re.sub(r"\.git/?$", "", url.rstrip("/"))
-    if token:
-        tokens[key] = token
-    else:
-        tokens.pop(key, None)
+    for key in (_remote_key(url), _host(url)):
+        if not key:
+            continue
+        if token:
+            tokens[key] = token
+        else:
+            tokens.pop(key, None)
     config["git_tokens"] = tokens
     state.save_config(config)
 
 
 def token_for(url: str) -> str:
+    """The remote's token, else its host's: a new project of the same Overleaf account needs none asked for."""
     tokens = state.load_config().get("git_tokens")
     if not isinstance(tokens, dict):
         return ""
-    return str(tokens.get(re.sub(r"\.git/?$", "", (url or "").rstrip("/")), ""))
+    return str(tokens.get(_remote_key(url)) or tokens.get(_host(url)) or "")
 
 
+def forget_tokens(host: str) -> int:
+    """Every token for a host (https://git.overleaf.com): this computer no longer syncs as that account."""
+    config = state.load_config()
+    tokens = config.get("git_tokens") if isinstance(config.get("git_tokens"), dict) else {}
+    kept = {key: value for key, value in tokens.items() if key != host and not key.startswith(host + "/")}
+    config["git_tokens"] = kept
+    state.save_config(config)
+    return len(tokens) - len(kept)
+
+
+# -------------------------------------------------------------- templates --
+# A conference's kit (a .zip of its class, its style and an example paper),
+# kept once under the Companion's folder, templates/<name>, and copied into a
+# new paper's folder: an empty Overleaf project's clone, or a folder of its own.
+
+TEMPLATES = "templates"
+MAX_ZIP_BYTES = 200_000_000
+MAX_ZIP_FILES = 5000
+
+
+def unpack(zip_bytes: bytes, target: Path) -> int:
+    """A .zip into target, refusing names that climb out; the one folder a kit is often wrapped in is taken off."""
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as bundle:
+        members = [item for item in bundle.infolist() if not item.is_dir() and not item.filename.startswith("__MACOSX/") and not item.filename.rsplit("/", 1)[-1].startswith("._") and item.filename.rsplit("/", 1)[-1] != ".DS_Store"]
+        if not members:
+            raise Refused("The .zip has no files in it.")
+        if len(members) > MAX_ZIP_FILES or sum(item.file_size for item in members) > MAX_ZIP_BYTES:
+            raise Refused("The .zip is too big for a paper's template.")
+        names = [item.filename.replace("\\", "/") for item in members]
+        tops = {name.split("/", 1)[0] for name in names}
+        strip = len(tops) == 1 and all("/" in name for name in names)
+        written = 0
+        for item, name in zip(members, names):
+            relative = name.split("/", 1)[1] if strip else name
+            parts = [part for part in relative.split("/") if part not in ("", ".")]
+            if not parts or any(part == ".." for part in parts) or name.startswith("/") or re.match(r"^[A-Za-z]:", name):
+                raise Refused(f"The .zip has a file outside its folder: {name}")
+            destination = target.joinpath(*parts)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(bundle.read(item))
+            written += 1
+        return written
+
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:48] or "template"
+
+
+def save_template(root: Path, name: str, zip_bytes: bytes) -> dict:
+    slug = _slug(name)
+    target = root / TEMPLATES / slug
+    if target.exists():
+        raise Refused(f"There is a template called {slug} already: delete it first, or give this one another name.")
+    try:
+        files = unpack(zip_bytes, target)
+    except zipfile.BadZipFile as error:
+        raise Refused("That isn't a .zip file.") from error
+    except Refused:
+        shutil.rmtree(target, ignore_errors=True)
+        raise
+    (target / ".reader-template").write_text(name.strip() or slug, encoding="utf-8")
+    return describe_template(target)
+
+
+def describe_template(folder: Path) -> dict:
+    files = [path for path in folder.rglob("*") if path.is_file() and path.name != ".reader-template"]
+    try:
+        main = main_file(folder, None)
+    except Refused:
+        main = ""
+    label = folder / ".reader-template"
+    return {"slug": folder.name, "name": label.read_text(encoding="utf-8").strip() if label.is_file() else folder.name, "files": len(files), "main": main}
+
+
+def list_templates(root: Path) -> list[dict]:
+    base = root / TEMPLATES
+    if not base.is_dir():
+        return []
+    return [describe_template(folder) for folder in sorted(base.iterdir()) if folder.is_dir() and not folder.name.startswith(".")]
+
+
+def apply_template(root: Path, slug: str, folder_rel: str, replace: bool = False) -> dict:
+    """
+    The template's files copied into the paper's folder (made if new). A file already there with the same name is
+    refused, unless `replace`: a blank Overleaf project's main.tex, in a clone whose history keeps it.
+    """
+    source = root / TEMPLATES / _slug(slug)
+    if not source.is_dir():
+        raise Refused(f"There is no template {slug} on this computer.")
+    folder = inside(root, folder_rel)
+    files = [path for path in source.rglob("*") if path.is_file() and path.name != ".reader-template"]
+    clashes = [path.relative_to(source).as_posix() for path in files if (folder / path.relative_to(source)).exists()]
+    if clashes and not replace:
+        raise Refused(f"The paper's folder has {', '.join(clashes[:5])} already: start from an empty Overleaf project, or a new folder.")
+    for path in files:
+        destination = folder / path.relative_to(source)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, destination)
+    return {"folder": folder_rel, "files": len(files), "replaced": clashes if replace else [], "main": describe_template(source)["main"]}
+
+
+def delete_template(root: Path, slug: str) -> None:
+    target = root / TEMPLATES / _slug(slug)
+    if target.is_dir():
+        shutil.rmtree(target)

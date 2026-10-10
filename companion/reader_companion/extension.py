@@ -56,6 +56,7 @@ and `reader-companion pair` open it, for a Companion running in the background.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import secrets
@@ -712,7 +713,7 @@ class PaperHandler(VsCodeHandler):
 
     def found(self) -> dict:
         shell = (getattr(self.serverapp, "terminado_settings", None) or {}).get("shell_command")
-        return paper.engines(tools.look_up(["latexmk", "tectonic", "git", "pdflatex", "xelatex"], shell))
+        return paper.engines(tools.look_up(["latexmk", "tectonic", "git", "pdflatex", "xelatex", "bibtex", "biber"], shell))
 
     async def get(self):
         if not self.allowed():
@@ -736,15 +737,32 @@ class PaperHandler(VsCodeHandler):
             if action == "compile":
                 found = await loop.run_in_executor(None, self.found)
                 engine = body.get("engine") if body.get("engine") in ("auto", "latexmk", "tectonic") else "auto"
+                compiler = body.get("compiler") if body.get("compiler") in paper.COMPILERS else "pdflatex"
                 main = str(body["main"]) if body.get("main") else None
-                return self.reply(200, await loop.run_in_executor(None, lambda: paper.compile_paper(root, folder, main, engine, found)))
+                halt = bool(body.get("halt"))
+                return self.reply(200, await loop.run_in_executor(None, lambda: paper.compile_paper(root, folder, main, engine, found, compiler=compiler, halt=halt)))
+            if action == "templates":
+                return self.reply(200, {"templates": await loop.run_in_executor(None, lambda: paper.list_templates(root))})
+            if action == "save-template":
+                data = base64.b64decode(str(body.get("zip", "")), validate=False)
+                return self.reply(200, await loop.run_in_executor(None, lambda: paper.save_template(root, str(body.get("name", "")), data)))
+            if action == "apply-template":
+                return self.reply(200, await loop.run_in_executor(None, lambda: paper.apply_template(root, str(body.get("template", "")), folder, bool(body.get("replace")))))
+            if action == "delete-template":
+                await loop.run_in_executor(None, lambda: paper.delete_template(root, str(body.get("template", ""))))
+                return self.reply(200, {"deleted": True})
+            if action == "token":
+                return self.reply(200, {"known": bool(paper.token_for(str(body.get("url", ""))))})
+            if action == "forget-token":
+                return self.reply(200, {"forgotten": paper.forget_tokens(str(body.get("host", "https://git.overleaf.com")))})
             if action == "install-tectonic":
                 return self.reply(200, {"tectonic": await loop.run_in_executor(None, paper.install_tectonic)})
             git_path = (await loop.run_in_executor(None, self.found)).get("git") or ""
             if action in ("clone", "sync") and not git_path:
                 return self.reply(501, {"error": "git isn't installed on this computer: install it (git-scm.com, or xcode-select --install on a Mac) to sync with Overleaf."})
             if action == "clone":
-                url, token = str(body.get("url", "")), str(body.get("token", ""))
+                url = str(body.get("url", ""))
+                token = str(body.get("token", "")) or paper.token_for(url)
                 done = await loop.run_in_executor(None, lambda: paper.clone(root, folder, url, token, git_path))
                 paper.save_token(url, token)
                 return self.reply(200, done)
@@ -761,7 +779,7 @@ class PaperHandler(VsCodeHandler):
             return self.reply(400, {"error": str(error)})
         except OSError as error:
             return self.reply(500, {"error": str(error)})
-        self.reply(400, {"error": "compile, install-tectonic, clone, sync or remote"})
+        self.reply(400, {"error": "compile, install-tectonic, clone, sync, remote, templates, save-template, apply-template, delete-template, token or forget-token"})
 
 
 class AppHandler(VsCodeHandler):

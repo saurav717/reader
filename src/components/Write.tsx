@@ -10,8 +10,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
-import { jupyterList, jupyterRead, jupyterWrite } from '../lib/colab';
-import { PAPER_VERSION, chooseFolder, clonePaper, compilePaper, installTectonic, linkFolder, paperEngines, paperRemote, syncPaper, type Compiled, type PaperEngines, type Synced, type TexProblem } from '../lib/companion';
+import { jupyterDelete, jupyterList, jupyterMkdir, jupyterRead, jupyterRename, jupyterWrite, jupyterWriteBase64 } from '../lib/colab';
+import { PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEX_COMPILERS, applyTemplate, chooseFolder, clonePaper, compilePaper, deleteTemplate, installTectonic, isNewer, linkFolder, listTemplates, paperEngines, paperRemote, saveTemplate, syncPaper, tokenKnown, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
 import { bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, withEntry } from '../lib/overleaf';
 import { openPdf } from '../lib/pdfReflow';
 import { papersIn, type Project } from '../lib/projects';
@@ -63,6 +63,17 @@ export default function WritePage({ project, onView }: { project: Project; onVie
 
 // ------------------------------------------------------------- set-up --
 
+/** Fields of the project's Overleaf link changed, whatever else is on it kept: the compiler, the main document. */
+function useUpdateLink(project: Project) {
+  const { updateCollection } = useStore();
+  return (change: Partial<NonNullable<Project['project']['overleaf']>>) =>
+    void updateCollection(project.id, (collection) => {
+      const info = { ...project.project, ...(collection.project ?? {}) };
+      if (!info.overleaf) return {};
+      return { project: { ...info, overleaf: { ...info.overleaf, ...change } } };
+    });
+}
+
 function useSaveFolder(project: Project) {
   const { updateCollection } = useStore();
   return (computer: string, folder: PaperFolder | undefined, url?: string) =>
@@ -78,27 +89,141 @@ function useSaveFolder(project: Project) {
     });
 }
 
+/** A file as base64, for the Companion or Jupyter. */
+const fileBase64 = (file: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
+    reader.onerror = () => reject(reader.error ?? new Error('The file couldn’t be read.'));
+    reader.readAsDataURL(file);
+  });
+
+/**
+ * A conference's kit, kept once on this computer and offered to every new
+ * paper: the templates there, a .zip to add as another, and the one picked.
+ */
+function TemplatePicker({ here, value, onChange }: { here: Here; value: string; onChange: (slug: string) => void }) {
+  const [templates, setTemplates] = useState<PaperTemplate[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const picker = useRef<HTMLInputElement>(null);
+  const old = isNewer(PAPER_TEMPLATES_VERSION, here.version);
+  useEffect(() => {
+    if (old) return;
+    void listTemplates(here.server).then(setTemplates, (error) => setProblem(error instanceof Error ? error.message : String(error)));
+  }, [here, old]);
+  if (old) return <p className="wr-quiet">Templates need the Companion {PAPER_TEMPLATES_VERSION} or later on this computer (it is {here.version}): update it from Your compute in the Playground.</p>;
+  const add = async (file: File) => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const made = await saveTemplate(here.server, name.trim() || file.name.replace(/\.zip$/i, ''), await fileBase64(file));
+      setTemplates(await listTemplates(here.server));
+      onChange(made.slug);
+      setName('');
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="wr-templates">
+      <span className="wr-field-label">Start from a conference template <small>optional</small></span>
+      <div className="wr-template-list" role="radiogroup" aria-label="Template">
+        <button type="button" role="radio" aria-checked={!value} className={`wr-template${!value ? ' is-on' : ''}`} onClick={() => onChange('')}>
+          <b>None</b>
+          <small>{templates === null ? 'Asking this computer…' : 'The project’s files as they are'}</small>
+        </button>
+        {(templates ?? []).map((template) => (
+          <span key={template.slug} className={`wr-template${value === template.slug ? ' is-on' : ''}`}>
+            <button type="button" role="radio" aria-checked={value === template.slug} onClick={() => onChange(template.slug)}>
+              <b>{template.name}</b>
+              <small>
+                {template.files} files{template.main ? ` · ${template.main}` : ''}
+              </small>
+            </button>
+            <button
+              type="button"
+              className="wr-template-x"
+              aria-label={`Delete the template ${template.name}`}
+              title="Delete this template from this computer"
+              onClick={async () => {
+                if (!window.confirm(`Delete the template “${template.name}” from this computer? Papers made from it keep their files.`)) return;
+                await deleteTemplate(here.server, template.slug);
+                if (value === template.slug) onChange('');
+                setTemplates(await listTemplates(here.server));
+              }}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="wr-row">
+        <input className="wr-template-name" value={name} placeholder="Its name, e.g. NeurIPS 2026" onChange={(event) => setName(event.target.value)} aria-label="The template’s name" />
+        <button type="button" className="btn sm" disabled={busy} onClick={() => picker.current?.click()}>
+          {busy ? 'Adding…' : 'Add a template (.zip)…'}
+        </button>
+        <input
+          ref={picker}
+          type="file"
+          accept=".zip,application/zip"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (file) void add(file);
+          }}
+        />
+        <span className="wr-quiet">The kit a conference gives out: its class, style and example paper.</span>
+      </div>
+      {problem ? <p className="wr-bad">{problem}</p> : null}
+    </div>
+  );
+}
+
 /** Where the paper's folder comes from, the first time on this computer. */
 function WriteSetUp({ project, here }: { project: Project; here: Here }) {
   const { settings } = useStore();
   const link = project.project.overleaf;
   const save = useSaveFolder(project);
+  const updateLink = useUpdateLink(project);
   const gitUrl = overleafGitUrl(link?.url);
   const [way, setWay] = useState<'git' | 'dropbox' | 'github' | 'folder'>(gitUrl ? 'git' : link?.repo ? 'github' : 'dropbox');
   const [token, setToken] = useState('');
+  // An Overleaf Git token is the account's: once given on this computer, every project of it uses it.
+  const [known, setKnown] = useState<boolean | null>(null);
+  const [another, setAnother] = useState(false);
   const [where, setWhere] = useState(paperFolderFor(project.name));
+  const [template, setTemplate] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [engines, setEngines] = useState<PaperEngines | null>(null);
   useEffect(() => {
     void paperEngines(here.server).then(setEngines, () => setEngines(null));
-  }, [here]);
+    if (gitUrl && !isNewer(PAPER_TEMPLATES_VERSION, here.version)) void tokenKnown(here.server, gitUrl).then(setKnown, () => setKnown(false));
+    else setKnown(false);
+  }, [here, gitUrl]);
 
+  /** The template's files into the new folder, then — with Git — to Overleaf at once. */
+  const fill = async (folder: string, synced: boolean) => {
+    if (!template) return;
+    const done = await applyTemplate(here.server, template, folder, synced);
+    if (done.main) updateLink({ main: done.main });
+    if (synced) await syncPaper(here.server, folder, 'Start from a template, from Reader');
+  };
   const clone = async (url: string, secret: string) => {
     setBusy(true);
     setProblem(null);
     try {
       const done = await clonePaper(here.server, where, url, secret);
+      try {
+        await fill(done.folder, true);
+      } catch (error) {
+        setProblem(`Cloned, but the template didn’t go in: ${error instanceof Error ? error.message : String(error)}`);
+      }
       save(here.id, { path: done.folder, sync: 'git' });
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -113,6 +238,7 @@ function WriteSetUp({ project, here }: { project: Project; here: Here }) {
       const chosen = await chooseFolder(here.server);
       if (!chosen.path) return;
       const linked = await linkFolder(here.server, chosen.path);
+      await fill(linked.root, false);
       save(here.id, { path: linked.root, sync });
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -120,20 +246,34 @@ function WriteSetUp({ project, here }: { project: Project; here: Here }) {
       setBusy(false);
     }
   };
+  const fresh = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const done = await applyTemplate(here.server, template, where);
+      if (done.main) updateLink({ main: done.main });
+      save(here.id, { path: where, sync: 'folder' });
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const askToken = gitUrl && (!known || another);
 
   return (
     <div className="wr-scroll">
       <div className="wr-card wr-setup">
         <span className="eyebrow">The paper · on {here.name}</span>
         <h2>Where should the paper’s files be?</h2>
-        <p>The Write tab edits the paper in a folder on this computer, compiles it here as you type, and keeps it in step with Overleaf. Pick how, once for this computer.</p>
+        <p>The Write tab edits the paper in a folder on this computer, compiles it here as Overleaf does, and keeps it in step with Overleaf. Pick how, once for this computer: the project keeps it until you change it.</p>
         {!link ? <p className="wr-bad">Link the Overleaf project on the project’s overview first (the paper card), so the tab knows which paper it is.</p> : null}
         <div className="wr-ways" role="radiogroup" aria-label="Where the paper’s files come from">
           <button type="button" role="radio" aria-checked={way === 'git'} className={`wr-way${way === 'git' ? ' is-on' : ''}`} onClick={() => setWay('git')} disabled={!gitUrl}>
             <b>
               Overleaf’s Git <small>recommended</small>
             </b>
-            <span>A clone of the Overleaf project. Edits go to Overleaf seconds after you stop typing, and coauthors’ edits come in. Needs a paid Overleaf plan.</span>
+            <span>A clone of the Overleaf project. Everything you write or add here goes to Overleaf seconds after you stop, and coauthors’ edits come in. Needs a paid Overleaf plan.</span>
             {!gitUrl && link ? <span className="wr-bad">This needs the project’s address in Overleaf (overleaf.com/project/…), not a share link: change it on the paper card.</span> : null}
           </button>
           <button type="button" role="radio" aria-checked={way === 'dropbox'} className={`wr-way${way === 'dropbox' ? ' is-on' : ''}`} onClick={() => setWay('dropbox')}>
@@ -142,7 +282,7 @@ function WriteSetUp({ project, here }: { project: Project; here: Here }) {
           </button>
           <button type="button" role="radio" aria-checked={way === 'github'} className={`wr-way${way === 'github' ? ' is-on' : ''}`} onClick={() => setWay('github')} disabled={!link?.repo}>
             <b>Its GitHub repository</b>
-            <span>{link?.repo ? `A clone of ${link.repo}, with the token from Settings → Git mirror. Overleaf takes the edits in from Menu → GitHub → Pull.` : 'Name the repository on the paper card first (Overleaf’s GitHub sync).'}</span>
+            <span>{link?.repo ? `A clone of ${link.repo}, with the token from Settings → Git mirror. Overleaf takes the edits in from Menu → GitHub → Pull: not by itself.` : 'Name the repository on the paper card first (Overleaf’s GitHub sync).'}</span>
           </button>
           <button type="button" role="radio" aria-checked={way === 'folder'} className={`wr-way${way === 'folder' ? ' is-on' : ''}`} onClick={() => setWay('folder')}>
             <b>A folder already here</b>
@@ -150,20 +290,33 @@ function WriteSetUp({ project, here }: { project: Project; here: Here }) {
           </button>
         </div>
 
+        {way !== 'github' ? <TemplatePicker here={here} value={template} onChange={setTemplate} /> : null}
+        {template && way === 'git' ? <p className="wr-note">For a new paper from a template: in Overleaf make a <b>Blank Project</b>, put its address on the paper card, and clone it here. The template’s files go in and are pushed to Overleaf straight away.</p> : null}
+
         {way === 'git' && gitUrl ? (
           <div className="wr-form">
-            <label className="wr-field">
-              <span>Overleaf Git token</span>
-              <input type="password" value={token} autoComplete="off" placeholder="olp_…" onChange={(event) => setToken(event.target.value)} />
-              <small>In Overleaf: Account Settings → Git integration → Generate token. The Companion keeps it on this computer, readable only by you.</small>
-            </label>
+            {known && !another ? (
+              <p className="wr-ok">
+                Your Overleaf account’s Git token is on this computer already.{' '}
+                <button type="button" className="link-btn" onClick={() => setAnother(true)}>
+                  Use another
+                </button>
+              </p>
+            ) : null}
+            {askToken ? (
+              <label className="wr-field">
+                <span>Overleaf Git token</span>
+                <input type="password" value={token} autoComplete="off" placeholder="olp_…" onChange={(event) => setToken(event.target.value)} />
+                <small>In Overleaf: Account Settings → Git integration → Generate token. The Companion keeps it on this computer, readable only by you, for every project of your account.</small>
+              </label>
+            ) : null}
             <label className="wr-field">
               <span>Folder, inside the Companion’s</span>
               <input value={where} onChange={(event) => setWhere(event.target.value)} />
             </label>
             <div className="wr-row">
-              <button type="button" className="btn primary" disabled={busy || !token.trim() || !where.trim()} onClick={() => void clone(gitUrl, token.trim())}>
-                {busy ? 'Cloning…' : 'Clone from Overleaf'}
+              <button type="button" className="btn primary" disabled={busy || known === null || (askToken ? !token.trim() : false) || !where.trim()} onClick={() => void clone(gitUrl, askToken ? token.trim() : '')}>
+                {busy ? 'Cloning…' : template ? 'Clone, and fill it from the template' : 'Clone from Overleaf'}
               </button>
               <span className="wr-quiet mono">{gitUrl}</span>
             </div>
@@ -189,12 +342,17 @@ function WriteSetUp({ project, here }: { project: Project; here: Here }) {
               {busy ? 'Waiting for the folder…' : 'Choose the folder on this computer'}
             </button>
             <span className="wr-quiet">{way === 'dropbox' ? 'Usually Dropbox → Apps → Overleaf → the project.' : 'It opens this computer’s own folder chooser.'}</span>
+            {way === 'folder' && template ? (
+              <button type="button" className="btn" disabled={busy} onClick={() => void fresh()}>
+                Or a new folder from the template: {where}
+              </button>
+            ) : null}
           </div>
         ) : null}
         {problem ? <p className="wr-bad">{problem}</p> : null}
         {engines && !engines.latexmk && !engines.tectonic ? (
           <p className="wr-note">
-            There’s no TeX on this computer yet: the first compile offers to fetch Tectonic, or install TeX Live or MacTeX yourself.
+            There’s no TeX on this computer yet: the first compile offers to fetch Tectonic, or install TeX Live or MacTeX yourself — as Overleaf does, it compiles best with TeX Live.
           </p>
         ) : null}
         {engines && !engines.git && (way === 'git' || way === 'github') ? <p className="wr-bad">git isn’t installed on this computer: install it (git-scm.com, or xcode-select --install on a Mac) to sync.</p> : null}
@@ -246,6 +404,10 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
   const { settings, papers } = useStore();
   const options: WriteOptions = { ...WRITE_DEFAULTS, ...(settings.write ?? {}) };
   const save = useSaveFolder(project);
+  const updateLink = useUpdateLink(project);
+  const link = project.project.overleaf;
+  // As the Overleaf project is set (Menu → Compiler, Main document): kept on the project, so it stays as picked.
+  const compiler: TexCompiler = link?.compiler ?? 'pdflatex';
   const server = here.server;
   const [paths, setPaths] = useState<string[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
@@ -318,6 +480,10 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
   const texts = (paths ?? []).filter(isTextFile);
   const mainGuess = texts.find((path) => path === compiled?.main) ?? texts.find((path) => /(^|\/)main\.tex$/.test(path)) ?? texts.find((path) => path.endsWith('.tex'));
   const shown = open && texts.includes(open) ? open : mainGuess;
+  // The main document: as set on the project, else the one the compile found, else the first with main.tex's name.
+  const mainDoc = link?.main && texts.includes(link.main) ? link.main : undefined;
+  const mainRef = useRef<string | undefined>(mainDoc);
+  mainRef.current = mainDoc;
   useEffect(() => {
     if (shown) void load(shown);
   }, [shown, load]);
@@ -327,7 +493,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     setCompiling(true);
     setCompileError(null);
     try {
-      const done = await compilePaper(server, folder.path, options.engine);
+      const done = await compilePaper(server, folder.path, options.engine, { main: mainRef.current, compiler, halt: options.errors === 'halt' });
       setCompiled(done);
       if (done.pdf) setPdf(toBlob(done.pdf));
       if (done.errors.length && !done.pdf) setShowLog(true);
@@ -336,7 +502,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     } finally {
       setCompiling(false);
     }
-  }, [server, folder.path, options.engine]);
+  }, [server, folder.path, options.engine, compiler, options.errors]);
   useEffect(() => {
     if (paths && texts.length && engines && (engines.latexmk || engines.tectonic) && !compiled && !compiling) void compile();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -368,6 +534,13 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [git, server, folder.path, token, paths, options.compile, compile],
   );
+  // Opening the tab takes in what changed in Overleaf since, at once.
+  const openedSync = useRef(false);
+  useEffect(() => {
+    if (!git || options.sync === 'manual' || openedSync.current || paths === null) return;
+    openedSync.current = true;
+    void sync(true);
+  }, [git, options.sync, paths, sync]);
   // What coauthors write in Overleaf comes in while nothing is being typed here.
   useEffect(() => {
     if (!git || options.sync === 'manual') return;
@@ -429,6 +602,118 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     afterSave('save');
   };
 
+  // ---- files made, added, moved and deleted: compiled, and synced like an edit
+  const scheduleSync = () => {
+    if (!git || options.sync === 'manual') return;
+    window.clearTimeout(timers.current.sync);
+    timers.current.sync = window.setTimeout(() => void sync(true), 1500);
+  };
+  const afterChange = async () => {
+    await refreshList();
+    if (options.compile !== 'manual') void compile();
+    scheduleSync();
+  };
+  const [fileProblem, setFileProblem] = useState<string | null>(null);
+  const cleanPath = (raw: string | null) => {
+    const parts = (raw ?? '').trim().replace(/\\/g, '/').split('/').filter(Boolean);
+    if (!parts.length || parts.some((part) => part === '..' || part === '.' || part.startsWith('.'))) return null;
+    return parts.join('/');
+  };
+  const fileOp = async (what: () => Promise<void>) => {
+    setFileProblem(null);
+    try {
+      await what();
+      await afterChange();
+    } catch (error) {
+      setFileProblem(error instanceof Error ? error.message : String(error));
+    }
+  };
+  const newFile = () => {
+    const path = cleanPath(window.prompt('A new file — its path in the paper:', 'sections/new-section.tex'));
+    if (!path) return;
+    if ((paths ?? []).includes(path)) return setFileProblem(`${path} is there already.`);
+    void fileOp(async () => {
+      await jupyterWrite(server, at(path), '');
+      setFiles((current) => ({ ...current, [path]: { text: '', disk: '' } }));
+      setOpen(path);
+    });
+  };
+  const newFolder = () => {
+    const path = cleanPath(window.prompt('A new folder — its path in the paper (it reaches Overleaf once a file is in it):', 'figures'));
+    if (!path) return;
+    void fileOp(async () => {
+      const parts = path.split('/');
+      for (let i = 1; i <= parts.length; i += 1) await jupyterMkdir(server, at(parts.slice(0, i).join('/'))).catch(() => undefined);
+    });
+  };
+  const uploader = useRef<HTMLInputElement>(null);
+  const upload = (list: FileList) => {
+    const chosen = Array.from(list);
+    if (!chosen.length) return;
+    const dir = window.prompt(`Put ${chosen.length === 1 ? chosen[0].name : `${chosen.length} files`} in which folder? (empty for the top)`, chosen.every((file) => /\.(png|jpe?g|pdf|eps|svg)$/i.test(file.name)) ? 'figures' : '');
+    if (dir === null) return;
+    const base = dir.trim() ? cleanPath(dir) : '';
+    if (base === null) return setFileProblem('That folder name won’t do.');
+    void fileOp(async () => {
+      for (const file of chosen) await jupyterWriteBase64(server, at(base ? `${base}/${file.name}` : file.name), await fileBase64(file));
+    });
+  };
+  const rename = (path: string) => {
+    const to = cleanPath(window.prompt('Rename or move it — its new path:', path));
+    if (!to || to === path) return;
+    void fileOp(async () => {
+      await writeOut(path);
+      await jupyterRename(server, at(path), at(to));
+      setFiles((current) => {
+        const { [path]: moved, ...rest } = current;
+        return moved ? { ...rest, [to]: moved } : rest;
+      });
+      if (path === shown) setOpen(to);
+      if (path === link?.main) updateLink({ main: to });
+    });
+  };
+  const remove = (path: string) => {
+    if (!window.confirm(`Delete ${path}?${git ? ' It goes from Overleaf too with the next sync (Overleaf’s history keeps it).' : ''}`)) return;
+    void fileOp(async () => {
+      await jupyterDelete(server, at(path));
+      setFiles((current) => {
+        const { [path]: _gone, ...rest } = current;
+        return rest;
+      });
+    });
+  };
+
+  // ---- leaving: nothing typed is left behind, and with Git it goes to Overleaf
+  const flushRef = useRef<() => void>(() => undefined);
+  flushRef.current = () => {
+    window.clearTimeout(timers.current.save);
+    void saveAll().then((wrote) => {
+      if (git && options.sync !== 'manual' && (wrote || synced?.ok !== true || Date.now() - (synced?.at ?? 0) > 2000)) void syncPaper(server, folder.path, 'Edits from Reader').catch(() => undefined);
+    });
+  };
+  useEffect(() => {
+    const hidden = () => document.visibilityState === 'hidden' && flushRef.current();
+    const leaving = () => flushRef.current();
+    document.addEventListener('visibilitychange', hidden);
+    window.addEventListener('pagehide', leaving);
+    return () => {
+      document.removeEventListener('visibilitychange', hidden);
+      window.removeEventListener('pagehide', leaving);
+      flushRef.current();
+    };
+  }, []);
+
+  // A compiler or main document picked: the PDF made again with it.
+  const firstPick = useRef(true);
+  useEffect(() => {
+    if (firstPick.current) {
+      firstPick.current = false;
+      return;
+    }
+    if (compiled) void compile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compiler, link?.main]);
+
   // ---- citations
   const mine = useMemo(() => papersIn(project.id, papers), [project.id, papers]);
   const bibPath = texts.find((path) => path.endsWith('.bib'));
@@ -457,6 +742,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
   const current = shown ? files[shown] : undefined;
   const dirtyCount = Object.values(files).filter((file) => file.text !== file.disk).length;
   const noTex = engines && !engines.latexmk && !engines.tectonic;
+  const texLive = compiled?.engine === 'latexmk' ? engines?.texVersion?.match(/TeX Live (\d{4})/)?.[1] : undefined;
 
   const source = (
     <section className="wr-source">
@@ -502,7 +788,34 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     <section className="wr-preview">
       <div className="wr-tabs">
         <b>PDF</b>
-        {compiled ? <span className="wr-quiet">{compiled.engine} · {(compiled.ms / 1000).toFixed(1)} s</span> : null}
+        <select className="wr-pick" value={compiler} onChange={(event) => updateLink({ compiler: event.target.value as TexCompiler })} aria-label="Compiler" title="As the Overleaf project is set: Menu → Compiler. pdfLaTeX is Overleaf’s default.">
+          {TEX_COMPILERS.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.label}
+            </option>
+          ))}
+        </select>
+        <select
+          className="wr-pick mono"
+          value={mainDoc ?? compiled?.main ?? ''}
+          onChange={(event) => updateLink({ main: event.target.value })}
+          aria-label="Main document"
+          title="As the Overleaf project is set: Menu → Main document"
+        >
+          {!mainDoc && !compiled?.main ? <option value="">main document…</option> : null}
+          {texts
+            .filter((path) => path.endsWith('.tex'))
+            .map((path) => (
+              <option key={path} value={path}>
+                {path}
+              </option>
+            ))}
+        </select>
+        {compiled ? (
+          <span className="wr-quiet" title={texLive ? `Overleaf compiles with the TeX Live set in its Menu → TeX Live version: pick ${texLive} there for the same output as here.` : undefined}>
+            {texLive ? `TeX Live ${texLive}` : compiled.engine} · {(compiled.ms / 1000).toFixed(1)} s
+          </span>
+        ) : null}
         <span className="wr-sp" />
         <button type="button" className="btn sm primary" disabled={compiling || Boolean(noTex)} onClick={() => void saveNow().then(() => compile())} title="Recompile (⌘↵)">
           {compiling ? 'Compiling…' : 'Recompile'}
@@ -542,6 +855,9 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
         </div>
       ) : null}
       {compileError ? <p className="wr-banner">{compileError}</p> : null}
+      {compiled && compiled.compiler && compiled.compiler !== compiler ? (
+        <p className="wr-banner is-soft">Compiled with Tectonic, which is always XeLaTeX, not this project’s {TEX_COMPILERS.find((item) => item.id === compiler)?.label}: install TeX Live (or MacTeX) for the PDF Overleaf makes.</p>
+      ) : null}
       <PdfPages blob={pdf} />
     </section>
   );
@@ -552,26 +868,45 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
       <aside className="wr-side">
         <div className="wr-side-head">
           <b>Files</b>
-          <button type="button" className="link-btn" onClick={() => void refreshList()} title="Read the folder again">
-            ↻
-          </button>
+          <span className="wr-file-ops">
+            <button type="button" onClick={newFile} title="New file" aria-label="New file">+ file</button>
+            <button type="button" onClick={newFolder} title="New folder" aria-label="New folder">+ folder</button>
+            <button type="button" onClick={() => uploader.current?.click()} title="Upload files: figures, a .bib, a style" aria-label="Upload">upload</button>
+            <button type="button" onClick={() => void refreshList()} title="Read the folder again" aria-label="Read the folder again">↻</button>
+          </span>
+          <input
+            ref={uploader}
+            type="file"
+            multiple
+            hidden
+            onChange={(event) => {
+              if (event.target.files) upload(event.target.files);
+              event.target.value = '';
+            }}
+          />
         </div>
+        {fileProblem ? <p className="wr-bad wr-pad">{fileProblem}</p> : null}
         <div className="wr-tree">
           {listError ? <p className="wr-bad wr-pad">{listError}</p> : null}
           {(paths ?? []).map((path) => (
-            <button
-              key={path}
-              type="button"
-              className={`wr-tree-item${path === shown ? ' is-on' : ''}${isTextFile(path) ? '' : ' is-other'}`}
-              disabled={!isTextFile(path)}
-              onClick={() => setOpen(path)}
-              title={path}
-            >
-              {path.includes('/') ? <span className="wr-tree-dir">{path.slice(0, path.lastIndexOf('/') + 1)}</span> : null}
-              {path.split('/').pop()}
-              {files[path] && files[path].text !== files[path].disk ? <i> ●</i> : null}
-              {path === compiled?.main ? <small> main</small> : null}
-            </button>
+            <div key={path} className={`wr-tree-row${path === shown ? ' is-on' : ''}`}>
+              <button
+                type="button"
+                className={`wr-tree-item${path === shown ? ' is-on' : ''}${isTextFile(path) ? '' : ' is-other'}`}
+                disabled={!isTextFile(path)}
+                onClick={() => setOpen(path)}
+                title={path}
+              >
+                {path.includes('/') ? <span className="wr-tree-dir">{path.slice(0, path.lastIndexOf('/') + 1)}</span> : null}
+                {path.split('/').pop()}
+                {files[path] && files[path].text !== files[path].disk ? <i> ●</i> : null}
+                {path === (mainDoc ?? compiled?.main) ? <small> main</small> : null}
+              </button>
+              <span className="wr-tree-ops">
+                <button type="button" onClick={() => rename(path)} aria-label={`Rename ${path}`} title="Rename or move">✎</button>
+                <button type="button" onClick={() => remove(path)} aria-label={`Delete ${path}`} title="Delete">×</button>
+              </span>
+            </div>
           ))}
         </div>
         {options.citations === 'drawer' ? (

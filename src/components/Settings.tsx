@@ -6,6 +6,42 @@ import { parseRepo } from '../lib/github';
 import { COMPUTE_CONTROLS, GLASS_WALLS, NAV_STYLES, OVERLEAF_VIEWS, PROJECT_NAVS, WRITE_DEFAULTS, WRITE_OPTIONS } from '../types';
 import { computeControlsOf } from '../lib/compute';
 import { ComputeList } from './Compute';
+import { PAPER_TEMPLATES_VERSION, forgetOverleafToken, tokenKnown } from '../lib/companion';
+import { thisComputer } from '../lib/thisComputer';
+
+/** Whether this computer's Companion keeps an Overleaf account's Git token, and the way to forget it. */
+function OverleafTokenRow() {
+  const [state, setState] = useState<'asking' | 'kept' | 'none' | 'away'>('asking');
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    void thisComputer(PAPER_TEMPLATES_VERSION, 'keep an Overleaf token').then(async (here) => {
+      if ('error' in here) return setState('away');
+      setState((await tokenKnown(here.server, 'https://git.overleaf.com/000000000000000000000000').catch(() => false)) ? 'kept' : 'none');
+    });
+  }, []);
+  if (state === 'away' || state === 'asking') return null;
+  return (
+    <p style={{ fontSize: 12.5, margin: '10px 0 0', display: 'flex', gap: 10, alignItems: 'center' }}>
+      {state === 'kept' ? 'This computer keeps your Overleaf account’s Git token: every project of it syncs without asking.' : note || 'No Overleaf token on this computer yet: the Write tab asks for it once.'}
+      {state === 'kept' ? (
+        <button
+          type="button"
+          className="btn sm"
+          onClick={async () => {
+            if (!window.confirm('Forget the Overleaf token on this computer? Syncing asks for it again.')) return;
+            const here = await thisComputer(PAPER_TEMPLATES_VERSION, 'forget the Overleaf token');
+            if ('error' in here) return;
+            await forgetOverleafToken(here.server);
+            setState('none');
+            setNote('Forgotten: the Write tab asks for a token the next time it syncs.');
+          }}
+        >
+          Forget it
+        </button>
+      ) : null}
+    </p>
+  );
+}
 import { overleafViewOf } from '../lib/overleaf';
 import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
@@ -862,6 +898,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
                   </div>
                 );
               })}
+              <OverleafTokenRow />
               <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
                 The Write tab needs this computer’s Companion ({'0.10.0'} or later): it keeps the paper in a folder here,
                 compiles it with your TeX (or Tectonic, which it can fetch), and syncs it with Overleaf’s Git or Dropbox.

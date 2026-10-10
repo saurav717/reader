@@ -294,6 +294,20 @@ and shows which one it is on in the machine chip.
   Folders are relative to the Companion's, and one that climbs out is
   refused. The token is kept in the Companion's config (0600), by remote, and
   given to git through `GIT_ASKPASS`. It is never written into the clone.
+- From 0.11.0, `compile` runs Overleaf's own command: `latexmk -cd
+  -jobname=output -outdir=<build> -synctex=1 -interaction=batchmode -f`. It
+  uses the project's compiler (`-pdf`, `-xelatex`, `-lualatex` or `-pdfdvi`)
+  and main document, and `-halt-on-error` in place of `-f` when asked. The
+  build folder is the Companion's own (`~/.reader-companion/build/<hash>`),
+  with the paper's folders mirrored for `\include`, so no build file is left
+  in the paper or synced. `GET` adds the TeX's version. More actions:
+  - `templates`, `save-template {name, zip}`, `apply-template {template,
+    folder, replace}` and `delete-template`: a `.zip` kit is unpacked under
+    `templates/`, with names that climb out refused, and copied into a new
+    paper's folder.
+  - `token {url}` says whether a token is kept. It is stored for the remote
+    and its host too, so an Overleaf account's other projects need none.
+  - `forget-token {host}` forgets them.
 - Secrets (playground.md, step 8) live in the keychain and are passed to a
   kernel's environment. They are never put in the Drive mirror.
 

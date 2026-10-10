@@ -440,6 +440,8 @@ function LinkForm({ project, onDone }: { project: Project; onDone: () => void })
             className="btn ghost sm"
             style={{ marginLeft: 'auto' }}
             onClick={() => {
+              // A link stays until it is taken off on purpose: the folder on each computer, the browser, the compiler go with it.
+              if (!window.confirm(`Unlink “${project.name}” from its Overleaf project? The Overleaf project and the paper’s files on your computers stay as they are; the Write tab asks for them again.`)) return;
               updateLink(updateCollection, project, undefined);
               drafts.delete(project.id);
               onDone();

@@ -1086,11 +1086,35 @@ Where you write is a choice in Settings → Projects, **Writing with Overleaf**:
     Coauthors' edits come in while you aren't typing, and every 30 seconds.
     Edits on the same lines are left marked for you to settle, never thrown
     away. The token stays in the Companion, on this computer.
-  - **The Write tab** in Settings has five choices: when it compiles (as you
+  - It compiles as Overleaf does: `latexmk` with the job named `output`,
+    SyncTeX, batch mode, and `-f` to keep going past errors (or
+    `-halt-on-error`, Overleaf's *Stop on first error*). It uses the
+    project's **compiler** (pdfLaTeX, XeLaTeX, LuaLaTeX or LaTeX, as in
+    Overleaf's Menu → Compiler) and **main document**, both picked in the PDF
+    pane's header and kept on the project. The build goes into a folder of
+    the Companion's own, so nothing it makes reaches Overleaf. The pane names
+    the TeX Live year; pick the same year in Overleaf's Menu → TeX Live
+    version for identical output. Tectonic is always XeLaTeX, and says so.
+  - Everything made in the tab is synced like an edit: new files and
+    folders, uploads (figures, a `.bib`, a style), renames and deletions.
+    Opening the tab takes in what changed in Overleaf, and leaving it saves
+    and syncs whatever is left.
+  - **Conference templates**: add a kit's `.zip` once (it is kept on this
+    computer) and start a paper from it. In Overleaf make a Blank Project and
+    put its address on the paper card. The Write tab clones it, puts the
+    template's files in (in place of the blank `main.tex`), makes the
+    template's paper the main document, and pushes it all to Overleaf.
+  - **It sticks.** The link, each computer's folder, the compiler and the
+    main document are kept on the project until changed: unlinking asks
+    first. The Overleaf Git token is the account's, kept by the Companion on
+    each computer for every project of that account, so it is asked for
+    once. Settings → The Write tab can forget it.
+  - **The Write tab** in Settings has six choices: when it compiles (as you
     type, on save, by hand), which TeX (whichever is here, latexmk,
     Tectonic), where the PDF is (beside the source, under it, a tab of its
-    own), when it syncs (as you type, on save, by hand), and the citations
-    drawer (on or off).
+    own), when it syncs (as you type, on save, by hand), the citations drawer (on or
+    off), and what an error does (keep going, as Overleaf, or stop at the
+    first).
 - **Overleaf beside** (the default): the card's button opens Overleaf in a
   window on the right half of the screen. In the workspace, the paper you are
   reading has **\cite** and **BibTeX** buttons that copy its key and entry.
