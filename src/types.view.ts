@@ -12,5 +12,5 @@ export type View =
   | { kind: 'playground'; id?: string }
   /** Every project side by side, at /projects. */
   | { kind: 'projects' }
-  /** One project: its overview, its workspace — a paper beside the project's code — or its paper, being written. */
-  | { kind: 'project'; id: string; mode?: 'overview' | 'workspace' | 'write' };
+  /** One project: its overview, its papers to read, its workspace — a paper beside the project's code — or its paper, being written. */
+  | { kind: 'project'; id: string; mode?: 'overview' | 'read' | 'workspace' | 'write' };

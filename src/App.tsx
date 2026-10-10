@@ -592,7 +592,7 @@ export default function App() {
   // A project's workspace is a paper beside its code, and its Write tab the paper
   // and its PDF: the library and the dock step aside on the way in, and come
   // back as they were on the way out.
-  const inWorkspace = view.kind === 'project' && (view.mode === 'workspace' || view.mode === 'write');
+  const inWorkspace = view.kind === 'project' && (view.mode === 'read' || view.mode === 'workspace' || view.mode === 'write');
   const panelsBeforeWorkspace = useRef<Layout | null>(null);
   useEffect(() => {
     if (inWorkspace) {
@@ -1220,7 +1220,7 @@ export default function App() {
   return (
     <div
       ref={appRef}
-      className={`app${inZen ? ` is-zen haze-${settings.zenHaze}` : ''}${inZen && peek ? ` peek-${peek}` : ''}${besideInZen ? ' notes-beside' : ''}${!inZen && dockSlide ? ` dock-slide-${dockSlide}` : ''}`}
+      className={`app${inZen ? ` is-zen haze-${settings.zenHaze}` : ''}${inZen && fullscreen ? ' is-fullscreen' : ''}${inZen && peek ? ` peek-${peek}` : ''}${besideInZen ? ' notes-beside' : ''}${!inZen && dockSlide ? ` dock-slide-${dockSlide}` : ''}`}
       {...zenPointer}
     >
 {navStyle === 'classic' ? (

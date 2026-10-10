@@ -52,7 +52,7 @@ export function pathFor(place: Place, base = basePath()): string {
                 ? withId('playground', view.id)
                 : 'playground'
               : view.kind === 'project'
-                ? `${withId('project', view.id)}${view.mode === 'workspace' || view.mode === 'write' ? `&view=${view.mode}` : ''}`
+                ? `${withId('project', view.id)}${view.mode === 'read' || view.mode === 'workspace' || view.mode === 'write' ? `&view=${view.mode}` : ''}`
                 : view.kind;
   return `${base}${tail}`;
 }
@@ -109,7 +109,7 @@ export function placeFor(address: string, base = basePath()): Place | null {
   if (head === 'projects' && !extra) return { view: { kind: 'projects' } };
   if (head === 'project' && id) {
     const asked = new URLSearchParams(query).get('view');
-    const mode = asked === 'workspace' || asked === 'write' ? asked : undefined;
+    const mode = asked === 'read' || asked === 'workspace' || asked === 'write' ? asked : undefined;
     return { view: mode ? { kind: 'project', id, mode } : { kind: 'project', id } };
   }
   if (head === 'playground') return { view: id ? { kind: 'playground', id } : { kind: 'playground' } };
