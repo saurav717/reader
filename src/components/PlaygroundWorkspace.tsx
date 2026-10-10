@@ -942,6 +942,7 @@ function VsCodePane({ server, folder, playground }: { server: JupyterServer; fol
 
 function FilesView({ playground, connected, usable, machineName }: { playground: Playground; connected: boolean; usable: boolean; machineName: string }) {
   const colab = useColab();
+  const { papers } = useStore();
   const servers = useServers();
   const split = !filesAreOnMachine(playground);
   // The hosts follow the servers' list, so an edited address is used at once.
@@ -1136,6 +1137,19 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
       setProblem(error instanceof Error ? error.message : String(error));
     }
   };
+  // A project started from a paper opens on its README the first time, the paper and its abstract in front.
+  useEffect(() => {
+    if (playground.start !== 'paper' || readLocal(`reader.pgFirstOpen:${playground.id}`, false)) return;
+    void home
+      .read('README.md')
+      .then((text) => {
+        if (text === null) return;
+        writeLocal(`reader.pgFirstOpen:${playground.id}`, true);
+        void open('home', 'README.md');
+      })
+      .catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playground.id]);
   // A line asked for (Go to Line, Outline, search, Quick Open), once its editor is there.
   useEffect(() => {
     const want = goTo.current;
@@ -1377,9 +1391,11 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     if (last && consoleLog.current) consoleLog.current.scrollTop = last.offsetTop - 4;
   }, [playground.console.length]);
 
+  const cited = playground.cites.map((cite) => papers.find((paper) => paper.id === cite.paperId)).find(Boolean);
   /** The project as the agent reads it: the folder's files, the ones open, the last commands and what they printed. */
   const agentView = async (): Promise<ProjectView> => ({
     where: `Files kept in ${homeLabel}; code runs on ${machineName}${split ? ', the folder copied there before each command' : ''}.`,
+    paper: cited ? { title: cited.title, authors: cited.authors, published: cited.published, abstract: cited.abstract } : undefined,
     listing: await listAll(home),
     open: files.filter((file) => file.where === 'home').map((file) => ({ path: file.path, text: file.text, active: `${file.where}:${file.path}` === active, unsaved: file.text !== file.saved })),
     console: playground.console.slice(-4).map((entry) => {
@@ -2061,7 +2077,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                     host={home}
                     machineName={machineName}
                     view={agentView}
-                    context={{ active: current?.path, open: files.length, commands: Math.min(4, playground.console.length) }}
+                    context={{ active: current?.path, open: files.length, commands: Math.min(4, playground.console.length), paper: cited?.title }}
                     onOpen={(path) => void open('home', path)}
                     onRun={(line) => {
                       setPanelOpen(true);

@@ -202,6 +202,8 @@ await page.locator('.pg-title-field input').fill('Attention, tried');
 await page.locator('.pg-mode').nth(1).click();
 await page.locator('.pg-sheet-foot .btn.primary').click();
 await page.waitForSelector('.pg-bar');
+// A paper starts a project, on its files: its notebook is the tab beside them.
+await page.locator('.pg-bar').getByRole('tab', { name: 'Notebook' }).click();
 const addCode = async () => {
   await page.getByRole('button', { name: '+ Code' }).first().click();
   await page.waitForTimeout(300);

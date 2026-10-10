@@ -28,6 +28,7 @@ import {
   modelCells,
   modelIdOf,
   paperCells,
+  paperFiles,
   parseServerUrl,
   playgroundsLoaded,
   removeServer,
@@ -253,7 +254,10 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
 
   const fromPaper = (paper: Paper) => {
     const cite = { paperId: paper.id, title: paper.title };
-    begin({ title: `Trying ${paper.title.split(/[:—–-]/)[0].trim().slice(0, 60)}`, kind: 'notebook', start: 'paper', cites: [cite], cells: paperCells(paper.title, { ...cite, abstract: paper.abstract, authors: paper.authors }) });
+    const title = `Trying ${paper.title.split(/[:—–-]/)[0].trim().slice(0, 60)}`;
+    const about = { ...cite, abstract: paper.abstract, authors: paper.authors, published: paper.published, arxivId: paper.arxivId, doi: paper.doi };
+    // A project, as VS Code lays one out: the files, an editor, a console and an agent that knows the paper. The notebook is still a tab away.
+    begin({ title, kind: 'project', start: 'paper', cites: [cite], files: paperFiles(title, about), cells: paperCells(paper.title, about) });
   };
 
   const fromFile = async (file: File | undefined) => {
@@ -279,7 +283,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
   const starts: { key: string; mark: string; title: string; text: string; go: () => void }[] = [
     { key: 'blank', mark: '[ ]', title: 'Blank notebook', text: 'Cells, Markdown, maths, a kernel. The quickest way to try an idea.', go: () => begin({ title: 'Untitled notebook', kind: 'notebook', start: 'blank' }) },
     { key: 'project', mark: '{ }', title: 'Blank project', text: 'Files, an editor and a console — for code that outgrows cells.', go: () => begin({ title: 'Untitled project', kind: 'project', start: 'blank', files: { 'main.py': 'import torch\n\nprint("torch", torch.__version__, "· cuda", torch.cuda.is_available())\n', 'README.md': '# Untitled project\n' } }) },
-    { key: 'paper', mark: '¶', title: 'From a paper', text: 'A paper from your library: the notebook cites it, and the model that writes cells reads its abstract.', go: () => (setAsking('paper'), setAnswer(''), setProblem(null)) },
+    { key: 'paper', mark: '¶', title: 'From a paper', text: 'A paper from your library, as a project: files, an editor, a console, and an agent that has read its abstract.', go: () => (setAsking('paper'), setAnswer(''), setProblem(null)) },
     { key: 'repo', mark: '⑂', title: 'From a repository', text: 'A GitHub address — the paper’s own code, cloned onto the machine you pick.', go: () => (setAsking('repo'), setAnswer(''), setProblem(null)) },
     { key: 'model', mark: 'HF', title: 'From a model card', text: 'A Hugging Face model or dataset id: loaded, run once, ready to change.', go: () => (setAsking('model'), setAnswer(''), setProblem(null)) },
     { key: 'file', mark: '.nb', title: 'Open a file', text: 'An .ipynb from anywhere, or a .py to start a project with.', go: () => filePick.current?.click() },

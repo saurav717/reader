@@ -613,6 +613,24 @@ export function paperCells(title: string, paper: Cite & { abstract?: string; aut
   return [newCell('markdown', `# ${title}\n\n*Trying out* **${paper.title}**${byline}.${paper.abstract ? `\n\n> ${paper.abstract.replace(/\s+/g, ' ').slice(0, 900)}` : ''}`)];
 }
 
+/**
+ * A project's first files when it starts from a paper: the paper in the README, a briefing the terminal agents read
+ * on their own (AGENTS.md for Codex, CLAUDE.md for Claude Code), and an entry point that checks the machine.
+ */
+export function paperFiles(title: string, paper: Cite & { abstract?: string; authors?: string[]; published?: string; arxivId?: string; doi?: string }): Record<string, string> {
+  const authors = paper.authors?.length ? `${paper.authors.slice(0, 6).join(', ')}${paper.authors.length > 6 ? ' et al.' : ''}` : '';
+  const link = paper.arxivId ? `https://arxiv.org/abs/${paper.arxivId}` : paper.doi ? `https://doi.org/${paper.doi}` : '';
+  const year = paper.published ? paper.published.slice(0, 4) : '';
+  const abstract = paper.abstract?.replace(/\s+/g, ' ').trim();
+  const cite = [`**${paper.title}**`, authors, year].filter(Boolean).join(' — ') + (link ? `\n${link}` : '');
+  return {
+    'README.md': `# ${title}\n\nAn implementation of\n\n${cite}\n${abstract ? `\n## Abstract\n\n> ${abstract}\n` : ''}\n## Layout\n\n- \`main.py\` — the entry point: checks the machine, then runs the experiment.\n- \`AGENTS.md\` — what a coding agent is told about this project.\n\nAsk the agent on the right to write the method, a training loop and an evaluation; run them from the console below.\n`,
+    'AGENTS.md': `# ${title}\n\nThis project reproduces the method of the paper ${cite.replace(/\n/, ' — ')}.\n${abstract ? `\nAbstract:\n\n> ${abstract}\n` : ''}\nWhen asked to implement it: write the method as a small, faithful implementation in its own module, a seeded\nexperiment sized for the machine it runs on (use the GPU when torch.cuda.is_available(), else a smaller size on the\nCPU), and an evaluation that prints the paper's headline metric. Cite the paper's equation numbers in comments, say\nin the README where a detail the paper leaves out was chosen, and keep \`python main.py\` as the way to run it.\n`,
+    'CLAUDE.md': '@AGENTS.md\n',
+    'main.py': `"""${paper.title.replace(/"""/g, "'''")}: the entry point."""\n\nimport torch\n\n\ndef main():\n    device = "cuda" if torch.cuda.is_available() else "cpu"\n    print("torch", torch.__version__, "· device", device)\n    torch.manual_seed(0)\n    # TODO: the method, a training loop and an evaluation — ask the agent, or see AGENTS.md\n\n\nif __name__ == "__main__":\n    main()\n`,
+  };
+}
+
 /** A Hugging Face model id, as typed or pasted from its page. */
 export function modelIdOf(input: string): string | null {
   const trimmed = input.trim().replace(/^https?:\/\/(www\.)?huggingface\.co\//, '').replace(/[?#].*$/, '').replace(/\/+$/, '');
