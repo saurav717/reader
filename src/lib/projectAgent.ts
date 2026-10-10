@@ -145,7 +145,7 @@ export async function listAll(host: FileHost, max = LISTED_MAX + 50, path = '', 
   for (const entry of entries) {
     if (out.length >= max) break;
     if (entry.type === 'directory') {
-      if (/^(\.git|__pycache__|node_modules|\.ipynb_checkpoints|\.venv|venv|wandb)$/.test(entry.name)) continue;
+      if (/^(\.git|\.reader|__pycache__|node_modules|\.ipynb_checkpoints|\.venv|venv|wandb)$/.test(entry.name)) continue;
       await listAll(host, max, entry.path, out, depth + 1);
     } else out.push({ path: entry.path, size: entry.size });
   }
@@ -157,9 +157,9 @@ export async function listAll(host: FileHost, max = LISTED_MAX + 50, path = '', 
 /** A file the agent wrote: what was there before, for Undo, and how much changed. */
 export interface AgentChange {
   path: string;
-  /** null: the file is new. */
-  before: string | null;
-  after: string;
+  /** null: the file is new. Left out, with `after`, on an older answer saved without its text: it can't be undone. */
+  before?: string | null;
+  after?: string;
   added: number;
   removed: number;
 }
@@ -190,16 +190,96 @@ export interface AgentPending {
   error?: string;
 }
 
-export interface AgentChat {
+/** A conversation as it is kept: its turns, when it started, and a title from its first request. */
+export interface SavedChat {
+  id: string;
+  title: string;
+  started: number;
+  updated: number;
   turns: AgentTurn[];
+}
+
+export interface AgentChat {
+  /** The conversation in the panel. */
+  id: string;
+  started: number;
+  turns: AgentTurn[];
+  /** The earlier ones, newest first, as the project's folder keeps them. */
+  history: SavedChat[];
   pending?: AgentPending;
+  /** Whether the folder's copy has been read; and why not, when it couldn't be. */
+  loaded?: boolean;
+  problem?: string;
+}
+
+/**
+ * The conversations live in the project's own folder, beside its code —
+ * `.reader/agent.json`, in Drive, on the computer or on the machine, wherever
+ * the person chose to keep the files — so they open again in any browser, and
+ * nothing of them is kept in this one. The model's API keeps nothing: each
+ * request carries the conversation itself.
+ */
+export const AGENT_FILE = '.reader/agent.json';
+const CHATS_KEPT = 20;
+/** The answers whose files' text is kept, for Undo: the newest few; older ones keep their paths and counts. */
+const UNDOABLE_KEPT = 6;
+
+interface AgentFile {
+  generator: 'reader';
+  version: 1;
+  chats: SavedChat[];
+}
+
+const newId = () => Math.random().toString(36).slice(2, 10);
+const titleOf = (turns: AgentTurn[]) => {
+  const first = turns.find((turn) => turn.role === 'user')?.text.trim() ?? '';
+  return first.length > 70 ? `${first.slice(0, 70)}…` : first || 'A conversation';
+};
+
+/** A chat as it is written: only the newest answers keep their files' text, so the file stays small. */
+export function slimChat(chat: SavedChat): SavedChat {
+  let left = UNDOABLE_KEPT;
+  const turns = [...chat.turns]
+    .reverse()
+    .map((turn) => {
+      if (!turn.changes?.length) return turn;
+      if (left > 0 && !turn.undone) {
+        left--;
+        return turn;
+      }
+      return { ...turn, changes: turn.changes.map(({ before: _b, after: _a, ...rest }) => rest) };
+    })
+    .reverse();
+  return { ...chat, turns };
+}
+
+/** The file read back, checked enough that a stray or hand-edited one can't break the panel. */
+export function parseAgentFile(text: string | null): SavedChat[] {
+  if (!text) return [];
+  try {
+    const parsed = JSON.parse(text) as Partial<AgentFile>;
+    if (!Array.isArray(parsed.chats)) return [];
+    return parsed.chats.filter((chat) => chat && typeof chat.id === 'string' && Array.isArray(chat.turns)).map((chat) => ({ ...chat, title: String(chat.title ?? titleOf(chat.turns)), started: Number(chat.started) || 0, updated: Number(chat.updated) || 0 }));
+  } catch {
+    return [];
+  }
+}
+
+/** Two lists of chats as one: by id, the one changed last; newest first; empty ones left out. */
+export function mergeChats(a: SavedChat[], b: SavedChat[]): SavedChat[] {
+  const byId = new Map<string, SavedChat>();
+  for (const chat of [...a, ...b]) {
+    const held = byId.get(chat.id);
+    if (!held || chat.updated > held.updated) byId.set(chat.id, chat);
+  }
+  return [...byId.values()].filter((chat) => chat.turns.length).sort((x, y) => y.updated - x.updated).slice(0, CHATS_KEPT);
 }
 
 const chats = new Map<string, AgentChat>();
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((listener) => listener());
 let running: { projectId: string; abort: () => void } | null = null;
-const EMPTY: AgentChat = { turns: [] };
+const EMPTY: AgentChat = { id: '', started: 0, turns: [], history: [] };
 
 export function subscribeAgent(listener: () => void) {
   listeners.add(listener);
@@ -211,15 +291,61 @@ export const agentChatFor = (projectId: string): AgentChat => chats.get(projectI
 export const isAgentRunning = (projectId: string) => running?.projectId === projectId;
 
 const update = (projectId: string, patch: Partial<AgentChat>) => {
-  chats.set(projectId, { ...agentChatFor(projectId), ...patch });
+  const now = chats.get(projectId) ?? { ...EMPTY, id: newId(), started: Date.now() };
+  chats.set(projectId, { ...now, ...patch });
   notify();
 };
-// The conversation is held in this tab only: its turns carry the files' text (for Undo), and a project's files are
-// kept where the person chose — Drive, a computer of theirs, the machine — never in the browser.
 
-export function clearAgentChat(projectId: string) {
+/** The conversation in the panel, as it is kept. */
+const currentChat = (chat: AgentChat): SavedChat => ({ id: chat.id, title: titleOf(chat.turns), started: chat.started, updated: chat.turns[chat.turns.length - 1]?.at ?? chat.started, turns: chat.turns });
+
+/** The conversations, read from the project's folder: the newest open in the panel, the rest under History. */
+export async function loadAgentChats(projectId: string, host: FileHost) {
+  const here = chats.get(projectId);
+  if (here?.loaded || isAgentRunning(projectId)) return;
+  try {
+    const saved = parseAgentFile(await host.read(AGENT_FILE).catch((error) => (/not found|404/i.test(String(error)) ? null : Promise.reject(error))));
+    const now = chats.get(projectId);
+    const all = mergeChats(saved, now?.turns.length ? [currentChat(now), ...now.history] : now?.history ?? []);
+    const open = now?.turns.length ? all.find((chat) => chat.id === now.id) ?? currentChat(now) : all[0];
+    update(projectId, { ...(open ? { id: open.id, started: open.started, turns: open.turns } : {}), history: all.filter((chat) => chat.id !== open?.id), loaded: true, problem: undefined });
+  } catch (error) {
+    update(projectId, { loaded: false, problem: `The conversations couldn’t be read from the project’s folder: ${error instanceof Error ? error.message : String(error)}` });
+  }
+}
+
+/** The conversations, written to the project's folder — merged with what is there, so two browsers keep both. */
+export async function saveAgentChats(projectId: string, host: FileHost) {
+  const chat = chats.get(projectId);
+  if (!chat) return;
+  try {
+    const there = parseAgentFile(await host.read(AGENT_FILE).catch(() => null));
+    const all = mergeChats(there, [currentChat(chat), ...chat.history]).map(slimChat);
+    const body: AgentFile = { generator: 'reader', version: 1, chats: all };
+    await host.write(AGENT_FILE, `${JSON.stringify(body, null, 1)}\n`);
+    if (chat.problem) update(projectId, { problem: undefined });
+  } catch (error) {
+    update(projectId, { problem: `This conversation isn’t saved: ${error instanceof Error ? error.message : String(error)}` });
+  }
+}
+
+/** A new conversation; the one in the panel goes under History. */
+export function clearAgentChat(projectId: string, host: FileHost) {
   if (isAgentRunning(projectId)) return;
-  update(projectId, { turns: [], pending: undefined });
+  const chat = agentChatFor(projectId);
+  const history = chat.turns.length ? mergeChats([currentChat(chat)], chat.history) : chat.history;
+  update(projectId, { id: newId(), started: Date.now(), turns: [], history, pending: undefined });
+  void saveAgentChats(projectId, host);
+}
+
+/** An earlier conversation, back in the panel; the one there goes under History. */
+export function openAgentChat(projectId: string, id: string) {
+  if (isAgentRunning(projectId)) return;
+  const chat = agentChatFor(projectId);
+  const picked = chat.history.find((c) => c.id === id);
+  if (!picked) return;
+  const history = mergeChats(chat.turns.length ? [currentChat(chat)] : [], chat.history.filter((c) => c.id !== id));
+  update(projectId, { id: picked.id, started: picked.started, turns: picked.turns, history, pending: undefined });
 }
 export function stopAgent() {
   running?.abort();
@@ -276,6 +402,8 @@ export async function askAgent(params: { projectId: string; model: string; reque
   const { projectId, model, host } = params;
   const request = params.request.trim();
   if (!request || running) return;
+  // The folder couldn't be read when the panel opened (the machine wasn't connected): its conversations first, so this one joins them.
+  if (!chats.get(projectId)?.loaded) await loadAgentChats(projectId, host);
   const before = agentChatFor(projectId).turns;
   const userTurn: AgentTurn = { role: 'user', text: request, at: Date.now() };
   const pending: AgentPending = { request, reply: '', started: Date.now(), step: 'Reading the project', read: [] };
@@ -354,12 +482,13 @@ export async function askAgent(params: { projectId: string; model: string; reque
   } finally {
     running = null;
   }
+  await saveAgentChats(projectId, host);
 }
 
 /** Undo one answer: its files put back as they were (a new file is left empty — the folder has no delete). */
 export async function undoAgentTurn(projectId: string, at: number, host: FileHost, onWrote?: (changes: AgentChange[]) => void) {
   const turn = agentChatFor(projectId).turns.find((t) => t.at === at && t.role === 'agent');
-  if (!turn?.changes?.length || turn.undone) return;
+  if (!turn?.changes?.length || turn.undone || !canUndo(turn)) return;
   const back: AgentChange[] = [];
   for (const change of turn.changes) {
     const text = change.before ?? '';
@@ -368,4 +497,8 @@ export async function undoAgentTurn(projectId: string, at: number, host: FileHos
   }
   update(projectId, { turns: agentChatFor(projectId).turns.map((t) => (t === turn ? { ...t, undone: true } : t)) });
   onWrote?.(back);
+  await saveAgentChats(projectId, host);
 }
+
+/** Whether an answer still has its files' text, so Undo can put them back. */
+export const canUndo = (turn: AgentTurn) => Boolean(turn.changes?.every((change) => change.after !== undefined));

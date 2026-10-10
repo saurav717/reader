@@ -6049,7 +6049,7 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .pg-tree-head.vs-section span:last-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vs-chev { display: inline-block; width: 10px; flex: none; color: var(--muted); font: 600 13px/1 var(--sans); transition: transform 0.12s; }
 .is-open > .vs-chev, .vs-section.is-open .vs-chev { transform: rotate(90deg); }
-.vs-sidebar .pg-entry::before { content: none; }
+.vs-sidebar .pg-entry::before, .vs-sidebar .pg-entry.is-dir.is-open::before { content: none; }
 .vs-sidebar .pg-entry { gap: 6px; padding: 3px 8px 3px 20px; font-size: 12.5px; border-radius: 5px; }
 .vs-sidebar .pg-entry.is-dir { padding-left: 6px; }
 .vs-sidebar .pg-entry.is-on { box-shadow: inset 2px 0 0 var(--accent); }
@@ -6179,3 +6179,9 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 }
 .pg-tree-head.vs-section .vs-chev { flex: none; }
 .pg-tree-head.vs-section > span:last-child { flex: 1; text-align: left; }
+.vs-agent-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 14px; border-bottom: 1px solid var(--border-soft); font-size: 12px; min-width: 0; }
+.vs-agent-bar .pg-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; }
+.vs-history { left: 0; right: auto; top: calc(100% + 6px); width: 300px; max-height: 360px; overflow-y: auto; }
+.vs-history button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.vs-history button span { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.vs-history button small { color: var(--muted); font-size: 11px; }

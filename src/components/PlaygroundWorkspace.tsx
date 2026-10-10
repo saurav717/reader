@@ -1141,7 +1141,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   const tookAgentFiles = (changes: AgentChange[]) => {
     setFiles((list) => list.map((file) => {
       const change = file.where === 'home' ? changes.find((c) => c.path === file.path) : undefined;
-      return change && file.text === file.saved ? { ...file, text: change.after, saved: change.after } : file;
+      return change?.after !== undefined && file.text === file.saved ? { ...file, text: change.after, saved: change.after } : file;
     }));
     setRefresh((n) => n + 1);
     const first = changes.find((c) => c.after);

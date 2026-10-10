@@ -66,3 +66,46 @@ describe('the project, as the agent reads it', () => {
     assert.deepEqual((await agent.listAll(host)).map((f) => f.path), ['src/a.py', 'main.py']);
   });
 });
+
+describe('the conversations, kept in the project folder', () => {
+  const change = (path) => ({ path, before: 'a', after: 'b', added: 1, removed: 1 });
+  const answer = (at, changes) => ({ role: 'agent', text: 'done', at, changes });
+  it('keeps the files’ text only for the newest answers, so the file stays small', () => {
+    const turns = Array.from({ length: 9 }, (_, i) => answer(i + 1, [change(`f${i}.py`)]));
+    const slim = agent.slimChat({ id: 'c', title: 't', started: 0, updated: 9, turns });
+    assert.equal(slim.turns.filter(agent.canUndo).length, 6);
+    assert.equal(agent.canUndo(slim.turns[0]), false);
+    assert.deepEqual(slim.turns[0].changes[0], { path: 'f0.py', added: 1, removed: 1 });
+    assert.equal(agent.canUndo(slim.turns[8]), true);
+  });
+  it('merges two browsers’ copies by chat, the later change winning, newest first', () => {
+    const a = [{ id: 'x', title: 'x', started: 1, updated: 5, turns: [{ role: 'user', text: 'old', at: 5 }] }];
+    const b = [
+      { id: 'x', title: 'x', started: 1, updated: 9, turns: [{ role: 'user', text: 'new', at: 9 }] },
+      { id: 'y', title: 'y', started: 2, updated: 7, turns: [{ role: 'user', text: 'y', at: 7 }] },
+      { id: 'z', title: 'z', started: 3, updated: 8, turns: [] },
+    ];
+    const merged = agent.mergeChats(a, b);
+    assert.deepEqual(merged.map((chat) => chat.id), ['x', 'y']);
+    assert.equal(merged[0].turns[0].text, 'new');
+  });
+  it('reads back its own file, and nothing from a broken one', () => {
+    const chats = [{ id: 'x', title: 'x', started: 1, updated: 2, turns: [{ role: 'user', text: 'hi', at: 2 }] }];
+    assert.deepEqual(agent.parseAgentFile(JSON.stringify({ generator: 'reader', version: 1, chats })), chats);
+    assert.deepEqual(agent.parseAgentFile('{oops'), []);
+    assert.deepEqual(agent.parseAgentFile(null), []);
+  });
+  it('saves to the folder and opens again from it, in a new tab', async () => {
+    const files = new Map();
+    const host = { label: 'drive', list: async () => [], read: async (path) => files.get(path) ?? null, write: async (path, text) => void files.set(path, text) };
+    globalThis.requestAnimationFrame ??= (fn) => setTimeout(fn, 0);
+    agent.clearAgentChat('p1', host);
+    await new Promise((r) => setTimeout(r, 10));
+    assert.equal(files.has(agent.AGENT_FILE), true);
+    // the file written by another browser: one conversation
+    files.set(agent.AGENT_FILE, JSON.stringify({ generator: 'reader', version: 1, chats: [{ id: 'k', title: 'Write train.py', started: 1, updated: 2, turns: [{ role: 'user', text: 'Write train.py', at: 2 }] }] }));
+    await agent.loadAgentChats('p2', host);
+    assert.equal(agent.agentChatFor('p2').turns[0].text, 'Write train.py');
+    assert.equal(agent.agentChatFor('p2').loaded, true);
+  });
+});

@@ -101,7 +101,7 @@ export interface Playground {
   cells?: { type: CellType; source: string }[];
 }
 
-export const DEFAULT_IGNORE = ['.git/', '__pycache__/', '.ipynb_checkpoints/', 'data/', '*.ckpt', '*.pt', '*.safetensors', 'wandb/'].join('\n');
+export const DEFAULT_IGNORE = ['.git/', '.reader/', '__pycache__/', '.ipynb_checkpoints/', 'data/', '*.ckpt', '*.pt', '*.safetensors', 'wandb/'].join('\n');
 export const DEFAULT_BRING_BACK = ['runs/', 'results/', 'outputs/', '*.csv', '*.json', '*.png'].join('\n');
 
 // --------------------------------------------------------- the servers ----

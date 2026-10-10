@@ -10,7 +10,7 @@ import { getState as assistantState, modelSpec, PROVIDERS, setAskModel, subscrib
 import { markdown } from '../lib/markdown';
 import type { FileHost } from '../lib/playground';
 import type { AgentChange, ProjectView } from '../lib/projectAgent';
-import { agentChatFor, askAgent, clearAgentChat, dismissAgentError, isAgentRunning, stopAgent, subscribeAgent, undoAgentTurn } from '../lib/projectAgent';
+import { AGENT_FILE, agentChatFor, askAgent, canUndo, clearAgentChat, dismissAgentError, isAgentRunning, loadAgentChats, openAgentChat, stopAgent, subscribeAgent, undoAgentTurn } from '../lib/projectAgent';
 import FileIcon from './FileIcon';
 import ModelChip, { shortModelName } from './ModelChip';
 import { SparkleIcon } from './icons';
@@ -52,6 +52,11 @@ export default function ProjectAgent({
   const writer = PROVIDERS[modelSpec(model).provider].name;
   const [text, setText] = useState('');
   const log = useRef<HTMLDivElement>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  // The conversations are in the project's folder: read when the panel opens, and again whenever the folder can be reached.
+  useEffect(() => {
+    void loadAgentChats(projectId, host);
+  }, [projectId, host]);
   useEffect(() => {
     log.current?.scrollTo({ top: log.current.scrollHeight });
   }, [chat.turns.length, chat.pending?.reply.length, chat.pending?.step]);
@@ -64,6 +69,39 @@ export default function ProjectAgent({
 
   return (
     <div className="vs-agent-chat">
+      {chat.history.length || chat.problem ? (
+        <div className="vs-agent-bar">
+          {chat.history.length ? (
+            <div className="menu-wrap">
+              <button type="button" className={`link${showHistory ? ' is-on' : ''}`} aria-expanded={showHistory} onClick={() => setShowHistory(!showHistory)} title={`Earlier conversations, kept in the project's folder (${AGENT_FILE})`}>
+                History · {chat.history.length}
+              </button>
+              {showHistory ? (
+                <div className="menu vs-history" role="menu">
+                  {chat.history.map((saved) => (
+                    <button
+                      key={saved.id}
+                      type="button"
+                      role="menuitem"
+                      disabled={running}
+                      onClick={() => {
+                        openAgentChat(projectId, saved.id);
+                        setShowHistory(false);
+                      }}
+                    >
+                      <span>{saved.title}</span>
+                      <small>
+                        {new Date(saved.updated).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} · {saved.turns.filter((t) => t.role === 'user').length} asked
+                      </small>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {chat.problem ? <span className="pg-note is-problem" title={chat.problem}>{chat.problem}</span> : null}
+        </div>
+      ) : null}
       <div className="vs-agent-log" ref={log}>
         {!chat.turns.length && !chat.pending ? (
           <div className="vs-agent-hello">
@@ -102,7 +140,7 @@ export default function ProjectAgent({
                       {turn.undone ? 'Undone · ' : ''}
                       {turn.changes.length} {turn.changes.length === 1 ? 'file' : 'files'} changed
                     </span>
-                    {!turn.undone ? (
+                    {!turn.undone && canUndo(turn) ? (
                       <button type="button" className="link" onClick={() => void undoAgentTurn(projectId, turn.at, host, onWrote)} disabled={running} title="Put these files back as they were">
                         Undo
                       </button>
@@ -175,7 +213,7 @@ export default function ProjectAgent({
           {context.commands ? <span className="vs-chip">console · {context.commands}</span> : null}
           <span className="spacer" />
           {chat.turns.length && !running ? (
-            <button type="button" className="link" onClick={() => clearAgentChat(projectId)} title="Start a new conversation (the files stay as they are)">
+            <button type="button" className="link" onClick={() => clearAgentChat(projectId, host)} title="Start a new conversation (the files stay as they are)">
               New chat
             </button>
           ) : null}
