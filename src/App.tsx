@@ -16,7 +16,7 @@ import { notebookFor, runKey } from './lib/notebook';
 import { cellsBlock } from './lib/notebookAsk';
 import { explainDrive } from './lib/explainDrive';
 import CollectionView from './components/CollectionView';
-import ProjectsPage, { OPEN_SETTINGS, RailProjects, projectView } from './components/Projects';
+import ProjectsPage, { OPEN_SETTINGS, RailProjects, askForNewProject, lastProject, projectView } from './components/Projects';
 import Nav, { EdgeTabs, PanelBar, type NavModel, type NavPanel } from './components/Nav';
 import { projectsOf } from './lib/projects';
 import JunkView from './components/JunkView';
@@ -1166,7 +1166,17 @@ export default function App() {
           color: project.color,
           active: view.kind === 'project' && view.id === project.id && !onUsage,
           title: `${project.name}${project.project.question ? ` — ${project.project.question}` : ''}`,
+          count: papers.filter((paper) => paper.collectionIds.includes(project.id)).length,
         })),
+    projectNav: settings.projectNav,
+    currentProject: view.kind === 'project' ? view.id : lastProject() ?? undefined,
+    onBoard: () => (setUsageOpen(false), setView({ kind: 'projects' })),
+    onNewProject: () => {
+      setUsageOpen(false);
+      askForNewProject();
+      setView({ kind: 'projects' });
+    },
+    onNoProject: goLibrary,
     onProject: (id) => (setUsageOpen(false), setView(projectView(id, settings.projectOpensOn))),
     projectsAfter: 'projects',
     panels: navPanels,

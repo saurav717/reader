@@ -1011,6 +1011,14 @@ lays them out one of five ways:
 
 On a phone the wide layouts use the narrow rail with its tray.
 
+How the projects are reached from a rail is a second choice there, **Projects
+in the rail**: a **switcher** under the R naming the project you are in, with
+the others a click away (the default); a **menu** from Projects with a count
+on it; **just the current project**, named under Projects; a row of **colour
+dots**; a list that **opens like a folder** in place; or a lettered **mark**
+for each, stacked under Projects. The sidebar names every project anyway, and
+the classic rail keeps its marks.
+
 ### Projects
 
 A project is a piece of research with papers of its own: a question, the
