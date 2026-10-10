@@ -242,3 +242,10 @@ describe('the wheel and the installers', () => {
     assert.ok(setup.cmd.includes('irm https://example.org/reader/companion-setup.ps1 | iex'));
   });
 });
+
+describe('the folder VS Code in the page opens', () => {
+  it('is a path from the root, with forward slashes, on every system', () => {
+    assert.equal(companion.vscodeFolder('/Users/me/Reader/playgrounds/x'), '/Users/me/Reader/playgrounds/x');
+    assert.equal(companion.vscodeFolder('C:\\Users\\me\\Reader\\playgrounds\\x'), '/C:/Users/me/Reader/playgrounds/x');
+  });
+});

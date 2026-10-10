@@ -53,7 +53,7 @@ export interface PaneLayout {
   big: 'console' | 'side' | null;
 }
 
-export const DEFAULT_LAYOUT: PaneLayout = { tree: 252, side: 360, agent: 560, console: 44, sideLeft: false, big: null };
+export const DEFAULT_LAYOUT: PaneLayout = { tree: 252, side: 380, agent: 560, console: 32, sideLeft: false, big: null };
 const LAYOUT_KEY = 'reader.pgLayout';
 const clamp = (value: unknown, low: number, high: number, fallback: number) => (typeof value === 'number' && Number.isFinite(value) ? Math.min(high, Math.max(low, value)) : fallback);
 

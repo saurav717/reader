@@ -6025,3 +6025,257 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .pg-chip-sub { display: block; font-size: 11px; color: var(--muted); }
 .pg-chip-menu.colab-menu { min-width: 320px; }
 .menu button.pg-chip-two { flex-direction: column; align-items: flex-start; gap: 1px; }
+
+/* ------------------------------------------------ the project workbench -- */
+/* A project's files laid out as VS Code lays out a folder — activity bar,
+   side bar, editor with tabs and breadcrumbs, panel, the agent on the right,
+   a status bar — in the site's own paper, ink and green. */
+.vs-shell { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.vs-work { flex: 1; min-height: 0; }
+.vs-activity { flex: none; width: 46px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; border-right: 1px solid var(--border-soft); background: color-mix(in srgb, var(--rail) 80%, transparent); }
+.vs-activity .spacer { flex: 1; }
+.vs-act { position: relative; width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 9px; background: transparent; color: var(--muted); cursor: pointer; }
+.vs-act:hover { color: var(--ink); background: color-mix(in srgb, var(--accent-soft) 55%, transparent); }
+.vs-act.is-on { color: var(--accent-ink); background: var(--accent-soft); }
+.vs-act.is-on::before { content: ''; position: absolute; left: -5px; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent); }
+.vs-act.is-agent { color: var(--accent); }
+
+.vs-sidebar { display: flex; flex-direction: column; padding-bottom: 0; }
+.vs-sidebar > .pg-tree-part, .vs-sidebar > .vs-search { overflow-y: auto; }
+.vs-sidebar > .pg-sync, .vs-sidebar > .nb-files, .vs-sidebar > div:not(.vs-side-title):not(.pg-tree-part) { flex: 1; min-height: 0; overflow-y: auto; }
+.vs-side-title { flex: none; display: flex; align-items: center; gap: 2px; height: 36px; padding: 0 8px 0 14px; font: 600 10.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.vs-side-title span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-tree-head.vs-section { width: 100%; display: flex; align-items: center; gap: 6px; padding: 6px 10px 6px 8px; border: 0; background: transparent; font: 700 10.5px var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-2); cursor: pointer; text-align: left; }
+.pg-tree-head.vs-section span:last-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-chev { display: inline-block; width: 10px; flex: none; color: var(--muted); font: 600 13px/1 var(--sans); transition: transform 0.12s; }
+.is-open > .vs-chev, .vs-section.is-open .vs-chev { transform: rotate(90deg); }
+.vs-sidebar .pg-entry::before, .vs-sidebar .pg-entry.is-dir.is-open::before { content: none; }
+.vs-sidebar .pg-entry { gap: 6px; padding: 3px 8px 3px 20px; font-size: 12.5px; border-radius: 5px; }
+.vs-sidebar .pg-entry.is-dir { padding-left: 6px; }
+.vs-sidebar .pg-entry.is-on { box-shadow: inset 2px 0 0 var(--accent); }
+
+/* A file's mark: a small tag of its kind. */
+.pg-ficon { flex: none; display: inline-grid; place-items: center; min-width: 16px; height: 14px; padding: 0 2px; border-radius: 3px; font: 700 8.5px/1 var(--mono); letter-spacing: -0.02em; color: #fff; background: var(--muted); }
+.pg-ficon.is-py { background: #3d7ab3; }
+.pg-ficon.is-ts { background: #2f74c0; }
+.pg-ficon.is-js { background: #c49a16; }
+.pg-ficon.is-doc { background: #6f6c63; }
+.pg-ficon.is-data { background: #b27414; }
+.pg-ficon.is-sh { background: var(--accent); }
+.pg-ficon.is-c { background: #8c5a9e; }
+.pg-ficon.is-img { background: #c9566c; }
+.pg-ficon.is-bin { background: #55524a; }
+.pg-ficon.is-plain { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: none; color: color-mix(in srgb, var(--accent) 70%, var(--ink-2)); }
+
+/* The editor's tabs and breadcrumbs. */
+.pg-tabs.vs-tabs { align-items: stretch; gap: 0; padding: 0; height: 36px; overflow-x: auto; scrollbar-width: none; background: color-mix(in srgb, var(--panel) 85%, transparent); }
+.vs-tab { position: relative; border-radius: 0; border-right: 1px solid var(--border-soft); }
+.vs-tab button { display: inline-flex; align-items: center; gap: 7px; height: 100%; font: 12.5px var(--sans); padding: 0 4px 0 12px; }
+.vs-tab .pg-tab-x { width: 26px; justify-content: center; padding: 0; }
+.vs-tab .pg-tab-x .vs-dot { display: none; font-size: 9px; color: var(--ink-2); }
+.vs-tab.is-dirty .pg-tab-x .vs-dot { display: inline; }
+.vs-tab.is-dirty .pg-tab-x .vs-x, .vs-tab:not(.is-on):not(:hover) .pg-tab-x .vs-x { visibility: hidden; }
+.vs-tab.is-dirty:hover .pg-tab-x .vs-dot { display: none; }
+.vs-tab.is-dirty:hover .pg-tab-x .vs-x { visibility: visible; }
+.pg-tab.vs-tab.is-on { margin: 0; border: 0; border-right: 1px solid var(--border-soft); background: var(--paper); }
+.pg-tab.vs-tab.is-on::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--accent); }
+.vs-crumbs { flex: none; display: flex; align-items: center; gap: 0; height: 30px; padding: 0 10px 0 14px; background: var(--paper); border-bottom: 1px solid var(--border-soft); font: 12px var(--sans); color: var(--muted); }
+.vs-crumbs > span:not(.spacer) { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.vs-crumbs > span:not(.spacer):not(.is-last)::after { content: '›'; margin: 0 7px; opacity: 0.7; }
+.vs-crumbs .is-last { color: var(--ink); }
+.vs-crumbs .pg-editor-switch { margin-left: 6px; }
+.vs-action { height: 24px; padding: 0 9px; margin-left: 4px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink-2); font: 500 12px var(--sans); cursor: pointer; }
+.vs-action:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent-ink); }
+.vs-action:disabled { opacity: 0.5; cursor: default; }
+.vs-action.is-run { color: var(--accent); font-weight: 600; border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.vs-welcome { margin: auto; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 12vh; }
+.vs-welcome b { font: 600 22px var(--serif); color: var(--ink); }
+.vs-welcome-keys { display: flex; gap: 18px; }
+
+/* The panel: the console and the terminals. */
+.vs-panel[hidden] { display: none; }
+.vs-work.is-panel-closed .pg-editor { flex: 1; }
+.vs-panel-head { gap: 12px; padding: 0 10px 0 6px; height: 34px; }
+.vs-panel-tabs { display: flex; align-self: stretch; }
+.vs-panel-tabs button { padding: 0 10px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font: 600 10.5px var(--sans); letter-spacing: 0.07em; text-transform: uppercase; cursor: pointer; }
+.vs-panel-tabs button.is-on { color: var(--ink); border-bottom-color: var(--accent); }
+
+/* The agent, on the right. */
+.vs-agent { display: flex; flex-direction: column; overflow: hidden; }
+.vs-agent-head { flex: none; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 8px 0 14px; border-bottom: 1px solid var(--border-soft); }
+.vs-agent-head .spacer { flex: 1; }
+.vs-agent-title { display: inline-flex; align-items: center; gap: 6px; font: 600 10.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+.vs-agent-title svg { color: var(--accent); }
+.vs-agent-head .segmented button { padding: 3px 9px; font-size: 11px; }
+.vs-agent-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.vs-agent-log { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+.vs-agent-hello { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 6px 2px; font-size: 13px; color: var(--ink-2); }
+.vs-agent-hello b { font: 600 17px var(--serif); color: var(--ink); }
+.vs-agent-hello p { margin: 0; line-height: 1.5; }
+.vs-agent-badge { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: var(--accent-soft); color: var(--accent); }
+.vs-agent-sugs { display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 100%; margin-top: 4px; }
+.vs-agent-sugs .ask-suggestion { text-align: left; height: auto; line-height: 1.35; padding-top: 6px; padding-bottom: 6px; white-space: normal; }
+.vs-turn { font-size: 13px; line-height: 1.5; }
+.vs-turn.is-user { align-self: flex-end; max-width: 88%; padding: 8px 12px; border-radius: 12px 12px 4px 12px; background: var(--accent-soft); color: var(--accent-ink); }
+.vs-turn.is-user p { margin: 0; white-space: pre-wrap; }
+.vs-turn.is-agent { display: flex; flex-direction: column; gap: 8px; }
+.vs-turn-who { display: inline-flex; align-items: center; gap: 6px; font: 600 11px var(--sans); color: var(--muted); }
+.vs-turn-who svg { color: var(--accent); }
+.vs-turn-read { font: 11.5px var(--mono); color: var(--muted); }
+.vs-turn-text { color: var(--ink); }
+.vs-turn-text p { margin: 0 0 6px; }
+.vs-turn-text code { font: 12px var(--mono); padding: 1px 4px; border-radius: 4px; background: var(--panel); }
+.vs-turn-step { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 12.5px; }
+.vs-turn-stream { margin: 0; max-height: 220px; overflow: hidden; padding: 8px 10px; border-radius: 8px; background: var(--panel); color: var(--ink-2); font: 11.5px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word; mask-image: linear-gradient(to bottom, transparent, #000 40px); }
+.vs-turn-think { margin: 0; color: var(--muted); font-style: italic; font-size: 12px; }
+.vs-changes { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
+.vs-changes.is-undone { opacity: 0.6; }
+.vs-changes-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--border-soft); font: 600 11px var(--sans); color: var(--ink-2); }
+.vs-change { width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 0; border-top: 1px solid var(--border-soft); background: transparent; color: var(--ink); font: 12px var(--mono); cursor: pointer; text-align: left; }
+.vs-change:first-of-type { border-top: 0; }
+.vs-change:hover { background: color-mix(in srgb, var(--accent-soft) 60%, transparent); }
+.vs-change-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-change-new { font: 600 10px var(--sans); padding: 1px 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); }
+.vs-plus { color: var(--ul-green); }
+.vs-minus { color: var(--ul-pink); }
+.vs-cmd { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--paper); }
+.vs-cmd code { flex: 1; min-width: 0; font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-agent-box { flex: none; margin: 0 12px 12px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 6px; }
+.vs-agent-box:focus-within { border-color: var(--accent); }
+.vs-agent-box textarea { width: 100%; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink); font: 13px/1.45 var(--sans); }
+.vs-agent-ctx, .vs-agent-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.vs-agent-ctx .spacer, .vs-agent-row .spacer { flex: 1; }
+.vs-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border: 1px solid var(--border-soft); border-radius: 999px; background: var(--paper); color: var(--ink-2); font: 11px var(--sans); }
+.vs-chip .pg-ficon { height: 12px; min-width: 13px; font-size: 7.5px; }
+
+/* Search, in the side bar. */
+.vs-search { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.vs-search form { padding: 0 10px 8px; }
+.vs-search input { width: 100%; height: 28px; padding: 0 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--paper); color: var(--ink); font: 12.5px var(--sans); outline: 0; }
+.vs-search input:focus { border-color: var(--accent); }
+.vs-hits { list-style: none; margin: 0; padding: 0 6px 12px; overflow-y: auto; }
+.vs-hits .pg-entry { padding-left: 6px; }
+.vs-hit-line { display: block; width: 100%; padding: 2px 8px 2px 28px; border: 0; background: transparent; color: var(--ink-2); font-size: 11.5px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border-radius: 5px; }
+.vs-hit-line:hover { background: color-mix(in srgb, var(--accent-soft) 60%, transparent); }
+.vs-hit-line i { font-style: normal; color: var(--muted); margin-right: 4px; }
+
+/* The status bar: the site's green where VS Code has its blue. */
+.vs-status { flex: none; display: flex; align-items: stretch; height: 24px; padding: 0 6px; background: var(--accent); color: var(--accent-on); font: 500 11.5px var(--sans); }
+.vs-status .spacer { flex: 1; }
+.vs-status-item { display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; white-space: nowrap; border: 0; background: transparent; color: inherit; font: inherit; }
+.vs-status-item.is-btn { cursor: pointer; }
+.vs-status-item.is-btn:hover:not(:disabled) { background: rgb(255 255 255 / 0.14); }
+.vs-status-item.is-btn:disabled { opacity: 0.6; cursor: default; }
+.vs-status-item .colab-dot { width: 7px; height: 7px; border-radius: 50%; background: rgb(255 255 255 / 0.55); }
+.vs-status-item.is-machine.is-on .colab-dot { background: #b8f0d4; box-shadow: 0 0 0 2px rgb(255 255 255 / 0.18); }
+.vs-status-item.is-machine.is-busy .colab-dot { background: #f6d77a; }
+.vs-status-item.is-on:not(.is-machine) { background: rgb(0 0 0 / 0.12); }
+.pg-pick-label { display: block; margin: 10px 0 6px; font: 600 11px var(--sans); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+@media (max-width: 900px) {
+  .vs-activity { width: 40px; }
+  .vs-crumbs > span:not(.spacer):not(.is-last) { display: none; }
+  .vs-status-item:not(.is-machine):not(.is-btn) { display: none; }
+}
+.pg-tree-head.vs-section .vs-chev { flex: none; }
+.pg-tree-head.vs-section > span:last-child { flex: 1; text-align: left; }
+.vs-agent-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 6px 14px; border-bottom: 1px solid var(--border-soft); font-size: 12px; min-width: 0; }
+.vs-agent-bar .pg-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; }
+.vs-history { left: 0; right: auto; top: calc(100% + 6px); width: 300px; max-height: 360px; overflow-y: auto; }
+.vs-history button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.vs-history button span { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.vs-history button small { color: var(--muted); font-size: 11px; }
+
+/* ------------------------------------------------- the code editor (CodeEditor.tsx) -- */
+.vs-groups { flex: 1; min-height: 0; display: flex; }
+.vs-group { flex: 1 1 50%; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.vs-groups.is-split .vs-group + .pg-gutter + .vs-group, .vs-groups.is-split .vs-group:last-child { border-left: 1px solid var(--border-soft); }
+.vs-groups.is-split .vs-group:not(.is-focused) .vs-tab.is-on::before { background: var(--muted); opacity: 0.5; }
+.vs-editor { flex: 1; min-height: 0; position: relative; display: flex; background: var(--paper); }
+.vs-work.is-big-console .vs-groups { display: none; }
+.vs-tabs-fill { flex: 1; min-width: 12px; }
+.vs-tab-actions { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px; }
+.vs-tab-actions .vs-action { height: 26px; min-width: 26px; padding: 0 6px; display: inline-grid; place-items: center; margin: 0; color: var(--ink-2); }
+.vs-tab[draggable='true'] { cursor: grab; }
+.vs-drop-split { position: absolute; top: 0; right: 0; bottom: 0; width: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 16%, transparent); border: 2px dashed color-mix(in srgb, var(--accent) 60%, transparent); color: var(--accent-ink); font: 600 13px var(--sans); z-index: 5; }
+.vs-crumb-sym { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; color: var(--muted); font: inherit; padding: 0; cursor: pointer; white-space: nowrap; }
+.vs-crumb-sym::before { content: '›'; margin: 0 7px; opacity: 0.7; }
+.vs-crumb-sym.is-last { color: var(--ink); }
+.vs-sym { flex: none; display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 4px; font: 700 10px/1 var(--mono); color: #fff; background: #8c5a9e; }
+.vs-sym.is-class { background: #b27414; }
+.vs-sym.is-heading { background: var(--accent); }
+.vs-problem { flex: none; display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 14px; border-top: 1px solid var(--border-soft); }
+.vs-problem button { margin-left: auto; }
+
+.ce { flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; font: var(--ce-fs)/var(--ce-lh) var(--mono); --ce-view: color-mix(in srgb, var(--ink) 12%, transparent); }
+.ce-scroll { flex: 1; min-width: 0; overflow: auto; position: relative; }
+.ce-inner { position: relative; }
+.ce-gutter { position: sticky; left: 0; z-index: 2; display: block; width: var(--ce-gutter); height: 100%; margin: 0; padding: 10px 14px 10px 0; box-sizing: border-box; text-align: right; color: color-mix(in srgb, var(--muted) 75%, transparent); background: var(--paper); font: inherit; user-select: none; border-right: 1px solid transparent; }
+.ce-gutter b { color: var(--ink); font-weight: 400; }
+.ce-current { position: absolute; left: var(--ce-gutter); right: 0; height: var(--ce-lh); background: color-mix(in srgb, var(--ink) 4.5%, transparent); border-top: 1px solid color-mix(in srgb, var(--ink) 6%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--ink) 6%, transparent); box-sizing: border-box; pointer-events: none; z-index: 1; }
+.ce-layer { position: absolute; top: 0; left: var(--ce-gutter); right: 0; bottom: 0; margin: 0; padding: 10px 14px; box-sizing: border-box; font: inherit; white-space: pre; tab-size: 4; border: 0; overflow: hidden; }
+.ce-shadow { pointer-events: none; color: var(--ink); z-index: 1; }
+.ce-shadow code { font: inherit; }
+.ce-marks { color: transparent; pointer-events: none; z-index: 1; }
+.ce-marks mark { color: transparent; background: rgba(232, 170, 40, 0.28); border-radius: 2px; }
+.ce-marks mark.is-current { background: rgba(232, 170, 40, 0.6); box-shadow: 0 0 0 1px rgba(232, 170, 40, 0.9); }
+.ce-text { z-index: 2; resize: none; outline: 0; background: transparent; color: transparent; caret-color: var(--accent); -webkit-text-fill-color: transparent; }
+.ce-text::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); -webkit-text-fill-color: transparent; }
+.ce-map { flex: none; width: 76px; height: 100%; border-left: 1px solid var(--border-soft); color: var(--ink); cursor: pointer; background: var(--paper); }
+.ce-find { position: absolute; top: 4px; right: 92px; z-index: 6; display: flex; align-items: stretch; gap: 2px; padding: 4px 6px 4px 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow-md); font: 12px var(--sans); }
+.ce:not(.has-map) .ce-find { right: 16px; }
+.ce-find-fold { width: 18px; border: 0; background: none; color: var(--muted); cursor: pointer; border-radius: 4px; }
+.ce-find-fold:hover { background: var(--accent-soft); }
+.ce-find-rows { display: flex; flex-direction: column; gap: 4px; }
+.ce-find-row { display: flex; align-items: center; gap: 2px; }
+.ce-find input { width: 200px; height: 24px; padding: 0 7px; border: 1px solid var(--border); border-radius: 5px; background: var(--paper); color: var(--ink); font: 12.5px var(--sans); outline: 0; margin-right: 4px; }
+.ce-find input:focus { border-color: var(--accent); }
+.ce-find input.is-bad { border-color: var(--danger); }
+.ce-opt { min-width: 24px; height: 24px; padding: 0 5px; border: 1px solid transparent; border-radius: 5px; background: none; color: var(--ink-2); font: 600 11.5px var(--mono); cursor: pointer; display: inline-grid; place-items: center; }
+.ce-opt:hover:not(:disabled) { background: var(--accent-soft); }
+.ce-opt.is-on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+.ce-opt:disabled { opacity: 0.4; cursor: default; }
+.ce-opt.is-word { font: 500 11.5px var(--sans); padding: 0 8px; }
+.ce-count { min-width: 74px; padding: 0 6px; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+
+/* Quick Open and the command palette. */
+.vs-pick-scrim { position: fixed; inset: 0; z-index: 90; display: flex; justify-content: center; align-items: flex-start; padding-top: 9vh; background: rgb(0 0 0 / 0.08); }
+.vs-pick { width: min(620px, calc(100vw - 32px)); max-height: 60vh; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-lg); overflow: hidden; }
+.vs-pick input { flex: none; height: 40px; margin: 8px; padding: 0 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--paper); color: var(--ink); font: 14px var(--sans); outline: 0; }
+.vs-pick ul { list-style: none; margin: 0; padding: 0 6px 6px; overflow-y: auto; }
+.vs-pick li button { width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: 13px var(--sans); text-align: left; cursor: pointer; }
+.vs-pick li button.is-on { background: var(--accent-soft); color: var(--accent-ink); }
+.vs-pick-title b { color: var(--accent); font-weight: 700; }
+.vs-pick-sub { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-pick li button kbd, .vs-menu kbd, .vs-keys kbd { margin-left: auto; padding: 1px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--paper); color: var(--ink-2); font: 11px var(--sans); white-space: nowrap; }
+.vs-pick-none { padding: 10px 12px; color: var(--muted); font-size: 13px; }
+
+/* Right-click menus. */
+.vs-menu { position: fixed; z-index: 95; min-width: 230px; }
+.vs-menu button { justify-content: space-between; gap: 18px; }
+.vs-menu button:disabled { opacity: 0.45; cursor: default; background: none; }
+.vs-menu button.is-danger:not(:disabled) { color: var(--danger); }
+.vs-menu kbd { margin-left: 0; border: 0; background: none; color: var(--muted); }
+
+/* Outline, Open Editors, the welcome's keys, Zen. */
+.vs-outline { list-style: none; margin: 0; padding: 0 6px 12px; overflow-y: auto; }
+.vs-outline .pg-entry { font-family: var(--sans); }
+.vs-explorer { flex: 1; min-height: 0; overflow-y: auto; }
+.vs-oe { display: flex; align-items: center; border-radius: 5px; }
+.vs-oe.is-on { background: var(--accent-soft); }
+.vs-oe .pg-entry { padding-left: 2px; }
+.vs-oe .pg-entry small { margin-left: 6px; overflow: hidden; text-overflow: ellipsis; }
+.vs-oe-x { flex: none; width: 20px; height: 20px; display: grid; place-items: center; margin-left: 4px; border: 0; border-radius: 4px; background: none; color: var(--muted); cursor: pointer; visibility: hidden; font-size: 9px; }
+.vs-oe:hover .vs-oe-x, .vs-oe-x:has(.vs-dot) { visibility: visible; }
+.vs-oe-x:hover { background: var(--accent-soft); }
+.vs-oe-group { padding: 4px 10px 2px 28px; font: 600 10.5px var(--sans); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.vs-keys { display: grid; grid-template-columns: auto auto; gap: 8px 18px; margin: 14px 0 6px; font-size: 13px; color: var(--ink-2); }
+.vs-keys dt { text-align: right; }
+.vs-keys dd { margin: 0; text-align: left; }
+.vs-keys kbd { margin: 0; }
+.vs-shell.is-zen .vs-tabs, .vs-shell.is-zen .vs-crumbs { opacity: 0.6; }
+.vs-zen-exit { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 20; padding: 4px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font: 12px var(--sans); cursor: pointer; box-shadow: var(--shadow-sm); }
+.vs-shell { position: relative; }
+:root[data-glass='on'] :is(.vs-pick, .ce-find, .vs-menu) { background: rgb(var(--float-rgb) / max(0.94, var(--float-a))); -webkit-backdrop-filter: blur(var(--blur)) saturate(1.4); backdrop-filter: blur(var(--blur)) saturate(1.4); border-color: var(--border); }
+:root[data-glass='on'] .vs-pick input, :root[data-glass='on'] .ce-find input { background: rgb(var(--float-rgb) / 0.9); }
+:root[data-glass='on'] .ce-gutter, :root[data-glass='on'] .ce-map { background: rgb(var(--float-rgb) / 0.55); }

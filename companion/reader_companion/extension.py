@@ -393,8 +393,14 @@ class VsCodeProxy(websocket.WebSocketHandler):
 
     def check_origin(self, origin):
         # VS Code's own sockets come from inside the frame, which is this server's origin; the site's may too.
-        own = f"{self.request.protocol}://{self.request.host}"
-        return bool(state.current) and origin in (own, state.current.origin)
+        # Through the HTTPS tunnel the frame is https://<tunnel> while the tunnel reaches this server over plain
+        # http, so the scheme here says http: this server's origin is its host, under either scheme.
+        if not state.current:
+            return False
+        if origin == state.current.origin:
+            return True
+        scheme, _, host = origin.partition("://")
+        return scheme in ("http", "https") and host.lower() == self.request.host.lower()
 
     def allowed(self, secret: str) -> bool:
         web = tools.vscode_web
