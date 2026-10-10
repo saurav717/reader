@@ -2527,8 +2527,8 @@ body.win-moving .assistant-win { transition: none; }
 :root[data-glass='on'] .app { padding: 10px; gap: 10px; }
 :root[data-glass='on'] .rail { --pane: var(--rail); }
 :root[data-glass='on'] .app > .panel, :root[data-glass='on'] .dock { --pane: var(--panel); }
-:root[data-glass='on'] .app > .main { --pane: var(--paper); }
-:root[data-glass='on'] :is(.rail, .app > .panel, .dock, .app > .main) {
+:root[data-glass='on'] :is(.app > .main, .app > .pr-col > .main) { --pane: var(--paper); }
+:root[data-glass='on'] :is(.rail, .app > .panel, .dock, .app > .main, .app > .pr-col > .main) {
   position: relative;
   background: transparent;
   border: 0;
@@ -2541,7 +2541,7 @@ body.win-moving .assistant-win { transition: none; }
 /* The light it catches: a sheen centred on the pointer (glassLight.ts), fixed
    to the viewport so every pane agrees where the light is. Without a pointer
    it rests above the top-left of the window. */
-:root[data-glass='on'] :is(.rail, .app > .panel, .dock, .app > .main)::before {
+:root[data-glass='on'] :is(.rail, .app > .panel, .dock, .app > .main, .app > .pr-col > .main)::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -2557,7 +2557,7 @@ body.win-moving .assistant-win { transition: none; }
 /* The rim: a hairline that is bright where the light comes from and all but
    gone on the far side — what makes a pane read as a thickness of glass
    rather than a tinted rectangle. A gradient border, cut out with a mask. */
-:root[data-glass='on'] :is(.rail, .app > .panel, .dock, .app > .main, .lookup, .palette, .copy-picker)::after {
+:root[data-glass='on'] :is(.rail, .app > .panel, .dock, .app > .main, .app > .pr-col > .main, .lookup, .palette, .copy-picker)::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -2638,7 +2638,7 @@ body.win-moving .assistant-win { transition: none; }
 }
 @media (max-width: 720px) {
   :root[data-glass='on'] .app { padding: 6px; gap: 6px; }
-  :root[data-glass='on'] :is(.rail, .app > .panel, .dock, .app > .main) { border-radius: 16px; }
+  :root[data-glass='on'] :is(.rail, .app > .panel, .dock, .app > .main, .app > .pr-col > .main) { border-radius: 16px; }
   :root[data-glass='on'] .library-panel { left: 64px; top: 6px; bottom: 6px; }
   :root[data-glass='on'] .dock { right: 6px; top: 6px; bottom: 6px; }
   :root[data-glass='on'] :is(.library-panel, .dock) { width: calc(100vw - 52px - 18px); }
@@ -2712,7 +2712,7 @@ body.win-moving .assistant-win { transition: none; }
 /* The top bar, with the progress line and the copy it is reading, lifts off
    the top of the page the same way. It is placed in the page, so the page's
    text starts at the top of the window while it is away. */
-.app.is-zen > .main { position: relative; }
+:is(.app.is-zen > .main, .app.is-zen > .pr-col > .main) { position: relative; }
 .app.is-zen .reader-head {
   position: absolute;
   top: 0;
@@ -2836,8 +2836,8 @@ body.win-moving .assistant-win { transition: none; }
    centred in it, glides left to make room, at the pace the dock slides in.
    The right edge's strip has nothing left to bring out, and no haze falls,
    since nothing is laid over the page. */
-.app.is-zen > .main { transition: margin-right var(--zen-time) var(--zen-ease); }
-.app.is-zen.notes-beside > .main { margin-right: calc(var(--dock-w) + var(--zen-inset)); }
+:is(.app.is-zen > .main, .app.is-zen > .pr-col > .main) { transition: margin-right var(--zen-time) var(--zen-ease); }
+:is(.app.is-zen.notes-beside > .main, .app.is-zen.notes-beside > .pr-col > .main) { margin-right: calc(var(--dock-w) + var(--zen-inset)); }
 :root .app.is-zen.notes-beside > .dock {
   translate: none;
   visibility: visible;
@@ -6370,3 +6370,196 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .google-renewal svg { flex: none; }
 .google-renewal .btn { flex: none; }
 :root[data-glass='on'] .google-renewal { background: rgb(var(--float-rgb) / max(0.94, var(--float-a))); -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur)); }
+
+/* ------------------------------------------------- running playgrounds -- */
+/* src/components/PlaygroundRuns.tsx: the shelf, the rail's count, the dock,
+   the toasts, P's switcher and the tabs — whichever Settings → Running
+   playgrounds has on. */
+
+.pr-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--muted); }
+.pr-dot.is-run { background: var(--ul-green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ul-green) 22%, transparent); animation: pr-pulse 1.8s ease-in-out infinite; }
+.pr-dot.is-warm { background: transparent; border: 1.6px solid #c9851e; }
+.pr-dot.is-bad { background: var(--danger); }
+.pr-dot.is-done { background: var(--ul-green); }
+.pr-dot.is-cold { background: transparent; border: 1.6px solid var(--muted); }
+@keyframes pr-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--ul-green) 6%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .pr-dot.is-run { animation: none; } }
+.pr-mono { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.pr-live-head { display: inline-flex; align-items: center; gap: 8px; color: var(--ul-green); }
+.pr-where { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); white-space: nowrap; min-width: 0; }
+.pr-where > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+
+.pr-pill { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 500; white-space: nowrap; }
+.pr-pill i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pr-pill.is-run { background: color-mix(in srgb, var(--ul-green) 14%, transparent); color: var(--ul-green); }
+.pr-pill.is-warm { background: color-mix(in srgb, #c9851e 14%, transparent); color: #b0701a; }
+.pr-pill.is-warm i { background: transparent; border: 1.5px solid currentColor; }
+.pr-pill.is-bad { background: color-mix(in srgb, var(--danger) 13%, transparent); color: var(--danger); }
+.pr-pill.is-done { background: color-mix(in srgb, var(--ul-green) 10%, transparent); color: var(--ink-2); }
+.pr-pill.is-done i { background: var(--ul-green); }
+.pr-pill.is-cold { background: color-mix(in srgb, var(--muted) 12%, transparent); color: var(--muted); }
+.pr-pill.is-cold i { background: transparent; border: 1.5px solid currentColor; }
+:root[data-theme='dark'] .pr-pill.is-warm { color: #e8b878; }
+
+.pr-bar { display: block; height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--muted) 18%, transparent); overflow: hidden; min-width: 60px; }
+.pr-bar i { display: block; height: 100%; background: var(--ul-green); border-radius: 2px; transition: width 0.5s ease; }
+.pr-bar.is-unknown i { width: 30%; animation: pr-slide 1.6s ease-in-out infinite; }
+@keyframes pr-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+
+/* The home's shelf */
+.pr-shelf { max-width: 1240px; margin: 0 0 24px; }
+.pr-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
+.pr-card { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 12px; border: 1px solid color-mix(in srgb, var(--ul-green) 40%, var(--border)); background: linear-gradient(180deg, color-mix(in srgb, var(--ul-green) 7%, var(--surface)), var(--surface)); box-shadow: var(--shadow-sm); min-width: 0; }
+.pr-card-head { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.pr-card-head b { font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-card-now { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--ink-2); min-width: 0; }
+.pr-card-now > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-card-now code { font: 11.5px var(--mono); color: var(--muted); }
+.pr-tail { font: 11.5px/1.5 var(--mono); color: var(--ink-2); background: color-mix(in srgb, var(--ink) 6%, transparent); border-radius: 7px; padding: 7px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pr-card-foot { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
+.pr-card-foot .spacer { flex: 1; }
+.pr-stop { color: var(--danger) !important; }
+
+/* A row's state in the list, under its title */
+.pg-row-main .pr-row-state { display: flex; align-items: center; gap: 8px; min-width: 0; margin: 2px 0 1px; overflow: visible; }
+.pg-row-main .pr-row-state small { min-width: 0; font-size: 11.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* "Show running as…" */
+.pr-choose-wrap { position: relative; }
+.pr-choose-btn { margin-left: 0; cursor: pointer; font: inherit; font-size: 11.5px; }
+.pr-choose-btn:hover, .pr-choose-btn[aria-expanded='true'] { border-color: var(--accent); color: var(--accent); }
+.pr-choose-pop { position: absolute; right: 0; top: calc(100% + 8px); z-index: 60; width: 420px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-md); }
+:root[data-glass='on'] .pr-choose-pop { background: rgb(var(--float-rgb) / max(0.94, var(--float-a))); -webkit-backdrop-filter: blur(20px) saturate(185%); backdrop-filter: blur(20px) saturate(185%); }
+.pr-choose-pop-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; font-size: 13px; }
+.pr-choose { display: flex; flex-direction: column; gap: 4px; }
+.pr-choose-row { display: flex; gap: 10px; align-items: flex-start; padding: 7px 4px; border-radius: 8px; cursor: pointer; font-size: 12.5px; line-height: 1.45; }
+.pr-choose-row:hover { background: var(--accent-soft); }
+.pr-choose-row input { margin-top: 3px; accent-color: var(--accent); }
+.pr-choose-row strong { font-weight: 500; }
+.pr-choose-row small { color: var(--muted); font-size: 11.5px; }
+.pr-choose.is-compact .pr-choose-row small { font-size: 11px; }
+.pr-rec { margin-left: 6px; font-style: normal; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-ink, var(--accent)); background: var(--accent-soft); padding: 1px 6px; border-radius: 4px; }
+.pr-choose-foot { display: flex; gap: 8px; margin-top: 6px; }
+
+/* The rail's count */
+.rail-run { position: relative; display: flex; justify-content: center; }
+.pr-badge { position: absolute; top: 1px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; display: grid; place-items: center; background: var(--ul-green); color: #fff; font: 700 10px var(--mono); box-shadow: 0 0 0 2px var(--rail-bg, var(--panel)); pointer-events: none; }
+.pr-badge.is-idle { min-width: 9px; width: 9px; height: 9px; padding: 0; top: 5px; right: 5px; background: #c9851e; }
+.pr-rail-pop { position: absolute; left: calc(100% + 12px); top: -4px; z-index: 80; width: 280px; display: flex; flex-direction: column; gap: 2px; padding: 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-md); opacity: 0; visibility: hidden; transform: translateX(-6px); transition: opacity 0.15s, transform 0.15s, visibility 0s 0.15s; }
+.rail-run:hover .pr-rail-pop, .rail-run:focus-within .pr-rail-pop { opacity: 1; visibility: visible; transform: none; transition: opacity 0.15s, transform 0.15s; }
+:root[data-glass='on'] .pr-rail-pop { background: rgb(var(--float-rgb) / max(0.94, var(--float-a))); -webkit-backdrop-filter: blur(20px) saturate(185%); backdrop-filter: blur(20px) saturate(185%); }
+.pr-rail-pop > b { font-size: 12px; padding: 0 6px 4px; }
+.pr-rail-pop button { display: flex; align-items: center; gap: 8px; padding: 6px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.pr-rail-pop button:hover { background: var(--accent-soft); }
+.pr-rail-pop button span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-rail-pop button small { color: var(--muted); font-size: 11px; white-space: nowrap; }
+
+/* The dock and its toasts, in the corner of every page */
+.pr-corner { position: fixed; right: 20px; bottom: 20px; z-index: 45; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; pointer-events: none; }
+.pr-corner > * { pointer-events: auto; }
+.pr-dock, .pr-toast, .pr-dock-pill { background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-md); }
+:root[data-glass='on'] :is(.pr-dock, .pr-toast, .pr-dock-pill) { background: rgb(var(--float-rgb) / max(0.94, var(--float-a))); -webkit-backdrop-filter: blur(20px) saturate(185%); backdrop-filter: blur(20px) saturate(185%); }
+.pr-dock { width: 360px; border-radius: 14px; overflow: hidden; animation: ep-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.pr-dock header { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 14px; border-bottom: 1px solid var(--border-soft); font-size: 12.5px; }
+.pr-dock header .spacer { flex: 1; }
+.pr-job { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--border-soft); }
+.pr-job:first-of-type { border-top: 0; }
+.pr-job-top { display: flex; align-items: center; gap: 8px; font-size: 12.5px; min-width: 0; }
+.pr-job-top .pr-where > span:last-child { display: none; }
+.pr-job-top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pr-job-top .pr-mono { flex: 0 1 auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-job-top b { flex: 1 1 40%; }
+.pr-job-foot { display: flex; align-items: center; gap: 10px; font-size: 11.5px; }
+.pr-job-also { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-job-foot .pr-mono { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-job-foot .link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 500; cursor: pointer; }
+.pr-dock-pill { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 999px; color: var(--ink); font: 500 12.5px var(--sans); cursor: pointer; }
+.pr-toasts { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+.pr-toast { display: flex; gap: 11px; width: 340px; padding: 12px 14px; border-radius: 12px; animation: ep-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.pr-toast.is-ran { border-color: color-mix(in srgb, var(--ul-green) 45%, var(--border)); }
+.pr-toast.is-failed { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.pr-toast > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pr-toast b { font-size: 12.5px; }
+.pr-toast span { font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.pr-toast-mark { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; flex: none; font-weight: 700; background: color-mix(in srgb, var(--ul-green) 15%, transparent); color: var(--ul-green); }
+.pr-toast.is-failed .pr-toast-mark { background: color-mix(in srgb, var(--danger) 15%, transparent); color: var(--danger); }
+.pr-toast.is-stopped .pr-toast-mark { background: color-mix(in srgb, var(--muted) 15%, transparent); color: var(--muted); }
+.pr-toast-acts { display: flex; gap: 6px; margin-top: 7px; }
+/* Clear of a project's status bar. */
+.app:has(.vs-status) .pr-corner { bottom: 36px; }
+
+/* P's switcher */
+.pr-switch { position: fixed; left: 50%; top: 12vh; transform: translateX(-50%); z-index: 51; width: min(640px, calc(100vw - 32px)); max-height: 72vh; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-md); overflow: hidden; }
+:root[data-glass='on'] .pr-switch { background: rgb(var(--float-rgb) / max(0.96, var(--float-a))); -webkit-backdrop-filter: blur(24px) saturate(185%); backdrop-filter: blur(24px) saturate(185%); }
+.pr-switch-q { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--border-soft); }
+.pr-switch-q input { flex: 1; border: 0; outline: 0; background: transparent; color: var(--ink); font: 15px var(--sans); }
+.pr-switch-list { overflow-y: auto; padding: 6px 8px 8px; }
+.pr-switch-group { display: flex; flex-direction: column; padding-top: 6px; }
+.pr-switch-group > .eyebrow { padding: 4px 10px 6px; font-size: 10.5px; }
+.pr-switch-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 9px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.pr-switch-item.is-on { background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+.pr-switch-item .pr-bar { width: 90px; flex: none; }
+.pr-switch-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pr-switch-main b { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-switch-main small { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-switch-item.is-home { margin-top: 6px; border-top: 1px solid var(--border-soft); border-radius: 0 0 9px 9px; }
+.pr-switch-foot { display: flex; gap: 16px; padding: 9px 16px; border-top: 1px solid var(--border-soft); font-size: 11.5px; color: var(--muted); }
+
+/* The tabs above every page */
+.pr-col { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.pr-col > .main { flex: 1; }
+.pr-tabs { flex: none; display: flex; align-items: flex-end; gap: 2px; height: 38px; padding: 0 10px; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid var(--border-soft); background: var(--panel); }
+:root[data-glass='on'] .pr-tabs { background: transparent; border-bottom: 0; padding-top: 8px; height: 44px; }
+.pr-tab { display: flex; align-items: center; height: 30px; max-width: 240px; border-radius: 9px 9px 0 0; color: var(--muted); flex: none; }
+.pr-tab.is-on { background: var(--paper); color: var(--ink); box-shadow: 0 0 0 1px var(--border-soft); }
+.pr-tab:hover { color: var(--ink); }
+.pr-tab-main { display: flex; align-items: center; gap: 7px; min-width: 0; height: 100%; padding: 0 4px 0 11px; border: 0; background: transparent; color: inherit; font: inherit; font-size: 12px; cursor: pointer; }
+.pr-tab-main span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-tab-main small { color: var(--ul-green); }
+.pr-tab-x { display: grid; place-items: center; width: 20px; height: 20px; margin-right: 5px; border: 0; border-radius: 5px; background: transparent; color: inherit; opacity: 0.55; cursor: pointer; }
+.pr-tab-x:hover { opacity: 1; background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.app.is-zen .pr-tabs { display: none; }
+
+@media (max-width: 720px) {
+  .pr-cards { grid-template-columns: 1fr; }
+  .pg-row-main .pr-row-state small { display: none; }
+  .pr-dock, .pr-toast { width: calc(100vw - 40px); }
+  .pr-choose-pop { width: calc(100vw - 32px); right: -16px; }
+}
+
+/* The peek beside a paper (PlaygroundPeek.tsx) */
+.pk, .pk-pill { position: fixed; right: var(--pk-right, 14px); z-index: 44; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-md); }
+:root[data-glass='on'] :is(.pk, .pk-pill) { background: rgb(var(--float-rgb) / max(0.95, var(--float-a))); -webkit-backdrop-filter: blur(22px) saturate(185%); backdrop-filter: blur(22px) saturate(185%); }
+.pk { top: 76px; bottom: 14px; width: 380px; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; animation: ep-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.pk-pill { top: 76px; display: inline-flex; align-items: center; gap: 8px; max-width: 320px; height: 34px; padding: 0 12px; border-radius: 999px; color: var(--ink); font: 500 12.5px var(--sans); cursor: pointer; }
+.pk-pill > span:not(.pr-pill) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-head { display: flex; align-items: center; gap: 4px; padding: 10px 8px 6px 14px; }
+.pk-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pk-title .eyebrow { font-size: 10px; }
+.pk-title b { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-title select { max-width: 100%; border: 0; background: transparent; color: var(--ink); font: 600 13.5px var(--sans); padding: 0; }
+.pk-bar { display: flex; align-items: center; gap: 8px; padding: 4px 14px 10px; border-bottom: 1px solid var(--border-soft); }
+.pk-bar .spacer { flex: 1; }
+.pk-where { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pk-problem { margin: 8px 14px 0; color: var(--danger); font-size: 12px; }
+.pk-cells { flex: 1; overflow-y: auto; padding: 10px 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.pk-empty { color: var(--muted); font-size: 12px; margin: 6px 2px; }
+.pk-cell { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--paper); }
+.pk-cell.is-running { border-color: color-mix(in srgb, var(--ul-green) 50%, var(--border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ul-green) 12%, transparent); }
+.pk-cell.is-failed { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
+.pk-cell-head { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-bottom: 1px solid var(--border-soft); font-size: 11px; color: var(--muted); }
+.pk-cell-head .spacer { flex: 1; }
+.pk-cell-head .link { border: 0; background: none; padding: 0; color: var(--accent); font: 600 11.5px var(--sans); cursor: pointer; }
+.pk-cell-head .link:disabled { color: var(--muted); cursor: default; }
+.pk-cell.is-running .pk-state { color: var(--ul-green); }
+.pk-cell.is-failed .pk-state { color: var(--danger); }
+.pk-n { font-family: var(--mono); }
+.pk-src { margin: 0; padding: 8px 10px; font: 11.5px/1.55 var(--mono); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.pk-out { border-top: 1px solid var(--border-soft); padding: 6px 10px; background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.pk-out pre { margin: 0; font: 11px/1.5 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.pk-out.is-error pre { color: var(--danger); }
+.pk-out img { display: block; max-width: 100%; margin-top: 6px; border-radius: 6px; background: #fff; }
+/* Beside the reader's own side panel, not over it; the dock and the toasts beside the peek. */
+.app:has(> .dock) { --pk-right: calc(var(--dock-w) + 14px); }
+.app:has(.pk) .pr-corner { right: calc(var(--pk-right, 14px) + 380px + 12px); }
+@media (max-width: 720px) { .pk { left: 14px; width: auto; top: auto; height: 55vh; } .app:has(.pk) .pr-corner { right: 20px; bottom: calc(55vh + 28px); } }

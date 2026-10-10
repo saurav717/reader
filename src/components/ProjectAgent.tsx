@@ -11,6 +11,7 @@ import { markdown } from '../lib/markdown';
 import type { FileHost } from '../lib/playground';
 import type { AgentChange, ProjectView } from '../lib/projectAgent';
 import { AGENT_FILE, agentChatFor, askAgent, canUndo, clearAgentChat, dismissAgentError, isAgentRunning, loadAgentChats, openAgentChat, stopAgent, subscribeAgent, undoAgentTurn } from '../lib/projectAgent';
+import { followProjectAgent } from '../lib/jobWatch';
 import FileIcon from './FileIcon';
 import ModelChip, { shortModelName } from './ModelChip';
 import { SparkleIcon } from './icons';
@@ -54,6 +55,8 @@ export default function ProjectAgent({
   const log = useRef<HTMLDivElement>(null);
   const [showHistory, setShowHistory] = useState(false);
   // The conversations are in the project's folder: read when the panel opens, and again whenever the folder can be reached.
+  // Its requests show as the playground's runs from any page, this pane open or not.
+  useEffect(() => followProjectAgent(projectId), [projectId]);
   useEffect(() => {
     void loadAgentChats(projectId, host);
   }, [projectId, host]);

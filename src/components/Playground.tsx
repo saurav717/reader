@@ -46,6 +46,8 @@ import { ColabMark } from './Colab';
 import { CloseIcon, CodeIcon, DriveMark, TrashIcon } from './icons';
 import CopyBlock from './CopyBlock';
 import PlaygroundWorkspace from './PlaygroundWorkspace';
+import { RunRowAction, RunRowState, RunningChooser, RunningShelf } from './PlaygroundRuns';
+import { useRunBoard } from '../lib/playgroundRuns';
 import VsCodeExtension, { isCompanion } from './VsCodeExtension';
 
 export default function Playground({ id, onOpen, onOpenPaper }: { id?: string; onOpen: (id?: string) => void; onOpenPaper: (id: string) => void }) {
@@ -132,7 +134,7 @@ export function ComputeTag({ compute, home }: { compute: Compute; home?: FilesHo
         </>
       ) : null}
       {compute.kind === 'colab' ? <ColabMark /> : <span className={`pg-mark ${(server?.where ?? compute.where) === 'pc' ? 'is-pc' : 'is-gpu'}`}>{(server?.where ?? compute.where) === 'pc' ? 'PC' : 'GPU'}</span>}
-      <span>{compute.kind === 'colab' ? `Colab ${MACHINES.find((m) => m.accelerator === compute.machine.accelerator)?.label ?? 'CPU'}` : server?.name ?? (compute.name ? `${compute.name} · not connected here` : compute.deviceId ? 'a computer not connected here' : 'a server no longer here')}</span>
+      <span>{compute.kind === 'colab' ? `Colab ${MACHINES.find((m) => m.accelerator === compute.machine.accelerator)?.label ?? 'CPU'}${compute.shared ? ' · shared' : ''}` : server?.name ?? (compute.name ? `${compute.name} · not connected here` : compute.deviceId ? 'a computer not connected here' : 'a server no longer here')}</span>
     </span>
   );
 }
@@ -183,6 +185,11 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const filePick = useRef<HTMLInputElement>(null);
   const sorted = useMemo(() => [...list].sort((a, b) => b.updated - a.updated), [list]);
+  // What each is doing — running, idle with its variables, how its last run ended — when the shelf is chosen.
+  const runs = useRunBoard(list);
+  const runById = useMemo(() => new Map(runs.map((run) => [run.id, run])), [runs]);
+  const shows = settings.runningShows;
+  const [choosing, setChoosing] = useState(false);
   const colabOk = colabAvailable(settings.googleClientId);
   // The signed-in account's computers, from any browser it signs in to: now, and at each sign-in.
   useEffect(() => {
@@ -290,7 +297,24 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
           <span className="pg-key">
             <kbd>P</kbd> from anywhere
           </span>
+          <span className="pr-choose-wrap">
+            <button type="button" className="pg-key pr-choose-btn" aria-expanded={choosing} onClick={() => setChoosing(!choosing)} title="How running playgrounds are shown around the app">
+              Show running as…
+            </button>
+            {choosing ? (
+              <div className="pr-choose-pop" role="dialog" aria-label="How running playgrounds are shown">
+                <div className="pr-choose-pop-head">
+                  <b>Running playgrounds</b>
+                  <button type="button" className="icon-btn sm" aria-label="Close" onClick={() => setChoosing(false)}>
+                    <CloseIcon size={14} />
+                  </button>
+                </div>
+                <RunningChooser compact />
+              </div>
+            ) : null}
+          </span>
         </header>
+        {shows.shelf ? <RunningShelf runs={runs} onOpen={(id) => onOpen(id)} /> : null}
         <div className="pg-grid">
           <section>
             <div className="pg-section-head">
@@ -374,10 +398,12 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
               <ul className="pg-list">
                 {sorted.map((p) => {
                   const at = reach(p);
+                  const run = shows.shelf ? runById.get(p.id) : undefined;
                   return (
                   <li key={p.id} className={`pg-row${at.blocked ? ' is-blocked' : ''}`}>
                     <button type="button" className="pg-row-main" onClick={() => !at.blocked && onOpen(p.id)} disabled={Boolean(at.blocked)} title={at.blocked}>
                       <b>{p.title}</b>
+                      {run && run.phase !== 'never' ? <RunRowState run={run} /> : null}
                       <span>
                         {p.kind === 'project' ? 'Project' : 'Notebook'}
                         {p.cites.length ? ` · cites ${p.cites.map((c) => c.title).join(', ').slice(0, 80)}` : ''}
@@ -396,7 +422,7 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
                       {at.blocked || at.warn ? <span className={`pg-row-note${at.blocked ? ' is-problem' : ''}`}>{at.blocked ?? at.warn}</span> : null}
                     </button>
                     <ComputeTag compute={p.compute} home={p.home} />
-                    <span className="pg-when">{ago(p.updated)}</span>
+                    <span className="pg-when">{ago(run?.at && run.at > p.updated ? run.at : p.updated)}</span>
                     {confirmDelete === p.id ? (
                       <span className="pg-confirm">
                         <button type="button" className="btn sm danger" onClick={() => void deletePlayground(p.id).then(() => setConfirmDelete(null))}>
@@ -411,8 +437,9 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
                         <TrashIcon size={15} />
                       </button>
                     )}
-                    <button type="button" className="btn sm" onClick={() => onOpen(p.id)} disabled={Boolean(at.blocked)} title={at.blocked}>
-                      Open
+                    {run ? <RunRowAction run={run} /> : null}
+                    <button type="button" className={`btn sm${run?.phase === 'idle' ? ' primary' : ''}`} onClick={() => onOpen(p.id)} disabled={Boolean(at.blocked)} title={at.blocked}>
+                      {run?.phase === 'idle' ? 'Resume' : run?.phase === 'ran' ? 'Results' : 'Open'}
                     </button>
                   </li>
                   );
@@ -1234,6 +1261,9 @@ export function WhereDialog({
   const [mode, setMode] = useState<Mode>(initialMode);
   const [title, setTitle] = useState(draft.title);
   const [machine, setMachine] = useState<Machine>(current?.compute.kind === 'colab' ? current.compute.machine : { accelerator: 'NONE' });
+  /** On Colab: a machine of its own (the default), or the browser's, shared with the paper pages and the other playgrounds that share it. */
+  const [shareColab, setShareColab] = useState(current?.compute.kind === 'colab' ? Boolean(current.compute.shared) : false);
+  const colabCompute: Compute = shareColab ? { kind: 'colab', machine, shared: true } : { kind: 'colab', machine };
   const [pcId, setPcId] = useState<string | undefined>(current?.home.kind === 'server' ? current.home.serverId : pcs[0]?.id);
   /** In the device mode: the computer, files and code both. */
   const [deviceId, setDeviceId] = useState<string | undefined>(current?.home.kind === 'server' && current.compute.kind === 'server' && current.home.serverId === current.compute.serverId ? current.home.serverId : devices[0]?.id);
@@ -1293,7 +1323,7 @@ export function WhereDialog({
   const root = current?.home.kind === 'server' ? current.home.root : '';
   const choice: { compute: Compute; home: FilesHome } | null =
     mode === 'colab'
-      ? { compute: { kind: 'colab', machine }, home: colabFiles === 'drive' ? { kind: 'drive', folder: current?.home.kind === 'drive' ? current.home.folder : '' } : { kind: 'machine' } }
+      ? { compute: colabCompute, home: colabFiles === 'drive' ? { kind: 'drive', folder: current?.home.kind === 'drive' ? current.home.folder : '' } : { kind: 'machine' } }
       : mode === 'pc'
         ? pc
           ? { compute: { kind: 'server', serverId: pc.id }, home: { kind: 'server', serverId: pc.id, root } }
@@ -1303,24 +1333,39 @@ export function WhereDialog({
             ? { compute: { kind: 'server', serverId: device.id }, home: { kind: 'server', serverId: device.id, root } }
             : null
         : homeId === DRIVE && (remoteId === 'colab' || serverById(remoteId))
-          ? { compute: remoteId === 'colab' ? { kind: 'colab', machine } : { kind: 'server', serverId: remoteId }, home: { kind: 'drive', folder: current?.home.kind === 'drive' ? current.home.folder : '' } }
+          ? { compute: remoteId === 'colab' ? colabCompute : { kind: 'server', serverId: remoteId }, home: { kind: 'drive', folder: current?.home.kind === 'drive' ? current.home.folder : '' } }
           : homeId && serverById(homeId) && (remoteId === 'colab' || (serverById(remoteId) && remoteId !== homeId))
-            ? { compute: remoteId === 'colab' ? { kind: 'colab', machine } : { kind: 'server', serverId: remoteId }, home: { kind: 'server', serverId: homeId, root } }
+            ? { compute: remoteId === 'colab' ? colabCompute : { kind: 'server', serverId: remoteId }, home: { kind: 'server', serverId: homeId, root } }
             : null;
   const usesColab = choice?.compute.kind === 'colab';
   const needsDrive = choice?.home.kind === 'drive' && !driveOk;
   const blocked = !choice || (usesColab && !colabOk) || needsDrive || !title.trim();
 
   const colabPicker = (
-    <div className="pg-opts" role="radiogroup" aria-label="Colab machine">
-      {MACHINES.map((option) => (
-        <button key={option.accelerator} type="button" role="radio" aria-checked={machine.accelerator === option.accelerator} className={`pg-opt${machine.accelerator === option.accelerator ? ' is-on' : ''}`} onClick={() => setMachine({ ...machine, accelerator: option.accelerator })}>
+    <>
+      <div className="pg-opts" role="radiogroup" aria-label="Colab machine">
+        {MACHINES.map((option) => (
+          <button key={option.accelerator} type="button" role="radio" aria-checked={machine.accelerator === option.accelerator} className={`pg-opt${machine.accelerator === option.accelerator ? ' is-on' : ''}`} onClick={() => setMachine({ ...machine, accelerator: option.accelerator })}>
+            <ColabMark />
+            <b>{option.label}</b>
+            <small>{option.note}</small>
+          </button>
+        ))}
+      </div>
+      <small className="pg-pick-label">Its machine</small>
+      <div className="pg-opts" role="radiogroup" aria-label="Its own Colab machine, or shared" onClick={(event) => event.stopPropagation()}>
+        <button type="button" role="radio" aria-checked={!shareColab} className={`pg-opt${!shareColab ? ' is-on' : ''}`} onClick={() => setShareColab(false)}>
           <ColabMark />
-          <b>{option.label}</b>
-          <small>{option.note}</small>
+          <b>A machine of its own</b>
+          <small>its own GPU, memory and disk; runs beside your other Colab work; uses units of its own</small>
         </button>
-      ))}
-    </div>
+        <button type="button" role="radio" aria-checked={shareColab} className={`pg-opt${shareColab ? ' is-on' : ''}`} onClick={() => setShareColab(true)}>
+          <ColabMark />
+          <b>Shared</b>
+          <small>the machine the paper pages use, with the other playgrounds that share it — fewer units, one GPU between them</small>
+        </button>
+      </div>
+    </>
   );
   const serverPicker = (list: JupyterServer[], picked: string | undefined, pick: (id: string) => void, kind: 'pc' | 'remote', extra?: React.ReactNode, label?: string, anyKind = false) => (
     <div className="pg-opts" role="radiogroup" aria-label={label ?? (kind === 'pc' ? 'This PC' : 'The GPU machine')}>
@@ -1391,7 +1436,7 @@ export function WhereDialog({
             </div>
             <ul>
               <li className="good">Nothing to install; CPU and a T4 on the free tier</li>
-              <li className="good">The same kernel as the Explain pages’ cells</li>
+              <li className="good">{shareColab ? 'Shares the paper pages’ Colab machine (its own Python on it)' : 'A Colab machine of its own: runs beside your other Colab work'}</li>
               <li className={colabFiles === 'drive' ? 'good' : 'bad'}>{colabFiles === 'drive' ? 'The files are kept in your Google Drive, copied to the runtime before each run' : 'The files live on the runtime’s disk — they go when the runtime ends'}</li>
             </ul>
             {mode === 'colab' ? (

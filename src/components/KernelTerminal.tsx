@@ -8,94 +8,17 @@
 
 import { useEffect, useRef, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
-import { runQuietly } from '../lib/colab';
+import { b64, shellCall as call, unb64 } from '../lib/kernelShell';
+import { unwatchTerminal, watchKernelTerminal } from '../lib/jobWatch';
 import { pageTerminalTheme, registerTerminal } from './Terminal';
-
-const HELPER = String.raw`
-if globals().get('_rt_v') != 2:
-    import os, pty, json, threading, fcntl, struct, termios, signal, base64, time
-    _rt_terms = globals().setdefault('_rt_terms', {})
-    def _rt_open(name, cwd, rows, cols):
-        t = _rt_terms.get(name)
-        if t and t['alive']:
-            _rt_resize(name, rows, cols, quiet=True)
-            print(json.dumps({'again': True})); return
-        pid, fd = pty.fork()
-        if pid == 0:
-            try:
-                os.makedirs(cwd, exist_ok=True); os.chdir(cwd)
-            except Exception:
-                pass
-            env = dict(os.environ)
-            env.update({'TERM': 'xterm-256color', 'COLORTERM': 'truecolor', 'PATH': os.pathsep.join([os.path.expanduser('~/.local/bin'), '/usr/local/bin', env.get('PATH', '')])})
-            env.pop('JPY_PARENT_PID', None)
-            os.execvpe('bash', ['bash', '-i'], env)
-        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
-        t = {'pid': pid, 'fd': fd, 'buf': bytearray(), 'base': 0, 'alive': True, 'lock': threading.Lock()}
-        def pump():
-            while True:
-                try:
-                    data = os.read(fd, 65536)
-                except OSError:
-                    data = b''
-                if not data:
-                    t['alive'] = False; break
-                with t['lock']:
-                    t['buf'] += data
-                    if len(t['buf']) > 2000000:
-                        cut = len(t['buf']) - 1000000; del t['buf'][:cut]; t['base'] += cut
-        threading.Thread(target=pump, daemon=True).start()
-        _rt_terms[name] = t
-        print(json.dumps({'again': False}))
-    def _rt_read(name, offset, wait=0.0):
-        t = _rt_terms.get(name)
-        if not t:
-            print(json.dumps({'gone': True})); return
-        end = time.time() + wait
-        while wait and time.time() < end and t['base'] + len(t['buf']) <= offset and t['alive']:
-            time.sleep(0.02)
-        with t['lock']:
-            start = max(offset, t['base'])
-            data = bytes(t['buf'][start - t['base']:])
-            stop = t['base'] + len(t['buf'])
-        print(json.dumps({'data': base64.b64encode(data).decode(), 'offset': stop, 'alive': t['alive']}))
-    def _rt_write(name, b64, offset):
-        t = _rt_terms.get(name)
-        if t and t['alive']:
-            os.write(t['fd'], base64.b64decode(b64))
-        _rt_read(name, offset, 0.12)
-    def _rt_resize(name, rows, cols, quiet=False):
-        t = _rt_terms.get(name)
-        if t and t['alive']:
-            fcntl.ioctl(t['fd'], termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
-            try: os.kill(t['pid'], signal.SIGWINCH)
-            except Exception: pass
-        if not quiet: print('ok')
-    def _rt_close(name):
-        t = _rt_terms.pop(name, None)
-        if t:
-            try: os.kill(t['pid'], signal.SIGHUP)
-            except Exception: pass
-        print('ok')
-    _rt_v = 2
-`;
-
-const b64 = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
-const unb64 = (data: string) => Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
-
-async function call(code: string): Promise<string> {
-  const answer = await runQuietly(`${HELPER}\n${code}`);
-  if (!answer) throw new Error('The machine isn’t connected.');
-  if (!answer.ok) throw new Error(answer.text.trim().split('\n').pop() || 'The shell couldn’t be reached.');
-  return answer.text.trim().split('\n').pop() ?? '';
-}
 
 /** Ends a kernel terminal's shell, so the next one starts afresh. */
 export function closeKernelTerminal(name: string) {
+  unwatchTerminal(name);
   void call(`_rt_close(${JSON.stringify(name)})`).catch(() => undefined);
 }
 
-export default function KernelTerminal({ name, cwd, label, connected }: { name: string; cwd: string; label: string; connected: boolean }) {
+export default function KernelTerminal({ name, cwd, label, connected, playgroundId }: { name: string; cwd: string; label: string; connected: boolean; /** Whose shell it is: followed from any page while it runs something. */ playgroundId?: string }) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<'starting' | 'live' | 'closed' | 'failed'>('starting');
   const [problem, setProblem] = useState<string | null>(null);
@@ -121,6 +44,7 @@ export default function KernelTerminal({ name, cwd, label, connected }: { name: 
           // not laid out yet
         }
         await call(`_rt_open(${JSON.stringify(name)}, ${JSON.stringify(cwd)}, ${term.rows}, ${term.cols})`);
+        if (playgroundId) watchKernelTerminal({ playgroundId, name });
         if (disposed) return term.dispose();
         setState('live');
         term.focus();

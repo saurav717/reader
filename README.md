@@ -4012,6 +4012,9 @@ more. It saves first and types the command into the terminal below, so
 started at login has a bare PATH. A language with nothing to run it says what
 to install. On Colab or a plain Jupyter server, the machine is taken to be
 Linux with Python and a compiler. The editor highlights those languages too.
+While a command runs in a terminal, the Companion also says which one
+(`/companion/terminals`, from the pty's foreground process group), so it
+shows as the playground's run from any page ([Running playgrounds](#running-playgrounds)).
 
 **Agents ▾** in the console lists the coding agents with a command line on the
 machine (Claude Code, Codex, Gemini CLI, Copilot CLI, Aider, …) and starts one
@@ -4139,7 +4142,8 @@ machine, and its files can be opened and edited there too.
 
 - **On Colab, an idle stop.** A playground on Colab can stop its runtime
   after 10 minutes to 2 hours with nothing running. The default is 30
-  minutes, and the stop only happens while the tab is open.
+  minutes, and the stop only happens while the tab is open — on any page of
+  it, not only the playground's own.
 - **From a paper's notebook.** **Export → Copy into a new playground** takes
   the cells as they are into a playground that cites the paper, and opens it.
 - **What is kept.** The playground, its notebook and the files of one that
@@ -4156,6 +4160,116 @@ checks the addresses, the parsers and the sync rules.
 real Jupyter servers, one for this PC and one for the GPU machine, and
 photographs it. The design behind it, and what is not built yet, is in
 [docs/playground.md](docs/playground.md).
+
+### Running playgrounds
+
+Each playground has its own kernel: its own Python, on its own machine. The
+kernels run side by side, so two playgrounds run at once, on two machines or on
+one, and the paper pages have a kernel of their own besides. A run belongs to
+its machine, not to the page. Leave its page, open another playground, or read
+a paper, and it goes on; open the playground again and you are back in the same
+kernel, its variables and all. A command in a playground's terminal and a coding
+agent at work count as runs too.
+
+![two playgrounds running at once, on two machines, in the dock over the library](docs/playground-running-alongside.png)
+
+How what runs, and what can be picked back up, is shown around the app is yours
+to choose: **Show running as…** on the Playground's home, or
+**Settings → Running playgrounds**. There are five ways, each on or off. The
+first two are on to begin with.
+
+- **A · Running now, on the Playground's home.** A shelf at the top with each
+  playground running now. Each card shows what it is on (*cell 9 of 14*,
+  *$ python train.py*, *terminal · python train.py*), the last line it printed,
+  how long it has run, a bar when the output or Run all says how far it has got,
+  **Stop** and **Open**. Each playground in the list says what coming back to it
+  will be like:
+  - *Running*.
+  - *Idle · variables kept*, with **Shut down** beside **Resume**. A kernel left
+    up keeps its variables and, on Colab, uses units.
+  - *Finished*.
+  - *Failed*, with its error.
+  - *Stopped*, with the code kept and the variables gone.
+
+  ![the Playground's home with a playground running: its card on the Running now shelf, and its state in the list](docs/playground-running-shelf.png)
+  ![the list after the runs: each kernel kept, idle with its variables; a toast says one finished](docs/playground-running-states.png)
+
+- **B · A dock and a count, on every page.** The rail's **</>** button counts
+  what runs. Hover it for each run and where it has got to. A dock in the corner
+  of every page shows each run's bar and last line, with **Stop** and **Open**;
+  it folds to a pill and goes when nothing runs. A toast says when a run
+  finishes, fails or is stopped, with a button to its results or its error.
+
+  ![the library, with a playground running: the count on the rail, its pop-up, and the dock](docs/playground-running-dock.png)
+
+- **C · P opens a switcher.** <kbd>P</kbd> from anywhere lists the playgrounds,
+  the running ones first, then the ones that need a look, then the rest. Type to
+  narrow it, and use the arrows and Enter. On a paper's page, <kbd>⌘</kbd><kbd>↵</kbd>
+  puts the one picked beside the paper (E).
+
+  ![P's switcher over the library: running first, then one idle with its variables kept](docs/playground-running-switcher.png)
+
+- **D · Tabs across the top.** The playgrounds opened in this tab stay as tabs
+  above every page, each with a live dot (and how far it has got). Closing a tab
+  stops nothing.
+
+  ![tabs for the playgrounds above the library, one of them running](docs/playground-running-tabs.png)
+
+- **E · Beside the paper.** Reading a paper that a playground cites, that
+  playground's cells sit at the side of the page, live: the cell running, what
+  each printed, **Run** on any cell, **Stop** and **Open**. A cell run there runs
+  in the playground's own kernel, on its machine, and you stay on the paper.
+
+  ![a paper's page with the playground that cites it beside it: a cell run from there, its output under it](docs/playground-running-peek.png)
+
+**On Colab, a machine of its own.** A playground on Colab gets a Colab machine
+(a runtime) of its own, with its own GPU, memory and disk, of the kind it asks
+for: one playground on an A100 and another on a T4 run side by side. Colab
+assigns a machine per notebook, and each playground has its own notebook id,
+made from the playground's id, so it is the same machine from any browser you
+sign in to. Each machine uses compute units of its own. **Shared**, in the
+playground's *Where it runs*, puts it on the browser's machine instead, the one
+the paper pages use, with the other playgrounds set to share: fewer units, one
+GPU between them (each still has its own Python). Shut down, or moving the
+playground off Colab or to Shared, stops its own machine and only that one.
+When your Colab plan allows no more machines at once, the playground shares the
+browser's for now and says so, until one is stopped in Colab.
+
+**Terminals and agents.** A command in a playground's terminal shows like a cell's
+run, with its last line, and **Stop** sends it Ctrl-C:
+- **On a Companion**, the Companion says exactly what each terminal runs
+  (`/companion/terminals`, from each pty's foreground process group).
+- **On a shell on Colab's runtime**, the shell's helper says the same.
+- **On another Jupyter server**, the page keeps a small connection of its own to
+  the terminal after its pane closes. A command entered there runs until the
+  shell's prompt comes back.
+
+The coding agents work the same way: the panel's AI agent while it edits the
+files, and Claude Code or Codex while a request runs on the machine.
+
+![the library, with a command running in a playground's terminal on the Companion: the dock shows the command and its last line](docs/playground-running-terminal.png)
+
+**What is kept, and where the code is.** How each run ended is kept in this
+browser. A notebook cell that finishes while its page is closed has its outputs
+saved with the notebook, as if the page had been open. On Colab, a playground's
+idle stop works from any page, and stops its machine when nothing else is on it.
+- `src/lib/colab.ts` keeps a session per playground: a kernel per scope, and the
+  foreground one is what `colabNow()` shows.
+- `src/lib/playgroundRuns.ts` follows the runs, and `src/lib/jobWatch.ts` the
+  terminals and agents.
+- `src/components/PlaygroundRuns.tsx` and `PlaygroundPeek.tsx` draw them.
+
+**Tests.**
+- `scripts/playground-runs.test.mjs` checks the reading of a run's output and of
+  a terminal's screen, and runs the Colab shell's helper against a real bash.
+- `scripts/running-smoke.mjs` drives the five ways, and runs side by side, end to
+  end against two real Jupyter servers.
+- `scripts/running-jobs-smoke.mjs` drives the terminals, on a Companion and on a
+  plain Jupyter server.
+- `scripts/colab-machines-smoke.mjs` drives Colab playgrounds against a stand-in
+  Colab that assigns a machine per notebook: two on machines of their own (a T4
+  and an A100) at once, one shared, Shut down stopping one machine, and the tier
+  limit.
 
 ## Addresses
 

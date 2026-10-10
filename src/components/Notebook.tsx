@@ -1106,8 +1106,8 @@ export default function NotebookPage({
             + Code
           </button>
           <p className="nb-hint">
-            Every cell is yours to edit: click into the code and type, or double-click a text cell. Shift-Enter runs a cell and moves on; Alt-Enter runs and adds one. With a cell picked and nothing being typed: <kbd>A</kbd> and <kbd>B</kbd> add above and below, <kbd>M</kbd> and <kbd>Y</kbd> make it text or code, <kbd>D D</kbd> deletes, <kbd>↑</kbd> <kbd>↓</kbd> move. The cells share the kernel with the Explanation and
-            Implementation pages; the runtime's menu is the chip in the bar. Kept in this browser{nb ? `, last changed ${time(nb.updated)}` : ''}.
+            Every cell is yours to edit: click into the code and type, or double-click a text cell. Shift-Enter runs a cell and moves on; Alt-Enter runs and adds one. With a cell picked and nothing being typed: <kbd>A</kbd> and <kbd>B</kbd> add above and below, <kbd>M</kbd> and <kbd>Y</kbd> make it text or code, <kbd>D D</kbd> deletes, <kbd>↑</kbd> <kbd>↓</kbd> move.{' '}
+            {playground ? 'The cells run in this playground’s own kernel, on the machine in the bar' : 'The cells share the kernel with the Explanation and Implementation pages'}; the runtime's menu is the chip in the bar. Kept in this browser{nb ? `, last changed ${time(nb.updated)}` : ''}.
           </p>
         </div>
         {side ? (
