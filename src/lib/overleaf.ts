@@ -13,6 +13,7 @@
 import type { BrowserChoice, OverleafLink, OverleafView, Paper, PaperFolder, Settings } from '../types';
 import { OVERLEAF_VIEWS } from '../types';
 import { citeKey, commitFiles, gh, parseRepo, toBibtex, type GitHubTarget } from './github';
+import { zip, type ZipEntry } from './zip';
 
 // ------------------------------------------------------------- the link --
 
@@ -490,3 +491,87 @@ export const paperFolderFor = (name: string) =>
       .replace(/[\s_]+/g, '-')
       .slice(0, 48) || 'paper'
   }`;
+
+// -------------------------------------------------- a new paper in Overleaf --
+// Overleaf's "Open in Overleaf" (overleaf.com/devs): a form posted to /docs
+// makes a new project in the account signed in there, from a file or a .zip
+// given as a data: URL. It only makes new projects — the rest is Git.
+
+/** Text safe in a LaTeX argument: the special characters escaped. */
+export function texEscape(text: string): string {
+  return text.replace(/[\\&%$#_{}~^]/g, (char) => (char === '\\' ? '\\textbackslash{}' : char === '~' ? '\\textasciitilde{}' : char === '^' ? '\\textasciicircum{}' : `\\${char}`));
+}
+
+/**
+ * A first draft for a project: main.tex with its name and question, the
+ * sections a paper usually has, and — when it has papers — references.bib
+ * holding each of them, all listed (\nocite{*}) so the bibliography shows
+ * from the first compile.
+ */
+export function starterPaper(name: string, question: string, papers: Paper[]): ZipEntry[] {
+  const bib = papers.map((paper) => toBibtex(paper)).join('\n\n');
+  const keys = papers.map((paper) => citeKey(paper));
+  const main = [
+    '\\documentclass[11pt]{article}',
+    '\\usepackage[T1]{fontenc}',
+    '\\usepackage{amsmath, amssymb}',
+    '\\usepackage{graphicx}',
+    '\\usepackage[hidelinks]{hyperref}',
+    ...(papers.length ? ['\\usepackage[numbers]{natbib}'] : []),
+    '',
+    `\\title{${texEscape(name.trim() || 'Untitled paper')}}`,
+    '\\author{}',
+    '\\date{\\today}',
+    '',
+    '\\begin{document}',
+    '\\maketitle',
+    '',
+    '\\begin{abstract}',
+    question.trim() ? texEscape(question.trim()) : '% What the paper asks, and what it finds.',
+    '\\end{abstract}',
+    '',
+    '\\section{Introduction}',
+    ...(keys.length ? [`% The project's papers are in references.bib: cite them as \\cite{${keys.slice(0, 3).join('}, \\cite{')}}.`] : []),
+    '',
+    '\\section{Related work}',
+    '',
+    '\\section{Method}',
+    '',
+    '\\section{Experiments}',
+    '',
+    '\\section{Conclusion}',
+    '',
+    ...(papers.length ? ['\\nocite{*}', '\\bibliographystyle{plainnat}', '\\bibliography{references}'] : []),
+    '\\end{document}',
+    '',
+  ].join('\n');
+  return [{ path: 'main.tex', content: main }, ...(papers.length ? [{ path: 'references.bib', content: `${bib}\n` }] : [])];
+}
+
+/** The files as one .zip in a data: URL, as Overleaf's /docs takes a project. */
+export function zipDataUrl(entries: ZipEntry[]): string {
+  const bytes = zip(entries);
+  let binary = '';
+  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  return `data:application/zip;base64,${btoa(binary)}`;
+}
+
+/** Opens the files in Overleaf as a new project, in a new tab: a form posted to /docs, as Overleaf asks. */
+export function openInOverleaf(entries: ZipEntry[], options: { engine?: 'pdflatex' | 'xelatex' | 'lualatex' | 'latex_dvipdf'; main?: string } = {}): void {
+  const form = document.createElement('form');
+  form.action = 'https://www.overleaf.com/docs';
+  form.method = 'post';
+  form.target = '_blank';
+  form.rel = 'noopener';
+  const fields: Record<string, string> = { snip_uri: zipDataUrl(entries), engine: options.engine ?? 'pdflatex', main_document: options.main ?? 'main.tex' };
+  for (const [name, value] of Object.entries(fields)) {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = name;
+    input.value = value;
+    form.append(input);
+  }
+  document.body.append(form);
+  form.submit();
+  form.remove();
+}

@@ -16,10 +16,12 @@ import {
   draftTarget,
   keyFor,
   mainFileOf,
+  openInOverleaf,
   overleafViewOf,
   parseOverleafUrl,
   quoteOf,
   readDraft,
+  starterPaper,
   writeDraft,
   type DraftFile,
 } from '../lib/overleaf';
@@ -481,7 +483,7 @@ export function RepoPrivacy({ repo }: { repo: string }) {
   );
 }
 
-function LinkForm({ project, onDone }: { project: Project; onDone: () => void }) {
+function LinkForm({ project, onDone, note }: { project: Project; onDone: () => void; /** Said above the fields: why it is asked now. */ note?: string }) {
   const { updateCollection, settings } = useStore();
   const link = project.project.overleaf;
   const [url, setUrl] = useState(link?.url ?? '');
@@ -525,6 +527,7 @@ function LinkForm({ project, onDone }: { project: Project; onDone: () => void })
         onDone();
       }}
     >
+      {note ? <p className="ol-note">{note}</p> : null}
       <label className="ol-field">
         <span>Overleaf project</span>
         <input autoFocus value={url} placeholder="https://www.overleaf.com/project/…" onChange={(event) => setUrl(event.target.value)} />
@@ -614,6 +617,7 @@ export function OverleafCard({ project, onWrite }: { project: Project; /** The w
   const view = overleafViewOf(settings);
   const link = project.project.overleaf;
   const [linking, setLinking] = useState(false);
+  const [started, setStarted] = useState(false);
   const draft = useDraft(project);
   const mine = useMemo(() => papersIn(project.id, papers), [project.id, papers]);
   const health = useMemo(() => (draft.files.length ? draftHealth(draft.files, mine) : null), [draft.files, mine]);
@@ -626,9 +630,25 @@ export function OverleafCard({ project, onWrite }: { project: Project; /** The w
         <span className="eyebrow">The paper</span>
         {link ? null : <p className="pj-sub">Writing this up in Overleaf? Link the Overleaf project, and the paper is a click away from what you read and the code — {WHERE[view].charAt(0).toLowerCase() + WHERE[view].slice(1)}</p>}
         {linking ? (
-          <LinkForm project={project} onDone={() => setLinking(false)} />
+          <LinkForm
+            project={project}
+            onDone={() => (setLinking(false), setStarted(false))}
+            note={started ? 'Overleaf opened the new paper in another tab (sign in there if it asks). Copy its address from that tab’s address bar here, and the paper is linked.' : undefined}
+          />
         ) : (
           <div className="pj-row">
+            <button
+              type="button"
+              className="btn primary sm"
+              title={`A new Overleaf project: main.tex with “${project.name}”${project.project.question ? ' and its question' : ''}, the usual sections${mine.length ? `, and references.bib with the project’s ${mine.length} paper${mine.length === 1 ? '' : 's'}` : ''}`}
+              onClick={() => {
+                openInOverleaf(starterPaper(project.name, project.project.question, mine));
+                setStarted(true);
+                setLinking(true);
+              }}
+            >
+              Start a new paper in Overleaf
+            </button>
             <button type="button" className="btn sm" onClick={() => setLinking(true)}>
               Link an Overleaf project
             </button>

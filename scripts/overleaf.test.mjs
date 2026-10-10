@@ -243,3 +243,31 @@ describe('GitHub', () => {
     assert.deepEqual(methods, ['GET']);
   });
 });
+
+describe('a new paper in Overleaf', () => {
+  it('escapes what LaTeX would read as commands', () => {
+    assert.equal(ol.texEscape('50% of A&B_c {x} #1 $5 a~b c^d e\\f'), '50\\% of A\\&B\\_c \\{x\\} \\#1 \\$5 a\\textasciitilde{}b c\\textasciicircum{}d e\\textbackslash{}f');
+  });
+
+  it('starts a paper with the project in it, and its papers in references.bib', () => {
+    const files = ol.starterPaper('Routing & 4-bit', 'Can DiT go to 4 bits?', [paper('arxiv:1706.03762', { title: 'Attention is all you need', authors: ['Ashish Vaswani'], published: '2017-06-12' })]);
+    assert.deepEqual(files.map((file) => file.path), ['main.tex', 'references.bib']);
+    const main = files[0].content;
+    assert.match(main, /^\\documentclass\[11pt\]\{article\}$/m);
+    assert.match(main, /^\\title\{Routing \\& 4-bit\}$/m);
+    assert.match(main, /^Can DiT go to 4 bits\?$/m);
+    assert.match(main, /^\\nocite\{\*\}$/m);
+    assert.match(main, /^\\bibliography\{references\}$/m);
+    assert.match(main, /\\end\{document\}\n$/);
+    assert.match(files[1].content, /^@\w+\{vaswani2017attention,/);
+  });
+
+  it('leaves the bibliography out with no papers, and zips as a data URL', () => {
+    const files = ol.starterPaper('', '', []);
+    assert.deepEqual(files.map((file) => file.path), ['main.tex']);
+    assert.doesNotMatch(files[0].content, /bibliography|natbib/);
+    assert.match(files[0].content, /\\title\{Untitled paper\}/);
+    const url = ol.zipDataUrl(files);
+    assert.match(url, /^data:application\/zip;base64,UEsDB/);
+  });
+});
