@@ -1156,6 +1156,13 @@ export default function Explain({ paperId, title, authors, published, screen, on
     return explanation?.content && !streaming ? bundleOf(title, shown, sections, implementing ? 'plan' : 'page', writer) : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, nb?.updated, explanation?.content, streaming, shown, sections, implementing, title, writer]);
+  // The plan's scaffold, whichever page is open: what Local sets up as a project, in the Playground's editor.
+  const planBundle = useMemo(() => {
+    if (implementing) return explanation?.content && !streaming ? bundleOf(title, shown, sections, 'plan', writer) : null;
+    const plan = implementationFor(paperId);
+    return plan?.content ? bundleOf(title, plan.content, parseExplanation(plan.content), 'plan', modelSpec(plan.model ?? model).label) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [implementing, explanation?.content, streaming, shown, sections, title, writer, paperId]);
   const [nbRewrite, setNbRewriteState] = useState<NotebookRewrite>(readNotebookRewrite);
   // Snip is the pages' own; on the Colab tab its layer would only sit over the cells.
   useEffect(() => {
@@ -1553,7 +1560,7 @@ export default function Explain({ paperId, title, authors, published, screen, on
         >
           <ColabIcon size={15} /> <span>Colab</span>
         </button>
-        <LocalMenu title={title} bundle={bundle} sections={page === 'colab' ? [] : sections} />
+        <LocalMenu title={title} bundle={bundle} sections={page === 'colab' ? [] : sections} plan={planBundle} paper={{ paperId, title, authors, published }} onPlan={() => setPage('implement')} />
         {page === 'colab' ? (
           nbBusy ? (
             <button type="button" className="btn sm" onClick={stopNotebookAsk}>
