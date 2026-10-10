@@ -34,7 +34,7 @@ import { googleBook, googleBooksIdFromLink, linkFromQuery, paperFromLink } from 
 import type { AuthorRef, PaperLocation, PaperOrder, PaperRef, SourceId } from '../types';
 import { CheckIcon, CloseIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
 import { AddToProject } from './Projects';
-import { projectsOf } from '../lib/projects';
+import { isProject, plainCollections, projectsOf } from '../lib/projects';
 
 interface Props {
   onClose: () => void;
@@ -254,15 +254,22 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
   /** The next page of whatever is on screen, which depends on how it was asked for. */
   const nextPage = useRef<((page: number, signal: AbortSignal) => Promise<PaperRef[]>) | null>(null);
 
+  // Adding puts a paper in a collection: a project only when its own "Add papers" opened this (`here`).
+  const plain = useMemo(() => plainCollections(collections), [collections]);
+  const choices = useMemo(() => {
+    const asked = here ? collections.find((collection) => collection.id === here) : undefined;
+    return asked && isProject(asked) ? [asked, ...plain] : plain;
+  }, [collections, plain, here]);
   useEffect(() => {
-    if (!target && collections.length) setTarget(collections[0].id);
-  }, [collections, target]);
+    if (!target || !choices.some((collection) => collection.id === target)) setTarget(choices[0]?.id ?? '');
+  }, [choices, target]);
 
   // Browsing a collection and adding from here should add to that one, not to
   // whichever was first in the list.
   useEffect(() => {
-    if (here && collections.some((collection) => collection.id === here)) setTarget(here);
-  }, [here, collections]);
+    if (here && choices.some((collection) => collection.id === here)) setTarget(here);
+    else if (!here) setTarget((current) => (plain.some((collection) => collection.id === current) ? current : plain[0]?.id ?? ''));
+  }, [here, choices, plain]);
 
   const queryInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -688,9 +695,10 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
             padding: '0 8px',
           }}
         >
-          {collections.map((collection) => (
+          {choices.map((collection) => (
             <option key={collection.id} value={collection.id}>
               {collection.name}
+              {isProject(collection) ? ' (project)' : ''}
             </option>
           ))}
         </select>

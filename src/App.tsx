@@ -476,9 +476,21 @@ export default function App() {
   // search box, which is the part of it that press is asking for.
   const [discoverFocus, setDiscoverFocus] = useState(0);
   const addPapers = useCallback(() => {
+    setDiscoverProject(null);
     setDock('discover');
     setDiscoverFocus(Date.now());
   }, []);
+  // A project's own "Add papers": Discover adds to that project. Anywhere else it adds to a collection,
+  // never to a project merely because its page is open.
+  const [discoverProject, setDiscoverProject] = useState<string | null>(null);
+  const addPapersToProject = useCallback(() => {
+    setDiscoverProject(view.kind === 'project' ? view.id : null);
+    setDock('discover');
+    setDiscoverFocus(Date.now());
+  }, [view]);
+  useEffect(() => {
+    if (discoverProject && !(view.kind === 'project' && view.id === discoverProject)) setDiscoverProject(null);
+  }, [view, discoverProject]);
   useEffect(() => {
     const onDiscover = (event: Event) => {
       const detail = (event as CustomEvent<{ query: string; open?: string }>).detail;
@@ -1432,7 +1444,7 @@ export default function App() {
       ) : view.kind === 'playground' ? (
         <Playground id={view.id} onOpen={(id) => setView(id ? { kind: 'playground', id } : { kind: 'playground' })} onOpenPaper={openPaper} />
       ) : view.kind === 'projects' || view.kind === 'project' ? (
-        <ProjectsPage view={view} onView={setView} onOpenPaper={openPaper} onAddPapers={addPapers} />
+        <ProjectsPage view={view} onView={setView} onOpenPaper={openPaper} onAddPapers={addPapersToProject} />
       ) : view.kind === 'junk' ? (
         <JunkView />
       ) : (
@@ -1472,7 +1484,7 @@ export default function App() {
               onClose={closeDock}
               onOpen={openFromDiscover}
               ask={discoverAsk}
-              here={view.kind === 'collection' || view.kind === 'project' ? view.id : undefined}
+              here={view.kind === 'collection' ? view.id : discoverProject ?? undefined}
               focus={discoverFocus}
             />
           ) : (
