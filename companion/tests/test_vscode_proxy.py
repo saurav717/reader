@@ -103,6 +103,16 @@ class ProxyTest(AsyncHTTPTestCase):
         conn.close()
 
     @gen_test
+    async def test_websockets_through_the_https_tunnel(self):
+        # The frame is https://<tunnel>; the tunnel reaches this server over http, with the tunnel's host.
+        url = f"ws://127.0.0.1:{self.get_http_port()}/companion/vscode/s3cret/ws"
+        from tornado.httpclient import HTTPRequest
+        host = "quiet-river.trycloudflare.com"
+        conn = await websocket.websocket_connect(HTTPRequest(url, headers={"Host": host, "Origin": f"https://{host}", "X-Forwarded-Proto": "https"}))
+        self.assertEqual(await conn.read_message(), "cookie:vscode-tkn=tkn")
+        conn.close()
+
+    @gen_test
     async def test_websockets_from_another_site_are_refused(self):
         url = f"ws://127.0.0.1:{self.get_http_port()}/companion/vscode/s3cret/ws"
         from tornado.httpclient import HTTPClientError, HTTPRequest
