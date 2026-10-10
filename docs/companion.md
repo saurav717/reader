@@ -309,6 +309,17 @@ and shows which one it is on in the machine chip.
     and its host too, so an Overleaf account's other projects need none.
   - `forget-token {host}` forgets them.
 - From 0.11.1, `compile` passes `latexmk -g`: it compiles every time it is asked, as Overleaf does. Without it, latexmk skips a file it failed on until the file changes, so a package installed after a failed compile changed nothing until the next edit.
+- From 0.12.0, the Companion can install a TeX Live of its own, with TeX Live's
+  installer (`install-tl`, the same TeX Live as MacTeX and Overleaf), into
+  `~/.reader-companion/texlive`: no password, PATH and any other TeX left
+  alone. `GET` adds `texlive` (installed, and how an install is going), and
+  its programs come before any other TeX's. Actions: `texlive` (the status),
+  `install-texlive {scheme: full|medium}` (in the background; full is about
+  5 GB without documentation, 20–60 minutes), `cancel-texlive`,
+  `remove-texlive`, and `install-packages {names}` (its `tlmgr install`, a
+  `.sty`'s name looked up with `tlmgr search --global --file` when it isn't a
+  package's). Compiling puts the TeX's own folder first on the PATH, so
+  latexmk finds pdflatex and biber from the same TeX Live.
 - Secrets (playground.md, step 8) live in the keychain and are passed to a
   kernel's environment. They are never put in the Drive mirror.
 

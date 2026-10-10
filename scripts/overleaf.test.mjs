@@ -21,6 +21,24 @@ after(async () => {
 const paper = (id, more = {}) => ({ id, source: 'arxiv', title: id, authors: [], abstract: '', published: '', categories: [], addedAt: '2026-02-01T00:00:00.000Z', collectionIds: [], tags: [], progress: 0, ...more });
 
 describe('the link', () => {
+  it('switches to another project: the old one put by, the account and browser kept, a project linked before brought back', () => {
+    const A = 'https://www.overleaf.com/project/aaaaaaaaaaaaaaaaaaaaaaaa';
+    const B = 'https://www.overleaf.com/project/bbbbbbbbbbbbbbbbbbbbbbbb';
+    const first = { url: A, account: 'me@lab.edu', browsers: { mac: { browser: 'chrome', label: 'Chrome' } }, repo: 'me/paper-a', compiler: 'xelatex', main: 'paper.tex', folders: { mac: { path: 'papers/a', sync: 'git' } } };
+    const moved = ol.switchedLink(first, B);
+    assert.deepEqual(moved, { url: B, account: 'me@lab.edu', browsers: first.browsers, earlier: { [A]: { mac: { path: 'papers/a', sync: 'git' } } } });
+    const back = ol.switchedLink({ ...moved, folders: { mac: { path: 'papers/b', sync: 'git' } } }, A);
+    assert.deepEqual(back.folders, { mac: { path: 'papers/a', sync: 'git' } });
+    assert.deepEqual(back.earlier, { [B]: { mac: { path: 'papers/b', sync: 'git' } } });
+  });
+
+  it('keeps the earlier folders through a reload, and only sound ones', () => {
+    const A = 'https://www.overleaf.com/project/aaaaaaaaaaaaaaaaaaaaaaaa';
+    const B = 'https://www.overleaf.com/project/bbbbbbbbbbbbbbbbbbbbbbbb';
+    const read = ol.overleafLinkOf({ url: B, earlier: { [A]: { mac: { path: '/papers/a/', sync: 'git' }, pc: { path: '../out', sync: 'git' } }, 'not a link': { mac: { path: 'x', sync: 'git' } }, [B]: { mac: { path: 'self', sync: 'git' } } } });
+    assert.deepEqual(read.earlier, { [A]: { mac: { path: 'papers/a', sync: 'git' } } });
+  });
+
   it('takes the editor address, a share link, or no scheme', () => {
     assert.equal(ol.parseOverleafUrl('https://www.overleaf.com/project/66F1C0A9E2B7D4A1B2C3D4E5/detached'), 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5');
     assert.equal(ol.parseOverleafUrl('www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5'), 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5');

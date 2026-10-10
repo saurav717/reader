@@ -7458,3 +7458,23 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .wr-missing .copy-block pre { white-space: pre-wrap; word-break: break-all; padding-right: 64px; }
 .wr-preview .wr-tabs { flex-wrap: nowrap; min-width: 0; }
 .wr-preview .wr-tabs > .wr-quiet { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* TeX Live for Reader: offered, installing, installed. */
+.wr-owntex { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); border-radius: 10px; background: var(--accent-soft); font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+.wr-owntex b { color: var(--ink); }
+.wr-owntex.is-done { flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.wr-owntex .wr-row { margin: 2px 0 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.wr-owntex-bar { height: 6px; border-radius: 999px; background: var(--border-soft); overflow: hidden; }
+.wr-owntex-bar > span { display: block; height: 100%; background: var(--accent); transition: width 0.4s ease; }
+.wr-owntex-tail { max-height: 140px; overflow: auto; margin: 6px 0 0; font: 11px var(--mono); white-space: pre-wrap; }
+
+/* Which Overleaf project, and the way to another. */
+.wr-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); min-width: 0; }
+.wr-switch a { color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wr-side-switch { padding: 6px 12px; border-top: 1px solid var(--border-soft); }
+.wr-switch-form { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; font-size: 12px; color: var(--ink-2); }
+.wr-switch-form input { height: 30px; padding: 0 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font: 12px var(--mono); }
+.wr-switch-form small { color: var(--muted); line-height: 1.5; }
+.wr-switch-form .wr-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.wr-switch-back { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wr-danger { color: var(--danger) !important; }

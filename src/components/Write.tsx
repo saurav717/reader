@@ -8,11 +8,11 @@
 // `WRITE_OPTIONS`). The folder is chosen once on each computer: a project
 // remembers it by the computer's Companion.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
 import { jupyterDelete, jupyterList, jupyterMkdir, jupyterRead, jupyterRename, jupyterWrite, jupyterWriteBase64 } from '../lib/colab';
-import { PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEX_COMPILERS, applyTemplate, chooseFolder, clonePaper, compilePaper, deleteTemplate, forgetOverleafToken, installTectonic, isNewer, linkFolder, listTemplates, paperEngines, paperRemote, saveTemplate, syncPaper, tokenKnown, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
-import { bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, withEntry } from '../lib/overleaf';
+import { PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEXLIVE_VERSION, TEX_COMPILERS, applyTemplate, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, chooseFolder, clonePaper, compilePaper, deleteTemplate, forgetOverleafToken, installTectonic, isNewer, linkFolder, listTemplates, paperEngines, paperRemote, saveTemplate, syncPaper, tokenKnown, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
+import { bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
 import { complete as completeLatex } from '../lib/latexComplete';
 import { openPdf } from '../lib/pdfReflow';
 import { papersIn, type Project } from '../lib/projects';
@@ -288,6 +288,142 @@ function PaneTools({ layout, onLayout, swapped, onSwap, big, onBig }: { layout: 
   );
 }
 
+// ------------------------------------------------- TeX Live for Reader --
+
+/**
+ * The Companion's own TeX Live: one click installs TeX Live — the same as
+ * Overleaf's — into its folder, no password, and it is used before any other
+ * TeX on the computer. While it installs, how far it has got.
+ */
+function OwnTex({ server, status, onStatus, onReady }: { server: Here['server']; status?: TexLiveStatus; onStatus: (status: TexLiveStatus) => void; onReady: () => void }) {
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const installing = status?.state === 'installing';
+  useEffect(() => {
+    if (!installing) return;
+    let live = true;
+    const timer = window.setInterval(async () => {
+      try {
+        const now = await texLiveStatus(server);
+        if (!live) return;
+        onStatus(now);
+        if (now.state === 'done') onReady();
+      } catch {
+        // asked again in a moment
+      }
+    }, 3000);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [installing, server]);
+  const act = async (call: () => Promise<TexLiveStatus>) => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      onStatus(await call());
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (status?.installed) {
+    return (
+      <div className="wr-owntex is-done">
+        <span>
+          <b>TeX Live for Reader is installed</b> — compiling uses it, and a missing package installs with one click.
+        </span>
+        <button
+          type="button"
+          className="link-btn"
+          disabled={busy}
+          onClick={() => {
+            if (window.confirm('Remove TeX Live for Reader from this computer? Compiling goes back to the TeX installed before, if there is one.')) void act(() => removeTexLive(server)).then(onReady);
+          }}
+        >
+          Remove
+        </button>
+        {problem ? <p className="wr-bad">{problem}</p> : null}
+      </div>
+    );
+  }
+  if (installing) {
+    const share = status?.of ? Math.round(((status.done ?? 0) / status.of) * 100) : 0;
+    return (
+      <div className="wr-owntex">
+        <b>Installing TeX Live for Reader{status?.scheme === 'medium' ? ' (medium)' : ''}…</b>
+        <div className="wr-owntex-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={share}>
+          <span style={{ width: `${Math.max(2, share)}%` }} />
+        </div>
+        <small>
+          {status?.step || 'Starting…'} {status?.of ? `· ${share}%` : ''} — it carries on if you leave this page; keep the Companion running.
+        </small>
+        <p className="wr-row">
+          <button type="button" className="btn sm" disabled={busy} onClick={() => void act(() => cancelTexLive(server))}>
+            Cancel
+          </button>
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="wr-owntex">
+      <b>Let Reader install TeX Live</b>
+      <span>
+        TeX Live — the same as Overleaf’s — goes into the Companion’s folder: no password, and nothing else on this computer changes. Reader compiles with it from then on, and a package it lacks installs with one click.
+      </span>
+      {status?.state === 'failed' ? (
+        <div className="wr-bad">
+          {status.error}
+          {status.tail?.length ? <pre className="wr-owntex-tail">{status.tail.join('\n')}</pre> : null}
+        </div>
+      ) : null}
+      {problem ? <p className="wr-bad">{problem}</p> : null}
+      <p className="wr-row">
+        <button type="button" className="btn primary sm" disabled={busy} onClick={() => void act(() => installTexLive(server, 'full'))} title="scheme-full, without the documentation: about 5 GB, 20–60 minutes">
+          Install everything, as Overleaf (about 5 GB)
+        </button>
+        <button type="button" className="btn sm" disabled={busy} onClick={() => void act(() => installTexLive(server, 'medium'))} title="scheme-medium: about 1.5 GB, more installed as papers ask">
+          A medium set (about 1.5 GB)
+        </button>
+      </p>
+    </div>
+  );
+}
+
+/** One click: the missing packages into the Companion's TeX Live, then compile again. */
+function InstallMissing({ server, names, onDone }: { server: Here['server']; names: string[]; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  return (
+    <p className="wr-row">
+      <button
+        type="button"
+        className="btn primary sm"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          setSaid(null);
+          try {
+            const done = await installPackages(server, names);
+            setSaid(done.failed.length ? `Installed ${done.installed.join(', ') || 'nothing'}; couldn’t find ${done.failed.join(', ')}.` : `Installed ${done.installed.join(', ')}. Compiling again…`);
+            if (done.installed.length) onDone();
+          } catch (error) {
+            setSaid(error instanceof Error ? error.message : String(error));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? 'Installing…' : `Install ${names.join(', ')} now`}
+      </button>
+      {said ? <span className="wr-quiet">{said}</span> : null}
+    </p>
+  );
+}
+
 // ---------------------------------------------------- packages not here --
 
 /** The packages a compile stopped for: "File `physics.sty' not found". */
@@ -308,7 +444,7 @@ function frozen(year: number): boolean {
 }
 
 /** What to do about packages this computer's TeX hasn't got: install them, or let Tectonic fetch them. */
-function MissingPackages({ names, texLive, tectonic, onTectonic }: { names: string[]; texLive?: string; tectonic: boolean; onTectonic: () => void }) {
+function MissingPackages({ names, texLive, tectonic, onTectonic, first }: { names: string[]; texLive?: string; tectonic: boolean; onTectonic: () => void; /** The way Reader does it for you, above the rest. */ first?: ReactNode }) {
   const year = texLive ? Number(texLive) : NaN;
   const old = Number.isFinite(year) && frozen(year);
   const windows = typeof navigator !== 'undefined' && /Win/i.test(navigator.platform || navigator.userAgent);
@@ -318,8 +454,10 @@ function MissingPackages({ names, texLive, tectonic, onTectonic }: { names: stri
   return (
     <div className="wr-missing">
       <p>
-        <b>Not on this computer: {names.map((name) => `${name}.sty`).join(', ')}.</b> Overleaf has every package; this computer’s TeX{texLive ? ` Live ${texLive}` : ''} is a smaller install. Either:
+        <b>Not on this computer: {names.map((name) => `${name}.sty`).join(', ')}.</b> Overleaf has every package; this computer’s TeX{texLive ? ` Live ${texLive}` : ''} is a smaller install.{first ? '' : ' Either:'}
       </p>
+      {first}
+      {first ? <p className="wr-quiet">Or by hand:</p> : null}
       <ol>
         <li>
           Install {names.length === 1 ? 'it' : 'them'} — in a terminal{windows ? ' (as administrator)' : ''}:
@@ -345,6 +483,95 @@ function MissingPackages({ names, texLive, tectonic, onTectonic }: { names: stri
         ) : null}
       </ol>
     </div>
+  );
+}
+
+/** The end of an Overleaf project's address, enough to tell two apart. */
+const shortProject = (url: string) => {
+  const last = url.replace(/\/+$/, '').split('/').pop() ?? url;
+  return last.length > 10 ? `…${last.slice(-6)}` : last;
+};
+
+/**
+ * Which Overleaf project the paper is, and the way to another: the folder of
+ * the one left stays on the computer, the new one is cloned with all that is
+ * written in it so far, and one switched back to opens its folder again and
+ * takes in what changed in Overleaf meanwhile. Or off Overleaf altogether.
+ */
+function SwitchOverleaf({ project }: { project: Project }) {
+  const { updateCollection } = useStore();
+  const link = project.project.overleaf;
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState('');
+  const parsed = parseOverleafUrl(url);
+  if (!link) return null;
+  const earlier = Object.keys(link.earlier ?? {});
+  const move = (next: string | undefined) => {
+    void updateCollection(project.id, (collection) => {
+      const info = { ...project.project, ...(collection.project ?? {}) };
+      if (!info.overleaf) return {};
+      if (!next) {
+        const { overleaf: _gone, ...rest } = info;
+        return { project: rest };
+      }
+      return { project: { ...info, overleaf: switchedLink(info.overleaf, next) } };
+    });
+    setOpen(false);
+    setUrl('');
+  };
+  if (!open) {
+    return (
+      <span className="wr-switch">
+        <a className="mono" href={link.url} target="_blank" rel="noreferrer noopener" title={link.url}>
+          Overleaf {shortProject(link.url)}
+        </a>
+        <button type="button" className="link-btn" onClick={() => setOpen(true)} title="Write in another Overleaf project, or disconnect from this one">
+          Switch
+        </button>
+      </span>
+    );
+  }
+  return (
+    <form
+      className="wr-switch-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (parsed && parsed !== link.url) move(parsed);
+      }}
+    >
+      <b>Another Overleaf project</b>
+      <input autoFocus value={url} placeholder="https://www.overleaf.com/project/…" onChange={(event) => setUrl(event.target.value)} aria-label="The Overleaf project’s address" />
+      {url.trim() && !parsed ? <small className="wr-bad">Copy the address from Overleaf’s address bar with the project open.</small> : null}
+      {earlier.length ? (
+        <span className="wr-switch-back">
+          Or back to:{' '}
+          {earlier.map((address) => (
+            <button key={address} type="button" className="link-btn" onClick={() => move(address)} title={`${address} — its folder is kept, and Overleaf’s changes come in when it opens`}>
+              {shortProject(address)}
+            </button>
+          ))}
+        </span>
+      ) : null}
+      <small>The folder of {shortProject(link.url)} stays on this computer as it is. The new project is cloned with everything written in it so far; one you come back to opens its folder again and takes in what changed in Overleaf meanwhile.</small>
+      <span className="wr-row">
+        <button type="submit" className="btn primary sm" disabled={!parsed || parsed === link.url}>
+          Switch
+        </button>
+        <button type="button" className="btn sm" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+        <span className="wr-sp" />
+        <button
+          type="button"
+          className="link-btn wr-danger"
+          onClick={() => {
+            if (window.confirm(`Disconnect “${project.name}” from Overleaf? The Overleaf project and the folders on your computers stay as they are; link one again from the project’s overview.`)) move(undefined);
+          }}
+        >
+          Disconnect from Overleaf
+        </button>
+      </span>
+    </form>
   );
 }
 
@@ -553,6 +780,7 @@ function WriteSetUp({ project, here }: { project: Project; here: Here }) {
       <div className="wr-card wr-setup">
         <span className="eyebrow">The paper · on {here.name}</span>
         <h2>Where should the paper’s files be?</h2>
+        <SwitchOverleaf project={project} />
         <p>The Write tab edits the paper in a folder on this computer, compiles it here as Overleaf does, and keeps it in step with Overleaf. Pick how, once for this computer: the project keeps it until you change it.</p>
         {!link ? <p className="wr-bad">Link the Overleaf project on the project’s overview first (the paper card), so the tab knows which paper it is.</p> : null}
         <p className="wr-note">
@@ -734,6 +962,10 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
   const typedAt = useRef(0);
   const timers = useRef<{ save?: number; compile?: number; sync?: number }>({});
   const [tokenShown, setTokenShown] = useState(false);
+  const [texShown, setTexShown] = useState(false);
+  // The Companion's own TeX Live, from 0.12.0: installed with a click, its packages too.
+  const canOwnTex = !isNewer(TEXLIVE_VERSION, here.version);
+  const setOwnTex = (status: TexLiveStatus) => setEngines((now) => (now ? { ...now, texlive: status } : now));
   const panesRef = useRef<HTMLDivElement>(null);
   const git = folder.sync === 'git';
   const at = (relative: string) => `${folder.path}/${relative}`;
@@ -1179,6 +1411,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
       {noTex ? (
         <div className="wr-pad">
           <p>There’s no TeX on this computer to compile with.</p>
+          {canOwnTex ? <OwnTex server={server} status={engines?.texlive} onStatus={setOwnTex} onReady={() => void paperEngines(server).then(setEngines).then(() => compile())} /> : null}
           {engines?.tectonicInstallable ? (
             <button
               type="button"
@@ -1303,6 +1536,9 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
             ) : null}
           </div>
         ) : null}
+        <div className="wr-side-switch">
+          <SwitchOverleaf project={project} />
+        </div>
         <div className="wr-side-foot">
           <span className="wr-quiet mono" title={folder.path}>
             {here.name} · {folder.path}
@@ -1360,7 +1596,23 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
               </button>
             ))}
             {!compiled.errors.length && !compiled.warnings.length ? <p className="wr-quiet wr-pad">Nothing to say.</p> : null}
-            {missing.length ? <MissingPackages names={missing} texLive={texLive} tectonic={Boolean(engines?.tectonic || engines?.tectonicInstallable)} onTectonic={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), engine: 'tectonic' } })} /> : null}
+            {missing.length ? (
+              <MissingPackages
+                names={missing}
+                texLive={texLive}
+                tectonic={Boolean(engines?.tectonic || engines?.tectonicInstallable)}
+                onTectonic={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), engine: 'tectonic' } })}
+                first={
+                  !canOwnTex ? (
+                    <p className="wr-quiet">Update the Companion to {TEXLIVE_VERSION} and Reader can install TeX Live — and any missing package — for you, without a password.</p>
+                  ) : engines?.texlive?.installed ? (
+                    <InstallMissing server={server} names={missing} onDone={() => void compile()} />
+                  ) : (
+                    <OwnTex server={server} status={engines?.texlive} onStatus={setOwnTex} onReady={() => void paperEngines(server).then(setEngines).then(() => compile())} />
+                  )
+                }
+              />
+            ) : null}
             <details className="wr-raw">
               <summary>The whole log</summary>
               <pre>{compiled.log}</pre>
@@ -1393,6 +1645,11 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
           <span>{compiling ? 'Compiling…' : 'Not compiled yet'}</span>
         )}
         <span className="wr-sp" />
+        {canOwnTex ? (
+          <button type="button" className="link-btn" aria-expanded={texShown} onClick={() => setTexShown(!texShown)} title="The TeX that compiles the paper: Reader can install TeX Live for you">
+            TeX
+          </button>
+        ) : null}
         {git ? (
           <button type="button" className="link-btn" aria-expanded={tokenShown} onClick={() => setTokenShown(!tokenShown)} title="The Overleaf Git token on this computer: where it is, and how to remove it">
             Overleaf token
@@ -1400,6 +1657,12 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
         ) : null}
         <OpenOverleaf project={project} view="beside" primary={false} compact />
       </footer>
+      {texShown && canOwnTex ? (
+        <div className="wr-sync-banner">
+          <span className="wr-quiet">{engines?.texVersion ? `Compiling with ${engines.texVersion}.` : 'No TeX found yet.'}</span>
+          <OwnTex server={server} status={engines?.texlive} onStatus={setOwnTex} onReady={() => void paperEngines(server).then(setEngines).then(() => compile())} />
+        </div>
+      ) : null}
       {tokenShown ? (
         <div className="wr-sync-banner">
           <ForgetToken server={server} open onForgotten={() => setNeedToken(true)} />

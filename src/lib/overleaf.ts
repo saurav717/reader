@@ -63,13 +63,13 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
       };
     }
   }
-  const folders: Record<string, PaperFolder> = {};
-  if (value.folders && typeof value.folders === 'object') {
-    for (const [computer, raw] of Object.entries(value.folders as Record<string, unknown>)) {
-      const folder = raw as Partial<Record<keyof PaperFolder, unknown>> | null;
-      const path = typeof folder?.path === 'string' ? folder.path.replace(/^\/+|\/+$/g, '') : '';
-      if (!path || path.split('/').includes('..')) continue;
-      folders[computer] = { path, sync: folder?.sync === 'git' || folder?.sync === 'dropbox' ? folder.sync : 'folder' };
+  const folders = cleanFolders(value.folders);
+  const earlier: Record<string, Record<string, PaperFolder>> = {};
+  if (value.earlier && typeof value.earlier === 'object') {
+    for (const [address, raw] of Object.entries(value.earlier as Record<string, unknown>)) {
+      const before = parseOverleafUrl(address);
+      const kept = cleanFolders(raw);
+      if (before && before !== url && Object.keys(kept).length) earlier[before] = kept;
     }
   }
   return {
@@ -80,12 +80,46 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
     ...(text(value.account) ? { account: text(value.account) } : {}),
     ...(Object.keys(browsers).length ? { browsers } : {}),
     ...(Object.keys(folders).length ? { folders } : {}),
+    ...(Object.keys(earlier).length ? { earlier } : {}),
     ...(value.compiler === 'xelatex' || value.compiler === 'lualatex' || value.compiler === 'latex' || value.compiler === 'pdflatex' ? { compiler: value.compiler } : {}),
     ...(typeof value.main === 'string' && /\.tex$/i.test(value.main) && !value.main.split('/').includes('..') ? { main: value.main.replace(/^\/+/, '') } : {}),
   };
 }
 
 const cleanFolder = (folder: string) => folder.replace(/^\/+|\/+$/g, '');
+
+/** A paper's folder on each computer, as it can be relied on: inside the Companion's folder, synced one of three ways. */
+function cleanFolders(value: unknown): Record<string, PaperFolder> {
+  const folders: Record<string, PaperFolder> = {};
+  if (!value || typeof value !== 'object') return folders;
+  for (const [computer, raw] of Object.entries(value as Record<string, unknown>)) {
+    const folder = raw as Partial<Record<keyof PaperFolder, unknown>> | null;
+    const path = typeof folder?.path === 'string' ? folder.path.replace(/^\/+|\/+$/g, '') : '';
+    if (!path || path.split('/').includes('..')) continue;
+    folders[computer] = { path, sync: folder?.sync === 'git' || folder?.sync === 'dropbox' ? folder.sync : 'folder' };
+  }
+  return folders;
+}
+
+/**
+ * The link moved to another Overleaf project: what belonged to the old one
+ * (its folders, its GitHub repository, compiler and main document) is put
+ * by, and the new one's folders come back if it was linked before. The
+ * account and the browser it opens in stay.
+ */
+export function switchedLink(link: OverleafLink, url: string): OverleafLink {
+  const earlier = { ...(link.earlier ?? {}) };
+  if (link.folders && Object.keys(link.folders).length) earlier[link.url] = link.folders;
+  const back = earlier[url];
+  delete earlier[url];
+  return {
+    url,
+    ...(link.account ? { account: link.account } : {}),
+    ...(link.browsers ? { browsers: link.browsers } : {}),
+    ...(back ? { folders: back } : {}),
+    ...(Object.keys(earlier).length ? { earlier } : {}),
+  };
+}
 
 /** The choice in Settings, as it can be relied on: the default for anything else. */
 export function overleafViewOf(settings: Pick<Settings, 'overleafView'>): OverleafView {

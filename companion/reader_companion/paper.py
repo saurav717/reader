@@ -250,7 +250,9 @@ def compile_paper(root: Path, folder_rel: str, main: str | None, engine: str, av
     pdf_path, log_path = out / f"{stem}.pdf", out / f"{stem}.log"
     started = time.time()
     try:
-        done = run(argv, cwd=str(folder), capture_output=True, text=True, timeout=COMPILE_TIMEOUT_S, stdin=subprocess.DEVNULL, errors="replace")
+        # latexmk finds pdflatex, biber and the rest on the PATH: its own folder first, so a TeX Live comes whole.
+        env = {**os.environ, "PATH": os.pathsep.join([str(Path(argv[0]).parent), os.environ.get("PATH", "")])}
+        done = run(argv, cwd=str(folder), capture_output=True, text=True, timeout=COMPILE_TIMEOUT_S, stdin=subprocess.DEVNULL, errors="replace", env=env)
         output = (done.stdout or "") + (done.stderr or "")
         code = done.returncode
     except subprocess.TimeoutExpired:
