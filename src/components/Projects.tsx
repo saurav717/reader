@@ -199,7 +199,7 @@ function ProjectBar({
 }) {
   const [picking, setPicking] = useState(false);
   // From the board, a view asks which project rather than guessing one: the one picked opens on it.
-  const [pickFor, setPickFor] = useState<'read' | 'workspace' | 'write' | null>(null);
+  const [pickFor, setPickFor] = useState<'overview' | 'read' | 'workspace' | 'write' | null>(null);
   const pickRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!picking) return;
@@ -209,13 +209,13 @@ function ProjectBar({
     window.addEventListener('pointerdown', away);
     return () => window.removeEventListener('pointerdown', away);
   }, [picking]);
-  const open = (next: 'read' | 'workspace' | 'write') => {
+  const open = (next: 'overview' | 'read' | 'workspace' | 'write') => {
     if (!current) {
       setPickFor(next);
       setPicking(true);
       return;
     }
-    onView({ kind: 'project', id: current.id, mode: next });
+    onView(next === 'overview' ? { kind: 'project', id: current.id } : { kind: 'project', id: current.id, mode: next });
   };
   const none = projects.length === 0;
   return (
@@ -231,16 +231,9 @@ function ProjectBar({
             {pickFor ? (
               <span className="eyebrow">Which project?</span>
             ) : (
-              <>
-                <button type="button" role="menuitem" onClick={() => (setPicking(false), onView({ kind: 'projects' }))}>
-                  <GridIcon size={14} /> All projects
-                </button>
-                {current ? (
-                  <button type="button" role="menuitem" aria-current={mode === 'overview' ? 'true' : undefined} onClick={() => (setPicking(false), onView({ kind: 'project', id: current.id }))}>
-                    <span className="pj-mark sm" style={{ background: current.color }}>{initialsOf(current.name)}</span> Overview of {current.name}
-                  </button>
-                ) : null}
-              </>
+              <button type="button" role="menuitem" onClick={() => (setPicking(false), onView({ kind: 'projects' }))}>
+                <GridIcon size={14} /> All projects
+              </button>
             )}
             {projects.map((project) => (
               <button
@@ -264,6 +257,12 @@ function ProjectBar({
             </button>
           </div>
         ) : null}
+      </div>
+      {/* The project's home, apart from the three ways of working in it. */}
+      <div className="segmented pj-views" role="group" aria-label="Project overview">
+        <button type="button" aria-pressed={mode === 'overview'} disabled={none} onClick={() => open('overview')} title="One project: what to read next, its papers, its code, its paper">
+          Overview
+        </button>
       </div>
       <div className="segmented pj-views" role="group" aria-label="Project view">
         <button type="button" aria-pressed={mode === 'read'} disabled={none} onClick={() => open('read')} title="The project’s papers, one at a time">
