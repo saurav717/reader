@@ -64,6 +64,11 @@ describe('the project, as the agent reads it', () => {
     const text = agent.projectBlock({ where: 'Colab.', listing: [], open: [], console: [], paper: { title: 'LoRA', authors: ['Edward Hu'], published: '2021-06-17', abstract: 'Low-rank  adapters.' } });
     assert.match(text, /^<paper>\nLoRA by Edward Hu \(2021\)\n\nAbstract: Low-rank adapters\.\n<\/paper>/);
   });
+  it('names the files a streaming answer has begun, once each fence line is whole', () => {
+    const text = 'Here.\n```python file=src/model.py\nx = 1\n```\n```yaml file="configs/a.yaml"\nk: 1\n```\n```text path=req';
+    assert.deepEqual(agent.filesInReply(text), ['src/model.py', 'configs/a.yaml']);
+    assert.deepEqual(agent.filesInReply(`${text}uirements.txt\n`), ['src/model.py', 'configs/a.yaml', 'requirements.txt']);
+  });
   it('walks a host for every file, leaving caches out', async () => {
     const tree = { '': [['src', 'directory'], ['main.py', 'file'], ['__pycache__', 'directory']], src: [['a.py', 'file']], __pycache__: [['x.pyc', 'file']] };
     const host = { label: 't', list: async (path = '') => (tree[path] ?? []).map(([name, type]) => ({ name, path: path ? `${path}/${name}` : name, type, size: type === 'file' ? 1 : null, modified: null })), read: async () => '', write: async () => {} };

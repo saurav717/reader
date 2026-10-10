@@ -3764,7 +3764,15 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
   an `AGENTS.md`, read by Codex and, through `CLAUDE.md`, by Claude Code; the
   page's own agent is given the paper with every request, so *Implement the
   paper's method* is one click, and the notebook is the tab beside the
-  files), a GitHub repository (the clone
+  files). Before anything is written, the editor's place holds **Which model
+  writes this project?** — the same model cards as the notebook's start, with
+  the key asked for when the model has none — and **Write the project** has
+  that model write every file the implementation needs into the folder: the
+  method in modules of its own, a config, `main.py`, `requirements.txt` and
+  the README, with the paper's plan from its Implementation page when there is
+  one. The files are listed as the answer reaches them, open in the editor once
+  they are in, and one Undo in the agent's pane puts them all back.
+  The others: a GitHub repository (the clone
   waits in the console for a click), a Hugging Face model or dataset id
   (cells that load it and run it once), or an `.ipynb` or `.py` file.
 - **Where it runs.** The sheet that follows offers three modes. **Colab, in

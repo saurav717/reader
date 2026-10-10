@@ -6188,6 +6188,23 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 
 /* ------------------------------------------------- the code editor (CodeEditor.tsx) -- */
 .vs-groups { flex: 1; min-height: 0; display: flex; }
+.vs-groups[hidden] { display: none; }
+/* A project from a paper, before it is written: the model that writes it, in the editor's place. */
+.pg-write-wrap { flex: 1; min-height: 0; overflow: auto; padding: 18px 20px; }
+.pg-write { margin-top: 0; }
+.pg-write code { font: 12px var(--mono); padding: 0 3px; border-radius: 4px; background: var(--surface); }
+.pg-write-live { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 10px 12px; }
+.pg-write-step { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.pg-write-step b { font-weight: 600; color: var(--ink); }
+.pg-write-clock { font: 11.5px var(--mono); color: var(--muted); }
+.pg-write-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pg-write-pulse 1.2s ease-in-out infinite; }
+@keyframes pg-write-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .pg-write-dot { animation: none; } }
+.pg-write-files { list-style: none; margin: 10px 0 2px; padding: 0; display: grid; gap: 2px; }
+.pg-write-files li { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; font: 12.5px var(--mono); color: var(--ink-2); }
+.pg-write-files li small { margin-left: auto; font: 11px var(--sans); color: var(--muted); }
+.pg-write-files li.is-now { background: var(--accent-soft); color: var(--accent-ink); }
+.pg-write-live .hint { margin: 8px 0 2px; }
 .vs-group { flex: 1 1 50%; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .vs-groups.is-split .vs-group + .pg-gutter + .vs-group, .vs-groups.is-split .vs-group:last-child { border-left: 1px solid var(--border-soft); }
 .vs-groups.is-split .vs-group:not(.is-focused) .vs-tab.is-on::before { background: var(--muted); opacity: 0.5; }

@@ -26,6 +26,27 @@ const FILE_MAX_CHARS = 60_000;
 const OUTPUT_MAX_CHARS = 3_000;
 const LISTED_MAX = 400;
 const TURNS_KEPT = 40;
+const PLAN_MAX_CHARS = 40_000;
+/** Room for a whole project in one answer; each model's own ceiling still applies. */
+export const PROJECT_MAX_TOKENS = 64000;
+
+/** What the project's start asks for: every file an implementation of the paper needs, in one answer. */
+export const WRITE_PROJECT = `Implement the paper as this project. Write every file it needs, whole, in this one answer: the method as a small,
+faithful implementation split into modules (the model or algorithm, the data, training, evaluation), a config with the
+paper's hyper-parameters, main.py as the entry point that runs a seeded experiment sized for the machine named (on the GPU
+when torch.cuda.is_available(), else a smaller size on the CPU) and prints the headline metric, a requirements.txt for
+what the code imports, and the README rewritten to say what was built, what was simplified and how to run it. Cite the
+paper's equation numbers in comments. Keep each file under about 200 lines. Then suggest the commands to install and run it.`;
+
+/** The files an answer has begun to write so far, in order, each once its fence's line is whole: what a start shows as it streams. */
+export function filesInReply(text: string): string[] {
+  const paths: string[] = [];
+  for (const match of text.matchAll(/^(?:`{3,}|~{3,})[^\n]*?\s(?:file|path)=("|')?([^\s"'`]+)[^\n]*\n/gm)) {
+    const path = cleanPath(match[2]);
+    if (path && !paths.includes(path)) paths.push(path);
+  }
+  return paths;
+}
 
 export const AGENT_SYSTEM = `You are a coding agent inside the Playground of a research-paper reader: a small project — a folder of
 files — edited in the page and run on a machine the reader picked (their Google Colab runtime, or a Jupyter server
@@ -128,7 +149,7 @@ export interface ProjectView {
   /** The last commands, newest last, with what they printed. */
   console: { command: string; output: string; state: string }[];
   /** The paper the project cites, when it started from one: what "implement the paper" means. */
-  paper?: { title: string; authors?: string[]; published?: string; abstract?: string };
+  paper?: { title: string; authors?: string[]; published?: string; abstract?: string; plan?: string };
 }
 
 export function projectBlock(view: ProjectView): string {
@@ -144,7 +165,8 @@ export function projectBlock(view: ProjectView): string {
     ? tag(
         'paper',
         [view.paper.title, view.paper.authors?.length ? `by ${view.paper.authors.slice(0, 6).join(', ')}` : '', view.paper.published ? `(${view.paper.published.slice(0, 4)})` : ''].filter(Boolean).join(' ') +
-          (view.paper.abstract ? `\n\nAbstract: ${view.paper.abstract.replace(/\s+/g, ' ').trim()}` : ''),
+          (view.paper.abstract ? `\n\nAbstract: ${view.paper.abstract.replace(/\s+/g, ' ').trim()}` : '') +
+          (view.paper.plan ? `\n\nThe reader's implementation plan for it, from the paper's Implementation page:\n${clip(view.paper.plan, PLAN_MAX_CHARS)}` : ''),
       )
     : '';
   return [paper, tag('where', view.where), tag('files', listing), tag('open_files', open), tag('console', runs)].filter(Boolean).join('\n\n');
@@ -411,7 +433,7 @@ function historyMessages(turns: AgentTurn[]): Message[] {
  * The folder changes only when the whole answer is in, so a half-written file
  * is never saved; `onWrote` lets the editor take the new text of files it has open.
  */
-export async function askAgent(params: { projectId: string; model: string; request: string; host: FileHost; view: () => Promise<ProjectView>; onWrote?: (changes: AgentChange[]) => void }): Promise<void> {
+export async function askAgent(params: { projectId: string; model: string; request: string; host: FileHost; view: () => Promise<ProjectView>; onWrote?: (changes: AgentChange[]) => void; maxTokens?: number }): Promise<void> {
   const { projectId, model, host } = params;
   const request = params.request.trim();
   if (!request || running) return;
@@ -437,7 +459,7 @@ export async function askAgent(params: { projectId: string; model: string; reque
       pending.thinking = undefined;
       pending.step = round ? `Reading ${pending.read.slice(-3).join(', ')}` : 'Thinking';
       update(projectId, { pending: { ...pending } });
-      const stream = await streamModel({ model, maxTokens: MAX_TOKENS, system, messages, effort: 'medium' });
+      const stream = await streamModel({ model, maxTokens: params.maxTokens ?? MAX_TOKENS, system, messages, effort: 'medium' });
       running = { projectId, abort: () => stream.abort() };
       let frame = 0;
       const paint = () => {

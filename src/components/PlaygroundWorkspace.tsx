@@ -43,7 +43,9 @@ import type { CodeEditorHandle, Cursor } from './CodeEditor';
 import { ContextMenu, FolderPlusGlyph, keyLabel, OpenEditors, OutlineGlyph, OutlineView, PaletteGlyph, QuickPick, SplitGlyph, SymbolMark } from './Workbench';
 import { symbolPath, symbolsOf } from '../lib/editing';
 import { clearAgentChat } from '../lib/projectAgent';
-import { listAll } from '../lib/projectAgent';
+import { agentChatFor, listAll, loadAgentChats, subscribeAgent } from '../lib/projectAgent';
+import { implementationFor, loadImplementation, subscribeImplement } from '../lib/implement';
+import ProjectStart from './ProjectStart';
 import type { AgentChange, ProjectView } from '../lib/projectAgent';
 
 type Tab = 'notebook' | 'files';
@@ -1392,10 +1394,25 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   }, [playground.console.length]);
 
   const cited = playground.cites.map((cite) => papers.find((paper) => paper.id === cite.paperId)).find(Boolean);
+  // The paper's Implementation page, when it has one: the plan goes with the agent's requests.
+  useEffect(() => {
+    if (cited) void loadImplementation(cited.id);
+  }, [cited?.id]);
+  const paperPlan = useSyncExternalStore(subscribeImplement, () => (cited ? implementationFor(cited.id)?.content : undefined));
+  // A project from a paper starts with the model choosing and writing its files, until that is done or put aside.
+  const startKey = `reader.pgStart:${playground.id}`;
+  const [startState, setStartState] = useState(() => readLocal<'done' | 'dismissed' | null>(startKey, null));
+  const settleStart = (state: 'done' | 'dismissed') => (setStartState(state), writeLocal(startKey, state));
+  const agentChat = useSyncExternalStore(subscribeAgent, () => agentChatFor(playground.id));
+  useEffect(() => {
+    if (playground.start === 'paper') void loadAgentChats(playground.id, home).catch(() => undefined);
+  }, [playground.id, home]);
+  const wroteBefore = agentChat.turns.some((turn) => turn.role === 'agent' && turn.changes?.length);
+  const showStart = playground.start === 'paper' && !startState && !wroteBefore && Boolean(cited);
   /** The project as the agent reads it: the folder's files, the ones open, the last commands and what they printed. */
   const agentView = async (): Promise<ProjectView> => ({
     where: `Files kept in ${homeLabel}; code runs on ${machineName}${split ? ', the folder copied there before each command' : ''}.`,
-    paper: cited ? { title: cited.title, authors: cited.authors, published: cited.published, abstract: cited.abstract } : undefined,
+    paper: cited ? { title: cited.title, authors: cited.authors, published: cited.published, abstract: cited.abstract, plan: paperPlan } : undefined,
     listing: await listAll(home),
     open: files.filter((file) => file.where === 'home').map((file) => ({ path: file.path, text: file.text, active: `${file.where}:${file.path}` === active, unsaved: file.text !== file.saved })),
     console: playground.console.slice(-4).map((entry) => {
@@ -1889,7 +1906,27 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
           />
         ) : null}
         <section className="pg-center" ref={centerBox}>
-          <div className={`vs-groups${groups.length > 1 ? ' is-split' : ''}`} ref={groupsBox}>
+          {showStart && cited ? (
+            <div className="pg-write-wrap">
+              <ProjectStart
+                projectId={playground.id}
+                host={home}
+                machineName={machineName}
+                paperTitle={cited.title}
+                hasPlan={Boolean(paperPlan)}
+                view={agentView}
+                onWriting={() => (setAgentMode('reader'), setRightTab('agent'), setAgentOpen(true))}
+                onWrote={(changes) => {
+                  tookAgentFiles(changes);
+                  const first = changes.find((c) => c.path === 'main.py' && c.after) ?? changes.find((c) => c.after && !/\.md$/.test(c.path));
+                  if (first) void open('home', first.path);
+                }}
+                onDone={() => settleStart('done')}
+                onDismiss={() => settleStart('dismissed')}
+              />
+            </div>
+          ) : null}
+          <div className={`vs-groups${groups.length > 1 ? ' is-split' : ''}`} ref={groupsBox} hidden={showStart}>
             {renderGroup(groups[0], 0)}
             {groups.length > 1 ? (
               <Gutter
