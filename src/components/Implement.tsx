@@ -31,6 +31,7 @@ import { KeepButton } from './Keep';
 import CopyBlock from './CopyBlock';
 import { WhereDialog } from './Playground';
 import { createPlayground, OPEN_PLAYGROUND, paperCells, paperFiles } from '../lib/playground';
+import type { Playground } from '../lib/playground';
 
 /** The plan the page is showing — its title and sections — for the pieces that need more than their own block, such as the Colab panel under the budget. */
 export const PlanContext = createContext<{ title: string; sections: Section[] } | null>(null);
@@ -603,7 +604,30 @@ export function planProjectFiles(plan: Bundle, paper: PlanPaper & { abstract?: s
   return files;
 }
 
-export function LocalMenu({ title, bundle, sections, plan = null, paper, onPlan }: { title: string; bundle: Bundle | null; sections: Section[]; plan?: Bundle | null; paper?: PlanPaper; onPlan?: () => void }) {
+export function LocalMenu({
+  title,
+  bundle,
+  sections,
+  plan = null,
+  paper,
+  onPlan,
+  existing,
+  projectOpen = false,
+  onProject,
+}: {
+  title: string;
+  bundle: Bundle | null;
+  sections: Section[];
+  plan?: Bundle | null;
+  paper?: PlanPaper;
+  onPlan?: () => void;
+  /** The project already set up from this paper's plan, to open again rather than make another. */
+  existing?: Playground;
+  /** Its editor is the one showing. */
+  projectOpen?: boolean;
+  /** Opens a project in the page's own place; without it, the Playground opens on it. */
+  onProject?: (id: string) => void;
+}) {
   const { status, checking, project } = useLocal();
   const { papers } = useStore();
   const [open, setOpen] = useState(false);
@@ -660,7 +684,9 @@ export function LocalMenu({ title, bundle, sections, plan = null, paper, onPlan 
     if (!plan || !paper) return null;
     const known = papers.find((p) => p.id === paper.paperId);
     const about = { ...paper, abstract: known?.abstract, arxivId: known?.arxivId, doi: known?.doi, authors: paper.authors ?? known?.authors };
-    const name = `${paper.title.split(/[:—–]/)[0].trim().slice(0, 60)} — implementation`;
+    const head = paper.title.split(/[:—–]/)[0].trim();
+    // Cut at a word, not inside one, when the title is long.
+    const name = `${head.length > 70 ? `${head.slice(0, 70).replace(/\s+\S*$/, '')}…` : head} — implementation`;
     return { title: name, kind: 'project' as const, start: 'paper' as const, cites: [{ paperId: paper.paperId, title: paper.title }], files: planProjectFiles(plan, about), cells: paperCells(paper.title, about), note: `The plan's ${plan.what} go into the project's folder, with an AGENTS.md that tells a coding agent about the paper. It opens in the editor: files, a console, and the agent.` };
   }, [plan, paper, papers]);
 
@@ -668,7 +694,7 @@ export function LocalMenu({ title, bundle, sections, plan = null, paper, onPlan 
     <div className="menu-wrap" ref={box}>
       <button
         type="button"
-        className={`btn sm local-open${mine ? ' is-on' : ''}`}
+        className={`btn sm local-open${mine || projectOpen ? ' is-on' : ''}`}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={!bundle && !draft}
@@ -682,6 +708,21 @@ export function LocalMenu({ title, bundle, sections, plan = null, paper, onPlan 
           {paper ? (
             <>
               <div className="menu-label">Set up the implementation</div>
+              {existing && onProject ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="colab-action local-project"
+                  disabled={projectOpen}
+                  onClick={() => {
+                    setOpen(false);
+                    onProject(existing.id);
+                  }}
+                >
+                  <b>{projectOpen ? 'Open below' : `Open ${existing.title}`}</b>
+                  <span>the project set up from this plan — its files, a terminal and the agent, here on this page</span>
+                </button>
+              ) : null}
               {draft ? (
                 <button
                   type="button"
@@ -692,8 +733,8 @@ export function LocalMenu({ title, bundle, sections, plan = null, paper, onPlan 
                     setProjecting(true);
                   }}
                 >
-                  <b>Open as a project…</b>
-                  <span>the plan's {Object.keys(draft.files).length} files in the editor — on this computer, Colab, or a GPU machine of yours</span>
+                  <b>{existing ? 'Set up another project…' : 'Open as a project…'}</b>
+                  <span>the plan's {Object.keys(draft.files).length} files in an editor on this page — on this computer, Colab, or a GPU machine of yours</span>
                 </button>
               ) : (
                 <button
@@ -800,7 +841,8 @@ export function LocalMenu({ title, bundle, sections, plan = null, paper, onPlan 
           onCreate={async (spec) => {
             const made = await createPlayground(spec);
             setProjecting(false);
-            window.dispatchEvent(new CustomEvent(OPEN_PLAYGROUND, { detail: { id: made.id } }));
+            if (onProject) onProject(made.id);
+            else window.dispatchEvent(new CustomEvent(OPEN_PLAYGROUND, { detail: { id: made.id } }));
           }}
         />
       ) : null}

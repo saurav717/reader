@@ -5766,6 +5766,9 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 
 /* One playground */
 .pg-work { display: flex; flex-direction: column; }
+/* A paper's plan as a project, its editor opened in Explain's own place under the bar. */
+.explain-project { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.explain-project > .pg-work { flex: 1; min-height: 0; }
 .pg-bar { flex: none; display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 14px 0 12px; border-bottom: 1px solid var(--border-soft); background: var(--paper); }
 .pg-name { min-width: 120px; width: 280px; height: 30px; padding: 0 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--ink); font: 600 14px var(--sans); outline: 0; }
 .pg-name:hover { border-color: var(--border); }

@@ -156,7 +156,8 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 /** The backend a playground's compute names, when it can be had: its Colab machine, or a server that is still in the list. */
 const backendOf = (playground: Playground): Backend | null => backendOfPlayground(playground);
 
-export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }: { playground: Playground; onBack: () => void; onOpenPaper: (id: string) => void }) {
+/** `backLabel` names where Back goes when the workspace is opened somewhere other than the Playground — a paper's Explain page. */
+export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper, backLabel }: { playground: Playground; onBack: () => void; onOpenPaper: (id: string) => void; backLabel?: string }) {
   const colab = useColab();
   const { papers, settings } = useStore();
   useServers();
@@ -247,8 +248,8 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
   return (
     <main className="main pg-page pg-work">
       <header className="pg-bar">
-        <button type="button" className="btn sm ghost" onClick={onBack} title="The Playground's home">
-          <ArrowLeftIcon size={15} /> Playground
+        <button type="button" className="btn sm ghost" onClick={onBack} title={backLabel ? `Back to the ${backLabel} page` : "The Playground's home"}>
+          <ArrowLeftIcon size={15} /> {backLabel ?? 'Playground'}
         </button>
         <input
           className="pg-name"
