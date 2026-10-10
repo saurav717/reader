@@ -973,6 +973,12 @@ export async function jupyterRead(server: Pick<JupyterServer, 'url' | 'token'>, 
 }
 
 /** Writes a text file on a Jupyter server, making the folders on the way. */
+/** A file on a Jupyter server as base64, whatever it holds: a figure, a font. */
+export async function jupyterReadBase64(server: Pick<JupyterServer, 'url' | 'token'>, path: string): Promise<string> {
+  const model = await jupyterFetch<JupyterModel>(server, `${contentsUrl(path)}?type=file&format=base64&content=1`);
+  return typeof model.content === 'string' ? model.content.replace(/\s+/g, '') : '';
+}
+
 export async function jupyterWrite(server: Pick<JupyterServer, 'url' | 'token'>, path: string, text: string): Promise<{ modified: string | null }> {
   const parts = path.split('/').filter(Boolean);
   for (let i = 1; i < parts.length; i += 1) {

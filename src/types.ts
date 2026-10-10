@@ -372,6 +372,8 @@ export interface Settings {
    * that means.
    */
   githubToken: string;
+  /** The private repository GitHub Actions compiles papers in (owner/repo), made from the Write tab; '' until then. */
+  latexRepo: string;
   githubSync: boolean;
 }
 
@@ -510,7 +512,7 @@ export interface WriteOptions {
   /** On an error: keep going, as Overleaf does, or stop at the first (Overleaf's "Stop on first error"). */
   errors: 'continue' | 'halt';
   /** Where the PDF is made: on this computer, or by Overleaf (nothing to install; the PDF is in Overleaf's window). */
-  pdf: 'here' | 'overleaf';
+  pdf: 'here' | 'github' | 'overleaf';
 }
 
 export const WRITE_DEFAULTS: WriteOptions = { compile: 'pause', engine: 'auto', layout: 'side', sync: 'pause', citations: 'drawer', errors: 'continue', pdf: 'here' };
@@ -522,6 +524,7 @@ export const WRITE_OPTIONS: { key: keyof WriteOptions; label: string; choices: {
     label: 'The PDF is made',
     choices: [
       { id: 'here', label: 'On this computer', note: 'The Companion compiles it with the TeX installed here, and the PDF is beside the source.' },
+      { id: 'github', label: 'On GitHub', note: 'All of TeX Live, nothing to install: GitHub Actions compiles it in a private repository of yours, free up to 2,000 minutes a month, and the PDF comes back here — in a minute or two.' },
       { id: 'overleaf', label: 'By Overleaf', note: 'Nothing to install: edits go to Overleaf a moment after you stop typing, and the PDF is in Overleaf’s window, beside.' },
     ],
   },

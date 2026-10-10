@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
-import { jupyterDelete, jupyterList, jupyterMkdir, jupyterRead, jupyterRename, jupyterWrite, jupyterWriteBase64 } from '../lib/colab';
+import { jupyterDelete, jupyterList, jupyterMkdir, jupyterRead, jupyterReadBase64, jupyterRename, jupyterWrite, jupyterWriteBase64 } from '../lib/colab';
 import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEXLIVE_VERSION, TEX_COMPILERS, applyTemplate, updateCompanion, waitForVersion, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, chooseFolder, clonePaper, compilePaper, deleteTemplate, forgetOverleafToken, installTectonic, isNewer, linkFolder, listTemplates, paperEngines, paperRemote, saveTemplate, syncPaper, tokenKnown, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
 import { besideFeatures, bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
 import { complete as completeLatex } from '../lib/latexComplete';
@@ -22,7 +22,8 @@ import { WRITE_DEFAULTS } from '../types';
 import type { View } from '../types.view';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
 import CopyBlock from './CopyBlock';
-import { DraftEditor, OpenOverleaf } from './Overleaf';
+import { DraftEditor, GitHubConnect, OpenOverleaf } from './Overleaf';
+import { branchFor, hasWorkflow, makeCompileRepo, pushPaper, putWorkflow, readTexLog, resultFor, runFor, type CompileFile } from '../lib/latexGithub';
 import { CompanionConnect } from './Playground';
 
 type Here = Extract<ThisComputer, { server: unknown }>;
@@ -193,6 +194,109 @@ function ForgetToken({ server, open = false, onForgotten }: { server?: Here['ser
         </li>
       </ol>
     </details>
+  );
+}
+
+// ------------------------------------------------------ compiled on GitHub --
+
+type GithubState = { phase: 'idle' | 'setup' | 'sending' | 'queued' | 'compiling' | 'done' | 'failed'; startedAt?: number; finishedAt?: number; runUrl?: string; error?: string };
+
+/** Seconds since, as m:ss, ticking. */
+function useElapsed(since: number | undefined, running: boolean): string {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+  if (!since) return '';
+  const seconds = Math.max(0, Math.round(((running ? now : now) - since) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+/**
+ * The PDF pane's line about GitHub: setting it up once (GitHub connected, a
+ * private repository with the compile workflow), then how a compile is going.
+ */
+function GithubCompilePanel({ token, repo, state, onRepo, onCompile }: { token: string; repo: string; state: GithubState; onRepo: (repo: string) => void; onCompile: () => void }) {
+  const [making, setMaking] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const running = state.phase === 'sending' || state.phase === 'queued' || state.phase === 'compiling';
+  const elapsed = useElapsed(state.startedAt, running);
+  const note = (
+    <p className="wr-later">
+      <b>Note for later:</b> look into a compile server on Google Cloud Run — your own, with all of TeX Live, a PDF in seconds rather than minutes, and likely within its free tier.
+    </p>
+  );
+  if (!token || !repo) {
+    return (
+      <div className="wr-ghc">
+        <b>Compile on GitHub — set up once</b>
+        <span>GitHub Actions compiles the paper with all of TeX Live, in a private repository of yours, and the PDF comes back here. Free up to 2,000 minutes a month; a compile is a minute or two, and only ⌘↵ or Recompile starts one.</span>
+        {!token ? <GitHubConnect /> : null}
+        {token ? (
+          <>
+            <small>The token needs, on that repository: Contents, Workflows and Actions — read and write (and Administration to make it).</small>
+            <p className="wr-row">
+              <button
+                type="button"
+                className="btn primary sm"
+                disabled={making}
+                onClick={async () => {
+                  setMaking(true);
+                  setProblem(null);
+                  try {
+                    onRepo(await makeCompileRepo(token));
+                  } catch (error) {
+                    setProblem(error instanceof Error ? error.message : String(error));
+                  } finally {
+                    setMaking(false);
+                  }
+                }}
+              >
+                {making ? 'Making it…' : 'Make my private compile repository (reader-latex)'}
+              </button>
+            </p>
+          </>
+        ) : null}
+        {problem ? <p className="wr-bad">{problem}</p> : null}
+        {note}
+      </div>
+    );
+  }
+  const said =
+    state.phase === 'sending'
+      ? 'Sending the paper to GitHub…'
+      : state.phase === 'queued'
+        ? 'Waiting for GitHub to start…'
+        : state.phase === 'compiling'
+          ? 'Compiling on GitHub with all of TeX Live…'
+          : state.phase === 'done'
+            ? `Compiled on GitHub in ${elapsed}.`
+            : state.phase === 'failed'
+              ? state.error ?? 'It didn’t compile.'
+              : 'Press ⌘↵ or Recompile: GitHub compiles it with all of TeX Live, and the PDF comes back here in a minute or two.';
+  return (
+    <div className={`wr-ghc is-line${state.phase === 'failed' ? ' is-bad' : ''}`}>
+      <span>
+        {running ? <span className="spinner" /> : null} {said} {running && elapsed ? <span className="mono">{elapsed}</span> : null}
+        {state.runUrl ? (
+          <>
+            {' '}
+            <a href={state.runUrl} target="_blank" rel="noreferrer noopener">
+              the run on GitHub
+            </a>
+          </>
+        ) : null}
+      </span>
+      {state.phase === 'failed' ? (
+        <button type="button" className="link-btn" onClick={onCompile}>
+          Try again
+        </button>
+      ) : null}
+      <small className="mono">{repo}</small>
+      {note}
+    </div>
   );
 }
 
@@ -1058,8 +1162,8 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
 
   // ---- compile
   const compile = useCallback(async () => {
-    // Overleaf makes the PDF: nothing compiles here.
-    if (options.pdf === 'overleaf') return;
+    // Overleaf makes the PDF, or GitHub does (only when asked, ⌘↵ or Recompile: its minutes count): nothing compiles here.
+    if (options.pdf === 'overleaf' || options.pdf === 'github') return;
     setCompiling(true);
     setCompileError(null);
     try {
@@ -1413,7 +1517,56 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
    * opens, so the PDF there is of what was just written. A project set to
    * open in another browser isn't opened from here: this page can't reach it.
    */
+  // ---- compiling on GitHub
+  const [gh, setGh] = useState<GithubState>({ phase: 'idle' });
+  const ghChecked = useRef(false);
+  const compileOnGithub = async () => {
+    const token = settings.githubToken.trim();
+    const repo = settings.latexRepo;
+    if (!token || !repo) return setGh({ phase: 'setup' });
+    const started = Date.now();
+    setCompiling(true);
+    setCompileError(null);
+    try {
+      if (!ghChecked.current && !(await hasWorkflow(token, repo))) await putWorkflow(token, repo);
+      ghChecked.current = true;
+      setGh({ phase: 'sending', startedAt: started });
+      const paths = (await listAll(server, folder.path)).filter((path) => !path.startsWith('.reader'));
+      const files: CompileFile[] = [];
+      for (const path of paths) files.push({ path, base64: await jupyterReadBase64(server, `${folder.path}/${path}`) });
+      const branch = branchFor(project.id);
+      const main = mainDoc ?? compiled?.main ?? 'main.tex';
+      const sha = await pushPaper(token, repo, branch, files, { main, compiler });
+      setGh({ phase: 'queued', startedAt: started });
+      const until = Date.now() + 15 * 60_000;
+      while (Date.now() < until) {
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        const run = await runFor(token, repo, sha).catch(() => null);
+        const result = await resultFor(token, repo, branch, sha).catch(() => null);
+        if (result) {
+          const read = readTexLog(result.log);
+          setCompiled({ ok: Boolean(result.pdf) && result.exit === 0, main, engine: 'GitHub · all of TeX Live', compiler, pdf: result.pdf ? 'github' : '', errors: read.errors, warnings: read.warnings, log: result.log, ms: Date.now() - started });
+          if (result.pdf) setPdf(result.pdf);
+          if (read.errors.length && !result.pdf) setShowLog(true);
+          setGh({ phase: 'done', startedAt: started, runUrl: run?.url, finishedAt: Date.now() });
+          return;
+        }
+        if (run?.status === 'completed' && run.conclusion && run.conclusion !== 'success') {
+          setGh({ phase: 'failed', startedAt: started, runUrl: run.url, error: `The run on GitHub ended: ${run.conclusion}.` });
+          return;
+        }
+        setGh({ phase: run?.status === 'in_progress' ? 'compiling' : 'queued', startedAt: started, runUrl: run?.url });
+      }
+      setGh({ phase: 'failed', startedAt: started, error: 'No PDF came back from GitHub within 15 minutes.' });
+    } catch (error) {
+      setGh({ phase: 'failed', startedAt: started, error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setCompiling(false);
+    }
+  };
+
   const recompile = () => {
+    if (options.pdf === 'github') return void saveNow().then(() => compileOnGithub());
     if (options.pdf !== 'overleaf') return void saveNow().then(() => compile());
     const overleaf = project.project.overleaf;
     let beside: Window | null = null;
@@ -1445,8 +1598,11 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
 
   const pdfWhere = (
     <span className="segmented sm" role="group" aria-label="Where the PDF is made">
-      <button type="button" aria-pressed={options.pdf !== 'overleaf'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'here' } })} title="The Companion compiles it on this computer">
+      <button type="button" aria-pressed={options.pdf === 'here'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'here' } })} title="The Companion compiles it on this computer">
         Here
+      </button>
+      <button type="button" aria-pressed={options.pdf === 'github'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'github' } })} title="GitHub Actions compiles it with all of TeX Live, in a private repository of yours, and the PDF comes back here">
+        GitHub
       </button>
       <button type="button" aria-pressed={options.pdf === 'overleaf'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'overleaf' } })} title="Overleaf compiles it: nothing to install here">
         Overleaf
@@ -1491,7 +1647,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
         <button type="button" className="wr-icon" aria-pressed={big === 'pdf'} onClick={() => setBig(big === 'pdf' ? null : 'pdf')} title={big === 'pdf' ? 'Back to both panes' : 'The PDF alone, filling the space'} aria-label={big === 'pdf' ? 'Back to both panes' : 'Expand the PDF'}>
           {big === 'pdf' ? '⤡' : '⤢'}
         </button>
-        <button type="button" className="btn sm primary" disabled={compiling || Boolean(noTex)} onClick={() => void saveNow().then(() => compile())} title="Recompile (⌘↵)">
+        <button type="button" className="btn sm primary" disabled={compiling || (options.pdf === 'here' && Boolean(noTex))} onClick={recompile} title={options.pdf === 'github' ? 'Compile on GitHub (⌘↵): a minute or two' : 'Recompile (⌘↵)'}>
           {compiling ? 'Compiling…' : 'Recompile'}
         </button>
         {options.layout === 'tabs' ? (
@@ -1501,7 +1657,16 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
           </span>
         ) : null}
       </div>
-      {noTex ? (
+      {options.pdf === 'github' ? (
+        <GithubCompilePanel
+          token={settings.githubToken.trim()}
+          repo={settings.latexRepo}
+          state={gh}
+          onRepo={(repo) => updateSettings({ latexRepo: repo })}
+          onCompile={recompile}
+        />
+      ) : null}
+      {noTex && options.pdf === 'here' ? (
         <div className="wr-pad">
           <p>There’s no TeX on this computer to compile with.</p>
           {canOwnTex ? <OwnTex server={server} status={engines?.texlive} onStatus={setOwnTex} onReady={() => void paperEngines(server).then(setEngines).then(() => compile())} /> : null}

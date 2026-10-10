@@ -89,6 +89,7 @@ const defaultSettings: Settings = {
   githubRepo: '',
   githubBranch: 'main',
   githubToken: '',
+  latexRepo: '',
   githubSync: false,
 };
 
