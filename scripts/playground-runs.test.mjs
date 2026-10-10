@@ -7,6 +7,12 @@
 import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { cleanup, load } from './bundle.mjs';
 
 const runs = await load('src/lib/playgroundRuns.ts', { external: ['react', '@anthropic-ai/sdk'], imports: true });
@@ -84,5 +90,70 @@ describe('the words', () => {
     assert.equal(runs.clock(64 * 60_000), '1 h 4 min');
     assert.equal(runs.ago(1_000_000 - 30_000, 1_000_000), 'just now');
     assert.equal(runs.ago(0, 3 * 3600_000), '3 h ago');
+  });
+});
+
+// ------------------------------------------------ terminals and agents ----
+
+const jobs = await load('src/lib/jobWatch.ts', { external: ['react', '@anthropic-ai/sdk'], imports: true });
+const shell = await load('src/lib/kernelShell.ts', { external: ['react', '@anthropic-ai/sdk'], imports: true });
+
+describe('a terminal’s screen, as plain lines', () => {
+  const draw = (...chunks) => chunks.reduce((screen, data) => jobs.appendScreen(screen, data), jobs.emptyScreen());
+  it('keeps lines, without colours', () => {
+    const screen = draw('\u001b[32mstep 1\u001b[0m\r\nstep 2\r\n');
+    assert.deepEqual(screen.lines, ['step 1', 'step 2', '']);
+    assert.equal(jobs.lastLine(screen), 'step 2');
+  });
+  it('a carriage return redraws the line, as a progress bar does', () => {
+    assert.equal(jobs.lastLine(draw(' 10%|█   | 1/10\r', ' 50%|█████ | 5/10\r')), ' 50%|█████ | 5/10');
+  });
+  it('erase-to-end clears what a shorter redraw leaves', () => {
+    assert.equal(jobs.lastLine(draw('loss 0.43219 epoch 1\r', '\u001b[Kloss 0.4 epoch 2')), 'loss 0.4 epoch 2');
+  });
+  it('a backspace takes a character; clear screen starts again', () => {
+    assert.equal(jobs.lastLine(draw('pythom\b\bon')), 'python');
+    assert.deepEqual(draw('a\nb\n', '\u001b[2J', 'c').lines, ['c']);
+  });
+  it('drops title sequences and keeps only the last couple of hundred lines', () => {
+    assert.equal(jobs.lastLine(draw('\u001b]0;title\u0007$ ')), '$');
+    assert.equal(draw(Array.from({ length: 500 }, (_, i) => `l${i}`).join('\n')).lines.length, 200);
+  });
+});
+
+describe('prompts', () => {
+  for (const line of ['root@vm:/tmp# ', 'you@mac proj % ', '❯ ', '~/code $', '>>> ', '(.venv) ➜  reader ', '➜  reader git:(main) ✗ ']) {
+    it(`${JSON.stringify(line)} is a prompt`, () => assert.ok(jobs.isPrompt(line)));
+  }
+  for (const line of ['tick 3/30', 'epoch 1: loss=0.3', 'Downloading model…', '➜  reader python train.py']) {
+    it(`${JSON.stringify(line)} is not`, () => assert.ok(!jobs.isPrompt(line)));
+  }
+  it('the command at the last prompt that has one', () => {
+    const screen = ['you@mac proj % ls', 'a b', 'you@mac proj % python train.py --epochs 3', 'epoch 1'].reduce((s, line) => jobs.appendScreen(s, `${line}\r\n`), jobs.emptyScreen());
+    assert.equal(jobs.commandAtPrompt(screen), 'python train.py --epochs 3');
+  });
+});
+
+describe('the Colab shell’s own word on what runs (its Python, with a real bash)', { skip: !existsSync('/bin/bash') && 'needs bash' }, () => {
+  it('a command in the pty’s foreground is busy, with its command line; at the prompt, not', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'rt-'));
+    const program = `${shell.KERNEL_SHELL}
+import time
+_rt_open('t', ${JSON.stringify(dir)}, 24, 80)
+time.sleep(1.0)
+os.write(_rt_terms['t']['fd'], b'sleep 3\\n')
+time.sleep(1.0)
+_rt_status()
+os.write(_rt_terms['t']['fd'], b'\\x03')
+time.sleep(1.0)
+_rt_status()
+_rt_close('t')
+`;
+    const out = execFileSync('python3', ['-c', program], { encoding: 'utf8', timeout: 20_000 });
+    const [during, after] = out.trim().split('\n').filter((line) => line.startsWith('{"t"')).map((line) => JSON.parse(line).t);
+    assert.equal(during.busy, true);
+    assert.match(during.command, /sleep 3/);
+    assert.equal(after.busy, false);
+    assert.equal(after.alive, true);
   });
 });

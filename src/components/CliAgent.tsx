@@ -10,6 +10,7 @@ import DOMPurify from 'dompurify';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { keyFor } from '../lib/assistant';
 import type { CliAgentId, CliEvent, CliStatus } from '../lib/cliAgent';
+import { reportCliAgent } from '../lib/jobWatch';
 import { CLI_AGENTS, cliStatus, installArgv, loginArgv, loginPrompt, logoutArgv, parseRun, readJob, runArgv, startJob, stopJob, writeJob } from '../lib/cliAgent';
 import { markdown } from '../lib/markdown';
 import type { FileHost } from '../lib/playground';
@@ -53,6 +54,11 @@ const setChat = (projectId: string, agent: CliAgentId, chat: CliChat) => {
   const now = savedFor(projectId);
   store.set(projectId, { ...now, chats: { ...now.chats, [agent]: chat } });
   notify();
+  // A request at work shows as the playground's run, from any page; what it last said is its last line.
+  const open = chat.turns.find((turn) => !turn.done);
+  const said = open ? parseRun(agent, open.lines).events.filter((event) => event.kind === 'text' || event.kind === 'tool').pop() : undefined;
+  const tail = said ? (said.kind === 'tool' ? `${said.name} ${said.detail}` : said.text).split('\n')[0].slice(0, 160) : undefined;
+  reportCliAgent(projectId, agent, CLI_AGENTS[agent].name, Boolean(open), tail, open ? () => void stopJob(open.job, projectId).catch(() => undefined) : undefined);
 };
 async function persist(projectId: string, host: FileHost) {
   const saved = savedFor(projectId);

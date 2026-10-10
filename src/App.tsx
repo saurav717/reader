@@ -42,6 +42,7 @@ import { addressWith, currentAddress, pathFor, placeFor } from './lib/route';
 import Playground from './components/Playground';
 import { OPEN_PLAYGROUND } from './lib/playground';
 import { watchPlaygroundRuns } from './lib/playgroundRuns';
+import { startJobWatch } from './lib/jobWatch';
 import { RailRunBadge, RunDock, RunSwitcher, RunTabs } from './components/PlaygroundRuns';
 
 const WELCOME_KEY = 'reader.welcomed';
@@ -236,7 +237,10 @@ export default function App() {
   const onPlayground = view.kind === 'playground' && !onUsage;
   // What the playgrounds are doing, followed on every page: a run goes on when its page is left.
   // (Each of its views reads it itself: what runs re-renders them each second, not the whole app.)
-  useEffect(() => watchPlaygroundRuns(), []);
+  useEffect(() => {
+    startJobWatch();
+    return watchPlaygroundRuns();
+  }, []);
   const shows = settings.runningShows;
   /** The playground whose page is open, if one is. */
   const openPlayground = onPlayground && view.kind === 'playground' ? view.id : undefined;

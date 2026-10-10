@@ -795,7 +795,7 @@ function AgentPane({ server, machineName, agents, asked, cwd, inFolder, playgrou
             ))}
           </div>
           <div className="pg-agent-term">
-            <Terminal key={session.id} server={server} cwd={cwd} sessionId={session.id} label={`${running?.name ?? session.agent} on ${machineName}`} />
+            <Terminal key={session.id} server={server} cwd={cwd} sessionId={session.id} label={`${running?.name ?? session.agent} on ${machineName}`} playgroundId={playgroundId} />
           </div>
         </>
       ) : (
@@ -1965,7 +1965,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             {view === 'terminal'
               ? shells.map((id) => (
                   <div key={id} className="pg-terminal-slot" hidden={id !== activeShell}>
-                    {kernelTerms || !computeServer ? <KernelTerminal name={id} cwd={machineRoot(playground)} label={machineName} connected={connected} /> : <Terminal server={computeServer} cwd={machineRoot(playground)} sessionId={id} label={machineName} />}
+                    {kernelTerms || !computeServer ? <KernelTerminal name={id} cwd={machineRoot(playground)} label={machineName} connected={connected} playgroundId={playground.id} /> : <Terminal server={computeServer} cwd={machineRoot(playground)} sessionId={id} label={machineName} playgroundId={playground.id} />}
                   </div>
                 ))
               : null}

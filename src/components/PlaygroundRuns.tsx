@@ -86,7 +86,7 @@ export function RunningShelf({ runs, onOpen }: { runs: PlaygroundRun[]; onOpen: 
             <Progress run={run} />
             <div className="pr-tail">{run.tail ?? 'no output yet'}</div>
             <div className="pr-card-foot">
-              <span>{run.queued ? `${run.queued} more ${run.queued === 1 ? 'cell' : 'cells'} queued` : run.kind === 'project' ? 'Project' : 'Notebook'}</span>
+              <span>{run.queued ? `${run.queued} more ${run.queued === 1 ? 'cell' : 'cells'} queued` : run.also?.length ? `also: ${run.also.join(', ')}` : run.kind === 'project' ? 'Project' : 'Notebook'}</span>
               <span className="spacer" />
               <button type="button" className="btn sm pr-stop" onClick={() => void stopPlayground(run.id)}>
                 Stop
@@ -212,6 +212,7 @@ export function RunDock({ current, onOpen }: { current?: string; onOpen: (id: st
                   <span className="pr-mono">{run.phase === 'paused' ? 'paused' : run.label}</span>
                 </div>
                 <Progress run={run} />
+                {run.also?.length ? <div className="pr-job-also">also {run.also.join(' · ')}</div> : null}
                 <div className="pr-job-foot">
                   <span className="pr-mono">{run.tail ?? (run.startedAt ? clock(Date.now() - run.startedAt) : '')}</span>
                   <button type="button" className="link pr-stop" onClick={() => void stopPlayground(run.id)}>

@@ -223,6 +223,8 @@ export interface SideJob {
   stop?: () => void | Promise<void>;
 }
 const sideJobs = new Map<string, SideJob>();
+/** When Stop was asked of a job: the end that follows is a stop, not a finish. */
+const stopAsked = new Map<string, number>();
 const jobKey = (playgroundId: string, id: string) => `${playgroundId}|${id}`;
 
 /** The run going on in one session, from its first cell to its last: when it began, the keys it ran, and how many Run all queued. */
@@ -265,10 +267,13 @@ export function reportJob(job: SideJob) {
   if (before?.busy && !job.busy) {
     const p = playgroundById(job.playgroundId);
     const at = Date.now();
-    const detail = `${before.label} ended`;
-    outcomes = { ...outcomes, [job.playgroundId]: { phase: 'ran', at, detail, where: p ? whereOf(p) : '' } };
+    const stopped = at - (stopAsked.get(key) ?? 0) < 60_000;
+    stopAsked.delete(key);
+    const phase: Outcome['phase'] = stopped ? 'stopped' : 'ran';
+    const detail = `${before.label} ${stopped ? 'stopped' : 'ended'}`;
+    outcomes = { ...outcomes, [job.playgroundId]: { phase, at, detail, where: p ? whereOf(p) : '' } };
     writeJson(local(), OUTCOMES_KEY, outcomes);
-    if (p) say({ id: p.id, title: p.title, phase: 'ran', detail, at });
+    if (p) say({ id: p.id, title: p.title, phase, detail, at });
   }
   bump();
 }
@@ -458,7 +463,11 @@ export function watchPlaygroundRuns(): () => void {
 export async function stopPlayground(id: string): Promise<void> {
   const work: Promise<unknown>[] = [];
   for (const state of sessionsNow()) if (state.scope === id && kernelRunning(state)) work.push(stopRunsIn(state.id));
-  for (const job of busyJobs(id)) if (job.stop) work.push(Promise.resolve(job.stop()));
+  for (const job of busyJobs(id)) {
+    if (!job.stop) continue;
+    stopAsked.set(jobKey(id, job.id), Date.now());
+    work.push(Promise.resolve(job.stop()));
+  }
   await Promise.all(work);
 }
 

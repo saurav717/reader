@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import type { JupyterServer } from '../lib/colab';
 import { jupyterFetch, serverBase } from '../lib/colab';
+import { noteKeys, noteTyped, unwatchTerminal, watchTerminal } from '../lib/jobWatch';
 
 const sessionKey = (server: JupyterServer, key: string) => `pgterm:${server.id}:${key}`;
 
@@ -103,6 +104,7 @@ const waiting = new Map<string, string[]>();
 
 /** Types `text` into the terminal of `sessionId` — now if its shell is open, else as soon as it is. */
 export function typeInTerminal(sessionId: string, text: string): void {
+  noteTyped(sessionId, text);
   const typer = typers.get(sessionId);
   if (typer) typer(text);
   else waiting.set(sessionId, [...(waiting.get(sessionId) ?? []), text]);
@@ -118,7 +120,7 @@ export function registerTerminal(sessionId: string, type: (text: string) => void
   };
 }
 
-export default function Terminal({ server, cwd, sessionId, label }: { server: JupyterServer; cwd: string; sessionId: string; label: string }) {
+export default function Terminal({ server, cwd, sessionId, label, playgroundId }: { server: JupyterServer; cwd: string; sessionId: string; label: string; /** Whose terminal it is: followed from any page while it runs something. */ playgroundId?: string }) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<'starting' | 'live' | 'reconnecting' | 'closed' | 'failed'>('starting');
   const [problem, setProblem] = useState<string | null>(null);
@@ -148,6 +150,8 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
         const [{ Terminal: XTerm }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')]);
         const { name, again } = await terminalName(server, sessionId, cwd, fresh.current);
         fresh.current = false;
+        // Followed from now on, this pane open or not: what it runs shows as the playground's, and a toast says when it ends.
+        if (playgroundId) watchTerminal({ playgroundId, server, name, sessionId });
         if (disposed || !host.current) return;
         const look = pageTerminalTheme();
         // Reader Nerd Symbols (src/fonts, see styles.css) draws the icons in prompts like powerlevel10k and
@@ -209,7 +213,10 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
           if (!ended && tryAgain()) return;
           setState((now) => (now === 'failed' ? now : 'closed'));
         };
-        const typing = term.onData((data) => send(['stdin', data]));
+        const typing = term.onData((data) => {
+          send(['stdin', data]);
+          noteKeys(sessionId, data);
+        });
         const observer = new ResizeObserver(() => resize());
         observer.observe(host.current);
         // Light, dark or glass changed in Settings: the terminal follows at once.
@@ -281,5 +288,6 @@ export default function Terminal({ server, cwd, sessionId, label }: { server: Ju
 export function forgetTerminal(server: JupyterServer, key: string) {
   const saved = read(sessionKey(server, key));
   write(sessionKey(server, key), null);
+  if (saved) unwatchTerminal(saved);
   if (saved) void jupyterFetch(server, `api/terminals/${encodeURIComponent(saved)}`, { method: 'DELETE' }).catch(() => undefined);
 }

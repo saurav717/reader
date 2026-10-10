@@ -40,6 +40,10 @@ where a browser signed in as it finds it from any computer. After that,
 /companion/tools is for the page once paired: the toolchains and coding agents
 here, for the Run button and the Agents menu (tools.py).
 
+/companion/terminals is for the page once paired: what each of its terminals is
+running now (jobs.py), so the Playground can show a command in a terminal as a
+run, from any page, and say when it ends.
+
 /companion/vscode-web is for the page once paired: it starts VS Code for the
 browser (`code serve-web`, tools.VsCodeWeb) and says where it is, a path with a
 secret in it that /companion/vscode/<secret>/… proxies (VsCodeProxy), adding
@@ -68,7 +72,7 @@ from pathlib import Path
 
 from tornado import httpclient, websocket
 
-from . import account, desktop, state, tools, tunnel
+from . import account, desktop, jobs, state, tools, tunnel
 
 
 class CompanionHandler(web.RequestHandler):
@@ -334,6 +338,22 @@ class ToolsHandler(VsCodeHandler):
         self.reply(200, await IOLoop.current().run_in_executor(None, tools.detect, shell))
 
     async def post(self):
+        self.reply(405, {"error": "GET"})
+
+
+class TerminalsHandler(VsCodeHandler):
+    """What each terminal is running: {"terminals": {name: {"alive", "busy", "pid", "command"}}}."""
+
+    def initialize(self, serverapp=None):
+        self.serverapp = serverapp
+
+    def get(self):
+        if not self.allowed():
+            return self.reply(403, {"error": "Pair this browser with the Companion first."})
+        manager = self.serverapp.web_app.settings.get("terminal_manager") if self.serverapp else None
+        self.reply(200, {"terminals": jobs.terminal_jobs(manager)})
+
+    def post(self):
         self.reply(405, {"error": "GET"})
 
 
@@ -653,6 +673,7 @@ def load(serverapp):
             (url_path_join(base, "companion/shutdown"), ShutdownHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/app"), AppHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/tools"), ToolsHandler, {"serverapp": serverapp}),
+            (url_path_join(base, "companion/terminals"), TerminalsHandler, {"serverapp": serverapp}),
             (url_path_join(base, "companion/vscode-web"), VsCodeWebHandler),
             (url_path_join(base, r"companion/vscode/([^/]+)/?(.*)"), VsCodeProxy),
         ],

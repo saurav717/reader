@@ -6468,6 +6468,7 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .pr-job-top .pr-where > span:last-child { display: none; }
 .pr-job-top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .pr-job-foot { display: flex; align-items: center; gap: 10px; font-size: 11.5px; }
+.pr-job-also { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pr-job-foot .pr-mono { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pr-job-foot .link { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 500; cursor: pointer; }
 .pr-dock-pill { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border-radius: 999px; color: var(--ink); font: 500 12.5px var(--sans); cursor: pointer; }
