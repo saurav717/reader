@@ -24,6 +24,9 @@ const SUGGESTIONS = [
   'Make it run on the GPU when there is one, and on the CPU otherwise',
 ];
 
+/** The first suggestion when the project cites a paper. */
+const PAPER_SUGGESTION = 'Implement the paper’s method: a small faithful version, a seeded training run sized for this machine, and an evaluation';
+
 export default function ProjectAgent({
   projectId,
   host,
@@ -40,7 +43,7 @@ export default function ProjectAgent({
   /** The project as the agent reads it, built when a request is sent. */
   view: () => Promise<ProjectView>;
   /** What goes with the next request, in words, for the chips over the box. */
-  context: { active?: string; open: number; commands: number };
+  context: { active?: string; open: number; commands: number; paper?: string };
   onOpen: (path: string) => void;
   onRun: (command: string) => void;
   onWrote: (changes: AgentChange[]) => void;
@@ -116,7 +119,7 @@ export default function ProjectAgent({
               It reads the files, the one in front of you and what the console printed; it writes files straight into the folder — one Undo puts them back — and suggests commands to run on {machineName}. Nothing runs by itself.
             </p>
             <div className="vs-agent-sugs">
-              {SUGGESTIONS.map((suggestion) => (
+              {(context.paper ? [PAPER_SUGGESTION, ...SUGGESTIONS.slice(1)] : SUGGESTIONS).map((suggestion) => (
                 <button key={suggestion} type="button" className="ask-suggestion" disabled={!ready} onClick={() => send(suggestion)}>
                   {suggestion}
                 </button>
@@ -214,6 +217,7 @@ export default function ProjectAgent({
           {context.open > (context.active ? 1 : 0) ? <span className="vs-chip">+{context.open - (context.active ? 1 : 0)} open</span> : null}
           <span className="vs-chip">folder</span>
           {context.commands ? <span className="vs-chip">console · {context.commands}</span> : null}
+          {context.paper ? <span className="vs-chip" title={context.paper}>¶ the paper</span> : null}
           <span className="spacer" />
           {chat.turns.length && !running ? (
             <button type="button" className="link" onClick={() => clearAgentChat(projectId, host)} title="Start a new conversation (the files stay as they are)">

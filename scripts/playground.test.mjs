@@ -99,6 +99,15 @@ describe('the starts', () => {
     assert.ok(cells.some((cell) => cell.source.includes('pipeline(model="Qwen/Qwen2.5-0.5B"')));
     assert.ok(pg.modelCells('datasets/stanfordnlp/imdb').some((cell) => cell.source.includes('load_dataset("stanfordnlp/imdb")')));
   });
+  it('starts a project from a paper: the paper in the README, a briefing for the agents, and an entry point', () => {
+    const files = pg.paperFiles('Trying LoRA', { paperId: 'arxiv:2106.09685', title: 'LoRA: Low-Rank Adaptation', authors: ['Edward Hu', 'Yelong Shen'], abstract: 'We propose  Low-Rank\nAdaptation.', published: '2021-06-17', arxivId: '2106.09685' });
+    assert.deepEqual(Object.keys(files).sort(), ['AGENTS.md', 'CLAUDE.md', 'README.md', 'main.py']);
+    assert.match(files['README.md'], /\*\*LoRA: Low-Rank Adaptation\*\* — Edward Hu, Yelong Shen — 2021\nhttps:\/\/arxiv\.org\/abs\/2106\.09685/);
+    assert.match(files['README.md'], /> We propose Low-Rank Adaptation\./);
+    assert.match(files['AGENTS.md'], /reproduces the method of the paper \*\*LoRA/);
+    assert.equal(files['CLAUDE.md'], '@AGENTS.md\n');
+    assert.match(files['main.py'], /torch\.cuda\.is_available\(\)/);
+  });
   it('names a folder from a title', () => {
     assert.equal(pg.slugOf('LoRA rank sweep on Llama-3.2!'), 'lora-rank-sweep-on-llama-32');
     assert.equal(pg.slugOf('!!!'), 'playground');

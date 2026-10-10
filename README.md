@@ -3758,8 +3758,13 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
 ![the Playground's home: six ways to start, the playgrounds there are with where each runs, and your compute — Colab and two Jupyter servers](docs/playground-home.png)
 
 - **Six ways to start.** A blank notebook, a blank project (files, an editor
-  and a console), a paper from your library (the notebook cites it, and the
-  model that writes cells reads its abstract), a GitHub repository (the clone
+  and a console), a paper from your library (a project laid out as VS Code
+  is — the explorer, the editor, the console and the agent beside them — that
+  cites the paper, opens on a README with its abstract, and gives the agents
+  an `AGENTS.md`, read by Codex and, through `CLAUDE.md`, by Claude Code; the
+  page's own agent is given the paper with every request, so *Implement the
+  paper's method* is one click, and the notebook is the tab beside the
+  files), a GitHub repository (the clone
   waits in the console for a click), a Hugging Face model or dataset id
   (cells that load it and run it once), or an `.ipynb` or `.py` file.
 - **Where it runs.** The sheet that follows offers three modes. **Colab, in

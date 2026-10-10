@@ -33,7 +33,9 @@ of their own, often with a GPU). You sit beside the editor, as a coding agent do
 to write code, change it, fix what failed, explain it, or plan a run.
 
 Each request comes with the project as it stands: every file's path and size, the files open in the editor in
-full, the one in front of the reader marked, and the last commands run in the console with what they printed.
+full, the one in front of the reader marked, and the last commands run in the console with what they printed — and,
+when the project started from a paper, the paper's title and abstract: asked to implement it, write its method as a
+small, faithful implementation in modules of its own, a seeded experiment sized for the machine, and an evaluation.
 
 ANSWER FORMAT — the page acts on your answer, so keep to it exactly:
 - Write a file: a fenced block whose info string names it, holding the WHOLE new file, never a diff —
@@ -125,6 +127,8 @@ export interface ProjectView {
   open: { path: string; text: string; active: boolean; unsaved: boolean }[];
   /** The last commands, newest last, with what they printed. */
   console: { command: string; output: string; state: string }[];
+  /** The paper the project cites, when it started from one: what "implement the paper" means. */
+  paper?: { title: string; authors?: string[]; published?: string; abstract?: string };
 }
 
 export function projectBlock(view: ProjectView): string {
@@ -136,7 +140,14 @@ export function projectBlock(view: ProjectView): string {
     : 'The folder is empty.';
   const open = view.open.map((file) => tag('file', clip(file.text, FILE_MAX_CHARS) || '(empty)', { path: file.path, in_front: file.active ? 'yes' : '', unsaved: file.unsaved ? 'yes — what is on screen, not yet saved' : '' })).join('\n\n');
   const runs = view.console.map((entry) => tag('command', `$ ${entry.command}\n${clip(entry.output, OUTPUT_MAX_CHARS) || '(nothing printed)'}`, { state: entry.state })).join('\n\n');
-  return [tag('where', view.where), tag('files', listing), tag('open_files', open), tag('console', runs)].filter(Boolean).join('\n\n');
+  const paper = view.paper
+    ? tag(
+        'paper',
+        [view.paper.title, view.paper.authors?.length ? `by ${view.paper.authors.slice(0, 6).join(', ')}` : '', view.paper.published ? `(${view.paper.published.slice(0, 4)})` : ''].filter(Boolean).join(' ') +
+          (view.paper.abstract ? `\n\nAbstract: ${view.paper.abstract.replace(/\s+/g, ' ').trim()}` : ''),
+      )
+    : '';
+  return [paper, tag('where', view.where), tag('files', listing), tag('open_files', open), tag('console', runs)].filter(Boolean).join('\n\n');
 }
 
 /** Every file under `path`, depth first, as far as `max` files: what the listing shows the agent. */

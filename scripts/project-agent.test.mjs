@@ -60,6 +60,10 @@ describe('the project, as the agent reads it', () => {
     assert.match(text, /<file path="main\.py" in_front="yes">/);
     assert.match(text, /\$ python main\.py\n1/);
   });
+  it('puts the paper first when the project cites one', () => {
+    const text = agent.projectBlock({ where: 'Colab.', listing: [], open: [], console: [], paper: { title: 'LoRA', authors: ['Edward Hu'], published: '2021-06-17', abstract: 'Low-rank  adapters.' } });
+    assert.match(text, /^<paper>\nLoRA by Edward Hu \(2021\)\n\nAbstract: Low-rank adapters\.\n<\/paper>/);
+  });
   it('walks a host for every file, leaving caches out', async () => {
     const tree = { '': [['src', 'directory'], ['main.py', 'file'], ['__pycache__', 'directory']], src: [['a.py', 'file']], __pycache__: [['x.pyc', 'file']] };
     const host = { label: 't', list: async (path = '') => (tree[path] ?? []).map(([name, type]) => ({ name, path: path ? `${path}/${name}` : name, type, size: type === 'file' ? 1 : null, modified: null })), read: async () => '', write: async () => {} };
