@@ -76,7 +76,7 @@ function localOpener(again = false): Promise<Opener> {
   if (!openerAsked || again) {
     openerAsked = (async (): Promise<Opener> => {
       const local = await findLocalCompanion();
-      if (!local?.info.id) return { error: 'To open Overleaf in another browser, this computer’s Companion has to be running (Playground → Connect this computer).' };
+      if (!local?.info.id) return { error: 'To open Overleaf in another browser, this computer’s Companion has to be running: connect it once on the Write tab, or in the Playground.' };
       if (isNewer(BROWSERS_VERSION, local.info.version)) return { error: `This computer’s Companion is ${local.info.version}; opening another browser needs ${BROWSERS_VERSION}. Update it from Your compute in the Playground.` };
       const server = allServers().find((item) => item.companionId === local.info.id && item.token);
       if (!server) return { error: 'This computer’s Companion is running but not paired with this browser yet: connect it from the Playground first.' };

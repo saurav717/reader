@@ -26,6 +26,13 @@ import { CompanionConnect } from './Playground';
 
 type Here = Extract<ThisComputer, { server: unknown }>;
 
+/**
+ * An Overleaf Git token typed before the Companion is connected: held in this
+ * page's memory only — never stored in the browser — until the set-up hands
+ * it to the Companion, which keeps it on the computer.
+ */
+let earlyToken = '';
+
 /** The tab, for a project: this computer's Companion, then the paper's folder on it, then the desk. */
 export default function WritePage({ project, onView }: { project: Project; onView: (view: View) => void }) {
   const [here, setHere] = useState<ThisComputer | null>(null);
@@ -76,6 +83,7 @@ export default function WritePage({ project, onView }: { project: Project; onVie
           <h2>Write it on this computer</h2>
           <p>The Write tab keeps the paper in a folder on your computer, compiles it there and keeps it in step with Overleaf — your coauthors’ edits come in, yours go out. That takes the Companion, connected once here; after that this tab finds it by itself.</p>
           {here.why === 'old' ? <p className="wr-bad">{here.error}</p> : null}
+          {overleafGitUrl(link?.url) ? <EarlyToken /> : null}
           {link ? (
             <div className="wr-row">
               <OpenOverleaf project={project} view="beside" primary={false} />
@@ -97,6 +105,38 @@ export default function WritePage({ project, onView }: { project: Project; onVie
   }
   if (!folder) return <WriteSetUp project={project} here={here} />;
   return <WriteDesk key={`${here.id}:${folder.path}`} project={project} here={here} folder={folder} />;
+}
+
+/** The way to Overleaf's Git, step by step, with the token taken now if it is to hand. */
+function EarlyToken() {
+  const [token, setToken] = useState(earlyToken);
+  return (
+    <div className="wr-steps">
+      <ol>
+        <li className="is-now">
+          <b>Connect this computer</b> — below. Once, on each computer.
+        </li>
+        <li>
+          <b>Your Overleaf Git token</b> — in Overleaf: Account Settings → Git integration → Generate token.
+          <input
+            type="password"
+            value={token}
+            autoComplete="off"
+            placeholder="Paste it here now, or on the next step (olp_…)"
+            aria-label="Overleaf Git token"
+            onChange={(event) => {
+              setToken(event.target.value);
+              earlyToken = event.target.value.trim();
+            }}
+          />
+          <small>Kept in this page’s memory until the next step hands it to the Companion, which keeps it on your computer. It is not saved in the browser.</small>
+        </li>
+        <li>
+          <b>Clone the paper</b> — pick “Overleaf’s Git”, a folder, and Clone. From then on your edits go to Overleaf and your coauthors’ come in.
+        </li>
+      </ol>
+    </div>
+  );
 }
 
 // ------------------------------------------------------------- set-up --
@@ -230,7 +270,7 @@ function WriteSetUp({ project, here }: { project: Project; here: Here }) {
   const updateLink = useUpdateLink(project);
   const gitUrl = overleafGitUrl(link?.url);
   const [way, setWay] = useState<'git' | 'dropbox' | 'github' | 'folder'>(gitUrl ? 'git' : link?.repo ? 'github' : 'dropbox');
-  const [token, setToken] = useState('');
+  const [token, setToken] = useState(earlyToken);
   // An Overleaf Git token is the account's: once given on this computer, every project of it uses it.
   const [known, setKnown] = useState<boolean | null>(null);
   const [another, setAnother] = useState(false);
