@@ -74,7 +74,7 @@ async function startRun(env, id) {
  * The routes. `who` is the signed-in person (or the owner) from the
  * Worker's own check; the runner's routes take LATEX_RUNNER_TOKEN instead.
  */
-export async function handleLatex(request, env, path, { json, headers, authorized, personOverLimit }) {
+export async function handleLatex(request, env, path, { json, headers, authorized, personOverLimit, tally }) {
   const noStore = { ...headers, 'Cache-Control': 'no-store' };
   // HTTPS only: a paper, a pass or the runner's secret never over plain HTTP (LATEX_ALLOW_HTTP is for a local test).
   if (new URL(request.url).protocol !== 'https:' && !env.LATEX_ALLOW_HTTP) return json({ error: 'HTTPS only' }, 403, noStore);
@@ -105,6 +105,9 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     await kv.delete(k.source);
     await kv.put(k.meta, JSON.stringify({ ...meta, state: 'done', pdf: Boolean(pdf), exit: Number.isFinite(body.exit) ? body.exit : null, doneAt: Date.now() }), { expirationTtl: TTL_S });
     if (meta.email) await kv.delete(`latex:active:${meta.email}`);
+    // On the Usage page: a compile, and the runner's seconds on it, for its owner.
+    const seconds = Math.max(1, Math.round((Date.now() - (meta.compilingAt || meta.createdAt || Date.now())) / 1000));
+    tally?.(meta.email === 'owner' ? { owner: true } : { email: meta.email }, { latex: 1, latex_s: seconds });
     return json({ ok: true }, 200, noStore);
   }
 
@@ -154,4 +157,85 @@ export async function handleLatex(request, env, path, { json, headers, authorize
   }
   const log = (await kv.get(k.log)) ?? '';
   return new Response(log, { status: 200, headers: { ...noStore, 'Content-Type': 'text/plain; charset=utf-8' } });
+}
+
+// ------------------------------------------------------------ the month --
+
+/** GitHub's Free plan: minutes a month for private repositories, and jobs at once. Public ones aren't metered. */
+export const FREE_MINUTES = 2000;
+export const FREE_CONCURRENT = 20;
+
+/**
+ * The compiler's month as GitHub has it, for the Usage page: the runs of the
+ * workflow since the 1st (UTC), what they took — each run's minutes rounded
+ * up, as GitHub bills a job — those running now, and whether the repository
+ * is private, which is when the month's minutes are limited.
+ */
+export async function latexMonth(env, now = Date.now(), fetcher = fetch) {
+  const repo = String(env.LATEX_REPO || 'saurav717/reader').trim();
+  const ask = async (path) => {
+    const response = await fetcher(`https://api.github.com/repos/${repo}${path}`, {
+      headers: { Authorization: `Bearer ${String(env.LATEX_GITHUB_TOKEN).trim()}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'reader-worker' },
+    });
+    if (!response.ok) throw new Error(`GitHub answered ${response.status} for ${path.split('?')[0] || 'the repository'}`);
+    return response.json();
+  };
+  const month = new Date(now).toISOString().slice(0, 7);
+  const info = await ask('');
+  const runs = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const answer = await ask(`/actions/workflows/${WORKFLOW}/runs?created=%3E%3D${month}-01&per_page=100&page=${page}`);
+    runs.push(...(answer.workflow_runs || []));
+    if ((answer.workflow_runs || []).length < 100) break;
+  }
+  return { repo, ...summarize(runs, { private: Boolean(info.private), month, now }) };
+}
+
+/** The numbers out of the runs: pure, so it can be tested without GitHub. */
+export function summarize(runs, { private: isPrivate, month, now = Date.now() }) {
+  let seconds = 0;
+  let minutes = 0;
+  let longest = 0;
+  let done = 0;
+  let failed = 0;
+  let running = 0;
+  let queued = 0;
+  const byDay = {};
+  for (const run of runs) {
+    const day = String(run.created_at || '').slice(0, 10);
+    const row = byDay[day] || (byDay[day] = { day, runs: 0, minutes: 0 });
+    row.runs += 1;
+    if (run.status === 'queued' || run.status === 'waiting' || run.status === 'pending' || run.status === 'requested') {
+      queued += 1;
+      continue;
+    }
+    const started = Date.parse(run.run_started_at || run.created_at);
+    const ended = run.status === 'completed' ? Date.parse(run.updated_at) : now;
+    const took = Number.isFinite(started) && Number.isFinite(ended) ? Math.max(0, (ended - started) / 1000) : 0;
+    seconds += took;
+    longest = Math.max(longest, took);
+    const billed = Math.max(1, Math.ceil(took / 60));
+    minutes += billed;
+    row.minutes += billed;
+    if (run.status !== 'completed') running += 1;
+    else if (run.conclusion === 'success') done += 1;
+    else failed += 1;
+  }
+  const finished = done + failed;
+  return {
+    month,
+    private: isPrivate,
+    limit: isPrivate ? FREE_MINUTES : null,
+    concurrent: FREE_CONCURRENT,
+    runs: runs.length,
+    done,
+    failed,
+    running,
+    queued,
+    minutes,
+    seconds: Math.round(seconds),
+    average: finished ? Math.round(seconds / Math.max(1, runs.length - queued)) : 0,
+    longest: Math.round(longest),
+    days: Object.values(byDay).sort((a, b) => (a.day < b.day ? -1 : 1)),
+  };
 }

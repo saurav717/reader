@@ -38,7 +38,7 @@ import { aiForEveryone, aiKey, aiKeys, AiRefused, checkAi, KEY_NAMES, relayAi, r
 import { readPage, searchWeb, webAvailable, WebRefused } from '../server/webSearch.js';
 import { handleColab, isColabPath, readSocketTicket } from '../server/colab.js';
 import { bridgeSocket } from './colabSocket.js';
-import { handleLatex, isLatexPath, latexAvailable } from './latex.js';
+import { handleLatex, isLatexPath, latexAvailable, latexMonth } from './latex.js';
 import { readBalance } from './deepseekBalance.js';
 import { FRESH_MS as TAVILY_FRESH_MS, readTavilyUsage } from './tavilyUsage.js';
 import * as browse from './browse.js';
@@ -382,7 +382,7 @@ export default {
       }
 
       // LaTeX compiled on GitHub Actions for anyone signed in: worker/latex.js.
-      if (isLatexPath(path)) return await handleLatex(request, env, path, { json, headers, authorized, personOverLimit });
+      if (isLatexPath(path)) return await handleLatex(request, env, path, { json, headers, authorized, personOverLimit, tally: (who, counts) => tally(env, ctx, who, counts) });
 
       // Whose pass this is: the Companion asks, to know which account a page
       // that wants to pair or claim it is signed in as (it can't read a pass).
@@ -459,6 +459,21 @@ export default {
         const error = await snapshotTavily(env, { minAge: TAVILY_FRESH_MS });
         const answer = await env.USAGE.get(env.USAGE.idFromName('usage')).fetch(`https://usage/tavily/report?days=${days}`);
         return json({ configured: true, ...(await answer.json()), ...(error ? { error } : {}) }, 200, noStore);
+      }
+
+      // The LaTeX compiler this month, as GitHub has it: its runs, their minutes
+      // against the monthly allowance when the repository is private, what is
+      // running now (worker/latex.js). The owner's alone, like /usage.
+      if (path === '/usage/latex') {
+        const who = await ownerAuthorized(request, env);
+        if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        if (!latexAvailable(env)) return json({ configured: false }, 200, noStore);
+        try {
+          return json({ configured: true, ...(await latexMonth(env)) }, 200, noStore);
+        } catch (error) {
+          return json({ configured: true, error: error.message }, 200, noStore);
+        }
       }
 
       // An answer from Ask AI or Explain, reported by the app once it is in:

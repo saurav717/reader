@@ -3,6 +3,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { hasProxy } from '../lib/api';
 import AiUsage, { ROW_HEIGHT, ROWS_IN_VIEW, SearchBox, SortControl, SortHeading, card, cardHead, cardTitle, useSort } from './AiUsage';
 import WebUsage from './WebUsage';
+import LatexUsage from './LatexUsage';
 import type { SortOption } from './AiUsage';
 import { ChartIcon, ChevronDownIcon, ChevronRightIcon, RestoreIcon } from './icons';
 import { KEEP_DAYS, addDays, dayOf, daysSpanned, resolvePeriod, sliceReport } from '../lib/usagePeriod';
@@ -18,6 +19,9 @@ interface Counts {
   pdf?: number;
   /** Web searches for Ask AI. */
   web?: number;
+  /** Papers compiled on the LaTeX compiler, and the runner's seconds on them. */
+  latex?: number;
+  latex_s?: number;
   /** Ask AI and Explain: answers, tokens in and out, and cost in millionths of a dollar. */
   claude?: number;
   claude_in?: number;
@@ -363,6 +367,7 @@ export default function UsageView() {
               </>
             )}
             <WebUsage report={report} days={days} refreshedAt={updatedAt} />
+            <LatexUsage report={report} refreshedAt={updatedAt} />
             {aiReport ? <AiUsage report={aiReport} period={aiPeriod} range={aiRange} onPeriod={setAiPeriod} /> : null}
           </>
         )}
