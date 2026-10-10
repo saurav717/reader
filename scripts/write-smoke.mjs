@@ -84,6 +84,7 @@ let tokenSaved = false;
 const PAPERS = [
   { id: 'arxiv:2408.15664', source: 'arxiv', arxivId: '2408.15664', title: 'Auxiliary-Loss-Free Load Balancing Strategy for Mixture-of-Experts', authors: ['Lean Wang'], abstract: '', published: '2024-08-28', categories: [], addedAt: new Date().toISOString(), collectionIds: ['p-moe'], tags: [], progress: 0.3, lastOpenedAt: new Date().toISOString() },
   { id: 'arxiv:2101.03961', source: 'arxiv', arxivId: '2101.03961', title: 'Switch Transformers', authors: ['William Fedus'], abstract: '', published: '2021-01-11', categories: [], addedAt: new Date().toISOString(), collectionIds: ['p-moe'], tags: [], progress: 1 },
+  { id: 'arxiv:2202.09368', source: 'arxiv', arxivId: '2202.09368', title: 'Mixture-of-Experts with Expert Choice Routing', authors: ['Yanqi Zhou'], abstract: '', published: '2022-02-18', categories: [], addedAt: new Date().toISOString(), collectionIds: ['p-moe'], tags: [], progress: 0 },
 ];
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
@@ -333,6 +334,72 @@ check('the compiler picked stays picked', (await page.getByRole('combobox', { na
 check('so does the main document', (await page.getByRole('combobox', { name: 'Main document' }).inputValue()) === 'main.tex');
 await page.getByRole('combobox', { name: 'Compiler' }).selectOption('pdflatex');
 await page.waitForTimeout(500);
+
+console.log('autocomplete, as in Overleaf');
+await page.locator('.wr-tree-item', { hasText: 'results.tex' }).click();
+const editorBox = page.locator('.wr-editor textarea');
+await editorBox.click();
+await page.keyboard.press('Control+End');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(80);
+await page.keyboard.type('\\subsec');
+await page.locator('.ce-suggest').waitFor({ timeout: 5000 });
+check('a backslash and a few letters bring the commands', /\\subsection\{\}/.test(await page.locator('.ce-suggest button.is-on').innerText()));
+await shot('write-autocomplete');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(120);
+await page.keyboard.type('Setup');
+check('↵ takes it, the caret in its argument', /\\subsection\{Setup\}/.test(await editorBox.inputValue()));
+await page.keyboard.press('End');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(80);
+await page.keyboard.type('\\label{');
+await page.waitForTimeout(120);
+await page.keyboard.type('sec:setup');
+await page.keyboard.press('End');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(80);
+await page.keyboard.type('\\begin{');
+await page.waitForTimeout(120);
+await page.keyboard.type('enu');
+await page.locator('.ce-suggest').waitFor({ timeout: 5000 });
+await page.keyboard.press('Enter');
+await page.waitForTimeout(150);
+await page.keyboard.type('First');
+check('an environment comes with its \\end, the caret inside', /\\begin\{enumerate\}\n\s+\\item First\n\\end\{enumerate\}/.test(await editorBox.inputValue()), (await editorBox.inputValue()).slice(-80));
+await page.keyboard.type(' as in~\\cite{');
+await page.waitForTimeout(120);
+await page.keyboard.type('fed');
+await page.locator('.ce-suggest').waitFor({ timeout: 5000 });
+check('\\cite{ offers the keys, from the .bib and the project', /fedus2021switch/.test(await page.locator('.ce-suggest').innerText()));
+await page.keyboard.press('Enter');
+await page.waitForTimeout(150);
+check('the key goes in', /\\cite\{fedus2021switch\}/.test(await editorBox.inputValue()));
+await page.keyboard.press('End');
+await page.keyboard.type(' and~\\cite{');
+await page.waitForTimeout(120);
+await page.keyboard.type('zhou');
+await page.locator('.ce-suggest').waitFor({ timeout: 5000 });
+check('a project paper not in the .bib is offered too', /zhou2022mixture/.test(await page.locator('.ce-suggest').innerText()));
+await page.keyboard.press('Enter');
+await page.waitForTimeout(1800);
+check('taking it brings its BibTeX entry into the .bib', /@\w+\{zhou2022mixture,/.test(readFileSync(join(root, 'papers/sparse-gated-moe/refs.bib'), 'utf8')));
+await page.keyboard.press('End');
+await page.keyboard.type(' See~\\ref{');
+await page.waitForTimeout(120);
+await page.keyboard.type('sec');
+await page.locator('.ce-suggest').waitFor({ timeout: 5000 });
+check('\\ref{ offers the paper’s labels', /sec:setup/.test(await page.locator('.ce-suggest').innerText()));
+await page.keyboard.press('Escape');
+await page.waitForTimeout(100);
+check('Esc closes the list', (await page.locator('.ce-suggest').count()) === 0);
+await page.keyboard.press('End');
+await page.keyboard.type(' \\includegraphics{');
+await page.waitForTimeout(150);
+await page.keyboard.press('Control+Space');
+await page.locator('.ce-suggest').waitFor({ timeout: 5000 }).catch(() => {});
+check('Ctrl+Space asks: the figures for \\includegraphics', /figures\/load\.png/.test(await page.locator('.ce-suggest').innerText().catch(() => '')));
+await page.keyboard.press('Escape');
 
 console.log('a new paper from a conference template');
 cloneFrom = blank;

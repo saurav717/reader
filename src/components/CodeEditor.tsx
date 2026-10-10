@@ -10,6 +10,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { highlightCode } from '../lib/languages';
 import { highlightTex } from '../lib/overleaf';
+import type { Completion, CompletionItem } from '../lib/latexComplete';
 import type { Edit, FindOptions, Selection } from '../lib/editing';
 import { commentFor, copyLines, deleteLines, deletePair, findAll, lineCol, lineSpan, moveLines, newLine, offsetOfLine, replaceAll, toggleComment, typeBracket } from '../lib/editing';
 import { highlightPython } from './Explain';
@@ -56,7 +57,12 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
    * highlighting never spans lines, as LaTeX's doesn't.
    */
   wrap?: boolean;
-}>(function CodeEditor({ value, path, fontSize = 13, minimap = true, onChange, onKeyDown, onCursor, onFocus, readOnly = false, wrap = false }, ref) {
+  /**
+   * Suggestions for the text at the caret (the Write tab's LaTeX: src/lib/latexComplete.ts), shown in a list at
+   * the caret as you type: ↑↓ to move, ↵ or Tab to take one, Esc to close, Ctrl+Space to ask.
+   */
+  complete?: (text: string, caret: number) => Completion | null;
+}>(function CodeEditor({ value, path, fontSize = 13, minimap = true, onChange, onKeyDown, onCursor, onFocus, readOnly = false, wrap = false, complete }, ref) {
   const text = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const map = useRef<HTMLCanvasElement>(null);
@@ -162,6 +168,60 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
     },
     [onChange, report, reveal, readOnly],
   );
+
+  // ---- suggestions, at the caret
+  const [suggest, setSuggest] = useState<{ list: Completion; index: number; x: number; y: number } | null>(null);
+  const suggestRef = useRef(suggest);
+  suggestRef.current = suggest;
+  const listBox = useRef<HTMLDivElement>(null);
+  /** Where the caret is, in the editor's inner box: a hidden copy of the textarea up to it, measured. */
+  const caretPoint = useCallback((at: number) => {
+    const element = text.current;
+    if (!element) return { x: 0, y: 0 };
+    const style = window.getComputedStyle(element);
+    const mirror = document.createElement('div');
+    for (const name of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'tabSize', 'paddingTop', 'paddingLeft', 'paddingRight', 'boxSizing', 'whiteSpace', 'overflowWrap', 'wordBreak'] as const) mirror.style[name] = style[name];
+    mirror.style.position = 'absolute';
+    mirror.style.visibility = 'hidden';
+    mirror.style.width = `${element.clientWidth}px`;
+    mirror.style.left = `${element.offsetLeft}px`;
+    mirror.style.top = `${element.offsetTop}px`;
+    mirror.textContent = element.value.slice(0, at);
+    const mark = document.createElement('span');
+    mark.textContent = '\u200b';
+    mirror.appendChild(mark);
+    element.parentElement?.appendChild(mirror);
+    const point = { x: element.offsetLeft + mark.offsetLeft, y: element.offsetTop + mark.offsetTop };
+    mirror.remove();
+    return point;
+  }, []);
+  const suggestNow = useCallback(
+    (manual = false) => {
+      const element = text.current;
+      if (!complete || !element || readOnly || element.selectionStart !== element.selectionEnd) return setSuggest(null);
+      const list = complete(element.value, element.selectionEnd);
+      if (!list || (!manual && !list.items.length)) return setSuggest(null);
+      const point = caretPoint(list.from);
+      setSuggest({ list, index: 0, ...point });
+    },
+    [complete, readOnly, caretPoint],
+  );
+  // After an edit the caret settles a frame later (apply places it then): ask once it has.
+  const suggestSoon = useCallback(() => window.requestAnimationFrame(() => window.requestAnimationFrame(() => suggestNow())), [suggestNow]);
+  const takeSuggestion = useCallback(
+    (item: CompletionItem) => {
+      const open = suggestRef.current;
+      if (!open) return;
+      const at = open.list.from + (item.caret ?? item.insert.length);
+      setSuggest(null);
+      apply({ from: open.list.from, to: open.list.to, insert: item.insert, select: { start: at, end: at } });
+      suggestSoon();
+    },
+    [apply, suggestSoon],
+  );
+  useEffect(() => {
+    listBox.current?.querySelector('.is-on')?.scrollIntoView({ block: 'nearest' });
+  }, [suggest?.index]);
 
   const go = useCallback(
     (offset: number, end = offset) => {
@@ -273,6 +333,31 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
     const sel = { start: element.selectionStart, end: element.selectionEnd };
     const mod = mac ? event.metaKey : event.ctrlKey;
     const k = event.key;
+    const open = suggestRef.current;
+    if (open && open.list.items.length) {
+      if (k === 'ArrowDown' || k === 'ArrowUp') {
+        event.preventDefault();
+        const count = open.list.items.length;
+        setSuggest({ ...open, index: (open.index + (k === 'ArrowDown' ? 1 : -1) + count) % count });
+        return;
+      }
+      if ((k === 'Enter' || k === 'Tab') && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        takeSuggestion(open.list.items[open.index]);
+        return;
+      }
+      if (k === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setSuggest(null);
+        return;
+      }
+    }
+    if (complete && event.ctrlKey && (k === ' ' || event.code === 'Space')) {
+      event.preventDefault();
+      suggestNow(true);
+      return;
+    }
     const take = (edit: Edit | null) => {
       if (!edit) return;
       event.preventDefault();
@@ -393,13 +478,39 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
               if (readOnly) return;
               onChange(event.target.value);
               window.requestAnimationFrame(() => (report(), reveal()));
+              if (complete) suggestSoon();
             }}
             onKeyDown={keys}
             onKeyUp={report}
-            onClick={report}
-            onSelect={report}
+            onClick={() => (report(), suggestRef.current && setSuggest(null))}
+            onSelect={() => {
+              report();
+              // The caret gone from the word being completed: the list goes too.
+              const open = suggestRef.current;
+              const caretNow = text.current?.selectionEnd ?? 0;
+              if (open && (caretNow < open.list.from || caretNow > open.list.to + 1)) setSuggest(null);
+            }}
+            onBlur={() => window.setTimeout(() => setSuggest(null), 120)}
             onFocus={() => (report(), onFocus?.())}
           />
+          {suggest && suggest.list.items.length ? (
+            <div className="ce-suggest" ref={listBox} role="listbox" aria-label="Suggestions" style={{ left: suggest.x, top: suggest.y + lineHeight + 2 }} onMouseDown={(event) => event.preventDefault()}>
+              {suggest.list.items.map((item, index) => (
+                <button
+                  key={`${item.label}:${index}`}
+                  type="button"
+                  role="option"
+                  aria-selected={index === suggest.index}
+                  className={index === suggest.index ? 'is-on' : undefined}
+                  onMouseEnter={() => setSuggest((current) => (current ? { ...current, index } : current))}
+                  onClick={() => takeSuggestion(item)}
+                >
+                  <span className="ce-suggest-label">{item.label}</span>
+                  {item.detail ? <span className="ce-suggest-detail">{item.detail}</span> : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
       {minimap ? (

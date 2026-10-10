@@ -1104,6 +1104,18 @@ Where you write is a choice in Settings → Projects, **Writing with Overleaf**:
     put its address on the paper card. The Write tab clones it, puts the
     template's files in (in place of the blank `main.tex`), makes the
     template's paper the main document, and pushes it all to Overleaf.
+  - **Autocomplete**, as in Overleaf:
+    - A backslash and a letter or two bring the commands, the paper's own
+      `\newcommand`s among them, with the caret put in the first argument.
+    - `\begin{` brings the environments, each with its `\end` filled in and
+      a start inside (a figure's `\includegraphics`, `\caption`, `\label`).
+      `\end{` offers the one left open.
+    - `\cite{` brings the `.bib`'s keys and the project's papers. Taking a
+      paper the `.bib` lacks adds its entry.
+    - `\ref{` (and `\eqref`, `\cref`…) brings the labels in every file.
+    - `\input{`, `\includegraphics{` and `\bibliography{` bring the paper's
+      files.
+    - ↑↓ move, ↵ or Tab take one, Esc closes, and Ctrl+Space asks.
   - **It sticks.** The link, each computer's folder, the compiler and the
     main document are kept on the project until changed: unlinking asks
     first. The Overleaf Git token is the account's, kept by the Companion on

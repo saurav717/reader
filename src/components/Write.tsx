@@ -13,6 +13,7 @@ import { useStore } from '../lib/store';
 import { jupyterDelete, jupyterList, jupyterMkdir, jupyterRead, jupyterRename, jupyterWrite, jupyterWriteBase64 } from '../lib/colab';
 import { PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEX_COMPILERS, applyTemplate, chooseFolder, clonePaper, compilePaper, deleteTemplate, installTectonic, isNewer, linkFolder, listTemplates, paperEngines, paperRemote, saveTemplate, syncPaper, tokenKnown, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
 import { bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, withEntry } from '../lib/overleaf';
+import { complete as completeLatex } from '../lib/latexComplete';
 import { openPdf } from '../lib/pdfReflow';
 import { papersIn, type Project } from '../lib/projects';
 import { thisComputer, type ThisComputer } from '../lib/thisComputer';
@@ -722,6 +723,46 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     if (bibPath && options.citations === 'drawer') void load(bibPath);
   }, [bibPath, options.citations, load]);
   const entries = useMemo(() => bibEntries(bibPath && bibText !== undefined ? [{ path: bibPath, text: bibText }] : []), [bibPath, bibText]);
+  // ---- autocomplete: every text file read, for its labels and its own commands; the cite keys from the .bib and the project
+  useEffect(() => {
+    for (const path of texts.slice(0, 80)) void load(path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paths, load]);
+  const allEntries = useMemo(
+    () => bibEntries(Object.entries(files).filter(([path]) => path.endsWith('.bib')).map(([path, file]) => ({ path, text: file.text }))),
+    [files],
+  );
+  const completeFor = useCallback(
+    (text: string, caret: number) => {
+      const others = Object.entries(files)
+        .filter(([path]) => path !== shown && /\.(tex|sty|cls)$/.test(path))
+        .map(([path, file]) => ({ path, text: file.text }));
+      const keys = [
+        ...allEntries.map((entry) => ({ key: entry.key, detail: entry.title ?? 'in the .bib' })),
+        ...mine.filter((paper) => !allEntries.some((entry) => entry.key === keyFor(paper, allEntries))).map((paper) => ({ key: keyFor(paper, allEntries), detail: `${paper.title} · adds its BibTeX` })),
+      ];
+      return completeLatex(text, caret, { files: [{ path: shown ?? '', text }, ...others], paths: paths ?? [], keys });
+    },
+    [files, shown, allEntries, mine, paths],
+  );
+
+  // A project paper's key cited by hand, or from the suggestions, brings its BibTeX entry into the .bib.
+  const bibFor = useRef<(text: string) => void>(() => undefined);
+  bibFor.current = (text: string) => {
+    if (!bibPath || bibText === undefined) return;
+    const cited = new Set([...text.matchAll(/\\[a-zA-Z]*cite[a-zA-Z]*\*?(?:\[[^\]]*\]){0,2}\{([^}]*)\}/g)].flatMap((match) => match[1].split(',').map((key) => key.trim())));
+    let bib = bibText;
+    let current = entries;
+    for (const paper of mine) {
+      if (!cited.has(keyFor(paper, current))) continue;
+      const added = withEntry(bib, paper, current);
+      if (!added) continue;
+      bib = added;
+      current = bibEntries([{ path: bibPath, text: bib }]);
+    }
+    if (bib !== bibText) edit(bibPath, bib);
+  };
+
   const cite = (paperId: string) => {
     const paper = mine.find((item) => item.id === paperId);
     if (!paper || !shown) return;
@@ -765,7 +806,11 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
             path={shown}
             wrap
             minimap={false}
-            onChange={(next) => edit(shown, next)}
+            complete={/\.(tex|sty|cls)$/.test(shown) ? completeFor : undefined}
+            onChange={(next) => {
+              edit(shown, next);
+              if (shown.endsWith('.tex') && next.includes('cite')) bibFor.current(next);
+            }}
             onKeyDown={(event) => {
               if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
                 event.preventDefault();
