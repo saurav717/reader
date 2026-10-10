@@ -21,6 +21,24 @@ after(async () => {
 const paper = (id, more = {}) => ({ id, source: 'arxiv', title: id, authors: [], abstract: '', published: '', categories: [], addedAt: '2026-02-01T00:00:00.000Z', collectionIds: [], tags: [], progress: 0, ...more });
 
 describe('the link', () => {
+  it('switches to another project: the old one put by, the account and browser kept, a project linked before brought back', () => {
+    const A = 'https://www.overleaf.com/project/aaaaaaaaaaaaaaaaaaaaaaaa';
+    const B = 'https://www.overleaf.com/project/bbbbbbbbbbbbbbbbbbbbbbbb';
+    const first = { url: A, account: 'me@lab.edu', browsers: { mac: { browser: 'chrome', label: 'Chrome' } }, repo: 'me/paper-a', compiler: 'xelatex', main: 'paper.tex', folders: { mac: { path: 'papers/a', sync: 'git' } } };
+    const moved = ol.switchedLink(first, B);
+    assert.deepEqual(moved, { url: B, account: 'me@lab.edu', browsers: first.browsers, earlier: { [A]: { mac: { path: 'papers/a', sync: 'git' } } } });
+    const back = ol.switchedLink({ ...moved, folders: { mac: { path: 'papers/b', sync: 'git' } } }, A);
+    assert.deepEqual(back.folders, { mac: { path: 'papers/a', sync: 'git' } });
+    assert.deepEqual(back.earlier, { [B]: { mac: { path: 'papers/b', sync: 'git' } } });
+  });
+
+  it('keeps the earlier folders through a reload, and only sound ones', () => {
+    const A = 'https://www.overleaf.com/project/aaaaaaaaaaaaaaaaaaaaaaaa';
+    const B = 'https://www.overleaf.com/project/bbbbbbbbbbbbbbbbbbbbbbbb';
+    const read = ol.overleafLinkOf({ url: B, earlier: { [A]: { mac: { path: '/papers/a/', sync: 'git' }, pc: { path: '../out', sync: 'git' } }, 'not a link': { mac: { path: 'x', sync: 'git' } }, [B]: { mac: { path: 'self', sync: 'git' } } } });
+    assert.deepEqual(read.earlier, { [A]: { mac: { path: 'papers/a', sync: 'git' } } });
+  });
+
   it('takes the editor address, a share link, or no scheme', () => {
     assert.equal(ol.parseOverleafUrl('https://www.overleaf.com/project/66F1C0A9E2B7D4A1B2C3D4E5/detached'), 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5');
     assert.equal(ol.parseOverleafUrl('www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5'), 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5');
@@ -223,5 +241,33 @@ describe('GitHub', () => {
     };
     await assert.rejects(ol.writeDraft(target, [{ path: 'paper/main.tex', text: 'x', sha: 'a' }], 'm'), (error) => error instanceof ol.DraftConflict && error.paths[0] === 'paper/main.tex');
     assert.deepEqual(methods, ['GET']);
+  });
+});
+
+describe('a new paper in Overleaf', () => {
+  it('escapes what LaTeX would read as commands', () => {
+    assert.equal(ol.texEscape('50% of A&B_c {x} #1 $5 a~b c^d e\\f'), '50\\% of A\\&B\\_c \\{x\\} \\#1 \\$5 a\\textasciitilde{}b c\\textasciicircum{}d e\\textbackslash{}f');
+  });
+
+  it('starts a paper with the project in it, and its papers in references.bib', () => {
+    const files = ol.starterPaper('Routing & 4-bit', 'Can DiT go to 4 bits?', [paper('arxiv:1706.03762', { title: 'Attention is all you need', authors: ['Ashish Vaswani'], published: '2017-06-12' })]);
+    assert.deepEqual(files.map((file) => file.path), ['main.tex', 'references.bib']);
+    const main = files[0].content;
+    assert.match(main, /^\\documentclass\[11pt\]\{article\}$/m);
+    assert.match(main, /^\\title\{Routing \\& 4-bit\}$/m);
+    assert.match(main, /^Can DiT go to 4 bits\?$/m);
+    assert.match(main, /^\\nocite\{\*\}$/m);
+    assert.match(main, /^\\bibliography\{references\}$/m);
+    assert.match(main, /\\end\{document\}\n$/);
+    assert.match(files[1].content, /^@\w+\{vaswani2017attention,/);
+  });
+
+  it('leaves the bibliography out with no papers, and zips as a data URL', () => {
+    const files = ol.starterPaper('', '', []);
+    assert.deepEqual(files.map((file) => file.path), ['main.tex']);
+    assert.doesNotMatch(files[0].content, /bibliography|natbib/);
+    assert.match(files[0].content, /\\title\{Untitled paper\}/);
+    const url = ol.zipDataUrl(files);
+    assert.match(url, /^data:application\/zip;base64,UEsDB/);
   });
 });

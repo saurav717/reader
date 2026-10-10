@@ -211,6 +211,12 @@ export interface OverleafLink {
   compiler?: 'pdflatex' | 'xelatex' | 'lualatex' | 'latex';
   /** The main document, as Overleaf's Menu → Main document: the file with \documentclass when unset. */
   main?: string;
+  /**
+   * The folders of the Overleaf projects this one was linked to before, by
+   * their address: switching back to one opens its folder again, with what
+   * changed in Overleaf meanwhile taken in, rather than cloning it afresh.
+   */
+  earlier?: Record<string, Record<string, PaperFolder>>;
 }
 
 export interface PaperFolder {

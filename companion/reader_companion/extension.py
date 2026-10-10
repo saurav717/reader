@@ -73,7 +73,7 @@ from pathlib import Path
 
 from tornado import httpclient, websocket
 
-from . import account, browsers, desktop, folders, jobs, paper, state, tools, tunnel
+from . import account, browsers, desktop, folders, jobs, paper, state, texlive, tools, tunnel
 
 
 class CompanionHandler(web.RequestHandler):
@@ -713,7 +713,12 @@ class PaperHandler(VsCodeHandler):
 
     def found(self) -> dict:
         shell = (getattr(self.serverapp, "terminado_settings", None) or {}).get("shell_command")
-        return paper.engines(tools.look_up(["latexmk", "tectonic", "git", "pdflatex", "xelatex", "bibtex", "biber"], shell))
+        found = tools.look_up(["latexmk", "tectonic", "git", "pdflatex", "xelatex", "bibtex", "biber"], shell)
+        # The Companion's own TeX Live (0.12.0) comes first: complete, and its packages install without a password.
+        own = texlive.tools()
+        if own.get("latexmk"):
+            found = {**found, **{name: path for name, path in own.items() if name != "tlmgr"}}
+        return {**paper.engines(found), "texlive": texlive.status()}
 
     async def get(self):
         if not self.allowed():
@@ -755,6 +760,17 @@ class PaperHandler(VsCodeHandler):
                 return self.reply(200, {"known": bool(paper.token_for(str(body.get("url", ""))))})
             if action == "forget-token":
                 return self.reply(200, {"forgotten": paper.forget_tokens(str(body.get("host", "https://git.overleaf.com")))})
+            if action == "texlive":
+                return self.reply(200, texlive.status())
+            if action == "install-texlive":
+                return self.reply(200, texlive.install(str(body.get("scheme") or "full")))
+            if action == "cancel-texlive":
+                return self.reply(200, await loop.run_in_executor(None, texlive.cancel))
+            if action == "remove-texlive":
+                return self.reply(200, await loop.run_in_executor(None, texlive.remove))
+            if action == "install-packages":
+                names = [str(name) for name in body.get("names") or [] if isinstance(name, str)][:20]
+                return self.reply(200, await loop.run_in_executor(None, lambda: texlive.install_packages(names)))
             if action == "install-tectonic":
                 return self.reply(200, {"tectonic": await loop.run_in_executor(None, paper.install_tectonic)})
             git_path = (await loop.run_in_executor(None, self.found)).get("git") or ""
@@ -775,11 +791,11 @@ class PaperHandler(VsCodeHandler):
             if action == "remote":
                 url = await loop.run_in_executor(None, lambda: paper.remote_of(root, folder, git_path or "git"))
                 return self.reply(200, {"url": url, "token": bool(paper.token_for(url))})
-        except paper.Refused as error:
+        except (paper.Refused, texlive.Refused) as error:
             return self.reply(400, {"error": str(error)})
         except OSError as error:
             return self.reply(500, {"error": str(error)})
-        self.reply(400, {"error": "compile, install-tectonic, clone, sync, remote, templates, save-template, apply-template, delete-template, token or forget-token"})
+        self.reply(400, {"error": "compile, install-tectonic, texlive, install-texlive, cancel-texlive, remove-texlive, install-packages, clone, sync, remote, templates, save-template, apply-template, delete-template, token or forget-token"})
 
 
 class AppHandler(VsCodeHandler):

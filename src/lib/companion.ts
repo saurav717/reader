@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.11.0';
+export const COMPANION_VERSION = '0.12.0';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -559,6 +559,22 @@ export interface PaperEngines {
   biber?: string;
   /** The TeX installed, as it says: "pdfTeX 3.141592653-2.6-1.40.26 (TeX Live 2024)" (from 0.11.0). */
   texVersion?: string;
+  /** The Companion's own TeX Live (from 0.12.0). */
+  texlive?: TexLiveStatus;
+}
+
+/** The Companion's own TeX Live, installed into its folder without a password (from 0.12.0). */
+export const TEXLIVE_VERSION = '0.12.0';
+export interface TexLiveStatus {
+  installed: boolean;
+  state: 'idle' | 'installing' | 'done' | 'failed' | 'cancelled';
+  path: string;
+  scheme?: 'full' | 'medium';
+  step?: string;
+  done?: number;
+  of?: number;
+  tail?: string[];
+  error?: string;
 }
 
 /** Overleaf's compilers (Menu → Compiler), as latexmk is told: pdfLaTeX is Overleaf's default. */
@@ -639,6 +655,12 @@ export const compilePaper = (
 ) => paperCall<Compiled>(server, { action: 'compile', folder, engine, ...(how.main ? { main: how.main } : {}), compiler: how.compiler ?? 'pdflatex', halt: Boolean(how.halt) });
 /** Fetches Tectonic onto the Companion's computer. */
 export const installTectonic = (server: { url: string; token: string }) => paperCall<{ tectonic: string }>(server, { action: 'install-tectonic' });
+export const texLiveStatus = (server: { url: string; token: string }) => paperCall<TexLiveStatus>(server, { action: 'texlive' });
+export const installTexLive = (server: { url: string; token: string }, scheme: 'full' | 'medium') => paperCall<TexLiveStatus>(server, { action: 'install-texlive', scheme });
+export const cancelTexLive = (server: { url: string; token: string }) => paperCall<TexLiveStatus>(server, { action: 'cancel-texlive' });
+export const removeTexLive = (server: { url: string; token: string }) => paperCall<TexLiveStatus>(server, { action: 'remove-texlive' });
+export const installPackages = (server: { url: string; token: string }, names: string[]) =>
+  paperCall<{ installed: string[]; failed: string[]; log: string }>(server, { action: 'install-packages', names });
 /** Clones Overleaf's Git (or a GitHub repository) into `folder`; the token is kept by the Companion for that remote. */
 export const clonePaper = (server: { url: string; token: string }, folder: string, url: string, token: string) => paperCall<{ folder: string }>(server, { action: 'clone', folder, url, token });
 /** Commits what changed here, takes in what changed in Overleaf, and pushes. */

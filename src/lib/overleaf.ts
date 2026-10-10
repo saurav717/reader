@@ -13,6 +13,7 @@
 import type { BrowserChoice, OverleafLink, OverleafView, Paper, PaperFolder, Settings } from '../types';
 import { OVERLEAF_VIEWS } from '../types';
 import { citeKey, commitFiles, gh, parseRepo, toBibtex, type GitHubTarget } from './github';
+import { zip, type ZipEntry } from './zip';
 
 // ------------------------------------------------------------- the link --
 
@@ -63,13 +64,13 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
       };
     }
   }
-  const folders: Record<string, PaperFolder> = {};
-  if (value.folders && typeof value.folders === 'object') {
-    for (const [computer, raw] of Object.entries(value.folders as Record<string, unknown>)) {
-      const folder = raw as Partial<Record<keyof PaperFolder, unknown>> | null;
-      const path = typeof folder?.path === 'string' ? folder.path.replace(/^\/+|\/+$/g, '') : '';
-      if (!path || path.split('/').includes('..')) continue;
-      folders[computer] = { path, sync: folder?.sync === 'git' || folder?.sync === 'dropbox' ? folder.sync : 'folder' };
+  const folders = cleanFolders(value.folders);
+  const earlier: Record<string, Record<string, PaperFolder>> = {};
+  if (value.earlier && typeof value.earlier === 'object') {
+    for (const [address, raw] of Object.entries(value.earlier as Record<string, unknown>)) {
+      const before = parseOverleafUrl(address);
+      const kept = cleanFolders(raw);
+      if (before && before !== url && Object.keys(kept).length) earlier[before] = kept;
     }
   }
   return {
@@ -80,12 +81,46 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
     ...(text(value.account) ? { account: text(value.account) } : {}),
     ...(Object.keys(browsers).length ? { browsers } : {}),
     ...(Object.keys(folders).length ? { folders } : {}),
+    ...(Object.keys(earlier).length ? { earlier } : {}),
     ...(value.compiler === 'xelatex' || value.compiler === 'lualatex' || value.compiler === 'latex' || value.compiler === 'pdflatex' ? { compiler: value.compiler } : {}),
     ...(typeof value.main === 'string' && /\.tex$/i.test(value.main) && !value.main.split('/').includes('..') ? { main: value.main.replace(/^\/+/, '') } : {}),
   };
 }
 
 const cleanFolder = (folder: string) => folder.replace(/^\/+|\/+$/g, '');
+
+/** A paper's folder on each computer, as it can be relied on: inside the Companion's folder, synced one of three ways. */
+function cleanFolders(value: unknown): Record<string, PaperFolder> {
+  const folders: Record<string, PaperFolder> = {};
+  if (!value || typeof value !== 'object') return folders;
+  for (const [computer, raw] of Object.entries(value as Record<string, unknown>)) {
+    const folder = raw as Partial<Record<keyof PaperFolder, unknown>> | null;
+    const path = typeof folder?.path === 'string' ? folder.path.replace(/^\/+|\/+$/g, '') : '';
+    if (!path || path.split('/').includes('..')) continue;
+    folders[computer] = { path, sync: folder?.sync === 'git' || folder?.sync === 'dropbox' ? folder.sync : 'folder' };
+  }
+  return folders;
+}
+
+/**
+ * The link moved to another Overleaf project: what belonged to the old one
+ * (its folders, its GitHub repository, compiler and main document) is put
+ * by, and the new one's folders come back if it was linked before. The
+ * account and the browser it opens in stay.
+ */
+export function switchedLink(link: OverleafLink, url: string): OverleafLink {
+  const earlier = { ...(link.earlier ?? {}) };
+  if (link.folders && Object.keys(link.folders).length) earlier[link.url] = link.folders;
+  const back = earlier[url];
+  delete earlier[url];
+  return {
+    url,
+    ...(link.account ? { account: link.account } : {}),
+    ...(link.browsers ? { browsers: link.browsers } : {}),
+    ...(back ? { folders: back } : {}),
+    ...(Object.keys(earlier).length ? { earlier } : {}),
+  };
+}
 
 /** The choice in Settings, as it can be relied on: the default for anything else. */
 export function overleafViewOf(settings: Pick<Settings, 'overleafView'>): OverleafView {
@@ -456,3 +491,87 @@ export const paperFolderFor = (name: string) =>
       .replace(/[\s_]+/g, '-')
       .slice(0, 48) || 'paper'
   }`;
+
+// -------------------------------------------------- a new paper in Overleaf --
+// Overleaf's "Open in Overleaf" (overleaf.com/devs): a form posted to /docs
+// makes a new project in the account signed in there, from a file or a .zip
+// given as a data: URL. It only makes new projects — the rest is Git.
+
+/** Text safe in a LaTeX argument: the special characters escaped. */
+export function texEscape(text: string): string {
+  return text.replace(/[\\&%$#_{}~^]/g, (char) => (char === '\\' ? '\\textbackslash{}' : char === '~' ? '\\textasciitilde{}' : char === '^' ? '\\textasciicircum{}' : `\\${char}`));
+}
+
+/**
+ * A first draft for a project: main.tex with its name and question, the
+ * sections a paper usually has, and — when it has papers — references.bib
+ * holding each of them, all listed (\nocite{*}) so the bibliography shows
+ * from the first compile.
+ */
+export function starterPaper(name: string, question: string, papers: Paper[]): ZipEntry[] {
+  const bib = papers.map((paper) => toBibtex(paper)).join('\n\n');
+  const keys = papers.map((paper) => citeKey(paper));
+  const main = [
+    '\\documentclass[11pt]{article}',
+    '\\usepackage[T1]{fontenc}',
+    '\\usepackage{amsmath, amssymb}',
+    '\\usepackage{graphicx}',
+    '\\usepackage[hidelinks]{hyperref}',
+    ...(papers.length ? ['\\usepackage[numbers]{natbib}'] : []),
+    '',
+    `\\title{${texEscape(name.trim() || 'Untitled paper')}}`,
+    '\\author{}',
+    '\\date{\\today}',
+    '',
+    '\\begin{document}',
+    '\\maketitle',
+    '',
+    '\\begin{abstract}',
+    question.trim() ? texEscape(question.trim()) : '% What the paper asks, and what it finds.',
+    '\\end{abstract}',
+    '',
+    '\\section{Introduction}',
+    ...(keys.length ? [`% The project's papers are in references.bib: cite them as \\cite{${keys.slice(0, 3).join('}, \\cite{')}}.`] : []),
+    '',
+    '\\section{Related work}',
+    '',
+    '\\section{Method}',
+    '',
+    '\\section{Experiments}',
+    '',
+    '\\section{Conclusion}',
+    '',
+    ...(papers.length ? ['\\nocite{*}', '\\bibliographystyle{plainnat}', '\\bibliography{references}'] : []),
+    '\\end{document}',
+    '',
+  ].join('\n');
+  return [{ path: 'main.tex', content: main }, ...(papers.length ? [{ path: 'references.bib', content: `${bib}\n` }] : [])];
+}
+
+/** The files as one .zip in a data: URL, as Overleaf's /docs takes a project. */
+export function zipDataUrl(entries: ZipEntry[]): string {
+  const bytes = zip(entries);
+  let binary = '';
+  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  return `data:application/zip;base64,${btoa(binary)}`;
+}
+
+/** Opens the files in Overleaf as a new project, in a new tab: a form posted to /docs, as Overleaf asks. */
+export function openInOverleaf(entries: ZipEntry[], options: { engine?: 'pdflatex' | 'xelatex' | 'lualatex' | 'latex_dvipdf'; main?: string } = {}): void {
+  const form = document.createElement('form');
+  form.action = 'https://www.overleaf.com/docs';
+  form.method = 'post';
+  form.target = '_blank';
+  form.rel = 'noopener';
+  const fields: Record<string, string> = { snip_uri: zipDataUrl(entries), engine: options.engine ?? 'pdflatex', main_document: options.main ?? 'main.tex' };
+  for (const [name, value] of Object.entries(fields)) {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = name;
+    input.value = value;
+    form.append(input);
+  }
+  document.body.append(form);
+  form.submit();
+  form.remove();
+}

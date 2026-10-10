@@ -77,7 +77,7 @@ class Compiling(unittest.TestCase):
 
     def test_overleafs_own_command(self):
         argv = paper.compile_command("latexmk", "main.tex", {"latexmk": "latexmk"}, "pdflatex", "/b")
-        self.assertEqual(argv, ["latexmk", "-cd", "-jobname=output", "-auxdir=/b", "-outdir=/b", "-synctex=1", "-interaction=batchmode", "-file-line-error", "-f", "-pdf", "main.tex"])
+        self.assertEqual(argv, ["latexmk", "-cd", "-jobname=output", "-auxdir=/b", "-outdir=/b", "-synctex=1", "-interaction=batchmode", "-file-line-error", "-g", "-f", "-pdf", "main.tex"])
         self.assertIn("-xelatex", paper.compile_command("latexmk", "main.tex", {"latexmk": "latexmk"}, "xelatex", "/b"))
         self.assertIn("-lualatex", paper.compile_command("latexmk", "main.tex", {"latexmk": "latexmk"}, "lualatex", "/b"))
         self.assertIn("-pdfdvi", paper.compile_command("latexmk", "main.tex", {"latexmk": "latexmk"}, "latex", "/b"))
