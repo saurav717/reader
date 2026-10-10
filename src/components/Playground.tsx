@@ -942,6 +942,8 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [looks, setLooks] = useState(0);
+  // Two ways to start it, side by side: the app (recommended), or a command in a terminal.
+  const [way, setWay] = useState<'app' | 'cli'>('app');
   const [asking, setAsking] = useState(false);
   const [shown, setShown] = useState<boolean | null>(null);
   // A Companion this card shut down: still shown, with its switch, rather than the install steps.
@@ -1072,6 +1074,20 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
         </>
       ) : (
         <>
+          <p className="pg-companion-lede">Start the Companion on this computer: it runs the local server the site talks to. Pick one way:</p>
+          <div className="pg-companion-ways" role="radiogroup" aria-label="How to start the Companion">
+            <button type="button" role="radio" aria-checked={way === 'app'} className={`pg-companion-way${way === 'app' ? ' is-on' : ''}`} onClick={() => setWay('app')}>
+              <b>
+                1 · Download the Reader app <small>recommended</small>
+              </b>
+              <span>Install once, then open Reader from the Dock or Start menu; it starts the Companion each time, and connects by itself.</span>
+            </button>
+            <button type="button" role="radio" aria-checked={way === 'cli'} className={`pg-companion-way${way === 'cli' ? ' is-on' : ''}`} onClick={() => setWay('cli')}>
+              <b>2 · Use the command line</b>
+              <span>Paste one line into Terminal: it runs until you close the window. Nothing to install as an app.</span>
+            </button>
+          </div>
+          {way === 'app' ? (
           <div className="pg-companion-install">
             <p className="pg-companion-lede">
               <b>Get the Reader app.</b> One install sets up the Jupyter server your projects run on (your files stay in <span className="mono">~/Reader</span>), adds the Reader extension to VS Code if you have it, and makes a <b>Reader</b> app: open it from the Dock, the Start menu or Spotlight, and the site opens in its own window, connected to this computer. Nothing else to install first.
@@ -1129,8 +1145,11 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
                 ))}
             </small>
           </div>
+          ) : null}
+          {way === 'cli' ? (
+          <>
           <p className="pg-companion-lede">
-            Or run it just for now: paste this into a terminal, and it runs until you close it.
+            Paste this into a terminal (on a Mac: Terminal, in Applications → Utilities), and it runs until you close it.
             {safari ? ' Safari reaches the installed Companion over https on this Mac (setup asks for your password once, to trust its certificate). Run just for now, it opens a private HTTPS address instead (a Cloudflare quick tunnel; everything through it needs the token).' : ''}
           </p>
           <div className="segmented pg-seg" role="radiogroup" aria-label="This computer’s system">
@@ -1162,6 +1181,8 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
               </small>
             </>
           )}
+          </>
+          ) : null}
           <div className="pg-companion-wait">
             <span className="pg-wait" />
             {looks ? 'Waiting for this computer…' : 'Looking for it…'}
