@@ -7480,3 +7480,11 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .wr-danger { color: var(--danger) !important; }
 
 .wr-update { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+
+/* Overleaf makes the PDF: what the pane says instead of the PDF. */
+.wr-preview.is-overleaf { background: var(--surface); }
+.wr-overleaf-pane { padding: 22px 24px; display: flex; flex-direction: column; gap: 10px; max-width: 560px; font-size: 13px; line-height: 1.55; color: var(--ink-2); }
+.wr-overleaf-pane h3 { margin: 0; font: 600 16px var(--sans); color: var(--ink); }
+.wr-overleaf-pane p { margin: 0; }
+.wr-overleaf-pane .wr-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wr-overleaf-pane .wr-row { align-items: flex-start; }

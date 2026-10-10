@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useStore } from '../lib/store';
 import { jupyterDelete, jupyterList, jupyterMkdir, jupyterRead, jupyterRename, jupyterWrite, jupyterWriteBase64 } from '../lib/colab';
 import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEXLIVE_VERSION, TEX_COMPILERS, applyTemplate, updateCompanion, waitForVersion, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, chooseFolder, clonePaper, compilePaper, deleteTemplate, forgetOverleafToken, installTectonic, isNewer, linkFolder, listTemplates, paperEngines, paperRemote, saveTemplate, syncPaper, tokenKnown, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
-import { bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
+import { besideFeatures, bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
 import { complete as completeLatex } from '../lib/latexComplete';
 import { openPdf } from '../lib/pdfReflow';
 import { papersIn, type Project } from '../lib/projects';
@@ -931,6 +931,7 @@ interface FileState {
 const COMPILE_PAUSE_MS = 1000;
 const SAVE_PAUSE_MS = 600;
 const SYNC_PAUSE_MS = 4000;
+const OVERLEAF_SYNC_PAUSE_MS = 1500;
 const PULL_EVERY_MS = 30_000;
 const MAX_FILES = 400;
 
@@ -1057,6 +1058,8 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
 
   // ---- compile
   const compile = useCallback(async () => {
+    // Overleaf makes the PDF: nothing compiles here.
+    if (options.pdf === 'overleaf') return;
     setCompiling(true);
     setCompileError(null);
     try {
@@ -1069,7 +1072,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     } finally {
       setCompiling(false);
     }
-  }, [server, folder.path, options.engine, compiler, options.errors]);
+  }, [server, folder.path, options.engine, compiler, options.errors, options.pdf]);
   useEffect(() => {
     if (paths && texts.length && engines && (engines.latexmk || engines.tectonic) && !compiled && !compiling) void compile();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1146,7 +1149,8 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     window.clearTimeout(timers.current.compile);
     window.clearTimeout(timers.current.sync);
     if (options.compile === how) timers.current.compile = window.setTimeout(() => void compile(), how === 'pause' ? COMPILE_PAUSE_MS : 0);
-    if (git && options.sync === how) timers.current.sync = window.setTimeout(() => void sync(true), how === 'pause' ? SYNC_PAUSE_MS : 0);
+    // With Overleaf making the PDF, the edit goes sooner: the PDF waits on it.
+    if (git && options.sync === how) timers.current.sync = window.setTimeout(() => void sync(true), how === 'pause' ? (options.pdf === 'overleaf' ? OVERLEAF_SYNC_PAUSE_MS : SYNC_PAUSE_MS) : 0);
   };
 
   const edit = (relative: string, text: string) => {
@@ -1390,7 +1394,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
               }
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                 event.preventDefault();
-                void saveNow().then(() => compile());
+                recompile();
               }
             }}
           />
@@ -1401,10 +1405,60 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     </section>
   );
 
-  const preview = (
+  /**
+   * ⌘↵. Here: save and compile. With Overleaf making the PDF: the window
+   * beside is taken in the keypress itself (a browser lets a page open one
+   * only then) and says the edits are on their way; once they have reached
+   * Overleaf, the project opens in it — and Overleaf compiles a project as it
+   * opens, so the PDF there is of what was just written. A project set to
+   * open in another browser isn't opened from here: this page can't reach it.
+   */
+  const recompile = () => {
+    if (options.pdf !== 'overleaf') return void saveNow().then(() => compile());
+    const overleaf = project.project.overleaf;
+    let beside: Window | null = null;
+    if (overleaf && !overleaf.browsers?.[here.id]) {
+      beside = window.open('about:blank', `reader-overleaf-${project.id}`, besideFeatures(window.screen));
+      try {
+        if (beside) {
+          beside.document.title = 'Overleaf';
+          beside.document.body.style.cssText = 'font: 15px system-ui, sans-serif; color: #555; display: grid; place-items: center; height: 100vh; margin: 0';
+          beside.document.body.textContent = 'Sending your edits to Overleaf…';
+        }
+      } catch {
+        // a window already on Overleaf: it is only navigated
+      }
+    }
+    const show = () => {
+      if (!beside || !overleaf) return;
+      beside.location.href = overleaf.url;
+      try {
+        beside.opener = null;
+      } catch {
+        // already across
+      }
+      beside.focus();
+    };
+    if (git) void saveNow().then(() => sync()).finally(show);
+    else show();
+  };
+
+  const pdfWhere = (
+    <span className="segmented sm" role="group" aria-label="Where the PDF is made">
+      <button type="button" aria-pressed={options.pdf !== 'overleaf'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'here' } })} title="The Companion compiles it on this computer">
+        Here
+      </button>
+      <button type="button" aria-pressed={options.pdf === 'overleaf'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'overleaf' } })} title="Overleaf compiles it: nothing to install here">
+        Overleaf
+      </button>
+    </span>
+  );
+
+  const local = (
     <section className="wr-preview">
       <div className="wr-tabs">
         <b>PDF</b>
+        {pdfWhere}
         <select className="wr-pick" value={compiler} onChange={(event) => updateLink({ compiler: event.target.value as TexCompiler })} aria-label="Compiler" title="As the Overleaf project is set: Menu → Compiler. pdfLaTeX is Overleaf’s default.">
           {TEX_COMPILERS.map((item) => (
             <option key={item.id} value={item.id}>
@@ -1509,6 +1563,54 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
       <PdfPages blob={pdf} />
     </section>
   );
+
+  const preview =
+    options.pdf === 'overleaf' ? (
+      <section className="wr-preview is-overleaf">
+        <div className="wr-tabs">
+          <b>PDF</b>
+          {pdfWhere}
+          <span className="wr-sp" />
+          {options.layout === 'tabs' ? (
+            <span className="segmented sm">
+              <button type="button" aria-pressed={pane === 'source'} onClick={() => setPane('source')}>Source</button>
+              <button type="button" aria-pressed={pane === 'pdf'} onClick={() => setPane('pdf')}>PDF</button>
+            </span>
+          ) : null}
+        </div>
+        <div className="wr-overleaf-pane">
+          <h3>Overleaf makes the PDF</h3>
+          <p>
+            {git
+              ? 'Your edits go to Overleaf a moment after you stop typing, and Overleaf compiles them with all of TeX Live — nothing to install here. The PDF is in Overleaf’s window: open it beside this one.'
+              : 'This folder isn’t synced with Overleaf’s Git, so Overleaf won’t see these edits by itself: copy them there, or set the folder up with Overleaf’s Git (Change, under the files).'}
+          </p>
+          <div className="wr-row">
+            <OpenOverleaf project={project} view="beside" />
+            {git ? (
+              <button type="button" className="btn sm" disabled={syncing} onClick={() => void saveNow().then(() => sync())}>
+                {syncing ? 'Sending…' : 'Send now'}
+              </button>
+            ) : null}
+          </div>
+          {git ? (
+            <p className="wr-quiet">
+              {syncing
+                ? 'Sending your edits to Overleaf…'
+                : dirtyCount
+                  ? 'Typing… your edits go to Overleaf when you pause.'
+                  : synced?.at
+                    ? `Overleaf has everything up to ${new Date(synced.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}.`
+                    : 'Not sent yet.'}
+              {syncError ? <span className="wr-bad"> {syncError}</span> : null}
+            </p>
+          ) : null}
+          <p className="wr-quiet">⌘↵ here sends your edits and opens the project in the window beside once they’ve arrived — Overleaf compiles it as it opens. If Overleaf’s PDF doesn’t refresh after an edit comes in, press Recompile there. To compile on this computer instead, pick Here above.</p>
+        </div>
+      </section>
+    ) : (
+      local
+    );
 
   const layoutClass = big ? ` is-tabs show-${big}` : options.layout === 'stacked' ? ' is-stacked' : options.layout === 'tabs' ? ` is-tabs show-${pane}` : '';
   const split = options.layout !== 'tabs' && !big;
@@ -1688,7 +1790,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
             {compiled.errors.length} errors · {compiled.warnings.length} warnings
           </button>
         ) : (
-          <span>{compiling ? 'Compiling…' : 'Not compiled yet'}</span>
+          <span>{options.pdf === 'overleaf' ? 'Overleaf compiles it' : compiling ? 'Compiling…' : 'Not compiled yet'}</span>
         )}
         <span className="wr-sp" />
         <button type="button" className="link-btn" aria-expanded={texShown} onClick={() => setTexShown(!texShown)} title="The TeX that compiles the paper: Reader can install TeX Live for you">
