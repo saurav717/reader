@@ -141,6 +141,8 @@ function stateOf(w: Watched): { busy: boolean; command?: string; tail: string } 
   return { busy: Boolean(w.typed && !w.typed.done), command: w.typed?.text, tail };
 }
 
+const clip = (text: string, n: number) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
+
 function report(w: Watched) {
   if (w.closed) return;
   const now = stateOf(w);
@@ -150,7 +152,7 @@ function report(w: Watched) {
     id: `terminal:${w.name}`,
     playgroundId: w.playgroundId,
     kind: 'terminal',
-    label: `terminal · ${now.command ?? 'a command'}`,
+    label: `terminal · ${clip(now.command ?? 'a command', 60)}`,
     busy: now.busy,
     tail: now.busy && now.tail !== now.command ? now.tail : undefined,
     since: w.since,

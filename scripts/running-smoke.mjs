@@ -72,6 +72,24 @@ const runCode = async (code) => {
 console.log('two machines');
 await page.goto(`${BASE}/playground`);
 await page.waitForSelector('.pg-hero');
+// A paper in the library, for the peek beside it.
+const PAPER = 'arxiv:1706.03762';
+await page.evaluate(async (id) => {
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('reader', 1);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction('papers', 'readwrite');
+    tx.objectStore('papers').put({ id, source: 'arxiv', arxivId: '1706.03762', title: 'Attention Is All You Need', authors: ['Ashish Vaswani', 'Noam Shazeer'], abstract: 'The dominant sequence transduction models are based on complex recurrent or convolutional neural networks. We propose the Transformer, based solely on attention mechanisms.', published: '2017-06-12', categories: ['cs.CL'], addedAt: new Date().toISOString(), collectionIds: [], tags: [], progress: 0.2 });
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}, PAPER);
+await page.reload();
+await page.waitForSelector('.pg-hero');
 await page.getByRole('button', { name: '+ Add a server' }).click();
 await page.locator('.pg-server-form input').nth(1).fill(PC);
 await page.getByRole('button', { name: 'Test and save' }).click();
@@ -172,10 +190,57 @@ check('Stop ends it, and a toast says so', (await page.locator('.pr-toast.is-sto
 check('the dock goes when nothing runs', (await page.locator('.pr-dock').count()) === 0);
 await shot('9-stopped');
 
+console.log('E: beside the paper');
+await toHome();
+await page.getByRole('button', { name: 'Show running as…' }).click();
+await page.locator('.pr-choose-pop .pr-choose-row:has-text("Beside the paper") input').check();
+await page.locator('.pr-choose-pop').getByRole('button', { name: 'Close' }).click();
+await page.getByRole('button', { name: /From a paper/ }).click();
+await page.locator('.pg-papers button:has-text("Attention Is All You Need")').click();
+await page.waitForSelector('.pg-sheet');
+await page.locator('.pg-title-field input').fill('Attention, tried');
+await page.locator('.pg-mode').nth(1).click();
+await page.locator('.pg-sheet-foot .btn.primary').click();
+await page.waitForSelector('.pg-bar');
+const addCode = async () => {
+  await page.getByRole('button', { name: '+ Code' }).first().click();
+  await page.waitForTimeout(300);
+};
+await addCode();
+await runCode(slow('attn', 10));
+await addCode();
+await page.locator('.nb-cell').filter({ has: page.locator('textarea') }).last().locator('textarea').fill('print("from the peek", 6 * 7)');
+await page.waitForFunction(() => document.body.innerText.includes('attn 2/10'), null, { timeout: 30_000 }).catch(() => undefined);
+// To the paper's page, in the app (a reload would end this tab's kernels' connections).
+await page.evaluate((id) => {
+  history.pushState(null, '', `${location.pathname.replace(/playground.*$/, '')}paper/?id=${encodeURIComponent(id)}`);
+  dispatchEvent(new PopStateEvent('popstate'));
+}, PAPER);
+await page.waitForSelector('.pk', { timeout: 15_000 }).catch(() => undefined);
+check('on the paper’s page, the playground that cites it is beside it', (await page.locator('.pk-title').innerText().catch(() => '')).includes('Attention, tried'));
+await page.waitForFunction(() => /attn \d+\/10/.test(document.querySelector('.pk-cell.is-running')?.textContent ?? ''), null, { timeout: 10_000 }).catch(() => undefined);
+check('its running cell is live there', /attn \d+\/10/.test(await page.locator('.pk-cell.is-running').innerText().catch(() => '')));
+await shot('10-peek-running');
+await page.waitForSelector('.pk-cell.is-running', { state: 'detached', timeout: 30_000 }).catch(() => undefined);
+await page.locator('.pk-cell:has-text("from the peek")').getByRole('button', { name: 'Run' }).click();
+await page.waitForFunction(() => document.querySelector('.pk')?.textContent?.includes('from the peek 42'), null, { timeout: 30_000 }).catch(() => undefined);
+check('Run in the peek runs the cell in the playground’s kernel, from the paper', (await page.locator('.pk').innerText()).includes('from the peek 42'));
+check('…and the page is still the paper', new URL(page.url()).pathname.includes('/paper'));
+await shot('11-peek-ran');
+await page.locator('body').click({ position: { x: 600, y: 450 } }).catch(() => undefined);
+await page.keyboard.press('p');
+await page.waitForSelector('.pr-switch', { timeout: 3000 }).catch(() => undefined);
+await page.locator('.pr-switch-q input').fill('GPU check');
+await page.keyboard.press('Control+Enter');
+await page.waitForFunction(() => document.querySelector('.pk-title')?.textContent?.includes('GPU check'), null, { timeout: 5000 }).catch(() => undefined);
+check('⌘↵ in the switcher puts any playground beside the paper', (await page.locator('.pk-title').innerText().catch(() => '')).includes('GPU check'));
+await page.getByRole('button', { name: 'Close the peek' }).click();
+check('closed, the one citing the paper is back', (await page.locator('.pk-title').innerText().catch(() => '')).includes('Attention, tried'));
+
 console.log('none of them');
 await page.getByRole('button', { name: 'Settings', exact: true }).click();
 await page.waitForSelector('.pr-choose');
-for (const row of ['Running now, on the Playground', 'A dock and a count', 'P opens a switcher', 'Tabs across the top']) {
+for (const row of ['Running now, on the Playground', 'A dock and a count', 'P opens a switcher', 'Tabs across the top', 'Beside the paper']) {
   const box = page.locator(`.pr-choose-row:has-text("${row}") input`);
   if (await box.isChecked()) await box.uncheck();
 }

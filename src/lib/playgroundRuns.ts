@@ -297,6 +297,14 @@ export function openedPlayground(id: string): () => void {
   };
 }
 
+/** The playground the peek beside a paper shows, when one was picked for it (P's switcher, ⌘↵); else it shows one that cites the paper. */
+let peeked: string | null = null;
+export const peekedNow = () => peeked;
+export function peekPlayground(id: string | null) {
+  peeked = id;
+  bump();
+}
+
 export const tabsNow = () => tabs;
 export function closeTab(id: string) {
   tabs = tabs.filter((tab) => tab !== id);
@@ -497,6 +505,11 @@ export function useRunBoard(list: Playground[]): PlaygroundRun[] {
   }, [busy]);
   return board;
 }
+
+export const usePeeked = () => {
+  useSyncExternalStore(subscribeRuns, versionNow);
+  return peeked;
+};
 
 export const useTabs = () => {
   useSyncExternalStore(subscribeRuns, versionNow);

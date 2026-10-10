@@ -264,13 +264,15 @@ export interface Settings {
  * - shelf: on the Playground's home, a "Running now" shelf, and each playground's state in the list;
  * - dock: on every page, a count on the rail's Playground button, a dock of what runs, and a toast when one ends;
  * - switcher: P opens a switcher, running first, instead of going straight to the Playground;
- * - tabs: the playgrounds opened in this tab, as tabs across the top of every page.
+ * - tabs: the playgrounds opened in this tab, as tabs across the top of every page;
+ * - peek: on a paper's page, the live cells of a playground that cites it, at the side, to run there.
  */
 export interface RunningShows {
   shelf: boolean;
   dock: boolean;
   switcher: boolean;
   tabs: boolean;
+  peek: boolean;
 }
 
 export type GlassWall = 'spotlight' | 'sage' | 'paper' | 'mist' | 'graphite' | 'lavender' | 'dusk' | 'ocean' | 'spectrum';

@@ -280,7 +280,7 @@ function RunToasts({ current, onOpen }: { current?: string; onOpen: (id: string)
 // ------------------------------------------------------ the switcher ----
 
 /** P's switcher: running first, then what needs a look (failed, idle), then the rest; typed letters narrow it. */
-export function RunSwitcher({ onOpen, onHome, onClose }: { onOpen: (id: string) => void; onHome: () => void; onClose: () => void }) {
+export function RunSwitcher({ onOpen, onHome, onClose, onPeek }: { onOpen: (id: string) => void; onHome: () => void; onClose: () => void; /** On a paper's page: ⌘↵ puts the playground beside it. */ onPeek?: (id: string) => void }) {
   useEffect(() => {
     void loadPlaygrounds();
   }, []);
@@ -310,6 +310,10 @@ export function RunSwitcher({ onOpen, onHome, onClose }: { onOpen: (id: string) 
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
       setAt((n) => Math.max(0, n - 1));
+    } else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && onPeek && pick < flat.length) {
+      event.preventDefault();
+      onClose();
+      onPeek(flat[pick].id);
     } else if (event.key === 'Enter') {
       event.preventDefault();
       go(pick);
@@ -373,9 +377,15 @@ export function RunSwitcher({ onOpen, onHome, onClose }: { onOpen: (id: string) 
           <span>
             <kbd>↵</kbd> open
           </span>
-          <span>
-            <kbd>P</kbd> again from anywhere
-          </span>
+          {onPeek ? (
+            <span>
+              <kbd>⌘</kbd> <kbd>↵</kbd> beside the paper
+            </span>
+          ) : (
+            <span>
+              <kbd>P</kbd> again from anywhere
+            </span>
+          )}
         </div>
       </div>
     </>
@@ -418,13 +428,14 @@ export const RUNNING_SHOWS: { id: keyof RunningShows; label: string; note: strin
   { id: 'dock', label: 'B · A dock and a count, on every page', note: 'A count on the rail’s Playground button, a dock in the corner while anything runs, and a toast when a run ends.' },
   { id: 'switcher', label: 'C · P opens a switcher', note: 'P from anywhere lists the playgrounds — running first — instead of going to the Playground’s home.' },
   { id: 'tabs', label: 'D · Tabs across the top', note: 'The playgrounds you opened in this tab stay as tabs above every page, with a live dot on each.' },
+  { id: 'peek', label: 'E · Beside the paper', note: 'Reading a paper a playground cites, its cells sit at the side of the page, live — run one there, in the playground’s own kernel. ⌘↵ in P’s switcher puts any playground there.' },
 ];
 
-/** The four ways, each a switch; A and B are what the app starts with. */
+/** The five ways, each a switch; A and B are what the app starts with. */
 export function RunningChooser({ compact = false }: { compact?: boolean }) {
   const { settings, updateSettings } = useStore();
   const shows = settings.runningShows;
-  const recommended = shows.shelf && shows.dock && !shows.switcher && !shows.tabs;
+  const recommended = shows.shelf && shows.dock && !shows.switcher && !shows.tabs && !shows.peek;
   return (
     <div className={`pr-choose${compact ? ' is-compact' : ''}`}>
       {RUNNING_SHOWS.map((option) => (
@@ -439,11 +450,11 @@ export function RunningChooser({ compact = false }: { compact?: boolean }) {
         </label>
       ))}
       <div className="pr-choose-foot">
-        <button type="button" className="btn sm" disabled={recommended} onClick={() => updateSettings({ runningShows: { shelf: true, dock: true, switcher: false, tabs: false } })}>
+        <button type="button" className="btn sm" disabled={recommended} onClick={() => updateSettings({ runningShows: { shelf: true, dock: true, switcher: false, tabs: false, peek: false } })}>
           Back to the default (A and B)
         </button>
-        <button type="button" className="btn sm ghost" onClick={() => updateSettings({ runningShows: { shelf: true, dock: true, switcher: true, tabs: true } })}>
-          All four
+        <button type="button" className="btn sm ghost" onClick={() => updateSettings({ runningShows: { shelf: true, dock: true, switcher: true, tabs: true, peek: true } })}>
+          All five
         </button>
       </div>
     </div>

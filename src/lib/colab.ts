@@ -1286,13 +1286,6 @@ function sessionFor(backend: Backend, scope: string): Session {
   if (!s) {
     s = makeSession(backend, scope);
     sessions.set(id, s);
-    // A scope moved to another machine: its session there, if nothing runs in it, is let go (its kernel stays on that machine).
-    for (const other of [...sessions.values()]) {
-      if (other !== s && other.scope === scope && other !== current && !other.state.running && !other.state.queue.length) {
-        closeKernel(other);
-        sessions.delete(other.id);
-      }
-    }
   } else if (backend.kind === 'jupyter' && s.state.backend.kind === 'jupyter' && backend.server.name !== s.state.backend.server.name) {
     s.state = { ...s.state, backend };
   }
@@ -1308,12 +1301,17 @@ function sessionFor(backend: Backend, scope: string): Session {
 export function chooseBackend(backend: Backend, scope: string = PAGES) {
   const s = sessionFor(backend, scope);
   if (s !== current) {
-    const was = current;
-    stopPulse(was);
+    stopPulse(current);
     current = s;
-    // The one left was a playground's, moved off its machine since: let go once nothing runs in it.
-    if (!sessions.has(was.id)) closeKernel(was);
     schedulePulse(s);
+  }
+  // A scope moved to another machine: its session on the old one, if nothing runs there, is let go (its kernel stays
+  // on that machine, kept for the scope). One still running is left to finish.
+  for (const other of [...sessions.values()]) {
+    if (other !== s && other.scope === scope && !other.state.running && !other.state.queue.length) {
+      closeKernel(other);
+      sessions.delete(other.id);
+    }
   }
   emit();
 }

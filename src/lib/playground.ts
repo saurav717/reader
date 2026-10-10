@@ -22,7 +22,7 @@
 
 import { useSyncExternalStore } from 'react';
 import { db } from './db';
-import type { JupyterServer, Machine, RuntimeEntry } from './colab';
+import type { Backend, JupyterServer, Machine, RuntimeEntry } from './colab';
 import { JupyterRequestError, jupyterDelete, jupyterFetch, jupyterList, jupyterRead, jupyterRename, jupyterWrite, runQuietly } from './colab';
 import type { NbCell } from './notebook';
 import { newCell, notebookFor, subscribeNotebook } from './notebook';
@@ -269,6 +269,12 @@ export const subscribePlaygrounds = (listener: () => void) => {
 };
 export const usePlaygrounds = () => useSyncExternalStore(subscribePlaygrounds, snapshot);
 export const playgroundsLoaded = () => loaded;
+/** The kernel backend a playground's compute names, when it can be had: Colab, or a server still in the list. */
+export function backendOfPlayground(p: Playground): Backend | null {
+  if (p.compute.kind === 'colab') return { kind: 'colab' };
+  const server = serverById(p.compute.serverId);
+  return server ? { kind: 'jupyter', server } : null;
+}
 /** Every playground, as the store holds them now. */
 export const playgroundsNow = () => playgrounds;
 export const playgroundById = (id: string | undefined) => playgrounds.find((p) => p.id === id);

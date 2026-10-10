@@ -44,6 +44,8 @@ import { OPEN_PLAYGROUND } from './lib/playground';
 import { watchPlaygroundRuns } from './lib/playgroundRuns';
 import { startJobWatch } from './lib/jobWatch';
 import { RailRunBadge, RunDock, RunSwitcher, RunTabs } from './components/PlaygroundRuns';
+import PlaygroundPeek from './components/PlaygroundPeek';
+import { peekPlayground } from './lib/playgroundRuns';
 
 const WELCOME_KEY = 'reader.welcomed';
 const VIEW_KEY = 'reader.view';
@@ -1307,7 +1309,8 @@ export default function App() {
       ) : null}
 
       {shows.dock && !showWelcome ? <RunDock current={openPlayground} onOpen={goToPlayground} /> : null}
-      {switcherOpen ? <RunSwitcher onOpen={goToPlayground} onHome={() => goToPlayground()} onClose={() => setSwitcherOpen(false)} /> : null}
+      {view.kind === 'paper' && !showWelcome && !onUsage ? <PlaygroundPeek paperId={view.id} enabled={shows.peek} onOpen={goToPlayground} /> : null}
+      {switcherOpen ? <RunSwitcher onOpen={goToPlayground} onHome={() => goToPlayground()} onClose={() => setSwitcherOpen(false)} onPeek={view.kind === 'paper' ? peekPlayground : undefined} /> : null}
       {usesGoogle ? <GoogleRenewal clientId={settings.googleClientId.trim()} /> : null}
       {paletteOpen ? (
         <CommandPalette

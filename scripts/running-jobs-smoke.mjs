@@ -63,10 +63,17 @@ async function project(title, mode, machine) {
   await page.waitForSelector('.pg-terminal-screen .xterm', { timeout: 30_000 });
   await page.waitForFunction(() => /[$#%]\s*$/m.test(document.querySelector('.pg-terminal-screen .xterm-rows')?.textContent ?? ''), null, { timeout: 30_000 }).catch(() => undefined);
 }
-async function typeInTerminal(text) {
-  await page.locator('.pg-terminal-screen').click();
-  await page.keyboard.type(text, { delay: 5 });
-  await page.keyboard.press('Enter');
+async function typeInTerminal(text, expect) {
+  // A shell still starting can drop what is typed before its prompt: typed again if nothing came of it.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.locator('.pg-terminal-screen').click();
+    await page.keyboard.type(text, { delay: 5 });
+    await page.keyboard.press('Enter');
+    if (!expect) return;
+    const came = await page.waitForFunction((want) => (document.querySelector('.pg-terminal-screen .xterm-rows')?.textContent ?? '').includes(want), expect, { timeout: 8000 }).then(() => true, () => false);
+    if (came) return;
+    await page.keyboard.press('Control+c');
+  }
 }
 
 console.log('a Companion, and a plain Jupyter server');
@@ -85,7 +92,7 @@ await page.waitForSelector('.pg-machine-head:has-text("Plain box")');
 
 console.log('on the Companion: what the terminal runs, exactly');
 await project('Terminal job', 'pc');
-await typeInTerminal(COUNT);
+await typeInTerminal(COUNT, 'tick 1/30');
 await page.waitForFunction(() => (document.querySelector('.pg-terminal-screen .xterm-rows')?.textContent ?? '').includes('tick 2/30'), null, { timeout: 20_000 }).catch(() => undefined);
 await page.getByRole('button', { name: 'Library' }).click();
 await page.waitForSelector('.pr-dock', { timeout: 15_000 }).catch(() => undefined);
@@ -116,7 +123,7 @@ check('a toast says it ended', (await page.locator('.pr-toast.is-ran').innerText
 
 console.log('on a plain Jupyter server: the screen says');
 await project('Plain terminal', 'split', 'Plain box');
-await typeInTerminal(COUNT);
+await typeInTerminal(COUNT, 'tick 1/30');
 await page.waitForFunction(() => (document.querySelector('.pg-terminal-screen .xterm-rows')?.textContent ?? '').includes('tick 2/30'), null, { timeout: 20_000 }).catch(() => undefined);
 await page.getByRole('button', { name: 'Library' }).click();
 await page.waitForSelector('.pr-dock', { timeout: 15_000 }).catch(() => undefined);

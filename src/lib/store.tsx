@@ -76,7 +76,7 @@ const defaultSettings: Settings = {
   zenHaze: 'shadow',
   passageLook: 'marker',
   chatMarks: 'auto',
-  runningShows: { shelf: true, dock: true, switcher: false, tabs: false },
+  runningShows: { shelf: true, dock: true, switcher: false, tabs: false, peek: false },
   contactEmail: '',
   githubRepo: '',
   githubBranch: 'main',
