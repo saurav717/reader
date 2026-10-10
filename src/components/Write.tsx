@@ -21,6 +21,7 @@ import type { PaperFolder, WriteOptions } from '../types';
 import { WRITE_DEFAULTS } from '../types';
 import type { View } from '../types.view';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
+import CopyBlock from './CopyBlock';
 import { DraftEditor, OpenOverleaf } from './Overleaf';
 import { CompanionConnect } from './Playground';
 
@@ -192,6 +193,158 @@ function ForgetToken({ server, open = false, onForgotten }: { server?: Here['ser
         </li>
       </ol>
     </details>
+  );
+}
+
+// ------------------------------------------------------- the desk's panes --
+
+/** How the desk is laid out on this device: the files' width, how the source and PDF share the room, the problems' height. */
+type Desk = { side: number; split: number; log: number; swapped: boolean; sideOpen: boolean };
+const DESK: Desk = { side: 250, split: 0.5, log: 220, swapped: false, sideOpen: true };
+const DESK_KEY = 'reader.write.desk';
+const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
+
+function useDesk(): [Desk, (change: Partial<Desk> | ((now: Desk) => Partial<Desk>)) => void] {
+  const [desk, setDeskState] = useState<Desk>(() => {
+    try {
+      return { ...DESK, ...(JSON.parse(localStorage.getItem(DESK_KEY) || '{}') as Partial<Desk>) };
+    } catch {
+      return DESK;
+    }
+  });
+  const setDesk = useCallback((change: Partial<Desk> | ((now: Desk) => Partial<Desk>)) => {
+    setDeskState((now) => {
+      const next = { ...now, ...(typeof change === 'function' ? change(now) : change) };
+      try {
+        localStorage.setItem(DESK_KEY, JSON.stringify(next));
+      } catch {
+        // only a convenience
+      }
+      return next;
+    });
+  }, []);
+  return [desk, setDesk];
+}
+
+/** A line to drag between two panes; a double-click puts it back. Arrow keys move it too. */
+function Handle({ axis, className, style, onDrag, onReset, label }: { axis: 'x' | 'y'; className: string; style?: React.CSSProperties; onDrag: (delta: number) => void; onReset: () => void; label: string }) {
+  return (
+    <div
+      className={`wr-handle is-${axis} ${className}`}
+      style={style}
+      role="separator"
+      aria-orientation={axis === 'x' ? 'vertical' : 'horizontal'}
+      aria-label={label}
+      title={`${label} (double-click to reset)`}
+      tabIndex={0}
+      onDoubleClick={onReset}
+      onKeyDown={(event) => {
+        const step = event.shiftKey ? 40 : 12;
+        const keys = axis === 'x' ? { ArrowLeft: -step, ArrowRight: step } : { ArrowUp: -step, ArrowDown: step };
+        const delta = keys[event.key as keyof typeof keys];
+        if (delta) (event.preventDefault(), onDrag(delta));
+      }}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        const handle = event.currentTarget;
+        handle.setPointerCapture(event.pointerId);
+        let last = axis === 'x' ? event.clientX : event.clientY;
+        document.body.classList.add(axis === 'x' ? 'is-dragging-x' : 'is-dragging-y');
+        const move = (e: PointerEvent) => {
+          const at = axis === 'x' ? e.clientX : e.clientY;
+          onDrag(at - last);
+          last = at;
+        };
+        const up = () => {
+          handle.removeEventListener('pointermove', move);
+          handle.removeEventListener('pointerup', up);
+          document.body.classList.remove('is-dragging-x', 'is-dragging-y');
+        };
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', up);
+      }}
+    />
+  );
+}
+
+/** Above the source: how the two panes sit — side by side, one above the other, or one at a time — which goes first, and the source alone. */
+function PaneTools({ layout, onLayout, swapped, onSwap, big, onBig }: { layout: WriteOptions['layout']; onLayout: (layout: WriteOptions['layout']) => void; swapped: boolean; onSwap: () => void; big: boolean; onBig: () => void }) {
+  return (
+    <span className="wr-pane-tools">
+      <span className="segmented sm" role="group" aria-label="How the source and the PDF sit">
+        <button type="button" aria-pressed={layout === 'side'} onClick={() => onLayout('side')} title="Side by side">◫</button>
+        <button type="button" aria-pressed={layout === 'stacked'} onClick={() => onLayout('stacked')} title="One above the other">⬒</button>
+        <button type="button" aria-pressed={layout === 'tabs'} onClick={() => onLayout('tabs')} title="One at a time">▭</button>
+      </span>
+      {layout !== 'tabs' ? (
+        <button type="button" className="wr-icon" aria-pressed={swapped} onClick={onSwap} title={layout === 'stacked' ? 'Swap: the PDF on top' : 'Swap: the PDF on the left'} aria-label="Swap the panes">
+          ⇄
+        </button>
+      ) : null}
+      <button type="button" className="wr-icon" aria-pressed={big} onClick={onBig} title={big ? 'Back to both panes' : 'The source alone, filling the space'} aria-label={big ? 'Back to both panes' : 'Expand the source'}>
+        {big ? '⤡' : '⤢'}
+      </button>
+    </span>
+  );
+}
+
+// ---------------------------------------------------- packages not here --
+
+/** The packages a compile stopped for: "File `physics.sty' not found". */
+function missingPackages(compiled: Compiled | null): string[] {
+  if (!compiled) return [];
+  const found = new Set<string>();
+  for (const text of [...compiled.errors.map((item) => item.message), compiled.log ?? '']) {
+    for (const match of text.matchAll(/File [`'‘]([\w.-]+)\.(?:sty|cls)['’] not found/g)) found.add(match[1]);
+  }
+  return [...found];
+}
+
+/** A TeX Live whose year is frozen: tlmgr then installs only from that year's archive. */
+function frozen(year: number): boolean {
+  const now = new Date();
+  // A year's TeX Live is replaced by the next, about April.
+  return year < now.getFullYear() - 1 || (year === now.getFullYear() - 1 && now.getMonth() >= 3);
+}
+
+/** What to do about packages this computer's TeX hasn't got: install them, or let Tectonic fetch them. */
+function MissingPackages({ names, texLive, tectonic, onTectonic }: { names: string[]; texLive?: string; tectonic: boolean; onTectonic: () => void }) {
+  const year = texLive ? Number(texLive) : NaN;
+  const old = Number.isFinite(year) && frozen(year);
+  const windows = typeof navigator !== 'undefined' && /Win/i.test(navigator.platform || navigator.userAgent);
+  const sudo = windows ? '' : 'sudo ';
+  const install = `${sudo}tlmgr install ${names.join(' ')}`;
+  const command = old ? `${sudo}tlmgr option repository https://ftp.math.utah.edu/pub/tex/historic/systems/texlive/${year}/tlnet-final\n${install}` : install;
+  return (
+    <div className="wr-missing">
+      <p>
+        <b>Not on this computer: {names.map((name) => `${name}.sty`).join(', ')}.</b> Overleaf has every package; this computer’s TeX{texLive ? ` Live ${texLive}` : ''} is a smaller install. Either:
+      </p>
+      <ol>
+        <li>
+          Install {names.length === 1 ? 'it' : 'them'} — in a terminal{windows ? ' (as administrator)' : ''}:
+          <CopyBlock code={command} />
+          {old ? <small>TeX Live {texLive} is frozen, so tlmgr has to install from its archive (the first line). Installing this year’s TeX Live instead brings it up to date with Overleaf.</small> : null}
+          <small>If tlmgr can’t find it by that name: <span className="mono">tlmgr search --global --file /{names[0]}.sty</span> names the package that has it.</small>
+        </li>
+        <li>
+          Or install the whole of TeX Live, as Overleaf has it:{' '}
+          <a href={windows ? 'https://www.tug.org/texlive/' : /Mac/i.test(navigator.userAgent) ? 'https://www.tug.org/mactex/' : 'https://www.tug.org/texlive/'} target="_blank" rel="noreferrer noopener">
+            {/Mac/i.test(navigator.userAgent) ? 'MacTeX' : 'TeX Live'}
+          </a>{' '}
+          (a few GB; nothing missing after that).
+        </li>
+        {tectonic ? (
+          <li>
+            Or{' '}
+            <button type="button" className="link-btn" onClick={onTectonic}>
+              compile with Tectonic
+            </button>
+            , which fetches any package it needs by itself — but always as XeLaTeX.
+          </li>
+        ) : null}
+      </ol>
+    </div>
   );
 }
 
@@ -539,7 +692,10 @@ const toBlob = (base64: string) => {
 };
 
 function WriteDesk({ project, here, folder }: { project: Project; here: Here; folder: PaperFolder }) {
-  const { settings, papers } = useStore();
+  const { settings, papers, updateSettings } = useStore();
+  const [desk, setDesk] = useDesk();
+  const setLayout = (layout: WriteOptions['layout']) => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), layout } });
+  const [big, setBig] = useState<'source' | 'pdf' | null>(null);
   const options: WriteOptions = { ...WRITE_DEFAULTS, ...(settings.write ?? {}) };
   const save = useSaveFolder(project);
   const updateLink = useUpdateLink(project);
@@ -578,6 +734,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
   const typedAt = useRef(0);
   const timers = useRef<{ save?: number; compile?: number; sync?: number }>({});
   const [tokenShown, setTokenShown] = useState(false);
+  const panesRef = useRef<HTMLDivElement>(null);
   const git = folder.sync === 'git';
   const at = (relative: string) => `${folder.path}/${relative}`;
 
@@ -922,12 +1079,18 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
   const dirtyCount = Object.values(files).filter((file) => file.text !== file.disk).length;
   const noTex = engines && !engines.latexmk && !engines.tectonic;
   const texLive = compiled?.engine === 'latexmk' ? engines?.texVersion?.match(/TeX Live (\d{4})/)?.[1] : undefined;
+  // Packages the compile looked for and this computer's TeX hasn't got: Overleaf has them all.
+  const missing = useMemo(() => missingPackages(compiled), [compiled]);
 
   const source = (
     <section className="wr-source">
       <div className="wr-tabs">
+        <button type="button" className="wr-icon" aria-pressed={desk.sideOpen} onClick={() => setDesk({ sideOpen: !desk.sideOpen })} title={desk.sideOpen ? 'Hide the files' : 'Show the files'} aria-label={desk.sideOpen ? 'Hide the files' : 'Show the files'}>
+          ☰
+        </button>
         {shown ? <span className="wr-file mono">{shown}{current && current.text !== current.disk ? ' ●' : ''}</span> : null}
         <span className="wr-sp" />
+        <PaneTools layout={options.layout} onLayout={setLayout} swapped={desk.swapped} onSwap={() => setDesk({ swapped: !desk.swapped })} big={big === 'source'} onBig={() => setBig(big === 'source' ? null : 'source')} />
         {options.layout === 'tabs' ? (
           <span className="segmented sm">
             <button type="button" aria-pressed={pane === 'source'} onClick={() => setPane('source')}>Source</button>
@@ -1000,6 +1163,9 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
           </span>
         ) : null}
         <span className="wr-sp" />
+        <button type="button" className="wr-icon" aria-pressed={big === 'pdf'} onClick={() => setBig(big === 'pdf' ? null : 'pdf')} title={big === 'pdf' ? 'Back to both panes' : 'The PDF alone, filling the space'} aria-label={big === 'pdf' ? 'Back to both panes' : 'Expand the PDF'}>
+          {big === 'pdf' ? '⤡' : '⤢'}
+        </button>
         <button type="button" className="btn sm primary" disabled={compiling || Boolean(noTex)} onClick={() => void saveNow().then(() => compile())} title="Recompile (⌘↵)">
           {compiling ? 'Compiling…' : 'Recompile'}
         </button>
@@ -1038,6 +1204,14 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
         </div>
       ) : null}
       {compileError ? <p className="wr-banner">{compileError}</p> : null}
+      {missing.length && !showLog ? (
+        <p className="wr-banner">
+          <b>{missing.map((name) => `${name}.sty`).join(', ')}</b> isn’t on this computer.{' '}
+          <button type="button" className="link-btn" onClick={() => setShowLog(true)}>
+            How to fix it
+          </button>
+        </p>
+      ) : null}
       {compiled && compiled.compiler && compiled.compiler !== compiler ? (
         <p className="wr-banner is-soft">Compiled with Tectonic, which is always XeLaTeX, not this project’s {TEX_COMPILERS.find((item) => item.id === compiler)?.label}: install TeX Live (or MacTeX) for the PDF Overleaf makes.</p>
       ) : null}
@@ -1045,10 +1219,14 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     </section>
   );
 
-  const layoutClass = options.layout === 'stacked' ? ' is-stacked' : options.layout === 'tabs' ? ` is-tabs show-${pane}` : '';
+  const layoutClass = big ? ` is-tabs show-${big}` : options.layout === 'stacked' ? ' is-stacked' : options.layout === 'tabs' ? ` is-tabs show-${pane}` : '';
+  const split = options.layout !== 'tabs' && !big;
+  const stacked = options.layout === 'stacked';
   return (
-    <div className="wr-desk">
+    <div className={`wr-desk${desk.sideOpen ? '' : ' no-side'}`} style={{ ['--wr-side' as string]: `${desk.side}px`, ['--wr-log' as string]: `${desk.log}px` }}>
+      {desk.sideOpen ? (
       <aside className="wr-side">
+        <Handle axis="x" className="wr-handle-side" onDrag={(dx) => setDesk((now) => ({ side: clamp(now.side + dx, 160, 520) }))} onReset={() => setDesk({ side: DESK.side })} label="Drag to widen or narrow the files" />
         <div className="wr-side-head">
           <b>Files</b>
           <span className="wr-file-ops">
@@ -1126,12 +1304,32 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
           </button>
         </div>
       </aside>
-      <div className={`wr-panes${layoutClass}`}>
+      ) : null}
+      <div
+        ref={panesRef}
+        className={`wr-panes${layoutClass}${desk.swapped ? ' is-swapped' : ''}`}
+        style={split ? { [stacked ? 'gridTemplateRows' : 'gridTemplateColumns']: `minmax(0, ${desk.split}fr) minmax(0, ${1 - desk.split}fr)` } : undefined}
+      >
         {source}
         {preview}
+        {split ? (
+          <Handle
+            axis={stacked ? 'y' : 'x'}
+            className="wr-handle-split"
+            style={stacked ? { top: `${desk.split * 100}%` } : { left: `${desk.split * 100}%` }}
+            onDrag={(delta) => {
+              const box = panesRef.current?.getBoundingClientRect();
+              if (!box) return;
+              setDesk((now) => ({ split: clamp(now.split + delta / (stacked ? box.height : box.width), 0.15, 0.85) }));
+            }}
+            onReset={() => setDesk({ split: 0.5 })}
+            label="Drag to share the room between the source and the PDF"
+          />
+        ) : null}
       </div>
       {showLog && compiled ? (
         <div className="wr-log">
+          <Handle axis="y" className="wr-handle-log" onDrag={(dy) => setDesk((now) => ({ log: clamp(now.log - dy, 90, 640) }))} onReset={() => setDesk({ log: DESK.log })} label="Drag to make the problems taller or shorter" />
           <div className="wr-tabs">
             <b>{compiled.errors.length} errors · {compiled.warnings.length} warnings</b>
             <span className="wr-sp" />
@@ -1148,6 +1346,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
               </button>
             ))}
             {!compiled.errors.length && !compiled.warnings.length ? <p className="wr-quiet wr-pad">Nothing to say.</p> : null}
+            {missing.length ? <MissingPackages names={missing} texLive={texLive} tectonic={Boolean(engines?.tectonic || engines?.tectonicInstallable)} onTectonic={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), engine: 'tectonic' } })} /> : null}
             <details className="wr-raw">
               <summary>The whole log</summary>
               <pre>{compiled.log}</pre>
