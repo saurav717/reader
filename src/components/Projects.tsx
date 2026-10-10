@@ -200,6 +200,8 @@ function ProjectBar({
   const { settings } = useStore();
   const writeTab = overleafViewOf(settings) === 'tab';
   const [picking, setPicking] = useState(false);
+  // From the board, a view asks which project rather than guessing one: the one picked opens on it.
+  const [pickFor, setPickFor] = useState<'overview' | 'workspace' | 'write' | null>(null);
   const pickRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!picking) return;
@@ -209,21 +211,32 @@ function ProjectBar({
     window.addEventListener('pointerdown', away);
     return () => window.removeEventListener('pointerdown', away);
   }, [picking]);
-  // The board has no project of its own: the switch takes the one opened last, else the first.
-  const target = current ?? projects.find((project) => project.id === lastProject()) ?? projects[0];
+  const open = (next: 'overview' | 'workspace' | 'write') => {
+    if (!current) {
+      setPickFor(next);
+      setPicking(true);
+      return;
+    }
+    onView(next === 'overview' ? { kind: 'project', id: current.id } : { kind: 'project', id: current.id, mode: next });
+  };
+  const none = projects.length === 0;
   return (
     <div className="pj-bar">
       <div className="pj-which" ref={pickRef}>
-        <button type="button" className="pj-which-btn" aria-expanded={picking} aria-haspopup="menu" onClick={() => setPicking(!picking)}>
+        <button type="button" className="pj-which-btn" aria-expanded={picking} aria-haspopup="menu" onClick={() => (setPickFor(null), setPicking(!picking))}>
           {current ? <span className="pj-mark sm" style={{ background: current.color }}>{initialsOf(current.name)}</span> : <GridIcon size={15} />}
           <span className="pj-which-name">{current ? current.name : 'All projects'}</span>
           <ChevronDownIcon size={13} />
         </button>
         {picking ? (
           <div className="pj-menu" role="menu">
-            <button type="button" role="menuitem" onClick={() => (setPicking(false), onView({ kind: 'projects' }))}>
-              <GridIcon size={14} /> All projects
-            </button>
+            {pickFor ? (
+              <span className="eyebrow">Which project?</span>
+            ) : (
+              <button type="button" role="menuitem" onClick={() => (setPicking(false), onView({ kind: 'projects' }))}>
+                <GridIcon size={14} /> All projects
+              </button>
+            )}
             {projects.map((project) => (
               <button
                 key={project.id}
@@ -232,7 +245,8 @@ function ProjectBar({
                 aria-current={project.id === current?.id ? 'true' : undefined}
                 onClick={() => {
                   setPicking(false);
-                  onView(mode === 'workspace' || mode === 'write' ? { kind: 'project', id: project.id, mode } : { kind: 'project', id: project.id });
+                  const next = pickFor ?? mode;
+                  onView(next === 'workspace' || next === 'write' ? { kind: 'project', id: project.id, mode: next } : { kind: 'project', id: project.id });
                 }}
               >
                 <span className="pj-dot" style={{ background: project.color }} />
@@ -250,14 +264,14 @@ function ProjectBar({
         <button type="button" aria-pressed={mode === 'board'} onClick={() => onView({ kind: 'projects' })} title="Every project side by side">
           Board
         </button>
-        <button type="button" aria-pressed={mode === 'overview'} disabled={!target} onClick={() => target && onView({ kind: 'project', id: target.id })} title="One project: what to read next, its papers, its code">
+        <button type="button" aria-pressed={mode === 'overview'} disabled={none} onClick={() => open('overview')} title="One project: what to read next, its papers, its code">
           Overview
         </button>
-        <button type="button" aria-pressed={mode === 'workspace'} disabled={!target} onClick={() => target && onView({ kind: 'project', id: target.id, mode: 'workspace' })} title="A paper of the project beside its code">
+        <button type="button" aria-pressed={mode === 'workspace'} disabled={none} onClick={() => open('workspace')} title="A paper of the project beside its code">
           Workspace
         </button>
         {writeTab ? (
-          <button type="button" aria-pressed={mode === 'write'} disabled={!target} onClick={() => target && onView({ kind: 'project', id: target.id, mode: 'write' })} title="The project’s paper: its LaTeX and the PDF it makes, synced with Overleaf">
+          <button type="button" aria-pressed={mode === 'write'} disabled={none} onClick={() => open('write')} title="The project’s paper: its LaTeX and the PDF it makes, synced with Overleaf">
             Write
           </button>
         ) : null}
