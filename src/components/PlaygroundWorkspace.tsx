@@ -1927,11 +1927,25 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                   </button>
                 </div>
               ) : null}
-              <span className="mono">
-                {machineName}:{base ?? machineRoot(playground)}
+              <span className="vs-panel-where" title={`${machineName}:${base ?? machineRoot(playground)}`}>
+                <span className="vs-panel-machine">{machineName}</span>
+                <span className="vs-panel-sep" aria-hidden="true">›</span>
+                <span className="vs-panel-folder">{(base ?? machineRoot(playground)).split('/').filter(Boolean).pop()}</span>
               </span>
               <span className="spacer" />
-              {view === 'terminal' && split ? <span className="pg-note">This is {machineName}’s copy of the folder: ▶ Run copies it over first; ↑ Copy in the status bar does it any time.</span> : null}
+              {split ? (
+                <button
+                  type="button"
+                  className={`vs-copy-chip${syncing === 'push' ? ' is-busy' : ''}`}
+                  disabled={!connected || Boolean(syncing)}
+                  onClick={() => void push()}
+                  title={`${view === 'terminal' ? 'The terminal works in' : 'Commands run in'} ${machineName}’s copy of the folder, which is kept in ${homeLabel}. ▶ Run and Copy & run copy it over first; this copies it now.`}
+                >
+                  <SyncGlyph />
+                  <span>{machineName.split(' · ')[0]}’s copy</span>
+                  <b>{syncing === 'push' ? 'Copying…' : report?.what === 'push' && Date.now() - report.at < 60_000 ? `✓ ${report.sent.length} copied` : '↑ Copy now'}</b>
+                </button>
+              ) : null}
               {view === 'commands' && colab.running?.startsWith('pgsh:') ? (
                 <button type="button" className="btn sm colab-stop" onClick={() => void interrupt()}>
                   ■ Stop

@@ -6344,3 +6344,20 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .tb-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; font-size: 13px; color: var(--ink-2); }
 .tb-empty p { margin: 0; }
 .tb-snippet { width: 100%; margin: 0; padding: 10px; border-radius: 8px; background: var(--panel); font: 11.5px/1.5 var(--mono); white-space: pre-wrap; }
+
+/* The panel's head on one line: tabs, terminals, where it runs, the copy chip. */
+.vs-panel-head { min-width: 0; flex-wrap: nowrap; }
+.vs-panel-tabs button { white-space: nowrap; }
+.vs-panel-head .pg-shell-tabs { flex: none; }
+.vs-panel-where { min-width: 0; display: inline-flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; font: 11.5px var(--mono); color: var(--muted); }
+.vs-panel-machine { flex: none; padding: 1px 7px; border-radius: 999px; background: var(--panel); color: var(--ink-2); font: 500 11px var(--sans); }
+.vs-panel-sep { flex: none; opacity: 0.6; }
+.vs-panel-folder { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+.vs-copy-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 4px 0 8px; border: 1px solid var(--border-soft); border-radius: 999px; background: transparent; color: var(--muted); font: 500 11.5px var(--sans); white-space: nowrap; cursor: pointer; }
+.vs-copy-chip svg { width: 13px; height: 13px; }
+.vs-copy-chip b { padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.vs-copy-chip:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--ink-2); }
+.vs-copy-chip:disabled { cursor: default; opacity: 0.7; }
+.vs-copy-chip.is-busy svg { animation: vs-spin 1s linear infinite; }
+@keyframes vs-spin { to { transform: rotate(360deg); } }
+@media (max-width: 1100px) { .vs-copy-chip > span { display: none; } }
