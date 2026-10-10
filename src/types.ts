@@ -521,10 +521,10 @@ export const WRITE_DEFAULTS: WriteOptions = { compile: 'pause', engine: 'auto', 
 export const WRITE_OPTIONS: { key: keyof WriteOptions; label: string; choices: { id: string; label: string; note: string }[] }[] = [
   {
     key: 'pdf',
-    label: 'The PDF is made',
+    label: 'Compile on',
     choices: [
-      { id: 'here', label: 'On this computer', note: 'The Companion compiles it with the TeX installed here, and the PDF is beside the source.' },
-      { id: 'github', label: 'On GitHub', note: 'All of TeX Live, nothing to install: GitHub Actions compiles it in a private repository of yours, free up to 2,000 minutes a month, and the PDF comes back here — in a minute or two.' },
+      { id: 'here', label: 'This computer', note: 'The Companion compiles it with the TeX installed here, and the PDF is beside the source.' },
+      { id: 'github', label: 'GitHub Actions', note: 'GitHub’s compiler, not a sync: all of TeX Live, nothing to install: GitHub Actions compiles it in a private repository of yours, free up to 2,000 minutes a month, and the PDF comes back here — in a minute or two.' },
       { id: 'overleaf', label: 'By Overleaf', note: 'Nothing to install: edits go to Overleaf a moment after you stop typing, and the PDF is in Overleaf’s window, beside.' },
     ],
   },

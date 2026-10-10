@@ -1597,16 +1597,19 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
   };
 
   const pdfWhere = (
-    <span className="segmented sm" role="group" aria-label="Where the PDF is made">
-      <button type="button" aria-pressed={options.pdf === 'here'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'here' } })} title="The Companion compiles it on this computer">
-        Here
+    <span className="wr-where">
+    <span className="wr-where-label">Compile on</span>
+    <span className="segmented sm" role="group" aria-label="Which compiler makes the PDF">
+      <button type="button" aria-pressed={options.pdf === 'here'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'here' } })} title="The TeX installed on this computer compiles it, through the Companion">
+        This computer
       </button>
-      <button type="button" aria-pressed={options.pdf === 'github'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'github' } })} title="GitHub Actions compiles it with all of TeX Live, in a private repository of yours, and the PDF comes back here">
-        GitHub
+      <button type="button" aria-pressed={options.pdf === 'github'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'github' } })} title="GitHub Actions compiles it with all of TeX Live, in a private repository of yours, and the PDF comes back here. It compiles: it doesn’t publish or sync anything.">
+        GitHub Actions
       </button>
-      <button type="button" aria-pressed={options.pdf === 'overleaf'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'overleaf' } })} title="Overleaf compiles it: nothing to install here">
+      <button type="button" aria-pressed={options.pdf === 'overleaf'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'overleaf' } })} title="Overleaf’s compiler: your edits go to Overleaf, and the PDF is in Overleaf’s window">
         Overleaf
       </button>
+    </span>
     </span>
   );
 
@@ -1648,7 +1651,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
           {big === 'pdf' ? '⤡' : '⤢'}
         </button>
         <button type="button" className="btn sm primary" disabled={compiling || (options.pdf === 'here' && Boolean(noTex))} onClick={recompile} title={options.pdf === 'github' ? 'Compile on GitHub (⌘↵): a minute or two' : 'Recompile (⌘↵)'}>
-          {compiling ? 'Compiling…' : 'Recompile'}
+          {compiling ? (options.pdf === 'github' ? 'Compiling on GitHub…' : 'Compiling…') : options.pdf === 'github' ? 'Compile on GitHub' : 'Recompile'}
         </button>
         {options.layout === 'tabs' ? (
           <span className="segmented sm">
@@ -1770,7 +1773,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
               {syncError ? <span className="wr-bad"> {syncError}</span> : null}
             </p>
           ) : null}
-          <p className="wr-quiet">⌘↵ here sends your edits and opens the project in the window beside once they’ve arrived — Overleaf compiles it as it opens. If Overleaf’s PDF doesn’t refresh after an edit comes in, press Recompile there. To compile on this computer instead, pick Here above.</p>
+          <p className="wr-quiet">⌘↵ here sends your edits and opens the project in the window beside once they’ve arrived — Overleaf compiles it as it opens. If Overleaf’s PDF doesn’t refresh after an edit comes in, press Recompile there. To compile on this computer or with GitHub Actions instead, pick it under Compile on, above.</p>
         </div>
       </section>
     ) : (
