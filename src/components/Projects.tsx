@@ -269,7 +269,7 @@ function ProjectBar({
         <button type="button" aria-pressed={mode === 'read'} disabled={none} onClick={() => open('read')} title="The project’s papers, one at a time">
           Read
         </button>
-        <button type="button" aria-pressed={mode === 'workspace'} disabled={none} onClick={() => open('workspace')} title="The project’s code, with a paper beside it when you want one">
+        <button type="button" aria-pressed={mode === 'workspace'} disabled={none} onClick={() => open('workspace')} title="The workspace: the project’s code, a paper beside it, or the paper alone">
           Code
         </button>
         <button type="button" aria-pressed={mode === 'write'} disabled={none} onClick={() => open('write')} title="The project’s paper: its LaTeX and the PDF it makes, synced with Overleaf">
@@ -765,7 +765,7 @@ function readWs<T extends string>(key: string, allowed: readonly T[], fallback: 
   }
 }
 
-function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Project; /** Read: just the papers. Code: the code, a paper beside it when wanted. */ focus: 'read' | 'code'; onView: (view: View) => void; onOpenPaper: (id: string) => void }) {
+function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Project; /** Read: just the papers. Code: the workspace as it always was. */ focus: 'read' | 'code'; onView: (view: View) => void; onOpenPaper: (id: string) => void }) {
   const { papers, highlights, updateCollection, settings } = useStore();
   const mine = papersIn(project.id, papers);
   const writing = overleafViewOf(settings);
@@ -780,8 +780,8 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
   const shown = mine.find((paper) => paper.id === paperId) ?? continueWith(project, papers) ?? mine[0];
   // Full code is where a project's work is done: the papers are a strip above it, a card each, and a window over it.
   const [chosenLayout, setLayoutState] = useState<WsLayout>(() => readWs(WS_LAYOUT, ['paper', 'both', 'code', 'write'] as const, 'code'));
-  // Read is the paper alone; Code is the code, beside a paper or not. Write is there only while Settings puts the writing in the workspace.
-  const layout: WsLayout = focus === 'read' ? 'paper' : chosenLayout === 'paper' || (chosenLayout === 'write' && writing !== 'write') ? 'both' : chosenLayout;
+  // Read is the paper alone; Code is the whole workspace. Write is there only while Settings puts the writing in the workspace.
+  const layout: WsLayout = focus === 'read' ? 'paper' : chosenLayout === 'write' && writing !== 'write' ? 'both' : chosenLayout;
   const [floating, setFloating] = useState<string | null>(null);
   const setLayout = (next: WsLayout) => {
     setLayoutState(next);
@@ -867,6 +867,9 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
           </button>
           <button type="button" className="pj-both" aria-pressed={layout === 'both'} onClick={() => setLayout('both')} title="A paper and the code side by side">
             Side by side
+          </button>
+          <button type="button" aria-pressed={layout === 'paper'} onClick={() => setLayout('paper')} title="Just the paper">
+            Paper
           </button>
           {writing === 'write' ? (
             <button type="button" aria-pressed={layout === 'write'} onClick={() => setLayout('write')} title="The paper beside the draft you are writing">
