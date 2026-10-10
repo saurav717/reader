@@ -71,6 +71,75 @@ export async function gh<T>(target: GitHubTarget, path: string, init: RequestIni
   return (await response.json()) as T;
 }
 
+// ---------------------------------------------------- the account, the repo --
+// For a paper: who the token is, a private repository made for the draft,
+// and whether the one linked is private — a draft is nobody else's business.
+
+async function api<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${API}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+    },
+  });
+  if (!response.ok) {
+    const detail = (await response.json().catch(() => null)) as { message?: string; errors?: { message?: string }[] } | null;
+    const said = detail?.errors?.[0]?.message || detail?.message || String(response.status);
+    if (response.status === 401) throw new Error('GitHub rejected the token: it may have expired or been revoked.');
+    if (response.status === 403) throw new Error(`GitHub refused (${said}). The token needs Administration and Contents: read and write.`);
+    if (response.status === 404) throw new Error('GitHub answered “not found”: the token can’t see that repository, or isn’t allowed to do this.');
+    if (response.status === 422) throw new Error(`GitHub said no: ${said}.`);
+    throw new Error(`GitHub request failed (${said}).`);
+  }
+  return (await response.json()) as T;
+}
+
+/** The account a token belongs to. */
+export async function githubAccount(token: string): Promise<{ login: string; name: string | null }> {
+  const user = await api<{ login: string; name: string | null }>(token, '/user');
+  return { login: user.login, name: user.name };
+}
+
+export interface RepoState {
+  fullName: string;
+  private: boolean;
+  /** Whether this token may change its visibility. */
+  admin: boolean;
+  defaultBranch: string;
+}
+
+type RepoJson = { full_name: string; private: boolean; default_branch: string; permissions?: { admin?: boolean } };
+const stateOf = (repo: RepoJson): RepoState => ({ fullName: repo.full_name, private: repo.private, admin: Boolean(repo.permissions?.admin), defaultBranch: repo.default_branch });
+
+/** A repository's visibility, as this token sees it. */
+export async function repoState(token: string, owner: string, repo: string): Promise<RepoState> {
+  return stateOf(await api<RepoJson>(token, `/repos/${owner}/${repo}`));
+}
+
+/** A new private repository under the token's account, with a first commit so it has a branch to write to. */
+export async function createPrivateRepo(token: string, name: string, description: string): Promise<RepoState> {
+  return stateOf(await api<RepoJson>(token, '/user/repos', { method: 'POST', body: JSON.stringify({ name, description, private: true, auto_init: true }) }));
+}
+
+/** Turns a repository private: no one outside it can read it from then on. */
+export async function makeRepoPrivate(token: string, owner: string, repo: string): Promise<RepoState> {
+  return stateOf(await api<RepoJson>(token, `/repos/${owner}/${repo}`, { method: 'PATCH', body: JSON.stringify({ private: true }) }));
+}
+
+/** A repository name from a project's: lower case, dashes, "paper-" in front. */
+export function repoNameFor(projectName: string): string {
+  const slug = projectName
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  return `paper-${slug || 'draft'}`;
+}
+
 // ------------------------------------------------------------------ files ----
 
 function escapeBib(value: string): string {

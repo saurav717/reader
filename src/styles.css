@@ -7390,3 +7390,13 @@ button.wr-template.is-on { border-color: var(--accent); }
 .ce-suggest button.is-on { background: var(--accent-soft); color: var(--accent-ink); }
 .ce-suggest-label { flex: none; }
 .ce-suggest-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; margin-left: auto; color: var(--muted); font: 11.5px var(--sans); }
+
+/* GitHub for the paper: whose token it is, and whether the repository is private. */
+.gh-connect { display: flex; flex-direction: column; gap: 6px; }
+.gh-connect.is-on { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; font-size: 12.5px; color: var(--ink-2); }
+.gh-connect-row { display: flex; gap: 8px; }
+.gh-connect-row input { flex: 1; min-width: 0; height: 30px; padding: 0 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font: 12.5px var(--mono); }
+.gh-privacy { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; }
+.gh-privacy.is-private { padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.gh-privacy.is-public { flex-wrap: wrap; color: var(--danger, #c2410c); }
+.gh-privacy.is-unknown { color: var(--muted); }
