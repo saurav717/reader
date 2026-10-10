@@ -1220,7 +1220,7 @@ export default function App() {
   return (
     <div
       ref={appRef}
-      className={`app${inZen ? ` is-zen haze-${settings.zenHaze}` : ''}${inZen && peek ? ` peek-${peek}` : ''}${besideInZen ? ' notes-beside' : ''}${!inZen && dockSlide ? ` dock-slide-${dockSlide}` : ''}`}
+      className={`app${inZen ? ` is-zen haze-${settings.zenHaze}` : ''}${inZen && fullscreen ? ' is-fullscreen' : ''}${inZen && peek ? ` peek-${peek}` : ''}${besideInZen ? ' notes-beside' : ''}${!inZen && dockSlide ? ` dock-slide-${dockSlide}` : ''}`}
       {...zenPointer}
     >
 {navStyle === 'classic' ? (

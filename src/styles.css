@@ -2528,8 +2528,9 @@ body.win-moving .assistant-win { transition: none; }
 :root[data-glass='on'] .rail { --pane: var(--rail); }
 :root[data-glass='on'] .app > .panel, :root[data-glass='on'] .dock { --pane: var(--panel); }
 :root[data-glass='on'] :is(.app > .main, .app > .pr-col > .main) { --pane: var(--paper); }
+/* Under :where, so zen mode's fixed panes (more specific) still lift out of the layout. */
+:root[data-glass='on'] :where(.rail, .app > .panel, .dock, .app > .main, .app > .pr-col > .main) { position: relative; }
 :root[data-glass='on'] :is(.rail, .app > .panel, .dock, .app > .main, .app > .pr-col > .main) {
-  position: relative;
   background: transparent;
   border: 0;
   border-radius: 20px;
@@ -2681,6 +2682,9 @@ body.win-moving .assistant-win { transition: none; }
    the panes with the same weight. */
 .app.is-zen { --zen-inset: 0px; --zen-rail: 60px; --zen-ease: cubic-bezier(0.2, 0.8, 0.2, 1); --zen-time: 0.34s; }
 :root[data-glass='on'] .app.is-zen { --zen-inset: 10px; }
+/* Full screen is zen with nothing round the paper: no gap at the edges, no card. */
+:root .app.is-zen.is-fullscreen { --zen-inset: 0px; padding: 0; }
+:root[data-glass='on'] .app.is-fullscreen > :is(.main, .pr-col > .main) { border-radius: 0; box-shadow: none; }
 /* Out over the page, a glass pane has the page behind it rather than the
    wallpaper, and the page's lines blurred through it read as smudges. It
    takes the tint of the cards that float over the paper instead. */
