@@ -6361,3 +6361,12 @@ svg.pg-ficon.is-folder { min-width: 0; height: 14px; padding: 0; background: non
 .vs-copy-chip.is-busy svg { animation: vs-spin 1s linear infinite; }
 @keyframes vs-spin { to { transform: rotate(360deg); } }
 @media (max-width: 1100px) { .vs-copy-chip > span { display: none; } }
+
+/* The one prompt to carry a Google sign-in on (GoogleRenewal.tsx). */
+.google-renewal { position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); z-index: 120; display: flex; align-items: center; gap: 12px; max-width: min(720px, calc(100vw - 32px)); padding: 10px 12px 10px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--ink-2); font-size: 13px; line-height: 1.4; box-shadow: var(--shadow-md); }
+.google-renewal.is-waiting { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.google-renewal b { color: var(--ink); font-weight: 600; }
+.google-renewal em { color: var(--danger); font-style: normal; }
+.google-renewal svg { flex: none; }
+.google-renewal .btn { flex: none; }
+:root[data-glass='on'] .google-renewal { background: rgb(var(--float-rgb) / max(0.94, var(--float-a))); -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur)); }

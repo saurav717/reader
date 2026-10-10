@@ -7,7 +7,7 @@
 //
 //   node --test scripts/google-signin.test.mjs
 
-import { describe, it, after, beforeEach } from 'node:test';
+import { describe, it, after, afterEach, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
@@ -37,6 +37,12 @@ globalThis.document = {
   head: { appendChild: (script) => scripts.push(script) },
 };
 globalThis.window = {};
+
+// Whether this moment is inside a click, as navigator.userActivation says: the
+// only time a browser lets the page open Google's window. The tests below that
+// stand for a click leave it on; background work turns it off.
+let gesture = true;
+Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { get userActivation() { return { isActive: gesture }; }, userAgent: 'node' } });
 
 // The browser's storage, as far as this module uses it: a session is kept
 // in `sessionStorage` for the hour its token lasts, so a reload comes back
@@ -93,7 +99,12 @@ const grant = (scope) => (config) => config.callback({ access_token: 'token', ex
 const IDENTITY = 'openid email profile';
 const WITH_DRIVE = `${IDENTITY} https://www.googleapis.com/auth/drive.file`;
 
+// A test's sign-in tells "the other tabs" (the module copies of earlier tests, on the same BroadcastChannel) a moment
+// after it ends, once the profile is read: let that land before the next test makes its copy, or the copy adopts it.
+afterEach(() => new Promise((resolve) => setTimeout(resolve, 30)));
+
 beforeEach(() => {
+  gesture = true;
   delete globalThis.window.google;
   scripts.length = 0;
   stored.clear();
@@ -282,5 +293,65 @@ describe('staying signed in across a reload', () => {
     const calls = install(grant(WITH_DRIVE));
     await module.ensureDriveToken('client-id');
     assert.equal(calls.length, 1);
+  });
+});
+
+describe('renewing for work in the background', () => {
+  // Polling during a long run on Colab found the token gone at once from a dozen places; each asked Google for a
+  // window, Safari blocked them all, and allowing pop-ups opened the whole queue. These are about that never recurring.
+  it('opens no window outside a click, and one click renews every caller once', async () => {
+    const module = await fresh();
+    const calls = install(grant(WITH_DRIVE));
+    gesture = false;
+    const pending = Array.from({ length: 12 }, () => module.ensureDriveToken('client-id'));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(calls.length, 0);
+    assert.equal(module.renewalWaiting(), true);
+    gesture = true;
+    await module.renewNow('client-id');
+    assert.deepEqual(await Promise.all(pending), Array(12).fill('token'));
+    assert.equal(calls.length, 1);
+    assert.equal(module.renewalWaiting(), false);
+  });
+
+  it('shares one window between callers inside the same click', async () => {
+    const module = await fresh();
+    const calls = install(grant(WITH_DRIVE));
+    const all = await Promise.all([module.ensureDriveToken('client-id'), module.ensureDriveToken('client-id'), module.ensureDriveToken('client-id')]);
+    assert.deepEqual(all, ['token', 'token', 'token']);
+    assert.equal(calls.length, 1);
+  });
+
+  it('keeps everything waiting when the window is closed, for the prompt to try again', async () => {
+    const module = await fresh();
+    gesture = false;
+    const pending = module.ensureDriveToken('client-id');
+    gesture = true;
+    install((config) => config.error_callback({ type: 'popup_closed' }));
+    await assert.rejects(module.renewNow('client-id'), /closed/);
+    assert.equal(module.renewalWaiting(), true);
+    const calls = install(grant(WITH_DRIVE));
+    await module.renewNow('client-id');
+    assert.equal(await pending, 'token');
+    assert.equal(calls.length, 1);
+  });
+
+  it('asks for Colab on the same single window as Drive', async () => {
+    const module = await fresh();
+    install(grant(`${WITH_DRIVE} https://www.googleapis.com/auth/colaboratory`));
+    await module.connectColab('client-id');
+    // An hour later: the token is gone, and the run's readings and the explorer both need it.
+    stored.set(SESSION_KEY, JSON.stringify({ accessToken: 'old', expiresAt: Date.now() - 1, scopes: [...WITH_DRIVE.split(' '), 'https://www.googleapis.com/auth/colaboratory'], user: { name: 'A', email: 'a@b' } }));
+    const later = await fresh();
+    install(grant(`${WITH_DRIVE} https://www.googleapis.com/auth/colaboratory`));
+    gesture = false;
+    const both = [later.ensureDriveToken('client-id'), later.connectColab('client-id')];
+    gesture = true;
+    const calls = install(grant(`${WITH_DRIVE} https://www.googleapis.com/auth/colaboratory`));
+    await later.renewNow('client-id');
+    assert.deepEqual(await Promise.all(both), ['token', 'token']);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].scope, /drive\.file/);
+    assert.match(calls[0].scope, /colaboratory/);
   });
 });

@@ -394,10 +394,117 @@ export function connectDrive(clientId: string, quiet = false): Promise<GoogleUse
   });
 }
 
+// ------------------------------------------------------- renewing quietly ---
+//
+// A token lasts an hour, and the page keeps working past it: the explorer
+// reading Drive, a run's output polled through Colab, the agents. Every one of
+// those found the token gone at the same moment and asked Google for a new one,
+// and each ask is a window — dozens of them, which Safari held back as blocked
+// pop-ups and then opened all at once when they were allowed. So a renewal is
+// asked for once, whoever needs it, and every caller waits for that one; and a
+// window is opened only inside a click (a browser allows no other). Work in the
+// background that finds the token gone waits for the person instead: the page
+// shows one prompt (useRenewal, GoogleRenewal.tsx), and its click renews.
+
+interface Waiting {
+  clientId: string;
+  scopes: Set<string>;
+  promise: Promise<StoredToken>;
+  resolve: (granted: StoredToken) => void;
+  reject: (error: Error) => void;
+}
+let renewing: Promise<StoredToken> | null = null;
+let waiting: Waiting | null = null;
+const renewalListeners = new Set<() => void>();
+const tellRenewal = () => renewalListeners.forEach((listener) => listener());
+
+/** Whether this moment is inside a click or a key press — the only time a browser lets a page open a window. */
+function inGesture(): boolean {
+  const activation = (typeof navigator !== 'undefined' ? (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation : undefined);
+  return Boolean(activation?.isActive);
+}
+
+/** A new token from Google, asked for once however many callers need it at the same time. */
+function renewOnce(clientId: string, scopes: string): Promise<StoredToken> {
+  if (renewing) return renewing;
+  renewing = tokenFor(clientId, scopes, '')
+    .then((granted) => {
+      // This tab's own listeners hear of it too, as they do of a token another tab hands over.
+      sessionListeners.forEach((listener) => listener('token'));
+      return granted;
+    })
+    .finally(() => {
+      renewing = null;
+    });
+  return renewing;
+}
+
+/**
+ * A token with these scopes: the one held while it lasts; else renewed — now,
+ * inside a click; otherwise once the person clicks the page's prompt to carry
+ * on (or another tab renews first), however many callers are waiting.
+ */
+function renewQuietly(clientId: string, scopes: string[]): Promise<StoredToken> {
+  if (renewing) return renewing;
+  if (inGesture()) return renewOnce(clientId, scopes.join(' '));
+  if (!waiting) {
+    let resolve!: (granted: StoredToken) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<StoredToken>((yes, no) => ((resolve = yes), (reject = no)));
+    waiting = { clientId, scopes: new Set(), promise, resolve, reject };
+    // Another tab renewing does for this one too.
+    const stop = onSessionChange((change) => {
+      if (change !== 'token' || !waiting || !live(token) || ![...waiting.scopes].every((scope) => token!.scopes.includes(scope) || !scope.startsWith('https://'))) return;
+      stop();
+      const done = waiting;
+      waiting = null;
+      tellRenewal();
+      done.resolve(token!);
+    });
+  }
+  for (const scope of scopes.join(' ').split(' ')) waiting.scopes.add(scope);
+  tellRenewal();
+  return waiting.promise;
+}
+
+/** The renewal the page is waiting on a click for, if any: what the prompt shows. */
+export const renewalWaiting = () => Boolean(waiting);
+export function onRenewal(listener: () => void): () => void {
+  renewalListeners.add(listener);
+  return () => renewalListeners.delete(listener);
+}
+/** When the held token runs out, in ms; null when there is none. */
+export const tokenExpiresAt = () => (token ? token.expiresAt : null);
+/** Whether the held token carries Drive or Colab: what the background work renews. */
+export const tokenScopes = () => token?.scopes ?? [];
+
+/**
+ * The prompt's click: one window, for everything waiting — or, before the
+ * hour is up, the same token renewed ahead of time so a long run isn't cut.
+ */
+export async function renewNow(clientId: string): Promise<void> {
+  const scopes = waiting ? [...waiting.scopes] : (token?.scopes ?? []);
+  const wanted = [...new Set([...IDENTITY_SCOPES.split(' '), ...scopes])].join(' ');
+  const held = waiting;
+  waiting = null;
+  tellRenewal();
+  try {
+    const granted = await renewOnce(clientId, wanted);
+    held?.resolve(granted);
+  } catch (error) {
+    // Closed or refused: everything waits again, and the prompt stays to try once more.
+    if (held) {
+      waiting = held;
+      tellRenewal();
+    }
+    throw error;
+  }
+}
+
 export async function ensureDriveToken(clientId: string): Promise<string> {
   if (token && token.expiresAt > Date.now() && token.scopes.includes(DRIVE_SCOPE)) return token.accessToken;
-  // An empty prompt reuses the existing grant without showing the dialog again.
-  const granted = await tokenFor(clientId, `${IDENTITY_SCOPES} ${DRIVE_SCOPES}`, '');
+  // An empty prompt reuses the existing grant without showing the dialog again; once, and only from a click.
+  const granted = await renewQuietly(clientId, [IDENTITY_SCOPES, DRIVE_SCOPES]);
   if (!granted.scopes.includes(DRIVE_SCOPE)) throw new Error('Drive access was not granted');
   return granted.accessToken;
 }
@@ -410,8 +517,9 @@ export async function ensureDriveToken(clientId: string): Promise<string> {
  * granted so far, so Drive keeps working on it.
  */
 export function connectColab(clientId: string): Promise<string> {
-  const scopes = [IDENTITY_SCOPES, hasDriveAccess() ? DRIVE_SCOPES : '', COLAB_SCOPE].filter(Boolean).join(' ');
-  return tokenFor(clientId, scopes, '').then((granted) => {
+  const scopes = [IDENTITY_SCOPES, hasDriveAccess() ? DRIVE_SCOPES : '', COLAB_SCOPE].filter(Boolean);
+  // Once for every caller, and a window only from a click: a run's polling that lost its token waits for the prompt.
+  return renewQuietly(clientId, scopes).then((granted) => {
     if (!granted.scopes.includes(COLAB_SCOPE)) throw new Error('Colab access was not granted');
     return granted.accessToken;
   });
@@ -421,8 +529,8 @@ export function connectColab(clientId: string): Promise<string> {
 export async function colabToken(clientId: string): Promise<string | null> {
   if (token && token.expiresAt > Date.now() && token.scopes.includes(COLAB_SCOPE)) return token.accessToken;
   if (!token?.scopes.includes(COLAB_SCOPE)) return null;
-  const scopes = [IDENTITY_SCOPES, token.scopes.includes(DRIVE_SCOPE) ? DRIVE_SCOPES : '', COLAB_SCOPE].filter(Boolean).join(' ');
-  const granted = await tokenFor(clientId, scopes, '');
+  const scopes = [IDENTITY_SCOPES, token.scopes.includes(DRIVE_SCOPE) ? DRIVE_SCOPES : '', COLAB_SCOPE].filter(Boolean);
+  const granted = await renewQuietly(clientId, scopes);
   return granted.scopes.includes(COLAB_SCOPE) ? granted.accessToken : null;
 }
 
@@ -447,6 +555,12 @@ export function dropSignIn(): void {
 
 export function signOut(): void {
   const active = token?.accessToken;
+  if (waiting) {
+    const held = waiting;
+    waiting = null;
+    tellRenewal();
+    held.reject(new Error('Signed out.'));
+  }
   forgetToken();
   // Every tab signs out with this one: the token is about to be revoked, and a tab left signed in would show an account that is gone.
   tabs?.postMessage({ type: 'signout' } satisfies TabMessage);
