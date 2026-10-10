@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
 import { STATUS_LABEL, STATUS_ORDER, statusOf, type ReadingStatus } from '../lib/status';
 import { coverFor } from '../lib/libraryLook';
@@ -40,9 +40,15 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
 
   // Opening a paper leaves the view on the paper, so the panel remembers the
   // collection you came from rather than falling back to everything.
-  const [lastCollectionId, setLastCollectionId] = useState<string | null>(view.kind === 'collection' ? view.id : null);
-  const collectionId = view.kind === 'collection' ? view.id : view.kind === 'paper' ? lastCollectionId : null;
+  // A project lists its own papers too: it is a collection underneath.
+  const [lastCollectionId, setLastCollectionId] = useState<string | null>(view.kind === 'collection' || view.kind === 'project' ? view.id : null);
+  const collectionId = view.kind === 'collection' || view.kind === 'project' ? view.id : view.kind === 'paper' ? lastCollectionId : null;
   const collection = collections.find((item) => item.id === collectionId);
+  // Opened from the rail or a link, not from here: still the one a paper opened next is listed under.
+  const scopeId = view.kind === 'collection' || view.kind === 'project' ? view.id : null;
+  useEffect(() => {
+    if (scopeId) setLastCollectionId(scopeId);
+  }, [scopeId]);
 
   const counts = useMemo(() => {
     const tally: Record<ReadingStatus, number> = { reading: 0, unread: 0, finished: 0 };
@@ -62,7 +68,7 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
   const scopeTotal = groups.reduce((total, group) => total + group.items.length, 0);
 
   const select = (next: View) => {
-    if (next.kind === 'collection') setLastCollectionId(next.id);
+    if (next.kind === 'collection' || next.kind === 'project') setLastCollectionId(next.id);
     else if (next.kind !== 'paper') setLastCollectionId(null);
     onSelect(next);
   };
