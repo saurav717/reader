@@ -307,6 +307,14 @@ export interface Settings {
   navStyle: NavStyle;
   /** How the projects are reached from the rail (not the sidebar, which names them all, or the classic rail). */
   projectNav: ProjectNav;
+  /** Where compute is turned on and off: COMPUTE_CONTROLS. */
+  computeControls: ComputeControls;
+  /**
+   * The places to run code that are turned off: 'colab', or a server's
+   * Companion id (its id in this browser when it has none). Off is not
+   * removed — it is left out of every choice of where to run, until turned on.
+   */
+  computeOff: string[];
   /** Where a project's paper is written with Overleaf: OVERLEAF_VIEWS. */
   overleafView: OverleafView;
   /** What a project opens on from the rail and the board: its overview, or its workspace. */
@@ -425,6 +433,23 @@ export const PROJECT_NAVS: { id: ProjectNav; label: string; note: string }[] = [
   { id: 'dots', label: 'Colour dots', note: 'A row of small dots under Projects, one a project; hover one for its name.' },
   { id: 'folder', label: 'Opens like a folder', note: 'Projects opens a list of your projects by name right in the rail, and folds it again.' },
   { id: 'marks', label: 'Stacked marks', note: 'A lettered mark for each project, stacked under Projects.' },
+];
+
+/**
+ * Where compute — Colab, your computers, servers you added — is turned on and
+ * off. Settings → Compute has it in every one of them.
+ * - everywhere: Settings, a switch on each place to run where code is set up, and a chip in the rail with what runs;
+ * - settings: Settings → Compute alone;
+ * - cards: Settings, and the switches where code is set up;
+ * - rail: Settings, and the chip in the rail.
+ */
+export type ComputeControls = 'everywhere' | 'settings' | 'cards' | 'rail';
+
+export const COMPUTE_CONTROLS: { id: ComputeControls; label: string; note: string }[] = [
+  { id: 'everywhere', label: 'Everywhere', note: 'Settings → Compute, a switch on each place to run where a project’s code is set up, and a chip in the rail that lights while Colab runs.' },
+  { id: 'settings', label: 'Only in Settings', note: 'Everything in Settings → Compute, and nothing anywhere else.' },
+  { id: 'cards', label: 'Settings and the cards', note: 'Settings, and the switches where you choose where code runs. No chip in the rail.' },
+  { id: 'rail', label: 'Settings and the rail', note: 'Settings, and the chip in the rail with what runs and Stop. No switches on the cards.' },
 ];
 
 /**

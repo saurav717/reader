@@ -77,6 +77,8 @@ const defaultSettings: Settings = {
   navStyle: 'labelled',
   projectNav: 'switcher',
   overleafView: 'beside',
+  computeControls: 'everywhere',
+  computeOff: [],
   zenHaze: 'shadow',
   passageLook: 'marker',
   chatMarks: 'auto',

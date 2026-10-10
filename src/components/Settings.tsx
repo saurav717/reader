@@ -3,7 +3,9 @@ import { useStore } from '../lib/store';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
 import { parseRepo } from '../lib/github';
-import { GLASS_WALLS, NAV_STYLES, OVERLEAF_VIEWS, PROJECT_NAVS } from '../types';
+import { COMPUTE_CONTROLS, GLASS_WALLS, NAV_STYLES, OVERLEAF_VIEWS, PROJECT_NAVS } from '../types';
+import { computeControlsOf } from '../lib/compute';
+import { ComputeList } from './Compute';
 import { overleafViewOf } from '../lib/overleaf';
 import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
@@ -829,6 +831,39 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             the paper in GitHub too (Overleaf’s GitHub sync), with the token from Git mirror above; Overleaf pulls what you save from
             its GitHub menu.
           </p>
+        </section>
+
+        <section id="settings-compute" style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Compute
+          </div>
+          <ComputeList />
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 14px' }}>
+            Off leaves a place out of every choice of where code runs — nothing is removed, and a playground already on
+            it keeps it. Stop ends what runs now: Colab’s runtimes, which spend units, or a Companion, which can be
+            started again here on this computer.
+          </p>
+          <div className="eyebrow" style={{ margin: '0 0 8px' }}>
+            Where to turn it on and off
+          </div>
+          <div className="nav-choices is-text" role="radiogroup" aria-label="Where compute is turned on and off">
+            {COMPUTE_CONTROLS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={computeControlsOf(settings) === option.id}
+                className={`nav-choice${computeControlsOf(settings) === option.id ? ' is-on' : ''}`}
+                onClick={() => updateSettings({ computeControls: option.id })}
+              >
+                <b>
+                  {option.label}
+                  {option.id === 'everywhere' ? <small> · default</small> : null}
+                </b>
+                <span>{option.note}</span>
+              </button>
+            ))}
+          </div>
         </section>
 
         <section>

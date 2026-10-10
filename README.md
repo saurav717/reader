@@ -4344,6 +4344,32 @@ real Jupyter servers, one for this PC and one for the GPU machine, and
 photographs it. The design behind it, and what is not built yet, is in
 [docs/playground.md](docs/playground.md).
 
+### Turning compute on and off
+
+Every place code can run — **Colab**, each of your computers, each server you
+added — has a switch. On, it is offered wherever you choose where code runs.
+Off, it is left out of those choices until you turn it on again. Nothing is
+removed, and a playground already on it keeps it. Where code is set up,
+"Where should it run?" starts on a place that is on. If you pick Colab while
+it is off, it says so and offers **Turn it on**. While something runs, there
+is also **Stop**:
+
+- **Colab:** every runtime this tab has, which is what spends units. Its
+  units per hour show while it runs.
+- **A computer's Companion:** its Jupyter server and every kernel on it. It
+  stays off until started again, and on this computer **Start** brings it back.
+
+All of it is in **Settings → Compute**. Where else it shows is the choice
+just under it, **Where to turn it on and off**:
+
+- **Everywhere** (the default): Settings; a switch on each place to run
+  where a project's code is set up, with **Manage compute** linking to
+  Settings; and a **Compute** chip in the rail. The chip lights while a Colab
+  runtime runs and opens the same list.
+- **Only in Settings**.
+- **Settings and the cards**: no chip.
+- **Settings and the rail**: no switches on the cards.
+
 ### Running playgrounds
 
 Each playground has its own kernel: its own Python, on its own machine. The

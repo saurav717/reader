@@ -58,6 +58,8 @@ export interface NavModel {
   panels: NavPanel[];
   /** At the bottom, above the account: what Explain is writing. */
   progress?: ReactNode;
+  /** At the bottom too: the compute chip, when Settings puts it in the rail. Given labelled or not. */
+  compute?: (labelled: boolean) => ReactNode;
   account: ReactNode;
   onSettings: () => void;
   settingsIcon: ReactNode;
@@ -326,6 +328,7 @@ function Foot({ model, labelled = false }: { model: NavModel; labelled?: boolean
   return (
     <>
       <div style={{ flexGrow: 1 }} />
+      {model.compute?.(labelled)}
       {model.progress}
       {model.account}
       <button type="button" className={labelled ? 'nav-lab' : 'icon-btn'} onClick={model.onSettings} aria-label="Settings" title={model.settingsTitle}>
@@ -410,6 +413,7 @@ function IconRail({ model, tray, onUnfold }: { model: NavModel; tray: boolean; o
             ))}
           </div>
           <span className="nav-sep" />
+          {model.compute?.(false)}
           {model.progress}
           {model.account}
           <button type="button" className="icon-btn" onClick={model.onSettings} aria-label="Settings" title={model.settingsTitle}>
@@ -487,6 +491,7 @@ function Sidebar({ model, onFold }: { model: NavModel; onFold: () => void }) {
       ))}
       <span className="nav-sb-line" />
       <div className="nav-sb-foot">
+        {model.compute?.(true)}
         {model.progress}
         {model.account}
         <button type="button" className="nav-sb-row" onClick={model.onSettings} title={model.settingsTitle}>

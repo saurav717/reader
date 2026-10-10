@@ -25,6 +25,8 @@ import Discover from './components/Discover';
 import Library from './components/Library';
 import NotesRail from './components/NotesRail';
 import { DraftDock, useDraftDock } from './components/Overleaf';
+import { RailCompute } from './components/Compute';
+import { chipInRail } from './lib/compute';
 import NotesWindow from './components/NotesWindow';
 import NotesBoard from './components/NotesBoard';
 import { CLOSE_EXPLAIN, OPEN_BOARD, OPEN_EXPLAIN, OPEN_NOTES } from './lib/notes';
@@ -1186,6 +1188,7 @@ export default function App() {
     panels: navPanels,
     progress: !showWelcome ? <RailProgress showing={explainOpen && explained ? explained.id : null} onOpen={openFromProgress} /> : undefined,
     account: accountButton,
+    compute: chipInRail(settings) && !showWelcome ? (labelled: boolean) => <RailCompute labelled={labelled} /> : undefined,
     onSettings: () => setSettingsOpen(true),
     settingsIcon: <SettingsIcon size={19} />,
     settingsTitle: driveConnected ? 'Settings — Drive connected' : 'Settings',
@@ -1323,6 +1326,7 @@ export default function App() {
         </button>
         {shows.dock ? <RailRunBadge onOpen={goToPlayground} /> : null}
         </div>
+        {chipInRail(settings) && !showWelcome ? <RailCompute /> : null}
         {!showWelcome ? (
           <RailProjects
             current={view.kind === 'project' && !onUsage ? view.id : undefined}

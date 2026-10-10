@@ -1676,6 +1676,17 @@ async function stopSessionRuntime(s: Session): Promise<void> {
   }
 }
 
+/** Stops every Colab machine this tab has a runtime on — what spends units — whichever sessions are on them. */
+export async function stopColabRuntimes(): Promise<void> {
+  const stopped = new Set<string>();
+  for (const s of [...sessions.values()]) {
+    const endpoint = s.state.runtime?.endpoint;
+    if (s.state.backend.kind !== 'colab' || !endpoint || stopped.has(endpoint)) continue;
+    stopped.add(endpoint);
+    await stopSessionRuntime(s);
+  }
+}
+
 /**
  * Shuts a scope's kernel down — a playground's, from anywhere: its variables
  * go. On a Jupyter server, the kernel is shut down there, connected or only
