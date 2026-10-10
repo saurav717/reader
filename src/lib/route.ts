@@ -11,6 +11,8 @@
 //   /usage                 who used what (the owner's)
 //   /playground            the Playground's home
 //   /playground/?id=<id>   one playground
+//   /projects              every project, side by side
+//   /project/?id=<id>      a project's overview; &view=workspace its workspace
 //
 // The id rides in the query, so every address is a folder that exists on a
 // static host (GitHub Pages): a reload is answered by that folder's
@@ -49,7 +51,9 @@ export function pathFor(place: Place, base = basePath()): string {
               ? view.id
                 ? withId('playground', view.id)
                 : 'playground'
-              : view.kind;
+              : view.kind === 'project'
+                ? `${withId('project', view.id)}${view.mode === 'workspace' ? '&view=workspace' : ''}`
+                : view.kind;
   return `${base}${tail}`;
 }
 
@@ -58,12 +62,13 @@ export const currentAddress = () => `${window.location.pathname}${window.locatio
 
 /**
  * `path` (from `pathFor`) with what else `search` carries — a sign-in's
- * answer — kept, and its own `id` in place of any there was.
+ * answer — kept, and its own `id` and `view` in place of any there were.
  */
 export function addressWith(path: string, search: string): string {
   const [pathname, own = ''] = path.split('?');
   const params = new URLSearchParams(search);
   params.delete('id');
+  params.delete('view');
   new URLSearchParams(own).forEach((value, key) => params.set(key, value));
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
@@ -101,6 +106,11 @@ export function placeFor(address: string, base = basePath()): Place | null {
   if (head === 'usage' && !extra) return { view: { kind: 'home' }, usage: true };
   if (head === 'collection' && id) return { view: { kind: 'collection', id } };
   if (head === 'paper' && id) return { view: { kind: 'paper', id } };
+  if (head === 'projects' && !extra) return { view: { kind: 'projects' } };
+  if (head === 'project' && id) {
+    const mode = new URLSearchParams(query).get('view') === 'workspace' ? 'workspace' : undefined;
+    return { view: mode ? { kind: 'project', id, mode } : { kind: 'project', id } };
+  }
   if (head === 'playground') return { view: id ? { kind: 'playground', id } : { kind: 'playground' } };
   return null;
 }

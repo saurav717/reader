@@ -29,6 +29,9 @@ describe('the addresses', () => {
     [{ view: { kind: 'playground' } }, '/reader/playground'],
     [{ view: { kind: 'playground', id: 'a8c4d48f' } }, '/reader/playground/?id=a8c4d48f'],
     [{ view: { kind: 'home' }, usage: true }, '/reader/usage'],
+    [{ view: { kind: 'projects' } }, '/reader/projects'],
+    [{ view: { kind: 'project', id: 'p-1' } }, '/reader/project/?id=p-1'],
+    [{ view: { kind: 'project', id: 'p-1', mode: 'workspace' } }, '/reader/project/?id=p-1&view=workspace'],
   ];
   for (const [place, path] of cases) {
     it(`${JSON.stringify(place)} is ${path}, and back`, () => {
@@ -64,6 +67,8 @@ describe('the addresses', () => {
     assert.equal(route.placeFor('/reader/paper/?code=1', '/reader/'), null);
     assert.equal(route.addressWith('/reader/playground/?id=a', '?code=1&id=b'), '/reader/playground/?code=1&id=a');
     assert.equal(route.addressWith('/reader/library', '?id=b'), '/reader/library');
+    assert.equal(route.addressWith('/reader/project/?id=a', '?id=b&view=workspace'), '/reader/project/?id=a');
+    assert.equal(route.placeFor('/reader/project/', '/reader/'), null);
   });
 });
 

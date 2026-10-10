@@ -990,6 +990,40 @@ file them, onto a status to mark them, onto Unsorted to take them out of every
 collection, or onto Junk. Escape lets go of the selection.
 `scripts/library-smoke.mjs` goes through all of it and screenshots each state.
 
+### Projects
+
+A project is a piece of research with papers of its own: a question, the
+papers it needs — each in a role, **Core**, **Baseline**, **Method** or
+**Related** — a to-do list, and code. Each project has a mark on the rail,
+under the grid button that opens every project side by side. A switch at the
+top of every project page goes between three views:
+
+- **Board** — every project at once: what each is reading, its next steps,
+  and the papers it shares with the others.
+- **Overview** — one project: the paper to carry on with, its code, its
+  to-do list, and its papers grouped by role.
+- **Workspace** — the project's code (a playground, linked or started from
+  there) with its papers at hand. *Full code* gives the code the whole page:
+  the papers opened most recently are a strip above it, with **All N** to
+  search every paper in the project — titles, authors, abstracts, and your
+  own highlights and notes. A paper's chip opens its card (abstract and
+  highlights, readable even when its PDF can't be fetched); from there it
+  floats over the code in a window you can move, resize and fade, or goes
+  side by side. *Side by side* puts a paper and the code next to each other
+  (the line between them can be dragged), and *Paper* shows just the paper.
+  Where nothing can run the code yet, the workspace says which of Colab and
+  your computer needs what, with a link to set it up.
+
+Settings → Projects chooses which of Overview and Workspace a project's rail
+mark opens on. Any search result — in Discover or on Home — has **Project ▾**,
+which adds the paper to one or several projects and sets its role there, and
+Discover saves to the project open beside it.
+
+Underneath, a project is a collection with a project record on it, so its
+papers are the collection's: a paper in two projects is in two collections,
+a collection can be turned into a project (and back), and Drive keeps a
+project in `library.json` the way it keeps any collection.
+
 ### Removing a paper
 
 A removed paper waits in **Junk**, at the bottom of the side pane, with its

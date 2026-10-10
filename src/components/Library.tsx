@@ -5,7 +5,8 @@ import { coverFor } from '../lib/libraryLook';
 import type { View } from '../types.view';
 import type { Paper } from '../types';
 import { hoverPaper, useNoteCounts } from '../lib/notes';
-import { CheckIcon, ChevronDownIcon, ClockIcon, CloseIcon, InboxIcon, NoteIcon, PlusIcon, StackIcon, TrashIcon } from './icons';
+import { CheckIcon, ChevronDownIcon, ClockIcon, CloseIcon, GridIcon, InboxIcon, NoteIcon, PlusIcon, StackIcon, TrashIcon } from './icons';
+import { plainCollections, projectsOf } from '../lib/projects';
 import RemovePaperDialog from './RemovePaperDialog';
 import { PAPERS_MIME, ProgressRing, carriesPapers, draggedPapers } from './LibraryBits';
 
@@ -28,6 +29,7 @@ const yearOf = (paper: Paper) => /^\d{4}/.exec(paper.published || '')?.[0];
 
 export default function Library({ view, activePaperId, onSelect, onOpenPaper, onClose }: Props) {
   const { papers, collections, createCollection, junk, setPaperCollections, setReadingStatus } = useStore();
+  const projects = useMemo(() => projectsOf(collections), [collections]);
   const noteCounts = useNoteCounts();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -110,8 +112,9 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
 
   const navItem = (key: string, next: View, icon: ReactNode, label: string, count: number, hint?: string) => (
     <button
+      key={key}
       type="button"
-      className={`nav-item${(next.kind === 'collection' ? collectionId === next.id : view.kind === next.kind) ? ' is-active' : ''}${over === key ? ' is-drop' : ''}`}
+      className={`nav-item${(next.kind === 'collection' ? collectionId === next.id : next.kind === 'project' ? view.kind === 'project' && view.id === next.id : view.kind === next.kind) ? ' is-active' : ''}${over === key ? ' is-drop' : ''}`}
       onClick={() => select(next)}
       title={hint}
       {...(key === 'all' ? {} : dropProps(key))}
@@ -136,6 +139,29 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
         {navItem('finished', { kind: 'finished' }, <CheckIcon size={16} />, 'Finished', counts.finished, 'Drop papers here to mark them as finished')}
         {navItem('unsorted', { kind: 'unsorted' }, <StackIcon size={16} />, 'Unsorted', unsorted, 'Drop papers here to take them out of every collection')}
       </nav>
+
+      {projects.length ? (
+        <>
+          <div className="library-section-head">
+            <span className="eyebrow">Projects</span>
+            <button type="button" className="icon-btn sm" onClick={() => select({ kind: 'projects' })} aria-label="Every project" title="Every project, side by side">
+              <GridIcon size={14} />
+            </button>
+          </div>
+          <div className="library-nav">
+            {projects.map((item) =>
+              navItem(
+                `collection:${item.id}`,
+                { kind: 'project', id: item.id },
+                <span className="swatch-dot is-project" style={{ background: item.color }} />,
+                item.name,
+                papers.filter((paper) => paper.collectionIds.includes(item.id)).length,
+                `Open the project. Drop papers here to add them to ${item.name}`,
+              ),
+            )}
+          </div>
+        </>
+      ) : null}
 
       <div className="library-section-head">
         <span className="eyebrow">Collections</span>
@@ -168,7 +194,7 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
           </form>
         ) : null}
 
-        {collections.map((item) =>
+        {plainCollections(collections).map((item) =>
           navItem(
             `collection:${item.id}`,
             { kind: 'collection', id: item.id },
