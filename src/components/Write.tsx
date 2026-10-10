@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import { jupyterDelete, jupyterList, jupyterMkdir, jupyterRead, jupyterRename, jupyterWrite, jupyterWriteBase64 } from '../lib/colab';
-import { PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEX_COMPILERS, applyTemplate, chooseFolder, clonePaper, compilePaper, deleteTemplate, installTectonic, isNewer, linkFolder, listTemplates, paperEngines, paperRemote, saveTemplate, syncPaper, tokenKnown, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
+import { PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEX_COMPILERS, applyTemplate, chooseFolder, clonePaper, compilePaper, deleteTemplate, forgetOverleafToken, installTectonic, isNewer, linkFolder, listTemplates, paperEngines, paperRemote, saveTemplate, syncPaper, tokenKnown, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
 import { bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, withEntry } from '../lib/overleaf';
 import { complete as completeLatex } from '../lib/latexComplete';
 import { openPdf } from '../lib/pdfReflow';
@@ -83,7 +83,12 @@ export default function WritePage({ project, onView }: { project: Project; onVie
           <h2>Write it on this computer</h2>
           <p>The Write tab keeps the paper in a folder on your computer, compiles it there and keeps it in step with Overleaf — your coauthors’ edits come in, yours go out. That takes the Companion, connected once here; after that this tab finds it by itself.</p>
           {here.why === 'old' ? <p className="wr-bad">{here.error}</p> : null}
-          {overleafGitUrl(link?.url) ? <EarlyToken /> : null}
+          {overleafGitUrl(link?.url) ? (
+            <>
+              <EarlyToken />
+              <ForgetToken />
+            </>
+          ) : null}
           {link ? (
             <div className="wr-row">
               <OpenOverleaf project={project} view="beside" primary={false} />
@@ -136,6 +141,57 @@ function EarlyToken() {
         </li>
       </ol>
     </div>
+  );
+}
+
+/**
+ * Where the Overleaf Git token is kept on this computer, and how to take it
+ * off: a button when the Companion is here, and the steps by hand either way.
+ */
+function ForgetToken({ server, open = false, onForgotten }: { server?: Here['server']; open?: boolean; onForgotten?: () => void }) {
+  const [said, setSaid] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const windows = typeof navigator !== 'undefined' && /Win/i.test(navigator.platform || navigator.userAgent);
+  const file = windows ? '%USERPROFILE%\\.reader-companion\\config.json' : '~/.reader-companion/config.json';
+  return (
+    <details className="wr-forget" open={open}>
+      <summary>Remove the Overleaf token from this computer</summary>
+      <p>
+        The Companion keeps it in <code>{file}</code>, under <code>git_tokens</code>, readable only by your user account. The paper’s folder doesn’t hold it: Git is handed it for each sync and keeps nothing.
+      </p>
+      {server ? (
+        <p className="wr-row">
+          <button
+            type="button"
+            className="btn sm"
+            disabled={busy}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const done = await forgetOverleafToken(server);
+                setSaid(done.forgotten ? 'Removed from this computer. The next sync asks for a token again.' : 'There was no Overleaf token on this computer.');
+                onForgotten?.();
+              } catch (error) {
+                setSaid(error instanceof Error ? error.message : String(error));
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? 'Removing…' : 'Remove it now'}
+          </button>
+          {said ? <span className="wr-quiet">{said}</span> : null}
+        </p>
+      ) : null}
+      <ol>
+        <li>
+          {server ? 'Or by hand: open' : 'Open'} <code>{file}</code> in a text editor{windows ? '' : <> (on a Mac: <code>open -e ~/.reader-companion/config.json</code> in Terminal)</>}, delete the <code>"git_tokens"</code> entry, and save.
+        </li>
+        <li>
+          To make the token useless everywhere — on this computer and any other — delete it in Overleaf: Account Settings → Git integration.
+        </li>
+      </ol>
+    </details>
   );
 }
 
@@ -384,6 +440,7 @@ function WriteSetUp({ project, here }: { project: Project; here: Here }) {
                 </button>
               </p>
             ) : null}
+            {known ? <ForgetToken server={here.server} onForgotten={() => setKnown(false)} /> : null}
             {askToken ? (
               <label className="wr-field">
                 <span>Overleaf Git token</span>
@@ -520,6 +577,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
   const [drawer, setDrawer] = useState(true);
   const typedAt = useRef(0);
   const timers = useRef<{ save?: number; compile?: number; sync?: number }>({});
+  const [tokenShown, setTokenShown] = useState(false);
   const git = folder.sync === 'git';
   const at = (relative: string) => `${folder.path}/${relative}`;
 
@@ -1122,8 +1180,18 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
           <span>{compiling ? 'Compiling…' : 'Not compiled yet'}</span>
         )}
         <span className="wr-sp" />
+        {git ? (
+          <button type="button" className="link-btn" aria-expanded={tokenShown} onClick={() => setTokenShown(!tokenShown)} title="The Overleaf Git token on this computer: where it is, and how to remove it">
+            Overleaf token
+          </button>
+        ) : null}
         <OpenOverleaf project={project} view="beside" primary={false} compact />
       </footer>
+      {tokenShown ? (
+        <div className="wr-sync-banner">
+          <ForgetToken server={server} open onForgotten={() => setNeedToken(true)} />
+        </div>
+      ) : null}
       {syncError || needToken || (synced?.conflicts.length ?? 0) > 0 ? (
         <div className="wr-sync-banner">
           {synced?.conflicts.length ? (
