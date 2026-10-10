@@ -108,6 +108,16 @@ export function typeInTerminal(sessionId: string, text: string): void {
   else waiting.set(sessionId, [...(waiting.get(sessionId) ?? []), text]);
 }
 
+/** A terminal of another kind (KernelTerminal) takes what the page types into `sessionId`, as this one does; the returned function lets go. */
+export function registerTerminal(sessionId: string, type: (text: string) => void): () => void {
+  typers.set(sessionId, type);
+  for (const text of waiting.get(sessionId) ?? []) type(text);
+  waiting.delete(sessionId);
+  return () => {
+    if (typers.get(sessionId) === type) typers.delete(sessionId);
+  };
+}
+
 export default function Terminal({ server, cwd, sessionId, label }: { server: JupyterServer; cwd: string; sessionId: string; label: string }) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<'starting' | 'live' | 'reconnecting' | 'closed' | 'failed'>('starting');

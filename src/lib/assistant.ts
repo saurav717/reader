@@ -549,7 +549,7 @@ const storedKey = (provider: Provider) => {
     return '';
   }
 };
-const keyFor = (provider: Provider) => (PROVIDERS[provider].viaProxy ? '' : memKeys[provider] || storedKey(provider));
+export const keyFor = (provider: Provider) => (PROVIDERS[provider].viaProxy ? '' : memKeys[provider] || storedKey(provider));
 /** Which providers have a key of this browser's own. */
 const ownKeys = () => Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, Boolean(keyFor(provider))])) as Record<Provider, boolean>;
 /** Whether each provider can answer from here: a key of this browser's own, or the site's, on a proxy ready to ask with it. */

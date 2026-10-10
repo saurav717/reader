@@ -17,6 +17,7 @@ import type { SDK } from './assistant';
 import { explainError, modelSpec, PROVIDERS, sdk, streamModel, tag } from './assistant';
 import type { Message, SystemBlock } from './assistant';
 import type { FileHost } from './playground';
+import { readMeta, writeMeta } from './playground';
 
 const MAX_TOKENS = 32000;
 /** How many times it may ask for files before it has to answer. */
@@ -220,6 +221,7 @@ export interface AgentChat {
  * request carries the conversation itself.
  */
 export const AGENT_FILE = '.reader/agent.json';
+const AGENT_NAME = 'agent.json';
 const CHATS_KEPT = 20;
 /** The answers whose files' text is kept, for Undo: the newest few; older ones keep their paths and counts. */
 const UNDOABLE_KEPT = 6;
@@ -304,7 +306,7 @@ export async function loadAgentChats(projectId: string, host: FileHost) {
   const here = chats.get(projectId);
   if (here?.loaded || isAgentRunning(projectId)) return;
   try {
-    const saved = parseAgentFile(await host.read(AGENT_FILE).catch((error) => (/not found|404/i.test(String(error)) ? null : Promise.reject(error))));
+    const saved = parseAgentFile(await readMeta(host, AGENT_NAME));
     const now = chats.get(projectId);
     const all = mergeChats(saved, now?.turns.length ? [currentChat(now), ...now.history] : now?.history ?? []);
     const open = now?.turns.length ? all.find((chat) => chat.id === now.id) ?? currentChat(now) : all[0];
@@ -319,10 +321,10 @@ export async function saveAgentChats(projectId: string, host: FileHost) {
   const chat = chats.get(projectId);
   if (!chat) return;
   try {
-    const there = parseAgentFile(await host.read(AGENT_FILE).catch(() => null));
+    const there = parseAgentFile(await readMeta(host, AGENT_NAME));
     const all = mergeChats(there, [currentChat(chat), ...chat.history]).map(slimChat);
     const body: AgentFile = { generator: 'reader', version: 1, chats: all };
-    await host.write(AGENT_FILE, `${JSON.stringify(body, null, 1)}\n`);
+    await writeMeta(host, AGENT_NAME, `${JSON.stringify(body, null, 1)}\n`);
     if (chat.problem) update(projectId, { problem: undefined });
   } catch (error) {
     update(projectId, { problem: `This conversation isn’t saved: ${error instanceof Error ? error.message : String(error)}` });
