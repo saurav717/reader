@@ -9,7 +9,12 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
-import { createPlayground, loadPlaygrounds, usePlaygrounds } from '../lib/playground';
+import { createPlayground, loadPlaygrounds, usePlaygrounds, useServers } from '../lib/playground';
+import { colabAvailable } from '../lib/colab';
+import { hasProxy } from '../lib/api';
+
+/** Asks the app to open Settings, from a page that has no handle on it. */
+export const OPEN_SETTINGS = 'reader:open-settings';
 import {
   ROLES,
   byRole,
@@ -32,6 +37,7 @@ import { authorLine } from '../lib/libraryLook';
 import { COLLECTION_COLORS, type Paper, type PaperRef, type PaperRole, type ProjectInfo } from '../types';
 import type { View } from '../types.view';
 import Playground, { ComputeTag, WhereDialog } from './Playground';
+import PaperWindow from './PaperWindow';
 import Reader from './Reader';
 import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, CloseIcon, CodeIcon, GridIcon, PlusIcon, TrashIcon } from './icons';
 
@@ -683,9 +689,12 @@ function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; 
     }
   });
   const shown = mine.find((paper) => paper.id === paperId) ?? continueWith(project, papers) ?? mine[0];
-  const [layout, setLayoutState] = useState<WsLayout>(() => readWs(WS_LAYOUT, ['paper', 'both', 'code'] as const, 'both'));
+  // Full code is where a project's work is done: the papers are a strip above it, a card each, and a window over it.
+  const [layout, setLayoutState] = useState<WsLayout>(() => readWs(WS_LAYOUT, ['paper', 'both', 'code'] as const, 'code'));
+  const [floating, setFloating] = useState<string | null>(null);
   const setLayout = (next: WsLayout) => {
     setLayoutState(next);
+    if (next !== 'code') setFloating(null);
     try {
       localStorage.setItem(WS_LAYOUT, next);
     } catch {
@@ -744,33 +753,47 @@ function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; 
   const pick = (id: string) => {
     setPaperId(id);
     rememberWorkspacePaper(project.id, id);
-    if (layout === 'code') setLayout('both');
   };
+  const floatPaper = mine.find((paper) => paper.id === floating);
   const link = (id: string | undefined) => void updateCollection(project.id, (collection) => ({ project: { ...project.project, ...(collection.project ?? {}), playgroundId: id } }));
   const showPaper = layout !== 'code';
   const showCode = layout !== 'paper';
+  const fullCode = layout === 'code';
 
   return (
     <div className="pj-ws" style={{ '--pj': project.color } as CSSProperties}>
       <div className="pj-ws-bar">
-        <button type="button" className="icon-btn" aria-pressed={treeOpen} aria-label="The project’s papers" title="The project’s papers" onClick={() => setTreeOpen(!treeOpen)}>
-          <ArrowLeftIcon size={15} style={{ transform: treeOpen ? undefined : 'rotate(180deg)' }} />
-        </button>
+        {fullCode ? null : (
+          <button type="button" className="icon-btn" aria-pressed={treeOpen} aria-label="The project’s papers" title="The project’s papers" onClick={() => setTreeOpen(!treeOpen)}>
+            <ArrowLeftIcon size={15} style={{ transform: treeOpen ? undefined : 'rotate(180deg)' }} />
+          </button>
+        )}
         <div className="segmented sm" role="group" aria-label="What the workspace shows">
-          <button type="button" aria-pressed={layout === 'paper'} onClick={() => setLayout('paper')}>
+          <button type="button" aria-pressed={layout === 'code'} onClick={() => setLayout('code')} title="The code fills the workspace; the papers are a strip above it">
+            Full code
+          </button>
+          <button type="button" className="pj-both" aria-pressed={layout === 'both'} onClick={() => setLayout('both')} title="A paper and the code side by side">
+            Side by side
+          </button>
+          <button type="button" aria-pressed={layout === 'paper'} onClick={() => setLayout('paper')} title="Just the paper">
             Paper
           </button>
-          <button type="button" className="pj-both" aria-pressed={layout === 'both'} onClick={() => setLayout('both')}>
-            Paper + code
-          </button>
-          <button type="button" aria-pressed={layout === 'code'} onClick={() => setLayout('code')}>
-            Code
-          </button>
         </div>
-        {shown ? <span className="pj-ws-now">{shown.title}</span> : null}
+        {!fullCode && shown ? <span className="pj-ws-now">{shown.title}</span> : null}
+      {fullCode ? (
+        <PaperStrip
+          project={project}
+          papers={mine}
+          floating={floating}
+          onFloat={(id) => (pick(id), setFloating(id))}
+          onBeside={(id) => (pick(id), setLayout('both'))}
+          onOpenPaper={onOpenPaper}
+          onAdd={() => onView({ kind: 'project', id: project.id })}
+        />
+      ) : null}
       </div>
       <div className="pj-ws-body">
-        {treeOpen ? (
+        {treeOpen && !fullCode ? (
           <aside className="pj-tree" aria-label="The project">
             <div className="pj-tree-head">
               <span className="pj-dot" style={{ background: project.color }} />
@@ -862,20 +885,307 @@ function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; 
             {code ? (
               <Playground id={code.id} onOpen={(id) => onView(id ? { kind: 'playground', id } : { kind: 'playground' })} onOpenPaper={onOpenPaper} />
             ) : (
-              <SetUpCode project={project} papers={mine} missing={Boolean(codeId && !code)} onLinked={link} />
+              <SetUpCode project={project} papers={mine} missing={Boolean(codeId && !code)} onLinked={link} onView={onView} />
             )}
           </div>
         ) : null}
         </div>
+      </div>
+      {fullCode && floatPaper ? (
+        <PaperWindow
+          paper={floatPaper}
+          papers={mine}
+          onPick={(id) => (pick(id), setFloating(id))}
+          onDock={() => (pick(floatPaper.id), setLayout('both'))}
+          onOpenFull={() => onOpenPaper(floatPaper.id)}
+          onClose={() => setFloating(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Above the code in full-code mode: the project's papers, one chip each in
+ * the colour of its role. A chip opens the paper's card — what it is, how far
+ * in you are, its abstract and what you highlighted in it — which is most of
+ * what the code needs from a paper, and is there even when its PDF cannot be
+ * fetched. From the card the paper floats over the code, goes beside it, or
+ * opens on its own page.
+ */
+function PaperStrip({
+  project,
+  papers,
+  floating,
+  onFloat,
+  onBeside,
+  onOpenPaper,
+  onAdd,
+}: {
+  project: Project;
+  papers: Paper[];
+  floating: string | null;
+  onFloat: (id: string) => void;
+  onBeside: (id: string) => void;
+  onOpenPaper: (id: string) => void;
+  onAdd: () => void;
+}) {
+  const { highlights } = useStore();
+  const [card, setCard] = useState<string | null>(null);
+  const [finding, setFinding] = useState(false);
+  const [query, setQuery] = useState('');
+  const strip = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!card && !finding) return;
+    const away = (event: PointerEvent) => {
+      if (!strip.current?.contains(event.target as Node)) (setCard(null), setFinding(false));
+    };
+    const esc = (event: KeyboardEvent) => event.key === 'Escape' && (setCard(null), setFinding(false));
+    window.addEventListener('pointerdown', away);
+    window.addEventListener('keydown', esc);
+    return () => {
+      window.removeEventListener('pointerdown', away);
+      window.removeEventListener('keydown', esc);
+    };
+  }, [card, finding]);
+  const roleOrder = (paper: Paper) => {
+    const at = ROLES.findIndex((role) => role.id === project.project.roles[paper.id]);
+    return at < 0 ? ROLES.length : at;
+  };
+  // The papers opened most recently, newest first, then the core ones not yet opened; the rest are one search away under "All N".
+  const recent = (paper: Paper) => paper.lastOpenedAt ?? '';
+  const ordered = papers
+    .slice()
+    .sort((a, b) => recent(b).localeCompare(recent(a)) || roleOrder(a) - roleOrder(b))
+    .slice(0, STRIP_MAX);
+  if (floating && !ordered.some((paper) => paper.id === floating)) {
+    const extra = papers.find((paper) => paper.id === floating);
+    if (extra) ordered.push(extra);
+  }
+  const open = papers.find((paper) => paper.id === card);
+  const todo = project.project.todos.find((item) => !item.done);
+  return (
+    <div className="pj-strip" ref={strip}>
+      <span className="pj-strip-label" title="The papers opened most recently">Recent</span>
+      <div className="pj-strip-chips">
+        {ordered.map((paper) => {
+          const role = project.project.roles[paper.id];
+          const state = readingState(paper);
+          return (
+            <button
+              key={paper.id}
+              type="button"
+              className={`pj-strip-chip role-${role ?? 'none'}${card === paper.id ? ' is-open' : ''}${floating === paper.id ? ' is-floating' : ''}`}
+              aria-expanded={card === paper.id}
+              title={`${roleLabel(role)} · ${paper.title}`}
+              onClick={() => setCard(card === paper.id ? null : paper.id)}
+            >
+              <span className="pj-strip-role">{roleLabel(role).slice(0, 1)}</span>
+              <span className="pj-strip-title">{shortTitle(paper.title)}</span>
+              {state === 'reading' ? <span className="pj-strip-pct">{Math.round(paper.progress * 100)}%</span> : state === 'done' ? <CheckIcon size={11} /> : null}
+            </button>
+          );
+        })}
+        {!papers.length ? (
+          <button type="button" className="link-btn" onClick={onAdd}>
+            No papers yet — add some
+          </button>
+        ) : null}
+      </div>
+      {papers.length ? (
+        <button type="button" className={`pj-strip-all${finding ? ' is-open' : ''}`} aria-expanded={finding} onClick={() => (setCard(null), setFinding(!finding))} title="Every paper in the project, searchable">
+          All {papers.length} <ChevronDownIcon size={12} />
+        </button>
+      ) : null}
+      {todo ? (
+        <span className="pj-strip-todo" title="Next on the project’s to-do list">
+          Next: {todo.text}
+        </span>
+      ) : null}
+      {finding ? (
+        <PaperFinder
+          project={project}
+          papers={papers}
+          query={query}
+          onQuery={setQuery}
+          marks={highlights}
+          onPick={(id) => (setFinding(false), setCard(id))}
+        />
+      ) : null}
+      {open ? (
+        <PaperCardPop
+          paper={open}
+          role={project.project.roles[open.id]}
+          marks={highlights.filter((item) => item.paperId === open.id && !item.orphaned)}
+          floating={floating === open.id}
+          onFloat={() => (onFloat(open.id), setCard(null))}
+          onBeside={() => onBeside(open.id)}
+          onOpen={() => onOpenPaper(open.id)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** How many papers the strip shows before the rest go behind "All N". */
+const STRIP_MAX = 6;
+
+/**
+ * Every paper in the project, behind "All N" on the strip: searched by title,
+ * author, abstract and what you highlighted or noted in it, and grouped by role.
+ */
+function PaperFinder({
+  project,
+  papers,
+  query,
+  onQuery,
+  marks,
+  onPick,
+}: {
+  project: Project;
+  papers: Paper[];
+  query: string;
+  onQuery: (query: string) => void;
+  marks: { paperId: string; exact: string; note?: string }[];
+  onPick: (id: string) => void;
+}) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = (paper: Paper) => {
+    if (!words.length) return { ok: true, why: '' };
+    const own = `${paper.title} ${paper.authors.join(' ')} ${paper.abstract}`.toLowerCase();
+    const kept = marks.filter((mark) => mark.paperId === paper.id);
+    const keptText = kept.map((mark) => `${mark.exact} ${mark.note ?? ''}`).join(' ').toLowerCase();
+    const ok = words.every((word) => own.includes(word) || keptText.includes(word));
+    const hit = ok && !words.every((word) => own.includes(word)) ? kept.find((mark) => words.some((word) => `${mark.exact} ${mark.note ?? ''}`.toLowerCase().includes(word))) : undefined;
+    return { ok, why: hit ? `“${(hit.note || hit.exact).slice(0, 90)}${(hit.note || hit.exact).length > 90 ? '…' : ''}”` : '' };
+  };
+  const groups = byRole(project, papers)
+    .map((group) => ({ ...group, rows: group.papers.map((paper) => ({ paper, ...matches(paper) })).filter((row) => row.ok) }))
+    .filter((group) => group.rows.length);
+  const first = groups[0]?.rows[0]?.paper;
+  return (
+    <div className="pj-pop pj-find" role="dialog" aria-label="The project’s papers">
+      <input
+        autoFocus
+        className="pj-find-input"
+        value={query}
+        placeholder={`Search ${papers.length} papers — titles, authors, abstracts, your highlights and notes`}
+        onChange={(event) => onQuery(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && first) onPick(first.id);
+        }}
+      />
+      <div className="pj-pop-body">
+        {groups.map((group) => (
+          <div key={group.label}>
+            <span className="pj-find-role">
+              {group.label} · {group.rows.length}
+            </span>
+            {group.rows.map(({ paper, why }) => {
+              const state = readingState(paper);
+              const count = marks.filter((mark) => mark.paperId === paper.id).length;
+              return (
+                <button key={paper.id} type="button" className="pj-find-row" onClick={() => onPick(paper.id)}>
+                  <span className="pj-find-title">{paper.title}</span>
+                  <span className="pj-find-meta">
+                    {authorLine(paper.authors, 1)}
+                    {paper.published ? ` · ${year(paper.published)}` : ''}
+                    {state === 'reading' ? ` · ${Math.round(paper.progress * 100)}%` : state === 'done' ? ' · read' : ''}
+                    {count ? ` · ${count} highlights` : ''}
+                  </span>
+                  {why ? <span className="pj-find-why">{why}</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+        {!groups.length ? <p className="pj-sub">Nothing in this project matches “{query}”.</p> : null}
+      </div>
+    </div>
+  );
+}
+
+/** A paper's title cut to what fits a chip: up to its colon, else its first words. */
+const shortTitle = (title: string) => {
+  const head = title.split(/:\s/)[0];
+  return head.length <= 34 ? head : `${head.slice(0, 32).replace(/\s+\S*$/, '')}…`;
+};
+
+function PaperCardPop({
+  paper,
+  role,
+  marks,
+  floating,
+  onFloat,
+  onBeside,
+  onOpen,
+}: {
+  paper: Paper;
+  role: PaperRole | undefined;
+  marks: { id: string; exact: string; note?: string; color: string; section?: string }[];
+  floating: boolean;
+  onFloat: () => void;
+  onBeside: () => void;
+  onOpen: () => void;
+}) {
+  const state = readingState(paper);
+  return (
+    <div className="pj-pop" role="dialog" aria-label={paper.title}>
+      <span className="eyebrow pj-tint">
+        {roleLabel(role)} · {state === 'reading' ? `${Math.round(paper.progress * 100)}% read` : state}
+      </span>
+      <h3>{paper.title}</h3>
+      <p className="pj-sub">
+        {authorLine(paper.authors, 4)}
+        {paper.published ? ` · ${year(paper.published)}` : ''}
+        {paper.venue ? ` · ${paper.venue}` : ''}
+        {paper.arxivId ? ` · arXiv:${paper.arxivId}` : ''}
+      </p>
+      <div className="pj-pop-body">
+        {paper.abstract ? <p className="pj-pop-abstract">{paper.abstract}</p> : null}
+        {marks.length ? (
+          <>
+            <span className="eyebrow">Your highlights · {marks.length}</span>
+            <ul className="pj-pop-marks">
+              {marks.slice(0, 8).map((mark) => (
+                <li key={mark.id} style={{ borderColor: `var(--ul-${mark.color})` }}>
+                  <q>{mark.exact.length > 220 ? `${mark.exact.slice(0, 218)}…` : mark.exact}</q>
+                  {mark.note ? <span className="pj-pop-note">{mark.note}</span> : null}
+                  {mark.section ? <span className="pj-pop-sect">{mark.section}</span> : null}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : !paper.abstract ? (
+          <p className="pj-sub">Nothing kept from it yet: open it, and what you highlight shows here.</p>
+        ) : null}
+      </div>
+      <div className="pj-row pj-pop-actions">
+        <button type="button" className="btn primary sm" onClick={onFloat} disabled={floating}>
+          {floating ? 'Floating over the code' : 'Float over the code'}
+        </button>
+        <button type="button" className="btn sm" onClick={onBeside}>
+          Side by side
+        </button>
+        <button type="button" className="btn ghost sm" onClick={onOpen}>
+          Open its page
+        </button>
       </div>
     </div>
   );
 }
 
 /** In the code's place while the project has none: start a project of files, or link a playground made before. */
-function SetUpCode({ project, papers, missing, onLinked }: { project: Project; papers: Paper[]; missing: boolean; onLinked: (id: string) => void }) {
+function SetUpCode({ project, papers, missing, onLinked, onView }: { project: Project; papers: Paper[]; missing: boolean; onLinked: (id: string) => void; onView: (view: View) => void }) {
   const playgrounds = usePlaygrounds();
+  const servers = useServers();
+  const { settings, driveConnected } = useStore();
   const [where, setWhere] = useState(false);
+  // What each place to run needs, said before the choice rather than as a greyed-out button after it.
+  const colabOk = colabAvailable(settings.googleClientId);
+  const colabNeeds = [!settings.googleClientId.trim() ? 'a Google client ID' : '', !hasProxy() ? 'the paper proxy' : ''].filter(Boolean);
+  const computers = servers.filter((server) => server.where === 'pc' || server.companionId);
+  const ready = colabOk || computers.length > 0;
   const cites = papers.slice(0, 12).map((paper) => ({ paperId: paper.id, title: paper.title }));
   const readme = [
     `# ${project.name}`,
@@ -898,10 +1208,39 @@ function SetUpCode({ project, papers, missing, onLinked }: { project: Project; p
           ? 'The playground this project was linked to is not in this browser or your Drive. Start a new one, or link another.'
           : 'A folder of files, an editor, a console and an agent that knows the project’s papers — the same as a playground, kept beside the papers you read for it.'}
       </p>
+      <ul className="pj-ready" aria-label="Where it can run">
+        <li className={colabOk ? 'is-ok' : 'is-missing'}>
+          <b>Colab</b>
+          {colabOk ? (
+            <span>ready — CPU and a T4 on the free tier{driveConnected ? ', the files kept in your Drive' : ''}</span>
+          ) : (
+            <span>
+              needs {colabNeeds.join(' and ') || 'a Google sign-in'} —{' '}
+              <button type="button" className="link-btn" onClick={() => window.dispatchEvent(new Event(OPEN_SETTINGS))}>
+                set it up in Settings
+              </button>
+            </span>
+          )}
+        </li>
+        <li className={computers.length ? 'is-ok' : 'is-missing'}>
+          <b>Your computer</b>
+          {computers.length ? (
+            <span>set up — {computers.map((server) => server.name || 'this computer').join(', ')}</span>
+          ) : (
+            <span>
+              needs the Reader app, one command —{' '}
+              <button type="button" className="link-btn" onClick={() => onView({ kind: 'playground' })}>
+                connect this computer
+              </button>
+            </span>
+          )}
+        </li>
+      </ul>
       <div className="pj-row">
-        <button type="button" className="btn primary" onClick={() => setWhere(true)}>
+        <button type="button" className="btn primary" onClick={() => setWhere(true)} title={ready ? undefined : 'Nowhere to run it yet — see above'}>
           <CodeIcon size={14} /> Start the project’s code
         </button>
+        {!ready ? <span className="pj-hint">You can look at the choices now; creating it waits for one of the two above.</span> : null}
       </div>
       {playgrounds.length ? (
         <div className="pj-link-list">

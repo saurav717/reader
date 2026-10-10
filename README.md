@@ -1002,10 +1002,17 @@ top of every project page goes between three views:
   and the papers it shares with the others.
 - **Overview** — one project: the paper to carry on with, its code, its
   to-do list, and its papers grouped by role.
-- **Workspace** — a paper of the project beside the project's code (a
-  playground, linked or started from there), the project's papers down the
-  side. *Paper*, *Paper + code* and *Code* choose what it shows; the line
-  between the two can be dragged.
+- **Workspace** — the project's code (a playground, linked or started from
+  there) with its papers at hand. *Full code* gives the code the whole page:
+  the papers opened most recently are a strip above it, with **All N** to
+  search every paper in the project — titles, authors, abstracts, and your
+  own highlights and notes. A paper's chip opens its card (abstract and
+  highlights, readable even when its PDF can't be fetched); from there it
+  floats over the code in a window you can move, resize and fade, or goes
+  side by side. *Side by side* puts a paper and the code next to each other
+  (the line between them can be dragged), and *Paper* shows just the paper.
+  Where nothing can run the code yet, the workspace says which of Colab and
+  your computer needs what, with a link to set it up.
 
 Settings → Projects chooses which of Overview and Workspace a project's rail
 mark opens on. Any search result — in Discover or on Home — has **Project ▾**,

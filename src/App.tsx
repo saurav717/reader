@@ -16,7 +16,7 @@ import { notebookFor, runKey } from './lib/notebook';
 import { cellsBlock } from './lib/notebookAsk';
 import { explainDrive } from './lib/explainDrive';
 import CollectionView from './components/CollectionView';
-import ProjectsPage, { RailProjects, projectView } from './components/Projects';
+import ProjectsPage, { OPEN_SETTINGS, RailProjects, projectView } from './components/Projects';
 import JunkView from './components/JunkView';
 import CommandPalette from './components/CommandPalette';
 import Discover from './components/Discover';
@@ -509,6 +509,12 @@ export default function App() {
           : lists[view.kind];
     document.title = name ? `${name} · Reader` : 'Reader';
   }, [view, usageOpen, papers, collections]);
+  // Settings asked for from a page that has no handle on it (a project's code, needing Colab set up).
+  useEffect(() => {
+    const onSettings = () => setSettingsOpen(true);
+    window.addEventListener(OPEN_SETTINGS, onSettings);
+    return () => window.removeEventListener(OPEN_SETTINGS, onSettings);
+  }, []);
   // A playground asked for from elsewhere — a paper's notebook copied into one: Explain steps aside for it.
   useEffect(() => {
     const onOpen = (event: Event) => {
