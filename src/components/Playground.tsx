@@ -48,6 +48,9 @@ import { CloseIcon, CodeIcon, DriveMark, TrashIcon } from './icons';
 import CopyBlock from './CopyBlock';
 import PlaygroundWorkspace from './PlaygroundWorkspace';
 import { RunRowAction, RunRowState, RunningChooser, RunningShelf } from './PlaygroundRuns';
+import { AwayChooser, homeGroupOf } from './PlaygroundAway';
+import { snapshotPlan } from '../lib/away';
+import type { HomeGroup } from './PlaygroundAway';
 import { useRunBoard } from '../lib/playgroundRuns';
 import VsCodeExtension, { isCompanion } from './VsCodeExtension';
 
@@ -179,17 +182,20 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
   const { papers, settings } = useStore();
   const servers = useServers();
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [asking, setAsking] = useState<'paper' | 'repo' | 'model' | null>(null);
+  const [asking, setAsking] = useState<'paper' | 'repo' | 'model' | 'open' | null>(null);
   const [answer, setAnswer] = useState('');
   const [problem, setProblem] = useState<string | null>(null);
   const [addingServer, setAddingServer] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const filePick = useRef<HTMLInputElement>(null);
+  const folderPick = useRef<HTMLInputElement>(null);
   const sorted = useMemo(() => [...list].sort((a, b) => b.updated - a.updated), [list]);
   // What each is doing — running, idle with its variables, how its last run ended — when the shelf is chosen.
   const runs = useRunBoard(list);
   const runById = useMemo(() => new Map(runs.map((run) => [run.id, run])), [runs]);
   const shows = settings.runningShows;
+  const awayShows = settings.awayShows;
+  const [choosingAway, setChoosingAway] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const colabOk = colabAvailable(settings.googleClientId);
   // The signed-in account's computers, from any browser it signs in to: now, and at each sign-in.
@@ -273,6 +279,20 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
     }
   };
 
+  /** A folder of code, picked from this computer: its code and small text files become the project's, wherever the next step keeps them. */
+  const fromFolder = async (list: FileList | null) => {
+    const picked = list ? [...list] : [];
+    if (!picked.length) return;
+    const name = picked[0].webkitRelativePath.split('/')[0] || 'folder';
+    const byPath = new Map(picked.map((file) => [file.webkitRelativePath.split('/').slice(1).join('/'), file]));
+    const plan = snapshotPlan([...byPath].map(([path, file]) => ({ path, size: file.size })));
+    if (!plan.take.length) return setProblem(`${name} has no code or text files to open${plan.left.length ? ` (only ${plan.left.slice(0, 3).join(', ')}…)` : ''}.`);
+    const files: Record<string, string> = {};
+    for (const file of plan.take) files[file.path] = await byPath.get(file.path)!.text();
+    const left = plan.left.length ? ` Left out: ${plan.left.slice(0, 6).join(', ')}${plan.left.length > 6 ? ` and ${plan.left.length - 6} more` : ''} — data, checkpoints, caches and large files.` : '';
+    begin({ title: name, kind: 'project', start: 'file', files, cells: blankCells(name), note: `${plan.take.length} ${plan.take.length === 1 ? 'file' : 'files'} from ${name} go into the project.${left}` });
+  };
+
   const matches = useMemo(() => {
     const q = answer.trim().toLowerCase();
     return papers
@@ -286,9 +306,75 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
     { key: 'paper', mark: '¶', title: 'From a paper', text: 'A paper from your library, as a project: files, an editor, a console, and an agent that has read its abstract.', go: () => (setAsking('paper'), setAnswer(''), setProblem(null)) },
     { key: 'repo', mark: '⑂', title: 'From a repository', text: 'A GitHub address — the paper’s own code, cloned onto the machine you pick.', go: () => (setAsking('repo'), setAnswer(''), setProblem(null)) },
     { key: 'model', mark: 'HF', title: 'From a model card', text: 'A Hugging Face model or dataset id: loaded, run once, ready to change.', go: () => (setAsking('model'), setAnswer(''), setProblem(null)) },
-    { key: 'file', mark: '.nb', title: 'Open a file', text: 'An .ipynb from anywhere, or a .py to start a project with.', go: () => filePick.current?.click() },
+    { key: 'open', mark: '.nb', title: 'Open a file or folder', text: 'An .ipynb or a .py — or a whole folder of code, as a project. Then pick where the code lives and where it runs.', go: () => (setAsking('open'), setProblem(null)) },
   ];
 
+  const renderRow = (p: PlaygroundRecord) => {
+    const at = reach(p);
+    const run = shows.shelf ? runById.get(p.id) : undefined;
+    // With B chosen, a playground whose code is elsewhere still opens: on a card saying where it is.
+    const closed = Boolean(at.blocked) && !awayShows.card;
+    const openLabel = at.blocked && !closed ? (awayShows.snapshot && p.snapshot ? 'Snapshot' : 'Where is it?') : run?.phase === 'idle' ? 'Resume' : run?.phase === 'ran' ? 'Results' : 'Open';
+    return (
+    <li key={p.id} className={`pg-row${at.blocked ? ' is-blocked' : ''}`}>
+      <button type="button" className="pg-row-main" onClick={() => !closed && onOpen(p.id)} disabled={closed} title={at.blocked}>
+        <b>{p.title}</b>
+        {run && run.phase !== 'never' ? <RunRowState run={run} /> : null}
+        <span>
+          {p.kind === 'project' ? 'Project' : 'Notebook'}
+          {p.cites.length ? ` · cites ${p.cites.map((c) => c.title).join(', ').slice(0, 80)}` : ''}
+        </span>
+        <span className="pg-row-where">
+          <span title="Where its code is: it stays there">
+            <i>Code</i> {at.code}
+          </span>
+          <span title="Where it ran last; change it from the machine menu in the project">
+            <i>Last ran on</i> {at.ran}
+          </span>
+          <span>
+            <i>To open it</i> {at.needs}
+          </span>
+        </span>
+        {(at.blocked && !awayShows.group) || at.warn ? <span className={`pg-row-note${at.blocked ? ' is-problem' : ''}`}>{at.blocked ?? at.warn}</span> : null}
+      </button>
+      <ComputeTag compute={p.compute} home={p.home} />
+      <span className="pg-when">{ago(run?.at && run.at > p.updated ? run.at : p.updated)}</span>
+      {confirmDelete === p.id ? (
+        <span className="pg-confirm">
+          <button type="button" className="btn sm danger" onClick={() => void deletePlayground(p.id).then(() => setConfirmDelete(null))}>
+            Delete
+          </button>
+          <button type="button" className="btn sm ghost" onClick={() => setConfirmDelete(null)}>
+            Keep
+          </button>
+        </span>
+      ) : (
+        <button type="button" className="icon-btn sm" aria-label={`Delete ${p.title}`} title="Delete this playground (its record and notebook; its files stay where they are — in Drive, or in a folder on a computer)" onClick={() => setConfirmDelete(p.id)}>
+          <TrashIcon size={15} />
+        </button>
+      )}
+      {run ? <RunRowAction run={run} /> : null}
+      <button type="button" className={`btn sm${run?.phase === 'idle' ? ' primary' : ''}`} onClick={() => onOpen(p.id)} disabled={closed} title={at.blocked}>
+        {openLabel}
+      </button>
+    </li>
+    );
+  };
+  // A · grouped by where each playground's code is, with a filter for the ones that open from here.
+  const [awayFilter, setAwayFilter] = useState<'all' | 'here' | 'away'>('all');
+  const grouped = useMemo(() => {
+    const byKey = new Map<string, HomeGroup & { items: PlaygroundRecord[] }>();
+    let here = 0;
+    for (const p of sorted) {
+      const group = homeGroupOf(p, servers, live, !filesInBrowser || filesInBrowser.has(p.id));
+      if (group.openable) here++;
+      if (awayFilter === 'here' ? !group.openable : awayFilter === 'away' ? group.openable : false) continue;
+      const known = byKey.get(group.key);
+      if (known) known.items.push(p);
+      else byKey.set(group.key, { ...group, items: [p] });
+    }
+    return { groups: [...byKey.values()].sort((a, b) => a.rank - b.rank), here };
+  }, [sorted, servers, live, filesInBrowser, awayFilter]);
   return (
     <main className="main pg-page">
       <div className="pg-scroll">
@@ -317,6 +403,22 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
               </div>
             ) : null}
           </span>
+          <span className="pr-choose-wrap">
+            <button type="button" className="pg-key pr-choose-btn" aria-expanded={choosingAway} onClick={() => setChoosingAway(!choosingAway)} title="What a playground whose code is on another computer shows">
+              Code on another computer…
+            </button>
+            {choosingAway ? (
+              <div className="pr-choose-pop" role="dialog" aria-label="What a playground whose code is on another computer shows">
+                <div className="pr-choose-pop-head">
+                  <b>Code on another computer</b>
+                  <button type="button" className="icon-btn sm" aria-label="Close" onClick={() => setChoosingAway(false)}>
+                    <CloseIcon size={14} />
+                  </button>
+                </div>
+                <AwayChooser />
+              </div>
+            ) : null}
+          </span>
         </header>
         {shows.shelf ? <RunningShelf runs={runs} onOpen={(id) => onOpen(id)} /> : null}
         <div className="pg-grid">
@@ -334,7 +436,26 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
               ))}
             </div>
             <input ref={filePick} type="file" accept=".ipynb,.py,.txt,.md,application/json" hidden onChange={(event) => void fromFile(event.target.files?.[0]).then(() => (event.target.value = ''))} />
-            {asking ? (
+            <input ref={folderPick} type="file" hidden {...{ webkitdirectory: '', directory: '' }} multiple onChange={(event) => void fromFolder(event.target.files).then(() => (event.target.value = ''))} />
+            {asking === 'open' ? (
+              <div className="pg-ask pg-open">
+                <div className="pg-open-choices">
+                  <button type="button" className="pg-open-choice" onClick={() => filePick.current?.click()}>
+                    <b>A file</b>
+                    <span>An .ipynb opens as a notebook; a .py, .md or .txt starts a project with it.</span>
+                  </button>
+                  <button type="button" className="pg-open-choice" onClick={() => folderPick.current?.click()}>
+                    <b>A folder</b>
+                    <span>Its code and small text files become a project, with the editor, console and agent. Data, checkpoints, caches and large files are left where they are.</span>
+                  </button>
+                  <button type="button" className="icon-btn sm" aria-label="Cancel" onClick={() => setAsking(null)}>
+                    <CloseIcon size={14} />
+                  </button>
+                </div>
+                <p className="pg-note">Next: where its code is kept — your Drive, a folder on a computer of yours, or this browser — and where it runs, as for any new playground.</p>
+                {problem ? <p className="pg-note is-problem">{problem}</p> : null}
+              </div>
+            ) : asking ? (
               <div className="pg-ask">
                 <form
                   onSubmit={(event) => {
@@ -399,56 +520,34 @@ function PlaygroundHome({ list, ready, onOpen }: { list: PlaygroundRecord[]; rea
                 <span className="spinner" /> Reading…
               </p>
             ) : sorted.length ? (
-              <ul className="pg-list">
-                {sorted.map((p) => {
-                  const at = reach(p);
-                  const run = shows.shelf ? runById.get(p.id) : undefined;
-                  return (
-                  <li key={p.id} className={`pg-row${at.blocked ? ' is-blocked' : ''}`}>
-                    <button type="button" className="pg-row-main" onClick={() => !at.blocked && onOpen(p.id)} disabled={Boolean(at.blocked)} title={at.blocked}>
-                      <b>{p.title}</b>
-                      {run && run.phase !== 'never' ? <RunRowState run={run} /> : null}
-                      <span>
-                        {p.kind === 'project' ? 'Project' : 'Notebook'}
-                        {p.cites.length ? ` · cites ${p.cites.map((c) => c.title).join(', ').slice(0, 80)}` : ''}
-                      </span>
-                      <span className="pg-row-where">
-                        <span title="Where its code is: it stays there">
-                          <i>Code</i> {at.code}
-                        </span>
-                        <span title="Where it ran last; change it from the machine menu in the project">
-                          <i>Last ran on</i> {at.ran}
-                        </span>
-                        <span>
-                          <i>To open it</i> {at.needs}
-                        </span>
-                      </span>
-                      {at.blocked || at.warn ? <span className={`pg-row-note${at.blocked ? ' is-problem' : ''}`}>{at.blocked ?? at.warn}</span> : null}
-                    </button>
-                    <ComputeTag compute={p.compute} home={p.home} />
-                    <span className="pg-when">{ago(run?.at && run.at > p.updated ? run.at : p.updated)}</span>
-                    {confirmDelete === p.id ? (
-                      <span className="pg-confirm">
-                        <button type="button" className="btn sm danger" onClick={() => void deletePlayground(p.id).then(() => setConfirmDelete(null))}>
-                          Delete
-                        </button>
-                        <button type="button" className="btn sm ghost" onClick={() => setConfirmDelete(null)}>
-                          Keep
-                        </button>
-                      </span>
-                    ) : (
-                      <button type="button" className="icon-btn sm" aria-label={`Delete ${p.title}`} title="Delete this playground (its record and notebook; its files stay where they are — in Drive, or in a folder on a computer)" onClick={() => setConfirmDelete(p.id)}>
-                        <TrashIcon size={15} />
+              awayShows.group ? (
+                <>
+                  <div className="away-filter segmented" role="tablist" aria-label="Which playgrounds">
+                    {(['all', 'here', 'away'] as const).map((f) => (
+                      <button key={f} type="button" role="tab" aria-selected={awayFilter === f} aria-pressed={awayFilter === f} onClick={() => setAwayFilter(f)}>
+                        {f === 'all' ? `All · ${sorted.length}` : f === 'here' ? `Open here · ${grouped.here}` : `On other computers · ${sorted.length - grouped.here}`}
                       </button>
-                    )}
-                    {run ? <RunRowAction run={run} /> : null}
-                    <button type="button" className={`btn sm${run?.phase === 'idle' ? ' primary' : ''}`} onClick={() => onOpen(p.id)} disabled={Boolean(at.blocked)} title={at.blocked}>
-                      {run?.phase === 'idle' ? 'Resume' : run?.phase === 'ran' ? 'Results' : 'Open'}
-                    </button>
-                  </li>
-                  );
-                })}
+                    ))}
+                  </div>
+                  {grouped.groups.map((group) => (
+                    <div key={group.key} className="away-group">
+                      <div className="away-group-head">
+                        <b>{group.label}</b>
+                        <span className={`away-pill is-${group.tone}`}>
+                          <i aria-hidden="true" />
+                          {group.note}
+                        </span>
+                      </div>
+                      <ul className="pg-list">{group.items.map(renderRow)}</ul>
+                    </div>
+                  ))}
+                  {!grouped.groups.length ? <p className="pg-note">{awayFilter === 'here' ? 'None of them open from this browser as it stands.' : 'All of them open from here.'}</p> : null}
+                </>
+              ) : (
+              <ul className="pg-list">
+                {sorted.map(renderRow)}
               </ul>
+              )
             ) : (
               <div className="pg-empty">
                 <CodeIcon size={20} />

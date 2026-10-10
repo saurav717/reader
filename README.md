@@ -3774,7 +3774,12 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
   they are in, and one Undo in the agent's pane puts them all back.
   The others: a GitHub repository (the clone
   waits in the console for a click), a Hugging Face model or dataset id
-  (cells that load it and run it once), or an `.ipynb` or `.py` file.
+  (cells that load it and run it once), or **a file or a folder**: an
+  `.ipynb` opens as a notebook and a `.py` starts a project, and a whole
+  folder picked from your computer becomes a project with its code and small
+  text files — data, checkpoints, caches and files over 200 KB are left out,
+  and the sheet says which. Like every start, it then asks where the code is
+  kept and where it runs.
 - **Where it runs.** The sheet that follows offers three modes. **Colab, in
   the browser** is the runtime the Explain pages use, with nothing to
   install, and its files are kept in this browser. **This PC** is a Jupyter
@@ -3785,6 +3790,36 @@ a machine to run on: your Colab, this PC, or a GPU somewhere else.
   later from the chip in the bar, and the code stays where it is.
 
 ![where should it run: the three modes, with the folder on this PC and the code on the GPU box](docs/playground-where.png)
+
+### Code on another computer
+
+A project's folder on a computer of yours is there and nowhere else, so a
+browser on another computer may not be able to open it: that computer isn't
+connected to this browser, or it is and doesn't answer. **Code on another
+computer…**, beside **Show running as…** on the Playground's home, picks what
+the Playground shows then — any of four, or none (A, B and D to start with):
+
+- **A · Grouped by computer.** The list of playgrounds is grouped by where
+  each one's code is — this computer, your Drive, this browser, each other
+  computer with whether it answers and when it was last seen — with a filter
+  for the ones that open here and the ones on other computers.
+- **B · Where the code is, in the editor's place.** Opening such a project
+  shows which computer has it, its folder, whether that computer is
+  unknown here or not answering, and what to do: connect it, try again, or
+  copy the project's link to open it there. The notebook still opens.
+- **C · A read-only snapshot, kept in Drive.** While the project is open on
+  the computer that has its code, signed in with Drive, its code and small
+  text files are copied to `Playgrounds/Snapshot-<id>` in your Drive every
+  few minutes (only the files that changed). On another computer the snapshot
+  opens read-only, saying when it was taken and what it left out. Off to
+  start with, since it writes copies of your code to Drive.
+- **D · Bring the code here.** Copy the project into a new one, in your Drive
+  or in a folder on this computer — from its folder when it answers, from its
+  snapshot when it doesn't — or move it to Drive so every computer opens it
+  (**Open everywhere…** in the project's bar). The old folder stays as it was.
+
+The pieces are `src/lib/away.ts` and `src/components/PlaygroundAway.tsx`; the
+mock-ups they started from are `docs/mockups/away-*.png`.
 
 ### Connect this computer: the Companion
 

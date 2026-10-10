@@ -11,7 +11,7 @@ import { backendLabel, shutDownScope, chooseBackend, colabAvailable, colabNow, c
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, FilesHome, Playground, SyncReport } from '../lib/playground';
-import { backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, moveFilesOutOfBrowser, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
+import { OPEN_PLAYGROUND, backendOfPlayground, blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, moveFilesOutOfBrowser, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeFolder, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
 import { AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
@@ -46,6 +46,8 @@ import { clearAgentChat } from '../lib/projectAgent';
 import { agentChatFor, listAll, loadAgentChats, subscribeAgent } from '../lib/projectAgent';
 import { implementationFor, loadImplementation, subscribeImplement } from '../lib/implement';
 import ProjectStart from './ProjectStart';
+import { AwayCard, BringDialog, SnapshotView, useSnapshots } from './PlaygroundAway';
+import { computerOf, useReach } from '../lib/away';
 import type { AgentChange, ProjectView } from '../lib/projectAgent';
 
 type Tab = 'notebook' | 'files';
@@ -164,7 +166,19 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
   const [changing, setChanging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const backend = backendOf(playground);
-  const machineName = backend ? backendLabel(backend, colab.backend.kind === backend.kind ? colab.runtime : undefined) : 'a server no longer in the list';
+  const machineName = backend
+    ? backendLabel(backend, colab.backend.kind === backend.kind ? colab.runtime : undefined)
+    : playground.compute.kind === 'server' && playground.compute.name
+      ? `${playground.compute.name}, not connected here`
+      : 'a computer not connected here';
+  // Where the code is, when it is on one computer: here, or away — and what the reader chose to see of that.
+  const [reach, retryReach] = useReach(playground);
+  const away = reach.state === 'down' || reach.state === 'unknown' ? reach : null;
+  const shows = settings.awayShows;
+  const driveOn = useDriveConnected();
+  const [snapView, setSnapView] = useState(false);
+  const [bringing, setBringing] = useState(false);
+  useSnapshots(playground, shows.snapshot && reach.state === 'here' && playground.home.kind === 'server' && driveOn);
 
   // This page is open: the dock and the toasts leave its own runs to it.
   useEffect(() => openedPlayground(playground.id), [playground.id]);
@@ -268,6 +282,11 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
           </a>
         ) : null}
         {vscode && homeServer ? <VsCodeExtension server={homeServer} compact /> : null}
+        {shows.bring && computerOf(playground) && reach.state === 'here' ? (
+          <button type="button" className="btn sm ghost" onClick={() => setBringing(true)} title={`Its code is on ${computerOf(playground)} only: copy it, or move it to Drive so every computer opens it`}>
+            Open everywhere…
+          </button>
+        ) : null}
         <MachineChip playground={playground} name={machineName} usable={usable} onChange={() => setChanging(true)} onNote={setNote} />
         {tab === 'notebook' ? (
           <>
@@ -280,9 +299,9 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
           </>
         ) : null}
       </header>
-      {!backend ? (
+      {!backend && away && shows.card && tab === 'files' ? null : !backend ? (
         <div className="pg-banner is-problem">
-          This playground runs on a Jupyter server that is no longer in this browser’s list.{' '}
+          This playground runs on {playground.compute.kind === 'server' && playground.compute.name ? playground.compute.name : 'a computer'}, which isn’t connected to this browser.{' '}
           <button type="button" className="link" onClick={() => setChanging(true)}>
             Choose where it runs
           </button>
@@ -308,10 +327,23 @@ export default function PlaygroundWorkspace({ playground, onBack, onOpenPaper }:
           <div className="pg-notebook">
             <NotebookPage paperId={nbKey} title={playground.title} screen={screen} side={side} onSide={setSide} sections={[]} playground={{ hasPaper: cited.some(Boolean), seed }} />
           </div>
+        ) : snapView && shows.snapshot ? (
+          <SnapshotView playground={playground} reach={reach} onBring={shows.bring ? () => setBringing(true) : undefined} onBack={() => setSnapView(false)} />
+        ) : away && shows.card ? (
+          <AwayCard
+            playground={playground}
+            reach={away}
+            onSnapshot={() => setSnapView(true)}
+            onBring={() => setBringing(true)}
+            onRetry={retryReach}
+            onConnect={onBack}
+            onNotebook={() => setTab('notebook')}
+          />
         ) : (
           <FilesView key={JSON.stringify(playground.home)} playground={playground} connected={connected} usable={usable} machineName={machineName} />
         )}
       </div>
+      {bringing ? <BringDialog playground={playground} reach={reach} onClose={() => setBringing(false)} onOpen={(id) => window.dispatchEvent(new CustomEvent(OPEN_PLAYGROUND, { detail: { id } }))} /> : null}
       {changing ? (
         <WhereDialog
           draft={{ title: playground.title, kind: playground.kind }}
@@ -415,7 +447,7 @@ function MachineChip({ playground, name, usable, onChange, onNote }: { playgroun
   return (
     <div className="menu-wrap" ref={box}>
       <button type="button" className={`colab-chip pg-chip is-${dot}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)} title={colab.error || (state === 'kernel not started' ? `Cells run on ${name}. Its kernel starts with the first cell or command; the terminal, the files and the agent don't need it — they reach the computer through its Companion.` : `Cells run on ${name}`)}>
-        {playground.compute.kind === 'colab' ? <ColabMark /> : <span className={`pg-mark ${serverById(playground.compute.serverId)?.where === 'pc' ? 'is-pc' : 'is-gpu'}`}>{serverById(playground.compute.serverId)?.where === 'pc' ? 'PC' : 'GPU'}</span>}
+        {playground.compute.kind === 'colab' ? <ColabMark /> : <span className={`pg-mark ${(serverById(playground.compute.serverId)?.where ?? playground.compute.where) === 'pc' ? 'is-pc' : 'is-gpu'}`}>{(serverById(playground.compute.serverId)?.where ?? playground.compute.where) === 'pc' ? 'PC' : 'GPU'}</span>}
         <span className={`colab-dot is-${dot}`} aria-hidden="true" />
         {name} · {state}
         {connected && colab.startedAt ? ` · ${clock(colab.startedAt, now)}` : ''}

@@ -45,7 +45,9 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
   onKeyDown?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => void;
   onCursor?: (cursor: Cursor) => void;
   onFocus?: () => void;
-}>(function CodeEditor({ value, path, fontSize = 13, minimap = true, onChange, onKeyDown, onCursor, onFocus }, ref) {
+  /** Shown, searched and selected, never changed: a snapshot of code that is somewhere else. */
+  readOnly?: boolean;
+}>(function CodeEditor({ value, path, fontSize = 13, minimap = true, onChange, onKeyDown, onCursor, onFocus, readOnly = false }, ref) {
   const text = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const map = useRef<HTMLCanvasElement>(null);
@@ -114,7 +116,7 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
   const apply = useCallback(
     (edit: Edit | null) => {
       const element = text.current;
-      if (!element || !edit) return false;
+      if (!element || !edit || readOnly) return false;
       element.focus();
       element.setSelectionRange(edit.from, edit.to);
       const typed = edit.insert ? document.execCommand('insertText', false, edit.insert) : edit.from === edit.to || document.execCommand('delete');
@@ -126,7 +128,7 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
       });
       return true;
     },
-    [onChange, report, reveal],
+    [onChange, report, reveal, readOnly],
   );
 
   const go = useCallback(
@@ -331,8 +333,10 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            aria-label={`Editing ${path}`}
+            aria-label={readOnly ? `${path}, read-only` : `Editing ${path}`}
+            readOnly={readOnly}
             onChange={(event) => {
+              if (readOnly) return;
               onChange(event.target.value);
               window.requestAnimationFrame(() => (report(), reveal()));
             }}

@@ -77,6 +77,7 @@ const defaultSettings: Settings = {
   passageLook: 'marker',
   chatMarks: 'auto',
   runningShows: { shelf: true, dock: true, switcher: false, tabs: false, peek: false },
+  awayShows: { group: true, card: true, snapshot: false, bring: true },
   contactEmail: '',
   githubRepo: '',
   githubBranch: 'main',
@@ -102,6 +103,7 @@ function readSettings(): Settings {
     if (!saved.googleClientId) saved.googleClientId = defaultSettings.googleClientId;
     // Saved before a choice was added to it: the new choice starts at its default.
     saved.runningShows = { ...defaultSettings.runningShows, ...saved.runningShows };
+    saved.awayShows = { ...defaultSettings.awayShows, ...saved.awayShows };
     return saved;
   } catch {
     return defaultSettings;
