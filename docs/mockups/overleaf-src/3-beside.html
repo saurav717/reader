@@ -1,0 +1,49 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="overleaf.css"><style>
+.olwin{flex:1;display:flex;flex-direction:column;min-width:0;background:#fff;color:#1b222c;font-family:var(--sans)}
+.olwin .top{height:40px;background:#1b222c;color:#e4e8ee;display:flex;align-items:center;gap:12px;padding:0 12px;font-size:12px;flex:none}
+.olwin .top b{font-weight:600}
+.olwin .top .sp{flex:1}
+.olwin .top .rec{background:#138a36;color:#fff;border-radius:14px;padding:4px 12px;font-weight:600}
+.olwin .top .av{width:22px;height:22px;border-radius:50%;background:#8a3a6e;display:grid;place-items:center;font:600 10px var(--sans)}
+.olwin .body{flex:1;display:flex;min-height:0}
+.olwin .ft{width:150px;background:#2c3645;color:#c9d1dc;font-size:12px;padding:8px 0;flex:none}
+.olwin .ft div{padding:4px 12px}.olwin .ft .on{background:#138a36;color:#fff}
+.olwin .src{flex:1;font:12px/1.7 var(--mono);padding:10px 12px;white-space:pre-wrap;color:#1b222c;overflow:hidden;border-right:1px solid #ddd}
+.olwin .src .c{color:#1f5e9e}.olwin .src .k{color:#8a3ea6}
+.olwin .pv{width:270px;background:#e9ebee;padding:10px;flex:none}
+.bridge{width:52px;flex:none;background:var(--panel);border-left:1px solid var(--border);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;gap:8px;padding-top:12px}
+.bridge .b{width:38px;height:38px;border-radius:9px;border:1px solid var(--border);background:var(--surface);display:grid;place-items:center;font:600 10px var(--mono);color:var(--accent-ink)}
+.bridge .b.on{background:var(--accent);color:var(--accent-on);border-color:var(--accent)}
+.toast{position:fixed;z-index:9;display:flex;align-items:center;gap:10px;background:var(--ink);color:var(--paper);border-radius:10px;padding:9px 12px;box-shadow:var(--shadow-md);font-size:12px}
+</style></head><body><div class="app"><!--RAIL--><main class="main">
+<div class="wbar"><div class="name"><b>Sparse-gated MoE</b><span>Reading · Overleaf beside (no sync)</span></div>
+ <div class="segm" style="margin-left:18px"><span>Overview</span><span class="on">Read</span><span>Code</span><span>Write</span></div><span class="spacer"></span>
+ <span class="segm"><span>Paper only</span><span class="on">Paper + Overleaf</span><span>Overleaf only</span></span>
+ <span class="btn sm">↗ Pop out</span>
+</div>
+<div class="ws">
+ <section style="width:520px;flex:none;display:flex;flex-direction:column;background:var(--paper)">
+  <div class="hdr"><span>📄 Switch Transformers: Scaling to Trillion Parameter Models</span><span class="sp"></span><span class="mono">p.7</span></div>
+  <div class="read"><span class="eyebrow" style="font-family:var(--sans)">2.2 · Efficient sparse routing</span>
+  <p style="margin-top:6px">We use Mesh-Tensorflow (MTF), a library with similar semantics and API to Tensorflow that facilitates efficient distributed data and model parallel architectures.</p>
+  <p><span class="hlg">To encourage a balanced load across experts we add an auxiliary loss. As in Shazeer et al. (2017; 2018) and Lepikhin et al. (2020), Switch Transformers simplifies the original design which had separate load-balancing and importance-weighting losses.</span></p>
+  <p>For each Switch layer, this auxiliary loss is added to the total model loss during training. Given N experts indexed by i = 1 to N and a batch B with T tokens, the auxiliary loss is computed as the scaled dot-product between vectors f and P…</p></div>
+ </section>
+ <div class="bridge"><div class="b on" title="Copy \cite key">\cite</div><div class="b" title="Send highlight as a quote">“ ”</div><div class="b" title="Copy BibTeX">bib</div><div class="b" title="Copy figure">fig</div><div style="flex:1"></div><div class="b" style="margin-bottom:12px" title="Swap sides">⇄</div></div>
+ <section class="olwin">
+  <div class="top"><span class="ol">O</span><b>Loss-free routing at 8B</b><span class="sp"></span><span class="av">P</span><span>Share</span><span class="rec">Recompile</span></div>
+  <div class="body"><div class="ft"><div>main.tex</div><div>sections/</div><div style="padding-left:22px">intro.tex</div><div class="on" style="padding-left:22px">related.tex</div><div style="padding-left:22px">method.tex</div><div>refs.bib</div></div>
+  <div class="src"><span class="c">\paragraph</span>{Load balancing.}
+Most MoE models keep experts busy with an auxiliary loss on the router~<span class="c">\cite</span>{<span class="k">fedus2022switch</span>}<span class="cur"></span>. As in earlier work, it combines load and importance into one term.
+
+<span class="c">\paragraph</span>{Routing at scale.}
+GShard~<span class="c">\cite</span>{<span class="k">lepikhin2020gshard</span>} trained…</div>
+  <div class="pv"><div class="page" style="padding:16px 18px;font-size:8.5px"><h5 style="margin-top:0;font-size:10px">2 Related work</h5><p><b>Load balancing.</b> Most MoE models keep experts busy with an auxiliary loss on the router [9]…</p><p style="color:#aaa">…</p></div></div></div>
+  <div style="height:26px;background:#f3f4f6;border-top:1px solid #ddd;font:11px var(--sans);color:#555;display:flex;align-items:center;padding:0 10px;flex:none">overleaf.com — your own Overleaf session, signed in as you</div>
+ </section>
+</div></main></div>
+<div class="toast" style="left:600px;top:600px"><span class="live"></span>Copied <b class="mono" style="font-size:12px;color:#f2c94c">\cite{fedus2022switch}</b> — paste it in Overleaf · BibTeX on the clipboard too (⇧⌘V)</div>
+<span class="pin" style="left:1236px;top:60px">1</span><span class="pin" style="left:556px;top:58px">2</span><span class="pin" style="left:1146px;top:100px">3</span>
+<div class="notes" style="left:84px;top:520px;width:500px;flex-direction:column"><div class="callout" style="width:470px"><span class="n">1</span>The real Overleaf, <b>signed in as you</b>. In the Reader app it's a pane; on the website Overleaf won't run inside another site, so <b>Pop out</b> opens it in a window the site places beside itself.</div><div class="callout" style="width:470px"><span class="n">2</span>No sync needed, so it works on <b>Overleaf's free plan</b>. A thin bridge carries things across: the <b>\cite key</b>, the BibTeX, a highlight as a quote, a figure.</div><div class="callout" style="width:470px"><span class="n">3</span>Collaboration, track changes, comments, history — all <b>Overleaf's own</b>. Reader adds nothing it would have to keep up with.</div></div>
+<div class="step">B · Overleaf itself, beside the paper</div>
+</body></html>

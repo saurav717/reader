@@ -3,7 +3,8 @@ import { useStore } from '../lib/store';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
 import { parseRepo } from '../lib/github';
-import { GLASS_WALLS, NAV_STYLES, PROJECT_NAVS } from '../types';
+import { GLASS_WALLS, NAV_STYLES, OVERLEAF_VIEWS, PROJECT_NAVS } from '../types';
+import { overleafViewOf } from '../lib/overleaf';
 import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
@@ -800,6 +801,33 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             What a project’s mark on the rail opens: its overview — what to read next, its papers by role, its to-do
             list and code — or its workspace, a paper of the project beside the project’s code. The switch at the top
             of every project page goes between the board, the overview and the workspace whichever you pick.
+          </p>
+          <div className="eyebrow" style={{ margin: '16px 0 8px' }}>
+            Writing with Overleaf
+          </div>
+          <div className="nav-choices is-text" role="radiogroup" aria-label="Where a project’s paper is written">
+            {OVERLEAF_VIEWS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={overleafViewOf(settings) === option.id}
+                className={`nav-choice${overleafViewOf(settings) === option.id ? ' is-on' : ''}`}
+                onClick={() => updateSettings({ overleafView: option.id })}
+              >
+                <b>
+                  {option.label}
+                  {option.id === 'beside' ? <small> · default</small> : null}
+                </b>
+                <span>{option.note}</span>
+              </button>
+            ))}
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+            A project is linked to Overleaf from the paper card on its overview, which every choice keeps. Overleaf
+            can’t be opened inside another site or read from one, so writing here — the workspace or the dock — needs
+            the paper in GitHub too (Overleaf’s GitHub sync), with the token from Git mirror above; Overleaf pulls what you save from
+            its GitHub menu.
           </p>
         </section>
 

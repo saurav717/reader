@@ -1,0 +1,55 @@
+<!doctype html><html data-theme="dark"><head><meta charset="utf-8"><link rel="stylesheet" href="overleaf.css"><style>
+.col{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--border-soft)}
+table{border-collapse:collapse;width:100%;font:12px var(--mono)}
+td,th{padding:6px 10px;border-bottom:1px solid var(--border-soft);text-align:right}
+th{color:var(--muted);font-weight:500;font-family:var(--sans);font-size:11px}
+td:first-child,th:first-child{text-align:left}
+tr.pick td{background:var(--accent-soft)}
+.diff{font:12px/1.7 var(--mono);padding:10px 14px;white-space:pre;overflow:hidden;flex:1;background:var(--surface)}
+.del{background:rgba(201,86,108,.18);color:#e8a0ad;display:block;margin:0 -14px;padding:0 14px}
+.add{background:rgba(60,145,96,.2);color:#9fd8b4;display:block;margin:0 -14px;padding:0 14px}
+.step{bottom:58px}</style></head><body><div class="app"><!--RAIL--><main class="main">
+<div class="wbar"><div class="name"><b>Sparse-gated MoE</b><span>Code · moe-router · runs</span></div>
+ <div class="segm" style="margin-left:18px"><span>Overview</span><span>Read</span><span class="on">Code</span><span>Write</span></div><span class="spacer"></span>
+ <span class="rt"><span class="co">co</span>Colab T4<span class="live"></span><span class="m">idle</span></span>
+ <span class="rt"><span class="ol">O</span>Overleaf<span class="live"></span><span class="m">synced</span></span>
+</div>
+<div class="ws">
+ <section class="col" style="flex:1">
+  <div class="hdr"><b style="color:var(--ink)">Runs</b><span class="muted">· 9 · compare loss-free vs aux-loss</span><span class="sp"></span><span class="btn sm">Columns</span></div>
+  <div style="padding:14px 16px">
+  <table><tr><th>run</th><th>router</th><th>u / α</th><th>val loss</th><th>max/mean load</th><th>tokens</th></tr>
+  <tr><td>aux-a1e-2</td><td>aux</td><td>1e-2</td><td>2.612</td><td>1.31</td><td>40B</td></tr>
+  <tr><td>aux-a1e-3</td><td>aux</td><td>1e-3</td><td>2.574</td><td>1.88</td><td>40B</td></tr>
+  <tr class="pick"><td>lossfree-u1e-3</td><td>loss-free</td><td>1e-3</td><td>2.540</td><td>1.09</td><td>40B</td></tr>
+  <tr class="pick"><td>lossfree-u3e-4</td><td>loss-free</td><td>3e-4</td><td><b>2.511</b></td><td>1.12</td><td>40B</td></tr>
+  <tr><td>expert-choice</td><td>EC</td><td>—</td><td>2.556</td><td>1.00</td><td>40B</td></tr>
+  </table>
+  <div style="margin-top:14px;display:flex;gap:8px;align-items:center"><span class="btn sm primary">Send to paper as Table 2…</span><span class="btn sm">Send as figure</span><span class="muted" style="font-size:11.5px">2 rows picked · grouped by router · best in bold</span></div>
+  </div>
+  <div class="term" style="margin-top:auto;flex:none;white-space:pre"><span class="d">colab:~/moe-router$</span> python train.py --router lossfree --u 3e-4
+<span class="d">step 40000 · loss 2.511 · max/mean load 1.12 · done</span></div>
+ </section>
+ <section style="width:560px;flex:none;display:flex;flex-direction:column">
+  <div class="hdr"><b style="color:var(--ink)">results.tex</b><span class="muted">· Table 2 · proposed change</span><span class="sp"></span><span class="badge a">3 newer runs</span></div>
+  <div class="diff"><span class="cmt">% reader:table runs=aux-a1e-2,aux-a1e-3,lossfree-u3e-4,expert-choice</span>
+<span class="cm">\begin</span>{<span class="ar">table</span>}[t]\centering
+<span class="cm">\caption</span>{Validation loss and load balance at 8B, 40B tokens.}
+<span class="cm">\begin</span>{<span class="ar">tabular</span>}{lccc}\toprule
+Router &amp; <span class="mth">$u$/$\alpha$</span> &amp; Val.\ loss &amp; Max/mean load \\\midrule
+Aux loss &amp; 1e-2 &amp; 2.612 &amp; 1.31 \\
+Aux loss &amp; 1e-3 &amp; 2.574 &amp; 1.88 \\
+Expert choice &amp; -- &amp; 2.556 &amp; 1.00 \\
+<span class="del">Loss-free (ours) &amp; 1e-3 &amp; \textbf{2.540} &amp; 1.09 \\</span><span class="add">Loss-free (ours) &amp; 3e-4 &amp; \textbf{2.511} &amp; 1.12 \\</span>\bottomrule
+<span class="cm">\end</span>{<span class="ar">tabular</span>}<span class="cm">\label</span>{<span class="ky">tab:main</span>}
+<span class="cm">\end</span>{<span class="ar">table</span>}
+
+<span class="cmt">% also mentioned in the text:</span>
+<span class="del">…reaches 2.540 with max/mean load 1.09 (Table~\ref{tab:main}).</span><span class="add">…reaches 2.511 with max/mean load 1.12 (Table~\ref{tab:main}).</span></div>
+  <div class="bar2" style="height:46px"><span class="muted">Commits to Overleaf as “Table 2 from lossfree-u3e-4”</span><span class="sp"></span><span class="btn sm">Edit first</span><span class="btn sm primary">Apply &amp; push</span></div>
+ </section>
+</div></main></div>
+<span class="pin" style="left:600px;top:286px">1</span><span class="pin" style="left:866px;top:96px">2</span><span class="pin" style="left:866px;top:402px">3</span>
+<div class="notes" style="left:84px;top:520px;width:760px;flex-direction:column"><div class="callout" style="width:540px"><span class="n">1</span>Pick runs, <b>Send to paper</b>: Reader writes the LaTeX table — booktabs, best in bold, the caption it can infer.</div><div class="callout" style="width:540px"><span class="n">2</span>A one-line comment ties the table to <b>the runs it came from</b>, so the overview can flag it when newer runs exist.</div><div class="callout" style="width:540px"><span class="n">3</span>Numbers quoted in the prose are found and updated too. Every change is <b>a diff you approve</b>, then one commit in Overleaf.</div></div>
+<div class="step">E · Results go from runs into the paper (dark)</div>
+</body></html>

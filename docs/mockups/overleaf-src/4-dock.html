@@ -1,0 +1,40 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="overleaf.css"><style>
+.lib{width:230px;flex:none;border-right:1px solid var(--border-soft);background:var(--panel);padding:14px 10px;font-size:12.5px}
+.lib h4{margin:6px 6px 6px;font:600 10.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lib div.p{padding:6px 8px;border-radius:7px;color:var(--ink-2);line-height:1.3}
+.lib div.p.on{background:var(--surface);border:1px solid var(--border);color:var(--ink)}
+.lib small{display:block;color:var(--muted);font-size:10.5px}
+.outl{display:flex;flex-direction:column;gap:2px;font-size:12px}
+.outl div{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;color:var(--ink-2)}
+.outl div.on{background:var(--accent-soft);color:var(--accent-ink)}
+.outl small{margin-left:auto;font:10.5px var(--mono);color:var(--muted)}
+.wbar2{height:6px;border-radius:3px;background:var(--border-soft);overflow:hidden;width:54px}.wbar2 i{display:block;height:100%;background:var(--accent)}
+.para{background:var(--surface);border:1px solid var(--accent);box-shadow:0 0 0 3px var(--accent-soft);border-radius:9px;padding:10px 12px;font:13.5px/1.55 var(--serif)}
+.para .q{background:var(--hl-yellow)}
+.para .ck{font:11.5px var(--mono);color:#1f5e9e}
+</style></head><body><div class="app"><!--RAIL--><main class="main">
+<div class="wbar"><div class="name"><b>Sparse-gated MoE</b><span>Reading · ST-MoE: Designing Stable and Transferable Sparse Expert Models</span></div>
+ <div class="segm" style="margin-left:18px"><span>Overview</span><span class="on">Read</span><span>Code</span><span>Write</span></div><span class="spacer"></span>
+ <span class="rt"><span class="ol">O</span>related.tex<span class="live"></span><span class="m">synced</span></span>
+</div>
+<div class="ws">
+ <aside class="lib"><h4>Reading now</h4><div class="p on">ST-MoE<small>Zoph et al. 2022 · p.9</small></div><div class="p">Aux-Loss-Free Balancing<small>Wang et al. 2024 · p.4</small></div><h4 style="margin-top:14px">Not started</h4><div class="p">Expert Choice Routing<small>Zhou et al. 2022</small></div><div class="p">DeepSeekMoE<small>Dai et al. 2024</small></div><h4 style="margin-top:14px">Finished</h4><div class="p">Switch Transformers<small>cited 4× in draft</small></div><div class="p">GShard<small>cited 2× in draft</small></div><div class="p">Outrageously Large NNs<small style="color:#c9781e">read, not cited yet</small></div></aside>
+ <section class="center"><div class="read" style="padding:30px 56px;font-size:16px;max-width:760px"><span class="eyebrow" style="font-family:var(--sans)">3 · Stabilizing training of sparse models</span>
+  <p style="margin-top:8px">Sparse models often suffer from training instabilities worse than those observed in standard densely-activated Transformers. We find that the router z-loss resolves these instabilities while slightly improving model quality.</p>
+  <p><span class="hl">Our router z-loss penalizes large logits into the gating network, and we find it improves stability without quality degradation.</span> We also observe that it is more effective than the alternatives we tried: update clipping, removing multiplicative interactions, and injecting noise…</p>
+  <p>Table 4 shows that the z-loss improves quality and stability at the 269B scale, where the auxiliary load-balancing loss alone was not sufficient to prevent divergence.</p></div></section>
+ <aside class="pane" style="width:360px"><div class="tabs"><span>Discover</span><span>Highlights</span><span class="on">Draft</span></div><div class="body">
+  <div style="display:flex;align-items:center;gap:8px"><b style="font-size:13px">Loss-free routing at 8B</b><span class="sp" style="flex:1"></span><span class="mono muted">6,840 w</span></div>
+  <div class="outl"><div>1 Introduction<small>820</small><span class="wbar2"><i style="width:90%"></i></span></div><div class="on">2 Related work<small>1,204</small><span class="wbar2"><i style="width:70%"></i></span></div><div>3 Method<small>2,110</small><span class="wbar2"><i style="width:85%"></i></span></div><div>4 Results<small>1,630</small><span class="wbar2"><i style="width:40%"></i></span></div><div>5 Conclusion<small>—</small><span class="wbar2"><i style="width:0"></i></span></div></div>
+  <span class="eyebrow" style="font-size:10px">§2 · where your cursor was · related.tex:19</span>
+  <div class="para">…Expert choice routing <span class="ck">\cite{zhou2022expert}</span> side-steps this by letting experts pick tokens. <span class="q">\citet{zoph2022stmoe} add a router z-loss that penalizes large gating logits, which they find stabilizes training at 269B</span><span class="cur"></span></div>
+  <div style="display:flex;gap:6px"><span class="btn sm primary">Keep · push to Overleaf</span><span class="btn sm">Open in Write</span><span class="btn sm ghost">Undo</span></div>
+  <div class="card" style="padding:10px 12px;font-size:12px;line-height:1.5"><b>This paper in your draft</b><br><span class="muted">§2 related.tex:14 · §2 related.tex:17 · now :19</span></div>
+  <div class="card" style="padding:10px 12px;font-size:12px;line-height:1.5;color:var(--ink-2)"><b style="color:var(--ink)">Priya's TODO in §2</b><br>“one line on DeepSeek-V3 here?” — <span style="color:var(--accent)">it's in your library, not started</span></div>
+ </div></aside>
+</div></main></div>
+<div class="pop" style="left:346px;top:262px"><span>Highlight</span><span>Note</span><span>Explain</span><span class="on">✎ Cite in draft</span><span>“ Quote in draft</span></div>
+<span class="pin" style="left:740px;top:272px">1</span><span class="pin" style="left:1066px;top:82px">2</span><span class="pin" style="left:1066px;top:322px">3</span><span class="pin" style="left:186px;top:432px">4</span>
+<div class="notes" style="left:300px;top:560px;width:700px;flex-wrap:wrap"><div class="callout" style="width:340px"><span class="n">1</span>Select a passage → <b>Cite in draft</b> writes a paraphrase stub with the right <b>\citet</b> key at the paragraph you were last in.</div><div class="callout" style="width:340px"><span class="n">2</span>The draft is a <b>third tab in the dock</b> — Discover, Highlights, Draft. The reading column stays uncrowded.</div><div class="callout" style="width:340px"><span class="n">3</span>Edits are proposed in place; <b>Keep</b> commits and pushes to Overleaf, so a coauthor sees it there.</div><div class="callout" style="width:340px"><span class="n">4</span>The library learns from the draft: <b>cited 4×</b>, or <b>read, not cited yet</b>.</div></div>
+<div class="step">C · Reading, with the draft in the dock</div>
+</body></html>

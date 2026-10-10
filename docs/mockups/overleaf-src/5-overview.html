@@ -1,0 +1,55 @@
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="overleaf.css"><style>
+.ov{flex:1;overflow:hidden;padding:26px 36px;display:grid;grid-template-columns:1.35fr 1fr;gap:18px;align-content:start}
+.ov h1{font:500 30px var(--serif);margin:4px 0 2px}
+.box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.box h5{margin:0;font:600 10.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:8px}
+.box h5 .sp{flex:1}
+.secs{display:grid;grid-template-columns:150px 1fr 60px 90px;gap:8px 12px;align-items:center;font-size:12.5px}
+.secs .bar{height:7px}
+.secs small{font:11px var(--mono);color:var(--muted);text-align:right}
+.row{display:flex;align-items:center;gap:10px;font-size:12.5px;padding:7px 0;border-top:1px solid var(--border-soft)}
+.row:first-of-type{border-top:0}
+.row .sp{flex:1}
+.ic{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font:700 11px var(--mono);flex:none}
+.ic.w{background:#fbe9cf;color:#8a5212}.ic.r{background:#f6d8dc;color:#9a2f43}.ic.g{background:var(--accent-soft);color:var(--accent-ink)}
+.big{font:600 26px var(--sans)}.big small{font:400 12px var(--sans);color:var(--muted)}
+.act{font-size:12px;color:var(--ink-2);line-height:1.5}
+.act b{color:var(--ink)}
+</style></head><body><div class="app"><!--RAIL--><main class="main">
+<div class="wbar"><div class="name"><b>Sparse-gated MoE</b><span>Project · 14 papers · moe-router · 9 runs · 1 paper draft</span></div>
+ <div class="segm" style="margin-left:18px"><span class="on">Overview</span><span>Read</span><span>Code</span><span>Write</span></div><span class="spacer"></span>
+ <span class="rt"><span class="ol">O</span>Overleaf<span class="live"></span><span class="m">synced 1 min ago</span></span>
+</div>
+<div class="ov">
+ <div style="grid-column:1/3;display:flex;align-items:flex-end;gap:16px"><div><span class="eyebrow">The paper · NeurIPS 2026 · due May 15</span><h1>Loss-free routing at 8B</h1></div><span style="flex:1"></span><span class="btn">Open in Overleaf ↗</span><span class="btn primary">Continue writing — §2, line 20</span></div>
+ <div class="box"><h5>Sections<span class="sp"></span><span style="text-transform:none;letter-spacing:0;font-weight:500">6,840 / ~9,000 words</span></h5>
+  <div class="secs">
+   <span>1 Introduction</span><span class="bar"><i style="width:90%"></i></span><small>820</small><span class="chip" style="height:20px;font-size:10.5px"><span style="width:7px;height:7px;border-radius:50%;background:#8a3a6e"></span>Priya, now</span>
+   <span>2 Related work</span><span class="bar"><i style="width:70%"></i></span><small>1,204</small><span class="chip acc" style="height:20px;font-size:10.5px">you · 4 min</span>
+   <span>3 Method</span><span class="bar"><i style="width:85%"></i></span><small>2,110</small><span class="muted" style="font-size:11px">2 days</span>
+   <span>4 Results</span><span class="bar"><i style="width:40%;background:#c9781e"></i></span><small>1,630</small><span class="muted" style="font-size:11px">waits on runs</span>
+   <span>5 Conclusion</span><span class="bar"><i style="width:0"></i></span><small>—</small><span class="muted" style="font-size:11px">not started</span>
+  </div>
+  <div style="display:flex;gap:18px;margin-top:6px"><div><div class="big">2 <small>TODOs</small></div></div><div><div class="big">0 <small>errors</small></div></div><div><div class="big">2 <small>warnings</small></div></div><div><div class="big">9 <small>pages / 9</small></div></div></div>
+ </div>
+ <div class="box"><h5>Papers ↔ draft</h5>
+  <div style="display:flex;gap:18px"><div class="big">9<small> of 14 cited</small></div><div class="big">41<small> bib entries</small></div></div>
+  <div class="row"><span class="ic w">!</span><span><b>Read, not cited:</b> Outrageously Large NNs · DeepSeekMoE</span><span class="sp"></span><span class="btn sm">Suggest where</span></div>
+  <div class="row"><span class="ic r">?</span><span><b>\cite{dai2024deepseekmoe}</b> has no refs.bib entry</span><span class="sp"></span><span class="btn sm primary">Add from library</span></div>
+  <div class="row"><span class="ic w">≠</span><span>§3 says “top-2 routing” — <b>GShard</b> uses top-2, but your code routes top-K, K=8</span><span class="sp"></span><span class="btn sm">Show</span></div>
+ </div>
+ <div class="box"><h5>Results in the paper</h5>
+  <div class="row"><span class="ic r">↻</span><span><b>Table 2</b> came from <span class="mono">runs/lossfree-u1e-3</span> on Oct 2 — <b>3 newer runs</b> since</span><span class="sp"></span><span class="btn sm primary">Update table</span></div>
+  <div class="row"><span class="ic g">✓</span><span><b>Figure 3</b> (load per expert) — current with <span class="mono">runs/r16</span></span><span class="sp"></span><span class="btn sm">Open run</span></div>
+  <div class="row"><span class="ic w">·</span><span>§4.2 “max/mean load 1.09” is typed in by hand — link it to a run?</span><span class="sp"></span><span class="btn sm">Link</span></div>
+ </div>
+ <div class="box"><h5>Lately</h5>
+  <div class="act"><b>Priya</b> rewrote the intro's second paragraph in Overleaf · 20 min</div>
+  <div class="act"><b>You</b> added 2 citations to §2 from Read · 4 min</div>
+  <div class="act"><b>Run</b> lossfree-u3e-4 finished · loss 2.511 · 1 h</div>
+ </div>
+</div></main></div>
+<span class="pin" style="left:842px;top:298px">1</span><span class="pin" style="left:84px;top:472px">2</span><span class="pin" style="left:1360px;top:58px">3</span>
+<div class="notes" style="left:84px;top:778px;width:1300px;flex-wrap:nowrap"><div class="callout" style="width:400px"><span class="n">1</span>Reader knows both the library and the draft, so it can say what's <b>read but not cited</b>, and which <b>\cite keys are broken</b>, and check a claim against the code.</div><div class="callout" style="width:400px"><span class="n">2</span>Numbers and tables that came from a run <b>remember the run</b>: when newer runs exist, the table says it's out of date.</div><div class="callout" style="width:400px"><span class="n">3</span>The project's front page shows the paper's state: <b>sections, who's writing where, compile health</b>.</div></div>
+<div class="step">D · The project overview, with the paper as a first-class part</div>
+</body></html>

@@ -1053,6 +1053,55 @@ papers are the collection's: a paper in two projects is in two collections,
 a collection can be turned into a project (and back), and Drive keeps a
 project in `library.json` the way it keeps any collection.
 
+### Writing with Overleaf
+
+A project can be linked to the Overleaf project its paper is written in:
+**Link an Overleaf project** on the paper card in its overview, with the
+project's address from Overleaf's address bar. Overleaf has no API, and its
+editor will not open inside another site, so on its own the link is a link:
+the card opens it. If the project also uses Overleaf's **GitHub sync**, name
+that repository on the card too (with its branch and folder, if not `main` and
+the top). The paper's `.tex` and `.bib` files are then read there, with the
+token from Settings → Git mirror. The card shows the paper's sections and
+their words, in the order `main.tex` pulls them in. It also shows how many of
+the project's papers the draft cites, the ones you have read and not cited
+yet, and any `\cite` key with no BibTeX entry.
+
+Where you write is a choice in Settings → Projects, **Writing with Overleaf**:
+
+- **Overleaf beside** (the default): the card's button opens Overleaf in a
+  window on the right half of the screen. In the workspace, the paper you are
+  reading has **\cite** and **BibTeX** buttons that copy its key and entry.
+  The key is the one the draft already uses for that paper, matched by DOI,
+  arXiv id or title. This works on any Overleaf plan and needs no repository.
+- **Write in the workspace**: the workspace gets a **Write** layout, the paper
+  beside the draft's files in an editor. **\cite**, **\citet** and **Quote
+  selection** put the paper you are reading in at the caret, and add its BibTeX
+  entry to the bib file if the draft has none. **Save** (⌘S) is one commit to
+  the repository. Overleaf takes it in from Menu → GitHub → Pull GitHub changes.
+  A file changed in the repository since it was opened here, in Overleaf most
+  likely, is never written over: Save says so and writes nothing.
+- **Draft in the dock**: the same editor, with the paper's outline, in a
+  **Draft** tab beside Discover and Notes, next to whatever paper is open.
+- **Just the overview**: the card and nothing else; Overleaf opens in a tab.
+
+Writing anywhere but Overleaf itself needs the repository. Without it, the
+Write layout and the Draft tab say so and offer Overleaf beside.
+
+**In another browser, as the right account.** The page can't choose which
+browser opens a link, and can't sign in to Overleaf for you. Signing in lives
+in a browser profile, though, and this computer's Companion (0.9.0 or later,
+paired from the Playground) can open any browser here in any of its profiles.
+The **▾** beside the Open button lists them: **This browser**, then every
+browser and profile on this computer, with the Google account each profile is
+signed in to, then **Copy link** for any other. Pick the profile signed in to
+the project's Overleaf account and it opens there. The project remembers that
+choice for this computer, so the button then says **Open in Google Chrome ·
+Work** and goes straight there. Each computer keeps its own choice, because
+browsers and profiles belong to a computer. The card's form also takes the
+**Overleaf account** the project is in, shown under the button as a reminder.
+Without the Companion, the menu says why and still copies the link.
+
 ### Removing a paper
 
 A removed paper waits in **Junk**, at the bottom of the side pane, with its

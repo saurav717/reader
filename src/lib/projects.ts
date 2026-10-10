@@ -6,6 +6,7 @@
 // can be tested without a browser.
 
 import type { Collection, Paper, PaperRole, ProjectInfo, ProjectTodo } from '../types';
+import { overleafLinkOf } from './overleaf';
 
 export interface Project extends Collection {
   project: ProjectInfo;
@@ -50,6 +51,7 @@ export function projectInfo(collection: Collection | undefined): ProjectInfo | n
     roles,
     playgroundId: typeof raw.playgroundId === 'string' && raw.playgroundId ? raw.playgroundId : undefined,
     todos,
+    ...(overleafLinkOf(raw.overleaf) ? { overleaf: overleafLinkOf(raw.overleaf) } : {}),
   };
 }
 

@@ -76,6 +76,7 @@ const defaultSettings: Settings = {
   projectOpensOn: 'overview',
   navStyle: 'labelled',
   projectNav: 'switcher',
+  overleafView: 'beside',
   zenHaze: 'shadow',
   passageLook: 'marker',
   chatMarks: 'auto',

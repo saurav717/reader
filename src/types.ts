@@ -174,6 +174,42 @@ export interface ProjectInfo {
   /** The playground that holds the project's code, once it has some. */
   playgroundId?: string;
   todos: ProjectTodo[];
+  /** The Overleaf project the work is being written up in, once linked. */
+  overleaf?: OverleafLink;
+}
+
+/**
+ * A project's paper, being written in Overleaf. Overleaf has no API of its
+ * own, so the link is all the page has of it — unless the paper is also in
+ * a GitHub repository (Overleaf's GitHub sync), which the page can read and
+ * write with the GitHub token from Settings.
+ */
+export interface OverleafLink {
+  /** The project's address in Overleaf, as it opens there. */
+  url: string;
+  /** owner/repo that Overleaf syncs the paper with, if it does. */
+  repo?: string;
+  /** Its branch; main when empty. */
+  branch?: string;
+  /** The folder in the repository the paper is in; the top when empty. */
+  folder?: string;
+  /** The Overleaf account the project belongs to: a reminder by the Open button, as the page can't sign in for you. */
+  account?: string;
+  /**
+   * The browser and profile it opens in, on each computer — by its Companion's
+   * id, as browsers and their profiles are a computer's own. A profile is where
+   * a sign-in lives, so this is what opens it as the right Overleaf account.
+   */
+  browsers?: Record<string, BrowserChoice>;
+}
+
+export interface BrowserChoice {
+  /** The Companion's id for the browser (chrome, firefox, safari…), or 'default'. */
+  browser: string;
+  /** A Chromium profile's folder, a Firefox profile's name. */
+  profile?: string;
+  /** What the button says: "Google Chrome · Work". */
+  label: string;
 }
 
 /**
@@ -271,6 +307,8 @@ export interface Settings {
   navStyle: NavStyle;
   /** How the projects are reached from the rail (not the sidebar, which names them all, or the classic rail). */
   projectNav: ProjectNav;
+  /** Where a project's paper is written with Overleaf: OVERLEAF_VIEWS. */
+  overleafView: OverleafView;
   /** What a project opens on from the rail and the board: its overview, or its workspace. */
   projectOpensOn: Exclude<ProjectView, 'board'>;
   /**
@@ -387,6 +425,23 @@ export const PROJECT_NAVS: { id: ProjectNav; label: string; note: string }[] = [
   { id: 'dots', label: 'Colour dots', note: 'A row of small dots under Projects, one a project; hover one for its name.' },
   { id: 'folder', label: 'Opens like a folder', note: 'Projects opens a list of your projects by name right in the rail, and folds it again.' },
   { id: 'marks', label: 'Stacked marks', note: 'A lettered mark for each project, stacked under Projects.' },
+];
+
+/**
+ * Where a project's paper is written, once it is linked to Overleaf. The
+ * overview has the paper's card in every one of them.
+ * - beside: Overleaf in a window of its own, beside the reader, with the cite keys and BibTeX a click away;
+ * - write: a Write layout in the workspace, the paper being read beside the .tex files;
+ * - dock: a Draft tab in the dock, beside whatever paper is open;
+ * - overview: the card on the overview and nothing else; Overleaf opens in a tab.
+ */
+export type OverleafView = 'beside' | 'write' | 'dock' | 'overview';
+
+export const OVERLEAF_VIEWS: { id: OverleafView; label: string; note: string }[] = [
+  { id: 'beside', label: 'Overleaf beside', note: 'Overleaf opens in a window beside the reader; cite keys and BibTeX are a click away. Works on any Overleaf plan.' },
+  { id: 'write', label: 'Write in the workspace', note: 'The workspace gets a Write layout: the paper you read beside the .tex files, \\cite from the project’s papers.' },
+  { id: 'dock', label: 'Draft in the dock', note: 'A Draft tab beside Discover and Notes, next to whatever paper is open: cite it or quote it into the draft.' },
+  { id: 'overview', label: 'Just the overview', note: 'Only the paper’s card on the overview — sections, what is cited, what is read and not. Overleaf opens in a tab.' },
 ];
 
 /** The PDF as the publisher set it, or the reflowed text you can highlight. */

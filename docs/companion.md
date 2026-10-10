@@ -273,6 +273,14 @@ and shows which one it is on in the machine chip.
   {action: "link", path}`) — a symbolic link (a junction on Windows), which
   Jupyter follows, so a project uses that folder in place. The terminal could
   already reach the whole computer; this makes it a click and says so.
+- From 0.9.0, `/companion/browsers` (token and origin) lists the browsers on
+  the computer and their profiles (`GET`): Chromium browsers' `Local State`,
+  with the Google account signed in to each profile, and Firefox's
+  `profiles.ini`. It also opens a link in one of them (`POST {url, browser,
+  profile}`), which is how a project's Overleaf opens in the profile signed in
+  to its account. Only an `https://` link opens, and only in a browser and a
+  profile the listing has, so nothing the page sends becomes an option of the
+  command.
 - Secrets (playground.md, step 8) live in the keychain and are passed to a
   kernel's environment. They are never put in the Drive mirror.
 
