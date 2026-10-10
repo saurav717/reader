@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
+import { COLAB, isOn, serversOn, switched } from '../lib/compute';
 import type { CompanionInfo, MacDmg } from '../lib/companion';
 import { claimForAccount, forgetDevice, pairForAccount, syncDevices } from '../lib/devices';
 import { currentAccount, onProxyChange } from '../lib/api';
@@ -1339,8 +1340,10 @@ export function WhereDialog({
   onClose: () => void;
   onCreate: (spec: NewPlayground & { idleStopMin: number }) => void | Promise<void>;
 }) {
-  const servers = useServers();
-  const { settings } = useStore();
+  const { settings, updateSettings } = useStore();
+  // What is turned off (Settings → Compute) is not offered; a playground's own machine stays, to keep its choice.
+  const servers = serversOn(settings, useServers(), current?.compute.kind === 'server' ? current.compute.serverId : current?.home.kind === 'server' ? current.home.serverId : undefined);
+  const colabOn = isOn(settings, COLAB) || current?.compute.kind === 'colab';
   const pcs = servers.filter((s) => s.where === 'pc');
   const remotes = servers.filter((s) => s.where === 'remote');
   /** Your computers with a Companion: this one, and those of your account elsewhere, reached through their tunnels. */
@@ -1353,7 +1356,11 @@ export function WhereDialog({
           ? 'pc'
           : 'device'
         : 'split'
-    : 'colab';
+    : colabOn || !servers.length
+      ? 'colab'
+      : servers.some(isCompanion)
+        ? 'device'
+        : 'pc';
   const [mode, setMode] = useState<Mode>(initialMode);
   const [title, setTitle] = useState(draft.title);
   const [machine, setMachine] = useState<Machine>(current?.compute.kind === 'colab' ? current.compute.machine : { accelerator: 'NONE' });
@@ -1382,7 +1389,7 @@ export function WhereDialog({
   const [manual, setManual] = useState(false);
   const [busy, setBusy] = useState(false);
   const addingRef = useRef<HTMLDivElement>(null);
-  const colabOk = colabAvailable(settings.googleClientId);
+  const colabOk = colabAvailable(settings.googleClientId) && colabOn;
   // A mode that needs a server none has been added for opens the steps to start one at once,
   // rather than waiting for a click on a tile that reads like a hint.
   const missing: 'pc' | 'remote' | null =
@@ -1555,7 +1562,16 @@ export function WhereDialog({
               </>
             ) : null}
             {mode === 'colab' && needsDrive ? <p className="pg-bad">Keeping the files in Drive needs you signed in with Google, with Drive (Settings → Google).</p> : null}
-            {mode === 'colab' && !colabOk ? <p className="pg-bad">Colab needs Settings → Google (a client ID) and Settings → Paper proxy first.</p> : null}
+            {mode === 'colab' && !colabOn ? (
+              <p className="pg-bad">
+                Colab is turned off.{' '}
+                <button type="button" className="link-btn" onClick={(event) => (event.stopPropagation(), updateSettings({ computeOff: switched(settings.computeOff, COLAB, true) }))}>
+                  Turn it on
+                </button>
+              </p>
+            ) : mode === 'colab' && !colabOk ? (
+              <p className="pg-bad">Colab needs Settings → Google (a client ID) and Settings → Paper proxy first.</p>
+            ) : null}
           </section>
           <section className={`pg-mode${mode === 'pc' ? ' is-on' : ''}`} onClick={() => setMode('pc')}>
             <div className="pg-mode-top">

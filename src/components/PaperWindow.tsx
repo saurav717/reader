@@ -4,7 +4,7 @@ import type { Rect, Viewport } from '../lib/floatWindow';
 import type { Paper } from '../types';
 import { useFloatingWindow } from './FloatingWindow';
 import Reader from './Reader';
-import { BookIcon, CloseIcon, PanelRightIcon } from './icons';
+import { BookIcon, ChevronDownIcon, CloseIcon, PanelRightIcon } from './icons';
 
 /** The first place the paper takes: the left half of the page, over the code's file tree and the start of its editor. */
 function paperStart(view: Viewport): Rect {
@@ -74,13 +74,18 @@ export default function PaperWindow({
     >
       <header className="win-bar" {...bar}>
         <BookIcon size={15} className="win-mark" />
-        <select className="paper-win-pick" value={paper.id} onChange={(event) => onPick(event.target.value)} aria-label="Which paper" onPointerDown={(event) => event.stopPropagation()}>
-          {papers.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.title}
-            </option>
-          ))}
-        </select>
+        {/* As wide as the title shown, not the longest one in the list (a bare select's width): the rest of the bar is for dragging. */}
+        <span className="paper-win-pick" title="Another paper of the project">
+          <span className="paper-win-pick-name">{paper.title}</span>
+          <ChevronDownIcon size={12} />
+          <select value={paper.id} onChange={(event) => onPick(event.target.value)} aria-label="Which paper" onPointerDown={(event) => event.stopPropagation()}>
+            {papers.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.title}
+              </option>
+            ))}
+          </select>
+        </span>
         <span className="win-ctl">
           {floating ? (
             <label className="win-tint" title="See the code through it">

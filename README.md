@@ -24,7 +24,9 @@ shown, and whether the library and the dock are put away while you are on Home
 
 - **Find papers** — the default. A large search box (<kbd>/</kbd> from anywhere on
   Home) over the indexes you pick, or an arXiv id, and **Save to**: the
-  collection the **+** on each result adds it to. Its **▾** picks another
+  collection the **+** on each result adds it to (collections only: a project
+  takes a paper only from the result's own **+ Project** menu, never because
+  it was the last thing saved to). Its **▾** picks another
   (<kbd>1</kbd>–<kbd>9</kbd>) or makes a new one; a result can also be dragged onto
   a collection on the right, and each save says so with **Undo**. A paper
   already in the library says where it is instead. Click a result, or press
@@ -1069,6 +1071,64 @@ yet, and any `\cite` key with no BibTeX entry.
 
 Where you write is a choice in Settings → Projects, **Writing with Overleaf**:
 
+- **A Write tab** (the default): a fourth view on every project, **Board ·
+  Overview · Workspace · Write**, that is the paper. The whole page is
+  Overleaf's layout: the files (and a drawer of the project's papers to cite)
+  on the left, the LaTeX in the middle, wrapped as prose is, and the PDF on
+  the right.
+  - The PDF compiles a second after you stop typing. Errors and warnings are
+    counted at the foot of the page, and each one opens its file at its line.
+  - The paper is a folder on this computer. You choose it once per computer:
+    a clone of **Overleaf's Git** (recommended: a paid Overleaf feature, with
+    a Git token from Overleaf's Account Settings), **Overleaf's Dropbox
+    folder**, the project's **GitHub repository**, or any folder.
+  - The Companion (0.10.0 or later) compiles it. It uses `latexmk` when TeX
+    Live or MacTeX is installed, or else **Tectonic**, which it can fetch.
+  - With Git, edits go to Overleaf a few seconds after you stop typing.
+    Coauthors' edits come in while you aren't typing, and every 30 seconds.
+    Edits on the same lines are left marked for you to settle, never thrown
+    away. The token stays in the Companion, on this computer.
+  - It compiles as Overleaf does: `latexmk` with the job named `output`,
+    SyncTeX, batch mode, and `-f` to keep going past errors (or
+    `-halt-on-error`, Overleaf's *Stop on first error*). It uses the
+    project's **compiler** (pdfLaTeX, XeLaTeX, LuaLaTeX or LaTeX, as in
+    Overleaf's Menu → Compiler) and **main document**, both picked in the PDF
+    pane's header and kept on the project. The build goes into a folder of
+    the Companion's own, so nothing it makes reaches Overleaf. The pane names
+    the TeX Live year; pick the same year in Overleaf's Menu → TeX Live
+    version for identical output. Tectonic is always XeLaTeX, and says so.
+  - Everything made in the tab is synced like an edit: new files and
+    folders, uploads (figures, a `.bib`, a style), renames and deletions.
+    Opening the tab takes in what changed in Overleaf, and leaving it saves
+    and syncs whatever is left.
+  - **Conference templates**: add a kit's `.zip` once (it is kept on this
+    computer) and start a paper from it. In Overleaf make a Blank Project and
+    put its address on the paper card. The Write tab clones it, puts the
+    template's files in (in place of the blank `main.tex`), makes the
+    template's paper the main document, and pushes it all to Overleaf.
+  - **Autocomplete**, as in Overleaf:
+    - A backslash and a letter or two bring the commands, the paper's own
+      `\newcommand`s among them, with the caret put in the first argument.
+    - `\begin{` brings the environments, each with its `\end` filled in and
+      a start inside (a figure's `\includegraphics`, `\caption`, `\label`).
+      `\end{` offers the one left open.
+    - `\cite{` brings the `.bib`'s keys and the project's papers. Taking a
+      paper the `.bib` lacks adds its entry.
+    - `\ref{` (and `\eqref`, `\cref`…) brings the labels in every file.
+    - `\input{`, `\includegraphics{` and `\bibliography{` bring the paper's
+      files.
+    - ↑↓ move, ↵ or Tab take one, Esc closes, and Ctrl+Space asks.
+  - **It sticks.** The link, each computer's folder, the compiler and the
+    main document are kept on the project until changed: unlinking asks
+    first. The Overleaf Git token is the account's, kept by the Companion on
+    each computer for every project of that account, so it is asked for
+    once. Settings → The Write tab can forget it.
+  - **The Write tab** in Settings has six choices: when it compiles (as you
+    type, on save, by hand), which TeX (whichever is here, latexmk,
+    Tectonic), where the PDF is (beside the source, under it, a tab of its
+    own), when it syncs (as you type, on save, by hand), the citations drawer (on or
+    off), and what an error does (keep going, as Overleaf, or stop at the
+    first).
 - **Overleaf beside** (the default): the card's button opens Overleaf in a
   window on the right half of the screen. In the workspace, the paper you are
   reading has **\cite** and **BibTeX** buttons that copy its key and entry.
@@ -4343,6 +4403,32 @@ checks the addresses, the parsers and the sync rules.
 real Jupyter servers, one for this PC and one for the GPU machine, and
 photographs it. The design behind it, and what is not built yet, is in
 [docs/playground.md](docs/playground.md).
+
+### Turning compute on and off
+
+Every place code can run — **Colab**, each of your computers, each server you
+added — has a switch. On, it is offered wherever you choose where code runs.
+Off, it is left out of those choices until you turn it on again. Nothing is
+removed, and a playground already on it keeps it. Where code is set up,
+"Where should it run?" starts on a place that is on. If you pick Colab while
+it is off, it says so and offers **Turn it on**. While something runs, there
+is also **Stop**:
+
+- **Colab:** every runtime this tab has, which is what spends units. Its
+  units per hour show while it runs.
+- **A computer's Companion:** its Jupyter server and every kernel on it. It
+  stays off until started again, and on this computer **Start** brings it back.
+
+All of it is in **Settings → Compute**. Where else it shows is the choice
+just under it, **Where to turn it on and off**:
+
+- **Everywhere** (the default): Settings; a switch on each place to run
+  where a project's code is set up, with **Manage compute** linking to
+  Settings; and a **Compute** chip in the rail. The chip lights while a Colab
+  runtime runs and opens the same list.
+- **Only in Settings**.
+- **Settings and the cards**: no chip.
+- **Settings and the rail**: no switches on the cards.
 
 ### Running playgrounds
 

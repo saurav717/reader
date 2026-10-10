@@ -988,6 +988,22 @@ export async function jupyterWrite(server: Pick<JupyterServer, 'url' | 'token'>,
   return { modified: model?.last_modified ?? null };
 }
 
+/** Writes a file of any kind on a Jupyter server, given as base64 (an image, a PDF), making the folders on the way. */
+export async function jupyterWriteBase64(server: Pick<JupyterServer, 'url' | 'token'>, path: string, base64: string): Promise<void> {
+  const parts = path.split('/').filter(Boolean);
+  for (let i = 1; i < parts.length; i += 1) {
+    await jupyterFetch(server, contentsUrl(parts.slice(0, i).join('/')), { method: 'PUT', body: { type: 'directory' } }).catch((error) => {
+      if (!(error instanceof JupyterRequestError) || error.status === 0 || error.status === 401 || error.status === 403) throw error;
+    });
+  }
+  await jupyterFetch(server, contentsUrl(path), { method: 'PUT', body: { type: 'file', format: 'base64', content: base64 } });
+}
+
+/** Makes a folder on a Jupyter server. */
+export async function jupyterMkdir(server: Pick<JupyterServer, 'url' | 'token'>, path: string): Promise<void> {
+  await jupyterFetch(server, contentsUrl(path), { method: 'PUT', body: { type: 'directory' } });
+}
+
 /** A file or folder on a Jupyter server, deleted (a folder with what is in it). */
 export async function jupyterDelete(server: Pick<JupyterServer, 'url' | 'token'>, path: string): Promise<void> {
   await jupyterFetch(server, contentsUrl(path), { method: 'DELETE' });
@@ -1673,6 +1689,17 @@ async function stopSessionRuntime(s: Session): Promise<void> {
     await relay('/colab/runtimes/stop', googleToken, { method: 'POST', body: { endpoint: runtime.endpoint } });
   } catch (error) {
     set(s, { error: `The runtime may still be running: ${message(error)} Stop it in Colab under Runtime → Manage sessions.` });
+  }
+}
+
+/** Stops every Colab machine this tab has a runtime on — what spends units — whichever sessions are on them. */
+export async function stopColabRuntimes(): Promise<void> {
+  const stopped = new Set<string>();
+  for (const s of [...sessions.values()]) {
+    const endpoint = s.state.runtime?.endpoint;
+    if (s.state.backend.kind !== 'colab' || !endpoint || stopped.has(endpoint)) continue;
+    stopped.add(endpoint);
+    await stopSessionRuntime(s);
   }
 }
 

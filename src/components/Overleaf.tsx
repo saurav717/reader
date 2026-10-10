@@ -440,6 +440,8 @@ function LinkForm({ project, onDone }: { project: Project; onDone: () => void })
             className="btn ghost sm"
             style={{ marginLeft: 'auto' }}
             onClick={() => {
+              // A link stays until it is taken off on purpose: the folder on each computer, the browser, the compiler go with it.
+              if (!window.confirm(`Unlink “${project.name}” from its Overleaf project? The Overleaf project and the paper’s files on your computers stay as they are; the Write tab asks for them again.`)) return;
               updateLink(updateCollection, project, undefined);
               drafts.delete(project.id);
               onDone();
@@ -456,6 +458,7 @@ function LinkForm({ project, onDone }: { project: Project; onDone: () => void })
 // ------------------------------------------------- the overview card --
 
 const WHERE: Record<OverleafView, string> = {
+  tab: 'Write it in the Write tab: the LaTeX and its PDF, synced with Overleaf.',
   beside: 'Overleaf opens in a window beside the reader.',
   write: 'Write beside the project’s papers in the workspace.',
   dock: 'The draft is in the dock’s Draft tab, beside any paper you open.',
@@ -506,12 +509,12 @@ export function OverleafCard({ project, onWrite }: { project: Project; /** The w
         <div className="ol-card-main">
           <p className="pj-sub">{WHERE[view]}</p>
           <div className="pj-row" style={{ marginTop: 0 }}>
-            {view === 'write' ? (
+            {view === 'write' || view === 'tab' ? (
               <button type="button" className="btn primary sm" onClick={onWrite}>
-                Write beside the papers
+                {view === 'tab' ? 'Write the paper' : 'Write beside the papers'}
               </button>
             ) : null}
-            <OpenOverleaf project={project} view={view} primary={view !== 'write'} />
+            <OpenOverleaf project={project} view={view === 'tab' ? 'beside' : view} primary={view !== 'write' && view !== 'tab'} />
           </div>
           {!link.repo ? (
             <p className="ol-note">Overleaf can’t be read from another site, so this is only the link. If the project syncs with GitHub, add the repository (Change) to see its sections and citations here.</p>

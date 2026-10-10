@@ -15,6 +15,12 @@ import { hasProxy } from '../lib/api';
 
 /** Asks the app to open Settings, from a page that has no handle on it. */
 export const OPEN_SETTINGS = 'reader:open-settings';
+
+/** Settings, at its Compute section. */
+export function openComputeSettings() {
+  window.dispatchEvent(new Event(OPEN_SETTINGS));
+  window.setTimeout(() => document.getElementById('settings-compute')?.scrollIntoView({ block: 'start', behavior: 'smooth' }), 150);
+}
 import {
   ROLES,
   byRole,
@@ -40,6 +46,9 @@ import Playground, { ComputeTag, WhereDialog } from './Playground';
 import PaperWindow from './PaperWindow';
 import Reader from './Reader';
 import { CiteButtons, DraftEditor, OpenOverleaf, OverleafCard } from './Overleaf';
+import WritePage from './Write';
+import { ComputeSwitch } from './Compute';
+import { COLAB, computeId, isOn, serversOn, switchesOnCards } from '../lib/compute';
 import { overleafViewOf } from '../lib/overleaf';
 import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, CloseIcon, CodeIcon, GridIcon, PlusIcon, TrashIcon } from './icons';
 
@@ -128,7 +137,7 @@ export default function ProjectsPage({
     <ProjectBar
       projects={projects}
       current={project}
-      mode={view.kind === 'projects' ? 'board' : view.mode === 'workspace' ? 'workspace' : 'overview'}
+      mode={view.kind === 'projects' ? 'board' : view.mode === 'workspace' || view.mode === 'write' ? view.mode : 'overview'}
       onView={onView}
       onNew={() => setCreating(true)}
     />
@@ -149,6 +158,8 @@ export default function ProjectsPage({
         </div>
       </div>
     );
+  } else if (view.mode === 'write') {
+    body = <WritePage key={project.id} project={project} onView={onView} />;
   } else if (view.mode === 'workspace') {
     body = <ProjectWorkspace key={project.id} project={project} onView={onView} onOpenPaper={onOpenPaper} />;
   } else {
@@ -156,7 +167,7 @@ export default function ProjectsPage({
   }
 
   return (
-    <main className={`main pj-page${view.kind === 'project' && view.mode === 'workspace' ? ' is-workspace' : ''}`}>
+    <main className={`main pj-page${view.kind === 'project' && view.mode === 'workspace' ? ' is-workspace' : ''}${view.kind === 'project' && view.mode === 'write' ? ' is-workspace is-write' : ''}`}>
       {header}
       {body}
       {creating ? (
@@ -182,10 +193,12 @@ function ProjectBar({
 }: {
   projects: Project[];
   current: Project | undefined;
-  mode: 'board' | 'overview' | 'workspace';
+  mode: 'board' | 'overview' | 'workspace' | 'write';
   onView: (view: View) => void;
   onNew: () => void;
 }) {
+  const { settings } = useStore();
+  const writeTab = overleafViewOf(settings) === 'tab';
   const [picking, setPicking] = useState(false);
   const pickRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -219,7 +232,7 @@ function ProjectBar({
                 aria-current={project.id === current?.id ? 'true' : undefined}
                 onClick={() => {
                   setPicking(false);
-                  onView(mode === 'workspace' ? { kind: 'project', id: project.id, mode: 'workspace' } : { kind: 'project', id: project.id });
+                  onView(mode === 'workspace' || mode === 'write' ? { kind: 'project', id: project.id, mode } : { kind: 'project', id: project.id });
                 }}
               >
                 <span className="pj-dot" style={{ background: project.color }} />
@@ -243,6 +256,11 @@ function ProjectBar({
         <button type="button" aria-pressed={mode === 'workspace'} disabled={!target} onClick={() => target && onView({ kind: 'project', id: target.id, mode: 'workspace' })} title="A paper of the project beside its code">
           Workspace
         </button>
+        {writeTab ? (
+          <button type="button" aria-pressed={mode === 'write'} disabled={!target} onClick={() => target && onView({ kind: 'project', id: target.id, mode: 'write' })} title="The project’s paper: its LaTeX and the PDF it makes, synced with Overleaf">
+            Write
+          </button>
+        ) : null}
       </div>
       <div style={{ flex: 1 }} />
       <button type="button" className="btn sm" onClick={onNew}>
@@ -378,7 +396,7 @@ function ProjectOverview({
   onOpenPaper: (id: string) => void;
   onAddPapers: () => void;
 }) {
-  const { papers, highlights, updateCollection, setPaperCollections, renameCollection, deleteCollection } = useStore();
+  const { papers, highlights, updateCollection, setPaperCollections, renameCollection, deleteCollection, settings } = useStore();
   const info = project.project;
   const groups = byRole(project, papers);
   const reading = continueWith(project, papers);
@@ -503,6 +521,7 @@ function ProjectOverview({
         <OverleafCard
           project={project}
           onWrite={() => {
+            if (overleafViewOf(settings) === 'tab') return onView({ kind: 'project', id: project.id, mode: 'write' });
             writeWs(WS_LAYOUT, 'write');
             onView({ kind: 'project', id: project.id, mode: 'workspace' });
           }}
@@ -1257,10 +1276,14 @@ function SetUpCode({ project, papers, missing, onLinked, onView }: { project: Pr
   const { settings, driveConnected } = useStore();
   const [where, setWhere] = useState(false);
   // What each place to run needs, said before the choice rather than as a greyed-out button after it.
-  const colabOk = colabAvailable(settings.googleClientId);
+  const colabSetUp = colabAvailable(settings.googleClientId);
+  const colabOn = isOn(settings, COLAB);
+  const colabOk = colabSetUp && colabOn;
   const colabNeeds = [!settings.googleClientId.trim() ? 'a Google client ID' : '', !hasProxy() ? 'the paper proxy' : ''].filter(Boolean);
-  const computers = servers.filter((server) => server.where === 'pc' || server.companionId);
+  const allComputers = servers.filter((server) => server.where === 'pc' || server.companionId);
+  const computers = serversOn(settings, allComputers);
   const ready = colabOk || computers.length > 0;
+  const switches = switchesOnCards(settings);
   const cites = papers.slice(0, 12).map((paper) => ({ paperId: paper.id, title: paper.title }));
   const readme = [
     `# ${project.name}`,
@@ -1284,33 +1307,53 @@ function SetUpCode({ project, papers, missing, onLinked, onView }: { project: Pr
           : 'A folder of files, an editor, a console and an agent that knows the project’s papers — the same as a playground, kept beside the papers you read for it.'}
       </p>
       <ul className="pj-ready" aria-label="Where it can run">
-        <li className={colabOk ? 'is-ok' : 'is-missing'}>
+        <li className={colabOk ? 'is-ok' : colabSetUp ? 'is-off' : 'is-missing'}>
           <b>Colab</b>
-          {colabOk ? (
-            <span>ready — CPU and a T4 on the free tier{driveConnected ? ', the files kept in your Drive' : ''}</span>
-          ) : (
+          {!colabSetUp ? (
             <span>
               needs {colabNeeds.join(' and ') || 'a Google sign-in'} —{' '}
               <button type="button" className="link-btn" onClick={() => window.dispatchEvent(new Event(OPEN_SETTINGS))}>
                 set it up in Settings
               </button>
             </span>
-          )}
-        </li>
-        <li className={computers.length ? 'is-ok' : 'is-missing'}>
-          <b>Your computer</b>
-          {computers.length ? (
-            <span>set up — {computers.map((server) => server.name || 'this computer').join(', ')}</span>
+          ) : colabOn ? (
+            <span>ready — CPU and a T4 on the free tier{driveConnected ? ', the files kept in your Drive' : ''}</span>
           ) : (
-            <span>
-              needs the Reader app, one command —{' '}
-              <button type="button" className="link-btn" onClick={() => onView({ kind: 'playground' })}>
-                connect this computer
-              </button>
-            </span>
+            <span>turned off — not offered as a place to run</span>
           )}
+          {switches && colabSetUp ? <ComputeSwitch id={COLAB} label="Colab" /> : null}
         </li>
+        {allComputers.length && switches ? (
+          allComputers.map((server) => (
+            <li key={server.id} className={isOn(settings, computeId(server)) ? 'is-ok' : 'is-off'}>
+              <b>Your computer</b>
+              <span>{isOn(settings, computeId(server)) ? `set up — ${server.name || 'this computer'}` : `${server.name || 'this computer'} — turned off`}</span>
+              <ComputeSwitch id={computeId(server)} label={server.name || 'This computer'} />
+            </li>
+          ))
+        ) : (
+          <li className={computers.length ? 'is-ok' : allComputers.length ? 'is-off' : 'is-missing'}>
+            <b>Your computer</b>
+            {computers.length ? (
+              <span>set up — {computers.map((server) => server.name || 'this computer').join(', ')}</span>
+            ) : allComputers.length ? (
+              <span>turned off in Settings → Compute</span>
+            ) : (
+              <span>
+                needs the Reader app, one command —{' '}
+                <button type="button" className="link-btn" onClick={() => onView({ kind: 'playground' })}>
+                  connect this computer
+                </button>
+              </span>
+            )}
+          </li>
+        )}
       </ul>
+      {switches ? (
+        <button type="button" className="link-btn pj-manage-compute" onClick={openComputeSettings}>
+          Manage compute — stop what runs, or turn places on and off
+        </button>
+      ) : null}
       <div className="pj-row">
         <button type="button" className="btn primary" onClick={() => setWhere(true)} title={ready ? undefined : 'Nowhere to run it yet — see above'}>
           <CodeIcon size={14} /> Start the project’s code

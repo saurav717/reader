@@ -25,6 +25,8 @@ import Discover from './components/Discover';
 import Library from './components/Library';
 import NotesRail from './components/NotesRail';
 import { DraftDock, useDraftDock } from './components/Overleaf';
+import { RailCompute } from './components/Compute';
+import { chipInRail } from './lib/compute';
 import NotesWindow from './components/NotesWindow';
 import NotesBoard from './components/NotesBoard';
 import { CLOSE_EXPLAIN, OPEN_BOARD, OPEN_EXPLAIN, OPEN_NOTES } from './lib/notes';
@@ -476,9 +478,21 @@ export default function App() {
   // search box, which is the part of it that press is asking for.
   const [discoverFocus, setDiscoverFocus] = useState(0);
   const addPapers = useCallback(() => {
+    setDiscoverProject(null);
     setDock('discover');
     setDiscoverFocus(Date.now());
   }, []);
+  // A project's own "Add papers": Discover adds to that project. Anywhere else it adds to a collection,
+  // never to a project merely because its page is open.
+  const [discoverProject, setDiscoverProject] = useState<string | null>(null);
+  const addPapersToProject = useCallback(() => {
+    setDiscoverProject(view.kind === 'project' ? view.id : null);
+    setDock('discover');
+    setDiscoverFocus(Date.now());
+  }, [view]);
+  useEffect(() => {
+    if (discoverProject && !(view.kind === 'project' && view.id === discoverProject)) setDiscoverProject(null);
+  }, [view, discoverProject]);
   useEffect(() => {
     const onDiscover = (event: Event) => {
       const detail = (event as CustomEvent<{ query: string; open?: string }>).detail;
@@ -575,9 +589,10 @@ export default function App() {
     // Only the move onto and off Home; the panels' own state is read, not followed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onHome]);
-  // A project's workspace is a paper beside its code: the library and the dock
-  // step aside on the way in, and come back as they were on the way out.
-  const inWorkspace = view.kind === 'project' && view.mode === 'workspace';
+  // A project's workspace is a paper beside its code, and its Write tab the paper
+  // and its PDF: the library and the dock step aside on the way in, and come
+  // back as they were on the way out.
+  const inWorkspace = view.kind === 'project' && (view.mode === 'workspace' || view.mode === 'write');
   const panelsBeforeWorkspace = useRef<Layout | null>(null);
   useEffect(() => {
     if (inWorkspace) {
@@ -1186,6 +1201,7 @@ export default function App() {
     panels: navPanels,
     progress: !showWelcome ? <RailProgress showing={explainOpen && explained ? explained.id : null} onOpen={openFromProgress} /> : undefined,
     account: accountButton,
+    compute: chipInRail(settings) && !showWelcome ? (labelled: boolean) => <RailCompute labelled={labelled} /> : undefined,
     onSettings: () => setSettingsOpen(true),
     settingsIcon: <SettingsIcon size={19} />,
     settingsTitle: driveConnected ? 'Settings — Drive connected' : 'Settings',
@@ -1323,6 +1339,7 @@ export default function App() {
         </button>
         {shows.dock ? <RailRunBadge onOpen={goToPlayground} /> : null}
         </div>
+        {chipInRail(settings) && !showWelcome ? <RailCompute /> : null}
         {!showWelcome ? (
           <RailProjects
             current={view.kind === 'project' && !onUsage ? view.id : undefined}
@@ -1432,7 +1449,7 @@ export default function App() {
       ) : view.kind === 'playground' ? (
         <Playground id={view.id} onOpen={(id) => setView(id ? { kind: 'playground', id } : { kind: 'playground' })} onOpenPaper={openPaper} />
       ) : view.kind === 'projects' || view.kind === 'project' ? (
-        <ProjectsPage view={view} onView={setView} onOpenPaper={openPaper} onAddPapers={addPapers} />
+        <ProjectsPage view={view} onView={setView} onOpenPaper={openPaper} onAddPapers={addPapersToProject} />
       ) : view.kind === 'junk' ? (
         <JunkView />
       ) : (
@@ -1472,7 +1489,7 @@ export default function App() {
               onClose={closeDock}
               onOpen={openFromDiscover}
               ask={discoverAsk}
-              here={view.kind === 'collection' || view.kind === 'project' ? view.id : undefined}
+              here={view.kind === 'collection' ? view.id : discoverProject ?? undefined}
               focus={discoverFocus}
             />
           ) : (

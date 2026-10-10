@@ -12,7 +12,7 @@
 //   /playground            the Playground's home
 //   /playground/?id=<id>   one playground
 //   /projects              every project, side by side
-//   /project/?id=<id>      a project's overview; &view=workspace its workspace
+//   /project/?id=<id>      a project's overview; &view=workspace its workspace, &view=write its paper
 //
 // The id rides in the query, so every address is a folder that exists on a
 // static host (GitHub Pages): a reload is answered by that folder's
@@ -52,7 +52,7 @@ export function pathFor(place: Place, base = basePath()): string {
                 ? withId('playground', view.id)
                 : 'playground'
               : view.kind === 'project'
-                ? `${withId('project', view.id)}${view.mode === 'workspace' ? '&view=workspace' : ''}`
+                ? `${withId('project', view.id)}${view.mode === 'workspace' || view.mode === 'write' ? `&view=${view.mode}` : ''}`
                 : view.kind;
   return `${base}${tail}`;
 }
@@ -108,7 +108,8 @@ export function placeFor(address: string, base = basePath()): Place | null {
   if (head === 'paper' && id) return { view: { kind: 'paper', id } };
   if (head === 'projects' && !extra) return { view: { kind: 'projects' } };
   if (head === 'project' && id) {
-    const mode = new URLSearchParams(query).get('view') === 'workspace' ? 'workspace' : undefined;
+    const asked = new URLSearchParams(query).get('view');
+    const mode = asked === 'workspace' || asked === 'write' ? asked : undefined;
     return { view: mode ? { kind: 'project', id, mode } : { kind: 'project', id } };
   }
   if (head === 'playground') return { view: id ? { kind: 'playground', id } : { kind: 'playground' } };

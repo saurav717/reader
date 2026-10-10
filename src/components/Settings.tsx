@@ -3,7 +3,45 @@ import { useStore } from '../lib/store';
 import { BUILT_IN_BASE, checkProxy, hasProxy } from '../lib/api';
 import { accessStatus, forgetAccess, forgetSignIns, type AccessStatus } from '../lib/access';
 import { parseRepo } from '../lib/github';
-import { GLASS_WALLS, NAV_STYLES, OVERLEAF_VIEWS, PROJECT_NAVS } from '../types';
+import { COMPUTE_CONTROLS, GLASS_WALLS, NAV_STYLES, OVERLEAF_VIEWS, PROJECT_NAVS, WRITE_DEFAULTS, WRITE_OPTIONS } from '../types';
+import { computeControlsOf } from '../lib/compute';
+import { ComputeList } from './Compute';
+import { PAPER_TEMPLATES_VERSION, forgetOverleafToken, tokenKnown } from '../lib/companion';
+import { thisComputer } from '../lib/thisComputer';
+
+/** Whether this computer's Companion keeps an Overleaf account's Git token, and the way to forget it. */
+function OverleafTokenRow() {
+  const [state, setState] = useState<'asking' | 'kept' | 'none' | 'away'>('asking');
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    void thisComputer(PAPER_TEMPLATES_VERSION, 'keep an Overleaf token').then(async (here) => {
+      if ('error' in here) return setState('away');
+      setState((await tokenKnown(here.server, 'https://git.overleaf.com/000000000000000000000000').catch(() => false)) ? 'kept' : 'none');
+    });
+  }, []);
+  if (state === 'away' || state === 'asking') return null;
+  return (
+    <p style={{ fontSize: 12.5, margin: '10px 0 0', display: 'flex', gap: 10, alignItems: 'center' }}>
+      {state === 'kept' ? 'This computer keeps your Overleaf account’s Git token: every project of it syncs without asking.' : note || 'No Overleaf token on this computer yet: the Write tab asks for it once.'}
+      {state === 'kept' ? (
+        <button
+          type="button"
+          className="btn sm"
+          onClick={async () => {
+            if (!window.confirm('Forget the Overleaf token on this computer? Syncing asks for it again.')) return;
+            const here = await thisComputer(PAPER_TEMPLATES_VERSION, 'forget the Overleaf token');
+            if ('error' in here) return;
+            await forgetOverleafToken(here.server);
+            setState('none');
+            setNote('Forgotten: the Write tab asks for a token the next time it syncs.');
+          }}
+        >
+          Forget it
+        </button>
+      ) : null}
+    </p>
+  );
+}
 import { overleafViewOf } from '../lib/overleaf';
 import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
@@ -817,7 +855,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               >
                 <b>
                   {option.label}
-                  {option.id === 'beside' ? <small> · default</small> : null}
+                  {option.id === 'tab' ? <small> · default</small> : null}
                 </b>
                 <span>{option.note}</span>
               </button>
@@ -825,10 +863,81 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           </div>
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
             A project is linked to Overleaf from the paper card on its overview, which every choice keeps. Overleaf
-            can’t be opened inside another site or read from one, so writing here — the workspace or the dock — needs
-            the paper in GitHub too (Overleaf’s GitHub sync), with the token from Git mirror above; Overleaf pulls what you save from
-            its GitHub menu.
+            can’t be opened inside another site or read from one: the Write tab works on a copy of the paper on this
+            computer, synced with Overleaf’s Git or Dropbox; the workspace and the dock need the paper in GitHub too
+            (Overleaf’s GitHub sync), with the token from Git mirror above, and Overleaf pulls what you save from its GitHub menu.
           </p>
+          {overleafViewOf(settings) === 'tab' ? (
+            <>
+              <div className="eyebrow" style={{ margin: '16px 0 8px' }}>
+                The Write tab
+              </div>
+              {WRITE_OPTIONS.map((group) => {
+                const value = (settings.write ?? WRITE_DEFAULTS)[group.key] ?? WRITE_DEFAULTS[group.key];
+                return (
+                  <div key={group.key} className="write-choice">
+                    <span className="write-choice-label">{group.label}</span>
+                    <div className="nav-choices is-text" role="radiogroup" aria-label={`The Write tab: ${group.label}`}>
+                      {group.choices.map((choice, index) => (
+                        <button
+                          key={choice.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={value === choice.id}
+                          className={`nav-choice${value === choice.id ? ' is-on' : ''}`}
+                          onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), [group.key]: choice.id } })}
+                        >
+                          <b>
+                            {choice.label}
+                            {index === 0 ? <small> · default</small> : null}
+                          </b>
+                          <span>{choice.note}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              <OverleafTokenRow />
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
+                The Write tab needs this computer’s Companion ({'0.10.0'} or later): it keeps the paper in a folder here,
+                compiles it with your TeX (or Tectonic, which it can fetch), and syncs it with Overleaf’s Git or Dropbox.
+              </p>
+            </>
+          ) : null}
+        </section>
+
+        <section id="settings-compute" style={{ marginBottom: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Compute
+          </div>
+          <ComputeList />
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 14px' }}>
+            Off leaves a place out of every choice of where code runs — nothing is removed, and a playground already on
+            it keeps it. Stop ends what runs now: Colab’s runtimes, which spend units, or a Companion, which can be
+            started again here on this computer.
+          </p>
+          <div className="eyebrow" style={{ margin: '0 0 8px' }}>
+            Where to turn it on and off
+          </div>
+          <div className="nav-choices is-text" role="radiogroup" aria-label="Where compute is turned on and off">
+            {COMPUTE_CONTROLS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={computeControlsOf(settings) === option.id}
+                className={`nav-choice${computeControlsOf(settings) === option.id ? ' is-on' : ''}`}
+                onClick={() => updateSettings({ computeControls: option.id })}
+              >
+                <b>
+                  {option.label}
+                  {option.id === 'everywhere' ? <small> · default</small> : null}
+                </b>
+                <span>{option.note}</span>
+              </button>
+            ))}
+          </div>
         </section>
 
         <section>

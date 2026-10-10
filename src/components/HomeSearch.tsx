@@ -9,7 +9,7 @@ import { PdfPeek, ReflowPeek, clip, hasPage, sinceLeft, useSpot, whereIn } from 
 import { CheckIcon, ChevronDownIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
 import { Locations } from './Discover';
 import { AddToProject } from './Projects';
-import { isProject } from '../lib/projects';
+import { isProject, plainCollections } from '../lib/projects';
 
 /** A search result dragged onto a collection carries itself. */
 const REF_MIME = 'application/x-reader-ref';
@@ -70,7 +70,9 @@ export function FindPapers({ hero, ask, focusBox = true, saveTo, onSaveTo, onOpe
   const input = useRef<HTMLInputElement>(null);
   const abort = useRef<AbortController | null>(null);
 
-  const target = collections.find((item) => item.id === saveTo) ?? collections[0];
+  // Saving puts a paper in a collection, never a project: a project takes a paper only from its own menu (+ Project).
+  const plain = useMemo(() => plainCollections(collections), [collections]);
+  const target = plain.find((item) => item.id === saveTo) ?? plain[0];
 
   // The box has the cursor as a visit opens on it, and / puts it there from anywhere on Home.
   useEffect(() => {
@@ -204,10 +206,10 @@ export function FindPapers({ hero, ask, focusBox = true, saveTo, onSaveTo, onOpe
 
   const save = useCallback(
     async (ref: PaperRef, collection: Collection | undefined) => {
-      if (!collection) return;
       const existing = inLibrary(ref);
-      const paper = await addPaper(existing ? { ...ref, id: existing.id } : ref, collection.id);
-      setAdded({ paperId: paper.id, title: ref.title, collection: collection.name, before: existing ? existing.collectionIds : undefined });
+      // With no collection yet, it goes to the library, unsorted.
+      const paper = await addPaper(existing ? { ...ref, id: existing.id } : ref, collection?.id);
+      setAdded({ paperId: paper.id, title: ref.title, collection: collection?.name ?? 'your library', before: existing ? existing.collectionIds : undefined });
       setPicking(null);
     },
     [addPaper, inLibrary],
@@ -254,7 +256,7 @@ export function FindPapers({ hero, ask, focusBox = true, saveTo, onSaveTo, onOpe
   const onListKey = (event: React.KeyboardEvent) => {
     const ref = shown[selected];
     if (picking && /^[1-9]$/.test(event.key)) {
-      const collection = collections[Number(event.key) - 1];
+      const collection = plain[Number(event.key) - 1];
       const pickRef = shown.find((item) => item.id === picking);
       if (collection && pickRef) {
         event.preventDefault();
@@ -348,7 +350,8 @@ export function FindPapers({ hero, ask, focusBox = true, saveTo, onSaveTo, onOpe
               onChange={(event) => (event.target.value === '+new' ? void newCollection() : onSaveTo(event.target.value))}
               aria-label="Save to collection"
             >
-              {collections.map((collection) => (
+              {!plain.length ? <option value="">Library (no collection)</option> : null}
+              {plain.map((collection) => (
                 <option key={collection.id} value={collection.id}>
                   {collection.name}
                 </option>
@@ -426,8 +429,8 @@ export function FindPapers({ hero, ask, focusBox = true, saveTo, onSaveTo, onOpe
                 {hasProjects ? <AddToProject paperRef={have ? { ...ref, id: have.id } : ref} compact align="right" /> : null}
                 {have && target && have.collectionIds.includes(target.id) ? null : (
                   <span className="find-split">
-                    <button type="button" className="btn primary sm" onClick={() => void save(ref, target)} disabled={!target} title={target ? `Save to ${target.name} (A)` : 'Make a collection first'}>
-                      <PlusIcon size={13} /> {target ? clip(target.name, 22) : 'Collection'}
+                    <button type="button" className="btn primary sm" onClick={() => void save(ref, target)} title={target ? `Save to ${target.name} (A)` : 'Save to your library, in no collection (A)'}>
+                      <PlusIcon size={13} /> {target ? clip(target.name, 22) : 'Library'}
                     </button>
                     <button type="button" className="btn primary sm" aria-label="Save to another collection" aria-expanded={picking === ref.id} onClick={() => setPicking(picking === ref.id ? null : ref.id)}>
                       <ChevronDownIcon size={13} />
@@ -435,11 +438,10 @@ export function FindPapers({ hero, ask, focusBox = true, saveTo, onSaveTo, onOpe
                     {picking === ref.id ? (
                       <div className="find-pick" role="menu">
                         <span className="home-eyebrow">Save to</span>
-                        {collections.map((collection, at) => (
+                        {plain.map((collection, at) => (
                           <button key={collection.id} type="button" role="menuitem" onClick={() => void save(ref, collection)}>
                             <span className="home-dot" style={{ background: collection.color }} />
                             {collection.name}
-                            {isProject(collection) ? <span className="pj-kind">project</span> : null}
                             {have?.collectionIds.includes(collection.id) ? <CheckIcon size={12} /> : null}
                             {at < 9 ? <kbd>{at + 1}</kbd> : null}
                           </button>
@@ -467,8 +469,8 @@ export function FindPapers({ hero, ask, focusBox = true, saveTo, onSaveTo, onOpe
                         <CheckIcon size={13} /> In {target.name}
                       </span>
                     ) : (
-                      <button type="button" className="btn primary sm" onClick={() => void save(ref, target)} disabled={!target}>
-                        <PlusIcon size={13} /> Save to {target ? clip(target.name, 24) : 'a collection'}
+                      <button type="button" className="btn primary sm" onClick={() => void save(ref, target)}>
+                        <PlusIcon size={13} /> Save to {target ? clip(target.name, 24) : 'your library'}
                       </button>
                     )}
                     <button type="button" className="btn sm" onClick={() => void read(ref)}>
@@ -495,7 +497,7 @@ export function FindPapers({ hero, ask, focusBox = true, saveTo, onSaveTo, onOpe
 
         <aside className="home-card find-colls" aria-label="Your collections">
           <span className="home-eyebrow">Your collections</span>
-          {collections.map((collection) => {
+          {plain.map((collection) => {
             const count = papers.filter((paper) => paper.collectionIds.includes(collection.id)).length;
             return (
               <button
@@ -520,7 +522,6 @@ export function FindPapers({ hero, ask, focusBox = true, saveTo, onSaveTo, onOpe
               >
                 <span className="home-dot" style={{ background: collection.color }} />
                 <span className="find-coll-name">{collection.name}</span>
-                {isProject(collection) ? <span className="pj-kind">project</span> : null}
                 <span className="find-coll-count">{count}</span>
               </button>
             );

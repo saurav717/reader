@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.9.0';
+export const COMPANION_VERSION = '0.11.0';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -539,3 +539,123 @@ export const listBrowsers = (server: { url: string; token: string }) => browsers
 /** Opens an https link in that browser and profile on the Companion's computer ('default' for its default browser). */
 export const openInBrowser = (server: { url: string; token: string }, url: string, browser: string, profile?: string) =>
   browsersCall<{ opened: boolean }>(server, { method: 'POST', body: JSON.stringify({ url, browser, ...(profile ? { profile } : {}) }) });
+
+// ------------------------------------------- a project's paper here (0.10.0) --
+
+/** The first Companion that compiles a paper and syncs it with Overleaf's Git (/companion/paper). */
+export const PAPER_VERSION = '0.10.0';
+/** The first Companion that compiles as Overleaf does (its build kept out of the paper), keeps templates and an account's token. */
+export const PAPER_TEMPLATES_VERSION = '0.11.0';
+
+export interface PaperEngines {
+  /** Where each is, '' when it isn't here. */
+  latexmk: string;
+  tectonic: string;
+  git: string;
+  /** Whether the Companion can fetch Tectonic for this computer. */
+  tectonicInstallable: boolean;
+  /** For bibliographies, as latexmk runs them (from 0.11.0). */
+  bibtex?: string;
+  biber?: string;
+  /** The TeX installed, as it says: "pdfTeX 3.141592653-2.6-1.40.26 (TeX Live 2024)" (from 0.11.0). */
+  texVersion?: string;
+}
+
+/** Overleaf's compilers (Menu → Compiler), as latexmk is told: pdfLaTeX is Overleaf's default. */
+export type TexCompiler = 'pdflatex' | 'xelatex' | 'lualatex' | 'latex';
+
+export const TEX_COMPILERS: { id: TexCompiler; label: string }[] = [
+  { id: 'pdflatex', label: 'pdfLaTeX' },
+  { id: 'xelatex', label: 'XeLaTeX' },
+  { id: 'lualatex', label: 'LuaLaTeX' },
+  { id: 'latex', label: 'LaTeX' },
+];
+
+export interface PaperTemplate {
+  slug: string;
+  name: string;
+  files: number;
+  main: string;
+}
+
+export interface TexProblem {
+  file: string;
+  line: number | null;
+  message: string;
+}
+
+export interface Compiled {
+  ok: boolean;
+  main: string;
+  engine: string;
+  /** The compiler it ran: Tectonic's is always XeLaTeX (from 0.11.0). */
+  compiler?: TexCompiler;
+  /** The PDF, base64; '' when none was made. */
+  pdf: string;
+  errors: TexProblem[];
+  warnings: TexProblem[];
+  log: string;
+  ms: number;
+}
+
+export interface Synced {
+  ok: boolean;
+  committed: boolean;
+  pushed: boolean;
+  /** Files changed elsewhere (in Overleaf) and taken in. */
+  incoming?: string[];
+  /** Files left with conflict markers. */
+  conflicts: string[];
+  error?: string;
+  at?: number;
+}
+
+async function paperCall<T>(server: { url: string; token: string }, init?: { action: string } & Record<string, unknown>): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${server.url.replace(/\/?$/, '/')}companion/paper`, {
+      method: init ? 'POST' : 'GET',
+      headers: { Authorization: `token ${server.token}`, ...(init ? { 'Content-Type': 'application/json' } : {}) },
+      ...(init ? { body: JSON.stringify(init) } : {}),
+      cache: 'no-store',
+    });
+  } catch {
+    throw new Error('This computer’s Companion didn’t answer. Is it running?');
+  }
+  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (response.status === 404) throw new Error(`This computer’s Companion is older than ${PAPER_VERSION}: update it to compile and sync the paper here.`);
+  if (!response.ok) throw new Error(body.error || `The Companion said ${response.status}.`);
+  return body;
+}
+
+/** What compiles a paper on the Companion's computer, and whether git is there. */
+export const paperEngines = (server: { url: string; token: string }) => paperCall<PaperEngines>(server);
+/** Compiles the paper in `folder` (relative to the Companion's folder). */
+export const compilePaper = (
+  server: { url: string; token: string },
+  folder: string,
+  engine: 'auto' | 'latexmk' | 'tectonic',
+  how: { main?: string; compiler?: TexCompiler; halt?: boolean } = {},
+) => paperCall<Compiled>(server, { action: 'compile', folder, engine, ...(how.main ? { main: how.main } : {}), compiler: how.compiler ?? 'pdflatex', halt: Boolean(how.halt) });
+/** Fetches Tectonic onto the Companion's computer. */
+export const installTectonic = (server: { url: string; token: string }) => paperCall<{ tectonic: string }>(server, { action: 'install-tectonic' });
+/** Clones Overleaf's Git (or a GitHub repository) into `folder`; the token is kept by the Companion for that remote. */
+export const clonePaper = (server: { url: string; token: string }, folder: string, url: string, token: string) => paperCall<{ folder: string }>(server, { action: 'clone', folder, url, token });
+/** Commits what changed here, takes in what changed in Overleaf, and pushes. */
+export const syncPaper = (server: { url: string; token: string }, folder: string, message: string, token?: string) =>
+  paperCall<Synced>(server, { action: 'sync', folder, message, ...(token ? { token } : {}) });
+/** Where the folder syncs to, and whether the Companion has a token for it. */
+export const paperRemote = (server: { url: string; token: string }, folder: string) => paperCall<{ url: string; token: boolean }>(server, { action: 'remote', folder });
+
+/** The templates kept on the Companion's computer (from 0.11.0). */
+export const listTemplates = (server: { url: string; token: string }) => paperCall<{ templates: PaperTemplate[] }>(server, { action: 'templates' }).then((body) => body.templates);
+/** A conference's kit, a .zip as base64, kept as a template. */
+export const saveTemplate = (server: { url: string; token: string }, name: string, zip: string) => paperCall<PaperTemplate>(server, { action: 'save-template', name, zip });
+/** A template's files copied into a paper's folder, which may be an empty Overleaf project's clone. */
+export const applyTemplate = (server: { url: string; token: string }, template: string, folder: string, replace = false) =>
+  paperCall<{ folder: string; files: number; replaced: string[]; main: string }>(server, { action: 'apply-template', template, folder, replace });
+export const deleteTemplate = (server: { url: string; token: string }, template: string) => paperCall<{ deleted: boolean }>(server, { action: 'delete-template', template });
+/** Whether the Companion has a token for this remote, or its Overleaf account. */
+export const tokenKnown = (server: { url: string; token: string }, url: string) => paperCall<{ known: boolean }>(server, { action: 'token', url }).then((body) => body.known);
+/** Every Overleaf token on the Companion's computer, forgotten. */
+export const forgetOverleafToken = (server: { url: string; token: string }) => paperCall<{ forgotten: number }>(server, { action: 'forget-token', host: 'https://git.overleaf.com' });

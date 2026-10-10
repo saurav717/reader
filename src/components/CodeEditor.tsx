@@ -10,6 +10,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffec
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { highlightCode } from '../lib/languages';
 import { highlightTex } from '../lib/overleaf';
+import type { Completion, CompletionItem } from '../lib/latexComplete';
 import type { Edit, FindOptions, Selection } from '../lib/editing';
 import { commentFor, copyLines, deleteLines, deletePair, findAll, lineCol, lineSpan, moveLines, newLine, offsetOfLine, replaceAll, toggleComment, typeBracket } from '../lib/editing';
 import { highlightPython } from './Explain';
@@ -50,7 +51,18 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
   onFocus?: () => void;
   /** Shown, searched and selected, never changed: a snapshot of code that is somewhere else. */
   readOnly?: boolean;
-}>(function CodeEditor({ value, path, fontSize = 13, minimap = true, onChange, onKeyDown, onCursor, onFocus, readOnly = false }, ref) {
+  /**
+   * Long lines wrapped to the editor's width, as prose wants (the Write tab's
+   * LaTeX), a line number at the first row of each. For a language whose
+   * highlighting never spans lines, as LaTeX's doesn't.
+   */
+  wrap?: boolean;
+  /**
+   * Suggestions for the text at the caret (the Write tab's LaTeX: src/lib/latexComplete.ts), shown in a list at
+   * the caret as you type: ↑↓ to move, ↵ or Tab to take one, Esc to close, Ctrl+Space to ask.
+   */
+  complete?: (text: string, caret: number) => Completion | null;
+}>(function CodeEditor({ value, path, fontSize = 13, minimap = true, onChange, onKeyDown, onCursor, onFocus, readOnly = false, wrap = false, complete }, ref) {
   const text = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const map = useRef<HTMLCanvasElement>(null);
@@ -104,16 +116,39 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
     const box = scroller.current;
     if (!element || !box) return;
     const { line, col } = lineCol(element.value, element.selectionEnd);
-    const y = PAD_Y + (line - 1) * lineHeight;
+    const y = topOf(line);
     const x = gutterWidth + PAD_X + (col - 1) * charWidth;
     if (y < box.scrollTop) box.scrollTop = y - lineHeight;
-    else if (y + lineHeight * 2 > box.scrollTop + box.clientHeight) box.scrollTop = y + lineHeight * 2 - box.clientHeight;
+    else if (y + heightOf(line) + lineHeight > box.scrollTop + box.clientHeight) box.scrollTop = y + heightOf(line) + lineHeight - box.clientHeight;
+    if (wrap) return;
     if (x < box.scrollLeft + gutterWidth + 20) box.scrollLeft = Math.max(0, x - gutterWidth - 40);
     else if (x + 30 > box.scrollLeft + box.clientWidth) box.scrollLeft = x + 60 - box.clientWidth;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineHeight, charWidth, lines.length]);
 
   const gutterWidth = Math.max(3, String(lines.length).length) * charWidth + 28;
+
+  // Wrapped, a line takes as many rows as it needs: its top and height are measured off the shadow's line boxes.
+  const shadowLines = useRef<HTMLDivElement>(null);
+  const [rows, setRows] = useState<{ tops: number[]; heights: number[] } | null>(null);
+  // Read by reveal, which is made once: the rows as they are now, not as they were then.
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+  useLayoutEffect(() => {
+    if (!wrap) return;
+    const holder = shadowLines.current;
+    if (!holder) return;
+    const measure = () => {
+      const children = Array.from(holder.children) as HTMLElement[];
+      setRows({ tops: children.map((child) => child.offsetTop), heights: children.map((child) => child.offsetHeight) });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(holder);
+    return () => observer.disconnect();
+  }, [wrap, value, fontSize]);
+  const topOf = (line: number) => (wrap && rowsRef.current ? rowsRef.current.tops[line - 1] ?? PAD_Y + (line - 1) * lineHeight : PAD_Y + (line - 1) * lineHeight);
+  const heightOf = (line: number) => (wrap && rowsRef.current ? rowsRef.current.heights[line - 1] ?? lineHeight : lineHeight);
 
   /** One edit typed in through the browser, so undo keeps it; the selection placed after. */
   const apply = useCallback(
@@ -133,6 +168,60 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
     },
     [onChange, report, reveal, readOnly],
   );
+
+  // ---- suggestions, at the caret
+  const [suggest, setSuggest] = useState<{ list: Completion; index: number; x: number; y: number } | null>(null);
+  const suggestRef = useRef(suggest);
+  suggestRef.current = suggest;
+  const listBox = useRef<HTMLDivElement>(null);
+  /** Where the caret is, in the editor's inner box: a hidden copy of the textarea up to it, measured. */
+  const caretPoint = useCallback((at: number) => {
+    const element = text.current;
+    if (!element) return { x: 0, y: 0 };
+    const style = window.getComputedStyle(element);
+    const mirror = document.createElement('div');
+    for (const name of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'tabSize', 'paddingTop', 'paddingLeft', 'paddingRight', 'boxSizing', 'whiteSpace', 'overflowWrap', 'wordBreak'] as const) mirror.style[name] = style[name];
+    mirror.style.position = 'absolute';
+    mirror.style.visibility = 'hidden';
+    mirror.style.width = `${element.clientWidth}px`;
+    mirror.style.left = `${element.offsetLeft}px`;
+    mirror.style.top = `${element.offsetTop}px`;
+    mirror.textContent = element.value.slice(0, at);
+    const mark = document.createElement('span');
+    mark.textContent = '\u200b';
+    mirror.appendChild(mark);
+    element.parentElement?.appendChild(mirror);
+    const point = { x: element.offsetLeft + mark.offsetLeft, y: element.offsetTop + mark.offsetTop };
+    mirror.remove();
+    return point;
+  }, []);
+  const suggestNow = useCallback(
+    (manual = false) => {
+      const element = text.current;
+      if (!complete || !element || readOnly || element.selectionStart !== element.selectionEnd) return setSuggest(null);
+      const list = complete(element.value, element.selectionEnd);
+      if (!list || (!manual && !list.items.length)) return setSuggest(null);
+      const point = caretPoint(list.from);
+      setSuggest({ list, index: 0, ...point });
+    },
+    [complete, readOnly, caretPoint],
+  );
+  // After an edit the caret settles a frame later (apply places it then): ask once it has.
+  const suggestSoon = useCallback(() => window.requestAnimationFrame(() => window.requestAnimationFrame(() => suggestNow())), [suggestNow]);
+  const takeSuggestion = useCallback(
+    (item: CompletionItem) => {
+      const open = suggestRef.current;
+      if (!open) return;
+      const at = open.list.from + (item.caret ?? item.insert.length);
+      setSuggest(null);
+      apply({ from: open.list.from, to: open.list.to, insert: item.insert, select: { start: at, end: at } });
+      suggestSoon();
+    },
+    [apply, suggestSoon],
+  );
+  useEffect(() => {
+    listBox.current?.querySelector('.is-on')?.scrollIntoView({ block: 'nearest' });
+  }, [suggest?.index]);
 
   const go = useCallback(
     (offset: number, end = offset) => {
@@ -244,6 +333,31 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
     const sel = { start: element.selectionStart, end: element.selectionEnd };
     const mod = mac ? event.metaKey : event.ctrlKey;
     const k = event.key;
+    const open = suggestRef.current;
+    if (open && open.list.items.length) {
+      if (k === 'ArrowDown' || k === 'ArrowUp') {
+        event.preventDefault();
+        const count = open.list.items.length;
+        setSuggest({ ...open, index: (open.index + (k === 'ArrowDown' ? 1 : -1) + count) % count });
+        return;
+      }
+      if ((k === 'Enter' || k === 'Tab') && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        takeSuggestion(open.list.items[open.index]);
+        return;
+      }
+      if (k === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setSuggest(null);
+        return;
+      }
+    }
+    if (complete && event.ctrlKey && (k === ' ' || event.code === 'Space')) {
+      event.preventDefault();
+      suggestNow(true);
+      return;
+    }
     const take = (edit: Edit | null) => {
       if (!edit) return;
       event.preventDefault();
@@ -328,18 +442,33 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
   return (
     <div className={`ce${minimap ? ' has-map' : ''}`} style={{ '--ce-fs': `${fontSize}px`, '--ce-lh': `${lineHeight}px`, '--ce-gutter': `${gutterWidth}px` } as React.CSSProperties}>
       <div className="ce-scroll" ref={scroller} onScroll={(event) => setView({ top: event.currentTarget.scrollTop, height: event.currentTarget.clientHeight })}>
-        <div className="ce-inner" style={{ height: PAD_Y * 2 + lines.length * lineHeight, width: `max(100%, ${gutterWidth + PAD_X * 2 + (widest + 4) * charWidth}px)` }}>
-          <pre className="ce-gutter" aria-hidden="true" dangerouslySetInnerHTML={{ __html: lines.map((_, index) => (index + 1 === caretLine ? `<b>${index + 1}</b>` : String(index + 1))).join('\n') }} />
-          <div className="ce-current" style={{ top: PAD_Y + (caretLine - 1) * lineHeight }} aria-hidden="true" />
+        <div className={`ce-inner${wrap ? ' is-wrap' : ''}`} style={wrap ? undefined : { height: PAD_Y * 2 + lines.length * lineHeight, width: `max(100%, ${gutterWidth + PAD_X * 2 + (widest + 4) * charWidth}px)` }}>
+          {wrap ? (
+            <div className="ce-gutter ce-gutter-rows" aria-hidden="true">
+              {lines.map((_, index) => (
+                <span key={index} style={{ top: topOf(index + 1) }} className={index + 1 === caretLine ? 'is-on' : undefined}>
+                  {index + 1}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <pre className="ce-gutter" aria-hidden="true" dangerouslySetInnerHTML={{ __html: lines.map((_, index) => (index + 1 === caretLine ? `<b>${index + 1}</b>` : String(index + 1))).join('\n') }} />
+          )}
+          <div className="ce-current" style={{ top: topOf(caretLine), height: heightOf(caretLine) }} aria-hidden="true" />
           {marks ? <pre className="ce-layer ce-marks" aria-hidden="true" dangerouslySetInnerHTML={{ __html: `${marks}\n` }} /> : null}
-          <pre className="ce-layer ce-shadow" aria-hidden="true">
-            <code dangerouslySetInnerHTML={{ __html: `${html}\n` }} />
-          </pre>
+          {wrap ? (
+            // A box a line, so each line's rows can be measured; the first in the flow, so it gives the editor its height.
+            <div className="ce-layer ce-shadow ce-shadow-lines" aria-hidden="true" ref={shadowLines} dangerouslySetInnerHTML={{ __html: html.split('\n').map((line) => `<div>${line}</div>`).join('') }} />
+          ) : (
+            <pre className="ce-layer ce-shadow" aria-hidden="true">
+              <code dangerouslySetInnerHTML={{ __html: `${html}\n` }} />
+            </pre>
+          )}
           <textarea
             ref={text}
             className="ce-layer ce-text"
             value={value}
-            wrap="off"
+            wrap={wrap ? 'soft' : 'off'}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
@@ -349,13 +478,39 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
               if (readOnly) return;
               onChange(event.target.value);
               window.requestAnimationFrame(() => (report(), reveal()));
+              if (complete) suggestSoon();
             }}
             onKeyDown={keys}
             onKeyUp={report}
-            onClick={report}
-            onSelect={report}
+            onClick={() => (report(), suggestRef.current && setSuggest(null))}
+            onSelect={() => {
+              report();
+              // The caret gone from the word being completed: the list goes too.
+              const open = suggestRef.current;
+              const caretNow = text.current?.selectionEnd ?? 0;
+              if (open && (caretNow < open.list.from || caretNow > open.list.to + 1)) setSuggest(null);
+            }}
+            onBlur={() => window.setTimeout(() => setSuggest(null), 120)}
             onFocus={() => (report(), onFocus?.())}
           />
+          {suggest && suggest.list.items.length ? (
+            <div className="ce-suggest" ref={listBox} role="listbox" aria-label="Suggestions" style={{ left: suggest.x, top: suggest.y + lineHeight + 2 }} onMouseDown={(event) => event.preventDefault()}>
+              {suggest.list.items.map((item, index) => (
+                <button
+                  key={`${item.label}:${index}`}
+                  type="button"
+                  role="option"
+                  aria-selected={index === suggest.index}
+                  className={index === suggest.index ? 'is-on' : undefined}
+                  onMouseEnter={() => setSuggest((current) => (current ? { ...current, index } : current))}
+                  onClick={() => takeSuggestion(item)}
+                >
+                  <span className="ce-suggest-label">{item.label}</span>
+                  {item.detail ? <span className="ce-suggest-detail">{item.detail}</span> : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
       {minimap ? (
