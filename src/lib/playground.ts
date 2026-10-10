@@ -101,7 +101,7 @@ export interface Playground {
   cells?: { type: CellType; source: string }[];
 }
 
-export const DEFAULT_IGNORE = ['.git/', '.reader/', '__pycache__/', '.ipynb_checkpoints/', 'data/', '*.ckpt', '*.pt', '*.safetensors', 'wandb/'].join('\n');
+export const DEFAULT_IGNORE = ['.git/', '.reader/', 'reader-meta/', '__pycache__/', '.ipynb_checkpoints/', 'data/', '*.ckpt', '*.pt', '*.safetensors', 'wandb/'].join('\n');
 export const DEFAULT_BRING_BACK = ['runs/', 'results/', 'outputs/', '*.csv', '*.json', '*.png'].join('\n');
 
 // --------------------------------------------------------- the servers ----
@@ -1016,6 +1016,52 @@ export async function pullBack(playground: Playground, machine: FileHost): Promi
     report.back.push(file.path);
   }
   return report;
+}
+
+/**
+ * What an agent on the machine changed, home: every text file the ignore rules
+ * let through that differs from the one kept at home (new ones too). Run after
+ * Claude Code or Codex worked on the machine's copy of a folder kept in Drive
+ * or on another computer — the bring-back rules are for a run's results, this
+ * is for the code itself.
+ */
+export async function pullEdits(playground: Playground, machine: FileHost): Promise<SyncReport> {
+  const home = homeHost(playground);
+  const report: SyncReport = { sent: [], skipped: [], back: [] };
+  const files = await walk(machine, (path) => matchesAny(playground.sync.ignore, path));
+  for (const file of files) {
+    if (file.size !== null && file.size > SYNC_LIMIT) {
+      report.skipped.push(file.path);
+      continue;
+    }
+    const text = await machine.read(file.path).catch(() => null);
+    if (text === null) continue;
+    const there = await home.read(file.path).catch(() => null);
+    if (there === text) continue;
+    await home.write(file.path, text);
+    report.back.push(file.path);
+  }
+  return report;
+}
+
+/**
+ * The project's own notes about itself — the agents' conversations, the
+ * folder's marker — kept in .reader/ inside its folder. A plain Jupyter server
+ * refuses hidden paths (its ContentsManager.allow_hidden is off; a Companion
+ * turns it on), so there they go to a visible reader-meta/ instead; reading
+ * looks in both.
+ */
+export async function writeMeta(host: FileHost, name: string, text: string): Promise<void> {
+  try {
+    await host.write(`.reader/${name}`, text);
+  } catch {
+    await host.write(`reader-meta/${name}`, text);
+  }
+}
+export async function readMeta(host: FileHost, name: string): Promise<string | null> {
+  const hidden = await host.read(`.reader/${name}`).catch(() => null);
+  if (hidden !== null) return hidden;
+  return host.read(`reader-meta/${name}`).catch(() => null);
 }
 
 /** The console's command as the kernel takes it: a bash cell, in the playground's folder on the machine. */

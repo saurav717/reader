@@ -11,7 +11,7 @@ import { backendLabel, chooseBackend, colabAvailable, colabNow, connect, forgetR
 import type { Machine } from '../lib/colab';
 import { notebookFor, runKey, subscribeNotebook } from '../lib/notebook';
 import type { ConsoleEntry, FileHost, FilesHome, Playground, SyncReport } from '../lib/playground';
-import { blankCells, filesAreOnMachine, homeHost, homeLabelOf, moveFilesOutOfBrowser, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
+import { blankCells, filesAreOnMachine, homeHost, pullEdits, homeLabelOf, moveFilesOutOfBrowser, useDriveConnected, machineHost, machineRoot, markFolder, notebookKey, pullBack, pushFolder, secureCompanions, serverById, shellCell, takeSeed, updatePlayground, useServers, vscodeLink } from '../lib/playground';
 import { COMPANION_VERSION, STARTABLE, companionPort, companionTools, findCompanion, isNewer, isSecure, shutdownCompanion, startCompanion, updateCompanion, vscodeFolder, vscodeWeb, waitForVersion } from '../lib/companion';
 import type { VsCodeWeb } from '../lib/companion';
 import { AGENT_KEYS, AGENTS, agentCommand, saveAgentOptions, savedAgentOptions } from '../lib/agents';
@@ -34,6 +34,9 @@ import VsCodeExtension, { VsCodeMark, isCompanion } from './VsCodeExtension';
 import { ArrowLeftIcon, ChartIcon, CloseIcon, DriveMark, PlusIcon, SearchIcon, SparkleIcon } from './icons';
 import FileIcon, { languageOf } from './FileIcon';
 import ProjectAgent from './ProjectAgent';
+import CliAgent from './CliAgent';
+import TensorBoardPane from './TensorBoardPane';
+import KernelTerminal, { closeKernelTerminal } from './KernelTerminal';
 import CodeEditor from './CodeEditor';
 import type { CodeEditorHandle, Cursor } from './CodeEditor';
 import { ContextMenu, FolderPlusGlyph, keyLabel, OpenEditors, OutlineGlyph, OutlineView, PaletteGlyph, QuickPick, SplitGlyph, SymbolMark } from './Workbench';
@@ -44,7 +47,17 @@ import type { AgentChange, ProjectView } from '../lib/projectAgent';
 
 type Tab = 'notebook' | 'files';
 /** What the side bar shows, picked in the activity bar; null when it is folded away. */
-type Primary = 'explorer' | 'search' | 'outline' | 'sync' | 'runtime' | 'metrics' | null;
+type Primary = 'explorer' | 'search' | 'outline' | 'sync' | null;
+/** The right-hand pane's tabs: the agent, and the machine's numbers as a run goes. */
+type RightTab = 'agent' | 'runtime' | 'metrics' | 'tensorboard';
+const RIGHT_TABS: { id: RightTab; label: string; title: string }[] = [
+  { id: 'agent', label: 'Agent', title: 'Claude Code, Codex, or the page’s own agent' },
+  { id: 'runtime', label: 'Runtime', title: 'The machine: GPU, memory, disk, live' },
+  { id: 'metrics', label: 'Metrics', title: 'The numbers the runs print: loss, accuracy' },
+  { id: 'tensorboard', label: 'TensorBoard', title: 'The scalars your runs log for TensorBoard' },
+];
+/** Which agent the pane shows: Claude Code or Codex on the machine, the page's own, or the terminal agents of a Companion. */
+type AgentMode = 'claude' | 'codex' | 'reader' | 'cli';
 
 /** One editor group: its tabs (by `where:path`) and the one shown. */
 interface EditorGroupState {
@@ -109,6 +122,12 @@ const FilesGlyph = () => (
 const SyncGlyph = () => (
   <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M4 9a8 8 0 0 1 14.5-3.5L20 7M20 3v4h-4M20 15a8 8 0 0 1-14.5 3.5L4 17M4 21v-4h4" />
+  </svg>
+);
+const TbGlyph = () => (
+  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3 20h18M4 16l4.5-6 4 3.5L20 5" />
+    <circle cx="20" cy="5" r="1.2" fill="currentColor" />
   </svg>
 );
 const GaugeGlyph = () => (
@@ -927,7 +946,14 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   // The workbench, as VS Code lays it out: the activity bar's view in the side bar, the agent on the right, the panel below.
   const [primary, setPrimary] = useState<Primary>(() => readLocal<Primary>('reader.pgPrimary', 'explorer'));
   const [agentOpen, setAgentOpenState] = useState(() => readLocal('reader.pgAgent', true));
-  const [agentMode, setAgentMode] = useState<'reader' | 'cli'>(() => readLocal('reader.pgAgentMode', 'reader'));
+  const [agentMode, setAgentMode] = useState<AgentMode>(() => readLocal<AgentMode>('reader.pgAgentMode', 'claude'));
+  const [rightTab, setRightTabState] = useState<RightTab>(() => readLocal<RightTab>('reader.pgRight', 'agent'));
+  const setRightTab = (tab: RightTab) => (setRightTabState(tab), writeLocal('reader.pgRight', tab));
+  /** The right-hand pane on a tab, or closed when that tab was already showing. */
+  const toggleRight = (tab: RightTab) => {
+    if (agentOpen && rightTab === tab) setAgentOpen(false);
+    else (setRightTab(tab), setAgentOpen(true));
+  };
   const [panelOpen, setPanelOpen] = useState(true);
   const setAgentOpen = (open: boolean) => (setAgentOpenState(open), writeLocal('reader.pgAgent', open));
   useEffect(() => writeLocal('reader.pgPrimary', primary), [primary]);
@@ -1026,7 +1052,9 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   }, [computeServer?.id, computeServer?.url, computeServer?.token]);
   // In split mode the command box copies the folder over before each command and brings results back; the terminal doesn't, so the box stays first there.
   const [shellView, setShellView] = useState<'terminal' | 'commands' | null>(null);
-  const view = terminals && computeServer ? shellView ?? (split ? 'commands' : 'terminal') : 'commands';
+  // Where the machine has no terminals API (Colab), the terminal is a shell the page runs through the kernel (KernelTerminal).
+  const kernelTerms = !(terminals && computeServer);
+  const view = shellView ?? 'terminal';
   const { tools: machineTools, asked } = useMachineTools(computeServer);
   const homeServer = playground.home.kind === 'server' ? servers.find((server) => server.id === (playground.home.kind === 'server' ? playground.home.serverId : '')) : undefined;
   const { tools: homeTools } = useMachineTools(homeServer);
@@ -1061,7 +1089,8 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     setActiveShell(id);
   };
   const closeShell = (id: string) => {
-    if (computeServer) forgetTerminal(computeServer, id);
+    if (kernelTerms) closeKernelTerminal(id);
+    else if (computeServer) forgetTerminal(computeServer, id);
     const left = shells.filter((shell) => shell !== id);
     const next = left.length ? left : [`${playground.id}~${shortId()}`];
     keepShells(next);
@@ -1070,8 +1099,11 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   /** A command, in the project's folder when the page knows it: the agent pane's. */
   const inFolder = (command: string) => (agentFolder ? (machineTools.os === 'windows' ? `cd "${agentFolder}"; ${command}` : `cd '${agentFolder.replace(/'/g, `'\\''`)}' && ${command}`) : command);
   /** A command into the terminal shown below, in the project's folder: the Run button's. */
-  const inTerminal = (command: string) => {
+  const inTerminal = async (command: string) => {
     setShellView('terminal');
+    setPanelOpen(true);
+    // The folder kept elsewhere: copied over first, so the command runs the code on screen.
+    if (split && !(await push())) return;
     typeInTerminal(activeShell, `${command}\r`);
   };
 
@@ -1227,6 +1259,14 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
       fail(error);
     }
   };
+  // The explorer follows the folder, as VS Code's does: a terminal, a run or an agent writes files there too. Read again
+  // every few seconds while it shows and the tab is in view — a folder on a computer or the machine cheaply, Drive less often.
+  useEffect(() => {
+    if (primary !== 'explorer') return;
+    const every = playground.home.kind === 'drive' ? 20_000 : 5_000;
+    const timer = window.setInterval(() => document.visibilityState === 'visible' && setRefresh((n) => n + 1), every);
+    return () => window.clearInterval(timer);
+  }, [primary, playground.home.kind]);
   const saveAll = async () => {
     for (const file of filesRef.current) if (file.text !== file.saved) await save(file);
   };
@@ -1353,6 +1393,32 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     if (first && !files.length) void open('home', first.path);
   };
 
+  /** Open files read again from the folder, where they aren't being edited here: an agent or a run wrote them. */
+  const reloadOpen = async () => {
+    for (const file of filesRef.current) {
+      if (file.text !== file.saved) continue;
+      const disk = await (file.where === 'home' ? home : machine).read(file.path).catch(() => null);
+      if (disk !== null && disk !== file.saved) setFiles((list) => list.map((f) => (f.where === file.where && f.path === file.path && f.text === f.saved ? { ...f, text: disk, saved: disk } : f)));
+    }
+  };
+  /** Before Claude Code or Codex works: what is on screen saved, and the folder copied to the machine when it is kept elsewhere. */
+  const beforeAgentRun = async () => {
+    await saveAll();
+    return split ? push() : true;
+  };
+  /** After: what it changed on the machine brought home (when the folder is kept elsewhere), and the explorer and open files read again. */
+  const afterAgentRun = async () => {
+    if (split) {
+      try {
+        const done = await pullEdits(playground, machine);
+        setReport({ ...done, at: Date.now(), what: 'pull' });
+      } catch (error) {
+        setProblem(`Bringing the agent’s changes back from ${machineName}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    setRefresh((n) => n + 1);
+    await reloadOpen();
+  };
   // Back to the editor when a box closes — unless another has opened since (⇧⌘P, Esc, ⌘P in a row).
   const focusEditor = () => window.requestAnimationFrame(() => !document.querySelector('.vs-pick') && editors.current[focused]?.focus());
   const commands: WorkbenchCommand[] = [
@@ -1377,9 +1443,14 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
     { id: 'explorer', label: 'View: Show Explorer', keys: 'mod+shift+e', run: () => setPrimary('explorer') },
     { id: 'outline', label: 'View: Show Outline', run: () => setPrimary('outline') },
     { id: 'panel', label: 'View: Toggle Panel', keys: 'mod+j', run: () => setPanelOpen(!panelOpen) },
-    { id: 'terminal', label: 'View: Toggle Terminal', keys: 'ctrl+`', run: () => (setPanelOpen(!panelOpen || view !== 'terminal'), terminals && computeServer && setShellView('terminal')) },
-    ...(terminals && computeServer ? [{ id: 'newTerminal', label: 'Terminal: Create New Terminal', keys: 'ctrl+shift+`', run: () => (setPanelOpen(true), setShellView('terminal'), addShell()) }] : []),
-    { id: 'agent', label: 'View: Toggle Agent', keys: 'ctrl+alt+i', run: () => setAgentOpen(!agentOpen) },
+    { id: 'terminal', label: 'View: Toggle Terminal', keys: 'ctrl+`', run: () => (setPanelOpen(!panelOpen || view !== 'terminal'), setShellView('terminal')) },
+    { id: 'newTerminal', label: 'Terminal: Create New Terminal', keys: 'ctrl+shift+`', run: () => (setPanelOpen(true), setShellView('terminal'), addShell()) },
+    { id: 'agent', label: 'View: Toggle Agent', keys: 'ctrl+alt+i', run: () => toggleRight('agent') },
+    { id: 'runtimePane', label: 'View: Show Runtime', run: () => (setRightTab('runtime'), setAgentOpen(true)) },
+    { id: 'metricsPane', label: 'View: Show Metrics', run: () => (setRightTab('metrics'), setAgentOpen(true)) },
+    { id: 'tensorboard', label: 'View: Show TensorBoard', run: () => (setRightTab('tensorboard'), setAgentOpen(true)) },
+    { id: 'claudeCode', label: 'Agent: Claude Code', run: () => (setAgentMode('claude'), setRightTab('agent'), setAgentOpen(true)) },
+    { id: 'codex', label: 'Agent: Codex', run: () => (setAgentMode('codex'), setRightTab('agent'), setAgentOpen(true)) },
     { id: 'zen', label: 'View: Toggle Zen Mode', keys: 'mod+k z', run: () => setZen(!zen) },
     { id: 'minimap', label: 'View: Toggle Minimap', run: () => setSettings({ minimap: !settings.minimap }) },
     { id: 'zoomIn', label: 'View: Editor Font Bigger', keys: 'mod+=', run: () => setSettings({ fontSize: Math.min(24, settings.fontSize + 1) }) },
@@ -1452,15 +1523,19 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
   }
 
   const cliAgents = Boolean(terminals && computeServer && isCompanion(computeServer));
-  const mode = cliAgents ? agentMode : 'reader';
+  const mode: AgentMode = agentMode === 'cli' && !cliAgents ? 'claude' : agentMode;
+  const agentChoices: { id: AgentMode; label: string; mark: string; title: string }[] = [
+    { id: 'claude', label: 'Claude Code', mark: '✳', title: `Anthropic’s Claude Code, on ${machineName}, signed in to your account` },
+    { id: 'codex', label: 'Codex', mark: '◎', title: `OpenAI’s Codex, on ${machineName}, signed in to your account` },
+    { id: 'reader', label: 'Reader AI', mark: '✦', title: 'The page’s own agent, answered by the model you pick in Settings → AI' },
+    ...(cliAgents ? [{ id: 'cli' as const, label: 'Terminal', mark: '$', title: `Any agent with a command line, in a terminal on ${machineName}` }] : []),
+  ];
   const sideKey = mode === 'cli' ? 'agent' : 'side';
   const views: { id: Primary; label: string; icon: React.ReactNode; keys?: string; hidden?: boolean }[] = [
     { id: 'explorer', label: 'Explorer', icon: <FilesGlyph />, keys: 'mod+shift+e' },
     { id: 'search', label: 'Search', icon: <SearchIcon size={19} />, keys: 'mod+shift+f' },
     { id: 'outline', label: 'Outline', icon: <OutlineGlyph /> },
     { id: 'sync', label: `Sync with ${machineName}`, icon: <SyncGlyph />, hidden: !split },
-    { id: 'runtime', label: 'Runtime — GPU, memory, disk', icon: <GaugeGlyph /> },
-    { id: 'metrics', label: 'Metrics the runs print', icon: <ChartIcon size={19} /> },
   ];
   const togglePrimary = (id: Primary) => setPrimary(primary === id ? null : id);
   const fileOf = (key: string | null) => (key ? files.find((f) => `${f.where}:${f.path}` === key) ?? null : null);
@@ -1722,7 +1797,17 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             <button type="button" className="vs-act" onClick={() => setPick('>')} title={`Command Palette (${keyLabel('mod+shift+p')})`} aria-label="Command palette">
               <PaletteGlyph />
             </button>
-            <button type="button" className={`vs-act is-agent${agentOpen ? ' is-on' : ''}`} aria-pressed={agentOpen} onClick={() => setAgentOpen(!agentOpen)} title={`The agent: ask it to write, change or fix the code (${keyLabel('ctrl+alt+i')})`} aria-label="The agent">
+            <span className="vs-act-sep" aria-hidden="true" />
+            <button type="button" className={`vs-act${agentOpen && rightTab === 'runtime' ? ' is-on is-right' : ''}`} aria-pressed={agentOpen && rightTab === 'runtime'} onClick={() => toggleRight('runtime')} title="Runtime — GPU, memory, disk (in the right-hand pane)" aria-label="Runtime">
+              <GaugeGlyph />
+            </button>
+            <button type="button" className={`vs-act${agentOpen && rightTab === 'metrics' ? ' is-on is-right' : ''}`} aria-pressed={agentOpen && rightTab === 'metrics'} onClick={() => toggleRight('metrics')} title="Metrics the runs print (in the right-hand pane)" aria-label="Metrics">
+              <ChartIcon size={19} />
+            </button>
+            <button type="button" className={`vs-act${agentOpen && rightTab === 'tensorboard' ? ' is-on is-right' : ''}`} aria-pressed={agentOpen && rightTab === 'tensorboard'} onClick={() => toggleRight('tensorboard')} title="TensorBoard’s scalars (in the right-hand pane)" aria-label="TensorBoard">
+              <TbGlyph />
+            </button>
+            <button type="button" className={`vs-act is-agent${agentOpen && rightTab === 'agent' ? ' is-on is-right' : ''}`} aria-pressed={agentOpen && rightTab === 'agent'} onClick={() => toggleRight('agent')} title={`The agent — Claude Code, Codex (${keyLabel('ctrl+alt+i')})`} aria-label="The agent">
               <SparkleIcon size={19} />
             </button>
           </nav>
@@ -1766,11 +1851,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
               <OutlineView file={current} symbols={symbols} line={cursor?.line ?? 1} onGo={(line) => editors.current[focused]?.goToLine(line)} />
             ) : primary === 'sync' && split ? (
               <SyncPane playground={playground} homeLabel={homeLabel} machineName={machineName} report={report} syncing={syncing} connected={connected} onPush={() => void push()} onPull={() => void pull()} />
-            ) : primary === 'runtime' ? (
-              connected ? <RuntimePane cells={consoleCells} onGoTo={() => undefined} /> : <p className="pg-note pg-pad">Connect from the bar, or run a command, and the machine is read here: GPU, memory, disk.</p>
-            ) : (
-              <MetricsPane cells={metricCells} running={colab.running} />
-            )}
+            ) : null}
           </aside>
         ) : null}
         {primary && !zen ? (
@@ -1820,16 +1901,14 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
           <div className={`pg-console vs-panel${view === 'terminal' ? ' is-terminal' : ''}`} hidden={!panelOpen || zen}>
             <div className="pg-console-head vs-panel-head">
               <div className="vs-panel-tabs" role="tablist" aria-label="Panel">
-                {terminals && computeServer ? (
-                  <button type="button" role="tab" aria-selected={view === 'terminal'} className={view === 'terminal' ? 'is-on' : ''} onClick={() => setShellView('terminal')}>
-                    Terminal
-                  </button>
-                ) : null}
+                <button type="button" role="tab" aria-selected={view === 'terminal'} className={view === 'terminal' ? 'is-on' : ''} onClick={() => setShellView('terminal')} title={kernelTerms ? `A shell on ${machineName}, run through its kernel` : `A shell on ${machineName}`}>
+                  Terminal
+                </button>
                 <button type="button" role="tab" aria-selected={view === 'commands'} className={view === 'commands' ? 'is-on' : ''} onClick={() => setShellView('commands')}>
                   {split ? 'Copy & run' : 'Console'}
                 </button>
               </div>
-              {view === 'terminal' && terminals && computeServer ? (
+              {view === 'terminal' ? (
                 <div className="pg-shell-tabs" role="tablist" aria-label="Terminals">
                   {shells.map((id, index) => (
                     <span key={id} className={`pg-shell-tab${id === activeShell ? ' is-on' : ''}`}>
@@ -1852,7 +1931,7 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 {machineName}:{base ?? machineRoot(playground)}
               </span>
               <span className="spacer" />
-              {view === 'terminal' && split ? <span className="pg-note">The terminal doesn’t copy the folder over — use Sync, or Copy &amp; run.</span> : null}
+              {view === 'terminal' && split ? <span className="pg-note">This is {machineName}’s copy of the folder: ▶ Run copies it over first; ↑ Copy in the status bar does it any time.</span> : null}
               {view === 'commands' && colab.running?.startsWith('pgsh:') ? (
                 <button type="button" className="btn sm colab-stop" onClick={() => void interrupt()}>
                   ■ Stop
@@ -1865,10 +1944,10 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
                 <CloseIcon size={13} />
               </button>
             </div>
-            {view === 'terminal' && computeServer
+            {view === 'terminal'
               ? shells.map((id) => (
                   <div key={id} className="pg-terminal-slot" hidden={id !== activeShell}>
-                    <Terminal server={computeServer} cwd={machineRoot(playground)} sessionId={id} label={machineName} />
+                    {kernelTerms || !computeServer ? <KernelTerminal name={id} cwd={machineRoot(playground)} label={machineName} connected={connected} /> : <Terminal server={computeServer} cwd={machineRoot(playground)} sessionId={id} label={machineName} />}
                   </div>
                 ))
               : null}
@@ -1916,46 +1995,70 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
           />
         ) : null}
         {agentOpen && !zen ? (
-          <aside className={`nb-side pg-side-pane vs-agent${mode === 'cli' ? ' is-agent' : ''}`}>
-            <div className="vs-agent-head">
-              <span className="vs-agent-title">
-                <SparkleIcon size={14} /> Agent
-              </span>
-              {cliAgents ? (
-                <div className="segmented pg-seg" role="tablist" aria-label="Which agent">
-                  <button type="button" role="tab" aria-selected={mode === 'reader'} className={mode === 'reader' ? 'on' : ''} onClick={() => setAgentMode('reader')} title="An agent in the page, answered by the model you pick">
-                    In the page
-                  </button>
-                  <button type="button" role="tab" aria-selected={mode === 'cli'} className={mode === 'cli' ? 'on' : ''} onClick={() => setAgentMode('cli')} title={`Claude Code, Codex, Gemini CLI… in a terminal on ${machineName}`}>
-                    In a terminal
-                  </button>
-                </div>
-              ) : null}
+          <aside className={`nb-side pg-side-pane vs-agent vs-right${rightTab === 'agent' && mode === 'cli' ? ' is-agent' : ''}`}>
+            <div className="vs-agent-head vs-right-tabs" role="tablist" aria-label="The right-hand pane">
+              {RIGHT_TABS.map((tab) => (
+                <button key={tab.id} type="button" role="tab" aria-selected={rightTab === tab.id} className={rightTab === tab.id ? 'is-on' : ''} onClick={() => setRightTab(tab.id)} title={tab.title}>
+                  {tab.label}
+                </button>
+              ))}
               <span className="spacer" />
-              <button type="button" className={`icon-btn sm${layout.big === 'side' ? ' is-on' : ''}`} onClick={() => setLayout({ big: layout.big === 'side' ? null : 'side' })} aria-pressed={layout.big === 'side'} title={layout.big === 'side' ? 'Back to its width' : 'Give the agent most of the width'} aria-label={layout.big === 'side' ? 'Restore the agent' : 'Widen the agent'}>
+              <button type="button" className={`icon-btn sm${layout.big === 'side' ? ' is-on' : ''}`} onClick={() => setLayout({ big: layout.big === 'side' ? null : 'side' })} aria-pressed={layout.big === 'side'} title={layout.big === 'side' ? 'Back to its width' : 'Give the pane most of the width'} aria-label={layout.big === 'side' ? 'Restore the pane' : 'Widen the pane'}>
                 {layout.big === 'side' ? '⤡' : '⤢'}
               </button>
-              <button type="button" className="icon-btn sm" onClick={() => setAgentOpen(false)} aria-label="Close the agent">
+              <button type="button" className="icon-btn sm" onClick={() => setAgentOpen(false)} aria-label="Close the pane">
                 <CloseIcon size={14} />
               </button>
             </div>
-            {mode === 'cli' ? (
-              <AgentPane server={computeServer} machineName={machineName} agents={machineTools.agents} asked={asked} cwd={machineRoot(playground)} inFolder={inFolder} playgroundId={playground.id} />
+            {rightTab === 'agent' ? (
+              <>
+                <div className="vs-agent-pick" role="radiogroup" aria-label="Which agent">
+                  {agentChoices.map((choice) => (
+                    <button key={choice.id} type="button" role="radio" aria-checked={mode === choice.id} className={mode === choice.id ? 'is-on' : ''} onClick={() => setAgentMode(choice.id)} title={choice.title}>
+                      <span className={`cli-badge is-${choice.id} is-sm`}>{choice.mark}</span>
+                      {choice.label}
+                    </button>
+                  ))}
+                </div>
+                {mode === 'cli' ? (
+                  <AgentPane server={computeServer} machineName={machineName} agents={machineTools.agents} asked={asked} cwd={machineRoot(playground)} inFolder={inFolder} playgroundId={playground.id} />
+                ) : mode === 'claude' || mode === 'codex' ? (
+                  <CliAgent
+                    key={mode}
+                    agent={mode}
+                    projectId={playground.id}
+                    host={home}
+                    machineName={machineName}
+                    folder={machineRoot(playground)}
+                    connected={connected}
+                    onConnect={() => void connect().catch(() => undefined)}
+                    beforeRun={beforeAgentRun}
+                    afterRun={() => void afterAgentRun()}
+                    onOpen={(path) => void open('home', path)}
+                  />
+                ) : (
+                  <ProjectAgent
+                    projectId={playground.id}
+                    host={home}
+                    machineName={machineName}
+                    view={agentView}
+                    context={{ active: current?.path, open: files.length, commands: Math.min(4, playground.console.length) }}
+                    onOpen={(path) => void open('home', path)}
+                    onRun={(line) => {
+                      setPanelOpen(true);
+                      if (terminalHere) inTerminal(line);
+                      else void run(line);
+                    }}
+                    onWrote={tookAgentFiles}
+                  />
+                )}
+              </>
+            ) : rightTab === 'runtime' ? (
+              connected ? <RuntimePane cells={consoleCells} onGoTo={() => undefined} /> : <p className="pg-note pg-pad">Connect from the bar, or run a command, and {machineName} is read here: GPU, memory, disk, live.</p>
+            ) : rightTab === 'metrics' ? (
+              <MetricsPane cells={metricCells} running={colab.running} />
             ) : (
-              <ProjectAgent
-                projectId={playground.id}
-                host={home}
-                machineName={machineName}
-                view={agentView}
-                context={{ active: current?.path, open: files.length, commands: Math.min(4, playground.console.length) }}
-                onOpen={(path) => void open('home', path)}
-                onRun={(line) => {
-                  setPanelOpen(true);
-                  if (terminalHere) inTerminal(line);
-                  else void run(line);
-                }}
-                onWrote={tookAgentFiles}
-              />
+              <TensorBoardPane folder={machineRoot(playground)} connected={connected} machineName={machineName} busy={colab.status === 'busy'} />
             )}
           </aside>
         ) : null}
@@ -1970,9 +2073,11 @@ function FilesView({ playground, connected, usable, machineName }: { playground:
             <span className="colab-dot" aria-hidden="true" /> {machineName}
             {colab.status === 'busy' ? ' · running' : connected ? '' : ' · not connected'}
           </span>
-          <span className="vs-status-item" title="Where the files are kept">
-            {playground.home.kind === 'drive' ? <DriveMark size={11} /> : null} {homeLabel}
-          </span>
+          {playground.home.kind !== 'machine' ? (
+            <span className="vs-status-item" title="Where the files are kept">
+              {playground.home.kind === 'drive' ? <DriveMark size={11} /> : null} {homeLabel}
+            </span>
+          ) : null}
           {split ? (
             <>
               <button type="button" className="vs-status-item is-btn" disabled={!connected || Boolean(syncing)} onClick={() => void push()} title={`Copy the folder to ${machineName}`}>
