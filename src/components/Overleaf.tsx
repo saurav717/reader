@@ -23,11 +23,11 @@ import {
   writeDraft,
   type DraftFile,
 } from '../lib/overleaf';
-import { parseRepo } from '../lib/github';
+import { createPrivateRepo, githubAccount, makeRepoPrivate, parseRepo, repoNameFor, repoState, type RepoState } from '../lib/github';
 import { papersIn, projectsOf, type Project } from '../lib/projects';
 import type { BrowserChoice, OverleafLink, OverleafView, Paper, Settings } from '../types';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
-import { CheckIcon, ChevronDownIcon, CopyIcon, ExternalIcon } from './icons';
+import { CheckIcon, ChevronDownIcon, CopyIcon, ExternalIcon, LockIcon } from './icons';
 import { BROWSERS_VERSION, findLocalCompanion, isNewer, listBrowsers, openInBrowser, type InstalledBrowser } from '../lib/companion';
 import { allServers } from '../lib/playground';
 
@@ -368,6 +368,119 @@ function updateLink(updateCollection: ReturnType<typeof useStore>['updateCollect
 }
 
 /** The form that links a project to Overleaf, and its GitHub repository if it has one. */
+// ------------------------------------------------ GitHub, kept private --
+
+/**
+ * The GitHub account the paper's repository is reached with: a token, checked
+ * against GitHub so the page says whose it is. It is the same token as
+ * Settings → Git mirror, kept in this browser only.
+ */
+export function GitHubConnect({ onAccount }: { onAccount?: (login: string | null) => void }) {
+  const { settings, updateSettings } = useStore();
+  const saved = settings.githubToken.trim();
+  const [typed, setTyped] = useState('');
+  const [who, setWho] = useState<{ login: string } | { error: string } | null>(null);
+  useEffect(() => {
+    if (!saved) {
+      setWho(null);
+      onAccount?.(null);
+      return;
+    }
+    let live = true;
+    setWho(null);
+    githubAccount(saved).then(
+      (account) => live && (setWho(account), onAccount?.(account.login)),
+      (error: unknown) => live && (setWho({ error: error instanceof Error ? error.message : String(error) }), onAccount?.(null)),
+    );
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saved]);
+  if (saved && (!who || 'login' in who)) {
+    return (
+      <div className="gh-connect is-on">
+        <span>{who ? <>GitHub: connected as <b>@{who.login}</b></> : 'Checking the GitHub token…'}</span>
+        <button type="button" className="link-btn" onClick={() => updateSettings({ githubToken: '' })} title="Forget the token in this browser (revoke it on GitHub too, if you are done with it)">
+          Disconnect
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="gh-connect">
+      {who && 'error' in who ? <p className="ol-bad">{who.error}</p> : null}
+      <p className="pj-sub">
+        Connect GitHub with a{' '}
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer noopener">
+          fine-grained token
+        </a>
+        : Repository access “All repositories” (so it can make the paper’s repository), permissions Administration and Contents: read and write, and an expiry. It stays in this browser only and goes to GitHub alone.
+      </p>
+      <div className="gh-connect-row">
+        <input type="password" value={typed} placeholder="github_pat_…" autoComplete="off" aria-label="GitHub token" onChange={(event) => setTyped(event.target.value)} />
+        <button type="button" className="btn sm" disabled={!typed.trim()} onClick={() => (updateSettings({ githubToken: typed.trim() }), setTyped(''))}>
+          Connect
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Whether the paper's repository is private, as the token sees it; and the way to make it so. */
+export function RepoPrivacy({ repo }: { repo: string }) {
+  const { settings } = useStore();
+  const token = settings.githubToken.trim();
+  const parsed = parseRepo(repo);
+  const [state, setState] = useState<RepoState | { error: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!token || !parsed) return;
+    let live = true;
+    repoState(token, parsed.owner, parsed.repo).then(
+      (found) => live && setState(found),
+      (error: unknown) => live && setState({ error: error instanceof Error ? error.message : String(error) }),
+    );
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, repo]);
+  if (!token || !parsed || !state) return null;
+  if ('error' in state) return <span className="gh-privacy is-unknown" title={state.error}>Can’t see {repo}</span>;
+  if (state.private) {
+    return (
+      <span className="gh-privacy is-private" title={`${state.fullName} is private: only you and the people you add on GitHub can read it`}>
+        <LockIcon size={12} /> Private
+      </span>
+    );
+  }
+  return (
+    <span className="gh-privacy is-public">
+      Public: anyone can read this draft
+      {state.admin ? (
+        <button
+          type="button"
+          className="btn sm"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              setState(await makeRepoPrivate(token, parsed.owner, parsed.repo));
+            } catch (error) {
+              setState({ error: error instanceof Error ? error.message : String(error) });
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <LockIcon size={12} /> {busy ? 'Making it private…' : 'Make it private'}
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
 function LinkForm({ project, onDone }: { project: Project; onDone: () => void }) {
   const { updateCollection, settings } = useStore();
   const link = project.project.overleaf;
@@ -378,6 +491,22 @@ function LinkForm({ project, onDone }: { project: Project; onDone: () => void })
   const [account, setAccount] = useState(link?.account ?? '');
   const parsed = parseOverleafUrl(url);
   const repoParsed = repo.trim() ? parseRepo(repo) : null;
+  const [login, setLogin] = useState<string | null>(null);
+  const [making, setMaking] = useState(false);
+  const [madeError, setMadeError] = useState<string | null>(null);
+  const makeRepo = async () => {
+    setMaking(true);
+    setMadeError(null);
+    try {
+      const made = await createPrivateRepo(settings.githubToken.trim(), repoNameFor(project.name), `The paper for ${project.name}, written in Overleaf and Reader.`);
+      setRepo(made.fullName);
+      setBranch(made.defaultBranch === 'main' ? '' : made.defaultBranch);
+    } catch (error) {
+      setMadeError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setMaking(false);
+    }
+  };
   const bad = (url.trim() && !parsed) || (repo.trim() && !repoParsed);
   return (
     <form
@@ -406,16 +535,30 @@ function LinkForm({ project, onDone }: { project: Project; onDone: () => void })
         <input value={account} placeholder="you@lab.edu" onChange={(event) => setAccount(event.target.value)} />
       </label>
       <details className="ol-more" open={Boolean(link?.repo)}>
-        <summary>Also in GitHub? Edit and check the draft here</summary>
+        <summary>Also in GitHub? Edit and check the draft here — privately</summary>
         <p className="pj-sub">
-          If the project uses Overleaf’s GitHub sync (Menu → GitHub), name that repository: the paper’s .tex and .bib files are read and written there with the token from Settings → Git mirror
-          {settings.githubToken.trim() ? '' : ' — none set yet'}, and Overleaf pulls the changes in from the same menu.
+          With Overleaf’s GitHub sync (Menu → GitHub), the paper’s .tex and .bib files live in a GitHub repository too: they are read and written there from here, and Overleaf pulls the changes in from the same menu. Keep that repository private: Overleaf syncs with private repositories just the same, and only the people you add on GitHub can read it.
         </p>
+        <GitHubConnect onAccount={setLogin} />
         <label className="ol-field">
           <span>Repository</span>
           <input value={repo} placeholder="owner/repo" onChange={(event) => setRepo(event.target.value)} />
         </label>
         {repo.trim() && !repoParsed ? <p className="ol-bad">Name it as owner/repo, or paste its GitHub address.</p> : null}
+        {repoParsed ? <RepoPrivacy repo={`${repoParsed.owner}/${repoParsed.repo}`} /> : null}
+        {login && !repo.trim() ? (
+          <div className="pj-row" style={{ marginTop: 0 }}>
+            <button type="button" className="btn sm" disabled={making} onClick={() => void makeRepo()}>
+              <LockIcon size={12} /> {making ? 'Making it…' : `Make a private repository: ${login}/${repoNameFor(project.name)}`}
+            </button>
+          </div>
+        ) : null}
+        {madeError ? <p className="ol-bad">{madeError}</p> : null}
+        {login ? (
+          <p className="pj-sub">
+            For an Overleaf project that already exists, make its repository from Overleaf (Menu → GitHub → Create a GitHub repository, and tick Private) and name it above. A repository made here is for a new paper: start it in Overleaf with New Project → Import from GitHub.
+          </p>
+        ) : null}
         <div className="ol-pair">
           <label className="ol-field">
             <span>Branch</span>
@@ -500,6 +643,7 @@ export function OverleafCard({ project, onWrite }: { project: Project; /** The w
       <div className="ol-head">
         <span className="eyebrow">The paper · Overleaf</span>
         <span style={{ flex: 1 }} />
+        {link.repo ? <RepoPrivacy repo={link.repo} /> : null}
         {draft.target ? <DraftStatus draft={draft} /> : null}
         <button type="button" className="link-btn" onClick={() => setLinking(true)}>
           Change
@@ -519,7 +663,7 @@ export function OverleafCard({ project, onWrite }: { project: Project; /** The w
           {!link.repo ? (
             <p className="ol-note">Overleaf can’t be read from another site, so this is only the link. If the project syncs with GitHub, add the repository (Change) to see its sections and citations here.</p>
           ) : !draft.target ? (
-            <p className="ol-note">Add a GitHub token in Settings → Git mirror to read {link.repo} here.</p>
+            <p className="ol-note">Connect GitHub (Change) to read {link.repo} here.</p>
           ) : draft.state.status === 'error' && !draft.files.length ? (
             <p className="ol-bad">{draft.state.error}</p>
           ) : null}

@@ -9,7 +9,7 @@ import { PdfPeek, ReflowPeek, clip, hasPage, sinceLeft, useSpot, whereIn } from 
 import { CheckIcon, ChevronDownIcon, ExternalIcon, PlusIcon, SearchIcon } from './icons';
 import { Locations } from './Discover';
 import { AddToProject } from './Projects';
-import { isProject, plainCollections } from '../lib/projects';
+import { plainCollections } from '../lib/projects';
 
 /** A search result dragged onto a collection carries itself. */
 const REF_MIME = 'application/x-reader-ref';
@@ -53,7 +53,6 @@ interface Suggestion {
  */
 export function FindPapers({ hero, ask, focusBox = true, saveTo, onSaveTo, onOpenPaper, onDiscover }: Props) {
   const { papers, collections, addPaper, createCollection, setPaperCollections, removePaper } = useStore();
-  const hasProjects = collections.some(isProject);
   const [query, setQuery] = useState(ask ?? '');
   const [asked, setAsked] = useState('');
   const [sources, setSources] = useState<SourceId[]>(defaultSources);
@@ -426,7 +425,7 @@ export function FindPapers({ hero, ask, focusBox = true, saveTo, onSaveTo, onOpe
                 <button type="button" className="btn sm" onClick={() => void read(ref)}>
                   {have ? 'Open' : 'Read'}
                 </button>
-                {hasProjects ? <AddToProject paperRef={have ? { ...ref, id: have.id } : ref} compact align="right" /> : null}
+                <AddToProject paperRef={have ? { ...ref, id: have.id } : ref} compact align="right" />
                 {have && target && have.collectionIds.includes(target.id) ? null : (
                   <span className="find-split">
                     <button type="button" className="btn primary sm" onClick={() => void save(ref, target)} title={target ? `Save to ${target.name} (A)` : 'Save to your library, in no collection (A)'}>

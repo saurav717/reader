@@ -6841,6 +6841,11 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
 .pj-add-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-tick { display: inline-grid; place-items: center; width: 15px; height: 15px; flex: none; border: 1.5px solid var(--muted); border-radius: 4px; color: var(--accent-on); }
 .pj-tick.is-on { background: var(--accent); border-color: var(--accent); }
+.pj-add-sect { margin-top: 6px; padding-top: 8px !important; border-top: 1px solid var(--border-soft); }
+.pj-add-new { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: 12px var(--sans); text-align: left; cursor: pointer; }
+.pj-add-new:hover { background: var(--accent-soft); color: var(--ink); }
+.pj-add-name-form { padding: 2px 6px 4px; }
+.pj-add-name-form input { width: 100%; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); color: var(--ink); font: 12.5px var(--sans); }
 .pj-add-roles { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 8px 8px 31px; }
 .pj-add-roles button { height: 20px; padding: 0 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--ink-2); font: 10.5px var(--sans); cursor: pointer; }
 .pj-add-roles button[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
@@ -7252,6 +7257,11 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
 .write-choice { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: start; margin-bottom: 10px; }
 .write-choice-label { padding-top: 9px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
 .wr-center { flex: 1; display: grid; place-items: center; padding: 24px; overflow: auto; }
+.wr-start { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 14px; padding-top: 40px; }
+.wr-start > .wr-card, .wr-connect { width: 100%; max-width: 720px; }
+.wr-browser { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wr-browser-bar { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--border-soft); }
+.wr-browser > .ol-editor { flex: 1; min-height: 0; }
 .wr-scroll { flex: 1; overflow: auto; padding: 28px 24px; }
 .wr-card { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; padding: 22px 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
 .wr-card h2 { margin: 0; font: 500 24px var(--serif); }
@@ -7380,3 +7390,13 @@ button.wr-template.is-on { border-color: var(--accent); }
 .ce-suggest button.is-on { background: var(--accent-soft); color: var(--accent-ink); }
 .ce-suggest-label { flex: none; }
 .ce-suggest-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; margin-left: auto; color: var(--muted); font: 11.5px var(--sans); }
+
+/* GitHub for the paper: whose token it is, and whether the repository is private. */
+.gh-connect { display: flex; flex-direction: column; gap: 6px; }
+.gh-connect.is-on { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; font-size: 12.5px; color: var(--ink-2); }
+.gh-connect-row { display: flex; gap: 8px; }
+.gh-connect-row input { flex: 1; min-width: 0; height: 30px; padding: 0 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font: 12.5px var(--mono); }
+.gh-privacy { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; }
+.gh-privacy.is-private { padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.gh-privacy.is-public { flex-wrap: wrap; color: var(--danger, #c2410c); }
+.gh-privacy.is-unknown { color: var(--muted); }

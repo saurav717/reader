@@ -40,7 +40,7 @@ import {
   type Project,
 } from '../lib/projects';
 import { authorLine } from '../lib/libraryLook';
-import { COLLECTION_COLORS, type Paper, type PaperRef, type PaperRole, type ProjectInfo } from '../types';
+import { COLLECTION_COLORS, type Collection, type Paper, type PaperRef, type PaperRole, type ProjectInfo } from '../types';
 import type { View } from '../types.view';
 import Playground, { ComputeTag, WhereDialog } from './Playground';
 import PaperWindow from './PaperWindow';
@@ -199,7 +199,7 @@ function ProjectBar({
 }) {
   const [picking, setPicking] = useState(false);
   // From the board, a view asks which project rather than guessing one: the one picked opens on it.
-  const [pickFor, setPickFor] = useState<'read' | 'workspace' | 'write' | null>(null);
+  const [pickFor, setPickFor] = useState<'overview' | 'read' | 'workspace' | 'write' | null>(null);
   const pickRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!picking) return;
@@ -209,13 +209,13 @@ function ProjectBar({
     window.addEventListener('pointerdown', away);
     return () => window.removeEventListener('pointerdown', away);
   }, [picking]);
-  const open = (next: 'read' | 'workspace' | 'write') => {
+  const open = (next: 'overview' | 'read' | 'workspace' | 'write') => {
     if (!current) {
       setPickFor(next);
       setPicking(true);
       return;
     }
-    onView({ kind: 'project', id: current.id, mode: next });
+    onView(next === 'overview' ? { kind: 'project', id: current.id } : { kind: 'project', id: current.id, mode: next });
   };
   const none = projects.length === 0;
   return (
@@ -231,16 +231,9 @@ function ProjectBar({
             {pickFor ? (
               <span className="eyebrow">Which project?</span>
             ) : (
-              <>
-                <button type="button" role="menuitem" onClick={() => (setPicking(false), onView({ kind: 'projects' }))}>
-                  <GridIcon size={14} /> All projects
-                </button>
-                {current ? (
-                  <button type="button" role="menuitem" aria-current={mode === 'overview' ? 'true' : undefined} onClick={() => (setPicking(false), onView({ kind: 'project', id: current.id }))}>
-                    <span className="pj-mark sm" style={{ background: current.color }}>{initialsOf(current.name)}</span> Overview of {current.name}
-                  </button>
-                ) : null}
-              </>
+              <button type="button" role="menuitem" onClick={() => (setPicking(false), onView({ kind: 'projects' }))}>
+                <GridIcon size={14} /> All projects
+              </button>
             )}
             {projects.map((project) => (
               <button
@@ -265,11 +258,17 @@ function ProjectBar({
           </div>
         ) : null}
       </div>
+      {/* The project's home, apart from the three ways of working in it. */}
+      <div className="segmented pj-views" role="group" aria-label="Project overview">
+        <button type="button" aria-pressed={mode === 'overview'} disabled={none} onClick={() => open('overview')} title="One project: what to read next, its papers, its code, its paper">
+          Overview
+        </button>
+      </div>
       <div className="segmented pj-views" role="group" aria-label="Project view">
         <button type="button" aria-pressed={mode === 'read'} disabled={none} onClick={() => open('read')} title="The project’s papers, one at a time">
           Read
         </button>
-        <button type="button" aria-pressed={mode === 'workspace'} disabled={none} onClick={() => open('workspace')} title="The project’s code, with a paper beside it when you want one">
+        <button type="button" aria-pressed={mode === 'workspace'} disabled={none} onClick={() => open('workspace')} title="The workspace: the project’s code, a paper beside it, or the paper alone">
           Code
         </button>
         <button type="button" aria-pressed={mode === 'write'} disabled={none} onClick={() => open('write')} title="The project’s paper: its LaTeX and the PDF it makes, synced with Overleaf">
@@ -765,7 +764,7 @@ function readWs<T extends string>(key: string, allowed: readonly T[], fallback: 
   }
 }
 
-function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Project; /** Read: just the papers. Code: the code, a paper beside it when wanted. */ focus: 'read' | 'code'; onView: (view: View) => void; onOpenPaper: (id: string) => void }) {
+function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Project; /** Read: just the papers. Code: the workspace as it always was. */ focus: 'read' | 'code'; onView: (view: View) => void; onOpenPaper: (id: string) => void }) {
   const { papers, highlights, updateCollection, settings } = useStore();
   const mine = papersIn(project.id, papers);
   const writing = overleafViewOf(settings);
@@ -780,8 +779,8 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
   const shown = mine.find((paper) => paper.id === paperId) ?? continueWith(project, papers) ?? mine[0];
   // Full code is where a project's work is done: the papers are a strip above it, a card each, and a window over it.
   const [chosenLayout, setLayoutState] = useState<WsLayout>(() => readWs(WS_LAYOUT, ['paper', 'both', 'code', 'write'] as const, 'code'));
-  // Read is the paper alone; Code is the code, beside a paper or not. Write is there only while Settings puts the writing in the workspace.
-  const layout: WsLayout = focus === 'read' ? 'paper' : chosenLayout === 'paper' || (chosenLayout === 'write' && writing !== 'write') ? 'both' : chosenLayout;
+  // Read is the paper alone; Code is the whole workspace. Write is there only while Settings puts the writing in the workspace.
+  const layout: WsLayout = focus === 'read' ? 'paper' : chosenLayout === 'write' && writing !== 'write' ? 'both' : chosenLayout;
   const [floating, setFloating] = useState<string | null>(null);
   const setLayout = (next: WsLayout) => {
     setLayoutState(next);
@@ -867,6 +866,9 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
           </button>
           <button type="button" className="pj-both" aria-pressed={layout === 'both'} onClick={() => setLayout('both')} title="A paper and the code side by side">
             Side by side
+          </button>
+          <button type="button" aria-pressed={layout === 'paper'} onClick={() => setLayout('paper')} title="Just the paper">
+            Paper
           </button>
           {writing === 'write' ? (
             <button type="button" aria-pressed={layout === 'write'} onClick={() => setLayout('write')} title="The paper beside the draft you are writing">
@@ -1501,12 +1503,13 @@ export function NewProjectDialog({ onClose, onCreated, from }: { onClose: () => 
   );
 }
 
-// ---------------------------------------------- add to a project, from a search --
+// ------------------------------------- file it anywhere, from a search --
 
 /**
- * "Projects ▾" on a search result: a tick for each project the paper is in,
- * and its role there. Ticking one adds the paper to the library first, if it
- * is not in it yet.
+ * "Add to ▾" on a search result: every project and collection, a tick for
+ * each one the paper is in — as many as you like — and its role in each
+ * project. Ticking one adds the paper to the library first, if it is not in
+ * it yet; unticking takes it out of that one only.
  */
 export function AddToProject({
   paperRef,
@@ -1520,22 +1523,26 @@ export function AddToProject({
   /** Which edge of the button the menu lines up with: the one with room beside it. */
   align?: 'left' | 'right';
 }) {
-  const { papers, collections, addPaper, setPaperCollections, updateCollection } = useStore();
+  const { papers, collections, addPaper, createCollection, setPaperCollections, updateCollection } = useStore();
   const projects = useMemo(() => projectsOf(collections), [collections]);
+  const plain = useMemo(() => plainCollections(collections), [collections]);
+  // One list for the number keys: the projects, then the collections.
+  const places: Collection[] = useMemo(() => [...projects, ...plain], [projects, plain]);
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [naming, setNaming] = useState<string | null>(null);
   const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+      if (!ref.current?.contains(event.target as Node)) (setOpen(false), setNaming(null));
     };
     const esc = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key === 'Escape') (setOpen(false), setNaming(null));
       const at = Number(event.key);
-      if (at >= 1 && at <= 9 && projects[at - 1] && !(event.target as HTMLElement)?.closest('input, textarea, select')) {
+      if (at >= 1 && at <= 9 && places[at - 1] && !(event.target as HTMLElement)?.closest('input, textarea, select')) {
         event.preventDefault();
-        void toggle(projects[at - 1]);
+        void toggle(places[at - 1]);
       }
     };
     window.addEventListener('pointerdown', away);
@@ -1546,37 +1553,73 @@ export function AddToProject({
     };
   });
   const saved = papers.find((paper) => paper.id === paperRef.id);
-  const inProjects = projects.filter((project) => saved?.collectionIds.includes(project.id));
-  const toggle = async (project: Project) => {
+  const inPlaces = places.filter((place) => saved?.collectionIds.includes(place.id));
+  const toggle = async (place: Collection) => {
     const now = papers.find((paper) => paper.id === paperRef.id);
     if (!now) {
-      await (onAdd ? onAdd(paperRef, project.id) : addPaper(paperRef, project.id));
+      await (onAdd ? onAdd(paperRef, place.id) : addPaper(paperRef, place.id));
       return;
     }
-    const on = !now.collectionIds.includes(project.id);
-    await setPaperCollections(now.id, toggledIn(now.collectionIds, project.id, on));
-    if (!on && project.project.roles[now.id]) void updateCollection(project.id, { project: withRole(project.project, now.id, null) });
+    const on = !now.collectionIds.includes(place.id);
+    await setPaperCollections(now.id, toggledIn(now.collectionIds, place.id, on));
+    if (!on && place.project?.roles[now.id]) void updateCollection(place.id, { project: withRole(place.project, now.id, null) });
+  };
+  const newCollection = async () => {
+    const name = naming?.trim();
+    setNaming(null);
+    if (!name) return;
+    const made = await createCollection(name);
+    await (onAdd ? onAdd(paperRef, made.id) : addPaper(paperRef, made.id));
+  };
+  const row = (place: Collection, at: number) => {
+    const on = Boolean(saved?.collectionIds.includes(place.id));
+    const project = place.project ? (place as Project) : null;
+    return (
+      <div key={place.id} className={`pj-add-row${on ? ' is-on' : ''}`}>
+        <button type="button" role="menuitemcheckbox" aria-checked={on} onClick={() => void toggle(place)}>
+          <span className={`pj-tick${on ? ' is-on' : ''}`}>{on ? <CheckIcon size={11} /> : null}</span>
+          <span className={project ? 'pj-dot' : 'swatch-dot'} style={{ background: place.color }} />
+          <span className="pj-add-name">{place.name}</span>
+          {at < 9 ? <kbd>{at + 1}</kbd> : null}
+        </button>
+        {on && saved && project ? (
+          <div className="pj-add-roles" role="group" aria-label={`Role in ${project.name}`}>
+            {ROLES.map((role) => (
+              <button
+                key={role.id}
+                type="button"
+                title={role.note}
+                aria-pressed={project.project.roles[saved.id] === role.id}
+                onClick={() => void updateCollection(project.id, { project: withRole(project.project, saved.id, project.project.roles[saved.id] === role.id ? null : role.id) })}
+              >
+                {role.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
   };
   return (
     <span className="pj-add" ref={ref}>
       <button
         type="button"
-        className={`btn sm${inProjects.length ? ' pj-add-in' : ''}`}
+        className={`btn sm${inPlaces.length ? ' pj-add-in' : ''}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        title="Add it to one of your projects"
+        title="Put it in any of your projects and collections — as many as you like"
         onClick={() => setOpen(!open)}
       >
-        {inProjects.length ? (
+        {inPlaces.length ? (
           <>
-            {inProjects.slice(0, 3).map((project) => (
-              <span key={project.id} className="pj-dot" style={{ background: project.color }} />
+            {inPlaces.slice(0, 3).map((place) => (
+              <span key={place.id} className="pj-dot" style={{ background: place.color }} />
             ))}
-            {compact ? (inProjects.length === 1 ? 'Project' : `${inProjects.length} projects`) : inProjects.length === 1 ? clipName(inProjects[0].name) : `${inProjects.length} projects`}
+            {inPlaces.length === 1 ? (compact ? 'In 1 place' : clipName(inPlaces[0].name)) : `In ${inPlaces.length} places`}
           </>
         ) : (
           <>
-            <PlusIcon size={12} /> {compact ? 'Project' : 'Add to project'}
+            <PlusIcon size={12} /> Add to…
           </>
         )}
         <ChevronDownIcon size={12} />
@@ -1584,38 +1627,28 @@ export function AddToProject({
       {open ? (
         <div className={`pj-menu pj-add-menu${align === 'right' ? ' is-right' : ''}`} role="menu">
           <span className="eyebrow">Projects</span>
-          {projects.map((project, at) => {
-            const on = Boolean(saved?.collectionIds.includes(project.id));
-            return (
-              <div key={project.id} className={`pj-add-row${on ? ' is-on' : ''}`}>
-                <button type="button" role="menuitemcheckbox" aria-checked={on} onClick={() => void toggle(project)}>
-                  <span className={`pj-tick${on ? ' is-on' : ''}`}>{on ? <CheckIcon size={11} /> : null}</span>
-                  <span className="pj-dot" style={{ background: project.color }} />
-                  <span className="pj-add-name">{project.name}</span>
-                  {at < 9 ? <kbd>{at + 1}</kbd> : null}
-                </button>
-                {on && saved ? (
-                  <div className="pj-add-roles" role="group" aria-label={`Role in ${project.name}`}>
-                    {ROLES.map((role) => (
-                      <button
-                        key={role.id}
-                        type="button"
-                        title={role.note}
-                        aria-pressed={project.project.roles[saved.id] === role.id}
-                        onClick={() => void updateCollection(project.id, { project: withRole(project.project, saved.id, project.project.roles[saved.id] === role.id ? null : role.id) })}
-                      >
-                        {role.label}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
+          {projects.map((project, at) => row(project, at))}
           {!projects.length ? <p className="pj-hint" style={{ padding: '2px 8px 6px' }}>No projects yet.</p> : null}
-          <button type="button" role="menuitem" className="pj-menu-new" onClick={() => (setOpen(false), setCreating(true))}>
+          <button type="button" role="menuitem" className="pj-add-new" onClick={() => (setOpen(false), setCreating(true))}>
             <PlusIcon size={12} /> New project…
           </button>
+          <span className="eyebrow pj-add-sect">Collections</span>
+          {plain.map((collection, at) => row(collection, projects.length + at))}
+          {naming !== null ? (
+            <form
+              className="pj-add-name-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void newCollection();
+              }}
+            >
+              <input autoFocus value={naming} placeholder="Collection name" aria-label="Collection name" onChange={(event) => setNaming(event.target.value)} onBlur={() => void newCollection()} />
+            </form>
+          ) : (
+            <button type="button" role="menuitem" className="pj-add-new" onClick={() => setNaming('')}>
+              <PlusIcon size={12} /> New collection…
+            </button>
+          )}
         </div>
       ) : null}
       {creating ? (
