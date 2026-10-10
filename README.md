@@ -990,6 +990,27 @@ file them, onto a status to mark them, onto Unsorted to take them out of every
 collection, or onto Junk. Escape lets go of the selection.
 `scripts/library-smoke.mjs` goes through all of it and screenshots each state.
 
+### Navigation
+
+Two kinds of thing are in the navigation: **pages**, which the main area goes
+to — Home, the paper being read, the Library, Projects and each project, and
+the Playground — and **panels**, which open beside whatever page is showing:
+the Library's collections, Discover, Notes and Ask AI. Settings → Navigation
+lays them out one of five ways:
+
+- **Labelled** (the default) — a rail of named pages; the panels are switches
+  in a bar at the top of the page. The rail's Library goes to the library's
+  page with its collections beside it.
+- **Two zones** — one narrow rail: pages at the top, panels in a tray at the
+  bottom, a lit edge on the side each opens from.
+- **Sidebar** — a wide sidebar: pages by name with your projects under
+  Projects, the panels as on/off switches. It folds to the narrow rail.
+- **Edge tabs** — a rail of pages; the panels are tabs on the page's right
+  edge, pulled out like drawers.
+- **Classic** — the one rail of icons it had before.
+
+On a phone the wide layouts use the narrow rail with its tray.
+
 ### Projects
 
 A project is a piece of research with papers of its own: a question, the

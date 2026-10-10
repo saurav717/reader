@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { useStore } from './lib/store';
 import type { View } from './types.view';
-import { HIGHLIGHT_COLORS } from './types';
+import { HIGHLIGHT_COLORS, type NavStyle } from './types';
 import type { Screen } from './lib/assistant';
 import { setQuote } from './lib/assistant';
 import { followLight } from './lib/glassLight';
@@ -17,6 +17,8 @@ import { cellsBlock } from './lib/notebookAsk';
 import { explainDrive } from './lib/explainDrive';
 import CollectionView from './components/CollectionView';
 import ProjectsPage, { OPEN_SETTINGS, RailProjects, projectView } from './components/Projects';
+import Nav, { EdgeTabs, PanelBar, type NavModel, type NavPanel } from './components/Nav';
+import { projectsOf } from './lib/projects';
 import JunkView from './components/JunkView';
 import CommandPalette from './components/CommandPalette';
 import Discover from './components/Discover';
@@ -37,7 +39,7 @@ import Desk from './components/Desk';
 import { keepSpotNow } from './lib/spot';
 import { SIGN_IN_REQUIRED } from './lib/google';
 import { canFullscreen, enterFullscreen, fullscreenElement, leaveFullscreen } from './lib/fullscreen';
-import { ChartIcon, CodeIcon, GoogleMark, HighlighterIcon, LibraryIcon, OpenBookIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
+import { ChartIcon, CodeIcon, GoogleMark, GridIcon, HighlighterIcon, HomeIcon, LibraryIcon, OpenBookIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
 import { FINISHED_AT } from './lib/status';
 import { addressWith, currentAddress, pathFor, placeFor } from './lib/route';
 import Playground from './components/Playground';
@@ -174,6 +176,9 @@ function readView(): View {
 
 const NARROW = 900;
 
+/** The pages that are the Library: its lists and its collections. */
+const LIBRARY_PAGES: View['kind'][] = ['all', 'reading', 'unread', 'finished', 'unsorted', 'junk', 'collection'];
+
 function isNarrow(): boolean {
   return typeof window !== 'undefined' && window.innerWidth < NARROW;
 }
@@ -251,6 +256,11 @@ export default function App() {
     setUsageOpen(false);
     setView(id ? { kind: 'playground', id } : { kind: 'playground' });
   };
+  /** The library list last on screen: where the Library goes back to, as a page. */
+  const lastLibraryView = useRef<View>({ kind: 'all' });
+  useEffect(() => {
+    if (LIBRARY_PAGES.includes(view.kind)) lastLibraryView.current = view;
+  }, [view]);
   /** The last page that was not the Playground: where the library's and the dock's buttons go back to from it. */
   const beforePlayground = useRef<View>({ kind: 'home' });
   useEffect(() => {
@@ -1052,17 +1062,138 @@ export default function App() {
   const wrapTabs = (page: ReactNode) => (
     <div className="pr-col">
       {tabsShown ? <RunTabs current={openPlayground} onOpen={goToPlayground} /> : null}
+      {navStyle === 'labelled' && !showWelcome && !inZen ? <PanelBar panels={navPanels} where={pageName} /> : null}
       {page}
+      {navStyle === 'edge' && !showWelcome && !inZen ? <EdgeTabs panels={navPanels} /> : null}
     </div>
   );
   /** The rail's book is the paper that is open: nothing to go back to. */
   const readingReturn = view.kind === 'paper' && returnPaper?.id === view.id && !onUsage;
+
+  // ------------------------------------------------ the navigation's model --
+  // Every layout in Settings → Navigation is drawn from this (components/Nav.tsx);
+  // the classic rail above keeps its own buttons, which do the same.
+  // On a phone the wide layouts give way to the narrow rail with its tray.
+  const navStyle: NavStyle = settings.navStyle === 'classic' ? 'classic' : isNarrow() ? 'zones' : settings.navStyle;
+  const onLibraryPage = LIBRARY_PAGES.includes(view.kind) && !onUsage;
+  const goHome = () => {
+    setUsageOpen(false);
+    setView({ kind: 'home' });
+    if (isNarrow()) setLibraryOpen(false);
+  };
+  const toggleLibrary = () => {
+    setUsageOpen(false);
+    panelTouched();
+    if (onPlayground) {
+      leavePlayground();
+      setLibraryOpen(true);
+      return;
+    }
+    setLibraryOpen(usageOpen ? true : !libraryOpen);
+  };
+  const toggleDiscover = () => {
+    setUsageOpen(false);
+    panelTouched();
+    if (onPlayground) {
+      leavePlayground();
+      setDock('discover');
+      return;
+    }
+    setDock(dockPane === 'discover' && !usageOpen ? null : 'discover');
+  };
+  const toggleNotesPanel = () => {
+    setUsageOpen(false);
+    panelTouched();
+    if (onPlayground) {
+      leavePlayground();
+      setDock('notes');
+      return;
+    }
+    toggleNotes();
+  };
+  /** The Library as a page: the list it was last on, with its collections beside it. */
+  const goLibrary = () => {
+    setUsageOpen(false);
+    panelTouched();
+    setLibraryOpen(true);
+    if (!onLibraryPage) setView(lastLibraryView.current);
+  };
+  const accountButton = (
+    <button
+      type="button"
+      className="icon-btn"
+      onClick={() => setSettingsOpen(true)}
+      aria-label={user ? `Settings — signed in as ${user.email}` : 'Sign in and settings'}
+      title={user ? user.email : 'Sign in with Google'}
+    >
+      {user ? (
+        user.picture ? (
+          <img className="avatar" src={user.picture} alt="" />
+        ) : (
+          <span className="avatar-fallback" aria-hidden="true">
+            {user.name.slice(0, 1).toUpperCase()}
+          </span>
+        )
+      ) : (
+        <GoogleMark size={19} />
+      )}
+    </button>
+  );
+  const navPanels: NavPanel[] = [
+    { key: 'library', label: 'Library', title: 'Your collections, beside the page', icon: <LibraryIcon size={17} />, on: libraryOpen && !onPlayground && !onUsage, onClick: toggleLibrary, side: 'left' },
+    { key: 'discover', label: 'Discover', title: 'Search the indexes, beside the page', icon: <SearchIcon size={17} />, on: dockPane === 'discover' && !onPlayground && !onUsage, onClick: toggleDiscover, side: 'right' },
+    { key: 'notes', label: 'Notes', title: 'Highlights and notes, beside the page (H, or ⌘⇧\\)', icon: <HighlighterIcon size={17} />, on: notesShown && !onPlayground && !onUsage, onClick: toggleNotesPanel, side: 'right' },
+    { key: 'ask', label: 'Ask AI', title: 'Ask AI, in a window over the page (⌘\\)', icon: <SparkleIcon size={17} />, on: assistantOpen, onClick: () => setAssistantOpen(!assistantOpen), side: 'float' },
+  ];
+  const navModel: NavModel = {
+    onBrand: goHome,
+    brandActive: view.kind === 'home' && !onUsage && !showWelcome,
+    pages: [
+      { key: 'home', label: 'Home', title: 'Home — G goes between Home and the paper you are reading', icon: <HomeIcon size={19} />, active: view.kind === 'home' && !onUsage && !showWelcome, onClick: goHome },
+      ...(returnPaper && !showWelcome
+        ? [{ key: 'reading', label: 'Reading', title: readingReturn ? `${returnPaper.title} — G goes Home` : `Back to ${returnPaper.title} — G`, icon: <OpenBookIcon size={19} />, active: readingReturn, aside: 'G', onClick: () => !readingReturn && openPaper(returnPaper.id) }]
+        : []),
+      { key: 'library', label: 'Library', title: 'The Library: your papers and collections', icon: <LibraryIcon size={19} />, active: onLibraryPage, aside: String(papers.length), onClick: goLibrary },
+      { key: 'projects', label: 'Projects', title: 'Every project, side by side', icon: <GridIcon size={19} />, active: view.kind === 'projects' && !onUsage, onClick: () => (setUsageOpen(false), setView({ kind: 'projects' })) },
+      { key: 'playground', label: 'Code', title: 'Playground — code of your own, on Colab, your PC or a GPU elsewhere (P)', icon: <CodeIcon size={19} />, active: onPlayground, badge: shows.dock ? <RailRunBadge onOpen={goToPlayground} /> : undefined, onClick: () => (setUsageOpen(false), setView({ kind: 'playground' })) },
+      ...(isOwner ? [{ key: 'usage', label: 'Usage', title: 'Usage — who has signed in, and what they used on your accounts', icon: <ChartIcon size={19} />, active: onUsage, onClick: () => setUsageOpen(!usageOpen) }] : []),
+    ],
+    projects: showWelcome
+      ? []
+      : projectsOf(collections).map((project) => ({
+          id: project.id,
+          name: project.name,
+          color: project.color,
+          active: view.kind === 'project' && view.id === project.id && !onUsage,
+          title: `${project.name}${project.project.question ? ` — ${project.project.question}` : ''}`,
+        })),
+    onProject: (id) => (setUsageOpen(false), setView(projectView(id, settings.projectOpensOn))),
+    projectsAfter: 'projects',
+    panels: navPanels,
+    progress: !showWelcome ? <RailProgress showing={explainOpen && explained ? explained.id : null} onOpen={openFromProgress} /> : undefined,
+    account: accountButton,
+    onSettings: () => setSettingsOpen(true),
+    settingsIcon: <SettingsIcon size={19} />,
+    settingsTitle: driveConnected ? 'Settings — Drive connected' : 'Settings',
+  };
+  const pageName = onUsage
+    ? 'Usage'
+    : view.kind === 'paper'
+      ? 'Reading'
+      : view.kind === 'home'
+        ? 'Home'
+        : view.kind === 'projects' || view.kind === 'project'
+          ? 'Projects'
+          : view.kind === 'playground'
+            ? 'Playground'
+            : 'Library';
   return (
     <div
       ref={appRef}
       className={`app${inZen ? ` is-zen haze-${settings.zenHaze}` : ''}${inZen && peek ? ` peek-${peek}` : ''}${besideInZen ? ' notes-beside' : ''}${!inZen && dockSlide ? ` dock-slide-${dockSlide}` : ''}`}
       {...zenPointer}
     >
+{navStyle === 'classic' ? (
       <nav className="rail" aria-label="Primary">
         <button
           type="button"
@@ -1236,6 +1367,9 @@ export default function App() {
           <SettingsIcon size={19} />
         </button>
       </nav>
+      ) : (
+        <Nav style={navStyle} model={navModel} />
+      )}
 
       {libraryOpen && !showWelcome && !onUsage && !onPlayground ? (
         <Library

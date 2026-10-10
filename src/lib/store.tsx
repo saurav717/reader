@@ -74,6 +74,7 @@ const defaultSettings: Settings = {
   explainOpacity: null,
   readingMode: 'pdf',
   projectOpensOn: 'overview',
+  navStyle: 'labelled',
   zenHaze: 'shadow',
   passageLook: 'marker',
   chatMarks: 'auto',

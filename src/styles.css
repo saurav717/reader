@@ -6958,3 +6958,113 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
   .pj-strip-todo { display: none; }
   .pj-pop { left: 8px; width: calc(100% - 16px); }
 }
+
+/* Project menus and cards float over the page: under glass they are frosted
+   nearly solid, like the other menus, rather than the see-through --surface;
+   and the row they open from is lifted over the rows below it, whose buttons
+   would otherwise be drawn across the menu. */
+:root[data-glass='on'] .pj-menu,
+:root[data-glass='on'] .pj-pop {
+  background: rgb(var(--float-rgb) / max(var(--float-a), 0.94));
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
+}
+:root[data-glass='on'] .pj-add-row > button,
+:root[data-glass='on'] .pj-menu > button { color: var(--ink); }
+.find-row:has(.pj-add-menu), .find-row:has(.find-pick) { z-index: 30; }
+.result:has(.pj-add-menu) { position: relative; z-index: 30; }
+.pj-add:has(.pj-add-menu) { z-index: 31; }
+
+/* -------------------------------------------------------- navigation ---- */
+/* Settings → Navigation (components/Nav.tsx): pages and the panels beside
+   them, told apart. The classic rail keeps the rules above. */
+.nav-rail { overflow-y: auto; scrollbar-width: none; }
+.nav-rail::-webkit-scrollbar { display: none; }
+.nav-marks { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 3px 0; }
+.nav-marks.is-small .pj-mark { width: 26px; height: 26px; border-radius: 7px; font-size: 9.5px; }
+.nav-cap { font: 600 8.5px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin: 2px 0; }
+.nav-sep { width: 28px; height: 1px; background: var(--border); margin: 6px 0; flex: none; }
+.nav-unfold { margin: -8px 0 4px; color: var(--muted); }
+
+/* Two zones: the panels in a tray, a lit edge on the side each opens from. */
+.nav-tray { display: flex; flex-direction: column; gap: 3px; padding: 4px; border: 1px dashed var(--border); border-radius: 13px; }
+.nav-panel-btn { position: relative; width: 36px; height: 36px; border-radius: 9px; }
+.nav-panel-btn[aria-pressed='true']::after { content: ''; position: absolute; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: var(--accent); }
+.nav-panel-btn.side-left[aria-pressed='true']::after { left: -7px; }
+.nav-panel-btn.side-right[aria-pressed='true']::after { right: -7px; }
+.nav-panel-btn.side-float[aria-pressed='true']::after { top: auto; bottom: -6px; left: 10px; right: 10px; width: auto; height: 3px; }
+
+/* Labelled: a slightly wider rail, each page named. */
+.rail.is-labelled { width: 74px; gap: 2px; }
+.rail.is-labelled .brand { margin-bottom: 10px; }
+.nav-lab { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 62px; padding: 7px 0 6px; border: 0; border-radius: 12px; background: transparent; color: var(--ink-2); font: 500 10.5px var(--sans); cursor: pointer; }
+.nav-lab:hover { background: rgba(127, 127, 127, 0.12); color: var(--ink); }
+.nav-lab.is-active { background: var(--paper); color: var(--accent); box-shadow: inset 0 0 0 1px var(--border); }
+.rail.is-labelled .nav-marks { padding: 4px 0 6px; }
+
+/* The panel bar at the top of the page, for the labelled rail. */
+.nav-panelbar { flex: none; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 12px 0 18px; border-bottom: 1px solid var(--border-soft); background: var(--paper); }
+.nav-panelbar-where { font: 600 10.5px var(--sans); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+.nav-panelbar-cap { font-size: 11.5px; color: var(--muted); }
+.nav-panelbar-group { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+.nav-panelbar-group button { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border: 0; border-radius: 7px; background: transparent; color: var(--ink-2); font: 12px var(--sans); cursor: pointer; }
+.nav-panelbar-group button:hover { color: var(--ink); background: rgba(127, 127, 127, 0.1); }
+.nav-panelbar-group button[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); }
+:root[data-glass='on'] .nav-panelbar { background: transparent; }
+
+/* Sidebar: pages by name, projects under Projects, panels as switches. */
+.rail.nav-sidebar { width: 228px; align-items: stretch; padding: 14px 10px 12px; gap: 1px; overflow-y: auto; }
+.nav-sb-head { display: flex; align-items: center; gap: 10px; padding: 0 4px 12px; }
+.nav-sb-head .brand { margin: 0; flex: none; }
+.nav-sb-head b { flex: 1; font: 600 16px var(--serif); }
+.nav-sb-cap { padding: 8px 8px 4px; font: 600 10px var(--sans); letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+.nav-sb-row { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 32px; padding: 0 9px; border: 0; border-radius: 8px; background: transparent; color: var(--ink-2); font: 13px var(--sans); text-align: left; cursor: pointer; }
+.nav-sb-row svg { flex: none; width: 17px; height: 17px; }
+.nav-sb-row:hover { background: rgba(127, 127, 127, 0.1); color: var(--ink); }
+.nav-sb-row.is-active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 500; }
+.nav-sb-row.is-sub { min-height: 28px; padding-left: 30px; font-size: 12.5px; }
+.nav-sb-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-sb-aside { font: 11px var(--mono); color: var(--muted); }
+.nav-switch { flex: none; position: relative; width: 28px; height: 16px; border-radius: 9px; background: var(--border); transition: background 0.15s; }
+.nav-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); transition: left 0.15s; }
+.nav-switch.is-on { background: var(--accent); }
+.nav-switch.is-on::after { left: 14px; background: #fff; }
+.nav-sb-line { height: 1px; background: var(--border-soft); margin: 8px 4px; flex: none; }
+.nav-sb-foot { display: flex; align-items: center; gap: 4px; }
+.nav-sb-foot .nav-sb-row { flex: 1; }
+
+/* Edge tabs: the panels as drawers on the right edge of the page. */
+.pr-col { position: relative; }
+.nav-edge { position: absolute; z-index: 25; right: 0; top: 96px; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+.nav-edge button { pointer-events: auto; writing-mode: vertical-rl; transform: rotate(180deg); display: flex; align-items: center; gap: 7px; padding: 12px 6px; border: 1px solid var(--border); border-left: 0; border-radius: 0 9px 9px 0; background: var(--surface); color: var(--ink-2); font: 500 11.5px var(--sans); cursor: pointer; box-shadow: var(--shadow-sm); }
+.nav-edge button svg { transform: rotate(90deg); width: 14px; height: 14px; }
+.nav-edge button:hover { color: var(--ink); padding-right: 9px; }
+.nav-edge button[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+:root[data-glass='on'] .nav-edge button { background: rgb(var(--float-rgb) / var(--float-a)); backdrop-filter: blur(18px); }
+
+/* Settings → Navigation: each layout with a small picture of itself. */
+.nav-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.nav-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 9px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink-2); font: 11.5px/1.4 var(--sans); text-align: left; cursor: pointer; }
+.nav-choice:hover { border-color: var(--muted); }
+.nav-choice.is-on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.nav-choice b { color: var(--ink); font-size: 12.5px; font-weight: 600; }
+.nav-choice b small { color: var(--accent); font-weight: 500; font-size: 11px; }
+.nav-choice-pic { position: relative; display: block; width: 100%; height: 52px; margin-bottom: 4px; border-radius: 6px; background: var(--paper); border: 1px solid var(--border-soft); overflow: hidden; }
+.nav-choice-pic i { position: absolute; display: block; border-radius: 3px; }
+/* i:1 the rail, i:2 the panels, i:3 the page's bar or edge */
+.nav-choice-pic i:nth-child(1) { left: 0; top: 0; bottom: 0; width: 12px; background: var(--rail); border-right: 1px solid var(--border); border-radius: 0; }
+.nav-choice-pic i:nth-child(2) { left: 3px; width: 6px; height: 4px; background: var(--accent); }
+.nav-choice-pic i:nth-child(3) { background: var(--accent-soft); }
+.nav-choice-pic.is-labelled i:nth-child(1) { width: 16px; }
+.nav-choice-pic.is-labelled i:nth-child(2) { top: 6px; left: 3px; width: 10px; height: 18px; background: repeating-linear-gradient(var(--muted) 0 2px, transparent 2px 6px); opacity: 0.6; }
+.nav-choice-pic.is-labelled i:nth-child(3) { top: 0; left: 17px; right: 0; height: 9px; border-radius: 0; border-bottom: 1px solid var(--border); }
+.nav-choice-pic.is-zones i:nth-child(2) { bottom: 4px; height: 16px; border: 1px dashed var(--accent); background: transparent; }
+.nav-choice-pic.is-zones i:nth-child(3) { display: none; }
+.nav-choice-pic.is-sidebar i:nth-child(1) { width: 38px; }
+.nav-choice-pic.is-sidebar i:nth-child(2) { top: 8px; left: 5px; width: 26px; height: 22px; background: repeating-linear-gradient(var(--muted) 0 2px, transparent 2px 6px); opacity: 0.6; }
+.nav-choice-pic.is-sidebar i:nth-child(3) { bottom: 5px; left: 5px; width: 26px; height: 8px; }
+.nav-choice-pic.is-edge i:nth-child(2) { display: none; }
+.nav-choice-pic.is-edge i:nth-child(3) { right: 0; top: 10px; width: 6px; height: 30px; background: repeating-linear-gradient(var(--accent) 0 8px, transparent 8px 11px); border-radius: 3px 0 0 3px; }
+.nav-choice-pic.is-classic i:nth-child(2) { top: 6px; height: 38px; width: 6px; background: repeating-linear-gradient(var(--muted) 0 4px, transparent 4px 8px); opacity: 0.7; }
+.nav-choice-pic.is-classic i:nth-child(3) { display: none; }
+.nav-lab-item { display: flex; flex-direction: column; align-items: center; }
