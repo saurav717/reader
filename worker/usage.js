@@ -14,6 +14,8 @@
  *   browser  the browser inside the reader opened
  *   web      a web search for Ask AI, with its Web button on
  *   pdf      a file fetched with a pass — through a kept sign-in, or unlimited
+ *   latex    a paper compiled on the LaTeX compiler (worker/latex.js)
+ *   latex_s  the seconds those compiles took on GitHub's runner, from fetching the files to the PDF back
  *   claude, deepseek, gemini         answers from Ask AI and Explain, per provider
  *   claude_in, claude_out, …         the tokens they read and wrote
  *   claude_cost, deepseek_cost, …    what they cost, in millionths of a dollar
@@ -43,6 +45,8 @@ export const COUNTS = [
   'browser',
   'pdf',
   'web',
+  'latex',
+  'latex_s',
   ...AI_PROVIDERS.flatMap((provider) => [provider, `${provider}_in`, `${provider}_out`, `${provider}_cost`]),
 ];
 

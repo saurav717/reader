@@ -509,12 +509,23 @@ export interface WriteOptions {
   citations: 'drawer' | 'off';
   /** On an error: keep going, as Overleaf does, or stop at the first (Overleaf's "Stop on first error"). */
   errors: 'continue' | 'halt';
+  /** Where the PDF is made: on this computer, or by Overleaf (nothing to install; the PDF is in Overleaf's window). */
+  pdf: 'here' | 'github' | 'overleaf';
 }
 
-export const WRITE_DEFAULTS: WriteOptions = { compile: 'pause', engine: 'auto', layout: 'side', sync: 'pause', citations: 'drawer', errors: 'continue' };
+export const WRITE_DEFAULTS: WriteOptions = { compile: 'pause', engine: 'auto', layout: 'side', sync: 'pause', citations: 'drawer', errors: 'continue', pdf: 'here' };
 
 /** Each of the Write tab's choices, the default first. */
 export const WRITE_OPTIONS: { key: keyof WriteOptions; label: string; choices: { id: string; label: string; note: string }[] }[] = [
+  {
+    key: 'pdf',
+    label: 'Compile on',
+    choices: [
+      { id: 'here', label: 'This computer', note: 'The Companion compiles it with the TeX installed here, and the PDF is beside the source.' },
+      { id: 'github', label: 'GitHub Actions', note: 'Reader’s own compiler, not a sync: GitHub Actions compiles it with all of TeX Live and the PDF comes back here, in a minute or two. Nothing to install or set up; the files are never kept.' },
+      { id: 'overleaf', label: 'By Overleaf', note: 'Nothing to install: edits go to Overleaf a moment after you stop typing, and the PDF is in Overleaf’s window, beside.' },
+    ],
+  },
   {
     key: 'compile',
     label: 'Compile',

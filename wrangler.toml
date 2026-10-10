@@ -199,6 +199,16 @@ id = "4b383f85f5d041569dc04f04350b1c38"
 # paid accounts, under PERSON_LIMIT above. Without any, the button in the
 # app says the proxy has no search key.
 
+# LaTeX compiled for anyone signed in, on GitHub Actions in the reader's own
+# repository (worker/latex.js, .github/workflows/latex-compile.yml): the
+# jobs are kept in SESSIONS above, for an hour at most. Two secrets, both
+# needed (docs/deploy.md, "the LaTeX compiler"):
+#
+#     npx wrangler secret put LATEX_RUNNER_TOKEN   # also a repository secret of that name
+#     npx wrangler secret put LATEX_GITHUB_TOKEN   # fine-grained, Actions: read and write on the repository
+#
+# LATEX_REPO = "saurav717/reader"   # where the workflow is, if not here
+
 # Once an hour, a snapshot of the DeepSeek account's balance and of the
 # Tavily key's usage for the Usage page (worker/deepseekBalance.js,
 # worker/tavilyUsage.js). Does nothing until DEEPSEEK_KEY or TAVILY_KEY is set:

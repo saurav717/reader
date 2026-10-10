@@ -10,9 +10,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
-import { jupyterDelete, jupyterList, jupyterMkdir, jupyterRead, jupyterRename, jupyterWrite, jupyterWriteBase64 } from '../lib/colab';
-import { PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEXLIVE_VERSION, TEX_COMPILERS, applyTemplate, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, chooseFolder, clonePaper, compilePaper, deleteTemplate, forgetOverleafToken, installTectonic, isNewer, linkFolder, listTemplates, paperEngines, paperRemote, saveTemplate, syncPaper, tokenKnown, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
-import { bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
+import { jupyterDelete, jupyterList, jupyterMkdir, jupyterRead, jupyterReadBase64, jupyterRename, jupyterWrite, jupyterWriteBase64 } from '../lib/colab';
+import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEXLIVE_VERSION, TEX_COMPILERS, applyTemplate, updateCompanion, waitForVersion, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, chooseFolder, clonePaper, compilePaper, deleteTemplate, forgetOverleafToken, installTectonic, isNewer, linkFolder, listTemplates, paperEngines, paperRemote, saveTemplate, syncPaper, tokenKnown, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
+import { besideFeatures, bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
 import { complete as completeLatex } from '../lib/latexComplete';
 import { openPdf } from '../lib/pdfReflow';
 import { papersIn, type Project } from '../lib/projects';
@@ -23,6 +23,8 @@ import type { View } from '../types.view';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
 import CopyBlock from './CopyBlock';
 import { DraftEditor, OpenOverleaf } from './Overleaf';
+import { readTexLog, type CompileFile } from '../lib/latexGithub';
+import { apiFetch } from '../lib/api';
 import { CompanionConnect } from './Playground';
 
 type Here = Extract<ThisComputer, { server: unknown }>;
@@ -196,6 +198,60 @@ function ForgetToken({ server, open = false, onForgotten }: { server?: Here['ser
   );
 }
 
+// ------------------------------------------------------ compiled on GitHub --
+
+type GithubState = { phase: 'idle' | 'setup' | 'sending' | 'queued' | 'compiling' | 'done' | 'failed'; startedAt?: number; finishedAt?: number; runUrl?: string; error?: string };
+
+/** Seconds since, as m:ss, ticking. */
+function useElapsed(since: number | undefined, running: boolean): string {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+  if (!since) return '';
+  const seconds = Math.max(0, Math.round(((running ? now : now) - since) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+/**
+ * The PDF pane's line about compiling on GitHub: Reader's own compiler, so
+ * there is nothing to set up — how a compile is going, and a note for later.
+ */
+function GithubCompilePanel({ state, onCompile }: { state: GithubState; onCompile: () => void }) {
+  const running = state.phase === 'sending' || state.phase === 'queued' || state.phase === 'compiling';
+  const elapsed = useElapsed(state.startedAt, running);
+  const said =
+    state.phase === 'sending'
+      ? 'Sending the paper to Reader’s compiler…'
+      : state.phase === 'queued'
+        ? 'Waiting for GitHub to start…'
+        : state.phase === 'compiling'
+          ? 'Compiling on GitHub with all of TeX Live…'
+          : state.phase === 'done'
+            ? `Compiled on GitHub in ${elapsed}.`
+            : state.phase === 'failed'
+              ? state.error ?? 'It didn’t compile.'
+              : 'Press ⌘↵ or Compile on GitHub: Reader’s compiler (GitHub Actions, all of TeX Live) makes the PDF and it comes back here in a minute or two. Nothing to set up.';
+  return (
+    <div className={`wr-ghc is-line${state.phase === 'failed' ? ' is-bad' : ''}`}>
+      <span>
+        {running ? <span className="spinner" /> : null} {said} {running && elapsed ? <span className="mono">{elapsed}</span> : null}
+      </span>
+      {state.phase === 'failed' ? (
+        <button type="button" className="link-btn" onClick={onCompile}>
+          Try again
+        </button>
+      ) : null}
+      <small>The files pass through Reader’s server and a GitHub runner to be compiled; they are never put in a repository, and are deleted within the hour.</small>
+      <p className="wr-later">
+        <b>Note for later:</b> look into a compile server on Google Cloud Run — a PDF in seconds rather than minutes, and likely within its free tier.
+      </p>
+    </div>
+  );
+}
+
 // ------------------------------------------------------- the desk's panes --
 
 /** How the desk is laid out on this device: the files' width, how the source and PDF share the room, the problems' height. */
@@ -284,6 +340,45 @@ function PaneTools({ layout, onLayout, swapped, onSwap, big, onBig }: { layout: 
       <button type="button" className="wr-icon" aria-pressed={big} onClick={onBig} title={big ? 'Back to both panes' : 'The source alone, filling the space'} aria-label={big ? 'Back to both panes' : 'Expand the source'}>
         {big ? '⤡' : '⤢'}
       </button>
+    </span>
+  );
+}
+
+// ------------------------------------------------- the Companion, updated --
+
+/** From this version the Companion updates itself when asked; an older one is updated the way it was installed. */
+const SELF_UPDATING = '0.5.0';
+
+/** Update the Companion from here, and the page comes back to it once the new one answers. */
+function UpdateCompanion({ server, version }: { server: Here['server']; version: string }) {
+  const [state, setState] = useState<'idle' | 'updating' | 'failed'>('idle');
+  const [problem, setProblem] = useState<string | null>(null);
+  if (isNewer(SELF_UPDATING, version)) {
+    return <span className="wr-quiet">This Companion ({version}) is from before it could update itself: install it again the way you did (the Reader app’s .dmg, or the line on the Connect card), once.</span>;
+  }
+  return (
+    <span className="wr-update">
+      <button
+        type="button"
+        className="btn primary sm"
+        disabled={state === 'updating'}
+        onClick={async () => {
+          setState('updating');
+          setProblem(null);
+          try {
+            const done = await updateCompanion(server);
+            const back = done.updated ? await waitForVersion(server.url, done.version) : true;
+            if (!back) throw new Error('It installed the update but hasn’t answered since. Open the Reader app to start it.');
+            window.location.reload();
+          } catch (error) {
+            setState('failed');
+            setProblem(error instanceof Error ? error.message : String(error));
+          }
+        }}
+      >
+        {state === 'updating' ? 'Updating the Companion…' : `Update the Companion (${version} → ${COMPANION_VERSION})`}
+      </button>
+      {problem ? <span className="wr-bad">{problem}</span> : null}
     </span>
   );
 }
@@ -892,6 +987,7 @@ interface FileState {
 const COMPILE_PAUSE_MS = 1000;
 const SAVE_PAUSE_MS = 600;
 const SYNC_PAUSE_MS = 4000;
+const OVERLEAF_SYNC_PAUSE_MS = 1500;
 const PULL_EVERY_MS = 30_000;
 const MAX_FILES = 400;
 
@@ -1018,6 +1114,8 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
 
   // ---- compile
   const compile = useCallback(async () => {
+    // Overleaf makes the PDF, or GitHub does (only when asked, ⌘↵ or Recompile: its minutes count): nothing compiles here.
+    if (options.pdf === 'overleaf' || options.pdf === 'github') return;
     setCompiling(true);
     setCompileError(null);
     try {
@@ -1030,7 +1128,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     } finally {
       setCompiling(false);
     }
-  }, [server, folder.path, options.engine, compiler, options.errors]);
+  }, [server, folder.path, options.engine, compiler, options.errors, options.pdf]);
   useEffect(() => {
     if (paths && texts.length && engines && (engines.latexmk || engines.tectonic) && !compiled && !compiling) void compile();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1107,7 +1205,8 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     window.clearTimeout(timers.current.compile);
     window.clearTimeout(timers.current.sync);
     if (options.compile === how) timers.current.compile = window.setTimeout(() => void compile(), how === 'pause' ? COMPILE_PAUSE_MS : 0);
-    if (git && options.sync === how) timers.current.sync = window.setTimeout(() => void sync(true), how === 'pause' ? SYNC_PAUSE_MS : 0);
+    // With Overleaf making the PDF, the edit goes sooner: the PDF waits on it.
+    if (git && options.sync === how) timers.current.sync = window.setTimeout(() => void sync(true), how === 'pause' ? (options.pdf === 'overleaf' ? OVERLEAF_SYNC_PAUSE_MS : SYNC_PAUSE_MS) : 0);
   };
 
   const edit = (relative: string, text: string) => {
@@ -1351,7 +1450,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
               }
               if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                 event.preventDefault();
-                void saveNow().then(() => compile());
+                recompile();
               }
             }}
           />
@@ -1362,10 +1461,110 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     </section>
   );
 
-  const preview = (
+  /**
+   * ⌘↵. Here: save and compile. With Overleaf making the PDF: the window
+   * beside is taken in the keypress itself (a browser lets a page open one
+   * only then) and says the edits are on their way; once they have reached
+   * Overleaf, the project opens in it — and Overleaf compiles a project as it
+   * opens, so the PDF there is of what was just written. A project set to
+   * open in another browser isn't opened from here: this page can't reach it.
+   */
+  // ---- compiling on GitHub: Reader's compiler, GitHub Actions in its own repository, through its Worker (worker/latex.js)
+  const [gh, setGh] = useState<GithubState>({ phase: 'idle' });
+  const compileOnGithub = async () => {
+    const started = Date.now();
+    setCompiling(true);
+    setCompileError(null);
+    try {
+      setGh({ phase: 'sending', startedAt: started });
+      const paths = await listAll(server, folder.path);
+      const files: CompileFile[] = [];
+      for (const path of paths) files.push({ path, base64: await jupyterReadBase64(server, `${folder.path}/${path}`) });
+      const main = mainDoc ?? compiled?.main ?? 'main.tex';
+      const asked = await apiFetch('/latex/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files, main, compiler }) });
+      const job = (await asked.json().catch(() => ({}))) as { id?: string; error?: string };
+      if (!asked.ok || !job.id) throw new Error(job.error ?? `The compiler didn’t take it (${asked.status}).`);
+      setGh({ phase: 'queued', startedAt: started });
+      const until = Date.now() + 12 * 60_000;
+      while (Date.now() < until) {
+        await new Promise((resolve) => setTimeout(resolve, 4000));
+        const now = (await (await apiFetch(`/latex/jobs/${job.id}`, { cache: 'no-store' })).json().catch(() => null)) as { state?: string; pdf?: boolean; exit?: number | null; error?: string | null } | null;
+        if (!now?.state) continue;
+        if (now.state === 'failed') throw new Error(now.error ?? 'The compile didn’t start.');
+        if (now.state !== 'done') {
+          setGh({ phase: now.state === 'compiling' ? 'compiling' : 'queued', startedAt: started });
+          continue;
+        }
+        const log = await (await apiFetch(`/latex/jobs/${job.id}/log`, { cache: 'no-store' })).text().catch(() => '');
+        const blob = now.pdf ? await (await apiFetch(`/latex/jobs/${job.id}/pdf`, { cache: 'no-store' })).blob() : null;
+        const read = readTexLog(log);
+        setCompiled({ ok: Boolean(blob) && now.exit === 0, main, engine: 'GitHub · all of TeX Live', compiler, pdf: blob ? 'github' : '', errors: read.errors, warnings: read.warnings, log, ms: Date.now() - started });
+        if (blob) setPdf(new Blob([blob], { type: 'application/pdf' }));
+        if (read.errors.length && !blob) setShowLog(true);
+        setGh({ phase: 'done', startedAt: started, finishedAt: Date.now() });
+        return;
+      }
+      throw new Error('No PDF came back within 12 minutes.');
+    } catch (error) {
+      setGh({ phase: 'failed', startedAt: started, error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      setCompiling(false);
+    }
+  };
+
+  const recompile = () => {
+    if (options.pdf === 'github') return void saveNow().then(() => compileOnGithub());
+    if (options.pdf !== 'overleaf') return void saveNow().then(() => compile());
+    const overleaf = project.project.overleaf;
+    let beside: Window | null = null;
+    if (overleaf && !overleaf.browsers?.[here.id]) {
+      beside = window.open('about:blank', `reader-overleaf-${project.id}`, besideFeatures(window.screen));
+      try {
+        if (beside) {
+          beside.document.title = 'Overleaf';
+          beside.document.body.style.cssText = 'font: 15px system-ui, sans-serif; color: #555; display: grid; place-items: center; height: 100vh; margin: 0';
+          beside.document.body.textContent = 'Sending your edits to Overleaf…';
+        }
+      } catch {
+        // a window already on Overleaf: it is only navigated
+      }
+    }
+    const show = () => {
+      if (!beside || !overleaf) return;
+      beside.location.href = overleaf.url;
+      try {
+        beside.opener = null;
+      } catch {
+        // already across
+      }
+      beside.focus();
+    };
+    if (git) void saveNow().then(() => sync()).finally(show);
+    else show();
+  };
+
+  const pdfWhere = (
+    <span className="wr-where">
+    <span className="wr-where-label">Compile on</span>
+    <span className="segmented sm" role="group" aria-label="Which compiler makes the PDF">
+      <button type="button" aria-pressed={options.pdf === 'here'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'here' } })} title="The TeX installed on this computer compiles it, through the Companion">
+        This computer
+      </button>
+      <button type="button" aria-pressed={options.pdf === 'github'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'github' } })} title="GitHub Actions compiles it with all of TeX Live, in a private repository of yours, and the PDF comes back here. It compiles: it doesn’t publish or sync anything.">
+        GitHub Actions
+      </button>
+      <button type="button" aria-pressed={options.pdf === 'overleaf'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'overleaf' } })} title="Overleaf’s compiler: your edits go to Overleaf, and the PDF is in Overleaf’s window">
+        Overleaf
+      </button>
+    </span>
+    </span>
+  );
+
+  const local = (
     <section className="wr-preview">
       <div className="wr-tabs">
         <b>PDF</b>
+        {pdfWhere}
         <select className="wr-pick" value={compiler} onChange={(event) => updateLink({ compiler: event.target.value as TexCompiler })} aria-label="Compiler" title="As the Overleaf project is set: Menu → Compiler. pdfLaTeX is Overleaf’s default.">
           {TEX_COMPILERS.map((item) => (
             <option key={item.id} value={item.id}>
@@ -1398,8 +1597,8 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
         <button type="button" className="wr-icon" aria-pressed={big === 'pdf'} onClick={() => setBig(big === 'pdf' ? null : 'pdf')} title={big === 'pdf' ? 'Back to both panes' : 'The PDF alone, filling the space'} aria-label={big === 'pdf' ? 'Back to both panes' : 'Expand the PDF'}>
           {big === 'pdf' ? '⤡' : '⤢'}
         </button>
-        <button type="button" className="btn sm primary" disabled={compiling || Boolean(noTex)} onClick={() => void saveNow().then(() => compile())} title="Recompile (⌘↵)">
-          {compiling ? 'Compiling…' : 'Recompile'}
+        <button type="button" className="btn sm primary" disabled={compiling || (options.pdf === 'here' && Boolean(noTex))} onClick={recompile} title={options.pdf === 'github' ? 'Compile on GitHub (⌘↵): a minute or two' : 'Recompile (⌘↵)'}>
+          {compiling ? (options.pdf === 'github' ? 'Compiling on GitHub…' : 'Compiling…') : options.pdf === 'github' ? 'Compile on GitHub' : 'Recompile'}
         </button>
         {options.layout === 'tabs' ? (
           <span className="segmented sm">
@@ -1408,7 +1607,10 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
           </span>
         ) : null}
       </div>
-      {noTex ? (
+      {options.pdf === 'github' ? (
+        <GithubCompilePanel state={gh} onCompile={recompile} />
+      ) : null}
+      {noTex && options.pdf === 'here' ? (
         <div className="wr-pad">
           <p>There’s no TeX on this computer to compile with.</p>
           {canOwnTex ? <OwnTex server={server} status={engines?.texlive} onStatus={setOwnTex} onReady={() => void paperEngines(server).then(setEngines).then(() => compile())} /> : null}
@@ -1440,9 +1642,14 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
       {compiled && !compiled.pdf && !compiled.errors.length && !compiling ? (
         <div className="wr-banner">
           <b>No PDF came out, and TeX reported no error.</b>{' '}
-          {isNewer('0.11.1', here.version)
-            ? 'latexmk skips a file it failed on until the file changes — after installing a package, say. Change anything in it (a space will do) and Recompile, or update the Companion, which then always compiles.'
-            : 'Check the main document above is the file with \\documentclass, and see what the compiler said:'}
+          {isNewer('0.11.1', here.version) ? (
+            <>
+              This Companion skips a file that failed until the file changes. Update it, and it compiles every time — and can install TeX Live and missing packages for you:{' '}
+              <UpdateCompanion server={server} version={here.version} />
+            </>
+          ) : (
+            'Check the main document above is the file with \\documentclass, and see what the compiler said:'
+          )}
           {compiled.log.trim() ? (
             <details className="wr-raw">
               <summary>What the compiler said</summary>
@@ -1465,6 +1672,54 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
       <PdfPages blob={pdf} />
     </section>
   );
+
+  const preview =
+    options.pdf === 'overleaf' ? (
+      <section className="wr-preview is-overleaf">
+        <div className="wr-tabs">
+          <b>PDF</b>
+          {pdfWhere}
+          <span className="wr-sp" />
+          {options.layout === 'tabs' ? (
+            <span className="segmented sm">
+              <button type="button" aria-pressed={pane === 'source'} onClick={() => setPane('source')}>Source</button>
+              <button type="button" aria-pressed={pane === 'pdf'} onClick={() => setPane('pdf')}>PDF</button>
+            </span>
+          ) : null}
+        </div>
+        <div className="wr-overleaf-pane">
+          <h3>Overleaf makes the PDF</h3>
+          <p>
+            {git
+              ? 'Your edits go to Overleaf a moment after you stop typing, and Overleaf compiles them with all of TeX Live — nothing to install here. The PDF is in Overleaf’s window: open it beside this one.'
+              : 'This folder isn’t synced with Overleaf’s Git, so Overleaf won’t see these edits by itself: copy them there, or set the folder up with Overleaf’s Git (Change, under the files).'}
+          </p>
+          <div className="wr-row">
+            <OpenOverleaf project={project} view="beside" />
+            {git ? (
+              <button type="button" className="btn sm" disabled={syncing} onClick={() => void saveNow().then(() => sync())}>
+                {syncing ? 'Sending…' : 'Send now'}
+              </button>
+            ) : null}
+          </div>
+          {git ? (
+            <p className="wr-quiet">
+              {syncing
+                ? 'Sending your edits to Overleaf…'
+                : dirtyCount
+                  ? 'Typing… your edits go to Overleaf when you pause.'
+                  : synced?.at
+                    ? `Overleaf has everything up to ${new Date(synced.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}.`
+                    : 'Not sent yet.'}
+              {syncError ? <span className="wr-bad"> {syncError}</span> : null}
+            </p>
+          ) : null}
+          <p className="wr-quiet">⌘↵ here sends your edits and opens the project in the window beside once they’ve arrived — Overleaf compiles it as it opens. If Overleaf’s PDF doesn’t refresh after an edit comes in, press Recompile there. To compile on this computer or with GitHub Actions instead, pick it under Compile on, above.</p>
+        </div>
+      </section>
+    ) : (
+      local
+    );
 
   const layoutClass = big ? ` is-tabs show-${big}` : options.layout === 'stacked' ? ' is-stacked' : options.layout === 'tabs' ? ` is-tabs show-${pane}` : '';
   const split = options.layout !== 'tabs' && !big;
@@ -1604,7 +1859,9 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
                 onTectonic={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), engine: 'tectonic' } })}
                 first={
                   !canOwnTex ? (
-                    <p className="wr-quiet">Update the Companion to {TEXLIVE_VERSION} and Reader can install TeX Live — and any missing package — for you, without a password.</p>
+                    <p className="wr-quiet">
+                      Update the Companion and Reader can install TeX Live — and any missing package — for you, without a password: <UpdateCompanion server={server} version={here.version} />
+                    </p>
                   ) : engines?.texlive?.installed ? (
                     <InstallMissing server={server} names={missing} onDone={() => void compile()} />
                   ) : (
@@ -1642,14 +1899,12 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
             {compiled.errors.length} errors · {compiled.warnings.length} warnings
           </button>
         ) : (
-          <span>{compiling ? 'Compiling…' : 'Not compiled yet'}</span>
+          <span>{options.pdf === 'overleaf' ? 'Overleaf compiles it' : compiling ? 'Compiling…' : 'Not compiled yet'}</span>
         )}
         <span className="wr-sp" />
-        {canOwnTex ? (
-          <button type="button" className="link-btn" aria-expanded={texShown} onClick={() => setTexShown(!texShown)} title="The TeX that compiles the paper: Reader can install TeX Live for you">
-            TeX
-          </button>
-        ) : null}
+        <button type="button" className="link-btn" aria-expanded={texShown} onClick={() => setTexShown(!texShown)} title="The TeX that compiles the paper: Reader can install TeX Live for you">
+          TeX
+        </button>
         {git ? (
           <button type="button" className="link-btn" aria-expanded={tokenShown} onClick={() => setTokenShown(!tokenShown)} title="The Overleaf Git token on this computer: where it is, and how to remove it">
             Overleaf token
@@ -1657,10 +1912,16 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
         ) : null}
         <OpenOverleaf project={project} view="beside" primary={false} compact />
       </footer>
-      {texShown && canOwnTex ? (
+      {texShown ? (
         <div className="wr-sync-banner">
           <span className="wr-quiet">{engines?.texVersion ? `Compiling with ${engines.texVersion}.` : 'No TeX found yet.'}</span>
-          <OwnTex server={server} status={engines?.texlive} onStatus={setOwnTex} onReady={() => void paperEngines(server).then(setEngines).then(() => compile())} />
+          {canOwnTex ? (
+            <OwnTex server={server} status={engines?.texlive} onStatus={setOwnTex} onReady={() => void paperEngines(server).then(setEngines).then(() => compile())} />
+          ) : (
+            <span>
+              Update the Companion ({here.version}) and Reader can install TeX Live for you: <UpdateCompanion server={server} version={here.version} />
+            </span>
+          )}
         </div>
       ) : null}
       {tokenShown ? (

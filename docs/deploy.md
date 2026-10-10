@@ -55,3 +55,43 @@ Cloudflare token:
 
 Until they are there, *Deploy worker* says so on a merge and deploys nothing;
 `npm run deploy:worker` from a computer signed in to Cloudflare still does it.
+
+## Once more: the LaTeX compiler (Write tab → Compile on GitHub Actions)
+
+Anyone signed in to the reader can compile a paper with all of TeX Live,
+with nothing to install or set up: the Worker hands the paper to the
+**LaTeX compile** workflow in this repository (`.github/workflows/latex-compile.yml`),
+which fetches it back from the Worker, compiles it, and posts the PDF to the
+Worker for the page (`worker/latex.js`). This repository is public, so a
+paper is never committed to it and the workflow prints nothing of it; the
+files are deleted once compiled, the PDF and log within the hour. Every hop
+is HTTPS (TLS 1.2 or newer), and both ends refuse anything else. Actions
+minutes are free and unlimited on a public repository.
+
+It takes two secrets, set once:
+
+1. **`LATEX_RUNNER_TOKEN`** — any long random string, the same in two places,
+   so only this workflow can fetch a paper from the Worker:
+
+   ```sh
+   openssl rand -base64 32          # copy what it prints
+   npx wrangler secret put LATEX_RUNNER_TOKEN
+   ```
+
+   and in GitHub: Settings → Secrets and variables → Actions → New
+   repository secret, named `LATEX_RUNNER_TOKEN`, with the same value.
+
+2. **`LATEX_GITHUB_TOKEN`** — so the Worker can start the workflow: a
+   fine-grained personal access token (github.com/settings/personal-access-tokens),
+   repository access *Only select repositories* → this one, permission
+   **Actions: Read and write**, with an expiry. Then:
+
+   ```sh
+   npx wrangler secret put LATEX_GITHUB_TOKEN
+   ```
+
+Optional: a Worker var `LATEX_REPO` (owner/repo) if the workflow is in
+another repository, and a repository variable `LATEX_WORKER` if the Worker
+is not at `https://reader-arxiv-proxy.es16btech11007.workers.dev`. Until both
+secrets are set, the Write tab says the site has no compiler set up yet.
+The jobs are kept in the `SESSIONS` KV namespace the Worker already has.
