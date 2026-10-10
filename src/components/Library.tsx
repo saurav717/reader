@@ -37,6 +37,11 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
   /** The nav item papers are being dragged over, to light it up. */
   const [over, setOver] = useState<string | null>(null);
   const [removing, setRemoving] = useState<Paper[] | null>(null);
+  // Inside a project the panel is the project's papers alone, until asked for the whole library.
+  const inProject = view.kind === 'project' ? projects.find((item) => item.id === view.id) : undefined;
+  const [wide, setWide] = useState(false);
+  useEffect(() => setWide(false), [inProject?.id]);
+  const focused = Boolean(inProject && !wide);
 
   // Opening a paper leaves the view on the paper, so the panel remembers the
   // collection you came from rather than falling back to everything.
@@ -138,6 +143,16 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
         </button>
       </div>
 
+      {focused ? null : (
+      <>
+      {inProject ? (
+        <div className="library-section-head">
+          <span className="eyebrow">Whole library</span>
+          <button type="button" className="link-btn" onClick={() => setWide(false)} title={`Only the papers of ${inProject.name}`}>
+            Just {inProject.name}
+          </button>
+        </div>
+      ) : null}
       <nav className="library-nav" aria-label="Views">
         {navItem('all', { kind: 'all' }, <StackIcon size={16} />, 'All papers', papers.length)}
         {navItem('reading', { kind: 'reading' }, <ClockIcon size={16} />, 'Reading now', counts.reading, 'Drop papers here to mark them as being read')}
@@ -212,16 +227,26 @@ export default function Library({ view, activePaperId, onSelect, onOpenPaper, on
         )}
         {navItem('junk', { kind: 'junk' }, <TrashIcon size={16} />, 'Junk', junk.length, 'Removed papers, to restore or delete for good. Drop papers here to remove them.')}
       </div>
+      </>
+      )}
 
       <div className="library-scope">
         <span className="eyebrow">{scopeName}</span>
         <span className="mono">
           {scopeTotal} paper{scopeTotal === 1 ? '' : 's'}
+          {focused ? (
+            <>
+              {' · '}
+              <button type="button" className="link-btn" onClick={() => setWide(true)} title="Every paper, collection and project">
+                whole library
+              </button>
+            </>
+          ) : null}
         </span>
       </div>
 
       <div className="scroll library-list">
-        {!scopeTotal ? <p className="library-empty">Nothing here yet. Open Discover on the right to add a paper.</p> : null}
+        {!scopeTotal ? <p className="library-empty">{inProject ? 'No papers in this project yet. Add some from its overview, or drop them on it in the whole library.' : 'Nothing here yet. Open Discover on the right to add a paper.'}</p> : null}
 
         {groups.map((group) => {
           if (!group.items.length) return null;

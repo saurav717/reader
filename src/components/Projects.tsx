@@ -137,7 +137,7 @@ export default function ProjectsPage({
     <ProjectBar
       projects={projects}
       current={project}
-      mode={view.kind === 'projects' ? 'board' : view.mode === 'workspace' || view.mode === 'write' ? view.mode : 'overview'}
+      mode={view.kind === 'projects' ? 'board' : view.mode === 'read' || view.mode === 'workspace' || view.mode === 'write' ? view.mode : 'overview'}
       onView={onView}
       onNew={() => setCreating(true)}
     />
@@ -160,14 +160,14 @@ export default function ProjectsPage({
     );
   } else if (view.mode === 'write') {
     body = <WritePage key={project.id} project={project} onView={onView} />;
-  } else if (view.mode === 'workspace') {
-    body = <ProjectWorkspace key={project.id} project={project} onView={onView} onOpenPaper={onOpenPaper} />;
+  } else if (view.mode === 'read' || view.mode === 'workspace') {
+    body = <ProjectWorkspace key={`${project.id}:${view.mode}`} project={project} focus={view.mode === 'read' ? 'read' : 'code'} onView={onView} onOpenPaper={onOpenPaper} />;
   } else {
     body = <ProjectOverview key={project.id} project={project} projects={projects} onView={onView} onOpenPaper={onOpenPaper} onAddPapers={onAddPapers} />;
   }
 
   return (
-    <main className={`main pj-page${view.kind === 'project' && view.mode === 'workspace' ? ' is-workspace' : ''}${view.kind === 'project' && view.mode === 'write' ? ' is-workspace is-write' : ''}`}>
+    <main className={`main pj-page${view.kind === 'project' && (view.mode === 'read' || view.mode === 'workspace') ? ' is-workspace' : ''}${view.kind === 'project' && view.mode === 'write' ? ' is-workspace is-write' : ''}`}>
       {header}
       {body}
       {creating ? (
@@ -193,15 +193,13 @@ function ProjectBar({
 }: {
   projects: Project[];
   current: Project | undefined;
-  mode: 'board' | 'overview' | 'workspace' | 'write';
+  mode: 'board' | 'overview' | 'read' | 'workspace' | 'write';
   onView: (view: View) => void;
   onNew: () => void;
 }) {
-  const { settings } = useStore();
-  const writeTab = overleafViewOf(settings) === 'tab';
   const [picking, setPicking] = useState(false);
   // From the board, a view asks which project rather than guessing one: the one picked opens on it.
-  const [pickFor, setPickFor] = useState<'overview' | 'workspace' | 'write' | null>(null);
+  const [pickFor, setPickFor] = useState<'read' | 'workspace' | 'write' | null>(null);
   const pickRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!picking) return;
@@ -211,13 +209,13 @@ function ProjectBar({
     window.addEventListener('pointerdown', away);
     return () => window.removeEventListener('pointerdown', away);
   }, [picking]);
-  const open = (next: 'overview' | 'workspace' | 'write') => {
+  const open = (next: 'read' | 'workspace' | 'write') => {
     if (!current) {
       setPickFor(next);
       setPicking(true);
       return;
     }
-    onView(next === 'overview' ? { kind: 'project', id: current.id } : { kind: 'project', id: current.id, mode: next });
+    onView({ kind: 'project', id: current.id, mode: next });
   };
   const none = projects.length === 0;
   return (
@@ -233,9 +231,16 @@ function ProjectBar({
             {pickFor ? (
               <span className="eyebrow">Which project?</span>
             ) : (
-              <button type="button" role="menuitem" onClick={() => (setPicking(false), onView({ kind: 'projects' }))}>
-                <GridIcon size={14} /> All projects
-              </button>
+              <>
+                <button type="button" role="menuitem" onClick={() => (setPicking(false), onView({ kind: 'projects' }))}>
+                  <GridIcon size={14} /> All projects
+                </button>
+                {current ? (
+                  <button type="button" role="menuitem" aria-current={mode === 'overview' ? 'true' : undefined} onClick={() => (setPicking(false), onView({ kind: 'project', id: current.id }))}>
+                    <span className="pj-mark sm" style={{ background: current.color }}>{initialsOf(current.name)}</span> Overview of {current.name}
+                  </button>
+                ) : null}
+              </>
             )}
             {projects.map((project) => (
               <button
@@ -246,7 +251,7 @@ function ProjectBar({
                 onClick={() => {
                   setPicking(false);
                   const next = pickFor ?? mode;
-                  onView(next === 'workspace' || next === 'write' ? { kind: 'project', id: project.id, mode: next } : { kind: 'project', id: project.id });
+                  onView(next === 'read' || next === 'workspace' || next === 'write' ? { kind: 'project', id: project.id, mode: next } : { kind: 'project', id: project.id });
                 }}
               >
                 <span className="pj-dot" style={{ background: project.color }} />
@@ -261,20 +266,15 @@ function ProjectBar({
         ) : null}
       </div>
       <div className="segmented pj-views" role="group" aria-label="Project view">
-        <button type="button" aria-pressed={mode === 'board'} onClick={() => onView({ kind: 'projects' })} title="Every project side by side">
-          Board
+        <button type="button" aria-pressed={mode === 'read'} disabled={none} onClick={() => open('read')} title="The project’s papers, one at a time">
+          Read
         </button>
-        <button type="button" aria-pressed={mode === 'overview'} disabled={none} onClick={() => open('overview')} title="One project: what to read next, its papers, its code">
-          Overview
+        <button type="button" aria-pressed={mode === 'workspace'} disabled={none} onClick={() => open('workspace')} title="The project’s code, with a paper beside it when you want one">
+          Code
         </button>
-        <button type="button" aria-pressed={mode === 'workspace'} disabled={none} onClick={() => open('workspace')} title="A paper of the project beside its code">
-          Workspace
+        <button type="button" aria-pressed={mode === 'write'} disabled={none} onClick={() => open('write')} title="The project’s paper: its LaTeX and the PDF it makes, synced with Overleaf">
+          Write
         </button>
-        {writeTab ? (
-          <button type="button" aria-pressed={mode === 'write'} disabled={none} onClick={() => open('write')} title="The project’s paper: its LaTeX and the PDF it makes, synced with Overleaf">
-            Write
-          </button>
-        ) : null}
       </div>
       <div style={{ flex: 1 }} />
       <button type="button" className="btn sm" onClick={onNew}>
@@ -765,7 +765,7 @@ function readWs<T extends string>(key: string, allowed: readonly T[], fallback: 
   }
 }
 
-function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; onView: (view: View) => void; onOpenPaper: (id: string) => void }) {
+function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Project; /** Read: just the papers. Code: the code, a paper beside it when wanted. */ focus: 'read' | 'code'; onView: (view: View) => void; onOpenPaper: (id: string) => void }) {
   const { papers, highlights, updateCollection, settings } = useStore();
   const mine = papersIn(project.id, papers);
   const writing = overleafViewOf(settings);
@@ -780,8 +780,8 @@ function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; 
   const shown = mine.find((paper) => paper.id === paperId) ?? continueWith(project, papers) ?? mine[0];
   // Full code is where a project's work is done: the papers are a strip above it, a card each, and a window over it.
   const [chosenLayout, setLayoutState] = useState<WsLayout>(() => readWs(WS_LAYOUT, ['paper', 'both', 'code', 'write'] as const, 'code'));
-  // Write is there only while Settings puts the writing in the workspace.
-  const layout: WsLayout = chosenLayout === 'write' && writing !== 'write' ? 'both' : chosenLayout;
+  // Read is the paper alone; Code is the code, beside a paper or not. Write is there only while Settings puts the writing in the workspace.
+  const layout: WsLayout = focus === 'read' ? 'paper' : chosenLayout === 'paper' || (chosenLayout === 'write' && writing !== 'write') ? 'both' : chosenLayout;
   const [floating, setFloating] = useState<string | null>(null);
   const setLayout = (next: WsLayout) => {
     setLayoutState(next);
@@ -860,6 +860,7 @@ function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; 
             <ArrowLeftIcon size={15} style={{ transform: treeOpen ? undefined : 'rotate(180deg)' }} />
           </button>
         )}
+        {focus === 'read' ? null : (
         <div className="segmented sm" role="group" aria-label="What the workspace shows">
           <button type="button" aria-pressed={layout === 'code'} onClick={() => setLayout('code')} title="The code fills the workspace; the papers are a strip above it">
             Full code
@@ -867,15 +868,13 @@ function ProjectWorkspace({ project, onView, onOpenPaper }: { project: Project; 
           <button type="button" className="pj-both" aria-pressed={layout === 'both'} onClick={() => setLayout('both')} title="A paper and the code side by side">
             Side by side
           </button>
-          <button type="button" aria-pressed={layout === 'paper'} onClick={() => setLayout('paper')} title="Just the paper">
-            Paper
-          </button>
           {writing === 'write' ? (
             <button type="button" aria-pressed={layout === 'write'} onClick={() => setLayout('write')} title="The paper beside the draft you are writing">
               Write
             </button>
           ) : null}
         </div>
+        )}
         {!fullCode && shown ? <span className="pj-ws-now">{shown.title}</span> : null}
         {writing === 'beside' && overleaf && !fullCode ? (
           <span className="pj-ws-overleaf">
