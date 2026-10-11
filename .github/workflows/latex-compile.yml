@@ -1,0 +1,76 @@
+# Compiles LaTeX for anyone signed in to the reader, with all of TeX Live
+# (worker/latex.js). The Worker starts it with a random job id; it fetches
+# that job's files from the Worker, compiles them, and posts the PDF and the
+# log back. Nothing of a paper is written to this repository, and nothing of
+# it is printed here: this repository is public, and so are its run logs.
+#
+# It needs one secret, LATEX_RUNNER_TOKEN, the same long random string the
+# Worker has as its secret of that name; and, optionally, a repository
+# variable LATEX_WORKER, the Worker's address, if it isn't the one below.
+name: LaTeX compile
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: The job's id, from the Worker
+        required: true
+
+run-name: Compile ${{ inputs.job }}
+
+permissions: {}
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      JOB: ${{ inputs.job }}
+      WORKER: ${{ vars.LATEX_WORKER || 'https://reader-arxiv-proxy.es16btech11007.workers.dev' }}
+      RUNNER_TOKEN: ${{ secrets.LATEX_RUNNER_TOKEN }}
+      IMAGE: ghcr.io/xu-cheng/texlive-full:latest
+    steps:
+      - name: Fetch the paper, compile it with all of TeX Live, hand back the PDF
+        run: |
+          set +e
+          case "$JOB" in *[!a-f0-9]*|'') echo "not a job id"; exit 1;; esac
+          [ ${#JOB} -eq 32 ] || { echo "not a job id"; exit 1; }
+          [ -n "$RUNNER_TOKEN" ] || { echo "::error::LATEX_RUNNER_TOKEN isn't set"; exit 1; }
+          # HTTPS only, TLS 1.2 or newer: the paper and the secret never cross the network in the clear.
+          case "$WORKER" in https://*) ;; *) echo "::error::LATEX_WORKER must be an https:// address"; exit 1;; esac
+          CURL="curl -fsS --proto =https --tlsv1.2"
+          docker pull -q "$IMAGE" > /dev/null &
+          PULL=$!
+          mkdir -p /tmp/job/src /tmp/job/out
+          $CURL -H "Authorization: Bearer $RUNNER_TOKEN" "$WORKER/latex/runner/$JOB/source" -o /tmp/job/source.json || { echo "couldn't fetch the job"; exit 1; }
+          python3 - <<'PY'
+          import base64, json, os, pathlib
+          job = json.load(open('/tmp/job/source.json'))
+          root = pathlib.Path('/tmp/job/src').resolve()
+          for f in job['files']:
+              target = (root / f['path']).resolve()
+              if root not in target.parents:
+                  continue
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_bytes(base64.b64decode(f['base64']))
+          open('/tmp/job/main', 'w').write(job.get('main') or 'main.tex')
+          open('/tmp/job/flag', 'w').write(job.get('flag') or '-pdf')
+          PY
+          rm -f /tmp/job/source.json
+          wait $PULL
+          MAIN="$(cat /tmp/job/main)"
+          FLAG="$(cat /tmp/job/flag)"
+          docker run --rm -v /tmp/job:/job -w /job/src "$IMAGE" \
+            latexmk "$FLAG" -cd -g -f -interaction=nonstopmode -file-line-error \
+            -jobname=output -outdir=/job/out "$MAIN" > /tmp/job/out/stdout.txt 2>&1
+          EXIT=$?
+          python3 - "$EXIT" <<'PY'
+          import base64, json, pathlib, sys
+          out = pathlib.Path('/tmp/job/out')
+          pdf = out / 'output.pdf'
+          log = ''.join(p.read_text(errors='replace') for p in (out / 'output.log', out / 'stdout.txt') if p.exists())
+          json.dump({'pdf': base64.b64encode(pdf.read_bytes()).decode() if pdf.exists() else '', 'log': log[-400000:], 'exit': int(sys.argv[1])}, open('/tmp/job/result.json', 'w'))
+          PY
+          $CURL -X POST -H "Authorization: Bearer $RUNNER_TOKEN" -H 'Content-Type: application/json' \
+            --data-binary @/tmp/job/result.json "$WORKER/latex/runner/$JOB/result" > /dev/null || { echo "couldn't hand the PDF back"; exit 1; }
+          echo "compiled (latexmk exit $EXIT)"

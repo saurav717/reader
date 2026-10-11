@@ -7456,7 +7456,7 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .wr-missing small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 4px; }
 .wr-missing pre, .wr-missing .copy-block { margin: 6px 0 0; }
 .wr-missing .copy-block pre { white-space: pre-wrap; word-break: break-all; padding-right: 64px; }
-.wr-preview .wr-tabs { flex-wrap: nowrap; min-width: 0; }
+.wr-preview .wr-tabs { flex-wrap: wrap; row-gap: 6px; min-width: 0; height: auto; min-height: 44px; }
 .wr-preview .wr-tabs > .wr-quiet { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 
 /* TeX Live for Reader: offered, installing, installed. */
@@ -7478,3 +7478,26 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .wr-switch-form .wr-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .wr-switch-back { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .wr-danger { color: var(--danger) !important; }
+
+.wr-update { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+
+/* Overleaf makes the PDF: what the pane says instead of the PDF. */
+.wr-preview.is-overleaf { background: var(--surface); }
+.wr-overleaf-pane { padding: 22px 24px; display: flex; flex-direction: column; gap: 10px; max-width: 560px; font-size: 13px; line-height: 1.55; color: var(--ink-2); }
+.wr-overleaf-pane h3 { margin: 0; font: 600 16px var(--sans); color: var(--ink); }
+.wr-overleaf-pane p { margin: 0; }
+.wr-overleaf-pane .wr-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.wr-overleaf-pane .wr-row { align-items: flex-start; }
+
+/* Compiled on GitHub: set up once, then how a run is going. */
+.wr-ghc { display: flex; flex-direction: column; gap: 6px; margin: 10px 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+.wr-ghc b { color: var(--ink); }
+.wr-ghc.is-line { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.wr-ghc.is-line > small { margin-left: auto; color: var(--muted); }
+.wr-ghc.is-bad { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); }
+.wr-ghc .wr-row { margin: 2px 0 0; display: flex; gap: 8px; flex-wrap: wrap; }
+.wr-later { flex-basis: 100%; margin: 4px 0 0; padding: 6px 8px; border-radius: 7px; background: color-mix(in srgb, #e3b341 14%, transparent); color: var(--ink-2); font-size: 11.5px; }
+.wr-later b { color: inherit; }
+
+.wr-where { display: inline-flex; align-items: center; gap: 6px; }
+.wr-where-label { font-size: 11px; color: var(--muted); white-space: nowrap; }
