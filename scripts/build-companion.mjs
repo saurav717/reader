@@ -153,7 +153,8 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
   irm https://astral.sh/uv/install.ps1 | iex
   $env:Path = "$env:USERPROFILE\\.local\\bin;$env:Path"
 }
-uv tool run --from $wheel reader-companion --site $site @args
+# uv's Python 3.12, never the newest: pywinpty (the terminal, on Windows) has no wheel for a brand-new Python, and building it needs NuGet.
+uv tool run --python 3.12 --from $wheel reader-companion --site $site @args
 `;
   return { sh, ps1, wheel };
 }
@@ -207,7 +208,8 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
   $env:Path = "$env:USERPROFILE\\.local\\bin;$env:Path"
 }
 Write-Host 'Installing the Reader Companion...'
-uv tool install --force --quiet --from $wheel reader-companion
+# 3.12, as above: a brand-new Python has no pywinpty wheel to install.
+uv tool install --force --quiet --python 3.12 --from $wheel reader-companion
 $bin = uv tool dir --bin
 & (Join-Path $bin 'reader-companion.exe') setup --site $site @args
 `;
