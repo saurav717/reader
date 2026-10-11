@@ -173,7 +173,7 @@ export function companionCommands(site: string, { tunnel = false } = {}): { unix
   return {
     unix: `curl -LsSf ${base}companion.sh | sh${tunnel ? ' -s -- --tunnel' : ''}`,
     windows: `powershell -ExecutionPolicy ByPass -c "irm ${base}companion.ps1 | iex"`,
-    uv: `uvx --from ${base}companion/reader_companion-${COMPANION_VERSION}-py3-none-any.whl reader-companion --site ${base}${tunnel ? ' --tunnel' : ''}`,
+    uv: `uvx --python 3.12 --from ${base}companion/reader_companion-${COMPANION_VERSION}-py3-none-any.whl reader-companion --site ${base}${tunnel ? ' --tunnel' : ''}`,
   };
 }
 
