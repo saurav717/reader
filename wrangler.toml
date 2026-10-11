@@ -208,6 +208,16 @@ id = "4b383f85f5d041569dc04f04350b1c38"
 #     npx wrangler secret put LATEX_GITHUB_TOKEN   # fine-grained, Actions: read and write on the repository
 #
 # LATEX_REPO = "saurav717/reader"   # where the workflow is, if not here
+#
+# Each job's state (queued, compiling, done) is in a Durable Object of its own,
+# so the page sees it change at once — KV can hand it a reading a minute old.
+[[durable_objects.bindings]]
+name = "LATEX_JOBS"
+class_name = "LatexJob"
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["LatexJob"]
 
 # Once an hour, a snapshot of the DeepSeek account's balance and of the
 # Tavily key's usage for the Usage page (worker/deepseekBalance.js,

@@ -11,6 +11,13 @@
 // here; the page reads them. Nothing of the paper is kept: the files are
 // dropped once compiled, and the PDF and log an hour after.
 //
+// A job's state (queued, compiling, done) is kept in a Durable Object of its
+// own (LatexJob below, the LATEX_JOBS binding), not in KV: KV hands a page a
+// reading up to a minute old, so the page went on saying "waiting for GitHub"
+// while it compiled, and saw the PDF up to a minute after it came back. The
+// files, the PDF and the log are each written once and read once, which KV
+// does well.
+//
 // Needs, besides the SESSIONS KV namespace (wrangler.toml):
 //   LATEX_GITHUB_TOKEN  a fine-grained token on the repository, Actions: read and write (to start the workflow)
 //   LATEX_RUNNER_TOKEN  any long random string, the same as the repository's secret of that name
@@ -25,6 +32,48 @@ const COMPILERS = { pdflatex: '-pdf', xelatex: '-xelatex', lualatex: '-lualatex'
 export const latexAvailable = (env) => Boolean(env.SESSIONS && String(env.LATEX_GITHUB_TOKEN || '').trim() && String(env.LATEX_RUNNER_TOKEN || '').trim());
 
 const keys = (id) => ({ meta: `latex:meta:${id}`, source: `latex:src:${id}`, pdf: `latex:pdf:${id}`, log: `latex:log:${id}` });
+/**
+ * One compile's state, read and written in one place, so what the runner says
+ * the page sees at once. It forgets the job an hour on.
+ */
+export class LatexJob {
+  constructor(state) {
+    this.state = state;
+  }
+
+  async fetch(request) {
+    if (request.method === 'PUT') {
+      await this.state.storage.put('meta', await request.json());
+      if (!(await this.state.storage.getAlarm())) await this.state.storage.setAlarm(Date.now() + TTL_S * 1000);
+      return new Response('ok');
+    }
+    const meta = await this.state.storage.get('meta');
+    return meta ? Response.json(meta) : new Response('none', { status: 404 });
+  }
+
+  async alarm() {
+    await this.state.storage.deleteAll();
+  }
+}
+
+/** Where a job's state is: its Durable Object, or KV where there is none bound (a local test). */
+function jobStates(env) {
+  if (env.LATEX_JOBS) {
+    const of = (id) => env.LATEX_JOBS.get(env.LATEX_JOBS.idFromName(id));
+    return {
+      get: async (id) => {
+        const answer = await of(id).fetch('https://latex-job/');
+        return answer.ok ? answer.json() : null;
+      },
+      put: (id, meta) => of(id).fetch('https://latex-job/', { method: 'PUT', body: JSON.stringify(meta) }),
+    };
+  }
+  return {
+    get: (id) => env.SESSIONS.get(keys(id).meta, 'json'),
+    put: (id, meta) => env.SESSIONS.put(keys(id).meta, JSON.stringify(meta), { expirationTtl: TTL_S }),
+  };
+}
+
 const isId = (id) => /^[a-f0-9]{32}$/.test(id || '');
 const newId = () => [...crypto.getRandomValues(new Uint8Array(16))].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 
@@ -80,6 +129,7 @@ export async function handleLatex(request, env, path, { json, headers, authorize
   if (new URL(request.url).protocol !== 'https:' && !env.LATEX_ALLOW_HTTP) return json({ error: 'HTTPS only' }, 403, noStore);
   if (!latexAvailable(env)) return json({ error: 'this site has no LaTeX compiler set up yet (LATEX_GITHUB_TOKEN, LATEX_RUNNER_TOKEN — see worker/latex.js)' }, 501, noStore);
   const kv = env.SESSIONS;
+  const jobs = jobStates(env);
 
   // ---- the runner's
   const runner = /^\/latex\/runner\/([a-f0-9]{32})\/(source|result)$/.exec(path);
@@ -88,12 +138,12 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     if (!given || !sameSecret(given, String(env.LATEX_RUNNER_TOKEN).trim())) return json({ error: 'not the runner' }, 401, noStore);
     const [, id, what] = runner;
     const k = keys(id);
-    const meta = await kv.get(k.meta, 'json');
+    const meta = await jobs.get(id);
     if (!meta) return json({ error: 'no such job, or it has expired' }, 404, noStore);
     if (what === 'source') {
       const source = await kv.get(k.source);
       if (!source) return json({ error: 'its files are gone' }, 410, noStore);
-      await kv.put(k.meta, JSON.stringify({ ...meta, state: 'compiling', compilingAt: Date.now() }), { expirationTtl: TTL_S });
+      await jobs.put(id, { ...meta, state: 'compiling', compilingAt: Date.now() });
       return new Response(source, { status: 200, headers: { ...noStore, 'Content-Type': 'application/json' } });
     }
     if (request.method !== 'POST') return json({ error: 'POST' }, 405, noStore);
@@ -103,7 +153,7 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     if (pdf) await kv.put(k.pdf, pdf, { expirationTtl: TTL_S });
     await kv.put(k.log, String(body.log || '').slice(-400_000), { expirationTtl: TTL_S });
     await kv.delete(k.source);
-    await kv.put(k.meta, JSON.stringify({ ...meta, state: 'done', pdf: Boolean(pdf), exit: Number.isFinite(body.exit) ? body.exit : null, doneAt: Date.now() }), { expirationTtl: TTL_S });
+    await jobs.put(id, { ...meta, state: 'done', pdf: Boolean(pdf), exit: Number.isFinite(body.exit) ? body.exit : null, doneAt: Date.now() });
     if (meta.email) await kv.delete(`latex:active:${meta.email}`);
     // On the Usage page: a compile, and the runner's seconds on it, for its owner.
     const seconds = Math.max(1, Math.round((Date.now() - (meta.compilingAt || meta.createdAt || Date.now())) / 1000));
@@ -120,8 +170,10 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     if (request.method !== 'POST') return json({ error: 'POST' }, 405, noStore);
     if (await personOverLimit(env, who)) return json({ error: 'too many requests; wait a minute', limited: true }, 429, { ...noStore, 'Retry-After': '60' });
     // One compile at a time each: GitHub's minutes are free here, but not for spending on a loop.
+    // The marker in KV can be a minute stale; the job's own state says whether it is still going.
     const active = await kv.get(`latex:active:${owner}`);
-    if (active && !who.owner) return json({ error: 'a compile of yours is still going; it ends in a minute or two', active }, 429, noStore);
+    const going = active && isId(active) ? ['queued', 'compiling'].includes((await jobs.get(active))?.state) : false;
+    if (going && !who.owner) return json({ error: 'a compile of yours is still going; it ends in a minute or two', active }, 429, noStore);
     const body = await request.json().catch(() => null);
     const files = cleanFiles(body?.files);
     if (!files) return json({ error: 'the files: relative paths inside the folder, as base64, 20 MB in all' }, 400, noStore);
@@ -130,13 +182,13 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     const id = newId();
     const k = keys(id);
     await kv.put(k.source, JSON.stringify({ main, flag, files }), { expirationTtl: TTL_S });
-    await kv.put(k.meta, JSON.stringify({ email: owner, state: 'queued', createdAt: Date.now() }), { expirationTtl: TTL_S });
+    await jobs.put(id, { email: owner, state: 'queued', createdAt: Date.now() });
     await kv.put(`latex:active:${owner}`, id, { expirationTtl: ACTIVE_S });
     try {
       await startRun(env, id);
     } catch (error) {
       await kv.delete(`latex:active:${owner}`);
-      await kv.put(k.meta, JSON.stringify({ email: owner, state: 'failed', error: error.message, createdAt: Date.now() }), { expirationTtl: TTL_S });
+      await jobs.put(id, { email: owner, state: 'failed', error: error.message, createdAt: Date.now() });
       return json({ error: error.message }, 502, noStore);
     }
     return json({ id }, 202, noStore);
@@ -146,7 +198,7 @@ export async function handleLatex(request, env, path, { json, headers, authorize
   if (!asked || !isId(asked[1])) return json({ error: 'not found' }, 404, noStore);
   const [, id, what] = asked;
   const k = keys(id);
-  const meta = await kv.get(k.meta, 'json');
+  const meta = await jobs.get(id);
   // Another person's job answers as if there were none.
   if (!meta || (meta.email !== owner && !who.owner)) return json({ error: 'no such job, or it has expired' }, 404, noStore);
   if (!what) return json({ state: meta.state, pdf: Boolean(meta.pdf), exit: meta.exit ?? null, error: meta.error ?? null, createdAt: meta.createdAt, compilingAt: meta.compilingAt ?? null, doneAt: meta.doneAt ?? null }, 200, noStore);
