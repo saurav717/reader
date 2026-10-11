@@ -49,6 +49,7 @@ import * as browserless from './browserless.js';
 export { BrowserSession } from './browserSession.js';
 export { Usage } from './usage.js';
 export { Devices } from './devices.js';
+export { LatexJob } from './latex.js';
 import { rateLimited, refusal } from './browserSession.js';
 
 const ARXIV_ID = /^(?:[0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?\/[0-9]{7})(?:v[0-9]+)?$/;

@@ -1475,6 +1475,9 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     const started = Date.now();
     setCompiling(true);
     setCompileError(null);
+    // What this computer's compile said (a package it lacks, say) isn't GitHub's: cleared until GitHub answers.
+    setCompiled(null);
+    setShowLog(false);
     try {
       setGh({ phase: 'sending', startedAt: started });
       const paths = await listAll(server, folder.path);

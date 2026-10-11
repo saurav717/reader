@@ -7,7 +7,7 @@ import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
-import { FREE_MINUTES, cleanFiles, isLatexPath, latexMonth, summarize } from '../worker/latex.js';
+import { FREE_MINUTES, LatexJob, cleanFiles, handleLatex, isLatexPath, latexMonth, summarize } from '../worker/latex.js';
 
 const gh = await load('src/lib/latexGithub.ts');
 after(cleanup);
@@ -80,5 +80,67 @@ describe('the month, for the Usage page', () => {
     assert.equal(month.repo, 'me/paper');
     assert.equal(month.limit, FREE_MINUTES);
     assert.equal(month.minutes, 3);
+  });
+});
+
+describe('a job’s state', () => {
+  // KV as a page far from the runner sees it: a key once read keeps its first reading.
+  function staleKv() {
+    const data = new Map();
+    const seen = new Map();
+    return {
+      get: async (key, type) => {
+        if (!seen.has(key)) seen.set(key, data.get(key));
+        const value = seen.get(key);
+        if (value == null) return null;
+        return type === 'json' ? JSON.parse(value) : type === 'arrayBuffer' ? new TextEncoder().encode(value).buffer : value;
+      },
+      put: async (key, value) => void data.set(key, typeof value === 'string' ? value : new TextDecoder().decode(value)),
+      delete: async (key) => void data.delete(key),
+    };
+  }
+  // The Durable Objects, one per job, with storage in memory.
+  function jobObjects() {
+    const objects = new Map();
+    return {
+      idFromName: (name) => name,
+      get: (name) => {
+        if (!objects.has(name)) {
+          const stored = new Map();
+          let alarm = null;
+          const storage = {
+            get: async (key) => stored.get(key),
+            put: async (key, value) => void stored.set(key, structuredClone(value)),
+            deleteAll: async () => stored.clear(),
+            getAlarm: async () => alarm,
+            setAlarm: async (at) => void (alarm = at),
+          };
+          objects.set(name, new LatexJob({ storage }));
+        }
+        const object = objects.get(name);
+        return { fetch: (url, init) => object.fetch(new Request(url, init)) };
+      },
+    };
+  }
+
+  it('reaches the page at once, whatever KV has cached', async (t) => {
+    t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 204 }));
+    const env = { SESSIONS: staleKv(), LATEX_JOBS: jobObjects(), LATEX_GITHUB_TOKEN: 'g', LATEX_RUNNER_TOKEN: 'r' };
+    const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers });
+    const tools = { json, headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: () => {} };
+    const ask = (path, init = {}) => handleLatex(new Request(`https://w${path}`, init), env, path, tools).then((r) => r.json());
+    const runner = { headers: { Authorization: 'Bearer r' } };
+
+    const files = [{ path: 'main.tex', base64: btoa('\\documentclass{article}') }];
+    const { id } = await ask('/latex/jobs', { method: 'POST', body: JSON.stringify({ files, main: 'main.tex' }) });
+    assert.equal((await ask(`/latex/jobs/${id}`)).state, 'queued');
+    assert.equal((await ask(`/latex/runner/${id}/source`, runner)).main, 'main.tex');
+    assert.equal((await ask(`/latex/jobs/${id}`)).state, 'compiling');
+    await ask(`/latex/runner/${id}/result`, { ...runner, method: 'POST', body: JSON.stringify({ pdf: btoa('%PDF'), log: 'ok', exit: 0 }) });
+    const done = await ask(`/latex/jobs/${id}`);
+    assert.equal(done.state, 'done');
+    assert.equal(done.pdf, true);
+    // The next compile isn't refused by KV's stale "still going".
+    assert.ok((await ask('/latex/jobs', { method: 'POST', body: JSON.stringify({ files }) })).id);
   });
 });
