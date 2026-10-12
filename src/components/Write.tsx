@@ -422,7 +422,7 @@ function ToDrive({ project }: { project: Project }) {
         ) : null}
         {gitUrl && (blocked === 'token' || (blocked === 'elsewhere' && !known)) ? (
           // No connected Overleaf account opens it (or none is connected): the one it is in connected, then brought in.
-          <OverleafAccounts open={Boolean(problem)} why={blocked === 'token' ? problem ?? undefined : undefined} onConnected={() => (setKnown(true), void move({ force: true }))} />
+          <OverleafAccounts open={Boolean(problem)} projectUrl={project.project.overleaf?.url} why={blocked === 'token' ? problem ?? undefined : undefined} onConnected={() => (setKnown(true), void move({ force: true }))} />
         ) : null}
         {blocked && gitUrl && known ? (
           <div className="wr-row">
@@ -2828,7 +2828,7 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
         <div className="wr-sync-banner">
           {inDrive ? (
             <div className="wr-sync-accounts">
-              <OverleafAccounts current={link?.gitAccount} onChoose={(id) => (updateLink({ gitAccount: id }), setFellBack(null))} />
+              <OverleafAccounts current={link?.gitAccount} projectUrl={link?.url} onChoose={(id) => (updateLink({ gitAccount: id }), setFellBack(null))} />
             </div>
           ) : (
             <ForgetToken server={server} open onForgotten={() => setNeedToken(true)} />
@@ -2861,7 +2861,7 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
           )}
           {inDrive && (needToken || /token|account/i.test(syncError ?? '')) ? (
             <div className="wr-sync-accounts">
-              <OverleafAccounts open onConnected={() => (setNeedToken(false), void sync())} />
+              <OverleafAccounts open projectUrl={link?.url} onConnected={() => (setNeedToken(false), void sync())} />
             </div>
           ) : needToken || /auth|token|403|401|denied/i.test(syncError ?? '') ? (
             <span className="wr-token">

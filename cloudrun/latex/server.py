@@ -230,6 +230,32 @@ def find_commit(git, tree, depth=300):
     return None
 
 
+def git_check(job):
+    """Whether `token` opens the project at `url`: `git ls-remote`, nothing cloned. Refused (401) when it can't."""
+    url = str(job.get('url') or '')
+    token = str(job.get('token') or '')
+    if not GIT_REMOTE.match(url):
+        raise GitRefused('Only an Overleaf Git address (https://git.overleaf.com/…) or a GitHub repository.')
+    if not token:
+        raise GitRefused('No Overleaf Git token.', 401, need_token=True)
+    user = 'x-access-token' if 'github.com' in url else 'git'
+    auth = base64.b64encode(f'{user}:{token}'.encode()).decode()
+    work = pathlib.Path(tempfile.mkdtemp(prefix='git-'))
+    env = {'PATH': CLEAN_ENV['PATH'], 'HOME': str(work), 'GIT_TERMINAL_PROMPT': '0', 'LANG': 'C.UTF-8'}
+    try:
+        done = subprocess.run(
+            ['git', '-c', f'http.extraHeader=Authorization: Basic {auth}', '-c', f'protocol.file.allow={GIT_FILE_PROTOCOL}', 'ls-remote', '--heads', url],
+            cwd=str(work), env=env, capture_output=True, text=True, timeout=30, stdin=subprocess.DEVNULL)
+        if done.returncode == 0:
+            return {'ok': True}
+        text = ((done.stderr or '') + (done.stdout or '')).replace(token, '•••').replace(auth, '•••').strip()[-600:]
+        if re.search(r'401|403|404|Authentication failed|could not read Username|invalid credentials|not found|does not exist|access rights', text, re.I):
+            raise GitRefused('This token can’t open that Overleaf project: it is another account’s token, or the project isn’t this account’s or shared with it.', 401, need_token=True)
+        raise GitRefused(f'git couldn\'t reach the project: {text}', 502)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def git_sync(job):
     url = str(job.get('url') or '')
     token = str(job.get('token') or '')
@@ -345,7 +371,7 @@ class Handler(BaseHTTPRequestHandler):
         self.answer(200, {'ok': True}) if self.path == '/' else self.answer(404, {'error': 'not found'})
 
     def do_POST(self):
-        if self.path not in ('/compile', '/git/sync'):
+        if self.path not in ('/compile', '/git/sync', '/git/check'):
             return self.answer(404, {'error': 'not found'})
         given = self.headers.get('Authorization', '').removeprefix('Bearer ').strip()
         if not TOKEN or not hmac.compare_digest(given.encode(), TOKEN.encode()):
@@ -353,9 +379,9 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get('Content-Length') or 0)
         if length <= 0 or length > MAX_BODY:
             return self.answer(413, {'error': 'a JSON body, 30 MB at most'})
-        if self.path == '/git/sync':
+        if self.path in ('/git/sync', '/git/check'):
             try:
-                return self.answer(200, git_sync(json.loads(self.rfile.read(length))))
+                return self.answer(200, (git_sync if self.path == '/git/sync' else git_check)(json.loads(self.rfile.read(length))))
             except GitRefused as refused:
                 return self.answer(refused.status, {'error': str(refused), 'needToken': refused.need_token})
             except (ValueError, KeyError, TypeError) as error:

@@ -230,8 +230,9 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
                   In Overleaf: <em>Account Settings → Git integration → Generate token</em>. It starts with <span className="mono">olp_</span>.
                 </li>
                 <li>
-                  In Reader: <em>Settings → Overleaf accounts</em> (or the form any Write tab shows when it needs one). Give the account a name you’ll recognise, like your email, and paste the token.
+                  In Reader: <em>Settings → Overleaf accounts</em> (or the form any Write tab shows when it needs one). Give the account a name you’ll recognise, like your email, paste the token, and paste the link of one of that account’s own Overleaf projects.
                 </li>
+                <li>Reader opens that project with the token before keeping it. Overleaf doesn’t say which account a token belongs to, so this is how a token from a different account is caught: it can’t open the project, and Reader says so.</li>
                 <li>That’s it — every project, on every device, uses it.</li>
               </Steps>
               <button type="button" className="btn sm" onClick={() => toAccounts(onClose)}>
