@@ -166,12 +166,11 @@ async function keepResult(env, id, meta, body, tally) {
   tally?.(meta.email === 'owner' ? { owner: true } : { email: meta.email }, { latex: 1, latex_s: seconds });
 }
 
-/** The files compiled by the Cloud Run service (cloudrun/latex/server.py): {pdf, log, exit}. */
-async function compileOnCloudRun(env, job) {
+/** The files compiled by the Cloud Run service (cloudrun/latex/server.py): its answer, as it gave it. */
+async function sendToCloudRun(env, job) {
   const base = String(env.LATEX_CLOUD_RUN_URL).trim().replace(/\/+$/, '');
-  let response;
   try {
-    response = await fetch(`${base}/compile`, {
+    return await fetch(`${base}/compile`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${String(env.LATEX_CLOUD_RUN_TOKEN).trim()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(job),
@@ -180,8 +179,27 @@ async function compileOnCloudRun(env, job) {
   } catch (error) {
     throw new Error(error?.name === 'TimeoutError' ? 'The compiler took more than 5 minutes.' : `The compiler couldn't be reached (${error?.message || error}).`);
   }
-  if (!response.ok) throw new Error(`The compiler answered ${response.status} (${(await response.text()).slice(0, 200)})`);
-  return response.json();
+}
+
+/** Every file of the paper and the SHA-256 of its base64: what the kept folder should hold. */
+export function cleanManifest(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const entries = Object.entries(raw);
+  if (entries.length > 500) return null;
+  const manifest = {};
+  for (const [given, sha] of entries) {
+    const path = given.replace(/^\/+/, '');
+    if (!path || path.length > 300 || path.split('/').some((part) => part === '..' || part === '.' || part === '')) return null;
+    if (typeof sha !== 'string' || !/^[a-f0-9]{64}$/.test(sha)) return null;
+    manifest[path] = sha;
+  }
+  return manifest;
+}
+
+/** The kept folder's name: whose and which paper, hashed, so one person's folder is never another's. */
+export async function projectKey(owner, project) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${owner}\n${project}`));
+  return [...new Uint8Array(digest)].slice(0, 20).map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -236,11 +254,6 @@ export async function handleLatex(request, env, path, { json, headers, authorize
   if (path === '/latex/jobs') {
     if (request.method !== 'POST') return json({ error: 'POST' }, 405, noStore);
     if (await personOverLimit(env, who)) return json({ error: 'too many requests; wait a minute', limited: true }, 429, { ...noStore, 'Retry-After': '60' });
-    // One compile at a time each: the compiler is free here, but not for spending on a loop.
-    // The marker in KV can be a minute stale; the job's own state says whether it is still going.
-    const active = await kv.get(`latex:active:${owner}`);
-    const going = active && isId(active) ? ['queued', 'compiling'].includes((await jobs.get(active))?.state) : false;
-    if (going && !who.owner) return json({ error: 'a compile of yours is still going; it ends in a minute or two', active }, 429, noStore);
     const body = await request.json().catch(() => null);
     const files = cleanFiles(body?.files);
     if (!files) return json({ error: 'the files: relative paths inside the folder, as base64, 20 MB in all' }, 400, noStore);
@@ -249,22 +262,34 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     if (!latexCompilerReady(env, on)) return json({ error: on === 'cloudrun' ? 'this site has no Cloud Run compiler set up (LATEX_CLOUD_RUN_URL, LATEX_CLOUD_RUN_TOKEN)' : 'this site has no GitHub Actions compiler set up (LATEX_GITHUB_TOKEN, LATEX_RUNNER_TOKEN)' }, 501, noStore);
     const main = typeof body.main === 'string' && /\.tex$/i.test(body.main) && !body.main.split('/').includes('..') ? body.main.replace(/^\/+/, '') : 'main.tex';
     const flag = COMPILERS[body.compiler] ?? '-pdf';
-    const id = newId();
-    const k = keys(id);
-    // Cloud Run: compiled while the page waits for this answer, the files never stored.
+    // Cloud Run: compiled while the page waits, and its answer ({pdf, log, exit,
+    // seconds}) handed straight back — nothing stored, nothing to ask after. With
+    // a project, the service keeps the paper's folder between compiles, as
+    // Overleaf does: the page sends every file's fingerprint (manifest) and only
+    // the files that changed, and a 409 {need} asks it for any the service lacks.
     if (on === 'cloudrun') {
-      const meta = { email: owner, state: 'compiling', on: 'cloudrun', createdAt: Date.now(), compilingAt: Date.now() };
-      await jobs.put(id, meta);
-      await kv.put(`latex:active:${owner}`, id, { expirationTtl: ACTIVE_S });
+      const manifest = body.manifest == null ? null : cleanManifest(body.manifest);
+      if (body.manifest != null && !manifest) return json({ error: 'the manifest: relative paths inside the folder, each with a SHA-256' }, 400, noStore);
+      const project = typeof body.project === 'string' && body.project && body.project.length <= 300 ? await projectKey(owner, body.project) : null;
+      const started = Date.now();
+      let answer;
       try {
-        await keepResult(env, id, meta, await compileOnCloudRun(env, { main, flag, files }), tally);
+        answer = await sendToCloudRun(env, { main, flag, files, ...(project ? { project, manifest: manifest ?? undefined, fresh: body.fresh === true } : {}) });
       } catch (error) {
-        await kv.delete(`latex:active:${owner}`);
-        await jobs.put(id, { ...meta, state: 'failed', error: error.message });
         return json({ error: error.message }, 502, noStore);
       }
-      return json({ id, on: 'cloudrun', state: 'done' }, 200, noStore);
+      if (answer.status === 409) return new Response(answer.body, { status: 409, headers: { ...noStore, 'Content-Type': 'application/json' } });
+      if (!answer.ok) return json({ error: `The compiler answered ${answer.status} (${(await answer.text()).slice(0, 200)})` }, 502, noStore);
+      tally?.(owner === 'owner' ? { owner: true } : { email: owner }, { latex: 1, latex_s: Math.max(1, Math.round((Date.now() - started) / 1000)) });
+      return new Response(answer.body, { status: 200, headers: { ...noStore, 'Content-Type': 'application/json' } });
     }
+    // GitHub Actions: one compile at a time each — its minutes are free here, but not for spending on a loop.
+    // The marker in KV can be a minute stale; the job's own state says whether it is still going.
+    const active = await kv.get(`latex:active:${owner}`);
+    const going = active && isId(active) ? ['queued', 'compiling'].includes((await jobs.get(active))?.state) : false;
+    if (going && !who.owner) return json({ error: 'a compile of yours is still going; it ends in a minute or two', active }, 429, noStore);
+    const id = newId();
+    const k = keys(id);
     await kv.put(k.source, JSON.stringify({ main, flag, files }), { expirationTtl: TTL_S });
     await jobs.put(id, { email: owner, state: 'queued', on: 'github', createdAt: Date.now() });
     await kv.put(`latex:active:${owner}`, id, { expirationTtl: ACTIVE_S });

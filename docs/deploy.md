@@ -76,6 +76,16 @@ The first compile after a quiet spell waits for an instance to start
 (a TeX Live image is large: some seconds). The image in Artifact Registry
 is about 2.5 GB, a few tens of cents a month past its 0.5 GB free storage.
 
+Like Overleaf's, the compiler keeps each paper's folder between compiles —
+TeX's `.aux`, `.bbl` and `.toc` too — so a compile sends only the files that
+changed and TeX reruns only what it must; the Write tab compiles as you type.
+The folders are in the instance's memory, so the service runs one instance
+(taking four compiles at once) and a paper's next compile finds its folder.
+While Cloud Run is picked, the Write tab wakes the instance when it opens and
+every ten minutes, so a compile seldom waits for one to start; to never wait,
+deploy with `MIN_INSTANCES=1 bash cloudrun/latex/deploy.sh` (billed while
+idle — see Cloud Run's pricing — and the folders then live as long as it does).
+
 Set up once, in the project `reader-509409`:
 
 1. In console.cloud.google.com, pick the project, and make sure it has a

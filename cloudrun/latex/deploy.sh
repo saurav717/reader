@@ -12,6 +12,7 @@
 #
 #   PROJECT  the project id, reader-509409 unless given as the first argument
 #   REGION   us-central1 unless set
+#   MIN_INSTANCES  0 unless set: 1 keeps the compiler running (no start-up wait; billed while idle)
 set -euo pipefail
 
 PROJECT="${1:-${PROJECT:-reader-509409}}"
@@ -98,9 +99,11 @@ if [ -z "$TOKEN" ]; then TOKEN="$(openssl rand -base64 32 | tr -d '\n')"; echo "
 
 say "Deploying to Cloud Run"
 # Request-based billing, nothing running between compiles: within the free tier for a few hundred compiles a day.
+# One instance, taking four compiles at once: a paper's kept folder (server.py) is always where its next compile lands.
+# MIN_INSTANCES=1 keeps it running between compiles too — no start-up wait ever, but billed while idle.
 gcloud run deploy "$SERVICE" --region "$REGION" --image "$IMAGE" \
   --allow-unauthenticated --port 8080 --execution-environment gen2 \
-  --cpu 2 --memory 4Gi --cpu-boost --concurrency 2 --min-instances 0 --max-instances 4 --timeout 300 \
+  --cpu 2 --memory 4Gi --cpu-boost --concurrency 4 --min-instances "${MIN_INSTANCES:-0}" --max-instances 1 --timeout 300 \
   --update-env-vars "LATEX_TOKEN=$TOKEN" --quiet
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')"
