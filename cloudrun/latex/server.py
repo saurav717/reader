@@ -209,6 +209,27 @@ class GitRefused(Exception):
         self.need_token = need_token
 
 
+BUILD_FILE = re.compile(r'\.(aux|log|fls|fdb_latexmk|synctex\.gz|synctex|out|toc|lof|lot|bbl|blg|bcf|run\.xml|nav|snm|vrb|xdv|dvi)$', re.I)
+
+
+def find_commit(git, tree, depth=300):
+    """The most recent commit whose files are exactly `tree` ({path: Git blob id}), or None."""
+    if not isinstance(tree, dict) or not tree:
+        return None
+    wanted = {str(path): str(blob) for path, blob in tree.items()}
+    for commit in git('rev-list', '-n', str(depth), 'HEAD').stdout.split():
+        listed = {}
+        for line in git('ls-tree', '-r', '-z', commit).stdout.split('\0'):
+            if '\t' in line:
+                meta, path = line.split('\t', 1)
+                listed[path] = meta.split()[2]
+        # The Drive copy left out dot-files and what compiling leaves (src/lib/overleaf.ts isBuildFile): so may the commit.
+        kept = {path: blob for path, blob in listed.items() if not (any(part.startswith('.') for part in path.split('/')) or BUILD_FILE.search(path))}
+        if kept == wanted:
+            return commit
+    return None
+
+
 def git_sync(job):
     url = str(job.get('url') or '')
     token = str(job.get('token') or '')
@@ -249,7 +270,9 @@ def git_sync(job):
         theirs = git('rev-parse', 'HEAD', check=True).stdout.strip()
         base = str(job.get('base') or '')
         if not re.fullmatch(r'[0-9a-f]{7,40}', base) or git('cat-file', '-e', f'{base}^{{commit}}').returncode != 0:
-            base = theirs
+            # A paper moved into Drive from a clone on a computer: no commit yet, but its files' Git ids at the
+            # move (baseTree). The commit that had exactly those files is where Drive's changes start from.
+            base = find_commit(git, job.get('baseTree')) or theirs
         # What changed in Drive since the last sync, as a commit on top of it.
         git('checkout', '-q', '-b', 'reader', base, check=True)
         root = repo.resolve()

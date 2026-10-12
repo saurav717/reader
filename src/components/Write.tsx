@@ -25,8 +25,8 @@ import { DraftEditor, OpenOverleaf } from './Overleaf';
 import { readTexLog, type CompileFile } from '../lib/latexGithub';
 import { apiFetch } from '../lib/api';
 import { cloudSync, forgetOverleafToken as forgetCloudToken, overleafTokenKnown } from '../lib/overleafCloud';
-import type { DriveConfig } from '../lib/driveFiles';
-import { companionStore, driveShelf, driveStore, paperDriveFolder, unpackKit, type PaperStore, type ShelfTemplate, type TemplateShelf } from '../lib/paperStore';
+import { companionStore, driveShelf, driveStore, paperDriveNow, setPaperDrive, unpackKit, type PaperStore, type ShelfTemplate, type TemplateShelf } from '../lib/paperStore';
+import { movePaperToDrive } from '../lib/paperMove';
 import { CompanionConnect } from './Playground';
 
 type Here = Extract<ThisComputer, { server: unknown }>;
@@ -42,7 +42,7 @@ let earlyToken = '';
 export default function WritePage({ project, onView }: { project: Project; onView: (view: View) => void }) {
   const { settings, driveConnected } = useStore();
   const clientId = settings.googleClientId.trim();
-  writeDrive = driveConnected && clientId ? { clientId, folderName: settings.driveFolderName } : null;
+  setPaperDrive(driveConnected && clientId ? { clientId, folderName: settings.driveFolderName } : null);
   const [here, setHere] = useState<ThisComputer | null>(null);
   const [inBrowser, setInBrowser] = useState(false);
   // The project's documents first, each time the tab opens; the desk once one is picked.
@@ -1076,9 +1076,6 @@ const toBlob = (base64: string) => {
   return new Blob([bytes], { type: 'application/pdf' });
 };
 
-/** The Drive the Write tab keeps papers in: the signed-in account's, set by the page as it renders. */
-let writeDrive: DriveConfig | null = null;
-const writeDriveNow = () => writeDrive;
 
 /** The Companion's templates, on this computer, as a shelf the documents page takes from. */
 function companionShelf(here: Here, folder: string): TemplateShelf {
@@ -1126,26 +1123,9 @@ function DriveSetUp({ project, here }: { project: Project; here?: Here }) {
 
   const start = async () => {
     setProblem(null);
-    const folder = paperDriveFolder(project.name, project.id);
-    const store = driveStore(writeDriveNow, folder);
     try {
-      if (gitUrl) {
-        // What was written on this computer goes to Overleaf first, when there is a clone of it here.
-        if (here && local) {
-          const remote = await paperRemote(here.server, local).catch(() => null);
-          if (remote?.url) {
-            setBusy('Sending what was written on this computer to Overleaf…');
-            const sent = await syncPaper(here.server, local, 'Edits from Reader, before the paper moved to Drive');
-            if (!sent.ok) throw new Error(`This computer’s folder couldn’t be synced with Overleaf first: ${sent.error ?? 'it didn’t finish'}. Sync it from the desk, then try again.`);
-          }
-        }
-        setBusy('Bringing the paper in from Overleaf…');
-        const done = await cloudSync(store, gitUrl, 'From Reader', token.trim() || undefined);
-        if (!done.ok) throw new Error(done.needToken ? 'Your Overleaf Git token is needed: paste it above.' : done.error ?? 'It didn’t come in.');
-      } else {
-        setBusy('Making the paper’s folder in Drive…');
-        await store.mkdir('');
-      }
+      // A folder here of this project's (as the set-up would name it, when the project has lost its link): moved from.
+      const folder = await movePaperToDrive(project, here ?? null, { token: token.trim() || undefined, onStep: setBusy, local: local ? { path: local, sync: 'git' } : undefined });
       await setLink({ drive: { folder } });
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
@@ -1173,7 +1153,7 @@ function DriveSetUp({ project, here }: { project: Project; here?: Here }) {
         <>
           {gitUrl && known === false ? (
             <label className="wr-home-name">
-              <span>Your Overleaf Git token — Overleaf: Account Settings → Git integration → Generate token</span>
+              <span>Your Overleaf Git token — Overleaf: Account Settings → Git integration → Generate token{here ? ' (not needed now if the paper is on this computer: it is asked for at its first sync)' : ''}</span>
               <input type="password" value={token} autoComplete="off" placeholder="olp_…" onChange={(event) => setToken(event.target.value)} aria-label="Overleaf Git token for Reader’s server" />
               <small className="wr-quiet">Kept encrypted by Reader’s server, for your syncs only; never in the paper or in Drive.</small>
             </label>
@@ -1184,7 +1164,7 @@ function DriveSetUp({ project, here }: { project: Project; here?: Here }) {
             </p>
           ) : null}
           <div className="wr-row">
-            <button type="button" className="btn primary" disabled={Boolean(busy) || (gitUrl !== null && known === false && !token.trim())} onClick={() => void start()}>
+            <button type="button" className="btn primary" disabled={Boolean(busy) || (gitUrl !== null && known === false && !token.trim() && !here)} onClick={() => void start()}>
               {busy ?? (gitUrl ? 'Bring it into Drive from Overleaf' : 'Start the paper in Drive')}
             </button>
           </div>
@@ -1201,8 +1181,8 @@ function DriveWrite({ project, folder }: { project: Project; folder: string }) {
   const updateLink = useUpdateLink(project);
   const link = project.project.overleaf;
   const [atDesk, setAtDesk] = useState(false);
-  const store = useMemo(() => driveStore(writeDriveNow, folder), [folder]);
-  const shelf = useMemo(() => driveShelf(writeDriveNow, store), [store]);
+  const store = useMemo(() => driveStore(paperDriveNow, folder), [folder]);
+  const shelf = useMemo(() => driveShelf(paperDriveNow, store), [store]);
   const place: PaperFolder = { path: folder, sync: 'drive' };
   if (!driveConnected || !settings.googleClientId.trim())
     return (
