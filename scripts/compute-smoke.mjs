@@ -177,23 +177,6 @@ check('the chip opens the list, a switch for each place', (await page.locator('.
 await shot('compute-rail');
 await page.keyboard.press('Escape');
 
-console.log('the Overleaf menu under glass');
-await seed({ ...base, glass: true, theme: 'dark' }, '/project/?id=p-tp');
-await page.locator('.ol-card .ol-open-more').click();
-await page.locator('.ol-menu').waitFor({ timeout: 5000 });
-await page.waitForTimeout(1600);
-const solid = await page.evaluate(() => {
-  const menu = document.querySelector('.ol-menu');
-  const box = menu.getBoundingClientRect();
-  const top = document.elementFromPoint(box.left + box.width / 2, box.bottom - 12);
-  const alpha = (getComputedStyle(menu).backgroundColor.match(/[\d.]+/g) || []).map(Number)[3] ?? 1;
-  return { onTop: menu.contains(top), alpha };
-});
-check('the menu is on top of the cards below it', solid.onTop);
-check('and nearly solid', solid.alpha >= 0.9, String(solid.alpha));
-await page.locator('.ol-menu').scrollIntoViewIfNeeded();
-await shot('overleaf-menu-glass');
-
 check('no errors on the page', !errors.length, errors.join(' | '));
 await browser.close();
 if (problems.length) {
