@@ -386,7 +386,7 @@ export default {
 
       // LaTeX compiled for anyone signed in, on Cloud Run or GitHub Actions: worker/latex.js.
       // A person's GitHub token, kept sealed, and the few GitHub calls made with it: worker/github.js.
-      if (isGithubPath(path)) return await handleGithub(request, env, path, { json, headers, authorized, personOverLimit });
+      if (isGithubPath(path)) return await handleGithub(request, env, path, { json, headers, authorized, personOverLimit, origins: ALLOWED_ORIGINS });
 
       if (isLatexPath(path)) return await handleLatex(request, env, path, { json, headers, authorized, personOverLimit, tally: (who, counts) => tally(env, ctx, who, counts) });
 

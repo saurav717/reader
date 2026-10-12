@@ -7777,3 +7777,25 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .wr-ghc > .wr-ghs-x { position: absolute; top: 6px; right: 6px; }
 .wr-info { font-size: 13px; }
 .cx-warn { margin: 0; padding: 6px 9px; border-radius: 7px; font-size: 12px; line-height: 1.5; color: var(--ink); background: color-mix(in srgb, #c9a400 12%, transparent); }
+.cx-ways { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.cx-ways.is-compact { grid-template-columns: 1fr; }
+.cx-way { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.cx-way:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.cx-way:disabled { opacity: 0.6; cursor: default; }
+.cx-way b { display: inline-flex; align-items: center; gap: 7px; font: 600 13px var(--sans); }
+.cx-way b small { font: 500 10.5px var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.cx-way.is-recommended { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+.cx-way.is-recommended b small { color: var(--accent); }
+.cx-way span { font-size: 12px; line-height: 1.45; color: var(--muted); }
+.cx-paste-toggle { align-self: flex-start; font-size: 12px; }
+.cx-via { margin-left: 6px; padding: 1px 7px; border-radius: 999px; background: var(--panel); color: var(--muted); font: 500 11px var(--sans); }
+.cx-tip { margin: 0; font-size: 12px; color: var(--muted); }
+.cx-which { font-size: 12.5px; }
+.cx-which > summary { cursor: pointer; color: var(--accent); font-size: 12.5px; }
+.cx-which[open] > summary { margin-bottom: 8px; }
+.cx-which > p { margin: 8px 0 0; }
+.cx-compare { width: 100%; border-collapse: collapse; font-size: 12px; line-height: 1.45; }
+.cx-compare th, .cx-compare td { padding: 6px 8px; border-top: 1px solid var(--border-soft); text-align: left; vertical-align: top; }
+.cx-compare thead th { border-top: 0; font-weight: 600; color: var(--ink); }
+.cx-compare tbody th { font-weight: 500; color: var(--muted); white-space: nowrap; }
+@media (max-width: 640px) { .cx-compare { display: block; overflow-x: auto; } }

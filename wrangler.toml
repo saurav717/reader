@@ -229,6 +229,15 @@ id = "4b383f85f5d041569dc04f04350b1c38"
 #
 #     openssl rand -base64 32 | npx wrangler secret put SECRETS_KEY
 #
+# Optional, each: the sign-ins Projects → Connections → GitHub offers beside a
+# pasted token (docs/deploy.md, "Sign in with GitHub, and Reader's GitHub App").
+#
+#     npx wrangler secret put GITHUB_APP_CLIENT_ID
+#     npx wrangler secret put GITHUB_APP_CLIENT_SECRET
+#     npx wrangler secret put GITHUB_APP_SLUG
+#     npx wrangler secret put GITHUB_OAUTH_CLIENT_ID
+#     npx wrangler secret put GITHUB_OAUTH_CLIENT_SECRET
+#
 # LaTeX compiled for anyone signed in (worker/latex.js), on Cloud Run — its
 # address in [vars] above, and its secret:
 #
