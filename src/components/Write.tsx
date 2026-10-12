@@ -1520,9 +1520,18 @@ function ago(iso: string | null): string {
 /** A new LaTeX project's folder name, from what it is called. */
 const folderSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
 
-const BLANK_DOC = (title: string) => `\\documentclass{article}
+/**
+ * A new LaTeX project's files: a main.tex that brings in a section of its
+ * own and has a bibliography to turn on, so it starts as the project it will
+ * grow into rather than one file.
+ */
+const BLANK_PROJECT = (title: string): { path: string; text: string }[] => [
+  {
+    path: 'main.tex',
+    text: `\\documentclass{article}
 \\usepackage[utf8]{inputenc}
 \\usepackage{amsmath,amssymb,graphicx,hyperref}
+\\graphicspath{{figures/}}
 
 \\title{${title.replace(/[\\{}]/g, '')}}
 \\author{}
@@ -1531,10 +1540,25 @@ const BLANK_DOC = (title: string) => `\\documentclass{article}
 \\begin{document}
 \\maketitle
 
-\\section{Introduction}
+\\input{sections/introduction}
+
+% Cite from references.bib, then turn the bibliography on:
+% \\bibliographystyle{plain}
+% \\bibliography{references}
 
 \\end{document}
-`;
+`,
+  },
+  { path: 'sections/introduction.tex', text: '\\section{Introduction}\n\n' },
+  { path: 'references.bib', text: '% The bibliography: BibTeX entries, cited with \\cite{key} in the .tex files.\n' },
+];
+
+/** A file picked from a folder, by its path inside that folder: its top folder's name left off, and what isn't the paper's left out. */
+const pickedPath = (file: File) => {
+  const parts = (file.webkitRelativePath || file.name).split('/').filter(Boolean);
+  return parts.length > 1 ? parts.slice(1).join('/') : parts.join('/');
+};
+const worthKeeping = (path: string) => !path.split('/').some((part) => part.startsWith('.') || part === '__MACOSX') && !isBuildFile(path);
 
 type Making = 'blank' | 'templates' | 'zip' | 'files';
 
@@ -1561,6 +1585,95 @@ function OpenInDrive({ store, dir, onProblem, label = 'Google Drive' }: { store:
     <button type="button" className="wr-doc-where" disabled={busy || !store.link} onClick={() => void go()} title={`Open ${dir ? `${dir}/` : 'the folder'} in Google Drive`}>
       {busy ? 'Opening…' : label}
     </button>
+  );
+}
+
+/**
+ * Where another project keeps its LaTeX in Drive, to copy a LaTeX project
+ * into: its Drive folder, or the one it will have when it has no paper yet.
+ * Null when it keeps its paper on a computer (a clone there), where Drive
+ * isn't what it writes in.
+ */
+function driveFolderOf(project: Project): string | null {
+  const link = project.project.overleaf;
+  if (link?.keep?.where === 'computer') return null;
+  if (link?.drive?.folder) return link.drive.folder;
+  if (!overleafGitUrl(link?.url) && !Object.keys(link?.folders ?? {}).length) return paperDriveFolder(project.name, project.id);
+  return null;
+}
+
+/**
+ * A copy of a LaTeX project — its main .tex and every file it brings in,
+ * subfolders and all — put into another project's Drive folder, as a LaTeX
+ * project of its own there: off Overleaf, and from then on apart from this one.
+ */
+function CopyToProject({ project, store, one, onDone }: { project: Project; store: PaperStore; one: LatexProject; onDone: () => void }) {
+  const { collections, updateCollection } = useStore();
+  const others = useMemo(() => projectsOf(collections).filter((other) => other.id !== project.id), [collections, project.id]);
+  const [to, setTo] = useState(others.find((other) => driveFolderOf(other))?.id ?? '');
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const target = others.find((other) => other.id === to);
+  const copy = async () => {
+    if (!target) return;
+    const folder = driveFolderOf(target);
+    if (!folder) return setProblem(`“${target.name}” keeps its paper on a computer, not in Drive: copy it there from that computer.`);
+    setBusy(true);
+    setProblem(null);
+    setSaid(null);
+    try {
+      const into = driveStore(paperDriveNow, folder);
+      const there = await listAll(into).catch(() => [] as string[]);
+      const title = one.main.title || one.dir.split('/').pop() || 'paper';
+      // A folder of its own there — unless that project has no paper and no Overleaf yet: then it is the paper, at its top.
+      const fresh = !there.length && !overleafGitUrl(target.project.overleaf?.url);
+      const slug = folderSlug(one.dir.split('/').pop() || title) || 'paper';
+      let dir = fresh ? '' : slug;
+      for (let n = 2; dir && there.some((path) => path.startsWith(`${dir}/`)); n += 1) dir = `${slug}-${n}`;
+      const own = subStore(store, one.dir);
+      // Paths in it: its main .tex, the other .tex files with \documentclass beside it, and every file it holds.
+      const files = [one.dir ? one.main.path.slice(one.dir.length + 1) : one.main.path, ...one.alsoMain, ...one.files];
+      for (const path of [...new Set(files)]) await into.writeBase64(dir ? `${dir}/${path}` : path, await own.readBase64(path));
+      const main = one.dir ? one.main.path.slice(one.dir.length + 1) : one.main.path;
+      await updateCollection(target.id, (collection) => {
+        const info = { ...target.project, ...(collection.project ?? {}) };
+        const link = info.overleaf?.drive?.folder ? info.overleaf : inDrive(info.overleaf, folder, undefined);
+        return { project: { ...info, overleaf: dir ? withLatexLink(link, dir, { url: '', main }) : { ...link, main } } };
+      });
+      setSaid(`Copied to “${target.name}”${dir ? `, as ${dir}/` : ''}: ${files.length} file${files.length === 1 ? '' : 's'}. It is its own there, off Overleaf; this one is left as it is.`);
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!others.length) return <p className="wr-quiet">There is no other project to copy it to yet.</p>;
+  return (
+    <div className="wr-copy">
+      <label className="wr-field">
+        <span>Copy “{one.main.title || one.dir || one.main.path}” to</span>
+        <select value={to} onChange={(event) => setTo(event.target.value)} aria-label="The project to copy it to">
+          {others.map((other) => (
+            <option key={other.id} value={other.id} disabled={!driveFolderOf(other)}>
+              {other.name}
+              {driveFolderOf(other) ? '' : ' — keeps its paper on a computer'}
+            </option>
+          ))}
+        </select>
+        <small>Its main .tex and every file it brings in — sections, .bib, styles, figures — with their folders. The copy is a LaTeX project of its own there, not on Overleaf; changes to one don’t reach the other.</small>
+      </label>
+      <div className="wr-row">
+        <button type="button" className="btn primary" disabled={busy || !target} onClick={() => void copy()}>
+          {busy ? 'Copying…' : 'Copy it'}
+        </button>
+        <button type="button" className="link-btn" onClick={onDone}>
+          {said ? 'Done' : 'Cancel'}
+        </button>
+      </div>
+      {said ? <p className="wc-done">{said}</p> : null}
+      {problem ? <p className="wr-bad">{problem}</p> : null}
+    </div>
   );
 }
 
@@ -1599,6 +1712,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare }: {
   const { updateCollection } = useStore();
   const [toOverleaf, setToOverleaf] = useState(false);
   const [putting, setPutting] = useState<string | null>(null);
+  const [copying, setCopying] = useState<string | null>(null);
   const placed = useRef('');
   const link = project.project.overleaf;
   const inDrive = store.kind === 'drive';
@@ -1623,6 +1737,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare }: {
   const [busy, setBusy] = useState(false);
   const zipPicker = useRef<HTMLInputElement>(null);
   const filePicker = useRef<HTMLInputElement>(null);
+  const folderPicker = useRef<HTMLInputElement | null>(null);
   // The Companion's templates are on this computer, from its 0.11.0; Drive's are in Drive, as their .zip.
   const templatesOld = !shelf || (here && store.kind === 'companion' ? isNewer(PAPER_TEMPLATES_VERSION, here.version) : false);
 
@@ -1699,9 +1814,8 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare }: {
     run(async () => {
       const title = name.trim() || 'Untitled';
       const dir = (placed.current = placeFor(title));
-      const main = within(dir, 'main.tex');
-      await store.writeText(main, BLANK_DOC(title));
-      return main;
+      for (const file of BLANK_PROJECT(title)) await store.writeText(within(dir, file.path), file.text);
+      return within(dir, 'main.tex');
     });
   const fromTemplate = (template: ShelfTemplate) =>
     run(async () => {
@@ -1720,24 +1834,27 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare }: {
       }
       return unpackKit(store, zipped, dir);
     });
+  /** A LaTeX project from elsewhere: a folder, its subfolders kept as they are, or files picked one by one. */
   const fromFiles = (files: File[]) =>
     run(async () => {
-      const tex = files.filter((file) => /\.tex$/i.test(file.name));
-      if (!tex.length) throw new Error('Pick at least one .tex file (with its .bib, styles and figures, if it has them).');
-      const dir = (placed.current = placeFor(name.trim() || tex[0].name.replace(/\.tex$/i, '')));
-      let main = '';
-      for (const file of files) {
-        await store.writeBase64(within(dir, file.name), await fileBase64(file));
-        if (!main && /\.tex$/i.test(file.name) && /\\documentclass/.test(await file.text())) main = within(dir, file.name);
-      }
-      return main || within(dir, tex[0].name);
+      const picked = files.map((file) => ({ file, path: pickedPath(file) })).filter(({ path }) => path && worthKeeping(path));
+      const tex = picked.filter(({ path }) => /\.tex$/i.test(path));
+      if (!tex.length) throw new Error('There is no .tex file in it: pick the LaTeX project’s folder, or its main .tex with the files it needs.');
+      const folderName = files[0]?.webkitRelativePath?.split('/')[0];
+      const dir = (placed.current = placeFor(name.trim() || folderName || tex[0].path.replace(/\.tex$/i, '')));
+      // Its main document: main.tex at its top if there is one, else the shallowest .tex with \documentclass.
+      const mains: string[] = [];
+      for (const { file, path } of tex) if (/^[^%\n]*\\documentclass/m.test(await file.text())) mains.push(path);
+      mains.sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
+      for (const { file, path } of picked) await store.writeBase64(within(dir, path), await fileBase64(file));
+      return within(dir, mains.find((path) => path === 'main.tex') ?? mains[0] ?? tex[0].path);
     });
 
   const ways: { id: Making; title: string; note: string; icon: string }[] = [
-    { id: 'blank', title: 'Blank article', note: 'A main.tex with a title, an author and a first section; add sections, a .bib and figures as it grows.', icon: '＋' },
+    { id: 'blank', title: 'Blank LaTeX project', note: 'A main.tex, a first section in sections/ and a references.bib, in a folder of its own: add more files as it grows.', icon: '＋' },
     { id: 'templates', title: 'Browse templates', note: store.kind === 'drive' ? 'The conference kits kept in your Drive: NeurIPS, ICML, ACL…' : 'The conference kits kept on this computer: NeurIPS, ICML, ACL…', icon: '▦' },
     { id: 'zip', title: 'Upload a template (.zip)', note: 'A conference’s kit, as it gives it out. Kept as a template for next time.', icon: '⇪' },
-    { id: 'files', title: 'Upload LaTeX files', note: 'A main .tex from elsewhere, with its sections, .bib, styles and figures.', icon: '⎘' },
+    { id: 'files', title: 'Upload a LaTeX project', note: 'Its folder from your computer, subfolders and all — the main .tex with its sections, .bib, styles and figures.', icon: '⎘' },
   ];
 
   return (
@@ -1825,6 +1942,18 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare }: {
                   )}
                 </div>
               ) : null}
+              {inDrive ? (
+                <div className="wr-doc-overleaf">
+                  <button type="button" className="wr-doc-where" aria-expanded={copying === one.dir} onClick={() => setCopying(copying === one.dir ? null : one.dir)} title="A copy of it, with every file it brings in, into another of your projects">
+                    Copy to another project
+                  </button>
+                </div>
+              ) : null}
+              {copying === one.dir ? (
+                <div className="wr-doc-put">
+                  <CopyToProject project={project} store={store} one={one} onDone={() => setCopying(null)} />
+                </div>
+              ) : null}
               {putting === one.dir ? (
                 <div className="wr-doc-put">
                   <PutOnOverleaf project={project} store={store} dir={one.dir} main={one.dir ? one.main.path.slice(one.dir.length + 1) : one.main.path} onDone={() => setPutting(null)} />
@@ -1857,7 +1986,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare }: {
           <div className="wr-home-make">
             <label className="wr-home-name">
               <span>Its name</span>
-              <input value={name} onChange={(event) => setName(event.target.value)} placeholder={making === 'blank' ? 'e.g. Workshop paper' : 'Optional: the template’s or file’s name otherwise'} />
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder={making === 'blank' ? 'e.g. Workshop paper' : 'Optional: the template’s or folder’s name otherwise'} />
               <small className="wr-quiet">{docs?.length || taken.length ? `It goes in a folder of its own, ${placeFor(name.trim() || (making === 'blank' ? 'Untitled' : 'paper'))}/, beside the other LaTeX projects; its supporting files go in there with it.` : 'It goes at the top of the project’s folder.'}</small>
             </label>
             {making === 'blank' ? (
@@ -1905,14 +2034,35 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare }: {
             ) : null}
             {making === 'files' ? (
               <>
-                <button type="button" className="btn primary" disabled={busy} onClick={() => filePicker.current?.click()}>
-                  {busy ? 'Copying…' : 'Choose the files…'}
-                </button>
+                <div className="wr-row">
+                  <button type="button" className="btn primary" disabled={busy} onClick={() => folderPicker.current?.click()}>
+                    {busy ? 'Copying…' : 'Choose its folder…'}
+                  </button>
+                  <button type="button" className="btn" disabled={busy} onClick={() => filePicker.current?.click()}>
+                    Or pick its files…
+                  </button>
+                </div>
+                <small className="wr-quiet">Its folder keeps its subfolders (sections/, figures/) as they are, so \input and \includegraphics paths still work. Picked one by one, the files all go at its top.</small>
+                <input
+                  ref={(input) => {
+                    folderPicker.current = input;
+                    // A folder, its subfolders and all: not in React's own attributes yet.
+                    input?.setAttribute('webkitdirectory', '');
+                  }}
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(event) => {
+                    const files = [...(event.target.files ?? [])];
+                    event.target.value = '';
+                    if (files.length) void fromFiles(files);
+                  }}
+                />
                 <input
                   ref={filePicker}
                   type="file"
                   multiple
-                  accept=".tex,.bib,.sty,.cls,.bst,.png,.jpg,.jpeg,.pdf,.eps,.svg"
+                  accept=".tex,.bib,.sty,.cls,.bst,.bbx,.cbx,.png,.jpg,.jpeg,.pdf,.eps,.svg"
                   hidden
                   onChange={(event) => {
                     const files = [...(event.target.files ?? [])];

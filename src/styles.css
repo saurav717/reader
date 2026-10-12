@@ -7719,3 +7719,7 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
   .wc-pdf-row { grid-template-columns: 1fr; }
   .wc-pdf-num { text-align: left; }
 }
+
+/* A LaTeX project copied to another project */
+.wr-copy { display: flex; flex-direction: column; gap: 10px; }
+.wr-copy select { height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--paper); color: var(--ink); font: 12.5px var(--sans); }

@@ -364,12 +364,13 @@ check('it is in Drive', /revised/.test(driveFile(`${folder}/main.tex`)?.data?.to
 
 console.log('a new LaTeX project beside it: off Overleaf until it is put there');
 await page.getByRole('button', { name: /All LaTeX projects/ }).click();
-await page.locator('.wr-home-way', { hasText: 'Blank article' }).click();
+await page.locator('.wr-home-way', { hasText: 'Blank LaTeX project' }).click();
 await page.locator('.wr-home-name input').fill('Rebuttal');
 await page.getByRole('button', { name: 'Make it and open it' }).click();
 await page.locator('.wr-desk').waitFor({ timeout: 20000 });
 await page.waitForTimeout(1500);
 check('it is in a folder of its own, in Drive', /\\title\{Rebuttal\}/.test(driveFile(`${folder}/rebuttal/main.tex`)?.data?.toString() ?? ''));
+check('a project from the start: a section of its own and a .bib beside main.tex', /\\input\{sections\/introduction\}/.test(driveFile(`${folder}/rebuttal/main.tex`)?.data?.toString() ?? '') && Boolean(driveFile(`${folder}/rebuttal/sections/introduction.tex`)) && Boolean(driveFile(`${folder}/rebuttal/references.bib`)));
 check('no Overleaf account asked for, nothing synced', (await page.getByText(/No Overleaf account is connected yet/).count()) === 0 && !/Syncing with Overleaf|Synced with/.test(await page.locator('.wr-status').innerText()), await page.locator('.wr-status').innerText());
 check('its files are its own: the other project’s aren’t listed', (await page.locator('.wr-tree-item', { hasText: 'intro.tex' }).count()) === 0);
 await shot('write-new-project-desk');
@@ -609,7 +610,7 @@ await page.getByRole('button', { name: 'Start the paper' }).click();
 await page.locator('.wr-home-way').first().waitFor({ timeout: 20000 });
 check('its folder is made in Drive, and it is not on Overleaf', /Google Drive › Projects › Workshop note-p-blank › LaTeX/.test(await page.locator('.wr-home-head').innerText()) && /not on Overleaf/.test(await page.locator('.wr-home-head').innerText()));
 await shot('write-start-blank-home');
-await page.locator('.wr-home-way', { hasText: 'Blank article' }).click();
+await page.locator('.wr-home-way', { hasText: 'Blank LaTeX project' }).click();
 await page.locator('.wr-home-name input').fill('Workshop note');
 await page.getByRole('button', { name: 'Make it and open it' }).click();
 await page.locator('.wr-desk').waitFor({ timeout: 20000 });
@@ -651,6 +652,8 @@ for (let i = 0; i < 4 && !(await page.locator('.ol-account.is-current', { hasTex
 }
 check('synced through the account chosen', (await page.locator('.ol-account.is-current').innerText()).includes('priya@uni.edu'));
 await shot('write-shared-accounts');
+// (A sync from opening it may still be under way: Sync is pressed once it is done.)
+await page.waitForFunction(() => !/Syncing with Overleaf/.test(document.querySelector('.wr-status')?.textContent ?? ''), null, { timeout: 30000 }).catch(() => {});
 allow({ [FRESH_ID]: ['olp_lab'] });
 await page.locator('.wr-status').getByRole('button', { name: /^Sync$/ }).click();
 await page.getByText(/can’t open this Overleaf project any more/).waitFor({ timeout: 20000 });
@@ -667,6 +670,23 @@ await page.locator('#settings-overleaf-accounts').waitFor({ timeout: 10000 });
 await page.waitForTimeout(600);
 check('Settings lists both accounts, with their projects', (await page.locator('.ol-account').count()) === 2 && /Workshop note/.test(await page.locator('.ol-account', { hasText: 'lab@uni.edu' }).innerText()));
 await shot('settings-overleaf-accounts');
+
+console.log('a LaTeX project copied to another project: every file it brings in, a project of its own there');
+await addProject('p-copy', 'Reading group');
+await page.goto(`${BASE}/project/?id=p-moe&view=write`, { waitUntil: 'networkidle' });
+await page.locator('.wr-doc-card', { hasText: 'Loss-free' }).waitFor({ timeout: 30000 });
+await page.locator('.wr-doc-card', { hasText: 'Loss-free' }).getByRole('button', { name: 'Copy to another project' }).click();
+await page.getByLabel('The project to copy it to').selectOption({ label: 'Reading group' });
+await shot('write-copy-to-project');
+await page.getByRole('button', { name: 'Copy it' }).click();
+await page.getByText(/Copied to “Reading group”/).waitFor({ timeout: 30000 });
+const copied = 'Papers_collection/Projects/Reading group-p-copy/LaTeX';
+check('its files went to that project’s Drive folder, subfolders and all', /\\input\{sections\/intro\}/.test(driveFile(`${copied}/main.tex`)?.data?.toString() ?? '') && Boolean(driveFile(`${copied}/sections/intro.tex`)) && Boolean(driveFile(`${copied}/sections/related.tex`)), [...items.values()].filter((item) => item.data && pathOf(item).includes('Reading group')).map(pathOf).join(', '));
+check('and none of the other LaTeX projects beside it', !driveFile(`${copied}/rebuttal/main.tex`));
+await page.goto(`${BASE}/project/?id=p-copy&view=write`, { waitUntil: 'networkidle' });
+await page.locator('.wr-doc-card').first().waitFor({ timeout: 30000 });
+check('there, it is a LaTeX project of its own, not on Overleaf', /Loss-free routing/.test(await page.locator('.wr-doc-card').first().innerText()) && /Not on Overleaf/.test(await page.locator('.wr-doc-card').first().innerText()));
+await shot('write-copied');
 
 check('no errors on the page', !errors.length, errors.join(' | '));
 await browser.close();
