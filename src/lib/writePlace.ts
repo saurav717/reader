@@ -72,6 +72,27 @@ export function takeWriteHome(project: string): WriteHomeAsk | null {
   }
 }
 
+/**
+ * "Not now" to connecting an Overleaf account, said for a project (or, with
+ * `card`, to the paper card's suggestion): no nudge about it again on this
+ * device, Sync and the card's buttons still there for when it is wanted.
+ */
+const NOT_NOW_KEY = (project: string, where: string) => `reader.write.${project}.notNow:${where}`;
+export function notNow(project: string, where: 'desk' | 'card' = 'desk') {
+  try {
+    localStorage.setItem(NOT_NOW_KEY(project, where), '1');
+  } catch {
+    // only a convenience
+  }
+}
+export function saidNotNow(project: string, where: 'desk' | 'card' = 'desk'): boolean {
+  try {
+    return localStorage.getItem(NOT_NOW_KEY(project, where)) === '1';
+  } catch {
+    return false;
+  }
+}
+
 /** “3 min ago”, “2 h ago”, “4 Oct”. */
 export function agoShort(at: number, now = Date.now()): string {
   const minutes = Math.round((now - at) / 60000);

@@ -211,7 +211,8 @@ async function signIn() {
     await button.click();
     await page.waitForTimeout(600);
   }
-  const notNow = page.getByRole('button', { name: /Not now — keep everything in this browser|Start reading|Not now/ }).first();
+  // The sign-in's own Not now — never the paper card's or the editor's, which this test clicks itself.
+  const notNow = page.locator('button:not(.ol-suggest *):not(.wr-nudge-actions *):not(.wr-sync-accounts *)').filter({ hasText: /^(Not now — keep everything in this browser|Start reading|Not now)$/ }).first();
   if (await notNow.isVisible().catch(() => false)) await notNow.click();
 }
 const project = (overleaf, extra = {}) => ({ id: 'p-moe', name: 'Sparse-gated MoE', color: '#1f5e52', createdAt: day(20), project: { question: 'Can routing stay balanced without an aux loss at 8B?', startedAt: day(20), roles: {}, todos: [{ id: 't1', text: 'Replicate Table 2 at 1B', done: false }], playgroundId: 'pg-moe', ...(overleaf ? { overleaf } : {}), ...extra } });
@@ -233,6 +234,7 @@ check('folded until asked for: both are optional', (await page.locator('.cx-grid
 await shot('flow-0-connections-folded');
 await page.locator('.cx-head').click();
 check('GitHub is named by its account', /GitHub · saurav/.test(await page.locator('.cx-head').innerText()));
+await page.getByLabel('Overleaf Git token').waitFor({ timeout: 5000 }).catch(() => {});
 check('Overleaf, not connected yet, is open to connect', (await page.getByLabel('Overleaf Git token').count()) === 1);
 await page.getByLabel('Which Overleaf account').fill('saurav@iith.ac.in');
 await shot('flow-1-connections');
@@ -327,6 +329,44 @@ await page.locator('.ol-card').getByRole('button', { name: /Sync with Overleaf/ 
 await page.locator('.wr-ol-connect').waitFor({ timeout: 20000 });
 check('Sync with Overleaf opens that LaTeX project, linking it alone', /Linking rebuttal\//.test(await page.locator('.wr-ol-connect').innerText()) && /We thank the reviewers/.test(await page.locator('.wr-editor textarea').inputValue()));
 await shot('flow-10-connect-one-latex');
+
+console.log('10. with accounts: the card suggests Overleaf, nothing more to enter');
+await seed({ projects: [project(inDrive)], local: left });
+await page.goto(`${BASE}/project/?id=p-moe`, { waitUntil: 'networkidle' });
+await signIn();
+await page.locator('.ol-suggest').waitFor({ timeout: 15000 }).catch(async (error) => { await shot('flow-failed'); console.log(await page.locator('.ol-card').innerText().catch(() => 'no card'), errors); console.log(await page.evaluate(() => JSON.stringify(Object.keys(localStorage).filter((k) => k.includes('notNow') || k.includes('place'))))); throw error; });
+check('a suggestion, naming the account it will use', /as saurav@iith\.ac\.in[\s\S]*nothing more to enter/.test(await page.locator('.ol-suggest').innerText()));
+await page.locator('.ol-suggest').getByRole('button', { name: 'Not now' }).click();
+check('Not now puts it away, the button stays', (await page.locator('.ol-suggest').count()) === 0 && (await page.locator('.ol-card').getByRole('button', { name: /Sync with Overleaf/ }).count()) === 1);
+
+console.log('11. no Overleaf account anywhere: asked for only when connecting, in two steps');
+overleafAccounts = [];
+await seed({ projects: [project(inDrive)], local: left });
+await page.goto(`${BASE}/project/?id=p-moe`, { waitUntil: 'networkidle' });
+await signIn();
+await page.locator('.ol-suggest').waitFor({ timeout: 15000 }).catch(async (error) => { await shot('flow-failed'); console.log(await page.locator('.ol-card').innerText().catch(() => 'no card'), errors); throw error; });
+check('the card offers Overleaf, asking nothing', /Optionally connect your Overleaf account/.test(await page.locator('.ol-suggest').innerText()) && (await page.getByLabel('Overleaf Git token').count()) === 0);
+await page.locator('.ol-card').scrollIntoViewIfNeeded();
+await shot('flow-11-overview-suggest');
+await page.locator('.ol-suggest').getByRole('button', { name: /Connect Overleaf/ }).click();
+await page.locator('.wr-ol-connect .wr-steps').waitFor({ timeout: 20000 });
+check('step 1 the account, step 2 the Overleaf project after it', (await page.locator('.wr-ol-connect').getByLabel('Overleaf Git token').count()) === 1 && /Next, once the account is connected/.test(await page.locator('.wr-step.is-later').innerText()));
+await shot('flow-12-connect-two-steps');
+
+console.log('12. linked to Overleaf, no account: a nudge in the editor, the form only when asked');
+await seed({ projects: [project(onOverleaf)], local: left });
+await page.goto(`${BASE}/project/?id=p-moe&view=write`, { waitUntil: 'networkidle' });
+await signIn();
+await page.locator('.wr-nudge-actions').waitFor({ timeout: 20000 });
+check('a line and two buttons, no form', (await page.getByLabel('Overleaf Git token').count()) === 0 && /isn’t syncing/.test(await page.locator('.wr-sync-banner').last().innerText()));
+await shot('flow-13-editor-nudge');
+await page.locator('.wr-nudge-actions').getByRole('button', { name: 'Not now' }).click();
+await seed({ projects: [project(onOverleaf)], local: { ...left, 'reader.write.p-moe.notNow:desk': '1' } });
+await page.goto(`${BASE}/project/?id=p-moe&view=write`, { waitUntil: 'networkidle' });
+await signIn();
+await page.locator('.wr-editor textarea').waitFor({ timeout: 20000 });
+await page.waitForTimeout(1500);
+check('Not now is remembered: no nudge the next time', (await page.locator('.wr-nudge-actions').count()) === 0);
 
 check('no errors on the page', !errors.length, errors.join(' | '));
 await browser.close();

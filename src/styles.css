@@ -7753,3 +7753,17 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .ol-latex .mono { font-size: 11.5px; color: var(--ink); }
 .ol-latex-on { color: var(--accent); }
 .ol-latex-off { color: var(--muted); }
+.ol-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 12px; border: 1px dashed var(--border); border-radius: 10px; background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.ol-suggest p { flex: 1 1 280px; margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--ink); }
+.ol-suggest.is-warn { border-style: solid; border-color: color-mix(in srgb, #c9a400 45%, transparent); background: color-mix(in srgb, #c9a400 8%, transparent); }
+.ol-suggest-actions { display: inline-flex; align-items: center; gap: 12px; }
+.wr-nudge-actions { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; }
+.wr-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.wr-step { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px; align-items: start; }
+.wr-step-n { width: 22px; height: 22px; display: inline-grid; place-items: center; border-radius: 50%; border: 1px solid var(--border); font: 600 11.5px var(--sans); color: var(--muted); }
+.wr-step.is-now .wr-step-n { border-color: var(--accent); color: var(--accent); }
+.wr-step.is-done .wr-step-n { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
+.wr-step.is-later { opacity: 0.55; }
+.wr-step-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.wr-step-title { font: 600 13px var(--sans); }
+.wr-step-why { margin: 0; font-size: 12.5px; color: var(--muted); }
