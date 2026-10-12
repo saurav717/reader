@@ -2223,16 +2223,19 @@ function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, on
   const accountRef = useRef(link?.gitAccount);
   accountRef.current = link?.gitAccount;
   // ---- sync: by the Companion's Git here, or for a paper in Drive by Reader's server
-  const syncNow = (message: string, given?: string): Promise<Synced> =>
-    inDrive
-      ? cloudSync(store, overleafGitUrl(link?.url) ?? '', message, given, { account: accountRef.current, exclude: separateKey ? separateKey.split('|') : [] }).then((done) => {
-          // The account that opened it, remembered for the next sync (and shown with the project's accounts).
-          if (done.account && done.account !== accountRef.current) updateLink({ gitAccount: (accountRef.current = done.account) });
+  const syncNow = (message: string, given?: string): Promise<Synced> => {
+    const asked = accountRef.current;
+    return inDrive
+      ? cloudSync(store, overleafGitUrl(link?.url) ?? '', message, given, { account: asked, exclude: separateKey ? separateKey.split('|') : [] }).then((done) => {
+          // The account that opened it, remembered for the next sync (and shown with the project's accounts) —
+          // unless another was chosen while it ran: that choice stands.
+          if (done.account && done.account !== asked && accountRef.current === asked) updateLink({ gitAccount: (accountRef.current = done.account) });
           // Shared with several of the accounts, and the one it synced with can't open it any more: another did.
           setFellBack(done.fellBackFrom ? `“${done.fellBackFrom}” can’t open this Overleaf project any more (unshared, or its token was revoked), so it synced through “${done.accountLabel}”, which can.` : null);
           return done;
         })
       : server ? syncPaper(server, folder.path, message, given) : Promise.reject(new Error('This computer’s Companion isn’t connected.'));
+  };
   const sync = useCallback(
     async (quiet = false) => {
       if (!git || (quiet && unsyncedRef.current)) return;

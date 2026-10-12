@@ -656,7 +656,13 @@ await shot('write-shared-accounts');
 await page.waitForFunction(() => !/Syncing with Overleaf/.test(document.querySelector('.wr-status')?.textContent ?? ''), null, { timeout: 30000 }).catch(() => {});
 allow({ [FRESH_ID]: ['olp_lab'] });
 await page.locator('.wr-status').getByRole('button', { name: /^Sync$/ }).click();
-await page.getByText(/can’t open this Overleaf project any more/).waitFor({ timeout: 20000 });
+await page.getByText(/can’t open this Overleaf project any more/).waitFor({ timeout: 20000 }).catch(async (error) => {
+  await shot('write-shared-failed');
+  console.log('status:', await page.locator('.wr-status').innerText());
+  console.log('banners:', await page.locator('.wr-sync-banner').allInnerTexts());
+  console.log('syncs:', JSON.stringify(syncs.slice(-4).map((sync) => ({ url: sync.url, account: sync.account, token: Boolean(sync.token) }))));
+  throw error;
+});
 check('unshared from it: synced through the other account, and said so', (await page.locator('.ol-account.is-current').innerText()).includes('lab@uni.edu'));
 await shot('write-shared-fell-back');
 
