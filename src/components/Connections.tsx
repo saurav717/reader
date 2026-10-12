@@ -1,13 +1,15 @@
 // The accounts a project's work goes out through, connected once on the
-// projects board for every project: GitHub (its token, kept in this browser's
-// settings as Git mirror's is) for the code, and Overleaf (an email and its
-// Git token, kept by Reader's server) for the paper. And, in the workspace,
-// the project's code to a GitHub repository: set up from the button itself
-// when it has none.
+// projects board for every project — both optional: GitHub for the code,
+// Overleaf for the paper. Reader's server keeps both tokens, sealed for this
+// person alone (worker/secrets.js, worker/github.js, worker/latex.js), and
+// never sends them back to a page: the browser holds neither. And, in the
+// workspace, the project's code to a GitHub repository: set up from the
+// button itself when it has none.
 
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import { createPrivateRepo, githubAccount, parseRepo, writableRepos, type RepoState } from '../lib/github';
+import { NoTokenServer, ON_SERVER, forgetGitHubToken, githubStatus, keepGitHubToken, type GitHubStatus } from '../lib/githubToken';
 import { codeRepoName, pushCode } from '../lib/codeGithub';
 import { agoShort } from '../lib/writePlace';
 import type { Playground } from '../lib/playground';
@@ -15,20 +17,28 @@ import type { Project } from '../lib/projects';
 import OverleafAccounts, { useOverleafAccounts } from './OverleafAccounts';
 import { CheckIcon, ChevronDownIcon, ExternalIcon } from './icons';
 
-const TOKEN_URL = 'https://github.com/settings/tokens/new?scopes=repo&description=Reader';
+// A fine-grained token, limited to the repositories Reader writes, with an expiry: the safest kind GitHub offers.
+const TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new';
 
-/** Who the GitHub token in Settings is: null while asking, '' for none or one GitHub refuses. */
-function useGitHubLogin(): { login: string | null; problem: string | null } {
+type GitHubState = { status: GitHubStatus | null; problem: string | null; local: boolean };
+
+/**
+ * Whose the GitHub token is and what it may do: asked of Reader's server,
+ * which keeps it (ON_SERVER), or of GitHub for a token still in this browser.
+ * `status` is null while asking.
+ */
+function useGitHubStatus(): GitHubState {
   const { settings } = useStore();
   const token = settings.githubToken.trim();
-  const [state, setState] = useState<{ login: string | null; problem: string | null }>({ login: token ? null : '', problem: null });
+  const [state, setState] = useState<GitHubState>({ status: token ? null : { connected: false }, problem: null, local: false });
   useEffect(() => {
-    if (!token) return setState({ login: '', problem: null });
+    if (!token) return setState({ status: { connected: false }, problem: null, local: false });
     let live = true;
-    setState({ login: null, problem: null });
-    githubAccount(token).then(
-      (account) => live && setState({ login: account.login, problem: null }),
-      (error) => live && setState({ login: '', problem: error instanceof Error ? error.message : String(error) }),
+    setState({ status: null, problem: null, local: token !== ON_SERVER });
+    const asked = token === ON_SERVER ? githubStatus() : githubAccount(token).then((account): GitHubStatus => ({ connected: true, login: account.login }));
+    asked.then(
+      (status) => live && setState({ status, problem: null, local: token !== ON_SERVER }),
+      (error) => live && setState({ status: { connected: false }, problem: error instanceof Error ? error.message : String(error), local: token !== ON_SERVER }),
     );
     return () => {
       live = false;
@@ -37,34 +47,104 @@ function useGitHubLogin(): { login: string | null; problem: string | null } {
   return state;
 }
 
-/** GitHub, connected with a token: checked with GitHub before it is kept. */
-export function GitHubConnect({ compact = false }: { compact?: boolean }) {
+const dateOf = (at: string) => new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+
+/**
+ * GitHub, connected with a token: given to Reader's server, which checks it
+ * with GitHub and keeps it sealed — nothing of it stays in this browser.
+ * Where the server can't keep it, the page says so, and keeping it in this
+ * browser instead is offered, with what that means.
+ */
+export function GitHubConnect({ compact = false, onAccount }: { compact?: boolean; /** Told the account's login once known (null: none). */ onAccount?: (login: string | null) => void }) {
   const { settings, updateSettings } = useStore();
-  const { login, problem: refused } = useGitHubLogin();
+  const { status, problem: refused, local } = useGitHubStatus();
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [noServer, setNoServer] = useState(false);
   const saved = settings.githubToken.trim();
-  if (saved && login === null) return <p className="cx-quiet">Asking GitHub who this token is…</p>;
-  if (saved && login)
+  const login = status?.connected ? status.login ?? '' : null;
+  useEffect(() => {
+    if (status) onAccount?.(login || null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [login, status]);
+  if (saved && status === null) return <p className="cx-quiet">Asking who this GitHub token is…</p>;
+  if (saved && status?.connected) {
+    const warnings = [
+      local ? 'It is kept in this browser, where any script on this site’s address could read it.' : null,
+      status.kind === 'classic' ? `It is a classic token${status.scopes ? ` (${status.scopes})` : ''}, which opens every repository of yours: a fine-grained one limited to the repositories Reader writes is safer.` : null,
+      !local && !status.expiresAt ? 'It never expires: one with an expiry date is safer.' : null,
+    ].filter((line): line is string => Boolean(line));
     return (
-      <div className="cx-account">
-        <span className="cx-ok">
-          <CheckIcon size={13} /> Connected as <b>{login}</b>
-        </span>
-        <button type="button" className="link-btn" onClick={() => updateSettings({ githubToken: '' })} title="Forget the token in this browser (revoke it on GitHub too, if you are done with it)">
-          Disconnect
-        </button>
+      <div className="cx-form">
+        <div className="cx-account">
+          <span className="cx-ok">
+            <CheckIcon size={13} /> Connected as <b>{status.login}</b>
+          </span>
+          <button
+            type="button"
+            className="link-btn"
+            onClick={() => {
+              if (saved === ON_SERVER) void forgetGitHubToken();
+              updateSettings({ githubToken: '' });
+            }}
+            title="Forget the token (revoke it on GitHub too, if you are done with it)"
+          >
+            Disconnect
+          </button>
+        </div>
+        <p className="cx-quiet">
+          {local ? 'Kept in this browser.' : 'Kept encrypted by Reader’s server, for you alone — never sent back to any page.'}
+          {status.kind ? ` ${status.kind === 'fine-grained' ? 'Fine-grained' : status.kind === 'classic' ? 'Classic' : 'App'} token` : ''}
+          {status.expiresAt ? `, expires ${dateOf(status.expiresAt)}` : ''}
+          {status.lastUsedAt ? `; last used ${dateOf(status.lastUsedAt)}` : ''}
+          {!local ? '. Forgotten after six months unused.' : ''}
+        </p>
+        {warnings.length ? (
+          <p className="cx-warn">
+            {warnings.join(' ')}{' '}
+            {local ? (
+              <button
+                type="button"
+                className="link-btn"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setProblem(null);
+                  try {
+                    await keepGitHubToken(saved);
+                    updateSettings({ githubToken: ON_SERVER });
+                  } catch (error) {
+                    setProblem(error instanceof Error ? error.message : String(error));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Move it to Reader’s server
+              </button>
+            ) : null}
+          </p>
+        ) : null}
+        {problem ? <p className="cx-bad">{problem}</p> : null}
       </div>
     );
-  const connect = async () => {
+  }
+  const connect = async (here = false) => {
     setBusy(true);
     setProblem(null);
     try {
-      await githubAccount(typed.trim());
-      updateSettings({ githubToken: typed.trim() });
+      if (here) {
+        await githubAccount(typed.trim());
+        updateSettings({ githubToken: typed.trim() });
+      } else {
+        await keepGitHubToken(typed.trim());
+        updateSettings({ githubToken: ON_SERVER });
+      }
       setTyped('');
+      setNoServer(false);
     } catch (error) {
+      if (error instanceof NoTokenServer) setNoServer(true);
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
@@ -72,29 +152,60 @@ export function GitHubConnect({ compact = false }: { compact?: boolean }) {
   };
   return (
     <div className="cx-form">
+      {status?.forgotten ? <p className="cx-warn">{status.forgotten === 'expired' ? 'Your GitHub token expired and was forgotten: connect a new one.' : 'Your GitHub token went unused for six months and was forgotten: connect it again when you need it.'}</p> : null}
       {!compact ? (
         <p className="cx-quiet">
-          A personal access token with the <span className="mono">repo</span> scope (or a fine-grained one with Contents and Administration: read and write).{' '}
+          Safest:{' '}
           <a href={TOKEN_URL} target="_blank" rel="noopener noreferrer">
-            Make one on GitHub ↗
-          </a>
+            a fine-grained token ↗
+          </a>{' '}
+          limited to the repositories Reader should write (or “All repositories” if it is to make new ones), with Contents — and, to make repositories, Administration — read and write, and an expiry date.
         </p>
       ) : null}
       <div className="cx-row">
-        <input type="password" value={typed} autoComplete="off" placeholder="ghp_… or github_pat_…" onChange={(event) => setTyped(event.target.value)} aria-label="GitHub token" />
+        <input type="password" value={typed} autoComplete="off" placeholder="github_pat_…" onChange={(event) => setTyped(event.target.value)} aria-label="GitHub token" />
         <button type="button" className="btn primary sm" disabled={busy || !typed.trim()} onClick={() => void connect()}>
           {busy ? 'Checking…' : 'Connect GitHub'}
         </button>
       </div>
       {compact ? (
         <a className="cx-quiet" href={TOKEN_URL} target="_blank" rel="noopener noreferrer">
-          Make a token on GitHub ↗
+          Make a fine-grained token on GitHub ↗
         </a>
       ) : null}
-      {problem || (saved && refused) ? <p className="cx-bad">{problem ?? refused}</p> : null}
-      <p className="cx-quiet">Kept in this browser’s settings, with Git mirror’s: never in a project, a paper or Drive.</p>
+      {problem || refused ? <p className="cx-bad">{problem ?? refused}</p> : null}
+      {noServer ? (
+        <p className="cx-warn">
+          Reader’s server can’t keep it right now.{' '}
+          <button type="button" className="link-btn" disabled={busy || !typed.trim()} onClick={() => void connect(true)}>
+            Keep it in this browser instead
+          </button>{' '}
+          — less safe: any script on this site’s address could read it.
+        </p>
+      ) : (
+        <p className="cx-quiet">Kept encrypted by Reader’s server for you alone, never sent back to this page or kept in this browser.</p>
+      )}
     </div>
   );
+}
+
+/**
+ * A GitHub token still in this browser's settings (from before the server
+ * kept them) moved to Reader's server, once it can take it, and removed from
+ * here. Tried once a session for each token; nothing is said if it can't.
+ */
+export function useMoveGitHubToken() {
+  const { settings, updateSettings, driveConnected } = useStore();
+  const token = settings.githubToken.trim();
+  const tried = useRef(new Set<string>());
+  useEffect(() => {
+    if (!token || token === ON_SERVER || !driveConnected || tried.current.has(token)) return;
+    tried.current.add(token);
+    keepGitHubToken(token).then(
+      () => updateSettings({ githubToken: ON_SERVER }),
+      () => undefined,
+    );
+  }, [token, driveConnected, updateSettings]);
 }
 
 /**
@@ -105,7 +216,8 @@ export function GitHubConnect({ compact = false }: { compact?: boolean }) {
  */
 export function ProjectConnections() {
   const { settings } = useStore();
-  const { login } = useGitHubLogin();
+  const { status } = useGitHubStatus();
+  const login = status?.connected ? status.login : '';
   const overleaf = useOverleafAccounts();
   const github = Boolean(settings.githubToken.trim() && login);
   const [shown, setOpen] = useState(false);

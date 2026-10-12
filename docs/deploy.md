@@ -56,6 +56,31 @@ Cloudflare token:
 Until they are there, *Deploy worker* says so on a merge and deploys nothing;
 `npm run deploy:worker` from a computer signed in to Cloudflare still does it.
 
+## Once more: the key that seals people's tokens
+
+The Worker keeps the tokens people connect — an Overleaf account's Git token
+and email, a GitHub token and its login — so that no browser holds them. It
+seals each with a key of its own, `SECRETS_KEY`, used for nothing else
+(`worker/secrets.js`): every person and every kind of secret gets a key
+derived from it, each sealed value is bound to its owner, and records in KV
+are filed under a keyed hash of the email, never the email itself. Without
+it the Worker keeps nothing new and says so; set it **before** the merge
+that brings it deploys:
+
+```sh
+openssl rand -base64 32 | npx wrangler secret put SECRETS_KEY
+```
+
+(or Cloudflare dashboard → Workers & Pages → reader-arxiv-proxy → Settings →
+Variables and Secrets → Add → Secret). Keep a copy somewhere safe: a new key
+can't open what the old one sealed, so changing it means everyone connects
+their accounts again. Overleaf tokens kept before it (sealed with a key from
+`LATEX_CLOUD_RUN_TOKEN`) are sealed again with it, and moved, the first time
+they are read; a GitHub token still in someone's browser moves to the
+Worker the next time they open the site signed in. A token unused for six
+months is forgotten, and a GitHub token past the expiry GitHub gave it, or
+that GitHub no longer takes, at once.
+
 ## Once more: the LaTeX compiler (Write tab → Compile on → The cloud)
 
 Anyone signed in to the reader can compile a paper with all of TeX Live,

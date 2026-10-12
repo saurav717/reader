@@ -222,6 +222,13 @@ id = "4b383f85f5d041569dc04f04350b1c38"
 # paid accounts, under PERSON_LIMIT above. Without any, the button in the
 # app says the proxy has no search key.
 
+# People's tokens (an Overleaf account's Git token and email, a GitHub token
+# and its login) kept sealed in SESSIONS, with a key used for nothing else
+# (worker/secrets.js, docs/deploy.md). Set it before the deploy that needs it,
+# and keep a copy: a new one can't open what the old one sealed.
+#
+#     openssl rand -base64 32 | npx wrangler secret put SECRETS_KEY
+#
 # LaTeX compiled for anyone signed in (worker/latex.js), on Cloud Run — its
 # address in [vars] above, and its secret:
 #

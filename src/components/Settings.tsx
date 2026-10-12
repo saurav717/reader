@@ -54,6 +54,7 @@ import { KeyRow } from './Assistant';
 import CompanionUpdates from './CompanionUpdate';
 import ProxyPass from './ProxyPass';
 import { RunningChooser } from './PlaygroundRuns';
+import { GitHubConnect } from './Connections';
 
 /** Every model, grouped by who runs it, saying which still need a key. */
 function ModelOptions({ keys }: { keys: Record<string, boolean> }) {
@@ -111,7 +112,6 @@ export default function Settings({ onClose }: { onClose: () => void }) {
   const [clientId, setClientId] = useState(settings.googleClientId);
   const [repo, setRepo] = useState(settings.githubRepo);
   const [branch, setBranch] = useState(settings.githubBranch);
-  const [token, setToken] = useState(settings.githubToken);
   const [email, setEmail] = useState(settings.contactEmail);
   const [proxy, setProxy] = useState(settings.proxyBase);
   const [proxyCheck, setProxyCheck] = useState<{ ok: boolean; message: string } | null>(null);
@@ -592,23 +592,15 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             />
           </label>
 
-          <label className="setting">
-            <span>Access token</span>
-            <input
-              type="password"
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-              onBlur={() => updateSettings({ githubToken: token.trim() })}
-              placeholder="github_pat_…"
-              autoComplete="off"
-            />
+          <div className="setting">
+            <span>GitHub</span>
+            <GitHubConnect compact />
             <small>
-              A <strong>fine-grained</strong> personal access token, scoped to this one repository, with
-              Contents: read and write — and nothing else. It is kept in this browser's localStorage, which
-              means any script that runs on this origin could read it: scope it narrowly, give it an expiry, and
-              revoke it if you stop using this app. Prefer a private repository.
+              The same GitHub connection as Projects → Connections: a <strong>fine-grained</strong> token limited to
+              this repository (and any Reader writes), Contents: read and write, with an expiry. Reader’s server keeps
+              it encrypted for you alone; it is never kept in this browser.
             </small>
-          </label>
+          </div>
 
           <div className="setting-row">
             <input

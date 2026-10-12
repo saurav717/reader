@@ -53,6 +53,7 @@ import { startJobWatch } from './lib/jobWatch';
 import { RailRunBadge, RunDock, RunSwitcher, RunTabs } from './components/PlaygroundRuns';
 import PlaygroundPeek from './components/PlaygroundPeek';
 import { peekPlayground } from './lib/playgroundRuns';
+import { useMoveGitHubToken } from './components/Connections';
 
 const WELCOME_KEY = 'reader.welcomed';
 const VIEW_KEY = 'reader.view';
@@ -208,6 +209,8 @@ function readLayout(): Layout {
 
 export default function App() {
   const { ready, papers, collections, highlights, user, driveConnected, settings, askingTabs } = useStore();
+  // A GitHub token still in this browser goes to Reader's server, sealed there, and leaves here.
+  useMoveGitHubToken();
   const draftDock = useDraftDock();
   const [layout] = useState(readLayout);
   const [libraryOpen, setLibraryOpen] = useState(layout.libraryOpen);

@@ -39,6 +39,7 @@ import { readPage, searchWeb, webAvailable, WebRefused } from '../server/webSear
 import { handleColab, isColabPath, readSocketTicket } from '../server/colab.js';
 import { bridgeSocket } from './colabSocket.js';
 import { cloudRunPlan, handleLatex, isLatexPath, latexAvailable, latexCompiler, latexMonth } from './latex.js';
+import { handleGithub, isGithubPath } from './github.js';
 import { readBalance } from './deepseekBalance.js';
 import { gcloudAction, gcloudConfigured, gcloudOverview } from './gcloud.js';
 import { FRESH_MS as TAVILY_FRESH_MS, readTavilyUsage } from './tavilyUsage.js';
@@ -66,7 +67,7 @@ function cors(origin) {
   return {
     'Access-Control-Allow-Origin': allowed,
     'Vary': 'Origin',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     // The browser session's input arrives as JSON; the app's token and its
     // client id come as headers (see `authorized` and `clientOf` below).
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client, X-Google-Token, X-Captcha-Token',
@@ -384,6 +385,9 @@ export default {
       }
 
       // LaTeX compiled for anyone signed in, on Cloud Run or GitHub Actions: worker/latex.js.
+      // A person's GitHub token, kept sealed, and the few GitHub calls made with it: worker/github.js.
+      if (isGithubPath(path)) return await handleGithub(request, env, path, { json, headers, authorized, personOverLimit });
+
       if (isLatexPath(path)) return await handleLatex(request, env, path, { json, headers, authorized, personOverLimit, tally: (who, counts) => tally(env, ctx, who, counts) });
 
       // Whose pass this is: the Companion asks, to know which account a page

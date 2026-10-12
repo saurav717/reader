@@ -16,6 +16,7 @@
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
 import { makePdf } from './fakeGoogle.mjs';
+import { handleGithub } from '../worker/github.js';
 
 const BASE = process.env.SMOKE_BASE || 'http://localhost:8080';
 const OUT = process.env.SMOKE_OUT || new URL('../.smoke/', import.meta.url).pathname;
@@ -125,31 +126,52 @@ await context.route('**/api/latex/**', async (route) => {
   return json({});
 });
 
-// ---- GitHub: who the token is, its repositories, a repository made, a commit
-const github = { repos: [{ full_name: 'saurav/moe-experiments', private: true, default_branch: 'main', permissions: { admin: true, push: true } }], commits: [] };
-await context.route('**/api.github.com/**', async (route) => {
-  const request = route.request();
-  const path = new URL(request.url()).pathname;
-  const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
-  if (path === '/user') return json({ login: 'saurav', name: 'Saurav' });
-  if (path === '/user/repos' && request.method() === 'GET') return json(github.repos);
-  if (path === '/user/repos' && request.method() === 'POST') {
-    const body = request.postDataJSON();
+// ---- GitHub: who the token is, its repositories, a repository made, a commit — answered alike to the page (a token
+// still in the browser) and to Reader's server (worker/github.js, run here as deployed, its KV in memory)
+const github = { repos: [{ full_name: 'saurav/moe-experiments', private: true, default_branch: 'main', permissions: { admin: true, push: true } }], commits: [], tokens: [] };
+function fakeGithub(method, path, body, auth) {
+  github.tokens.push(auth);
+  if (path === '/user') return { status: 200, body: { login: 'saurav', name: 'Saurav' }, headers: { 'github-authentication-token-expiration': '2027-01-31 00:00:00 UTC' } };
+  if (path === '/user/repos' && method === 'GET') return { status: 200, body: github.repos };
+  if (path === '/user/repos' && method === 'POST') {
     const repo = { full_name: `saurav/${body.name}`, private: true, default_branch: 'main', permissions: { admin: true, push: true } };
     github.repos.unshift(repo);
-    return json(repo, 201);
+    return { status: 201, body: repo };
   }
-  if (/\/git\/ref\/heads\//.test(path)) return json({ object: { sha: `c${github.commits.length}` } });
-  if (/\/git\/commits\/c\d+$/.test(path)) return json({ tree: { sha: 't0' } });
-  if (path.endsWith('/git/blobs')) return json({ sha: `b${Math.random().toString(16).slice(2, 8)}` });
+  if (/\/git\/ref\/heads\//.test(path)) return { status: 200, body: { object: { sha: `c${github.commits.length}` } } };
+  if (/\/git\/commits\/c\d+$/.test(path)) return { status: 200, body: { tree: { sha: 't0' } } };
+  if (path.endsWith('/git/blobs')) return { status: 200, body: { sha: `b${Math.random().toString(16).slice(2, 8)}` } };
   if (path.endsWith('/git/trees')) {
-    github.commits.push(request.postDataJSON().tree.map((item) => item.path));
-    return json({ sha: `t${github.commits.length}` });
+    github.commits.push(body.tree.map((item) => item.path));
+    return { status: 200, body: { sha: `t${github.commits.length}` } };
   }
-  if (path.endsWith('/git/commits')) return json({ sha: `9f3c2a1${github.commits.length}e8b7d6c5` });
-  if (/\/git\/refs\/heads\//.test(path)) return json({ object: { sha: 'x' } });
-  return json({ message: 'Not Found' }, 404);
+  if (path.endsWith('/git/commits')) return { status: 200, body: { sha: `9f3c2a1${github.commits.length}e8b7d6c5` } };
+  if (/\/git\/refs\/heads\//.test(path)) return { status: 200, body: { object: { sha: 'x' } } };
+  return { status: 404, body: { message: 'Not Found' } };
+}
+await context.route('**/api.github.com/**', async (route) => {
+  const request = route.request();
+  const answer = fakeGithub(request.method(), new URL(request.url()).pathname, request.postDataJSON?.() ?? null, request.headers().authorization);
+  return route.fulfill({ status: answer.status, contentType: 'application/json', headers: answer.headers, body: JSON.stringify(answer.body) });
 });
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (url, init = {}) => {
+  if (!String(url).startsWith('https://api.github.com/')) return realFetch(url, init);
+  const answer = fakeGithub(init.method ?? 'GET', new URL(String(url)).pathname, init.body ? JSON.parse(init.body) : null, init.headers?.Authorization);
+  return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { 'Content-Type': 'application/json', ...(answer.headers ?? {}) } });
+};
+const workerKv = new Map();
+const workerEnv = { SESSIONS: { get: async (key) => workerKv.get(key) ?? null, put: async (key, value) => void workerKv.set(key, value), delete: async (key) => void workerKv.delete(key) }, SECRETS_KEY: 'smoke-'.repeat(8) };
+const workerTools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } }), headers: {}, authorized: async () => ({ email: 'reader@example.org' }) };
+await context.route('**/api/github/**', async (route) => {
+  const request = route.request();
+  const url = new URL(request.url());
+  const path = url.pathname.replace(/^\/api/, '');
+  const body = request.method() === 'GET' ? undefined : request.postDataBuffer() ?? undefined;
+  const answer = await handleGithub(new Request(`https://reader.test${path}${url.search}`, { method: request.method(), body, headers: { 'Content-Type': 'application/json' } }), workerEnv, path, workerTools);
+  return route.fulfill({ status: answer.status, contentType: 'application/json', body: Buffer.from(await answer.arrayBuffer()) });
+});
+const TOKEN = 'github_pat_11SMOKE00000000000000_abcdefghijklmnopqrstuvwxyz0123';
 
 const page = await context.newPage();
 const errors = [];
@@ -220,7 +242,7 @@ const inDrive = { url: '', drive: { folder: 'Projects/Sparse-gated MoE-p-moe/LaT
 const onOverleaf = { url: 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5', drive: { folder: 'Projects/Sparse-gated MoE-p-moe/LaTeX' }, gitAccount: 'a1' };
 
 console.log('1. the board: Connections, GitHub and Overleaf once for every project');
-await seed({ projects: [project(null)], settings: { githubToken: 'ghp_test' } });
+await seed({ projects: [project(null)], settings: { githubToken: TOKEN } });
 await page.goto(`${BASE}/projects`, { waitUntil: "networkidle" });
 await signIn();
 await page.goto(`${BASE}/projects`, { waitUntil: "networkidle" });
@@ -234,6 +256,11 @@ check('folded until asked for: both are optional', (await page.locator('.cx-grid
 await shot('flow-0-connections-folded');
 await page.locator('.cx-head').click();
 check('GitHub is named by its account', /GitHub · saurav/.test(await page.locator('.cx-head').innerText()));
+await page.waitForFunction(() => JSON.parse(localStorage.getItem('reader.settings') || '{}').githubToken === 'server', null, { timeout: 10000 }).catch(() => {});
+const stored = await page.evaluate(() => JSON.stringify({ ...localStorage }));
+check('a GitHub token in the browser is moved to Reader’s server, and leaves the browser', !stored.includes(TOKEN) && /"githubToken":"server"/.test(stored.replace(/\\/g, '')));
+check('the server keeps it sealed: no token, login or email in its KV', ![...workerKv.entries()].some(([key, value]) => `${key}${value}`.includes(TOKEN) || `${key}${value}`.includes('saurav') || `${key}${value}`.includes('reader@example.org')) && workerKv.size === 1);
+check('it says what kind of token, and when it expires', /Kept encrypted by Reader’s server[\s\S]*Fine-grained token, expires/.test(await page.locator('.cx-panel').innerText()));
 await page.getByLabel('Overleaf Git token').waitFor({ timeout: 5000 }).catch(() => {});
 check('Overleaf, not connected yet, is open to connect', (await page.getByLabel('Overleaf Git token').count()) === 1);
 await page.getByLabel('Which Overleaf account').fill('saurav@iith.ac.in');
@@ -299,7 +326,7 @@ check('no token asked: the account connected once is used', (await page.getByLab
 await shot('flow-6-connect-overleaf');
 
 console.log('7. the workspace: Sync to GitHub, set up from its menu');
-await seed({ projects: [project(inDrive)], settings: { githubToken: 'ghp_test' } });
+await seed({ projects: [project(inDrive)], settings: { githubToken: TOKEN } });
 await page.goto(`${BASE}/project/?id=p-moe&view=workspace`, { waitUntil: 'networkidle' });
 await signIn();
 await page.locator('.cx-gh-btn').waitFor({ timeout: 15000 });
@@ -315,6 +342,7 @@ await page.locator('.cx-pop').getByRole('button', { name: 'Push to GitHub' }).wa
 await page.locator('.cx-pop').getByLabel('Commit message').fill('Bias-based balancing: first run at 1B');
 await page.locator('.cx-pop').getByRole('button', { name: 'Push to GitHub' }).click();
 await page.locator('.cx-pop').getByText(/Last pushed/).waitFor({ timeout: 10000 }).catch(() => {});
+check('the code went through Reader’s server, which put the token on it', github.tokens.at(-1) === `Bearer ${TOKEN}`);
 check('the code went as one commit', github.commits.length === 1 && github.commits[0].includes('train.py') && github.commits[0].includes('configs/8b.yaml'), JSON.stringify(github.commits));
 check('the button names the repository and the push', /sparse-gated-moe-code/.test(await page.locator('.cx-gh-btn').innerText()));
 await shot('flow-8-github-pushed');
@@ -356,6 +384,7 @@ await page.locator('.ol-card').scrollIntoViewIfNeeded();
 await shot('flow-11-overview-suggest');
 await page.locator('.ol-suggest').getByRole('button', { name: /Connect Overleaf/ }).click();
 await page.locator('.wr-ol-connect .wr-steps').waitFor({ timeout: 20000 });
+await page.locator('.wr-ol-connect').getByLabel('Overleaf Git token').waitFor({ timeout: 10000 }).catch(() => {});
 check('step 1 the account, step 2 the Overleaf project after it', (await page.locator('.wr-ol-connect').getByLabel('Overleaf Git token').count()) === 1 && /Next, once the account is connected/.test(await page.locator('.wr-step.is-later').innerText()));
 await shot('flow-12-connect-two-steps');
 

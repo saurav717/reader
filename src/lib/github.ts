@@ -1,6 +1,7 @@
 import type { Collection, Highlight, Paper, Settings } from '../types';
 import { HIGHLIGHT_COLORS } from '../types';
 import { pathName, sidecar } from './sidecar';
+import { githubFetch } from './githubToken';
 
 /**
  * The annotation layer, mirrored into a Git repository.
@@ -16,7 +17,6 @@ import { pathName, sidecar } from './sidecar';
  * reading session into a hundred commits saying nothing.
  */
 
-const API = 'https://api.github.com';
 
 export interface GitHubTarget {
   owner: string;
@@ -44,16 +44,7 @@ export function targetFrom(settings: Settings): GitHubTarget | null {
 }
 
 export async function gh<T>(target: GitHubTarget, path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API}/repos/${target.owner}/${target.repo}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${target.token}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(init.headers || {}),
-    },
-  });
+  const response = await githubFetch(target.token, `/repos/${target.owner}/${target.repo}${path}`, init);
   if (!response.ok) {
     const detail = (await response.json().catch(() => null)) as { message?: string } | null;
     const message = detail?.message || `${response.status}`;
@@ -76,15 +67,7 @@ export async function gh<T>(target: GitHubTarget, path: string, init: RequestIni
 // and whether the one linked is private — a draft is nobody else's business.
 
 async function api<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-    },
-  });
+  const response = await githubFetch(token, path, init);
   if (!response.ok) {
     const detail = (await response.json().catch(() => null)) as { message?: string; errors?: { message?: string }[] } | null;
     const said = detail?.errors?.[0]?.message || detail?.message || String(response.status);

@@ -1273,11 +1273,18 @@ Point it at a repository in **Settings → Git mirror**. It needs:
 - **A fine-grained personal access token**, scoped to that one repository, with
   **Contents: read and write** and nothing else.
 
-Two things to know about the token. It lives in this browser's `localStorage`, so
-any script running on this origin could read it — scope it narrowly, give it an
-expiry, and revoke it when you stop using the app. And because there is no backend,
-that is the only place it *can* live; if that is not a trade you want, the Drive
-mirror alone needs no long-lived secret.
+Where the token is kept. Connected (here, or under Projects → Connections) while
+signed in, it goes to the Worker, which checks it with GitHub and keeps it sealed
+for you alone with its `SECRETS_KEY` (`worker/secrets.js`, docs/deploy.md): it is
+never sent back to any page, and nothing of it stays in this browser. GitHub calls
+go through the Worker (`worker/github.js`), which makes only the few Reader needs —
+commits through the Git Data API, a private repository made, a repository read or
+turned private — and refuses any other. A token unused for six months is
+forgotten, and one past its expiry or revoked on GitHub at once. Only where there
+is no Worker to keep it can it be kept in this browser instead (Reader says so, and
+asks); then any script on this origin could read it. Either way: scope it narrowly,
+give it an expiry, and revoke it when you stop using the app. The Drive mirror
+alone needs no long-lived secret.
 
 Writes are batched. Everything that changes within a few seconds of each other —
 adding a paper, three highlights and a note — goes into **one commit** built through
@@ -4747,8 +4754,8 @@ tests start failing.
   stays signed in; there is no backend to hold a refresh token, so after that
   hour Drive re-authorises on the grant already given, and the connect screen
   asks first if the page is opened fresh.
-- The GitHub token has no expiry of its own, and has to be stored in `localStorage`
-  for the mirror to work without a backend. See above.
+- The GitHub token is kept by the Worker, sealed (see above); only without one can
+  it be kept in `localStorage` instead.
 - Semantic Scholar rate-limits unauthenticated search fairly aggressively; its author
   endpoints are the first to say so.
 - Author disambiguation is the indexes', not ours. OpenAlex and Semantic Scholar each
