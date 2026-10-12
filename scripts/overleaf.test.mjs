@@ -113,7 +113,10 @@ describe('a paper kept in Drive', () => {
     assert.deepEqual(ol.overleafLinkOf({ url, drive: { folder: 'Paper-p1' } }).drive, { folder: 'Paper-p1' });
     assert.deepEqual(ol.overleafLinkOf({ url: '', drive: { folder: 'Paper-p1' } }), { url: '', drive: { folder: 'Paper-p1' } });
     assert.equal(ol.overleafLinkOf({ url: '', drive: { folder: '' } }), undefined);
-    assert.equal(ol.overleafLinkOf({ url, drive: { folder: '../a/b' } }).drive.folder, '.. a b');
+    assert.equal(ol.overleafLinkOf({ url, drive: { folder: '../a/b' } }).drive.folder, 'a/b');
+    assert.equal(ol.overleafLinkOf({ url, drive: { folder: 'Projects/Paper-p1/LaTeX' } }).drive.folder, 'Projects/Paper-p1/LaTeX', 'a folder in the project’s folder keeps its path');
+    assert.deepEqual(ol.overleafLinkOf({ url, keep: { where: 'computer', at: '2026-10-02T00:00:00Z' } }).keep, { where: 'computer', at: '2026-10-02T00:00:00Z' });
+    assert.equal(ol.overleafLinkOf({ url, keep: { where: 'elsewhere', at: 'x' } }).keep, undefined);
   });
 });
 

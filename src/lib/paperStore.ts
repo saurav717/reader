@@ -56,8 +56,14 @@ export function companionStore(server: { url: string; token: string }, folder: s
   };
 }
 
-/** A Drive folder's name for a project's paper: its name and its id, as the Playground's. */
-export const paperDriveFolder = (name: string, id: string) => `${name.replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 60) || 'paper'}-${id}`;
+/**
+ * Where a project's LaTeX is kept in Drive: in the project's own folder,
+ * Papers_collection/Projects/<project>-<id>/LaTeX, a folder for each document
+ * in it. (Papers moved into Drive before were kept under Papers/<project>-<id>:
+ * a folder name without a slash is one of those, and is read where it is.)
+ */
+export const paperDriveFolder = (name: string, id: string) => `Projects/${name.replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 60) || 'project'}-${id}/LaTeX`;
+const under = (folder: string) => (folder.includes('/') ? '' : PAPERS_FOLDER);
 
 const driveStores = new Map<string, PaperStore>();
 
@@ -65,10 +71,10 @@ const driveStores = new Map<string, PaperStore>();
 export function driveStore(config: () => DriveConfig | null, folder: string): PaperStore {
   const known = driveStores.get(folder);
   if (known) return known;
-  const host = driveHost(config, folder, PAPERS_FOLDER);
+  const host = driveHost(config, folder, under(folder));
   const store: PaperStore = {
     kind: 'drive',
-    label: `Google Drive › ${PAPERS_FOLDER} › ${folder}`,
+    label: `Google Drive › ${[under(folder), ...folder.split('/')].filter(Boolean).join(' › ')}`,
     async list(dir = '') {
       return (await host.list(dir)).map((entry) => ({ name: entry.name, path: entry.path, type: entry.type === 'directory' ? 'directory' : 'file', size: entry.size, modified: entry.modified }));
     },
@@ -92,7 +98,7 @@ export function driveStore(config: () => DriveConfig | null, folder: string): Pa
     link: async () => {
       const now = config();
       if (!now) throw new Error('Sign in with Google, with Drive.');
-      return driveFolderLink(now, folder, PAPERS_FOLDER);
+      return driveFolderLink(now, folder, under(folder));
     },
   };
   driveStores.set(folder, store);
@@ -141,9 +147,9 @@ export async function unpackKit(store: PaperStore, zipBase64: string, dir: strin
   return within(dir, kitMain(files) || 'main.tex');
 }
 
-/** Templates in Drive, as the .zip each came as: Papers_collection/Papers/_templates/<name>.zip. */
+/** Templates in Drive, as the .zip each came as: Papers_collection/Projects/LaTeX templates/<name>.zip. */
 export function driveShelf(config: () => DriveConfig | null, store: PaperStore): TemplateShelf {
-  const shelf = driveHost(config, '_templates', PAPERS_FOLDER);
+  const shelf = driveHost(config, 'Projects/LaTeX templates', '');
   const describe = async (name: string): Promise<ShelfTemplate> => {
     const base64 = await shelf.readBase64(name);
     const files = base64 ? await unzip(Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))) : [];

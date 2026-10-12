@@ -16,7 +16,7 @@
  */
 import { chromium } from 'playwright';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handleLatex } from '../worker/latex.js';
@@ -205,9 +205,16 @@ await context.route(/^https?:\/\/127\.0\.0\.1:473[23]1\//, async (route) => {
   const reply = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: cors, body: JSON.stringify(body) });
   if (url.pathname === '/companion/info') return reply({ app: 'reader-companion', version: '0.12.0', id: 'mac-1', name: 'MacBook Air', hardware: '', root });
   if (request.headers().authorization !== 'token pc-token') return reply({ error: 'Pair first' }, 403);
+  if (url.pathname === '/companion/paper' && request.method() === 'GET') return reply({ latexmk: false, tectonic: false, git: true });
   if (url.pathname === '/companion/paper' && request.method() === 'POST') {
     const body = request.postDataJSON();
     const folderPath = join(root, body.folder ?? '');
+    if (body.action === 'token') return reply({ known: true });
+    if (body.action === 'clone') {
+      const id = (body.url.match(/[0-9a-f]{24}/) ?? [''])[0];
+      sh('git', ['clone', '-q', bareFor[id] ?? body.url, folderPath]);
+      return reply({ folder: body.folder });
+    }
     if (body.action === 'remote') {
       try {
         // As the real Companion: a clone's origin is its Overleaf Git address.
@@ -231,6 +238,10 @@ await context.route(/^https?:\/\/127\.0\.0\.1:473[23]1\//, async (route) => {
   if (url.pathname.startsWith('/api/contents')) {
     const path = decodeURIComponent(url.pathname.replace(/^\/api\/contents\/?/, ''));
     const full = join(root, path);
+    if (request.method() === 'DELETE') {
+      rmSync(full, { recursive: true, force: true });
+      return route.fulfill({ status: 204, headers: cors });
+    }
     if (!existsSync(full)) return reply({ message: 'No such file' }, 404);
     if (statSync(full).isDirectory()) return reply({ name: path.split('/').pop(), path, type: 'directory', content: readdirSync(full).map((name) => ({ name, path: path ? `${path}/${name}` : name, type: statSync(join(full, name)).isDirectory() ? 'directory' : 'file', size: null, last_modified: null })) });
     const base64 = url.searchParams.get('format') === 'base64';
@@ -289,10 +300,11 @@ if (await signIn.isVisible().catch(() => false)) {
   if (await notNow.isVisible().catch(() => false)) await notNow.click();
 }
 if (!page.url().includes('view=write')) await page.goto(`${BASE}/project/?id=p-moe&view=write`, { waitUntil: 'networkidle' });
-await page.getByText('Keep the paper in Google Drive').waitFor({ timeout: 20000 });
+await page.getByText('Bringing the paper into Google Drive').waitFor({ timeout: 20000 });
+check('no set-up on this computer is offered', (await page.getByText(/Write it on this computer|Clone from Overleaf/).count()) === 0);
 await page.getByLabel('Overleaf Git token for Reader’s server').fill('olp_test_token');
 await shot('write-drive-setup');
-await page.getByRole('button', { name: 'Bring it into Drive from Overleaf' }).click();
+await page.getByRole('button', { name: 'Bring it in from Overleaf' }).click();
 
 console.log('brought in from Overleaf by Reader’s server, into Drive');
 await page.locator('.wr-doc').first().waitFor({ timeout: 30000 }).catch(async (error) => {
@@ -307,12 +319,12 @@ await page.locator('.wr-doc').first().waitFor({ timeout: 30000 }).catch(async (e
   console.log('errors:', errors);
   throw error;
 });
-const folder = 'Papers_collection/Papers/Sparse-gated MoE-p-moe';
-check('the paper is in Drive, under Papers_collection/Papers', Boolean(driveFile(`${folder}/main.tex`)) && Boolean(driveFile(`${folder}/sections/intro.tex`)), [...items.values()].filter((item) => item.data).map(pathOf).join(', '));
+const folder = 'Papers_collection/Projects/Sparse-gated MoE-p-moe/LaTeX';
+check('the paper is in Drive, in the project’s folder: Projects/<project>/LaTeX', Boolean(driveFile(`${folder}/main.tex`)) && Boolean(driveFile(`${folder}/sections/intro.tex`)), [...items.values()].filter((item) => item.data).map(pathOf).join(', '));
 check('with where it last synced', /"commit":"[0-9a-f]{40}"/.test(driveFile(`${folder}/.reader-sync.json`)?.data?.toString() ?? ''));
 check('the token went to the Worker once, and is kept sealed, not in the clear', syncs[0]?.token === 'olp_test_token' && [...kept.values()].some((value) => /"iv"/.test(value)) && ![...kept.values()].some((value) => value.includes('olp_test_token')));
 check('its document is listed by its title', /Loss-free routing at 8B/.test(await page.locator('.wr-docs').innerText()));
-check('the page says where it is: Drive, in step with Overleaf', /Google Drive › Papers/.test(await page.locator('.wr-home-head').innerText()) && /through Reader’s server/.test(await page.locator('.wr-home-head').innerText()));
+check('the page says where it is: Drive, in step with Overleaf', /Google Drive › Projects › Sparse-gated MoE-p-moe › LaTeX/.test(await page.locator('.wr-home-head').innerText()) && /through Reader’s server/.test(await page.locator('.wr-home-head').innerText()));
 await shot('write-drive-home');
 
 console.log('opened: compiled on Cloud Run, nothing here to compile with');
@@ -386,13 +398,13 @@ for (let i = 0; i < 60 && !(linked['p-clone'] && linked['p-folder'] && linked['p
   await page.waitForTimeout(500);
   linked = await driveLinks();
 }
-check('both projects moved into Drive by themselves', linked['p-clone'] === 'Old clone-p-clone' && linked['p-folder'] === 'Old folder-p-folder', JSON.stringify(linked));
-check('the project that lost its link to its clone here was found by its folder, and moved', linked['p-lost'] === 'Lost link-p-lost' && /only here/.test(bareFile(bareFor[LOST_ID], 'extra.tex') ?? '') && /only here/.test(driveFile('Papers_collection/Papers/Lost link-p-lost/extra.tex')?.data?.toString() ?? ''), JSON.stringify(linked));
+check('both projects moved into Drive by themselves', linked['p-clone'] === 'Projects/Old clone-p-clone/LaTeX' && linked['p-folder'] === 'Projects/Old folder-p-folder/LaTeX', JSON.stringify(linked));
+check('the project that lost its link to its clone here was found by its folder, and moved', linked['p-lost'] === 'Projects/Lost link-p-lost/LaTeX' && /only here/.test(bareFile(bareFor[LOST_ID], 'extra.tex') ?? '') && /only here/.test(driveFile('Papers_collection/Projects/Lost link-p-lost/LaTeX/extra.tex')?.data?.toString() ?? ''), JSON.stringify(linked));
 check('nothing was shown or asked', (await page.locator('.move-drive').count()) === 0 && (await page.getByLabel(/Overleaf Git token/).count()) === 0);
 check('the clone’s edit made only on this computer reached Overleaf first, by the Companion', /Typed only on this computer/.test(bareFile(bareFor[CLONE_ID], 'main.tex') ?? ''));
-check('and is in Drive', /Typed only on this computer/.test(driveFile('Papers_collection/Papers/Old clone-p-clone/main.tex')?.data?.toString() ?? ''));
-check('the never-synced folder went into Drive as it was, figures too', /never synced/.test(driveFile('Papers_collection/Papers/Old folder-p-folder/main.tex')?.data?.toString() ?? '') && driveFile('Papers_collection/Papers/Old folder-p-folder/figures/plot.png')?.data?.length === 11);
-check('the folders on this computer are left as they were', existsSync(join(root, 'papers', 'old-clone', 'main.tex')) && existsSync(join(root, 'papers', 'old-folder', 'main.tex')));
+check('and is in Drive', /Typed only on this computer/.test(driveFile('Papers_collection/Projects/Old clone-p-clone/LaTeX/main.tex')?.data?.toString() ?? ''));
+check('the never-synced folder went into Drive as it was, figures too', /never synced/.test(driveFile('Papers_collection/Projects/Old folder-p-folder/LaTeX/main.tex')?.data?.toString() ?? '') && driveFile('Papers_collection/Projects/Old folder-p-folder/LaTeX/figures/plot.png')?.data?.length === 11);
+check('and nothing of them is left on this computer: the folders are gone', !existsSync(join(root, 'papers', 'old-clone')) && !existsSync(join(root, 'papers', 'old-folder')) && !existsSync(join(root, 'papers', 'lost-link')), readdirSync(join(root, 'papers')).join(', '));
 await shot('move-drive-silent');
 
 console.log('their first syncs from Drive: from the commit they were moved at, or all of it');
@@ -407,16 +419,41 @@ const syncsBefore = syncs.length;
 await page.goto(`${BASE}/project/?id=p-clone&view=write`, { waitUntil: 'networkidle' });
 await page.locator('.wr-doc').first().click();
 await page.locator('.wr-desk').waitFor({ timeout: 15000 });
-for (let i = 0; i < 40 && !driveFile('Papers_collection/Papers/Old clone-p-clone/notes.tex'); i += 1) await page.waitForTimeout(500);
+for (let i = 0; i < 40 && !driveFile('Papers_collection/Projects/Old clone-p-clone/LaTeX/notes.tex'); i += 1) await page.waitForTimeout(500);
 check('the first sync sent the files’ Git ids, to find their commit by', Boolean(syncs.slice(syncsBefore).find((sync) => sync.baseTree && sync.baseTree['main.tex'])));
-check('the coauthor’s edit came in', /coauthor’s notes/.test(driveFile('Papers_collection/Papers/Old clone-p-clone/notes.tex')?.data?.toString() ?? ''));
-check('and nothing in Overleaf was undone', /Typed only on this computer/.test(bareFile(bareFor[CLONE_ID], 'main.tex') ?? '') && /coauthor’s notes/.test(bareFile(bareFor[CLONE_ID], 'notes.tex') ?? '') && !/<<<<<<</.test(driveFile('Papers_collection/Papers/Old clone-p-clone/main.tex')?.data?.toString() ?? ''));
+check('the coauthor’s edit came in', /coauthor’s notes/.test(driveFile('Papers_collection/Projects/Old clone-p-clone/LaTeX/notes.tex')?.data?.toString() ?? ''));
+check('and nothing in Overleaf was undone', /Typed only on this computer/.test(bareFile(bareFor[CLONE_ID], 'main.tex') ?? '') && /coauthor’s notes/.test(bareFile(bareFor[CLONE_ID], 'notes.tex') ?? '') && !/<<<<<<</.test(driveFile('Papers_collection/Projects/Old clone-p-clone/LaTeX/main.tex')?.data?.toString() ?? ''));
 await page.goto(`${BASE}/project/?id=p-folder&view=write`, { waitUntil: 'networkidle' });
 await page.locator('.wr-doc').first().click();
 await page.locator('.wr-desk').waitFor({ timeout: 15000 });
 for (let i = 0; i < 40 && !/never synced/.test(bareFile(bareFor[FOLDER_ID], 'main.tex') ?? ''); i += 1) await page.waitForTimeout(500);
 check('the never-synced folder went to Overleaf at its first sync', /never synced/.test(bareFile(bareFor[FOLDER_ID], 'main.tex') ?? '') && bareFile(bareFor[FOLDER_ID], 'figures/plot.png') !== null);
-check('beside what Overleaf had, which came into Drive', /Overleaf’s own readme/.test(driveFile('Papers_collection/Papers/Old folder-p-folder/README.md')?.data?.toString() ?? ''));
+check('beside what Overleaf had, which came into Drive', /Overleaf’s own readme/.test(driveFile('Papers_collection/Projects/Old folder-p-folder/LaTeX/README.md')?.data?.toString() ?? ''));
+
+console.log('kept on this computer instead, as chosen: a clone of Overleaf here, left where it is');
+page.on('dialog', (dialog) => void dialog.accept());
+await page.goto(`${BASE}/project/?id=p-clone&view=write`, { waitUntil: 'networkidle' });
+await page.getByRole('button', { name: 'Keep on this computer instead' }).click();
+await page.getByText('Where on this computer?').waitFor({ timeout: 20000 });
+await shot('write-local-setup');
+await page.getByRole('button', { name: 'Clone from Overleaf' }).click();
+await page.locator('.wr-doc').first().waitFor({ timeout: 20000 });
+check('cloned into a folder on this computer', existsSync(join(root, 'papers', 'old-clone', 'notes.tex')));
+check('the page says it is on this computer', /~\/Reader\/papers\/old-clone/.test(await page.locator('.wr-home-head').innerText()) && (await page.getByRole('button', { name: 'Keep in Google Drive instead' }).count()) === 1);
+await shot('write-local-home');
+await page.goto(`${BASE}/projects/`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(4000);
+check('and not moved back into Drive by itself', existsSync(join(root, 'papers', 'old-clone', 'notes.tex')));
+
+console.log('back to Google Drive: the clone’s edits to Overleaf, the folder removed');
+writeFileSync(join(root, 'papers', 'old-clone', 'notes.tex'), 'A coauthor’s notes, and mine from this computer.\n');
+await page.goto(`${BASE}/project/?id=p-clone&view=write`, { waitUntil: 'networkidle' });
+await page.getByRole('button', { name: 'Keep in Google Drive instead' }).click();
+await page.getByText(/Google Drive › Projects › Old clone-p-clone › LaTeX/).waitFor({ timeout: 20000 });
+check('the edit made on this computer went to Overleaf', /mine from this computer/.test(bareFile(bareFor[CLONE_ID], 'notes.tex') ?? ''));
+check('the folder is gone from this computer', !existsSync(join(root, 'papers', 'old-clone')));
+for (let i = 0; i < 40 && !/mine from this computer/.test(driveFile('Papers_collection/Projects/Old clone-p-clone/LaTeX/notes.tex')?.data?.toString() ?? ''); i += 1) await page.waitForTimeout(500);
+check('and it came into Drive with the next sync', /mine from this computer/.test(driveFile('Papers_collection/Projects/Old clone-p-clone/LaTeX/notes.tex')?.data?.toString() ?? ''));
 
 check('no errors on the page', !errors.length, errors.join(' | '));
 await browser.close();

@@ -92,9 +92,10 @@ export function driveHost(config: () => DriveConfig | null, folder: string, unde
     if (!rootId) {
       const now = config();
       rootId = (async () => {
-        const top = await ensureFolder(t, now?.folderName?.trim() || ROOT_FOLDER);
-        const all = await ensureFolder(t, under, top);
-        return ensureFolder(t, folder, all);
+        // The folder at under/folder, either a path (Projects/<project>/LaTeX), each part made on the way.
+        let at = await ensureFolder(t, now?.folderName?.trim() || ROOT_FOLDER);
+        for (const part of [under, ...folder.split('/')].filter(Boolean)) at = await ensureFolder(t, part, at);
+        return at;
       })();
       rootId.catch(() => (rootId = null));
     }
@@ -218,7 +219,7 @@ export function driveHost(config: () => DriveConfig | null, folder: string, unde
 /** The address of the project's folder in Drive, for "Open in Drive". */
 export async function driveFolderLink(config: DriveConfig, folder: string, under = PLAYGROUNDS_FOLDER): Promise<string> {
   const t = await ensureDriveToken(config.clientId);
-  const top = await ensureFolder(t, config.folderName?.trim() || ROOT_FOLDER);
-  const all = await ensureFolder(t, under, top);
-  return `https://drive.google.com/drive/folders/${await ensureFolder(t, folder, all)}`;
+  let at = await ensureFolder(t, config.folderName?.trim() || ROOT_FOLDER);
+  for (const part of [under, ...folder.split('/')].filter(Boolean)) at = await ensureFolder(t, part, at);
+  return `https://drive.google.com/drive/folders/${at}`;
 }
