@@ -351,6 +351,8 @@ export async function handleLatex(request, env, path, { json, headers, authorize
         } catch (error) {
           return json({ error: `Reader’s server couldn’t reach its compiler to check the token (${error?.message || error}).` }, 502, noStore);
         }
+        // The compiler not updated yet (it deploys after the Worker): said, not taken for a wrong token.
+        if (checked.status === 404) return json({ error: 'Reader’s server is being updated and can’t check tokens for a few minutes yet: try again shortly.' }, 503, noStore);
         if (!checked.ok) {
           const said = await checked.json().catch(() => ({}));
           return json({ error: said.error || `the compiler answered ${checked.status}`, mismatch: checked.status === 401 }, checked.status === 401 ? 403 : 502, noStore);
