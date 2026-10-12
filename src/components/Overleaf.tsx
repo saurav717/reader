@@ -26,11 +26,12 @@ import {
   writeDraft,
   type DraftFile,
 } from '../lib/overleaf';
-import { createPrivateRepo, githubAccount, makeRepoPrivate, parseRepo, repoNameFor, repoState, type RepoState } from '../lib/github';
+import { createPrivateRepo, makeRepoPrivate, parseRepo, repoNameFor, repoState, type RepoState } from '../lib/github';
 import { papersIn, projectsOf, type Project } from '../lib/projects';
 import type { OverleafLink, OverleafView, Paper, Settings } from '../types';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
 import { SyncedThrough, useOverleafAccounts } from './OverleafAccounts';
+import { GitHubConnect as Connect } from './Connections';
 import { agoShort, lastPlace, notNow, openWriteHome, saidNotNow, type WriteHomeAsk } from '../lib/writePlace';
 import { CheckIcon, CopyIcon, ExternalIcon, LockIcon } from './icons';
 
@@ -205,60 +206,11 @@ function updateLink(updateCollection: ReturnType<typeof useStore>['updateCollect
 // ------------------------------------------------ GitHub, kept private --
 
 /**
- * The GitHub account the paper's repository is reached with: a token, checked
- * against GitHub so the page says whose it is. It is the same token as
- * Settings → Git mirror, kept in this browser only.
+ * The GitHub account the paper's repository is reached with: the one
+ * connected under Projects → Connections, its token kept by Reader's server.
  */
 export function GitHubConnect({ onAccount }: { onAccount?: (login: string | null) => void }) {
-  const { settings, updateSettings } = useStore();
-  const saved = settings.githubToken.trim();
-  const [typed, setTyped] = useState('');
-  const [who, setWho] = useState<{ login: string } | { error: string } | null>(null);
-  useEffect(() => {
-    if (!saved) {
-      setWho(null);
-      onAccount?.(null);
-      return;
-    }
-    let live = true;
-    setWho(null);
-    githubAccount(saved).then(
-      (account) => live && (setWho(account), onAccount?.(account.login)),
-      (error: unknown) => live && (setWho({ error: error instanceof Error ? error.message : String(error) }), onAccount?.(null)),
-    );
-    return () => {
-      live = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saved]);
-  if (saved && (!who || 'login' in who)) {
-    return (
-      <div className="gh-connect is-on">
-        <span>{who ? <>GitHub: connected as <b>@{who.login}</b></> : 'Checking the GitHub token…'}</span>
-        <button type="button" className="link-btn" onClick={() => updateSettings({ githubToken: '' })} title="Forget the token in this browser (revoke it on GitHub too, if you are done with it)">
-          Disconnect
-        </button>
-      </div>
-    );
-  }
-  return (
-    <div className="gh-connect">
-      {who && 'error' in who ? <p className="ol-bad">{who.error}</p> : null}
-      <p className="pj-sub">
-        Connect GitHub with a{' '}
-        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer noopener">
-          fine-grained token
-        </a>
-        : Repository access “All repositories” (so it can make the paper’s repository), permissions Administration and Contents: read and write, and an expiry. It stays in this browser only and goes to GitHub alone.
-      </p>
-      <div className="gh-connect-row">
-        <input type="password" value={typed} placeholder="github_pat_…" autoComplete="off" aria-label="GitHub token" onChange={(event) => setTyped(event.target.value)} />
-        <button type="button" className="btn sm" disabled={!typed.trim()} onClick={() => (updateSettings({ githubToken: typed.trim() }), setTyped(''))}>
-          Connect
-        </button>
-      </div>
-    </div>
-  );
+  return <Connect compact onAccount={onAccount} />;
 }
 
 /** Whether the paper's repository is private, as the token sees it; and the way to make it so. */

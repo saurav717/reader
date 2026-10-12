@@ -252,7 +252,7 @@ describe('a job’s state', () => {
     kv.get = async (key) => kept.get(key) ?? null;
     kv.put = async (key, value) => void kept.set(key, value);
     kv.delete = async (key) => void kept.delete(key);
-    const env = { SESSIONS: kv, LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' };
+    const env = { SESSIONS: kv, LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c', SECRETS_KEY: 'k'.repeat(44) };
     const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers });
     const tools = { json, headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: () => {} };
     const ask = (path, init = {}) => handleLatex(new Request(`https://w${path}`, init), env, path, tools);
@@ -294,6 +294,9 @@ describe('a job’s state', () => {
     assert.equal(connected.accounts.length, 2);
     assert.equal(connected.accounts.find((item) => item.id === connected.account).label, 'Lab account');
     assert.ok(![...kept.values()].some((value) => value.includes('olp_lab')), 'not kept in the clear');
+    // Nothing in KV names the person or their Overleaf email: neither the keys nor the values.
+    assert.ok(![...kept.keys()].some((key) => key.includes('a@b.c')), 'no email in a KV key');
+    assert.ok(![...kept.values()].some((value) => value.includes('Lab account') || value.includes('a@b.c')), 'no label or email in the clear');
     const lab = await (await sync({ url: labs })).json();
     assert.equal(lab.account, connected.account);
     assert.equal(lab.accountLabel, 'Lab account');
@@ -325,15 +328,48 @@ describe('a job’s state', () => {
     assert.equal((await sync({ url: 'https://evil.example/repo' })).status, 400);
   });
 
-  it('reads a token kept before there could be several accounts as one account', async () => {
+  it('reads a token kept before there could be several accounts as one account, and moves it to the new seal', async () => {
     const kept = new Map();
     const kv = { ...staleKv(), get: async (key) => kept.get(key) ?? null, put: async (key, value) => void kept.set(key, value), delete: async (key) => void kept.delete(key) };
-    const env = { SESSIONS: kv, LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' };
+    const env = { SESSIONS: kv, LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c', SECRETS_KEY: 'k'.repeat(44) };
     kept.set('overleaf-token:a@b.c', await sealToken(env, 'olp_old'));
     const tools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers }), headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: () => {} };
     const answer = await (await handleLatex(new Request('https://w/latex/overleaf/token'), env, '/latex/overleaf/token', tools)).json();
     assert.equal(answer.known, true);
     assert.equal(answer.accounts.length, 1);
+    assert.equal(kept.has('overleaf-token:a@b.c'), false, 'the old record, under the plain email, is gone');
+    assert.equal(kept.size, 1);
+    assert.equal(JSON.parse(JSON.parse([...kept.values()][0]).accounts[0].token).v, 2, 'sealed the new way');
+    assert.ok(![...kept.keys()][0].includes('a@b.c'));
+  });
+
+  it('without SECRETS_KEY keeps nothing new, and says what is missing', async () => {
+    const kept = new Map();
+    const kv = { ...staleKv(), get: async (key) => kept.get(key) ?? null, put: async (key, value) => void kept.set(key, value), delete: async (key) => void kept.delete(key) };
+    const env = { SESSIONS: kv, LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' };
+    const tools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers }), headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: () => {} };
+    const answer = await handleLatex(new Request('https://w/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: 'olp_x' }) }), env, '/latex/overleaf/token', tools);
+    assert.equal(answer.status, 501);
+    assert.match((await answer.json()).error, /SECRETS_KEY/);
+    assert.equal(kept.size, 0);
+  });
+
+  it('forgets an Overleaf account unused for half a year', async () => {
+    const kept = new Map();
+    const kv = { ...staleKv(), get: async (key) => kept.get(key) ?? null, put: async (key, value) => void kept.set(key, value), delete: async (key) => void kept.delete(key) };
+    const env = { SESSIONS: kv, LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c', SECRETS_KEY: 'k'.repeat(44) };
+    const tools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers }), headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: () => {} };
+    {
+      const put = await handleLatex(new Request('https://w/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: 'olp_x', label: 'me@uni.edu' }) }), env, '/latex/overleaf/token', tools);
+      assert.equal(put.status, 200);
+    }
+    const [key, value] = [...kept.entries()][0];
+    const record = JSON.parse(value);
+    record.accounts[0].lastUsedAt = new Date(Date.now() - 200 * 24 * 3600_000).toISOString();
+    kept.set(key, JSON.stringify(record));
+    const answer = await (await handleLatex(new Request('https://w/latex/overleaf/token'), env, '/latex/overleaf/token', tools)).json();
+    assert.equal(answer.known, false);
+    assert.equal(kept.size, 0, 'deleted from KV, not only hidden');
   });
 
   it('seals and opens a token, and opens nothing sealed under another secret', async () => {

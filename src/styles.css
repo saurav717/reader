@@ -7776,3 +7776,4 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .wr-ghc { position: relative; padding-right: 34px; }
 .wr-ghc > .wr-ghs-x { position: absolute; top: 6px; right: 6px; }
 .wr-info { font-size: 13px; }
+.cx-warn { margin: 0; padding: 6px 9px; border-radius: 7px; font-size: 12px; line-height: 1.5; color: var(--ink); background: color-mix(in srgb, #c9a400 12%, transparent); }

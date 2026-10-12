@@ -165,7 +165,7 @@ export default function OverleafAccounts({ open = false, why, onConnected, curre
           <label className="wr-field">
             <span>Its Overleaf Git token</span>
             <input type="password" value={token} autoComplete="off" placeholder="olp_…" onChange={(event) => setToken(event.target.value)} aria-label="Overleaf Git token" />
-            <small>Kept encrypted by Reader’s server, for your syncs only; never in a paper, in Drive, or in this browser. Overleaf’s Git integration needs a paid Overleaf plan.</small>
+            <small>The token and your email are kept encrypted by Reader’s server, for you alone and your syncs only — never sent back to any page, in a paper, in Drive or in this browser — and forgotten after six months unused. Overleaf’s Git integration needs a paid Overleaf plan.</small>
           </label>
           <label className="wr-field">
             <span>Optional: one of this account’s Overleaf projects, to check the token on</span>

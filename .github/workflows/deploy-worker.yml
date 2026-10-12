@@ -42,7 +42,7 @@ jobs:
         run: npm ci
 
       - name: Test the Worker
-        run: node --test scripts/usage.test.mjs scripts/passes.test.mjs scripts/devices.test.mjs scripts/latex-github.test.mjs
+        run: node --test scripts/usage.test.mjs scripts/passes.test.mjs scripts/devices.test.mjs scripts/latex-github.test.mjs scripts/secrets.test.mjs scripts/github-token.test.mjs
 
       - name: Build it, deploying nothing
         if: github.event_name == 'pull_request'
@@ -57,3 +57,7 @@ jobs:
         run: |
           npx --yes wrangler@4 deploy
           echo "### Deployed the Worker (reader-arxiv-proxy) from saurav717/reader@${GITHUB_SHA::7}" >> "$GITHUB_STEP_SUMMARY"
+          # Its names only, never the values: without SECRETS_KEY the Worker keeps no one's tokens (docs/deploy.md).
+          if ! npx --yes wrangler@4 secret list | grep -q '"SECRETS_KEY"'; then
+            echo "::warning::The Worker has no SECRETS_KEY secret: connecting Overleaf or GitHub is refused until it has one. openssl rand -base64 32 | npx wrangler secret put SECRETS_KEY"
+          fi

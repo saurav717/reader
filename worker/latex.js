@@ -37,6 +37,8 @@
 //   LATEX_RUNNER_TOKEN  any long random string, the same as the repository's secret of that name
 //   LATEX_REPO          a var, owner/repo; saurav717/reader when unset
 
+import { SECRETS_MISSING, openSecret, sealSecret, secretsKey, secretsReady, staleUse, unusedTooLong } from './secrets.js';
+
 const TTL_S = 60 * 60;
 const MAX_BYTES = 20 * 1024 * 1024;
 const ACTIVE_S = 10 * 60;
@@ -199,13 +201,13 @@ export function cleanManifest(raw) {
 const OVERLEAF_REMOTE = /^https:\/\/git\.overleaf\.com\/[A-Za-z0-9]+\/?$/;
 const overleafKey = (owner) => `overleaf-token:${owner}`;
 
-/** The key Overleaf tokens are sealed with: derived from the Cloud Run token, a secret only this Worker and the compiler hold. */
+/** The key Overleaf tokens were sealed with before worker/secrets.js (derived from the Cloud Run token): kept only to open those, which are then sealed again the new way. */
 async function tokenKey(env) {
   const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(env.LATEX_CLOUD_RUN_TOKEN || '').trim()), 'HKDF', false, ['deriveKey']);
   return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new TextEncoder().encode('reader-overleaf-token'), info: new Uint8Array() }, material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
 
-/** An Overleaf token, encrypted (AES-GCM) for keeping in KV. */
+/** An Overleaf token sealed the old way: what records from before look like (and the tests make). */
 export async function sealToken(env, token) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await tokenKey(env), new TextEncoder().encode(token)));
@@ -226,42 +228,87 @@ export async function openToken(env, kept) {
 }
 
 /**
- * The person's Overleaf accounts, each with its Git token sealed: kept under
- * one key, `{ accounts: [{ id, label, sealed, addedAt }] }`. A single sealed
- * token, as kept before there could be several, reads as one account.
+ * The person's Overleaf accounts, each with its Git token and its email
+ * sealed for them alone (worker/secrets.js), filed under a keyed hash of
+ * their email: `{ accounts: [{ id, label, token, addedAt, lastUsedAt }] }`,
+ * `label` and `token` sealed. Read here opened — `{ id, label, token,
+ * addedAt, lastUsedAt }` in the clear, for this request only. An account
+ * unused for UNUSED_DAYS is forgotten. Accounts kept the old way (sealed
+ * with a key from LATEX_CLOUD_RUN_TOKEN, the email in the clear, under the
+ * plain email) are opened, then sealed again and moved, as they are read.
  */
-async function readAccounts(kv, owner) {
-  const raw = await kv.get(overleafKey(owner));
-  if (!raw) return [];
-  try {
-    const kept = JSON.parse(raw);
-    if (kept && Array.isArray(kept.accounts)) return kept.accounts.filter((item) => item && typeof item.id === 'string' && typeof item.sealed === 'string');
-    if (kept && typeof kept.iv === 'string') return [{ id: 'a1', label: 'Overleaf account', sealed: raw, addedAt: '' }];
-  } catch {
-    // unreadable: as if none
+async function readAccounts(env, kv, owner) {
+  const ready = secretsReady(env);
+  const raw = ready ? await kv.get(await secretsKey(env, 'overleaf', owner)) : null;
+  let accounts = [];
+  if (raw) {
+    try {
+      const kept = JSON.parse(raw);
+      for (const item of Array.isArray(kept?.accounts) ? kept.accounts : []) {
+        if (!item || typeof item.id !== 'string') continue;
+        const token = await openSecret(env, owner, 'overleaf-token', item.token);
+        // One that no longer opens (SECRETS_KEY changed) is of no use to anyone: left out, and dropped at the next write.
+        if (!token) continue;
+        accounts.push({ id: item.id, label: (await openSecret(env, owner, 'overleaf-label', item.label)) ?? 'Overleaf account', token, addedAt: item.addedAt || '', lastUsedAt: item.lastUsedAt || item.addedAt || '' });
+      }
+    } catch {
+      // unreadable: as if none
+    }
+  } else {
+    // Kept the old way: opened with the old key, then sealed again and moved (with SECRETS_KEY), the old record deleted.
+    const legacy = await kv.get(overleafKey(owner));
+    if (legacy) {
+      try {
+        const kept = JSON.parse(legacy);
+        const items = Array.isArray(kept?.accounts) ? kept.accounts : typeof kept?.iv === 'string' ? [{ id: 'a1', label: 'Overleaf account', sealed: legacy, addedAt: '' }] : [];
+        for (const item of items) {
+          const token = item && typeof item.sealed === 'string' ? await openToken(env, item.sealed) : null;
+          if (token) accounts.push({ id: item.id, label: typeof item.label === 'string' ? item.label : 'Overleaf account', token, addedAt: item.addedAt || '', lastUsedAt: new Date().toISOString() });
+        }
+      } catch {
+        // unreadable: as if none
+      }
+      if (ready) {
+        await writeAccounts(env, kv, owner, accounts);
+        await kv.delete(overleafKey(owner));
+      }
+    }
   }
-  return [];
+  const kept = accounts.filter((account) => !unusedTooLong(account.lastUsedAt));
+  if (kept.length !== accounts.length && ready) await writeAccounts(env, kv, owner, kept);
+  return kept;
 }
 
-const writeAccounts = (kv, owner, accounts) => (accounts.length ? kv.put(overleafKey(owner), JSON.stringify({ accounts })) : kv.delete(overleafKey(owner)));
+/** The accounts, sealed and kept (none: the record deleted). Needs SECRETS_KEY. */
+async function writeAccounts(env, kv, owner, accounts) {
+  const key = await secretsKey(env, 'overleaf', owner);
+  if (!accounts.length) return kv.delete(key);
+  const sealed = [];
+  for (const account of accounts) {
+    sealed.push({ id: account.id, label: await sealSecret(env, owner, 'overleaf-label', account.label), token: await sealSecret(env, owner, 'overleaf-token', account.token), addedAt: account.addedAt, lastUsedAt: account.lastUsedAt || account.addedAt });
+  }
+  return kv.put(key, JSON.stringify({ accounts: sealed }));
+}
 
 /** The accounts as the page sees them: never a token. */
-const shownAccounts = (accounts) => accounts.map(({ id, label, addedAt }) => ({ id, label, addedAt }));
+const shownAccounts = (accounts) => accounts.map(({ id, label, addedAt, lastUsedAt }) => ({ id, label, addedAt, lastUsedAt }));
 
 /** A token added as an account (or the account that has it already, its label changed when one is given); its id back. */
 async function addAccount(env, kv, owner, token, label) {
-  const accounts = await readAccounts(kv, owner);
-  for (const account of accounts) {
-    if ((await openToken(env, account.sealed)) === token) {
-      if (label) account.label = label;
-      await writeAccounts(kv, owner, accounts);
-      return { id: account.id, accounts };
-    }
+  const accounts = await readAccounts(env, kv, owner);
+  const now = new Date().toISOString();
+  const known = accounts.find((account) => account.token === token);
+  if (known) {
+    if (label) known.label = label;
+    known.lastUsedAt = now;
+    await writeAccounts(env, kv, owner, accounts);
+    return { id: known.id, accounts };
   }
   const id = `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  accounts.push({ id, label: label || `Overleaf account ${accounts.length + 1}`, sealed: await sealToken(env, token), addedAt: new Date().toISOString() });
-  await writeAccounts(kv, owner, accounts.slice(-8));
-  return { id, accounts: accounts.slice(-8) };
+  accounts.push({ id, label: label || `Overleaf account ${accounts.length + 1}`, token, addedAt: now, lastUsedAt: now });
+  const left = accounts.slice(-8);
+  await writeAccounts(env, kv, owner, left);
+  return { id, accounts: left };
 }
 
 /** The kept folder's name: whose and which paper, hashed, so one person's folder is never another's. */
@@ -325,8 +372,10 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     // One account forgotten (?account=), or all of them.
     if (request.method === 'DELETE') {
       const which = new URL(request.url).searchParams.get('account');
-      const left = which ? (await readAccounts(kv, owner)).filter((account) => account.id !== which) : [];
-      await writeAccounts(kv, owner, left);
+      const left = which ? (await readAccounts(env, kv, owner)).filter((account) => account.id !== which) : [];
+      if (secretsReady(env)) await writeAccounts(env, kv, owner, left);
+      // Every account forgotten: whatever was kept the old way goes too.
+      if (!left.length) await kv.delete(overleafKey(owner));
       return json({ known: left.length > 0, accounts: shownAccounts(left) }, 200, noStore);
     }
     // An account connected: with one of its projects (`url`), the token is tried on it first — a token
@@ -336,6 +385,7 @@ export async function handleLatex(request, env, path, { json, headers, authorize
       const token = typeof body?.token === 'string' ? body.token.trim() : '';
       const label = typeof body?.label === 'string' ? body.label.trim().slice(0, 80) : '';
       if (!token || token.length > 200 || /\s/.test(token)) return json({ error: 'an Overleaf Git token (Overleaf: Account Settings → Git integration → Generate token)' }, 400, noStore);
+      if (!secretsReady(env)) return json({ error: SECRETS_MISSING }, 501, noStore);
       if (body?.url != null) {
         if (typeof body.url !== 'string' || !OVERLEAF_REMOTE.test(body.url)) return json({ error: 'one of the account’s Overleaf projects, by its link (https://www.overleaf.com/project/…)' }, 400, noStore);
         if (!latexCompilerReady(env, 'cloudrun')) return json({ error: 'checking a token needs the compiler on Cloud Run (LATEX_CLOUD_RUN_URL)' }, 501, noStore);
@@ -361,7 +411,7 @@ export async function handleLatex(request, env, path, { json, headers, authorize
       const added = await addAccount(env, kv, owner, token, label);
       return json({ known: true, account: added.id, accounts: shownAccounts(added.accounts) }, 200, noStore);
     }
-    const accounts = await readAccounts(kv, owner);
+    const accounts = await readAccounts(env, kv, owner);
     return json({ known: accounts.length > 0, accounts: shownAccounts(accounts) }, 200, noStore);
   }
   // /files: the Overleaf project's files as they are, nothing merged or pushed — for comparing a paper with it.
@@ -382,12 +432,12 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     // Which account's token: one given now (added as an account), else the project's own (`account`), then the others —
     // a token opens only the projects of its own Overleaf account and those shared with it.
     const given = typeof body.token === 'string' ? body.token.trim() : '';
+    if (given && !secretsReady(env)) return json({ error: SECRETS_MISSING }, 501, noStore);
     if (given) await addAccount(env, kv, owner, given, typeof body.label === 'string' ? body.label.trim().slice(0, 80) : '');
-    const accounts = await readAccounts(kv, owner);
+    const accounts = await readAccounts(env, kv, owner);
     const order = [...accounts].sort((a, b) => (b.id === body.account ? 1 : 0) - (a.id === body.account ? 1 : 0));
     if (given) {
-      const opened = await Promise.all(order.map((account) => openToken(env, account.sealed)));
-      const at = opened.indexOf(given);
+      const at = order.findIndex((account) => account.token === given);
       if (at > 0) order.unshift(...order.splice(at, 1));
     }
     if (!order.length) return json({ error: 'Connect your Overleaf account: its Git token (Overleaf: Account Settings → Git integration).', needToken: true }, 400, noStore);
@@ -396,7 +446,7 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     // and when it can't open it any more (unshared, or its token revoked), another that can is used — and said.
     const refused = [];
     for (const account of order) {
-      const token = await openToken(env, account.sealed);
+      const token = account.token;
       if (!token) continue;
       let answer;
       try {
@@ -417,6 +467,11 @@ export async function handleLatex(request, env, path, { json, headers, authorize
         continue;
       }
       const said = await answer.json().catch(() => ({ error: `the compiler answered ${answer.status}` }));
+      // Used: so it isn't forgotten as unused (written at most once a day).
+      if (answer.ok && secretsReady(env) && staleUse(account.lastUsedAt)) {
+        account.lastUsedAt = new Date().toISOString();
+        await writeAccounts(env, kv, owner, accounts);
+      }
       const asked = refused.find((item) => item.id === body.account);
       return json({ ...said, account: account.id, accountLabel: account.label, ...(asked ? { fellBackFrom: asked.label } : {}) }, answer.status, noStore);
     }
