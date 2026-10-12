@@ -1,0 +1,43 @@
+; Reader's Windows installer and uninstaller: what electron-builder's NSIS scripts
+; leave to the app (nsis.include in electron-builder.config.cjs).
+;
+; Installing: an "Uninstall Reader" shortcut beside Reader's in the Start menu. The
+; Companion itself is set up by the app the first time it opens (main.js), with
+; the uv and the wheel inside it, so this installer needs no network and no Python.
+;
+; Uninstalling (Settings -> Apps -> Reader -> Uninstall, the Start menu's Uninstall
+; Reader, or Help -> Uninstall Reader... in the app, which runs this silently after
+; doing the same itself): the Companion stopped and no longer started at sign-in,
+; the Reader extension taken out of VS Code, the Companion program uninstalled, and,
+; only if asked, the files and settings deleted too. Never on an update: the new
+; version's installer runs this uninstaller first, and nothing is taken away then.
+
+!macro customInstall
+  CreateShortCut "$SMPROGRAMS\Uninstall Reader.lnk" "$INSTDIR\Uninstall Reader.exe" "" "$INSTDIR\Reader.exe" 0
+!macroend
+
+!macro customUnInstall
+  ${ifNot} ${isUpdated}
+    StrCpy $R8 ""
+    ; Silent (the app's own uninstall): the app asked already, and did what was asked.
+    MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Also delete your Reader files and settings?$\r$\n$\r$\nYour projects and notebooks in $PROFILE\Reader, the Companion's settings, and what Reader keeps on this PC (a library you didn't sign in to Google Drive with).$\r$\n$\r$\nYour library in Google Drive isn't touched." /SD IDNO IDNO keepFiles
+      StrCpy $R8 "--delete-files"
+    keepFiles:
+
+    DetailPrint "Stopping the Reader Companion…"
+    IfFileExists "$PROFILE\.local\bin\reader-companion.exe" 0 noCompanion
+      nsExec::ExecToLog '"$PROFILE\.local\bin\reader-companion.exe" uninstall --vscode $R8'
+      Pop $0
+    noCompanion:
+    IfFileExists "$INSTDIR\resources\companion\uv.exe" 0 noUv
+      nsExec::ExecToLog '"$INSTDIR\resources\companion\uv.exe" tool uninstall reader-companion'
+      Pop $0
+    noUv:
+    RMDir /r "$PROFILE\.reader-companion\bin"
+    ${if} $R8 != ""
+      RMDir /r "$PROFILE\.reader-companion"
+      RMDir /r "$APPDATA\Reader"
+    ${endIf}
+    Delete "$SMPROGRAMS\Uninstall Reader.lnk"
+  ${endIf}
+!macroend

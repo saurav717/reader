@@ -8,10 +8,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { JupyterServer, Machine } from '../lib/colab';
 import { checkJupyter, colabAvailable, MACHINES } from '../lib/colab';
 import { COLAB, isOn, serversOn, switched } from '../lib/compute';
-import type { CompanionInfo, MacDmg } from '../lib/companion';
+import type { CompanionInfo, DesktopApps } from '../lib/companion';
 import { claimForAccount, forgetDevice, pairForAccount, syncDevices } from '../lib/devices';
 import { currentAccount, onProxyChange } from '../lib/api';
-import { COMPANION_PORT, COMPANION_TLS_PORT, STARTABLE, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, findLocalCompanion, isSafari, latestMacDmg, normaliseCode, pairFragment, setStopWithApp, showCompanionCode, shutdownCompanion, startCompanion, vscodeInstall } from '../lib/companion';
+import { COMPANION_PORT, COMPANION_TLS_PORT, STARTABLE, companionCommands, companionDownloads, companionPort, desktopSystem, companionRoutes, findCompanion, findLocalCompanion, isSafari, latestDesktopApps, normaliseCode, pairFragment, setStopWithApp, showCompanionCode, shutdownCompanion, startCompanion, vscodeInstall } from '../lib/companion';
 import { fromIpynb } from '../lib/notebook';
 import { newCell } from '../lib/notebook';
 import type { Compute, FilesHome, NewPlayground, Playground as PlaygroundRecord } from '../lib/playground';
@@ -927,15 +927,17 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
   const vscode = vscodeInstall(siteBase(), windows);
   const downloads = companionDownloads(siteBase());
   const [system, setSystem] = useState(desktopSystem);
-  const [dmg, setDmg] = useState<MacDmg | null>(null);
+  // The Reader desktop app, once a release has it for this system; until then the installer scripts.
+  const [apps, setApps] = useState<DesktopApps>({});
   useEffect(() => {
     let live = true;
-    void latestMacDmg().then((url) => live && setDmg(url));
+    void latestDesktopApps().then((found) => live && setApps(found));
     return () => {
       live = false;
     };
   }, []);
-  const download = system === 'mac' && dmg ? { ...downloads.mac, href: dmg.url, file: 'Reader.dmg' } : downloads[system];
+  const app = system === 'mac' ? apps.mac : system === 'windows' ? apps.windows : (apps.linux?.appImage ?? apps.linux?.deb ?? apps.linux?.rpm);
+  const download = app ? { ...downloads[system], href: app.url, file: app.file } : downloads[system];
   const [found, setFound] = useState<CompanionInfo | null>(null);
   const [foundAt, setFoundAt] = useState<string | null>(null);
   const [code, setCode] = useState('');
@@ -1090,46 +1092,67 @@ export function CompanionConnect({ onPaired, onManual, onClose }: { onPaired?: (
           {way === 'app' ? (
           <div className="pg-companion-install">
             <p className="pg-companion-lede">
-              <b>Get the Reader app.</b> One install sets up the Jupyter server your projects run on (your files stay in <span className="mono">~/Reader</span>), adds the Reader extension to VS Code if you have it, and makes a <b>Reader</b> app: open it from the Dock, the Start menu or Spotlight, and the site opens in its own window, connected to this computer. Nothing else to install first.
+              <b>Get the Reader app.</b> Reader in a window of its own, no browser needed: open it from the Dock, the Start menu or your applications. The first time it opens it sets up the Jupyter server your projects run on (your files stay in <span className="mono">~/Reader</span>) and adds the Reader extension to VS Code if you have it, then connects to this computer by itself. Nothing else to install first.
             </p>
-            {system === 'linux' ? (
+            {app && system === 'linux' && apps.linux ? (
+              <div className="pg-companion-downloads">
+                {apps.linux.deb ? (
+                  <a className="btn primary pg-companion-download" href={apps.linux.deb.url}>
+                    Download .deb <small>Ubuntu, Debian</small>
+                  </a>
+                ) : null}
+                {apps.linux.rpm ? (
+                  <a className="btn pg-companion-download" href={apps.linux.rpm.url}>
+                    .rpm <small>Fedora, openSUSE</small>
+                  </a>
+                ) : null}
+                {apps.linux.appImage ? (
+                  <a className="btn pg-companion-download" href={apps.linux.appImage.url}>
+                    AppImage <small>any Linux</small>
+                  </a>
+                ) : null}
+              </div>
+            ) : !app && system === 'linux' ? (
               <CopyBlock code={download.command} />
             ) : (
-              <a className="btn primary pg-companion-download" href={download.href} download={system === 'mac' && dmg ? undefined : true}>
+              <a className="btn primary pg-companion-download" href={download.href} download={app ? undefined : true}>
                 Download for {download.label}
               </a>
             )}
             <small className="pg-companion-note">
-              {system === 'mac' ? (
+              {app && system === 'mac' ? (
                 <>
-                  {dmg ? (
-                    <>
-                      Open the .dmg, drag <b>Reader</b> to Applications, and open it.{' '}
-                      {dmg.notarized ? (
-                        'It’s signed and notarized by Apple, so macOS opens it without asking.'
-                      ) : (
-                        <>
-                          macOS stops it the first time (“Apple could not verify…”, as it isn’t notarized): click <b>Done</b>, then <b>Open Anyway</b> in System Settings → Privacy &amp; Security, and <b>Open</b>. After that it opens like any app. To skip that step, paste <span className="mono">{download.command}</span> into Terminal instead: it makes the same Reader app.
-                        </>
-                      )}{' '}
-                      The first time, it sets itself up in a minute or two.
-                    </>
+                  Open the .dmg, drag <b>Reader</b> to Applications, and open it.{' '}
+                  {app.signed ? (
+                    'It’s signed and notarized by Apple, so macOS opens it without asking.'
                   ) : (
                     <>
-                      Open the zip, then double-click <b>{download.file}</b>. macOS stops it once (“Apple could not verify…”): click <b>Done</b>, then <b>Open Anyway</b> in System Settings → Privacy &amp; Security, and confirm. Or paste <span className="mono">{download.command}</span> into Terminal, which macOS doesn’t stop. The Reader app it makes is made on your Mac, so that one opens without asking.
+                      macOS stops it the first time (“Apple could not verify…”, as it isn’t notarized): click <b>Done</b>, then <b>Open Anyway</b> in System Settings → Privacy &amp; Security, and <b>Open</b>. After that it opens like any app.
                     </>
-                  )}
+                  )}{' '}
+                  To uninstall it: <b>Reader</b> menu → <b>Uninstall Reader…</b>
+                </>
+              ) : app && system === 'windows' ? (
+                <>
+                  Run <b>{app.file}</b>: a setup like any program’s, for you or for everyone on this PC.{app.signed ? '' : <> If Windows says it protected your PC, choose <b>More info</b> → <b>Run anyway</b>.</>} To uninstall it: Settings → Apps → <b>Reader</b> → Uninstall, or <b>Uninstall Reader</b> in the Start menu.
+                </>
+              ) : app ? (
+                <>
+                  Open the .deb or .rpm with your software installer (or <span className="mono">sudo apt install ./{apps.linux?.deb?.file ?? 'reader.deb'}</span>), or make the AppImage executable and run it: Reader is then in your applications. To uninstall it: <b>Uninstall Reader</b> in your applications (or right-click Reader), or <span className="mono">sudo apt remove reader</span>.
+                </>
+              ) : system === 'mac' ? (
+                <>
+                  Open the zip, then double-click <b>{download.file}</b>. macOS stops it once (“Apple could not verify…”): click <b>Done</b>, then <b>Open Anyway</b> in System Settings → Privacy &amp; Security, and confirm. Or paste <span className="mono">{download.command}</span> into Terminal, which macOS doesn’t stop. <span className="mono">reader-companion uninstall</span> takes it away again.
                 </>
               ) : system === 'windows' ? (
                 <>
-                  Double-click <b>{download.file}</b>. If Windows says it protected your PC, choose <b>More info</b> → <b>Run anyway</b>.
+                  Double-click <b>{download.file}</b>. If Windows says it protected your PC, choose <b>More info</b> → <b>Run anyway</b>. <span className="mono">reader-companion uninstall</span> takes it away again.
                 </>
               ) : (
                 <>
-                  Paste it into a terminal, or <a href={download.href} download>download the script</a> and run <span className="mono">sh {download.file}</span>.
+                  Paste it into a terminal, or <a href={download.href} download>download the script</a> and run <span className="mono">sh {download.file}</span>. <span className="mono">reader-companion uninstall</span> takes it away again.
                 </>
-              )}{' '}
-              <span className="mono">reader-companion uninstall</span> takes it away again.
+              )}
             </small>
             <small className="pg-companion-note">
               Other systems:{' '}

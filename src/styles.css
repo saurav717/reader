@@ -5877,6 +5877,8 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .pg-companion-install { display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border-soft); }
 .pg-companion-ask { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .pg-companion-download { align-self: flex-start; text-decoration: none; }
+.pg-companion-downloads { display: flex; flex-wrap: wrap; gap: 8px; }
+.pg-companion-downloads .pg-companion-download small { font-weight: 400; opacity: 0.75; margin-left: 4px; }
 .proxy-pass { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 10px; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); }
 .proxy-pass b { color: var(--ink); font-weight: 600; }
 .proxy-pass .banner { margin: 0; }
@@ -7184,38 +7186,17 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
 .ol-dock-outline span { display: flex; gap: 8px; }
 .ol-dock-outline small { margin-left: auto; font: 10.5px var(--mono); color: var(--muted); }
 @media (max-width: 1100px) { .ol-card-body { grid-template-columns: minmax(0, 1fr); } }
-/* Open in another browser: the split button, its menu, and the account it is for */
-.ol-open { position: relative; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ol-open-split { display: inline-flex; }
-.ol-open-split > .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.ol-open-more { border-top-left-radius: 0 !important; border-bottom-left-radius: 0 !important; margin-left: -1px; padding: 0 7px !important; }
-.ol-open-more.primary { border-left-color: color-mix(in srgb, var(--accent-on) 30%, var(--accent)); }
-.ol-said { font-size: 11.5px; color: var(--accent-ink); }
-.ol-account { flex-basis: 100%; font-size: 11.5px; color: var(--muted); }
-.ol-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; width: 300px; max-height: 360px; overflow: auto; display: flex; flex-direction: column; padding: 5px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-md, 0 10px 30px rgba(0, 0, 0, 0.18)); }
-.ol-open.is-compact .ol-menu { left: auto; right: 0; }
-.ol-menu-head { padding: 6px 9px 4px; font: 600 10.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.ol-menu button { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0 8px; padding: 7px 9px; border: 0; border-radius: 7px; background: none; color: var(--ink); font: 12.5px var(--sans); text-align: left; cursor: pointer; }
-.ol-menu button:hover { background: var(--accent-soft); }
-.ol-menu button small { grid-column: 1; font-size: 11px; color: var(--muted); }
-.ol-menu button svg { grid-column: 2; grid-row: 1; color: var(--accent); }
-.ol-menu .ol-menu-copy { display: flex; gap: 7px; border-top: 1px solid var(--border-soft); border-radius: 0 0 7px 7px; margin-top: 4px; padding-top: 9px; color: var(--ink-2); }
-.ol-menu-copy svg { color: var(--ink-2) !important; }
-.ol-menu-note { padding: 6px 9px; font-size: 11.5px; line-height: 1.45; color: var(--muted); }
-.ol-menu-note.is-bad { color: #b0384f; }
-.ol-menu-keep { display: flex; gap: 7px; align-items: flex-start; padding: 6px 9px 4px; font-size: 11.5px; color: var(--ink-2); line-height: 1.4; }
+/* The Open in Overleaf button */
+.ol-open { display: inline-flex; align-items: center; }
 .ol-open .btn { white-space: nowrap; }
 
-/* The Open-in menu and the compute pop-over float over the page: under glass
-   they are frosted nearly solid, as the project menus are, and the card or bar
-   they open from is lifted over what comes after it, which was drawn across them. */
-:root[data-glass='on'] .ol-menu,
+/* The compute pop-over floats over the page: under glass it is frosted nearly
+   solid, as the project menus are. */
 :root[data-glass='on'] .cp-pop {
   background: rgb(var(--float-rgb) / max(var(--float-a), 0.94));
   -webkit-backdrop-filter: blur(22px) saturate(140%);
   backdrop-filter: blur(22px) saturate(140%);
 }
-.pj-paper-row:has(.ol-menu), .ol-card:has(.ol-menu), .pj-ws-bar:has(.ol-menu) { position: relative; z-index: 30; }
 
 /* ------------------------------------------------ Compute: on, off, stop -- */
 .cp-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
@@ -7389,8 +7370,6 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
 .wr-sync-banner code { font-size: 11.5px; }
 .wr-token { display: inline-flex; gap: 6px; }
 .wr-token input { height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--paper); color: var(--ink); font: 12px var(--mono); }
-.wr-status .ol-open .ol-menu { top: auto; bottom: calc(100% + 6px); }
-.wr-status:has(.ol-menu) { position: relative; z-index: 30; }
 /* The editor, wrapped (the Write tab): the shadow's line boxes give the height, and each line number sits at its line's first row. */
 .ce-inner.is-wrap { min-height: 100%; }
 .ce-inner.is-wrap .ce-shadow-lines { position: relative; left: 0; margin-left: var(--ce-gutter); width: auto; bottom: auto; white-space: pre-wrap; overflow-wrap: anywhere; }

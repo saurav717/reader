@@ -160,7 +160,7 @@ export default function CompareOverleaf({ project, store, dir, onClose }: { proj
       {problem ? (
         <div className="wc-pad">
           <p className="wr-bad">{problem}</p>
-          {needToken ? <OverleafAccounts open projectUrl={target.url} accountLabel={target.account} onConnected={() => setRound((n) => n + 1)} /> : null}
+          {needToken ? <OverleafAccounts open projectUrl={target.url} onConnected={() => setRound((n) => n + 1)} /> : null}
         </div>
       ) : null}
       {!comparison && !problem ? <p className="wr-quiet wc-pad">Asking Overleaf for its files, and reading this site’s…</p> : null}

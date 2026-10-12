@@ -21,12 +21,12 @@ after(async () => {
 const paper = (id, more = {}) => ({ id, source: 'arxiv', title: id, authors: [], abstract: '', published: '', categories: [], addedAt: '2026-02-01T00:00:00.000Z', collectionIds: [], tags: [], progress: 0, ...more });
 
 describe('the link', () => {
-  it('switches to another project: the old one put by, the account and browser kept, a project linked before brought back', () => {
+  it('switches to another project: the old one put by, a project linked before brought back', () => {
     const A = 'https://www.overleaf.com/project/aaaaaaaaaaaaaaaaaaaaaaaa';
     const B = 'https://www.overleaf.com/project/bbbbbbbbbbbbbbbbbbbbbbbb';
-    const first = { url: A, account: 'me@lab.edu', browsers: { mac: { browser: 'chrome', label: 'Chrome' } }, repo: 'me/paper-a', compiler: 'xelatex', main: 'paper.tex', folders: { mac: { path: 'papers/a', sync: 'git' } } };
+    const first = { url: A, repo: 'me/paper-a', compiler: 'xelatex', main: 'paper.tex', folders: { mac: { path: 'papers/a', sync: 'git' } } };
     const moved = ol.switchedLink(first, B);
-    assert.deepEqual(moved, { url: B, account: 'me@lab.edu', browsers: first.browsers, earlier: { [A]: { mac: { path: 'papers/a', sync: 'git' } } } });
+    assert.deepEqual(moved, { url: B, earlier: { [A]: { mac: { path: 'papers/a', sync: 'git' } } } });
     const back = ol.switchedLink({ ...moved, folders: { mac: { path: 'papers/b', sync: 'git' } } }, A);
     assert.deepEqual(back.folders, { mac: { path: 'papers/a', sync: 'git' } });
     assert.deepEqual(back.earlier, { [B]: { mac: { path: 'papers/b', sync: 'git' } } });
@@ -66,15 +66,14 @@ describe('the link', () => {
     assert.equal(pj.projectInfo({ id: 'p', name: 'P', color: '#000', createdAt: '2026-01-01', project: { overleaf: { url: 'bad' } } }).overleaf, undefined);
   });
 
-  it('keeps the account and each computer’s browser, and drops a browser that is not one', () => {
+  it('drops the old per-project account reminder and browser choice', () => {
     const link = ol.overleafLinkOf({
       url: 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5',
-      account: ' me@lab.edu ',
-      browsers: { mac: { browser: 'chrome', profile: 'Profile 1', label: 'Google Chrome · Work' }, pc: { browser: '--evil', label: 'x' }, old: { browser: 'firefox' }, gone: null },
+      account: 'me@lab.edu',
+      browsers: { mac: { browser: 'chrome', profile: 'Profile 1', label: 'Google Chrome · Work' } },
     });
-    assert.equal(link.account, 'me@lab.edu');
-    assert.deepEqual(link.browsers, { mac: { browser: 'chrome', profile: 'Profile 1', label: 'Google Chrome · Work' }, old: { browser: 'firefox', label: 'firefox' } });
-    assert.equal(ol.overleafLinkOf({ url: 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5', browsers: { pc: { browser: '' } } }).browsers, undefined);
+    assert.equal(link.account, undefined);
+    assert.equal(link.browsers, undefined);
   });
 
   it('keeps each computer’s paper folder, and drops one that climbs out', () => {

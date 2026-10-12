@@ -1148,19 +1148,13 @@ Where you write is a choice in Settings → Projects, **Writing with Overleaf**:
 Writing anywhere but Overleaf itself needs the repository. Without it, the
 Write layout and the Draft tab say so and offer Overleaf beside.
 
-**In another browser, as the right account.** The page can't choose which
-browser opens a link, and can't sign in to Overleaf for you. Signing in lives
-in a browser profile, though, and this computer's Companion (0.9.0 or later,
-paired from the Playground) can open any browser here in any of its profiles.
-The **▾** beside the Open button lists them: **This browser**, then every
-browser and profile on this computer, with the Google account each profile is
-signed in to, then **Copy link** for any other. Pick the profile signed in to
-the project's Overleaf account and it opens there. The project remembers that
-choice for this computer, so the button then says **Open in Google Chrome ·
-Work** and goes straight there. Each computer keeps its own choice, because
-browsers and profiles belong to a computer. The card's form also takes the
-**Overleaf account** the project is in, shown under the button as a reminder.
-Without the Companion, the menu says why and still copies the link.
+**Overleaf accounts.** Syncing with Overleaf is optional: a paper can be
+written entirely here (Write tab → **Start without Overleaf**). To sync, connect
+your Overleaf account once in **Settings → Overleaf accounts** with its email
+and Git token. It is kept with your Reader account and used for every project
+and LaTeX project; **Change** there replaces the email or token, **Disconnect**
+removes it. The card's **Open in Overleaf** simply opens the project in this
+browser.
 
 ### Removing a paper
 
@@ -4045,13 +4039,14 @@ runs `reader-companion setup`, which:
   goes to `~/.reader-companion/companion.log`;
 - opens the site with a pairing link, so one click on **Connect** finishes.
 
-**A `.dmg`.** Once the *macOS app* workflow has published a release (see
-[docs/macos-app.md](docs/macos-app.md)), the card's macOS download is the
-Reader.app in a `.dmg` instead: drag Reader to Applications and open it, and it
-sets itself up the first time. Notarized (with an Apple Developer ID, US$99 a
-year) it opens with no warning. Without that (`Reader-unsigned.dmg`) macOS
-stops it once: **Done**, then **Open Anyway** in System Settings → Privacy &
-Security.
+**The desktop app.** Once the *Desktop app* workflow has published a release
+(see [docs/desktop-app.md](docs/desktop-app.md)), the card's download is the
+Reader desktop app instead: Reader in a window of its own, with no browser
+needed. It's a `.dmg` on macOS, a setup wizard on Windows, and a `.deb`, `.rpm`
+or AppImage on Linux. It sets the Companion up the first time it opens.
+Uninstalling is the system's own way (Settings → Apps on Windows), or
+**Uninstall Reader…** in the app, which can delete your files too if you ask.
+Unsigned (`…-unsigned`), macOS and Windows each ask once before opening it.
 
 **Without one.** A downloaded app has to be signed and notarized
 (Apple's $99 a year) or macOS won't open it without a fight; Windows'

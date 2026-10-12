@@ -230,7 +230,7 @@ function OverleafPicker({ project, mode, onPicked, onMake }: { project: Project;
   if (!accounts.length || needAccount)
     return (
       <div className="wr-form">
-        <OverleafAccounts open={Boolean(needAccount)} accountLabel={project.project.overleaf?.account} why={needAccount ?? undefined} onConnected={() => (needAccount && last ? void pick(last) : undefined)} />
+        <OverleafAccounts open={Boolean(needAccount)} why={needAccount ?? undefined} onConnected={() => (needAccount && last ? void pick(last) : undefined)} />
       </div>
     );
   return (
@@ -478,7 +478,7 @@ function ToDrive({ project }: { project: Project }) {
         ) : null}
         {gitUrl && (blocked === 'token' || (blocked === 'elsewhere' && !known)) ? (
           // No connected Overleaf account opens it (or none is connected): the one it is in connected, then brought in.
-          <OverleafAccounts open={Boolean(problem)} projectUrl={project.project.overleaf?.url} accountLabel={project.project.overleaf?.account} why={blocked === 'token' ? problem ?? undefined : undefined} onConnected={() => (setKnown(true), void move({ force: true }))} />
+          <OverleafAccounts open={Boolean(problem)} projectUrl={project.project.overleaf?.url} why={blocked === 'token' ? problem ?? undefined : undefined} onConnected={() => (setKnown(true), void move({ force: true }))} />
         ) : null}
         {blocked && gitUrl && known ? (
           <div className="wr-row">
@@ -2567,8 +2567,7 @@ function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, on
    * beside is taken in the keypress itself (a browser lets a page open one
    * only then) and says the edits are on their way; once they have reached
    * Overleaf, the project opens in it — and Overleaf compiles a project as it
-   * opens, so the PDF there is of what was just written. A project set to
-   * open in another browser isn't opened from here: this page can't reach it.
+   * opens, so the PDF there is of what was just written.
    */
   // ---- compiling in the cloud: Reader's compiler, Cloud Run or GitHub Actions, through its Worker (worker/latex.js)
   const [gh, setGh] = useState<GithubState>({ phase: 'idle' });
@@ -2710,7 +2709,7 @@ function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, on
     if (options.pdf !== 'overleaf') return void saveNow().then(() => compile());
     const overleaf = link;
     let beside: Window | null = null;
-    if (overleaf && !(here && overleaf.browsers?.[here.id])) {
+    if (overleaf) {
       beside = window.open('about:blank', `reader-overleaf-${project.id}`, besideFeatures(window.screen));
       try {
         if (beside) {
@@ -3145,7 +3144,7 @@ function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, on
         <div className="wr-sync-banner">
           {inDrive ? (
             <div className="wr-sync-accounts">
-              <OverleafAccounts current={link?.gitAccount} projectUrl={link?.url} accountLabel={link?.account} onChoose={(id) => (updateLink({ gitAccount: id }), setFellBack(null))} />
+              <OverleafAccounts current={link?.gitAccount} projectUrl={link?.url} onChoose={(id) => (updateLink({ gitAccount: id }), setFellBack(null))} />
             </div>
           ) : (
             <ForgetToken server={server} open onForgotten={() => setNeedToken(true)} />
@@ -3178,7 +3177,7 @@ function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, on
           )}
           {inDrive && (needToken || /token|account/i.test(syncError ?? '')) ? (
             <div className="wr-sync-accounts">
-              <OverleafAccounts open projectUrl={link?.url} accountLabel={link?.account} onConnected={() => (setNeedToken(false), void sync())} />
+              <OverleafAccounts open projectUrl={link?.url} onConnected={() => (setNeedToken(false), void sync())} />
               <button type="button" className="link-btn" onClick={() => (setUnsynced(true), setNeedToken(false), setSyncError(null))} title="Keep writing and compiling here; nothing goes to Overleaf until you press Sync">
                 Not now: write without syncing
               </button>

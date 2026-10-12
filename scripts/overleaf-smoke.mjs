@@ -29,7 +29,7 @@ const PAPERS = [
   paper('arxiv:1701.06538', 'Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer', ['Noam Shazeer'], { arxivId: '1701.06538', published: '2017-01-23', progress: 1, lastOpenedAt: day(9) }),
   paper('arxiv:2202.09368', 'Mixture-of-Experts with Expert Choice Routing', ['Yanqi Zhou'], { arxivId: '2202.09368' }),
 ];
-const LINK = { url: 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5', repo: 'me/moe-paper', account: 'me@lab.edu' };
+const LINK = { url: 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5', repo: 'me/moe-paper' };
 
 // GitHub, standing in: a repository holding the paper, which takes commits.
 const repo = new Map([
@@ -80,28 +80,11 @@ await context.route(/^https:\/\/api\.github\.com\/repos\/me\/moe-paper\//, async
   }
   return route.fulfill({ status: 404, contentType: 'application/json', body: '{"message":"Not Found"}' });
 });
-// This computer's Companion, standing in: 0.9.0, paired with this browser, with two browsers.
+// This computer's Companion, standing in: it is never asked about browsers now.
 const asked = [];
 await context.route(/^https?:\/\/127\.0\.0\.1:473[23]1\/companion\//, async (route) => {
-  const request = route.request();
-  const url = new URL(request.url());
-  const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
-  if (url.port === '47331') return route.abort();
-  if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
-  const json = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: cors, body: JSON.stringify(body) });
-  if (url.pathname === '/companion/info') return json({ app: 'reader-companion', version: '0.9.0', id: 'mac-1', name: 'MacBook', hardware: '', root: '' });
-  if (url.pathname === '/companion/browsers' && request.headers().authorization !== 'token pc-token') return json({ error: 'Pair first' }, 403);
-  if (url.pathname === '/companion/browsers' && request.method() === 'GET') {
-    return json({ browsers: [
-      { id: 'chrome', name: 'Google Chrome', profiles: [{ id: 'Default', name: 'Personal', account: 'me@gmail.com' }, { id: 'Profile 1', name: 'Work', account: 'me@lab.edu' }] },
-      { id: 'safari', name: 'Safari', profiles: [] },
-    ] });
-  }
-  if (url.pathname === '/companion/browsers') {
-    asked.push(request.postDataJSON());
-    return json({ opened: true });
-  }
-  return json({ error: 'no' }, 404);
+  if (new URL(route.request().url()).pathname === '/companion/browsers') asked.push(route.request().url());
+  return route.abort();
 });
 const page = await context.newPage();
 const errors = [];
@@ -187,25 +170,10 @@ check('it names the key with no entry', /lepikhin2020gshard/.test(flags));
 check('beside: the button opens Overleaf beside', (await page.getByRole('button', { name: /Open Overleaf beside/ }).count()) === 1);
 await shot('overleaf-overview');
 
-console.log('another browser: the Companion opens Overleaf in a profile');
-await page.locator('.ol-card .ol-open-more').click();
-await page.locator('.ol-menu').getByRole('menuitem', { name: /Google Chrome · Work/ }).waitFor({ timeout: 10000 }).catch(() => {});
-const items = await page.locator('.ol-menu [role=menuitem]').allInnerTexts();
-check('the menu lists this browser, each profile and Safari, and Copy link', items.length === 5 && /This browser/.test(items[0]) && /me@lab\.edu/.test(items[2]) && /Copy link/.test(items[4]), items.map((i) => i.replace(/\s+/g, ' ')).join(' | '));
-await shot('overleaf-browsers');
-await page.locator('.ol-menu').getByRole('menuitem', { name: /Google Chrome · Work/ }).click();
-await page.waitForTimeout(300);
-check('it asks the Companion to open the project in that profile', asked.length === 1 && asked[0].browser === "chrome" && asked[0].profile === "Profile 1" && asked[0].url === LINK.url, JSON.stringify(asked));
-await page.getByRole('button', { name: 'Open in Google Chrome · Work' }).waitFor({ timeout: 5000 }).catch(() => {});
-check('the project remembers it for this computer: the button says where', (await page.getByRole('button', { name: 'Open in Google Chrome · Work' }).count()) === 1);
-await page.getByRole('button', { name: 'Open in Google Chrome · Work' }).click();
-await page.waitForTimeout(300);
-check('and opens there again from the button', asked.length === 2 && asked[1].profile === "Profile 1");
-check('the account it is in is named by the button', /Overleaf account: me@lab\.edu/.test(await page.locator('.ol-card').innerText()));
-await shot('overleaf-browser-chosen');
-await page.locator('.ol-card .ol-open-more').click();
-await page.locator('.ol-menu').getByRole('menuitem', { name: /Copy link/ }).click();
-check('Copy link copies the project’s address', (await page.evaluate(() => navigator.clipboard.readText()).catch(() => '')) === LINK.url);
+console.log('the Open button: one button, no browser or profile list, no account under it');
+check('no menu of other browsers beside the button', (await page.locator('.ol-card [aria-haspopup=menu]').count()) === 0);
+check('no Overleaf account named under the button', !/Overleaf account:/.test(await page.locator('.ol-card').innerText()));
+check('this computer’s browsers are never asked for', !asked.length, asked.join(' | '));
 
 console.log('beside: the cite keys in the workspace');
 await page.evaluate(() => localStorage.setItem('reader.project.layout', 'paper'));
