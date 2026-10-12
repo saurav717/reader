@@ -203,16 +203,34 @@ async function seed(settings) {
     { papers: PAPERS, settings, projectId: PROJECT_ID },
   );
   await page.goto(`${BASE}/project/?id=p-moe&view=write`, { waitUntil: 'networkidle' });
+  await pastWelcome();
+}
+
+/** The opening screen (a build with a Google client id): past it, as someone keeping everything in this browser. */
+async function pastWelcome() {
+  const notNow = page.getByRole('button', { name: /^Not now/ });
+  if (await notNow.isVisible().catch(() => false)) await notNow.click();
 }
 
 console.log('the Write tab: set up from Overleaf’s Git');
-await seed({ navStyle: 'labelled' });
+await seed({ navStyle: 'labelled', googleClientId: '' });
 check('the project bar has a Write tab, on', (await page.locator('.pj-views').getByRole('button', { name: 'Write' }).getAttribute('aria-pressed')) === 'true');
 await page.getByText('Where should the paper’s files be?').waitFor({ timeout: 15000 });
 check('Overleaf’s Git is the way picked', (await page.getByRole('radio', { name: /^Overleaf’s Git/ }).getAttribute('aria-checked')) === 'true');
 await page.getByLabel('Overleaf Git token').fill('olp_test_token');
 await shot('write-setup');
 await page.getByRole('button', { name: 'Clone from Overleaf' }).click();
+console.log('the first page: the project’s documents, and new ones');
+await page.locator('.wr-doc').first().waitFor({ timeout: 15000 });
+const docs = await page.locator('.wr-doc').allInnerTexts();
+check('it opens on the project’s documents: main.tex, by its title', docs.length === 1 && /Loss-free routing at 8B/.test(docs[0]) && /main\.tex/.test(docs[0]) && /article/.test(docs[0]), docs.join(' | '));
+check('the other files are counted, not listed as documents', /1 other \.tex file .* 1 \.bib/.test(await page.locator('.wr-home-others').innerText()), await page.locator('.wr-home-others').innerText());
+check('four ways to start another', (await page.locator('.wr-home-way').count()) === 4);
+await shot('write-home');
+await page.locator('.wr-home-way', { hasText: 'Browse templates' }).click();
+await page.getByText('No template on this computer yet').waitFor({ timeout: 10000 });
+await shot('write-home-templates');
+await page.locator('.wr-doc').first().click();
 await page.locator('.wr-desk').waitFor({ timeout: 15000 });
 check('it clones Overleaf’s Git address, with the token', cloned?.url === `https://git.overleaf.com/${PROJECT_ID}` && cloned?.token === 'olp_test_token' && cloned?.folder === 'papers/sparse-gated-moe', JSON.stringify(cloned));
 await page.locator('.wr-tree-item', { hasText: 'intro.tex' }).waitFor({ timeout: 10000 });
@@ -323,13 +341,18 @@ check('it is saved and synced on the way out', /Typed just before leaving/.test(
 
 console.log('it sticks: the folder, the compiler, the main document');
 await page.goto(`${BASE}/project/?id=p-moe&view=write`, { waitUntil: 'networkidle' });
+await pastWelcome();
+await page.locator('.wr-home-head').getByRole('button', { name: /^Continue/ }).click();
 await page.locator('.wr-desk').waitFor({ timeout: 15000 });
 check('after a reload it opens on the paper, not the set-up', (await page.getByText('Where should the paper’s files be?').count()) === 0);
 await page.getByRole('combobox', { name: 'Compiler' }).selectOption('xelatex');
 await page.getByRole('combobox', { name: 'Main document' }).selectOption('main.tex');
 await page.waitForTimeout(500);
 await page.reload({ waitUntil: 'networkidle' });
+await pastWelcome();
+await page.locator('.wr-doc').first().click();
 await page.locator('.wr-desk').waitFor({ timeout: 15000 });
+await page.locator('.wr-tree-item', { hasText: 'intro.tex' }).waitFor({ timeout: 10000 });
 check('the compiler picked stays picked', (await page.getByRole('combobox', { name: 'Compiler' }).inputValue()) === 'xelatex');
 check('so does the main document', (await page.getByRole('combobox', { name: 'Main document' }).inputValue()) === 'main.tex');
 await page.getByRole('combobox', { name: 'Compiler' }).selectOption('pdflatex');
@@ -422,12 +445,34 @@ await page.locator('.wr-page').first().waitFor({ timeout: 60000 }).catch(() => {
 check('it compiles', (await page.locator('.wr-page').count()) >= 1);
 await shot('write-from-template');
 
+console.log('back to the documents: a new one, blank, beside the others');
+await page.getByRole('button', { name: '← All documents' }).click();
+await page.locator('.wr-doc').first().waitFor({ timeout: 15000 });
+await page.locator('.wr-home-way', { hasText: 'Blank document' }).click();
+await page.locator('.wr-home-name input').fill('Workshop version');
+check('it says where the new one goes', /workshop-version\//.test(await page.locator('.wr-home-name').innerText()), await page.locator('.wr-home-name').innerText());
+await shot('write-home-new');
+await page.getByRole('button', { name: 'Make it and open it' }).click();
+await page.locator('.wr-desk').waitFor({ timeout: 15000 });
+await page.waitForTimeout(800);
+check('the blank document is made in a folder of its own', /\\title\{Workshop version\}/.test(readFileSync(join(root, 'papers/neurips-paper/workshop-version/main.tex'), 'utf8')));
+check('and opened as the main document', (await page.getByRole('combobox', { name: 'Main document' }).inputValue()) === 'workshop-version/main.tex');
+await page.locator('.wr-page').first().waitFor({ timeout: 60000 }).catch(() => {});
+await shot('write-new-desk');
+await page.getByRole('button', { name: '← All documents' }).click();
+await page.locator('.wr-doc').nth(1).waitFor({ timeout: 15000 });
+const both = await page.locator('.wr-doc').allInnerTexts();
+check('the documents page lists the new one too, the open one first', both.length === 3 && /Workshop version/.test(both[0]) && /\bmain\b/.test(both[0].split('\n').pop()) && both.some((text) => /neurips_2026\.tex/.test(text)), both.join(' | '));
+await shot('write-home-two');
+await page.locator('.wr-doc').first().click();
+await page.locator('.wr-desk').waitFor({ timeout: 15000 });
+
 console.log('Settings: the Write tab’s choices');
 await page.evaluate(() => window.dispatchEvent(new Event('reader:open-settings')));
 const layout = page.getByRole('radiogroup', { name: 'The Write tab: The PDF' });
 await layout.waitFor({ timeout: 5000 });
 await layout.scrollIntoViewIfNeeded();
-check('six choices, each with its default first and on', (await page.locator('.write-choice').count()) === 6 && (await layout.getByRole('radio').first().getAttribute('aria-checked')) === 'true');
+check('seven choices, each with its default first and on', (await page.locator('.write-choice').count()) === 7 && (await layout.getByRole('radio').first().getAttribute('aria-checked')) === 'true');
 check('the Write tab is the default way to write', /A Write tab · default/.test(await page.getByRole('radiogroup', { name: /Where a project’s paper is written/ }).innerText()));
 await shot('write-settings');
 await layout.getByRole('radio', { name: /A tab of its own/ }).click();

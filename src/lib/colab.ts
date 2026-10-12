@@ -927,6 +927,9 @@ export async function jupyterFetch<T>(server: Pick<JupyterServer, 'url' | 'token
   try {
     response = await fetch(url.href, {
       method: init.method ?? 'GET',
+      // Never from the browser's cache: Jupyter answers with Last-Modified and no Cache-Control, so a
+      // browser (Safari, above all) may hand back a file or a folder listing as it was minutes ago.
+      cache: 'no-store',
       headers: { Accept: 'application/json', ...(server.token ? { Authorization: `token ${server.token}` } : {}), ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     });
