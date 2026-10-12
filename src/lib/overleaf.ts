@@ -10,7 +10,7 @@
 // the outline, the \cite keys and which papers they are. The calls to GitHub
 // are at the end.
 
-import type { BrowserChoice, LatexLink, OverleafLink, OverleafView, Paper, PaperFolder, Settings } from '../types';
+import type { LatexLink, OverleafLink, OverleafView, Paper, PaperFolder, Settings } from '../types';
 import { OVERLEAF_VIEWS } from '../types';
 import { citeKey, commitFiles, gh, parseRepo, toBibtex, type GitHubTarget } from './github';
 import { zip, type ZipEntry } from './zip';
@@ -55,18 +55,6 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
   if (!url && !driveFolder) return undefined;
   const repo = typeof value.repo === 'string' ? parseRepo(value.repo) : null;
   const text = (field: unknown) => (typeof field === 'string' && field.trim() ? field.trim() : undefined);
-  const browsers: Record<string, BrowserChoice> = {};
-  if (value.browsers && typeof value.browsers === 'object') {
-    for (const [computer, raw] of Object.entries(value.browsers as Record<string, unknown>)) {
-      const choice = raw as Partial<Record<keyof BrowserChoice, unknown>> | null;
-      if (!choice || typeof choice.browser !== 'string' || !/^[a-z]+$/.test(choice.browser)) continue;
-      browsers[computer] = {
-        browser: choice.browser,
-        ...(text(choice.profile) ? { profile: text(choice.profile) } : {}),
-        label: text(choice.label) ?? choice.browser,
-      };
-    }
-  }
   const folders = cleanFolders(value.folders);
   const earlier: Record<string, Record<string, PaperFolder>> = {};
   if (value.earlier && typeof value.earlier === 'object') {
@@ -84,8 +72,6 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
     ...(repo ? { repo: `${repo.owner}/${repo.repo}` } : {}),
     ...(repo && text(value.branch) ? { branch: text(value.branch) } : {}),
     ...(repo && text(value.folder) ? { folder: cleanFolder(text(value.folder)!) } : {}),
-    ...(text(value.account) ? { account: text(value.account) } : {}),
-    ...(Object.keys(browsers).length ? { browsers } : {}),
     ...(Object.keys(folders).length ? { folders } : {}),
     ...(Object.keys(earlier).length ? { earlier } : {}),
     ...(value.compiler === 'xelatex' || value.compiler === 'lualatex' || value.compiler === 'latex' || value.compiler === 'pdflatex' ? { compiler: value.compiler } : {}),
@@ -109,7 +95,6 @@ function latexLinksOf(value: unknown): Record<string, LatexLink> {
       ...(typeof item.gitAccount === 'string' && /^[a-z0-9]{1,40}$/.test(item.gitAccount) ? { gitAccount: item.gitAccount } : {}),
       ...(typeof item.main === 'string' && /\.tex$/i.test(item.main) && !item.main.split('/').includes('..') ? { main: item.main.replace(/^\/+/, '') } : {}),
       ...(item.compiler === 'xelatex' || item.compiler === 'lualatex' || item.compiler === 'latex' || item.compiler === 'pdflatex' ? { compiler: item.compiler } : {}),
-      ...(typeof item.account === 'string' && item.account.trim() ? { account: item.account.trim().slice(0, 120) } : {}),
     };
   }
   return links;
@@ -129,7 +114,7 @@ export function latexOwner(link: OverleafLink | undefined, dir: string): string 
 /** The link a folder's own: its entry, or for the top the project's link itself. */
 export function latexLinkAt(link: OverleafLink | undefined, owner: string): LatexLink {
   if (owner) return link?.latex?.[owner] ?? { url: '' };
-  return { url: link?.url ?? '', ...(link?.gitAccount ? { gitAccount: link.gitAccount } : {}), ...(link?.main ? { main: link.main } : {}), ...(link?.compiler ? { compiler: link.compiler } : {}), ...(link?.account ? { account: link.account } : {}) };
+  return { url: link?.url ?? '', ...(link?.gitAccount ? { gitAccount: link.gitAccount } : {}), ...(link?.main ? { main: link.main } : {}), ...(link?.compiler ? { compiler: link.compiler } : {}) };
 }
 
 /** The folders inside `owner` with links of their own (relative to it): left out of its syncs, as they are other projects. */
@@ -143,8 +128,8 @@ export function latexSeparate(link: OverleafLink | undefined, owner: string): st
 export function withLatexLink(link: OverleafLink, owner: string, change: Partial<LatexLink> | null): OverleafLink {
   if (!owner) {
     if (!change) return link;
-    const { url, gitAccount, main, compiler, account } = change;
-    return { ...link, ...(url !== undefined ? { url } : {}), ...(gitAccount !== undefined ? { gitAccount } : {}), ...(main !== undefined ? { main } : {}), ...(compiler !== undefined ? { compiler } : {}), ...(account !== undefined ? { account } : {}) };
+    const { url, gitAccount, main, compiler } = change;
+    return { ...link, ...(url !== undefined ? { url } : {}), ...(gitAccount !== undefined ? { gitAccount } : {}), ...(main !== undefined ? { main } : {}), ...(compiler !== undefined ? { compiler } : {}) };
   }
   const latex = { ...(link.latex ?? {}) };
   if (change) latex[owner] = { ...(latex[owner] ?? { url: '' }), ...change };
@@ -171,8 +156,7 @@ function cleanFolders(value: unknown): Record<string, PaperFolder> {
 /**
  * The link moved to another Overleaf project: what belonged to the old one
  * (its folders, its GitHub repository, compiler and main document) is put
- * by, and the new one's folders come back if it was linked before. The
- * account and the browser it opens in stay.
+ * by, and the new one's folders come back if it was linked before.
  */
 export function switchedLink(link: OverleafLink, url: string): OverleafLink {
   const earlier = { ...(link.earlier ?? {}) };
@@ -181,8 +165,6 @@ export function switchedLink(link: OverleafLink, url: string): OverleafLink {
   delete earlier[url];
   return {
     url,
-    ...(link.account ? { account: link.account } : {}),
-    ...(link.browsers ? { browsers: link.browsers } : {}),
     ...(back ? { folders: back } : {}),
     ...(Object.keys(earlier).length ? { earlier } : {}),
   };

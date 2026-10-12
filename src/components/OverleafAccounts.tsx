@@ -58,20 +58,19 @@ export function useOverleafAccounts(): OverleafAccount[] | null {
  * there is none (or `open`), else behind "Connect another Overleaf account".
  * `onConnected` hears the new account's id, for whatever was waiting on it.
  */
-export default function OverleafAccounts({ open = false, why, onConnected, current, onChoose, projectUrl, accountLabel }: { open?: boolean; why?: string; onConnected?: (id: string) => void; current?: string; /** For a project: the account it is to sync with, chosen — any it is shared with. */ onChoose?: (id: string) => void; /** The Overleaf project at hand, the token checked on it unless another is given. */ projectUrl?: string; /** The account the project names, to start the label with. */ accountLabel?: string }) {
+export default function OverleafAccounts({ open = false, why, onConnected, current, onChoose, projectUrl }: { open?: boolean; why?: string; onConnected?: (id: string) => void; current?: string; /** For a project: the account it is to sync with, chosen — any it is shared with. */ onChoose?: (id: string) => void; /** The Overleaf project at hand, the token checked on it unless another is given. */ projectUrl?: string }) {
   const { collections, driveConnected } = useStore();
   const accounts = useOverleafAccounts();
   const [adding, setAdding] = useState(open);
+  // The account whose email and token are being changed: the new token replaces it once it is connected.
+  const [changing, setChanging] = useState<OverleafAccount | null>(null);
   const [token, setToken] = useState('');
-  const [label, setLabel] = useState(accountLabel ?? '');
+  const [label, setLabel] = useState('');
   const [check, setCheck] = useState(projectUrl ?? '');
   // Known only once the project is read: filled in then, unless something was typed.
   useEffect(() => {
     if (projectUrl) setCheck((now) => now || projectUrl);
   }, [projectUrl]);
-  useEffect(() => {
-    if (accountLabel) setLabel((now) => now || accountLabel);
-  }, [accountLabel]);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   if (!driveConnected) return <p className="wr-quiet">Sign in with Google first: your Overleaf accounts are kept with your Reader account, for every device.</p>;
@@ -85,6 +84,8 @@ export default function OverleafAccounts({ open = false, why, onConnected, curre
     setProblem(null);
     try {
       const id = await connectOverleaf(token.trim(), label.trim(), project);
+      if (changing && changing.id !== id) await forgetOverleafToken(changing.id);
+      setChanging(null);
       setToken('');
       setLabel('');
       setCheck('');
@@ -96,7 +97,7 @@ export default function OverleafAccounts({ open = false, why, onConnected, curre
       setBusy(false);
     }
   };
-  const showForm = adding || open || !accounts.length;
+  const showForm = Boolean(changing) || adding || open || !accounts.length;
   return (
     <div className="ol-accounts">
       {accounts.length ? (
@@ -123,6 +124,20 @@ export default function OverleafAccounts({ open = false, why, onConnected, curre
                 <button
                   type="button"
                   className="link-btn"
+                  title="A new email or Git token for this account: every project that syncs with it goes on syncing with the new one"
+                  onClick={() => {
+                    setChanging(account);
+                    setLabel(account.label);
+                    setToken('');
+                    setCheck('');
+                    setProblem(null);
+                  }}
+                >
+                  Change
+                </button>
+                <button
+                  type="button"
+                  className="link-btn"
                   onClick={() => {
                     if (!window.confirm(`Disconnect “${account.label}” from Reader? Its projects stop syncing until it is connected again. (To make its token useless everywhere, delete it in Overleaf too: Account Settings → Git integration.)`)) return;
                     void forgetOverleafToken(account.id);
@@ -138,13 +153,13 @@ export default function OverleafAccounts({ open = false, why, onConnected, curre
       {why ? <p className="wr-bad">{why}</p> : null}
       {showForm ? (
         <div className="ol-connect">
-          <b>{accounts.length ? 'Connect another Overleaf account' : 'Connect your Overleaf account'}</b>
+          <b>{changing ? `Change ${changing.label}` : accounts.length ? 'Connect another Overleaf account' : 'Connect your Overleaf account'}</b>
           <p className="wr-quiet">
             Once, for every project and every device: in Overleaf, Account Settings → Git integration → Generate token, and paste it here. A token opens that account’s projects and the ones shared with it — for a project in another Overleaf account, connect that one too.
           </p>
           <label className="wr-field">
-            <span>Which account (for you to tell them apart)</span>
-            <input value={label} placeholder={accounts.length ? 'e.g. lab@university.edu' : 'e.g. you@university.edu'} onChange={(event) => setLabel(event.target.value)} aria-label="Which Overleaf account" />
+            <span>Your Overleaf email</span>
+            <input value={label} placeholder="you@university.edu" onChange={(event) => setLabel(event.target.value)} aria-label="Which Overleaf account" />
           </label>
           <label className="wr-field">
             <span>Its Overleaf Git token</span>
@@ -158,14 +173,14 @@ export default function OverleafAccounts({ open = false, why, onConnected, curre
           </label>
           <div className="wr-row">
             <button type="button" className="btn primary" disabled={busy || !token.trim()} onClick={() => void connect()}>
-              {busy ? (check.trim() ? 'Checking the token…' : 'Connecting…') : 'Connect Overleaf'}
+              {busy ? (check.trim() ? 'Checking the token…' : 'Connecting…') : changing ? 'Save' : 'Connect Overleaf'}
             </button>
             <a className="link-btn" href="https://www.overleaf.com/user/settings" target="_blank" rel="noopener noreferrer">
               Overleaf’s account settings ↗
             </a>
             <WriteGuideLink section="accounts">What is this?</WriteGuideLink>
-            {accounts.length && !open ? (
-              <button type="button" className="link-btn" onClick={() => setAdding(false)}>
+            {changing || (accounts.length && !open) ? (
+              <button type="button" className="link-btn" onClick={() => (setChanging(null), setAdding(false), setLabel(''), setToken(''))}>
                 Cancel
               </button>
             ) : null}

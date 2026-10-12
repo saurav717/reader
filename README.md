@@ -1148,19 +1148,13 @@ Where you write is a choice in Settings → Projects, **Writing with Overleaf**:
 Writing anywhere but Overleaf itself needs the repository. Without it, the
 Write layout and the Draft tab say so and offer Overleaf beside.
 
-**In another browser, as the right account.** The page can't choose which
-browser opens a link, and can't sign in to Overleaf for you. Signing in lives
-in a browser profile, though, and this computer's Companion (0.9.0 or later,
-paired from the Playground) can open any browser here in any of its profiles.
-The **▾** beside the Open button lists them: **This browser**, then every
-browser and profile on this computer, with the Google account each profile is
-signed in to, then **Copy link** for any other. Pick the profile signed in to
-the project's Overleaf account and it opens there. The project remembers that
-choice for this computer, so the button then says **Open in Google Chrome ·
-Work** and goes straight there. Each computer keeps its own choice, because
-browsers and profiles belong to a computer. The card's form also takes the
-**Overleaf account** the project is in, shown under the button as a reminder.
-Without the Companion, the menu says why and still copies the link.
+**Overleaf accounts.** Syncing with Overleaf is optional: a paper can be
+written entirely here (Write tab → **Start without Overleaf**). To sync, connect
+your Overleaf account once in **Settings → Overleaf accounts** with its email
+and Git token. It is kept with your Reader account and used for every project
+and LaTeX project; **Change** there replaces the email or token, **Disconnect**
+removes it. The card's **Open in Overleaf** simply opens the project in this
+browser.
 
 ### Removing a paper
 
