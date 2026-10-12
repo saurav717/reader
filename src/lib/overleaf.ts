@@ -563,11 +563,11 @@ export function zipDataUrl(entries: ZipEntry[]): string {
 }
 
 /** Opens the files in Overleaf as a new project, in a new tab: a form posted to /docs, as Overleaf asks. */
-export function openInOverleaf(entries: ZipEntry[], options: { engine?: 'pdflatex' | 'xelatex' | 'lualatex' | 'latex_dvipdf'; main?: string } = {}): void {
+export function openInOverleaf(entries: ZipEntry[], options: { engine?: 'pdflatex' | 'xelatex' | 'lualatex' | 'latex_dvipdf'; main?: string; /** A window opened already, by name: one opened after a wait would be taken for a pop-up. */ target?: string } = {}): void {
   const form = document.createElement('form');
   form.action = 'https://www.overleaf.com/docs';
   form.method = 'post';
-  form.target = '_blank';
+  form.target = options.target ?? '_blank';
   form.rel = 'noopener';
   const fields: Record<string, string> = { snip_uri: zipDataUrl(entries), engine: options.engine ?? 'pdflatex', main_document: options.main ?? 'main.tex' };
   for (const [name, value] of Object.entries(fields)) {
