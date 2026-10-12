@@ -166,3 +166,10 @@ export function driveShelf(config: () => DriveConfig | null, store: PaperStore):
     },
   };
 }
+
+// ------------------------------------------------------- the Drive in use --
+
+let paperDrive: DriveConfig | null = null;
+/** The signed-in account's Drive, as the page has it now: set by whatever renders with the store. */
+export const setPaperDrive = (config: DriveConfig | null) => void (paperDrive = config);
+export const paperDriveNow = () => paperDrive;

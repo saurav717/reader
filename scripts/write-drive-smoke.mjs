@@ -16,7 +16,7 @@
  */
 import { chromium } from 'playwright';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { handleLatex } from '../worker/latex.js';
@@ -57,10 +57,43 @@ const remoteFile = (path) => {
   }
 };
 
+// ---- two papers from before, kept in folders on this computer: one a clone of its Overleaf project with an
+// edit not yet synced, one a folder never synced with its (nearly empty) Overleaf project
+const CLONE_ID = '77a1c0a9e2b7d4a1b2c3d4e6';
+const FOLDER_ID = '88b1c0a9e2b7d4a1b2c3d4e7';
+const LOST_ID = '99c1c0a9e2b7d4a1b2c3d4e8';
+const root = join(tmp, 'Reader');
+const bareFor = { [CLONE_ID]: join(tmp, 'clone.git'), [FOLDER_ID]: join(tmp, 'folder.git'), [LOST_ID]: join(tmp, 'lost.git') };
+for (const [id, bare] of Object.entries(bareFor)) {
+  sh('git', ['init', '-q', '--bare', bare]);
+  const seed = join(tmp, `seed-${id}`);
+  sh('git', ['clone', '-q', bare, seed]);
+  writeFileSync(join(seed, id === FOLDER_ID ? 'README.md' : 'main.tex'), id !== FOLDER_ID ? '\\documentclass{article}\n\\title{Old clone}\n\\begin{document}\nAs in Overleaf.\n\\end{document}\n' : 'Overleaf’s own readme\n');
+  sh('git', ['add', '-A'], seed);
+  sh('git', ['commit', '-q', '-m', 'start'], seed);
+  sh('git', ['push', '-q', 'origin', 'HEAD'], seed);
+}
+mkdirSync(join(root, 'papers'), { recursive: true });
+sh('git', ['clone', '-q', bareFor[CLONE_ID], join(root, 'papers', 'old-clone')]);
+writeFileSync(join(root, 'papers', 'old-clone', 'main.tex'), '\\documentclass{article}\n\\title{Old clone}\n\\begin{document}\nAs in Overleaf. Typed only on this computer.\n\\end{document}\n');
+// A project that lost its link to its clone here (as with a project opened elsewhere): papers/lost-link, by its name.
+sh('git', ['clone', '-q', bareFor[LOST_ID], join(root, 'papers', 'lost-link')]);
+writeFileSync(join(root, 'papers', 'lost-link', 'extra.tex'), 'Lost-link work, only here.\n');
+mkdirSync(join(root, 'papers', 'old-folder', 'figures'), { recursive: true });
+writeFileSync(join(root, 'papers', 'old-folder', 'main.tex'), '\\documentclass{article}\n\\title{Old folder}\n\\begin{document}\nWritten on this computer, never synced.\n\\end{document}\n');
+writeFileSync(join(root, 'papers', 'old-folder', 'figures', 'plot.png'), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]));
+const bareFile = (bare, path) => {
+  try {
+    return sh('git', ['--git-dir', bare, 'show', `HEAD:${path}`]);
+  } catch {
+    return null;
+  }
+};
+
 // ---- the compiler, as on Cloud Run, but Overleaf's address is the bare repository
 writeFileSync(
   join(tmp, 'serve.py'),
-  `import re, sys\nsys.path.insert(0, ${JSON.stringify(SERVER_DIR)})\nimport server\nserver.GIT_REMOTE = re.compile(r'.*')\nserver.GIT_FILE_PROTOCOL = 'always'\nreal = server.git_sync\ndef sync(job):\n    job['url'] = ${JSON.stringify(remote)}\n    return real(job)\nserver.git_sync = sync\nfrom http.server import ThreadingHTTPServer\nThreadingHTTPServer(('127.0.0.1', ${PORT}), server.Handler).serve_forever()\n`,
+  `import re, sys\nsys.path.insert(0, ${JSON.stringify(SERVER_DIR)})\nimport server\nserver.GIT_REMOTE = re.compile(r'.*')\nserver.GIT_FILE_PROTOCOL = 'always'\nreal = server.git_sync\nbares = ${JSON.stringify(bareFor)}\ndef sync(job):\n    job['url'] = next((bare for key, bare in bares.items() if key in job['url']), ${JSON.stringify(remote)})\n    return real(job)\nserver.git_sync = sync\nfrom http.server import ThreadingHTTPServer\nThreadingHTTPServer(('127.0.0.1', ${PORT}), server.Handler).serve_forever()\n`,
 );
 const compiler = spawn('python3', [join(tmp, 'serve.py')], { env: { ...env, LATEX_TOKEN: 'k' }, stdio: ['ignore', 'ignore', 'inherit'] });
 await new Promise((resolve) => setTimeout(resolve, 800));
@@ -160,7 +193,51 @@ await context.route('**/www.googleapis.com/**', async (route) => {
   }
   return json({});
 });
-await context.route(/^https?:\/\/127\.0\.0\.1:473[23]1\//, (route) => route.abort());
+// This computer's Companion: none at first; then one with the old papers' folders (its Jupyter contents API and
+// its paper calls: what a folder is a clone of, and Git's sync — real git, in those folders).
+let companionOn = false;
+await context.route(/^https?:\/\/127\.0\.0\.1:473[23]1\//, async (route) => {
+  const request = route.request();
+  const url = new URL(request.url());
+  if (!companionOn || url.port === '47331') return route.abort();
+  const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept', 'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS' };
+  if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+  const reply = (body, status = 200) => route.fulfill({ status, contentType: 'application/json', headers: cors, body: JSON.stringify(body) });
+  if (url.pathname === '/companion/info') return reply({ app: 'reader-companion', version: '0.12.0', id: 'mac-1', name: 'MacBook Air', hardware: '', root });
+  if (request.headers().authorization !== 'token pc-token') return reply({ error: 'Pair first' }, 403);
+  if (url.pathname === '/companion/paper' && request.method() === 'POST') {
+    const body = request.postDataJSON();
+    const folderPath = join(root, body.folder ?? '');
+    if (body.action === 'remote') {
+      try {
+        // As the real Companion: a clone's origin is its Overleaf Git address.
+        const origin = sh('git', ['remote', 'get-url', 'origin'], folderPath).trim();
+        const id = Object.keys(bareFor).find((key) => bareFor[key] === origin);
+        return reply({ url: id ? `https://git.overleaf.com/${id}` : origin, token: true });
+      } catch {
+        return reply({ url: '', token: false });
+      }
+    }
+    if (body.action === 'sync') {
+      sh('git', ['add', '-A'], folderPath);
+      const dirty = sh('git', ['status', '--porcelain'], folderPath).trim();
+      if (dirty) sh('git', ['commit', '-q', '-m', body.message || 'Edits from Reader'], folderPath);
+      sh('git', ['pull', '-q', '--no-rebase', '--no-edit'], folderPath);
+      sh('git', ['push', '-q'], folderPath);
+      return reply({ ok: true, committed: Boolean(dirty), pushed: true, conflicts: [], incoming: [], at: Date.now() });
+    }
+    return reply({ error: 'not here' }, 400);
+  }
+  if (url.pathname.startsWith('/api/contents')) {
+    const path = decodeURIComponent(url.pathname.replace(/^\/api\/contents\/?/, ''));
+    const full = join(root, path);
+    if (!existsSync(full)) return reply({ message: 'No such file' }, 404);
+    if (statSync(full).isDirectory()) return reply({ name: path.split('/').pop(), path, type: 'directory', content: readdirSync(full).map((name) => ({ name, path: path ? `${path}/${name}` : name, type: statSync(join(full, name)).isDirectory() ? 'directory' : 'file', size: null, last_modified: null })) });
+    const base64 = url.searchParams.get('format') === 'base64';
+    return reply({ name: path.split('/').pop(), path, type: 'file', format: base64 ? 'base64' : 'text', content: base64 ? readFileSync(full).toString('base64') : readFileSync(full, 'utf8'), last_modified: null });
+  }
+  return reply({ error: 'no' }, 404);
+});
 await context.route('**/api/latex/**', async (route) => {
   const request = route.request();
   const url = new URL(request.url());
@@ -267,6 +344,79 @@ sh('git', ['push', '-q'], coauthor);
 await page.locator('.wr-status').getByRole('button', { name: /^Sync$/ }).click().catch(async () => page.getByRole('button', { name: /^Sync$/ }).first().click());
 for (let i = 0; i < 30 && !/revised/.test(driveFile(`${folder}/main.tex`)?.data?.toString() ?? ''); i += 1) await page.waitForTimeout(500);
 check('it is in Drive', /revised/.test(driveFile(`${folder}/main.tex`)?.data?.toString() ?? ''));
+
+console.log('papers from before, in folders on this computer: moved into Drive by themselves');
+await page.evaluate(
+  async ({ cloneId, folderId, lostId }) => {
+    localStorage.setItem('reader.playground.servers', JSON.stringify([{ id: 's-mac', name: 'MacBook Air', url: 'http://127.0.0.1:47321/', token: 'pc-token', where: 'pc', companionId: 'mac-1' }]));
+    const db = await new Promise((resolve) => {
+      const request = indexedDB.open('reader');
+      request.onsuccess = () => resolve(request.result);
+    });
+    await new Promise((resolve) => {
+      const tx = db.transaction('collections', 'readwrite');
+      const store = tx.objectStore('collections');
+      const made = (id, name, overleafId, path, sync) => ({ id, name, color: '#5b4b8a', createdAt: new Date().toISOString(), project: { question: '', startedAt: new Date().toISOString(), roles: {}, todos: [], overleaf: { url: `https://www.overleaf.com/project/${overleafId}`, folders: { 'mac-1': { path, sync } } } } });
+      store.put(made('p-clone', 'Old clone', cloneId, 'papers/old-clone', 'git'));
+      store.put(made('p-folder', 'Old folder', folderId, 'papers/old-folder', 'folder'));
+      const lost = made('p-lost', 'Lost link', lostId, '', 'git');
+      delete lost.project.overleaf.folders;
+      store.put(lost);
+      tx.oncomplete = resolve;
+    });
+    db.close();
+  },
+  { cloneId: CLONE_ID, folderId: FOLDER_ID, lostId: LOST_ID },
+);
+companionOn = true;
+await page.goto(`${BASE}/projects/`, { waitUntil: 'networkidle' });
+const driveLinks = () =>
+  page.evaluate(async () => {
+    const db = await new Promise((resolve) => {
+      const request = indexedDB.open('reader');
+      request.onsuccess = () => resolve(request.result);
+    });
+    return new Promise((resolve) => {
+      const got = db.transaction('collections').objectStore('collections').getAll();
+      got.onsuccess = () => resolve(Object.fromEntries(got.result.map((item) => [item.id, item.project?.overleaf?.drive?.folder ?? null])));
+    });
+  });
+let linked = {};
+for (let i = 0; i < 60 && !(linked['p-clone'] && linked['p-folder'] && linked['p-lost']); i += 1) {
+  await page.waitForTimeout(500);
+  linked = await driveLinks();
+}
+check('both projects moved into Drive by themselves', linked['p-clone'] === 'Old clone-p-clone' && linked['p-folder'] === 'Old folder-p-folder', JSON.stringify(linked));
+check('the project that lost its link to its clone here was found by its folder, and moved', linked['p-lost'] === 'Lost link-p-lost' && /only here/.test(bareFile(bareFor[LOST_ID], 'extra.tex') ?? '') && /only here/.test(driveFile('Papers_collection/Papers/Lost link-p-lost/extra.tex')?.data?.toString() ?? ''), JSON.stringify(linked));
+check('nothing was shown or asked', (await page.locator('.move-drive').count()) === 0 && (await page.getByLabel(/Overleaf Git token/).count()) === 0);
+check('the clone’s edit made only on this computer reached Overleaf first, by the Companion', /Typed only on this computer/.test(bareFile(bareFor[CLONE_ID], 'main.tex') ?? ''));
+check('and is in Drive', /Typed only on this computer/.test(driveFile('Papers_collection/Papers/Old clone-p-clone/main.tex')?.data?.toString() ?? ''));
+check('the never-synced folder went into Drive as it was, figures too', /never synced/.test(driveFile('Papers_collection/Papers/Old folder-p-folder/main.tex')?.data?.toString() ?? '') && driveFile('Papers_collection/Papers/Old folder-p-folder/figures/plot.png')?.data?.length === 11);
+check('the folders on this computer are left as they were', existsSync(join(root, 'papers', 'old-clone', 'main.tex')) && existsSync(join(root, 'papers', 'old-folder', 'main.tex')));
+await shot('move-drive-silent');
+
+console.log('their first syncs from Drive: from the commit they were moved at, or all of it');
+// A coauthor edits the clone's Overleaf project meanwhile: its first sync from Drive must merge it, not undo it.
+const cloneCoauthor = join(tmp, 'clone-coauthor');
+sh('git', ['clone', '-q', bareFor[CLONE_ID], cloneCoauthor]);
+writeFileSync(join(cloneCoauthor, 'notes.tex'), 'A coauthor’s notes.\n');
+sh('git', ['add', '-A'], cloneCoauthor);
+sh('git', ['commit', '-q', '-m', 'notes'], cloneCoauthor);
+sh('git', ['push', '-q'], cloneCoauthor);
+const syncsBefore = syncs.length;
+await page.goto(`${BASE}/project/?id=p-clone&view=write`, { waitUntil: 'networkidle' });
+await page.locator('.wr-doc').first().click();
+await page.locator('.wr-desk').waitFor({ timeout: 15000 });
+for (let i = 0; i < 40 && !driveFile('Papers_collection/Papers/Old clone-p-clone/notes.tex'); i += 1) await page.waitForTimeout(500);
+check('the first sync sent the files’ Git ids, to find their commit by', Boolean(syncs.slice(syncsBefore).find((sync) => sync.baseTree && sync.baseTree['main.tex'])));
+check('the coauthor’s edit came in', /coauthor’s notes/.test(driveFile('Papers_collection/Papers/Old clone-p-clone/notes.tex')?.data?.toString() ?? ''));
+check('and nothing in Overleaf was undone', /Typed only on this computer/.test(bareFile(bareFor[CLONE_ID], 'main.tex') ?? '') && /coauthor’s notes/.test(bareFile(bareFor[CLONE_ID], 'notes.tex') ?? '') && !/<<<<<<</.test(driveFile('Papers_collection/Papers/Old clone-p-clone/main.tex')?.data?.toString() ?? ''));
+await page.goto(`${BASE}/project/?id=p-folder&view=write`, { waitUntil: 'networkidle' });
+await page.locator('.wr-doc').first().click();
+await page.locator('.wr-desk').waitFor({ timeout: 15000 });
+for (let i = 0; i < 40 && !/never synced/.test(bareFile(bareFor[FOLDER_ID], 'main.tex') ?? ''); i += 1) await page.waitForTimeout(500);
+check('the never-synced folder went to Overleaf at its first sync', /never synced/.test(bareFile(bareFor[FOLDER_ID], 'main.tex') ?? '') && bareFile(bareFor[FOLDER_ID], 'figures/plot.png') !== null);
+check('beside what Overleaf had, which came into Drive', /Overleaf’s own readme/.test(driveFile('Papers_collection/Papers/Old folder-p-folder/README.md')?.data?.toString() ?? ''));
 
 check('no errors on the page', !errors.length, errors.join(' | '));
 await browser.close();

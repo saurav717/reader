@@ -300,6 +300,8 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     const manifest = cleanManifest(body.manifest ?? {});
     if (!manifest) return json({ error: 'the manifest: relative paths inside the folder, each with a SHA-256' }, 400, noStore);
     const deleted = Array.isArray(body.deleted) ? body.deleted.filter((item) => typeof item === 'string' && item.length <= 300 && !item.split('/').includes('..')).slice(0, 500) : [];
+    // A paper moved in from a computer: its files' Git ids then, for the compiler to find their commit by.
+    const baseTree = body.baseTree && typeof body.baseTree === 'object' && !Array.isArray(body.baseTree) && Object.keys(body.baseTree).length <= 2000 && Object.entries(body.baseTree).every(([path, blob]) => typeof path === 'string' && !path.split('/').includes('..') && /^[0-9a-f]{40}$/.test(String(blob))) ? body.baseTree : null;
     let token = typeof body.token === 'string' ? body.token.trim() : '';
     if (token) await kv.put(overleafKey(owner), await sealToken(env, token));
     else token = (await openToken(env, await kv.get(overleafKey(owner)))) ?? '';
@@ -310,7 +312,7 @@ export async function handleLatex(request, env, path, { json, headers, authorize
       answer = await fetch(`${base}/git/sync`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${String(env.LATEX_CLOUD_RUN_TOKEN).trim()}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: body.url, token, base: typeof body.base === 'string' ? body.base : '', changed, deleted, manifest, message: String(body.message || 'Edits from Reader').slice(0, 200) }),
+        body: JSON.stringify({ url: body.url, token, base: typeof body.base === 'string' ? body.base : '', ...(baseTree ? { baseTree } : {}), changed, deleted, manifest, message: String(body.message || 'Edits from Reader').slice(0, 200) }),
         signal: AbortSignal.timeout(CLOUD_RUN_WAIT_MS),
       });
     } catch (error) {

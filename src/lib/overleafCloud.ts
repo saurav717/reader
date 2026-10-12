@@ -20,6 +20,38 @@ export const SYNC_STATE = '.reader-sync.json';
 interface SyncState {
   commit: string;
   files: Record<string, string>;
+  /** A paper moved in from a computer, not yet synced from here: its files' Git ids then, to find their commit by. */
+  blobs?: Record<string, string>;
+  /** A folder that was never synced with Overleaf: all of it goes, the first time. */
+  pushAll?: boolean;
+}
+
+/** A file's Git id: SHA-1 of "blob <size>\0" and its bytes, as Git names it. */
+async function gitBlob(base64: string): Promise<string> {
+  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  const head = new TextEncoder().encode(`blob ${bytes.length}\0`);
+  const all = new Uint8Array(head.length + bytes.length);
+  all.set(head);
+  all.set(bytes, head.length);
+  const digest = await crypto.subtle.digest('SHA-1', all);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * A paper just moved into Drive from a computer, recorded as such: its files
+ * as they were then, and either their Git ids (a clone, synced with Overleaf
+ * before the move: the first sync from here finds that commit and goes on from
+ * it) or that all of it is to be sent (a folder never synced with Overleaf).
+ */
+export async function recordMove(store: PaperStore, files: { path: string; base64: string }[], how: 'synced' | 'unsynced'): Promise<void> {
+  const state: SyncState = { commit: '', files: {} };
+  if (how === 'synced') state.blobs = {};
+  else state.pushAll = true;
+  for (const file of files) {
+    state.files[file.path] = await fingerprint(file.base64);
+    if (state.blobs) state.blobs[file.path] = await gitBlob(file.base64);
+  }
+  await store.writeText(SYNC_STATE, JSON.stringify(state));
 }
 
 const fingerprint = async (base64: string) => {
@@ -98,17 +130,22 @@ interface Answer {
  * here goes there, what changed there comes here. `token` is the Overleaf Git
  * token, given once; the Worker keeps it.
  */
-export async function cloudSync(store: PaperStore, url: string, message: string, token?: string): Promise<Synced & { needToken?: boolean }> {
+export async function cloudSync(store: PaperStore, url: string, message: string, token?: string, options: { firstPushes?: boolean } = {}): Promise<Synced & { needToken?: boolean }> {
   const state = await readState(store);
   const files = await current(store);
   const manifest = Object.fromEntries([...files].map(([path, file]) => [path, file.sha]));
-  // Never synced: nothing here is a change to send — Overleaf's files come in over it (a paper brought into Drive from Overleaf).
-  const changed = state.commit ? [...files].filter(([path, file]) => state.files[path] !== file.sha).map(([path, file]) => ({ path, base64: file.base64 })) : [];
-  const deleted = state.commit ? Object.keys(state.files).filter((path) => !files.has(path)) : [];
+  // Never synced: nothing here is a change to send — Overleaf's files come in over it (a paper brought into Drive
+  // from Overleaf) — unless `firstPushes`: then what is here goes to Overleaf, on top of what it has (a folder
+  // that was never synced with it, moved into Drive).
+  const pushAll = options.firstPushes || (!state.commit && state.pushAll);
+  // Moved in from a computer and not synced from here yet: what changed since the move.
+  const sinceMove = !state.commit && Boolean(state.blobs);
+  const changed = state.commit || pushAll || sinceMove ? [...files].filter(([path, file]) => pushAll || state.files[path] !== file.sha).map(([path, file]) => ({ path, base64: file.base64 })) : [];
+  const deleted = state.commit || sinceMove ? Object.keys(state.files).filter((path) => !files.has(path)) : [];
   const response = await apiFetch('/latex/overleaf/sync', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, base: state.commit, changed, deleted, manifest, message, ...(token ? { token } : {}) }),
+    body: JSON.stringify({ url, base: state.commit, ...(!state.commit && state.blobs ? { baseTree: state.blobs } : {}), changed, deleted, manifest, message, ...(token ? { token } : {}) }),
   });
   const answer = (await response.json().catch(() => ({}))) as Answer;
   if (!response.ok || !answer.commit) {

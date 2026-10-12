@@ -8,6 +8,7 @@ import { setQuote } from './lib/assistant';
 import { followLight } from './lib/glassLight';
 import { clearSelection, currentSelection, currentSelectionIn, explanationOnScreen, figureImages, paperText, pdfPageImages, pdfPagesInView, pdfPageTexts, trackSelection, visiblePassage } from './lib/screen';
 import Assistant from './components/Assistant';
+import MoveToDrive from './components/MoveToDrive';
 import Explain from './components/Explain';
 import { RailProgress } from './components/ExplainProgress';
 import { colabNow, machineLabel, useClient as useColabClient } from './lib/colab';
@@ -1507,6 +1508,8 @@ export default function App() {
         </div>
       ) : null}
 
+      {/* Papers kept on a computer from before: into Drive, in the background, asking nothing. */}
+      {!showWelcome ? <MoveToDrive /> : null}
       {notesWindow && !showWelcome ? (
         <NotesWindow
           paperId={reading ?? ''}
