@@ -6,7 +6,7 @@
 export interface WritePlace {
   /** The LaTeX project's folder in the paper's folder ('' the top). */
   dir: string;
-  /** The file, relative to the folder the desk is rooted at. */
+  /** The file, from the top of the paper's folder. */
   file: string;
   /** The caret's line, from 1. */
   line: number;

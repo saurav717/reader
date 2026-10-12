@@ -524,7 +524,8 @@ function LocalWrite({ project, onView }: { project: Project; onView: (view: View
   // The LaTeX project last open, as the tab opens (unless the paper card asked for the home); the home a click back.
   const [scope, setScope] = useState<PaperScope | null>(null);
   const [asked] = useState(() => takeWriteHome(project.id));
-  const [resume, setResume] = useState(!asked);
+  // Sync with Overleaf from the paper card: the LaTeX project last open, its own link to make.
+  const [resume, setResume] = useState(asked !== 'home');
   const updateLink = useUpdateLink(project);
   const ask = useCallback((again = false) => {
     setHere(null);
@@ -1378,7 +1379,8 @@ function DriveWrite({ project, folder }: { project: Project; folder: string }) {
   const place: PaperFolder = { path: folder, sync: 'drive' };
   // Where it was left, as the tab opens — unless the paper card asked for the tab's home.
   const [asked] = useState(() => takeWriteHome(project.id));
-  const [resume, setResume] = useState(!asked);
+  // Sync with Overleaf from the paper card: the LaTeX project last open, its own link to make.
+  const [resume, setResume] = useState(asked !== 'home');
   if (!driveConnected || !settings.googleClientId.trim())
     return (
       <div className="wr-center wr-start">
@@ -1423,7 +1425,7 @@ function DriveWrite({ project, folder }: { project: Project; folder: string }) {
   const owner = latexOwner(link, scope.dir);
   const relative = (path: string) => (owner ? (path === owner ? '' : path.slice(owner.length + 1)) : path);
   const deskScope: PaperScope = { dir: relative(scope.dir), exclude: scope.exclude.filter((dir) => !owner || dir.startsWith(`${owner}/`)).map(relative) };
-  return <WriteDesk key={`drive:${folder}:${scope.dir}`} project={project} folder={place} store={subStore(store, owner)} scope={deskScope} owner={owner} onHome={() => (setResume(false), setScope(null))} onCompare={() => (setResume(false), setComparing(scope.dir), setScope(null))} />;
+  return <WriteDesk key={`drive:${folder}:${scope.dir}:${owner}`} project={project} folder={place} store={subStore(store, owner)} rootStore={store} scope={deskScope} owner={owner} connectOverleaf={asked === 'overleaf' && resume} onHome={() => (setResume(false), setScope(null))} onCompare={() => (setResume(false), setComparing(scope.dir), setScope(null))} />;
 }
 
 /** The LaTeX project last opened in a project, on this device: where Continue goes. */
@@ -1896,7 +1898,9 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare, res
           <p className="wr-quiet">
             <span className="mono">{store.label}</span> · {folder.sync === 'drive' ? (overleafGitUrl(link?.url) ? (throughAccount ? `in step with Overleaf through ${throughAccount}` : 'in step with Overleaf, through Reader’s server') : 'not on Overleaf') : folder.sync === 'git' ? (link?.repo && !overleafGitUrl(link?.url) ? `in step with GitHub (${link.repo})` : 'in step with Overleaf') : folder.sync === 'dropbox' ? 'kept in step by Dropbox' : 'on this computer only'}
             {' · '}
-            {folder.sync === 'drive' && !overleafGitUrl(link?.url) ? (
+            {folder.sync === 'drive' && !overleafGitUrl(link?.url) && (docs?.length ?? 0) > 1 ? (
+              <span className="wr-quiet">each LaTeX project links to Overleaf on its own, below</span>
+            ) : folder.sync === 'drive' && !overleafGitUrl(link?.url) ? (
               <button type="button" className="link-btn" aria-expanded={toOverleaf} onClick={() => setToOverleaf(!toOverleaf)}>
                 Put it on Overleaf
               </button>
@@ -1906,7 +1910,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare, res
             {' · '}
             <WriteGuideLink section="where" />
           </p>
-          {toOverleaf && folder.sync === 'drive' && !overleafGitUrl(link?.url) ? <PutOnOverleaf project={project} store={store} /> : null}
+          {toOverleaf && folder.sync === 'drive' && !overleafGitUrl(link?.url) && (docs?.length ?? 0) <= 1 ? <PutOnOverleaf project={project} store={store} dir={docs?.[0]?.dir ?? ''} /> : null}
         </div>
         {docs?.length ? (
           <button type="button" className="btn primary" onClick={() => open(next(docs))}>
@@ -2110,7 +2114,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare, res
   );
 }
 
-function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, onCompare }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; /** The LaTeX project open: its files are the ones listed. */ scope?: PaperScope; /** The folder (in the paper's Drive folder) whose Overleaf link this goes by: `store` is rooted at it. */ owner?: string; onHome?: () => void; /** Compare it with its Overleaf project, file by file (a paper in Drive on Overleaf). */ onCompare?: () => void }) {
+function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '', onHome, onCompare, connectOverleaf = false }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; /** The paper's whole folder (Drive), where this LaTeX project's own Overleaf link is set from. */ rootStore?: PaperStore; /** The LaTeX project open: its files are the ones listed. */ scope?: PaperScope; /** The folder (in the paper's Drive folder) whose Overleaf link this goes by: `store` is rooted at it. */ owner?: string; onHome?: () => void; /** Compare it with its Overleaf project, file by file (a paper in Drive on Overleaf). */ onCompare?: () => void; /** Opened on linking this LaTeX project to Overleaf: what the paper card's Sync with Overleaf asks for. */ connectOverleaf?: boolean }) {
   const { settings, papers, updateSettings } = useStore();
   const [desk, setDesk] = useDesk();
   const setLayout = (layout: WriteOptions['layout']) => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), layout } });
@@ -2542,7 +2546,9 @@ function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, on
   const placeDir = [owner, scope?.dir].filter(Boolean).join('/');
   const placed = useRef<string | null>(null);
   const placeTimer = useRef<number>();
-  const [connecting, setConnecting] = useState(false);
+  // Each LaTeX project its own Overleaf project: this one linked by itself, from the paper's whole folder.
+  const [connecting, setConnecting] = useState(connectOverleaf);
+  const canConnect = inDrive && !git && Boolean(rootStore);
   useEffect(() => {
     if (!shown || !current || placed.current === shown) return;
     placed.current = shown;
@@ -2553,9 +2559,9 @@ function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, on
     (cursor: { line: number }) => {
       if (!shown) return;
       window.clearTimeout(placeTimer.current);
-      placeTimer.current = window.setTimeout(() => rememberPlace(project.id, { dir: placeDir, file: shown, line: cursor.line }), 400);
+      placeTimer.current = window.setTimeout(() => rememberPlace(project.id, { dir: placeDir, file: [owner, shown].filter(Boolean).join('/'), line: cursor.line }), 400);
     },
-    [shown, project.id, placeDir],
+    [shown, project.id, placeDir, owner],
   );
   const dirtyCount = Object.values(files).filter((file) => file.text !== file.disk).length;
   const noTex = engines && !engines.latexmk && !engines.tectonic;
@@ -2571,8 +2577,8 @@ function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, on
         </button>
         {shown ? <span className="wr-file mono">{shown}{current && current.text !== current.disk ? ' ●' : ''}</span> : null}
         <span className="wr-sp" />
-        {inDrive && !git && !owner ? (
-          <button type="button" className="btn sm ghost wr-ol-btn" aria-expanded={connecting} onClick={() => setConnecting(!connecting)} title="Link this LaTeX project to an Overleaf project, kept in step both ways — with the Overleaf account connected under Projects → Connections">
+        {canConnect ? (
+          <button type="button" className="btn sm ghost wr-ol-btn" aria-expanded={connecting} onClick={() => setConnecting(!connecting)} title={`Link this LaTeX project${placeDir ? ` (${placeDir}/)` : ''} to an Overleaf project of its own, kept in step both ways — with the Overleaf account connected under Projects → Connections`}>
             ⇄ Connect to Overleaf
           </button>
         ) : null}
@@ -2584,9 +2590,12 @@ function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, on
           </span>
         ) : null}
       </div>
-      {connecting && inDrive && !git && !owner ? (
+      {connecting && canConnect && rootStore ? (
         <div className="wr-ol-connect">
-          <PutOnOverleaf project={project} store={store} dir={scope?.dir ?? ''} main={mainDoc ? mainDoc.slice(scope?.dir ? scope.dir.length + 1 : 0) : undefined} onDone={() => setConnecting(false)} />
+          <p className="wr-quiet">
+            Linking <b>{placeDir ? `${placeDir}/` : 'this LaTeX project'}</b> to an Overleaf project of its own: the other LaTeX projects in this paper’s folder keep theirs.
+          </p>
+          <PutOnOverleaf project={project} store={rootStore} dir={placeDir} main={mainDoc ? [owner, mainDoc].filter(Boolean).join('/').slice(placeDir ? placeDir.length + 1 : 0) : undefined} onDone={() => setConnecting(false)} />
         </div>
       ) : null}
       <div className="wr-editor">

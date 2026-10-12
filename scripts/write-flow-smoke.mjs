@@ -71,6 +71,7 @@ put(
   ].join('\n'),
 );
 put(`${LATEX}/sections/method.tex`, '\\section{Method}\n\\subsection{Loss-free balancing}\nBefore the top-$K$ decision we add a bias $b_i$ to each expert\'s score.\n');
+put(`${LATEX}/rebuttal/main.tex`, '\\documentclass{article}\n\\title{Rebuttal}\n\\begin{document}\n\\maketitle\nWe thank the reviewers.\n\\end{document}\n');
 put(`${LATEX}/refs.bib`, '@article{fedus2021switch,\n  title = {Switch Transformers},\n  eprint = {2101.03961}\n}\n');
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
@@ -309,6 +310,23 @@ await page.locator('.cx-pop').getByText(/Last pushed/).waitFor({ timeout: 10000 
 check('the code went as one commit', github.commits.length === 1 && github.commits[0].includes('train.py') && github.commits[0].includes('configs/8b.yaml'), JSON.stringify(github.commits));
 check('the button names the repository and the push', /sparse-gated-moe-code/.test(await page.locator('.cx-gh-btn').innerText()));
 await shot('flow-8-github-pushed');
+
+console.log('9. two LaTeX projects, each its own Overleaf project: the card and Sync with Overleaf go by the one written in');
+const twoProjects = { ...onOverleaf, latex: { rebuttal: { url: '' } } };
+const inRebuttal = { 'reader.write.p-moe.place': JSON.stringify({ dir: 'rebuttal', file: 'rebuttal/main.tex', line: 5, at: Date.now() - 600_000 }), 'reader.write.p-moe.opened': 'rebuttal' };
+await seed({ projects: [project(twoProjects)], local: inRebuttal });
+await page.goto(`${BASE}/project/?id=p-moe`, { waitUntil: 'networkidle' });
+await signIn();
+await page.locator('.ol-card').waitFor({ timeout: 15000 });
+const two = await page.locator('.ol-card').innerText();
+check('the card speaks for the LaTeX project written in: rebuttal, not on Overleaf', /rebuttal · Not on Overleaf/i.test(two), two.replace(/\s+/g, ' ').slice(0, 120));
+check('and lists each LaTeX project’s own Overleaf project', (await page.locator('.ol-latex li').count()) === 2 && /top of the folder[\s\S]*Overleaf …[\s\S]*rebuttal\/[\s\S]*not on Overleaf/i.test(await page.locator('.ol-latex').innerText()));
+await page.locator('.ol-card').scrollIntoViewIfNeeded();
+await shot('flow-9-overview-two-latex');
+await page.locator('.ol-card').getByRole('button', { name: /Sync with Overleaf/ }).click();
+await page.locator('.wr-ol-connect').waitFor({ timeout: 20000 });
+check('Sync with Overleaf opens that LaTeX project, linking it alone', /Linking rebuttal\//.test(await page.locator('.wr-ol-connect').innerText()) && /We thank the reviewers/.test(await page.locator('.wr-editor textarea').inputValue()));
+await shot('flow-10-connect-one-latex');
 
 check('no errors on the page', !errors.length, errors.join(' | '));
 await browser.close();
