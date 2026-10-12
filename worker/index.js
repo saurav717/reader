@@ -65,7 +65,7 @@ function cors(origin) {
   return {
     'Access-Control-Allow-Origin': allowed,
     'Vary': 'Origin',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     // The browser session's input arrives as JSON; the app's token and its
     // client id come as headers (see `authorized` and `clientOf` below).
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client, X-Google-Token, X-Captcha-Token',
