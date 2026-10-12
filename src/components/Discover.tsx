@@ -275,6 +275,10 @@ export default function Discover({ onClose, onOpen, ask, here, focus, embedded }
     else if (!here) setTarget((current) => (plain.some((collection) => collection.id === current) ? current : plain[0]?.id ?? ''));
   }, [here, choices, plain]);
 
+  // The add button names what "Add to" points at: a project reads as one.
+  const place = choices.find((collection) => collection.id === target);
+  const kind = place && isProject(place) ? 'project' : 'collection';
+
   const queryInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
     // Only a press just now: the panel mounting again later — a switch of
@@ -874,7 +878,7 @@ export default function Discover({ onClose, onOpen, ask, here, focus, embedded }
                       aria-describedby={saveBlocked ? SAVE_BLOCKED_ID : undefined}
                       title={
                         saveBlocked ??
-                        'Add it to the collection, save the PDF to your Drive, and open it here on that copy'
+                        `Add it to ${place ? `“${place.name}”` : `the ${kind}`}, save the PDF to your Drive, and open it here on that copy`
                       }
                       onClick={() => void addToCollection(result)}
                     >
@@ -885,14 +889,14 @@ export default function Discover({ onClose, onOpen, ask, here, focus, embedded }
                       ) : (
                         <>
                           <PlusIcon size={14} />
-                          {saved ? 'Add to this collection' : 'Add to collection'}
+                          {saved ? `Add to this ${kind}` : `Add to ${kind}`}
                         </>
                       )}
                     </button>
                     <button
                       type="button"
                       className="btn sm"
-                      title="Open it straight away; Drive catches up in the background"
+                      title={`Add it to ${place ? `“${place.name}”` : `the ${kind}`} and open it straight away; Drive catches up in the background`}
                       onClick={async () => {
                         await add(result);
                         onOpen(result.id);
