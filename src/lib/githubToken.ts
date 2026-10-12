@@ -132,6 +132,8 @@ export function githubFetch(token: string, path: string, init: RequestInit = {})
     ...(init.body ? { 'Content-Type': 'application/json' } : {}),
     ...((init.headers as Record<string, string> | undefined) ?? {}),
   };
-  if (token === ON_SERVER) return apiFetch(`/github/api${path}`, { ...init, headers });
+  // Through Reader's server: it puts GitHub's own headers on the call. Only Content-Type goes from here — any
+  // other header makes the browser ask the server first (CORS), and one it doesn't allow blocks the call outright.
+  if (token === ON_SERVER) return apiFetch(`/github/api${path}`, { ...init, headers: init.body ? { 'Content-Type': 'application/json' } : {} });
   return fetch(`${GITHUB}${path}`, { ...init, headers: { Authorization: `Bearer ${token}`, ...headers } });
 }

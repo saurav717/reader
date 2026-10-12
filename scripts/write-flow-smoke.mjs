@@ -449,6 +449,11 @@ github.repos.push(...reposBefore);
 await page.locator('.cx-pop').getByRole('button', { name: 'Look again' }).click();
 await page.locator('.cx-pop select option', { hasText: 'moe-experiments' }).waitFor({ state: 'attached', timeout: 10000 }).catch(() => {});
 check('given some, Look again lists them', (await page.locator('.cx-pop select option', { hasText: 'moe-experiments' }).count()) === 1);
+check('the menu says which GitHub account, and how', /GitHub: saurav · Reader’s GitHub App/.test((await page.locator('.cx-pop-foot').innerText()).replace(/\s+/g, ' ')));
+page.once('dialog', (dialog) => void dialog.accept());
+await page.locator('.cx-pop-foot').getByRole('button', { name: 'Disconnect' }).click();
+await page.locator('.cx-pop').getByText('Connect GitHub').first().waitFor({ timeout: 10000 }).catch(() => {});
+check('Disconnect there signs out of GitHub: the token forgotten by the server', workerKv.size === 0 && (await page.locator('.cx-pop').getByText('Connect GitHub').count()) > 0);
 
 check('no errors on the page', !errors.length, errors.join(' | '));
 await browser.close();
