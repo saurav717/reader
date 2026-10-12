@@ -99,10 +99,13 @@ Apps → New GitHub App):
 
 1. **GitHub App name**: anything, e.g. *Reader papers*. **Homepage URL**:
    `https://saurav717.github.io/reader/`.
-2. **Callback URL**: the address above. Keep **Expire user authorization
-   tokens** ticked. Leave **Request user authorization (OAuth) during
-   installation** unticked (Reader starts the sign-in itself), and **Setup
-   URL** empty.
+2. Under **Identifying and authorizing users**: **Redirect URI** (called
+   *Callback URL* on older versions of the form) is the address above;
+   **Allow wildcard matching** unticked; keep **Expire user authorization
+   tokens** ticked; leave **Request user authorization (OAuth) during
+   installation** and **Enable Device Flow** unticked (Reader starts the
+   sign-in itself). Under **Post installation**: **Setup URL** empty,
+   **Redirect on update** unticked.
 3. **Webhook**: untick **Active**.
 4. **Permissions → Repository permissions**: **Contents: Read and write**,
    **Administration: Read and write** (to make a private repository for a
