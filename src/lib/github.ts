@@ -124,6 +124,12 @@ export async function createPrivateRepo(token: string, name: string, description
   return stateOf(await api<RepoJson>(token, '/user/repos', { method: 'POST', body: JSON.stringify({ name, description, private: true, auto_init: true }) }));
 }
 
+/** The token's repositories it may write to, most recently pushed first: what a project's code can go to. */
+export async function writableRepos(token: string): Promise<RepoState[]> {
+  const repos = await api<RepoJson[]>(token, '/user/repos?sort=pushed&per_page=50&affiliation=owner,collaborator,organization_member');
+  return repos.filter((repo) => repo.permissions?.admin || (repo.permissions as { push?: boolean } | undefined)?.push).map(stateOf);
+}
+
 /** Turns a repository private: no one outside it can read it from then on. */
 export async function makeRepoPrivate(token: string, owner: string, repo: string): Promise<RepoState> {
   return stateOf(await api<RepoJson>(token, `/repos/${owner}/${repo}`, { method: 'PATCH', body: JSON.stringify({ private: true }) }));

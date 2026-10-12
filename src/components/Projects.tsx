@@ -51,6 +51,7 @@ import WritePage from './Write';
 import { ComputeSwitch } from './Compute';
 import { COLAB, computeId, isOn, serversOn, switchesOnCards } from '../lib/compute';
 import { overleafViewOf } from '../lib/overleaf';
+import { CodeGitHub, ProjectConnections } from './Connections';
 import { ArrowLeftIcon, CheckIcon, ChevronDownIcon, CloseIcon, CodeIcon, GridIcon, PlusIcon, TrashIcon } from './icons';
 
 type ProjectPageView = Extract<View, { kind: 'projects' } | { kind: 'project' }>;
@@ -320,6 +321,7 @@ function ProjectBoard({ projects, onEnter, onNew }: { projects: Project[]; onEnt
           {count} {projects.length === 1 ? 'thing' : 'things'} on the go
         </h1>
       </div>
+      <ProjectConnections />
       <div className="pj-board">
         {ordered.map((project) => {
           const mine = papersIn(project.id, papers);
@@ -410,7 +412,7 @@ function ProjectOverview({
   onOpenPaper: (id: string) => void;
   onAddPapers: () => void;
 }) {
-  const { papers, highlights, updateCollection, setPaperCollections, renameCollection, deleteCollection, settings } = useStore();
+  const { papers, highlights, updateCollection, setPaperCollections, renameCollection, deleteCollection } = useStore();
   const info = project.project;
   const groups = byRole(project, papers);
   const reading = continueWith(project, papers);
@@ -534,8 +536,8 @@ function ProjectOverview({
       <div className="pj-paper-row">
         <OverleafCard
           project={project}
-          onWrite={() => {
-            if (overleafViewOf(settings) === 'tab') return onView({ kind: 'project', id: project.id, mode: 'write' });
+          onWrite={() => onView({ kind: 'project', id: project.id, mode: 'write' })}
+          onWorkspace={() => {
             writeWs(WS_LAYOUT, 'write');
             onView({ kind: 'project', id: project.id, mode: 'workspace' });
           }}
@@ -898,6 +900,11 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
           onAdd={() => onView({ kind: 'project', id: project.id })}
         />
       ) : null}
+        {focus === 'code' ? (
+          <span className="pj-ws-github">
+            <CodeGitHub project={project} code={code} />
+          </span>
+        ) : null}
       </div>
       <div className="pj-ws-body">
         {treeOpen && !fullCode ? (

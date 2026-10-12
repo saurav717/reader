@@ -31,6 +31,7 @@ import { CompanionConnect } from './Playground';
 import OverleafAccounts, { useOverleafAccounts } from './OverleafAccounts';
 import { WriteGuideLink } from './WriteGuide';
 import CompareOverleaf from './WriteCompare';
+import { lineIn, rememberPlace, takeWriteHome } from '../lib/writePlace';
 import type { ZipEntry } from '../lib/zip';
 
 type Here = Extract<ThisComputer, { server: unknown }>;
@@ -63,7 +64,8 @@ function WriteStart({ project }: { project: Project }) {
   const { driveConnected, connectDrive, settings, updateCollection } = useStore();
   const setLink = useSetLink(project);
   const signedIn = driveConnected && Boolean(settings.googleClientId.trim());
-  const [way, setWay] = useState<'overleaf' | 'blank' | null>(null);
+  // Written here unless the paper card asked for Overleaf: Overleaf is a sync, never the only way in.
+  const [way, setWay] = useState<'overleaf' | 'blank'>(() => (takeWriteHome(project.id) === 'overleaf' ? 'overleaf' : 'blank'));
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const folder = paperDriveFolder(project.name, project.id);
@@ -108,13 +110,15 @@ function WriteStart({ project }: { project: Project }) {
           </div>
         ) : null}
         <div className="wr-ways" role="radiogroup" aria-label="How to start the paper">
-          <button type="button" role="radio" aria-checked={way === 'overleaf'} className={`wr-way${way === 'overleaf' ? ' is-on' : ''}`} onClick={() => setWay('overleaf')} disabled={!signedIn}>
-            <b>From your Overleaf account</b>
-            <span>Connect your Overleaf account once, then pick one of its projects. It comes into Drive and stays in step with Overleaf both ways, so coauthors can keep writing there.</span>
-          </button>
           <button type="button" role="radio" aria-checked={way === 'blank'} className={`wr-way${way === 'blank' ? ' is-on' : ''}`} onClick={() => setWay('blank')} disabled={!signedIn}>
-            <b>Start without Overleaf</b>
-            <span>A new LaTeX paper in your Drive: a blank article, a conference template, or files you upload. You can put it on Overleaf later.</span>
+            <b>
+              Write it here <small>· recommended</small>
+            </b>
+            <span>A new LaTeX paper in your Drive, written in this tab: a blank article, a conference template, or files you upload. Sync it with Overleaf whenever you like — or never.</span>
+          </button>
+          <button type="button" role="radio" aria-checked={way === 'overleaf'} className={`wr-way${way === 'overleaf' ? ' is-on' : ''}`} onClick={() => setWay('overleaf')} disabled={!signedIn}>
+            <b>Bring it from Overleaf, kept in sync</b>
+            <span>Already started in Overleaf? Connect your Overleaf account once and pick the project. It comes into Drive, you write it here, and it stays in step with Overleaf both ways, so coauthors can keep writing there.</span>
           </button>
         </div>
         {way === 'overleaf' && signedIn ? <OverleafPicker project={project} mode="bring" onPicked={(url) => bring(url)} /> : null}
@@ -517,8 +521,10 @@ function ToDrive({ project }: { project: Project }) {
  */
 function LocalWrite({ project, onView }: { project: Project; onView: (view: View) => void }) {
   const [here, setHere] = useState<ThisComputer | null>(null);
-  // The project's LaTeX projects first, each time the tab opens; the desk once one is picked.
+  // The LaTeX project last open, as the tab opens (unless the paper card asked for the home); the home a click back.
   const [scope, setScope] = useState<PaperScope | null>(null);
+  const [asked] = useState(() => takeWriteHome(project.id));
+  const [resume, setResume] = useState(!asked);
   const updateLink = useUpdateLink(project);
   const ask = useCallback((again = false) => {
     setHere(null);
@@ -579,11 +585,14 @@ function LocalWrite({ project, onView }: { project: Project; onView: (view: View
         shelf={shelf}
         onOpen={(main, opened) => {
           if (main !== link?.main) updateLink({ main });
+          rememberOpened(project.id, opened.dir);
           setScope(opened);
         }}
+        resume={resume}
+        toOverleaf={asked === 'overleaf'}
       />
     );
-  return <WriteDesk key={`${here.id}:${folder.path}:${scope.dir}`} project={project} here={here} folder={folder} store={store} scope={scope} onHome={() => setScope(null)} />;
+  return <WriteDesk key={`${here.id}:${folder.path}:${scope.dir}`} project={project} here={here} folder={folder} store={store} scope={scope} onHome={() => (setResume(false), setScope(null))} />;
 }
 
 /** The Companion's own templates, for a paper kept on this computer. */
@@ -1367,6 +1376,9 @@ function DriveWrite({ project, folder }: { project: Project; folder: string }) {
   const store = useMemo(() => driveStore(paperDriveNow, folder), [folder]);
   const shelf = useMemo(() => driveShelf(paperDriveNow, store), [store]);
   const place: PaperFolder = { path: folder, sync: 'drive' };
+  // Where it was left, as the tab opens — unless the paper card asked for the tab's home.
+  const [asked] = useState(() => takeWriteHome(project.id));
+  const [resume, setResume] = useState(!asked);
   if (!driveConnected || !settings.googleClientId.trim())
     return (
       <div className="wr-center wr-start">
@@ -1403,13 +1415,15 @@ function DriveWrite({ project, folder }: { project: Project; folder: string }) {
           setScope(opened);
         }}
         onCompare={(dir) => setComparing(dir)}
+        resume={resume}
+        toOverleaf={asked === 'overleaf'}
       />
     );
   // Rooted at the folder whose Overleaf link it goes by: that is what syncs and compiles as one.
   const owner = latexOwner(link, scope.dir);
   const relative = (path: string) => (owner ? (path === owner ? '' : path.slice(owner.length + 1)) : path);
   const deskScope: PaperScope = { dir: relative(scope.dir), exclude: scope.exclude.filter((dir) => !owner || dir.startsWith(`${owner}/`)).map(relative) };
-  return <WriteDesk key={`drive:${folder}:${scope.dir}`} project={project} folder={place} store={subStore(store, owner)} scope={deskScope} owner={owner} onHome={() => setScope(null)} onCompare={() => (setComparing(scope.dir), setScope(null))} />;
+  return <WriteDesk key={`drive:${folder}:${scope.dir}`} project={project} folder={place} store={subStore(store, owner)} scope={deskScope} owner={owner} onHome={() => (setResume(false), setScope(null))} onCompare={() => (setResume(false), setComparing(scope.dir), setScope(null))} />;
 }
 
 /** The LaTeX project last opened in a project, on this device: where Continue goes. */
@@ -1708,9 +1722,9 @@ function OpenHere({ here, folder, onProblem, label = 'This computer' }: { here: 
  * elsewhere. A new one goes in a folder of its own, beside the others,
  * unless the project has none yet.
  */
-function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; shelf: TemplateShelf | null; onOpen: (main: string, scope: PaperScope) => void; /** A LaTeX project on Overleaf, compared with its Overleaf project file by file (Drive only). */ onCompare?: (dir: string) => void }) {
+function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare, resume = false, toOverleaf: askedOverleaf = false }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; shelf: TemplateShelf | null; onOpen: (main: string, scope: PaperScope) => void; /** A LaTeX project on Overleaf, compared with its Overleaf project file by file (Drive only). */ onCompare?: (dir: string) => void; /** Straight into the LaTeX project last open, as the tab opens: where it was left. */ resume?: boolean; /** Opened on putting the paper on Overleaf: what the paper card's Sync with Overleaf asks for. */ toOverleaf?: boolean }) {
   const { updateCollection } = useStore();
-  const [toOverleaf, setToOverleaf] = useState(false);
+  const [toOverleaf, setToOverleaf] = useState(askedOverleaf);
   const [putting, setPutting] = useState<string | null>(null);
   const [copying, setCopying] = useState<string | null>(null);
   const placed = useRef('');
@@ -1788,6 +1802,16 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare }: {
   };
   const within = (dir: string, path: string) => (dir ? `${dir}/${path}` : path);
   const open = (one: LatexProject) => onOpen(one.main.path, { dir: one.dir, exclude: one.exclude });
+  // As the tab opens: the LaTeX project last open, at once — once, so its home stays a click back.
+  const resumed = useRef(false);
+  const resuming = resume && opened !== null && !resumed.current && !problem;
+  useEffect(() => {
+    if (!resume || resumed.current || !docs) return;
+    resumed.current = true;
+    const one = opened === null ? undefined : docs.find((doc) => doc.dir === opened);
+    if (one) open(one);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docs, resume]);
   const onOverleaf = Boolean(overleafGitUrl(link?.url));
   const run = async (work: () => Promise<string | undefined>) => {
     setBusy(true);
@@ -1857,6 +1881,12 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare }: {
     { id: 'files', title: 'Upload a LaTeX project', note: 'Its folder from your computer, subfolders and all — the main .tex with its sections, .bib, styles and figures.', icon: '⎘' },
   ];
 
+  if (resuming)
+    return (
+      <div className="wr-home">
+        <p className="wr-quiet">Opening where you left off…</p>
+      </div>
+    );
   return (
     <div className="wr-home">
       <header className="wr-home-head">
@@ -2508,6 +2538,25 @@ function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, on
   };
 
   const current = shown ? files[shown] : undefined;
+  // Where it was left: the caret's line in each file, put back as the file opens, kept as it moves.
+  const placeDir = [owner, scope?.dir].filter(Boolean).join('/');
+  const placed = useRef<string | null>(null);
+  const placeTimer = useRef<number>();
+  const [connecting, setConnecting] = useState(false);
+  useEffect(() => {
+    if (!shown || !current || placed.current === shown) return;
+    placed.current = shown;
+    const line = lineIn(project.id, placeDir, shown);
+    window.setTimeout(() => (line > 1 ? editor.current?.goToLine(line) : editor.current?.focus()), 60);
+  }, [shown, current, project.id, placeDir]);
+  const onCursor = useCallback(
+    (cursor: { line: number }) => {
+      if (!shown) return;
+      window.clearTimeout(placeTimer.current);
+      placeTimer.current = window.setTimeout(() => rememberPlace(project.id, { dir: placeDir, file: shown, line: cursor.line }), 400);
+    },
+    [shown, project.id, placeDir],
+  );
   const dirtyCount = Object.values(files).filter((file) => file.text !== file.disk).length;
   const noTex = engines && !engines.latexmk && !engines.tectonic;
   const texLive = compiled?.engine === 'latexmk' ? engines?.texVersion?.match(/TeX Live (\d{4})/)?.[1] : undefined;
@@ -2522,6 +2571,11 @@ function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, on
         </button>
         {shown ? <span className="wr-file mono">{shown}{current && current.text !== current.disk ? ' ●' : ''}</span> : null}
         <span className="wr-sp" />
+        {inDrive && !git && !owner ? (
+          <button type="button" className="btn sm ghost wr-ol-btn" aria-expanded={connecting} onClick={() => setConnecting(!connecting)} title="Link this LaTeX project to an Overleaf project, kept in step both ways — with the Overleaf account connected under Projects → Connections">
+            ⇄ Connect to Overleaf
+          </button>
+        ) : null}
         <PaneTools layout={options.layout} onLayout={setLayout} swapped={desk.swapped} onSwap={() => setDesk({ swapped: !desk.swapped })} big={big === 'source'} onBig={() => setBig(big === 'source' ? null : 'source')} />
         {options.layout === 'tabs' ? (
           <span className="segmented sm">
@@ -2530,6 +2584,11 @@ function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, on
           </span>
         ) : null}
       </div>
+      {connecting && inDrive && !git && !owner ? (
+        <div className="wr-ol-connect">
+          <PutOnOverleaf project={project} store={store} dir={scope?.dir ?? ''} main={mainDoc ? mainDoc.slice(scope?.dir ? scope.dir.length + 1 : 0) : undefined} onDone={() => setConnecting(false)} />
+        </div>
+      ) : null}
       <div className="wr-editor">
         {shown && current ? (
           <CodeEditor
@@ -2539,6 +2598,7 @@ function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, on
             path={shown}
             wrap
             minimap={false}
+            onCursor={onCursor}
             complete={/\.(tex|sty|cls)$/.test(shown) ? completeFor : undefined}
             onChange={(next) => {
               edit(shown, next);

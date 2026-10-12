@@ -843,7 +843,7 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             of every project page goes between the board, the overview and the workspace whichever you pick.
           </p>
           <div className="eyebrow" style={{ margin: '16px 0 8px' }}>
-            Writing with Overleaf
+            Writing your paper
           </div>
           <p className="wg-settings-cta">
             New to the Write tab, or unsure what to pick? <WriteGuideLink section="start">Read the guide to writing your paper</WriteGuideLink>
@@ -867,10 +867,10 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             ))}
           </div>
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            A project is linked to Overleaf from its Write tab or the paper card on its overview, which every choice
-            keeps. Overleaf can’t be opened inside another site: the Write tab keeps the paper in your Google Drive (or,
-            if you choose, on your computers) and Reader’s server keeps it in step with Overleaf’s Git; the workspace and
-            the dock need the paper in GitHub too (Overleaf’s GitHub sync), with the token from Git mirror above.
+            A project’s paper is always written in its Write tab, kept in your Google Drive (or, if you choose, on your
+            computers): the choice above only adds another place to reach it. Overleaf is optional — link a project to one
+            from its Write tab or the paper card, and Reader’s server keeps the two in step through Overleaf’s Git, with
+            the Overleaf account connected once under Projects → Connections (or below).
           </p>
           <div id="settings-overleaf-accounts" className="eyebrow" style={{ margin: '16px 0 8px' }}>
             Overleaf accounts

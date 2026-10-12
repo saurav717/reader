@@ -5,7 +5,7 @@
 // What is here reads that record and nothing else: no store, no React, so it
 // can be tested without a browser.
 
-import type { Collection, Paper, PaperRole, ProjectInfo, ProjectTodo } from '../types';
+import type { CodeRepo, Collection, Paper, PaperRole, ProjectInfo, ProjectTodo } from '../types';
 import { overleafLinkOf } from './overleaf';
 
 export interface Project extends Collection {
@@ -52,6 +52,21 @@ export function projectInfo(collection: Collection | undefined): ProjectInfo | n
     playgroundId: typeof raw.playgroundId === 'string' && raw.playgroundId ? raw.playgroundId : undefined,
     todos,
     ...(overleafLinkOf(raw.overleaf) ? { overleaf: overleafLinkOf(raw.overleaf) } : {}),
+    ...(codeRepoOf(raw.codeRepo) ? { codeRepo: codeRepoOf(raw.codeRepo) } : {}),
+  };
+}
+
+/** Where the project's code goes on GitHub, as kept: owner/name and a branch, or nothing. */
+function codeRepoOf(raw: unknown): CodeRepo | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = raw as Partial<CodeRepo>;
+  if (typeof value.repo !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(value.repo)) return undefined;
+  return {
+    repo: value.repo,
+    branch: typeof value.branch === 'string' && value.branch ? value.branch : 'main',
+    ...(typeof value.pushedAt === 'string' ? { pushedAt: value.pushedAt } : {}),
+    ...(typeof value.commit === 'string' ? { commit: value.commit } : {}),
+    ...(typeof value.files === 'number' ? { files: value.files } : {}),
   };
 }
 
