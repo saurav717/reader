@@ -312,6 +312,13 @@ describe('a job’s state', () => {
     // The same token again: the same account, relabelled, not a second one.
     await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: 'olp_mine', label: 'Me' }) });
     assert.deepEqual((await accounts()).map((item) => item.label).sort(), ['Lab account', 'Me']);
+    // The Overleaf project's files, nothing merged: through the account that opens it.
+    const files = await ask('/latex/overleaf/files', { method: 'POST', body: JSON.stringify({ url: labs, account: connected.account }) });
+    assert.equal(files.status, 200);
+    assert.equal(sent.at(-1).url, 'https://latex.run.app/git/files');
+    assert.deepEqual(Object.keys(sent.at(-1).job).sort(), ['token', 'url']);
+    assert.equal((await files.json()).account, connected.account);
+    assert.equal((await ask('/latex/overleaf/files', { method: 'POST', body: JSON.stringify({ url: 'https://evil.example/x' }) })).status, 400);
     // One forgotten, then all.
     assert.deepEqual((await (await handleLatex(new Request(`https://w/latex/overleaf/token?account=${connected.account}`, { method: 'DELETE' }), env, '/latex/overleaf/token', tools)).json()).accounts.map((item) => item.label), ['Me']);
     assert.equal((await (await ask('/latex/overleaf/token', { method: 'DELETE' })).json()).known, false);

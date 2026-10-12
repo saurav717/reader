@@ -105,6 +105,38 @@ export function driveStore(config: () => DriveConfig | null, folder: string): Pa
   return store;
 }
 
+const subStores = new WeakMap<PaperStore, Map<string, PaperStore>>();
+
+/**
+ * A folder inside a paper's, as a paper of its own: its paths relative to it.
+ * A LaTeX project with an Overleaf project of its own syncs and compiles as
+ * this. The same one each time for a folder, so what a sync has read is kept.
+ */
+export function subStore(store: PaperStore, dir: string): PaperStore {
+  const clean = dir.split('/').filter((part) => part && part !== '.' && part !== '..').join('/');
+  if (!clean) return store;
+  const known = subStores.get(store) ?? new Map<string, PaperStore>();
+  subStores.set(store, known);
+  const kept = known.get(clean);
+  if (kept) return kept;
+  const at = (path: string) => join(clean, path);
+  const sub: PaperStore = {
+    kind: store.kind,
+    label: `${store.label} › ${clean.split('/').join(' › ')}`,
+    list: async (path = '') => (await store.list(at(path))).map((entry) => ({ ...entry, path: relative(clean, entry.path) })),
+    readText: (path) => store.readText(at(path)),
+    readBase64: (path) => store.readBase64(at(path)),
+    writeText: (path, text) => store.writeText(at(path), text),
+    writeBase64: (path, base64) => store.writeBase64(at(path), base64),
+    remove: (path) => store.remove(at(path)),
+    rename: (from, to) => store.rename(at(from), at(to)),
+    mkdir: (path) => store.mkdir(at(path)),
+    ...(store.link ? { link: (inside = '') => store.link!(at(inside)) } : {}),
+  };
+  known.set(clean, sub);
+  return sub;
+}
+
 // ------------------------------------------------------------ templates --
 
 

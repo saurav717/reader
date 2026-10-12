@@ -114,9 +114,10 @@ const choiceLabel = (browser: InstalledBrowser, profile?: { name: string; accoun
  * picks another — every browser and profile here, through the Companion — or
  * copies the link for any other.
  */
-export function OpenOverleaf({ project, view, primary = true, compact = false }: { project: Project; view: OverleafView; primary?: boolean; compact?: boolean }) {
+export function OpenOverleaf({ project, view, primary = true, compact = false, url }: { project: Project; view: OverleafView; primary?: boolean; compact?: boolean; /** A LaTeX project's own Overleaf project, in place of the project's ('' for none). */ url?: string }) {
   const { updateCollection } = useStore();
-  const link = project.project.overleaf;
+  const own = project.project.overleaf;
+  const link = url === undefined ? own : url ? { ...(own ?? {}), url } : undefined;
   const [opener, setOpener] = useState<Opener | null>(null);
   const [menu, setMenu] = useState(false);
   const [found, setFound] = useState<InstalledBrowser[] | null>(null);
@@ -136,7 +137,7 @@ export function OpenOverleaf({ project, view, primary = true, compact = false }:
     window.addEventListener('pointerdown', away);
     return () => window.removeEventListener('pointerdown', away);
   }, [menu]);
-  if (!link) return null;
+  if (!link?.url) return null;
   const here = opener && 'id' in opener ? opener : null;
   const chosen = here ? link.browsers?.[here.id] : undefined;
   const say = (text: string) => {

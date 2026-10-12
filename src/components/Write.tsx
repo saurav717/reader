@@ -11,12 +11,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
 import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, REVEAL_VERSION, TEXLIVE_VERSION, revealPaper, TEX_COMPILERS, applyTemplate, chooseFolder, clonePaper, linkFolder, listTemplates, saveTemplate, tokenKnown, updateCompanion, waitForVersion, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, compilePaper, forgetOverleafToken, installTectonic, isNewer, paperEngines, paperRemote, syncPaper, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
-import { besideFeatures, bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
+import { besideFeatures, bibEntries, isBuildFile, isTextFile, keyFor, latexLinkAt, latexOwner, latexSeparate, openInOverleaf, overleafGitUrl, withLatexLink, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
 import { complete as completeLatex } from '../lib/latexComplete';
 import { openPdf } from '../lib/pdfReflow';
 import { papersIn, projectsOf, type Project } from '../lib/projects';
 import { thisComputer, type ThisComputer } from '../lib/thisComputer';
-import type { PaperFolder, WriteOptions } from '../types';
+import type { LatexLink, OverleafLink, PaperFolder, WriteOptions } from '../types';
 import { WRITE_DEFAULTS } from '../types';
 import type { View } from '../types.view';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
@@ -25,11 +25,13 @@ import { OpenOverleaf } from './Overleaf';
 import { readTexLog, type CompileFile } from '../lib/latexGithub';
 import { apiFetch } from '../lib/api';
 import { cloudSync, overleafTokenKnown } from '../lib/overleafCloud';
-import { companionStore, driveShelf, driveStore, paperDriveFolder, paperDriveNow, setPaperDrive, unpackKit, type PaperStore, type ShelfTemplate, type TemplateShelf } from '../lib/paperStore';
+import { companionStore, driveShelf, driveStore, subStore, paperDriveFolder, paperDriveNow, setPaperDrive, unpackKit, type PaperStore, type ShelfTemplate, type TemplateShelf } from '../lib/paperStore';
 import { findLostFolder, inDrive, movePaperToDrive, removeFolder } from '../lib/paperMove';
 import { CompanionConnect } from './Playground';
 import OverleafAccounts, { useOverleafAccounts } from './OverleafAccounts';
 import { WriteGuideLink } from './WriteGuide';
+import CompareOverleaf from './WriteCompare';
+import type { ZipEntry } from '../lib/zip';
 
 type Here = Extract<ThisComputer, { server: unknown }>;
 
@@ -130,19 +132,50 @@ function WriteStart({ project }: { project: Project }) {
   );
 }
 
-/** A paper started in Drive without Overleaf, put into an Overleaf project (a Blank Project made for it): kept in step from then on. */
-function PutOnOverleaf({ project, store }: { project: Project; store: PaperStore }) {
-  const setLink = useSetLink(project);
+/**
+ * A LaTeX project in Drive put into an Overleaf project — made for it from
+ * here, or one made in Overleaf — and kept in step from then on. `dir` is its
+ * folder ('' the top, the project's own link); a folder gets a link of its
+ * own, and the other LaTeX projects inside it stay out.
+ */
+function PutOnOverleaf({ project, store, dir = '', main, onDone }: { project: Project; store: PaperStore; dir?: string; main?: string; onDone?: () => void }) {
+  const { updateCollection } = useStore();
+  const link = project.project.overleaf;
+  const own = subStore(store, dir);
+  const exclude = latexSeparate(link, dir);
+  const outside = (path: string) => exclude.some((other) => path === other || path.startsWith(`${other}/`));
+  const keep = (change: Partial<LatexLink>) =>
+    updateCollection(project.id, (collection) => {
+      const info = { ...project.project, ...(collection.project ?? {}) };
+      return info.overleaf ? { project: { ...info, overleaf: withLatexLink(info.overleaf, dir, change) } } : {};
+    });
+  // A new Overleaf project made with the paper in it: Overleaf's /docs, in the account signed in in this browser.
+  // (Overleaf's Git can't make a project, and no other site may read its address: it is copied back from the tab.)
+  const make = async () => {
+    const name = `reader-overleaf-${Date.now()}`;
+    const tab = window.open('about:blank', name);
+    try {
+      const files: ZipEntry[] = [];
+      for (const path of (await listAll(own)).filter((path) => !outside(path))) files.push({ path, content: Uint8Array.from(atob(await own.readBase64(path)), (char) => char.charCodeAt(0)) });
+      if (!files.length) throw new Error('This LaTeX project has no files yet: write its main document, then put it on Overleaf.');
+      openInOverleaf(files, { main: main || latexLinkAt(link, dir).main || 'main.tex', target: tab ? name : '_blank' });
+    } catch (error) {
+      tab?.close();
+      throw error;
+    }
+  };
   return (
     <OverleafPicker
       project={project}
+      onMake={make}
       mode="push"
       onPicked={async (url) => {
         const gitUrl = overleafGitUrl(url);
         if (!gitUrl) throw new Error('That isn’t an Overleaf project’s address.');
-        const done = await cloudSync(store, gitUrl, 'The paper, from Reader', undefined, { firstPushes: true });
+        const done = await cloudSync(own, gitUrl, 'The paper, from Reader', undefined, { firstPushes: true, exclude });
         if (!done.ok) throw Object.assign(new Error(done.error ?? 'The paper didn’t go to Overleaf.'), { needToken: Boolean(done.needToken) });
-        await setLink({ url, ...(done.account ? { gitAccount: done.account } : {}) });
+        await keep({ url, ...(done.account ? { gitAccount: done.account } : {}), ...(main ? { main } : {}) });
+        onDone?.();
       }}
     />
   );
@@ -157,7 +190,7 @@ function PutOnOverleaf({ project, store }: { project: Project; store: PaperStore
  * `bring`: the project is to come into Drive. `push`: a paper in Drive is to
  * go into it (a Blank Project made in Overleaf for it).
  */
-function OverleafPicker({ project, mode, onPicked }: { project: Project; mode: 'bring' | 'push'; onPicked: (url: string) => Promise<unknown> }) {
+function OverleafPicker({ project, mode, onPicked, onMake }: { project: Project; mode: 'bring' | 'push'; onPicked: (url: string) => Promise<unknown>; /** push: a new Overleaf project made with the paper in it, in a new tab. */ onMake?: () => Promise<void> }) {
   const { collections } = useStore();
   const accounts = useOverleafAccounts();
   const [address, setAddress] = useState('');
@@ -165,6 +198,7 @@ function OverleafPicker({ project, mode, onPicked }: { project: Project; mode: '
   const [problem, setProblem] = useState<string | null>(null);
   const [needAccount, setNeedAccount] = useState<string | null>(null);
   const [last, setLast] = useState<string | null>(null);
+  const [made, setMade] = useState(false);
   const offered = useMemo(() => {
     const seen = new Map<string, { url: string; label: string }>();
     for (const other of projectsOf(collections)) {
@@ -196,7 +230,7 @@ function OverleafPicker({ project, mode, onPicked }: { project: Project; mode: '
   if (!accounts.length || needAccount)
     return (
       <div className="wr-form">
-        <OverleafAccounts open={Boolean(needAccount)} why={needAccount ?? undefined} onConnected={() => (needAccount && last ? void pick(last) : undefined)} />
+        <OverleafAccounts open={Boolean(needAccount)} accountLabel={project.project.overleaf?.account} why={needAccount ?? undefined} onConnected={() => (needAccount && last ? void pick(last) : undefined)} />
       </div>
     );
   return (
@@ -207,7 +241,29 @@ function OverleafPicker({ project, mode, onPicked }: { project: Project; mode: '
         </summary>
         <OverleafAccounts />
       </details>
-      {mode === 'push' ? (
+      {mode === 'push' && onMake ? (
+        <div className="wr-ol-make">
+          <p>
+            <b>1.</b> Reader makes a new Overleaf project with this paper in it, in the Overleaf account signed in in this browser. Overleaf’s Git can’t make projects, so this opens Overleaf in a new tab.
+          </p>
+          <div className="wr-row">
+            <button
+              type="button"
+              className="btn primary"
+              disabled={busy}
+              onClick={() => {
+                setProblem(null);
+                void onMake().then(() => setMade(true), (error) => setProblem(error instanceof Error ? error.message : String(error)));
+              }}
+            >
+              {made ? 'Make another' : 'Make it on Overleaf'}
+            </button>
+          </div>
+          <p>
+            <b>2.</b> {made ? 'In the tab that opened, ' : 'Then, in that tab, '}copy the project’s address from the browser and paste it below: Overleaf lets no other site read it. From then on the paper stays in step with Overleaf.
+          </p>
+        </div>
+      ) : mode === 'push' ? (
         <p>
           In Overleaf, make a <b>Blank Project</b> for this paper (New Project → Blank Project), copy its address, and paste it here: this paper’s files go into it, and from then on it stays in step with Overleaf.
         </p>
@@ -422,7 +478,7 @@ function ToDrive({ project }: { project: Project }) {
         ) : null}
         {gitUrl && (blocked === 'token' || (blocked === 'elsewhere' && !known)) ? (
           // No connected Overleaf account opens it (or none is connected): the one it is in connected, then brought in.
-          <OverleafAccounts open={Boolean(problem)} projectUrl={project.project.overleaf?.url} why={blocked === 'token' ? problem ?? undefined : undefined} onConnected={() => (setKnown(true), void move({ force: true }))} />
+          <OverleafAccounts open={Boolean(problem)} projectUrl={project.project.overleaf?.url} accountLabel={project.project.overleaf?.account} why={blocked === 'token' ? problem ?? undefined : undefined} onConnected={() => (setKnown(true), void move({ force: true }))} />
         ) : null}
         {blocked && gitUrl && known ? (
           <div className="wr-row">
@@ -1200,6 +1256,23 @@ function useUpdateLink(project: Project) {
     });
 }
 
+/**
+ * The Overleaf link a LaTeX project goes by — the folder `owner`'s own, or the
+ * project's for the top — with the way to change it: only that folder's.
+ */
+function useLatexLink(project: Project, owner: string): [OverleafLink | undefined, (change: Partial<LatexLink>) => void] {
+  const { updateCollection } = useStore();
+  const base = project.project.overleaf;
+  const link = owner && base ? { ...base, ...latexLinkAt(base, owner) } : base;
+  const update = (change: Partial<LatexLink>) =>
+    void updateCollection(project.id, (collection) => {
+      const info = { ...project.project, ...(collection.project ?? {}) };
+      if (!info.overleaf) return {};
+      return { project: { ...info, overleaf: withLatexLink(info.overleaf, owner, change) } };
+    });
+  return [link, update];
+}
+
 function useSaveFolder(project: Project) {
   const { updateCollection } = useStore();
   return (computer: string, folder: PaperFolder | undefined, url?: string) =>
@@ -1287,10 +1360,10 @@ function useSetLink(project: Project) {
 
 /** A paper kept in Drive: its LaTeX projects, then the desk — with nothing of it on this computer. */
 function DriveWrite({ project, folder }: { project: Project; folder: string }) {
-  const { driveConnected, connectDrive, settings } = useStore();
-  const updateLink = useUpdateLink(project);
+  const { driveConnected, connectDrive, settings, updateCollection } = useStore();
   const link = project.project.overleaf;
   const [scope, setScope] = useState<PaperScope | null>(null);
+  const [comparing, setComparing] = useState<string | null>(null);
   const store = useMemo(() => driveStore(paperDriveNow, folder), [folder]);
   const shelf = useMemo(() => driveShelf(paperDriveNow, store), [store]);
   const place: PaperFolder = { path: folder, sync: 'drive' };
@@ -1309,6 +1382,7 @@ function DriveWrite({ project, folder }: { project: Project; folder: string }) {
         </div>
       </div>
     );
+  if (comparing !== null) return <CompareOverleaf project={project} store={store} dir={comparing} onClose={() => setComparing(null)} />;
   if (!scope)
     return (
       <WriteHome
@@ -1317,12 +1391,42 @@ function DriveWrite({ project, folder }: { project: Project; folder: string }) {
         store={store}
         shelf={shelf}
         onOpen={(main, opened) => {
-          if (main !== link?.main) updateLink({ main });
+          // Its main document, kept on the link it goes by: its own folder's, or the top's — relative to that folder.
+          const owner = latexOwner(link, opened.dir);
+          const relative = owner ? main.slice(owner.length + 1) : main;
+          if (relative !== latexLinkAt(link, owner).main)
+            void updateCollection(project.id, (collection) => {
+              const info = { ...project.project, ...(collection.project ?? {}) };
+              return info.overleaf ? { project: { ...info, overleaf: withLatexLink(info.overleaf, owner, { main: relative }) } } : {};
+            });
+          rememberOpened(project.id, opened.dir);
           setScope(opened);
         }}
+        onCompare={(dir) => setComparing(dir)}
       />
     );
-  return <WriteDesk key={`drive:${folder}:${scope.dir}`} project={project} folder={place} store={store} scope={scope} onHome={() => setScope(null)} />;
+  // Rooted at the folder whose Overleaf link it goes by: that is what syncs and compiles as one.
+  const owner = latexOwner(link, scope.dir);
+  const relative = (path: string) => (owner ? (path === owner ? '' : path.slice(owner.length + 1)) : path);
+  const deskScope: PaperScope = { dir: relative(scope.dir), exclude: scope.exclude.filter((dir) => !owner || dir.startsWith(`${owner}/`)).map(relative) };
+  return <WriteDesk key={`drive:${folder}:${scope.dir}`} project={project} folder={place} store={subStore(store, owner)} scope={deskScope} owner={owner} onHome={() => setScope(null)} onCompare={() => (setComparing(scope.dir), setScope(null))} />;
+}
+
+/** The LaTeX project last opened in a project, on this device: where Continue goes. */
+const OPENED_KEY = (project: string) => `reader.write.${project}.opened`;
+function rememberOpened(project: string, dir: string) {
+  try {
+    localStorage.setItem(OPENED_KEY(project), dir);
+  } catch {
+    // only a convenience
+  }
+}
+function lastOpened(project: string): string | null {
+  try {
+    return localStorage.getItem(OPENED_KEY(project));
+  } catch {
+    return null;
+  }
 }
 
 /** A main document in the paper's folder: a .tex file with \documentclass, with what it says of itself. */
@@ -1359,14 +1463,14 @@ const inScope = (scope: PaperScope, path: string) => isWithin(scope.dir, path) &
  * (the project's main if it is there, else main.tex, else the latest edited),
  * each holding the files under it that no deeper project does.
  */
-function groupProjects(docs: PaperDoc[], listed: { path: string; stamp: string }[], preferred?: string): LatexProject[] {
+function groupProjects(docs: PaperDoc[], listed: { path: string; stamp: string }[], preferred: string[] = []): LatexProject[] {
   const byDir = new Map<string, PaperDoc[]>();
   for (const doc of docs) byDir.set(dirOf(doc.path), [...(byDir.get(dirOf(doc.path)) ?? []), doc]);
   const dirs = [...byDir.keys()];
   const owner = (path: string) => dirs.filter((dir) => isWithin(dir, path)).sort((a, b) => b.length - a.length)[0];
   return dirs.map((dir) => {
     const here = byDir.get(dir) ?? [];
-    const main = here.find((doc) => doc.path === preferred) ?? here.find((doc) => /(^|\/)main\.tex$/i.test(doc.path)) ?? [...here].sort((a, b) => (b.modified ?? '').localeCompare(a.modified ?? ''))[0];
+    const main = here.find((doc) => preferred.includes(doc.path)) ?? here.find((doc) => /(^|\/)main\.tex$/i.test(doc.path)) ?? [...here].sort((a, b) => (b.modified ?? '').localeCompare(a.modified ?? ''))[0];
     const mine = listed.filter((file) => owner(file.path) === dir);
     const modified = mine.map((file) => file.stamp.split('|')[0]).concat(here.map((doc) => doc.modified ?? '')).filter(Boolean).sort().pop() ?? null;
     const exclude = dirs.filter((other) => other !== dir && isWithin(dir, other));
@@ -1416,9 +1520,18 @@ function ago(iso: string | null): string {
 /** A new LaTeX project's folder name, from what it is called. */
 const folderSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
 
-const BLANK_DOC = (title: string) => `\\documentclass{article}
+/**
+ * A new LaTeX project's files: a main.tex that brings in a section of its
+ * own and has a bibliography to turn on, so it starts as the project it will
+ * grow into rather than one file.
+ */
+const BLANK_PROJECT = (title: string): { path: string; text: string }[] => [
+  {
+    path: 'main.tex',
+    text: `\\documentclass{article}
 \\usepackage[utf8]{inputenc}
 \\usepackage{amsmath,amssymb,graphicx,hyperref}
+\\graphicspath{{figures/}}
 
 \\title{${title.replace(/[\\{}]/g, '')}}
 \\author{}
@@ -1427,10 +1540,25 @@ const BLANK_DOC = (title: string) => `\\documentclass{article}
 \\begin{document}
 \\maketitle
 
-\\section{Introduction}
+\\input{sections/introduction}
+
+% Cite from references.bib, then turn the bibliography on:
+% \\bibliographystyle{plain}
+% \\bibliography{references}
 
 \\end{document}
-`;
+`,
+  },
+  { path: 'sections/introduction.tex', text: '\\section{Introduction}\n\n' },
+  { path: 'references.bib', text: '% The bibliography: BibTeX entries, cited with \\cite{key} in the .tex files.\n' },
+];
+
+/** A file picked from a folder, by its path inside that folder: its top folder's name left off, and what isn't the paper's left out. */
+const pickedPath = (file: File) => {
+  const parts = (file.webkitRelativePath || file.name).split('/').filter(Boolean);
+  return parts.length > 1 ? parts.slice(1).join('/') : parts.join('/');
+};
+const worthKeeping = (path: string) => !path.split('/').some((part) => part.startsWith('.') || part === '__MACOSX') && !isBuildFile(path);
 
 type Making = 'blank' | 'templates' | 'zip' | 'files';
 
@@ -1457,6 +1585,95 @@ function OpenInDrive({ store, dir, onProblem, label = 'Google Drive' }: { store:
     <button type="button" className="wr-doc-where" disabled={busy || !store.link} onClick={() => void go()} title={`Open ${dir ? `${dir}/` : 'the folder'} in Google Drive`}>
       {busy ? 'Opening…' : label}
     </button>
+  );
+}
+
+/**
+ * Where another project keeps its LaTeX in Drive, to copy a LaTeX project
+ * into: its Drive folder, or the one it will have when it has no paper yet.
+ * Null when it keeps its paper on a computer (a clone there), where Drive
+ * isn't what it writes in.
+ */
+function driveFolderOf(project: Project): string | null {
+  const link = project.project.overleaf;
+  if (link?.keep?.where === 'computer') return null;
+  if (link?.drive?.folder) return link.drive.folder;
+  if (!overleafGitUrl(link?.url) && !Object.keys(link?.folders ?? {}).length) return paperDriveFolder(project.name, project.id);
+  return null;
+}
+
+/**
+ * A copy of a LaTeX project — its main .tex and every file it brings in,
+ * subfolders and all — put into another project's Drive folder, as a LaTeX
+ * project of its own there: off Overleaf, and from then on apart from this one.
+ */
+function CopyToProject({ project, store, one, onDone }: { project: Project; store: PaperStore; one: LatexProject; onDone: () => void }) {
+  const { collections, updateCollection } = useStore();
+  const others = useMemo(() => projectsOf(collections).filter((other) => other.id !== project.id), [collections, project.id]);
+  const [to, setTo] = useState(others.find((other) => driveFolderOf(other))?.id ?? '');
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const target = others.find((other) => other.id === to);
+  const copy = async () => {
+    if (!target) return;
+    const folder = driveFolderOf(target);
+    if (!folder) return setProblem(`“${target.name}” keeps its paper on a computer, not in Drive: copy it there from that computer.`);
+    setBusy(true);
+    setProblem(null);
+    setSaid(null);
+    try {
+      const into = driveStore(paperDriveNow, folder);
+      const there = await listAll(into).catch(() => [] as string[]);
+      const title = one.main.title || one.dir.split('/').pop() || 'paper';
+      // A folder of its own there — unless that project has no paper and no Overleaf yet: then it is the paper, at its top.
+      const fresh = !there.length && !overleafGitUrl(target.project.overleaf?.url);
+      const slug = folderSlug(one.dir.split('/').pop() || title) || 'paper';
+      let dir = fresh ? '' : slug;
+      for (let n = 2; dir && there.some((path) => path.startsWith(`${dir}/`)); n += 1) dir = `${slug}-${n}`;
+      const own = subStore(store, one.dir);
+      // Paths in it: its main .tex, the other .tex files with \documentclass beside it, and every file it holds.
+      const files = [one.dir ? one.main.path.slice(one.dir.length + 1) : one.main.path, ...one.alsoMain, ...one.files];
+      for (const path of [...new Set(files)]) await into.writeBase64(dir ? `${dir}/${path}` : path, await own.readBase64(path));
+      const main = one.dir ? one.main.path.slice(one.dir.length + 1) : one.main.path;
+      await updateCollection(target.id, (collection) => {
+        const info = { ...target.project, ...(collection.project ?? {}) };
+        const link = info.overleaf?.drive?.folder ? info.overleaf : inDrive(info.overleaf, folder, undefined);
+        return { project: { ...info, overleaf: dir ? withLatexLink(link, dir, { url: '', main }) : { ...link, main } } };
+      });
+      setSaid(`Copied to “${target.name}”${dir ? `, as ${dir}/` : ''}: ${files.length} file${files.length === 1 ? '' : 's'}. It is its own there, off Overleaf; this one is left as it is.`);
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!others.length) return <p className="wr-quiet">There is no other project to copy it to yet.</p>;
+  return (
+    <div className="wr-copy">
+      <label className="wr-field">
+        <span>Copy “{one.main.title || one.dir || one.main.path}” to</span>
+        <select value={to} onChange={(event) => setTo(event.target.value)} aria-label="The project to copy it to">
+          {others.map((other) => (
+            <option key={other.id} value={other.id} disabled={!driveFolderOf(other)}>
+              {other.name}
+              {driveFolderOf(other) ? '' : ' — keeps its paper on a computer'}
+            </option>
+          ))}
+        </select>
+        <small>Its main .tex and every file it brings in — sections, .bib, styles, figures — with their folders. The copy is a LaTeX project of its own there, not on Overleaf; changes to one don’t reach the other.</small>
+      </label>
+      <div className="wr-row">
+        <button type="button" className="btn primary" disabled={busy || !target} onClick={() => void copy()}>
+          {busy ? 'Copying…' : 'Copy it'}
+        </button>
+        <button type="button" className="link-btn" onClick={onDone}>
+          {said ? 'Done' : 'Cancel'}
+        </button>
+      </div>
+      {said ? <p className="wc-done">{said}</p> : null}
+      {problem ? <p className="wr-bad">{problem}</p> : null}
+    </div>
   );
 }
 
@@ -1491,9 +1708,22 @@ function OpenHere({ here, folder, onProblem, label = 'This computer' }: { here: 
  * elsewhere. A new one goes in a folder of its own, beside the others,
  * unless the project has none yet.
  */
-function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; shelf: TemplateShelf | null; onOpen: (main: string, scope: PaperScope) => void }) {
+function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; shelf: TemplateShelf | null; onOpen: (main: string, scope: PaperScope) => void; /** A LaTeX project on Overleaf, compared with its Overleaf project file by file (Drive only). */ onCompare?: (dir: string) => void }) {
+  const { updateCollection } = useStore();
   const [toOverleaf, setToOverleaf] = useState(false);
+  const [putting, setPutting] = useState<string | null>(null);
+  const [copying, setCopying] = useState<string | null>(null);
+  const placed = useRef('');
   const link = project.project.overleaf;
+  const inDrive = store.kind === 'drive';
+  // Each LaTeX project's Overleaf project (in Drive): its own, the one above it, or the top's — or none.
+  const overleafOf = (dir: string) => {
+    const owner = inDrive ? latexOwner(link, dir) : '';
+    const url = latexLinkAt(link, owner).url;
+    return { owner, url: overleafGitUrl(url) ? url : '' };
+  };
+  const opened = lastOpened(project.id);
+  const next = (all: LatexProject[]) => all.find((one) => one.dir === opened) ?? all[0];
   const accounts = useOverleafAccounts();
   const throughAccount = folder.sync === 'drive' ? accounts?.find((account) => account.id === link?.gitAccount)?.label : undefined;
   const [docs, setDocs] = useState<LatexProject[] | null>(null);
@@ -1507,6 +1737,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
   const [busy, setBusy] = useState(false);
   const zipPicker = useRef<HTMLInputElement>(null);
   const filePicker = useRef<HTMLInputElement>(null);
+  const folderPicker = useRef<HTMLInputElement | null>(null);
   // The Companion's templates are on this computer, from its 0.11.0; Drive's are in Drive, as their .zip.
   const templatesOld = !shelf || (here && store.kind === 'companion' ? isNewer(PAPER_TEMPLATES_VERSION, here.version) : false);
 
@@ -1527,9 +1758,11 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
           const title = /^[^%\n]*\\title(?:\[[^\]]*\])?\{([^}]*)\}/m.exec(text)?.[1]?.replace(/\\\\|\\[a-zA-Z]+\s*/g, ' ').replace(/\s+/g, ' ').trim() ?? '';
           found.push({ path, title, docClass, modified: got?.modified ?? (stamp.split('|')[0] || null) });
         }
-        const projects = groupProjects(found, listed, link?.main);
+        const mains = [link?.main, ...Object.entries(link?.latex ?? {}).map(([dir, own]) => (own.main ? `${dir}/${own.main}` : undefined))].filter((path): path is string => Boolean(path));
+        const projects = groupProjects(found, listed, mains);
         const holds = (path: string) => projects.some((one) => inScope(one, path));
-        projects.sort((a, b) => (a.main.path === link?.main ? -1 : b.main.path === link?.main ? 1 : (b.modified ?? '').localeCompare(a.modified ?? '')));
+        const last = lastOpened(project.id);
+        projects.sort((a, b) => (a.dir === last ? -1 : b.dir === last ? 1 : (b.modified ?? '').localeCompare(a.modified ?? '')));
         if (live) (setDocs(projects), setLoose(listed.map((file) => file.path).filter((path) => !holds(path))), setTaken(listed.map((file) => file.path)));
       } catch (error) {
         if (live) setProblem(error instanceof Error ? error.message : String(error));
@@ -1560,9 +1793,17 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
     setBusy(true);
     setProblem(null);
     try {
+      placed.current = '';
       const main = await work();
+      const dir = placed.current;
+      // A new LaTeX project in a folder of its own is off Overleaf until it is put there: never in the top's Overleaf project.
+      if (main && dir && inDrive)
+        await updateCollection(project.id, (collection) => {
+          const info = { ...project.project, ...(collection.project ?? {}) };
+          return info.overleaf ? { project: { ...info, overleaf: withLatexLink(info.overleaf, dir, { url: '', main: main.slice(dir.length + 1) }) } } : {};
+        });
       // The new one's folder, less any project already inside it (only the top can have those).
-      if (main) onOpen(main, { dir: dirOf(main), exclude: dirOf(main) ? [] : (docs ?? []).map((one) => one.dir).filter(Boolean) });
+      if (main) onOpen(main, { dir, exclude: dir ? [] : (docs ?? []).map((one) => one.dir).filter(Boolean) });
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1572,21 +1813,20 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
   const makeBlank = () =>
     run(async () => {
       const title = name.trim() || 'Untitled';
-      const dir = placeFor(title);
-      const main = within(dir, 'main.tex');
-      await store.writeText(main, BLANK_DOC(title));
-      return main;
+      const dir = (placed.current = placeFor(title));
+      for (const file of BLANK_PROJECT(title)) await store.writeText(within(dir, file.path), file.text);
+      return within(dir, 'main.tex');
     });
   const fromTemplate = (template: ShelfTemplate) =>
     run(async () => {
       if (!shelf) throw new Error('Templates need the Companion on this computer, or the paper in Drive.');
-      return shelf.apply(template.slug, placeFor(name.trim() || template.name));
+      return shelf.apply(template.slug, (placed.current = placeFor(name.trim() || template.name)));
     });
   const fromZip = (file: File) =>
     run(async () => {
       const label = name.trim() || file.name.replace(/\.zip$/i, '');
       const zipped = await fileBase64(file);
-      const dir = placeFor(label);
+      const dir = (placed.current = placeFor(label));
       // Kept for next time where there is a shelf; unpacked into the paper either way.
       if (shelf) {
         const kept = await shelf.save(label, zipped);
@@ -1594,24 +1834,27 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
       }
       return unpackKit(store, zipped, dir);
     });
+  /** A LaTeX project from elsewhere: a folder, its subfolders kept as they are, or files picked one by one. */
   const fromFiles = (files: File[]) =>
     run(async () => {
-      const tex = files.filter((file) => /\.tex$/i.test(file.name));
-      if (!tex.length) throw new Error('Pick at least one .tex file (with its .bib, styles and figures, if it has them).');
-      const dir = placeFor(name.trim() || tex[0].name.replace(/\.tex$/i, ''));
-      let main = '';
-      for (const file of files) {
-        await store.writeBase64(within(dir, file.name), await fileBase64(file));
-        if (!main && /\.tex$/i.test(file.name) && /\\documentclass/.test(await file.text())) main = within(dir, file.name);
-      }
-      return main || within(dir, tex[0].name);
+      const picked = files.map((file) => ({ file, path: pickedPath(file) })).filter(({ path }) => path && worthKeeping(path));
+      const tex = picked.filter(({ path }) => /\.tex$/i.test(path));
+      if (!tex.length) throw new Error('There is no .tex file in it: pick the LaTeX project’s folder, or its main .tex with the files it needs.');
+      const folderName = files[0]?.webkitRelativePath?.split('/')[0];
+      const dir = (placed.current = placeFor(name.trim() || folderName || tex[0].path.replace(/\.tex$/i, '')));
+      // Its main document: main.tex at its top if there is one, else the shallowest .tex with \documentclass.
+      const mains: string[] = [];
+      for (const { file, path } of tex) if (/^[^%\n]*\\documentclass/m.test(await file.text())) mains.push(path);
+      mains.sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
+      for (const { file, path } of picked) await store.writeBase64(within(dir, path), await fileBase64(file));
+      return within(dir, mains.find((path) => path === 'main.tex') ?? mains[0] ?? tex[0].path);
     });
 
   const ways: { id: Making; title: string; note: string; icon: string }[] = [
-    { id: 'blank', title: 'Blank article', note: 'A main.tex with a title, an author and a first section; add sections, a .bib and figures as it grows.', icon: '＋' },
+    { id: 'blank', title: 'Blank LaTeX project', note: 'A main.tex, a first section in sections/ and a references.bib, in a folder of its own: add more files as it grows.', icon: '＋' },
     { id: 'templates', title: 'Browse templates', note: store.kind === 'drive' ? 'The conference kits kept in your Drive: NeurIPS, ICML, ACL…' : 'The conference kits kept on this computer: NeurIPS, ICML, ACL…', icon: '▦' },
     { id: 'zip', title: 'Upload a template (.zip)', note: 'A conference’s kit, as it gives it out. Kept as a template for next time.', icon: '⇪' },
-    { id: 'files', title: 'Upload LaTeX files', note: 'A main .tex from elsewhere, with its sections, .bib, styles and figures.', icon: '⎘' },
+    { id: 'files', title: 'Upload a LaTeX project', note: 'Its folder from your computer, subfolders and all — the main .tex with its sections, .bib, styles and figures.', icon: '⎘' },
   ];
 
   return (
@@ -1636,8 +1879,8 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
           {toOverleaf && folder.sync === 'drive' && !overleafGitUrl(link?.url) ? <PutOnOverleaf project={project} store={store} /> : null}
         </div>
         {docs?.length ? (
-          <button type="button" className="btn primary" onClick={() => open(docs[0])}>
-            Continue {docs[0].main.title || docs[0].dir || docs[0].main.path} →
+          <button type="button" className="btn primary" onClick={() => open(next(docs))}>
+            Continue {next(docs).main.title || next(docs).dir || next(docs).main.path} →
           </button>
         ) : null}
       </header>
@@ -1664,7 +1907,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
                   <small>
                     {one.main.docClass}
                     {one.modified ? ` · edited ${ago(one.modified)}` : ''}
-                    {one.main.path === link?.main ? <em>last open</em> : null}
+                    {one.dir === opened ? <em>last open</em> : null}
                   </small>
                   <span className="wr-doc-files">
                     {one.files.length ? filesSummary(one.files) : 'No supporting files yet'}
@@ -1676,8 +1919,46 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
                 <span className="wr-quiet">View in</span>
                 {store.kind === 'drive' ? <OpenInDrive store={store} dir={one.dir} onProblem={setProblem} /> : null}
                 {here && store.kind === 'companion' ? <OpenHere here={here} folder={[folder.path, one.dir].filter(Boolean).join('/')} onProblem={setProblem} /> : null}
-                {onOverleaf ? <OpenOverleaf project={project} view="beside" primary={false} compact /> : null}
+                {(inDrive ? overleafOf(one.dir).url : onOverleaf) ? <OpenOverleaf project={project} view="beside" primary={false} compact url={inDrive ? overleafOf(one.dir).url : undefined} /> : null}
               </div>
+              {inDrive ? (
+                <div className="wr-doc-overleaf">
+                  {overleafOf(one.dir).url ? (
+                    <>
+                      <span className="wr-quiet">{overleafOf(one.dir).owner === one.dir ? 'On Overleaf' : 'On Overleaf, in the project of the folder above'}</span>
+                      {onCompare ? (
+                        <button type="button" className="wr-doc-where" onClick={() => onCompare(one.dir)} title="See which files differ from Overleaf’s, compare the two PDFs, and pick which version each file keeps — here and on Overleaf">
+                          Compare with Overleaf
+                        </button>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <span className="wr-quiet">Not on Overleaf</span>
+                      <button type="button" className="wr-doc-where" aria-expanded={putting === one.dir} onClick={() => setPutting(putting === one.dir ? null : one.dir)}>
+                        Put on Overleaf
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : null}
+              {inDrive ? (
+                <div className="wr-doc-overleaf">
+                  <button type="button" className="wr-doc-where" aria-expanded={copying === one.dir} onClick={() => setCopying(copying === one.dir ? null : one.dir)} title="A copy of it, with every file it brings in, into another of your projects">
+                    Copy to another project
+                  </button>
+                </div>
+              ) : null}
+              {copying === one.dir ? (
+                <div className="wr-doc-put">
+                  <CopyToProject project={project} store={store} one={one} onDone={() => setCopying(null)} />
+                </div>
+              ) : null}
+              {putting === one.dir ? (
+                <div className="wr-doc-put">
+                  <PutOnOverleaf project={project} store={store} dir={one.dir} main={one.dir ? one.main.path.slice(one.dir.length + 1) : one.main.path} onDone={() => setPutting(null)} />
+                </div>
+              ) : null}
               </div>
             ))}
           </div>
@@ -1705,7 +1986,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
           <div className="wr-home-make">
             <label className="wr-home-name">
               <span>Its name</span>
-              <input value={name} onChange={(event) => setName(event.target.value)} placeholder={making === 'blank' ? 'e.g. Workshop paper' : 'Optional: the template’s or file’s name otherwise'} />
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder={making === 'blank' ? 'e.g. Workshop paper' : 'Optional: the template’s or folder’s name otherwise'} />
               <small className="wr-quiet">{docs?.length || taken.length ? `It goes in a folder of its own, ${placeFor(name.trim() || (making === 'blank' ? 'Untitled' : 'paper'))}/, beside the other LaTeX projects; its supporting files go in there with it.` : 'It goes at the top of the project’s folder.'}</small>
             </label>
             {making === 'blank' ? (
@@ -1753,14 +2034,35 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
             ) : null}
             {making === 'files' ? (
               <>
-                <button type="button" className="btn primary" disabled={busy} onClick={() => filePicker.current?.click()}>
-                  {busy ? 'Copying…' : 'Choose the files…'}
-                </button>
+                <div className="wr-row">
+                  <button type="button" className="btn primary" disabled={busy} onClick={() => folderPicker.current?.click()}>
+                    {busy ? 'Copying…' : 'Choose its folder…'}
+                  </button>
+                  <button type="button" className="btn" disabled={busy} onClick={() => filePicker.current?.click()}>
+                    Or pick its files…
+                  </button>
+                </div>
+                <small className="wr-quiet">Its folder keeps its subfolders (sections/, figures/) as they are, so \input and \includegraphics paths still work. Picked one by one, the files all go at its top.</small>
+                <input
+                  ref={(input) => {
+                    folderPicker.current = input;
+                    // A folder, its subfolders and all: not in React's own attributes yet.
+                    input?.setAttribute('webkitdirectory', '');
+                  }}
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(event) => {
+                    const files = [...(event.target.files ?? [])];
+                    event.target.value = '';
+                    if (files.length) void fromFiles(files);
+                  }}
+                />
                 <input
                   ref={filePicker}
                   type="file"
                   multiple
-                  accept=".tex,.bib,.sty,.cls,.bst,.png,.jpg,.jpeg,.pdf,.eps,.svg"
+                  accept=".tex,.bib,.sty,.cls,.bst,.bbx,.cbx,.png,.jpg,.jpeg,.pdf,.eps,.svg"
                   hidden
                   onChange={(event) => {
                     const files = [...(event.target.files ?? [])];
@@ -1778,7 +2080,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
   );
 }
 
-function WriteDesk({ project, here, folder, store, scope, onHome }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; /** The LaTeX project open: its files are the ones listed. */ scope?: PaperScope; onHome?: () => void }) {
+function WriteDesk({ project, here, folder, store, scope, owner = '', onHome, onCompare }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; /** The LaTeX project open: its files are the ones listed. */ scope?: PaperScope; /** The folder (in the paper's Drive folder) whose Overleaf link this goes by: `store` is rooted at it. */ owner?: string; onHome?: () => void; /** Compare it with its Overleaf project, file by file (a paper in Drive on Overleaf). */ onCompare?: () => void }) {
   const { settings, papers, updateSettings } = useStore();
   const [desk, setDesk] = useDesk();
   const setLayout = (layout: WriteOptions['layout']) => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), layout } });
@@ -1788,8 +2090,10 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
   const options: WriteOptions = { ...WRITE_DEFAULTS, ...(settings.write ?? {}) };
   if (inDrive && options.pdf === 'here') options.pdf = 'cloudrun';
   const save = useSaveFolder(project);
-  const updateLink = useUpdateLink(project);
-  const link = project.project.overleaf;
+  const [link, updateLink] = useLatexLink(project, owner);
+  // Other LaTeX projects inside this one's folder, with Overleaf projects (or none) of their own: never synced with it.
+  const separate = useMemo(() => latexSeparate(project.project.overleaf, owner), [project.project.overleaf, owner]);
+  const separateKey = separate.join('|');
   // As the Overleaf project is set (Menu → Compiler, Main document): kept on the project, so it stays as picked.
   const compiler: TexCompiler = link?.compiler ?? 'pdflatex';
   const server = here?.server;
@@ -1800,7 +2104,7 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
   filesRef.current = files;
   const [open, setOpenState] = useState<string | null>(() => {
     try {
-      return localStorage.getItem(`reader.write.${project.id}.file`);
+      return localStorage.getItem(`reader.write.${project.id}${owner ? `:${owner}` : ''}.file`);
     } catch {
       return null;
     }
@@ -1816,6 +2120,10 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [needToken, setNeedToken] = useState(false);
+  // Written without syncing, for now: no account asked for, nothing sent until Sync is pressed.
+  const [unsynced, setUnsynced] = useState(false);
+  const unsyncedRef = useRef(false);
+  unsyncedRef.current = unsynced;
   const [token, setToken] = useState('');
   const [saving, setSaving] = useState(0);
   const [showLog, setShowLog] = useState(false);
@@ -1836,7 +2144,7 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
   const setOpen = (path: string) => {
     setOpenState(path);
     try {
-      localStorage.setItem(`reader.write.${project.id}.file`, path);
+      localStorage.setItem(`reader.write.${project.id}${owner ? `:${owner}` : ''}.file`, path);
     } catch {
       // only a convenience
     }
@@ -1915,19 +2223,23 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
   const accountRef = useRef(link?.gitAccount);
   accountRef.current = link?.gitAccount;
   // ---- sync: by the Companion's Git here, or for a paper in Drive by Reader's server
-  const syncNow = (message: string, given?: string): Promise<Synced> =>
-    inDrive
-      ? cloudSync(store, overleafGitUrl(link?.url) ?? '', message, given, { account: accountRef.current }).then((done) => {
-          // The account that opened it, remembered for the next sync (and shown with the project's accounts).
-          if (done.account && done.account !== accountRef.current) updateLink({ gitAccount: (accountRef.current = done.account) });
+  const syncNow = (message: string, given?: string): Promise<Synced> => {
+    const asked = accountRef.current;
+    return inDrive
+      ? cloudSync(store, overleafGitUrl(link?.url) ?? '', message, given, { account: asked, exclude: separateKey ? separateKey.split('|') : [] }).then((done) => {
+          // The account that opened it, remembered for the next sync (and shown with the project's accounts) —
+          // unless another was chosen while it ran: that choice stands.
+          if (done.account && done.account !== asked && accountRef.current === asked) updateLink({ gitAccount: (accountRef.current = done.account) });
           // Shared with several of the accounts, and the one it synced with can't open it any more: another did.
           setFellBack(done.fellBackFrom ? `“${done.fellBackFrom}” can’t open this Overleaf project any more (unshared, or its token was revoked), so it synced through “${done.accountLabel}”, which can.` : null);
           return done;
         })
       : server ? syncPaper(server, folder.path, message, given) : Promise.reject(new Error('This computer’s Companion isn’t connected.'));
+  };
   const sync = useCallback(
     async (quiet = false) => {
-      if (!git) return;
+      if (!git || (quiet && unsyncedRef.current)) return;
+      if (!quiet) setUnsynced(false);
       setSyncing(true);
       if (!quiet) setSyncError(null);
       try {
@@ -2342,7 +2654,7 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
       const readSeconds = (Date.now() - started) / 1000;
       setGh((now) => ({ ...now, phase: 'compiling' }));
       const send = (paths: string[]) =>
-        apiFetch('/latex/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: 'cloudrun', project: `${project.id}:${folder.path}:${main}`, manifest, files: filesOf(paths), main, compiler, fresh }) });
+        apiFetch('/latex/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: 'cloudrun', project: `${project.id}:${owner ? `${folder.path}/${owner}` : folder.path}:${main}`, manifest, files: filesOf(paths), main, compiler, fresh }) });
       let answer = await send(changed);
       if (answer.status === 409) {
         // The compiler lacks some files (it restarted, or another paper pushed this one out): those, and ask again.
@@ -2396,7 +2708,7 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
     if (options.pdf === 'cloudrun') return void saveNow().then(() => compileOnCloudRun());
     if (options.pdf === 'github') return void saveNow().then(() => compileOnGithub());
     if (options.pdf !== 'overleaf') return void saveNow().then(() => compile());
-    const overleaf = project.project.overleaf;
+    const overleaf = link;
     let beside: Window | null = null;
     if (overleaf && !(here && overleaf.browsers?.[here.id])) {
       beside = window.open('about:blank', `reader-overleaf-${project.id}`, besideFeatures(window.screen));
@@ -2582,7 +2894,7 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
               : 'This folder isn’t synced with Overleaf’s Git, so Overleaf won’t see these edits by itself: copy them there, or set the folder up with Overleaf’s Git (Change, under the files).'}
           </p>
           <div className="wr-row">
-            <OpenOverleaf project={project} view="beside" />
+            <OpenOverleaf project={project} view="beside" url={link?.url ?? ''} />
             {git ? (
               <button type="button" className="btn sm" disabled={syncing} onClick={() => void saveNow().then(() => sync())}>
                 {syncing ? 'Sending…' : 'Send now'}
@@ -2684,7 +2996,7 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
           </div>
         ) : null}
         <div className="wr-side-switch">
-          <SwitchOverleaf project={project} />
+          {owner ? null : <SwitchOverleaf project={project} />}
         </div>
         <div className="wr-side-foot">
           <span className="wr-quiet mono" title={store.label}>
@@ -2781,11 +3093,16 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
           <>
             <span className={`wr-dot is-${syncError ? 'bad' : syncing ? 'busy' : synced?.ok ? 'ok' : 'idle'}`} />
             <span>
-              {syncing ? 'Syncing with Overleaf…' : syncError ? 'Not synced' : synced?.at ? `Synced with ${/github/.test(project.project.overleaf?.repo ?? '') && !overleafGitUrl(project.project.overleaf?.url) ? 'GitHub' : 'Overleaf'} · ${new Date(synced.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Git · not synced yet'}
+              {syncing ? 'Syncing with Overleaf…' : unsynced ? 'Not syncing with Overleaf for now' : syncError ? 'Not synced' : synced?.at ? `Synced with ${/github/.test(link?.repo ?? '') && !overleafGitUrl(link?.url) ? 'GitHub' : 'Overleaf'} · ${new Date(synced.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Git · not synced yet'}
             </span>
             <button type="button" className="link-btn" disabled={syncing} onClick={() => void saveNow().then(() => sync())}>
               Sync
             </button>
+            {onCompare && inDrive ? (
+              <button type="button" className="link-btn" disabled={syncing} onClick={() => void saveNow().then(onCompare)} title="See which files differ from Overleaf’s, compare the PDFs, and pick which version each file keeps — here and on Overleaf">
+                Compare with Overleaf
+              </button>
+            ) : null}
           </>
         ) : (
           <span>{folder.sync === 'dropbox' ? 'Dropbox keeps this folder in step with Overleaf' : inDrive ? 'Saved in Google Drive · not on Overleaf' : 'Not synced: a folder on this computer'}</span>
@@ -2810,7 +3127,7 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
             {inDrive ? 'Overleaf account' : 'Overleaf token'}
           </button>
         ) : null}
-        <OpenOverleaf project={project} view="beside" primary={false} compact />
+        <OpenOverleaf project={project} view="beside" primary={false} compact url={link?.url ?? ''} />
       </footer>
       {texShown && server && here ? (
         <div className="wr-sync-banner">
@@ -2828,7 +3145,7 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
         <div className="wr-sync-banner">
           {inDrive ? (
             <div className="wr-sync-accounts">
-              <OverleafAccounts current={link?.gitAccount} projectUrl={link?.url} onChoose={(id) => (updateLink({ gitAccount: id }), setFellBack(null))} />
+              <OverleafAccounts current={link?.gitAccount} projectUrl={link?.url} accountLabel={link?.account} onChoose={(id) => (updateLink({ gitAccount: id }), setFellBack(null))} />
             </div>
           ) : (
             <ForgetToken server={server} open onForgotten={() => setNeedToken(true)} />
@@ -2843,7 +3160,7 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
           </button>
         </div>
       ) : null}
-      {syncError || needToken || (synced?.conflicts.length ?? 0) > 0 ? (
+      {!unsynced && (syncError || needToken || (synced?.conflicts.length ?? 0) > 0) ? (
         <div className="wr-sync-banner">
           {synced?.conflicts.length ? (
             <span>
@@ -2861,7 +3178,10 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
           )}
           {inDrive && (needToken || /token|account/i.test(syncError ?? '')) ? (
             <div className="wr-sync-accounts">
-              <OverleafAccounts open projectUrl={link?.url} onConnected={() => (setNeedToken(false), void sync())} />
+              <OverleafAccounts open projectUrl={link?.url} accountLabel={link?.account} onConnected={() => (setNeedToken(false), void sync())} />
+              <button type="button" className="link-btn" onClick={() => (setUnsynced(true), setNeedToken(false), setSyncError(null))} title="Keep writing and compiling here; nothing goes to Overleaf until you press Sync">
+                Not now: write without syncing
+              </button>
             </div>
           ) : needToken || /auth|token|403|401|denied/i.test(syncError ?? '') ? (
             <span className="wr-token">

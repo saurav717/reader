@@ -95,7 +95,7 @@ const bareFile = (bare, path) => {
 // ---- the compiler, as on Cloud Run, but Overleaf's address is the bare repository
 writeFileSync(
   join(tmp, 'serve.py'),
-  `import re, sys, json\nsys.path.insert(0, ${JSON.stringify(SERVER_DIR)})\nimport server\nserver.GIT_REMOTE = re.compile(r'.*')\nserver.GIT_FILE_PROTOCOL = 'always'\nreal = server.git_sync\nbares = ${JSON.stringify(bareFor)}\ndef sync(job):\n    try:\n        access = json.load(open(${JSON.stringify(join(tmp, 'access.json'))}))\n    except Exception:\n        access = {}\n    for key, tokens in access.items():\n        if key in job['url'] and job.get('token') not in tokens:\n            raise server.GitRefused('Overleaf refused the Git token', 401, need_token=True)\n    job['url'] = next((bare for key, bare in bares.items() if key in job['url']), ${JSON.stringify(remote)})\n    return real(job)\nserver.git_sync = sync\nfrom http.server import ThreadingHTTPServer\nThreadingHTTPServer(('127.0.0.1', ${PORT}), server.Handler).serve_forever()\n`,
+  `import re, sys, json\nsys.path.insert(0, ${JSON.stringify(SERVER_DIR)})\nimport server\nserver.GIT_REMOTE = re.compile(r'.*')\nserver.GIT_FILE_PROTOCOL = 'always'\nreal = server.git_sync\nbares = ${JSON.stringify(bareFor)}\ndef sync(job):\n    try:\n        access = json.load(open(${JSON.stringify(join(tmp, 'access.json'))}))\n    except Exception:\n        access = {}\n    for key, tokens in access.items():\n        if key in job['url'] and job.get('token') not in tokens:\n            raise server.GitRefused('Overleaf refused the Git token', 401, need_token=True)\n    job['url'] = next((bare for key, bare in bares.items() if key in job['url']), ${JSON.stringify(remote)})\n    return real(job)\nserver.git_sync = sync\nreal_files = server.git_files\ndef files(job):\n    job['url'] = next((bare for key, bare in bares.items() if key in job['url']), ${JSON.stringify(remote)})\n    return real_files(job)\nserver.git_files = files\nreal_check = server.git_check\ndef check(job):\n    job['url'] = next((bare for key, bare in bares.items() if key in job['url']), ${JSON.stringify(remote)})\n    return real_check(job)\nserver.git_check = check\nfrom http.server import ThreadingHTTPServer\nThreadingHTTPServer(('127.0.0.1', ${PORT}), server.Handler).serve_forever()\n`,
 );
 // Which Overleaf accounts' tokens open which project (by id); a project not named opens with any.
 const allow = (access) => writeFileSync(join(tmp, 'access.json'), JSON.stringify(access));
@@ -362,6 +362,84 @@ await page.locator('.wr-status').getByRole('button', { name: /^Sync$/ }).click()
 for (let i = 0; i < 30 && !/revised/.test(driveFile(`${folder}/main.tex`)?.data?.toString() ?? ''); i += 1) await page.waitForTimeout(500);
 check('it is in Drive', /revised/.test(driveFile(`${folder}/main.tex`)?.data?.toString() ?? ''));
 
+console.log('a new LaTeX project beside it: off Overleaf until it is put there');
+await page.getByRole('button', { name: /All LaTeX projects/ }).click();
+await page.locator('.wr-home-way', { hasText: 'Blank LaTeX project' }).click();
+await page.locator('.wr-home-name input').fill('Rebuttal');
+await page.getByRole('button', { name: 'Make it and open it' }).click();
+await page.locator('.wr-desk').waitFor({ timeout: 20000 });
+await page.waitForTimeout(1500);
+check('it is in a folder of its own, in Drive', /\\title\{Rebuttal\}/.test(driveFile(`${folder}/rebuttal/main.tex`)?.data?.toString() ?? ''));
+check('a project from the start: a section of its own and a .bib beside main.tex', /\\input\{sections\/introduction\}/.test(driveFile(`${folder}/rebuttal/main.tex`)?.data?.toString() ?? '') && Boolean(driveFile(`${folder}/rebuttal/sections/introduction.tex`)) && Boolean(driveFile(`${folder}/rebuttal/references.bib`)));
+check('no Overleaf account asked for, nothing synced', (await page.getByText(/No Overleaf account is connected yet/).count()) === 0 && !/Syncing with Overleaf|Synced with/.test(await page.locator('.wr-status').innerText()), await page.locator('.wr-status').innerText());
+check('its files are its own: the other project’s aren’t listed', (await page.locator('.wr-tree-item', { hasText: 'intro.tex' }).count()) === 0);
+await shot('write-new-project-desk');
+await page.getByRole('button', { name: /All LaTeX projects/ }).click();
+await page.locator('.wr-doc-card').nth(1).waitFor({ timeout: 20000 });
+await page.waitForTimeout(500);
+const rebuttalCard = page.locator('.wr-doc-card', { hasText: 'Rebuttal' });
+check('its card says it is not on Overleaf, and offers to put it there', /Not on Overleaf/.test(await rebuttalCard.innerText()) && (await rebuttalCard.getByRole('button', { name: 'Put on Overleaf' }).count()) === 1);
+check('the other one’s says it is on Overleaf, with Compare', /On Overleaf/.test(await page.locator('.wr-doc-card', { hasText: 'Loss-free' }).innerText()) && (await page.locator('.wr-doc-card', { hasText: 'Loss-free' }).getByRole('button', { name: 'Compare with Overleaf' }).count()) === 1);
+await shot('write-latex-projects');
+await rebuttalCard.getByRole('button', { name: 'Put on Overleaf' }).click();
+await page.getByRole('button', { name: 'Make it on Overleaf' }).waitFor({ timeout: 10000 });
+await shot('write-put-on-overleaf');
+await rebuttalCard.getByRole('button', { name: 'Put on Overleaf' }).click();
+
+console.log('the top project synced: the new one stays out of its Overleaf project');
+await page.locator('.wr-doc-card', { hasText: 'Loss-free' }).locator('.wr-doc').click();
+await page.locator('.wr-desk').waitFor({ timeout: 20000 });
+await page.locator('.wr-status').getByRole('button', { name: /^Sync$/ }).click();
+await page.waitForFunction(() => /Synced with Overleaf/.test(document.querySelector('.wr-status')?.textContent ?? ''), null, { timeout: 30000 }).catch(() => {});
+check('synced', /Synced with Overleaf/.test(await page.locator('.wr-status').innerText()), await page.locator('.wr-status').innerText());
+check('and the new project isn’t in Overleaf', remoteFile('rebuttal/main.tex') === null);
+check('nor are its files listed with the top one’s', (await page.locator('.wr-tree-item', { hasText: /rebuttal/ }).count()) === 0);
+
+console.log('compared with Overleaf, file by file and change by change; then the same in both places');
+const siteIntro = '\\section{Introduction}\nSparse mixture-of-experts models route each token to a few experts, chosen by a learned router.\nWe show routing can be loss-free at 8B.\n\\section{Method}\nOur router balances load without an auxiliary loss.\n';
+const overleafIntro = '\\section{Introduction}\nSparse mixture-of-experts models send each token to two experts.\nWe show routing can be loss-free at 8B.\n\\section{Method}\nThe router needs no auxiliary loss to balance experts.\n';
+const introItem = driveFile(`${folder}/sections/intro.tex`);
+introItem.data = Buffer.from(siteIntro);
+introItem.modifiedTime = new Date().toISOString();
+sh('git', ['pull', '-q'], coauthor);
+writeFileSync(join(coauthor, 'sections', 'intro.tex'), overleafIntro);
+writeFileSync(join(coauthor, 'sections', 'related.tex'), '\\section{Related work}\nSwitch Transformers route each token to one expert.\n');
+writeFileSync(join(coauthor, 'main.tex'), '\\documentclass{article}\n\\title{Loss-free routing at 8B, revised}\n\\begin{document}\n\\maketitle\n\\input{sections/intro}\n\\input{sections/related}\n\\end{document}\n');
+sh('git', ['add', '-A'], coauthor);
+sh('git', ['commit', '-q', '-m', 'A coauthor, meanwhile'], coauthor);
+sh('git', ['push', '-q'], coauthor);
+await page.locator('.wr-status').getByRole('button', { name: 'Compare with Overleaf' }).click();
+await page.locator('.wc-file').first().waitFor({ timeout: 30000 });
+const listed = await page.locator('.wc-files').innerText();
+check('the files that differ are listed, by how', /Changed on both[\s\S]*main\.tex[\s\S]*sections\/intro\.tex/i.test(listed) && /Only on Overleaf[\s\S]*sections\/related\.tex/i.test(listed), listed);
+check('and the new LaTeX project isn’t part of it', !/rebuttal/.test(listed));
+check('Apply waits until every changed file is picked', await page.getByRole('button', { name: 'Apply to both' }).isDisabled());
+await page.locator('.wc-file', { hasText: 'sections/intro.tex' }).click();
+await page.locator('.wc-hunk-bar').first().waitFor({ timeout: 10000 });
+check('its two changes, each to pick', (await page.locator('.wc-hunk-bar').count()) === 2);
+await shot('write-compare-code');
+await page.locator('.wc-hunk-bar').nth(0).getByRole('button', { name: 'Take Overleaf’s' }).click();
+await page.locator('.wc-hunk-bar').nth(1).getByRole('button', { name: 'Keep this site’s' }).click();
+await shot('write-compare-picked');
+await page.locator('.wc-file', { hasText: 'main.tex' }).first().click();
+await page.getByRole('button', { name: 'Use Overleaf’s version' }).click();
+check('everything picked: Apply is ready', !(await page.getByRole('button', { name: 'Apply to both' }).isDisabled()));
+await page.getByRole('tab', { name: 'PDFs' }).click();
+await page.getByRole('button', { name: 'Compile both and compare' }).click();
+await page.locator('.wc-pdf-row.has-change').first().waitFor({ timeout: 90000 }).catch(() => {});
+check('the two PDFs compiled and compared, the changes boxed', (await page.locator('.wc-hl').count()) > 0, await page.locator('.wc-pdf').innerText());
+await shot('write-compare-pdfs');
+await page.getByRole('button', { name: 'Apply to both' }).click();
+await page.locator('.wc-done').waitFor({ timeout: 30000 });
+const settledIntro = '\\section{Introduction}\nSparse mixture-of-experts models send each token to two experts.\nWe show routing can be loss-free at 8B.\n\\section{Method}\nOur router balances load without an auxiliary loss.\n';
+check('Drive has the version picked, change by change', driveFile(`${folder}/sections/intro.tex`)?.data?.toString() === settledIntro, driveFile(`${folder}/sections/intro.tex`)?.data?.toString());
+check('and so has Overleaf', remoteFile('sections/intro.tex') === settledIntro, remoteFile('sections/intro.tex') ?? '');
+check('Overleaf’s main.tex and its new file came into Drive', /sections\/related/.test(driveFile(`${folder}/main.tex`)?.data?.toString() ?? '') && Boolean(driveFile(`${folder}/sections/related.tex`)));
+await page.waitForFunction(() => /Nothing differs/.test(document.querySelector('.wc-actions')?.textContent ?? ''), null, { timeout: 30000 }).catch(() => {});
+check('compared again: nothing differs', /Nothing differs/.test(await page.locator('.wc-actions').innerText().catch(() => '')));
+await shot('write-compare-settled');
+await page.getByRole('button', { name: /Back to the LaTeX projects/ }).click();
+
 console.log('papers from before, in folders on this computer: moved into Drive by themselves');
 await page.evaluate(
   async ({ cloneId, folderId, lostId }) => {
@@ -532,7 +610,7 @@ await page.getByRole('button', { name: 'Start the paper' }).click();
 await page.locator('.wr-home-way').first().waitFor({ timeout: 20000 });
 check('its folder is made in Drive, and it is not on Overleaf', /Google Drive › Projects › Workshop note-p-blank › LaTeX/.test(await page.locator('.wr-home-head').innerText()) && /not on Overleaf/.test(await page.locator('.wr-home-head').innerText()));
 await shot('write-start-blank-home');
-await page.locator('.wr-home-way', { hasText: 'Blank article' }).click();
+await page.locator('.wr-home-way', { hasText: 'Blank LaTeX project' }).click();
 await page.locator('.wr-home-name input').fill('Workshop note');
 await page.getByRole('button', { name: 'Make it and open it' }).click();
 await page.locator('.wr-desk').waitFor({ timeout: 20000 });
@@ -574,9 +652,17 @@ for (let i = 0; i < 4 && !(await page.locator('.ol-account.is-current', { hasTex
 }
 check('synced through the account chosen', (await page.locator('.ol-account.is-current').innerText()).includes('priya@uni.edu'));
 await shot('write-shared-accounts');
+// (A sync from opening it may still be under way: Sync is pressed once it is done.)
+await page.waitForFunction(() => !/Syncing with Overleaf/.test(document.querySelector('.wr-status')?.textContent ?? ''), null, { timeout: 30000 }).catch(() => {});
 allow({ [FRESH_ID]: ['olp_lab'] });
 await page.locator('.wr-status').getByRole('button', { name: /^Sync$/ }).click();
-await page.getByText(/can’t open this Overleaf project any more/).waitFor({ timeout: 20000 });
+await page.getByText(/can’t open this Overleaf project any more/).waitFor({ timeout: 20000 }).catch(async (error) => {
+  await shot('write-shared-failed');
+  console.log('status:', await page.locator('.wr-status').innerText());
+  console.log('banners:', await page.locator('.wr-sync-banner').allInnerTexts());
+  console.log('syncs:', JSON.stringify(syncs.slice(-4).map((sync) => ({ url: sync.url, account: sync.account, token: Boolean(sync.token) }))));
+  throw error;
+});
 check('unshared from it: synced through the other account, and said so', (await page.locator('.ol-account.is-current').innerText()).includes('lab@uni.edu'));
 await shot('write-shared-fell-back');
 
@@ -590,6 +676,23 @@ await page.locator('#settings-overleaf-accounts').waitFor({ timeout: 10000 });
 await page.waitForTimeout(600);
 check('Settings lists both accounts, with their projects', (await page.locator('.ol-account').count()) === 2 && /Workshop note/.test(await page.locator('.ol-account', { hasText: 'lab@uni.edu' }).innerText()));
 await shot('settings-overleaf-accounts');
+
+console.log('a LaTeX project copied to another project: every file it brings in, a project of its own there');
+await addProject('p-copy', 'Reading group');
+await page.goto(`${BASE}/project/?id=p-moe&view=write`, { waitUntil: 'networkidle' });
+await page.locator('.wr-doc-card', { hasText: 'Loss-free' }).waitFor({ timeout: 30000 });
+await page.locator('.wr-doc-card', { hasText: 'Loss-free' }).getByRole('button', { name: 'Copy to another project' }).click();
+await page.getByLabel('The project to copy it to').selectOption({ label: 'Reading group' });
+await shot('write-copy-to-project');
+await page.getByRole('button', { name: 'Copy it' }).click();
+await page.getByText(/Copied to “Reading group”/).waitFor({ timeout: 30000 });
+const copied = 'Papers_collection/Projects/Reading group-p-copy/LaTeX';
+check('its files went to that project’s Drive folder, subfolders and all', /\\input\{sections\/intro\}/.test(driveFile(`${copied}/main.tex`)?.data?.toString() ?? '') && Boolean(driveFile(`${copied}/sections/intro.tex`)) && Boolean(driveFile(`${copied}/sections/related.tex`)), [...items.values()].filter((item) => item.data && pathOf(item).includes('Reading group')).map(pathOf).join(', '));
+check('and none of the other LaTeX projects beside it', !driveFile(`${copied}/rebuttal/main.tex`));
+await page.goto(`${BASE}/project/?id=p-copy&view=write`, { waitUntil: 'networkidle' });
+await page.locator('.wr-doc-card').first().waitFor({ timeout: 30000 });
+check('there, it is a LaTeX project of its own, not on Overleaf', /Loss-free routing/.test(await page.locator('.wr-doc-card').first().innerText()) && /Not on Overleaf/.test(await page.locator('.wr-doc-card').first().innerText()));
+await shot('write-copied');
 
 check('no errors on the page', !errors.length, errors.join(' | '));
 await browser.close();

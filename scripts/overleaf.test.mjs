@@ -284,3 +284,35 @@ describe('a new paper in Overleaf', () => {
     assert.match(url, /^data:application\/zip;base64,UEsDB/);
   });
 });
+
+describe('each LaTeX project’s own Overleaf link', () => {
+  const A = 'https://www.overleaf.com/project/aaaaaaaaaaaaaaaaaaaaaaaa';
+  const B = 'https://www.overleaf.com/project/bbbbbbbbbbbbbbbbbbbbbbbb';
+  const link = ol.overleafLinkOf({ url: A, drive: { folder: 'Projects/x-1/LaTeX' }, main: 'main.tex', latex: { workshop: { url: B, main: 'main.tex', gitAccount: 'a1' }, 'notes/draft': { url: '' }, '../out': { url: B }, bad: { url: 'https://evil.example/x' } } });
+
+  it('keeps folders inside the paper with an Overleaf address or none, and drops the rest', () => {
+    assert.deepEqual(link.latex, { workshop: { url: B, main: 'main.tex', gitAccount: 'a1' }, 'notes/draft': { url: '' } });
+  });
+
+  it('a folder goes by its own link, the nearest above it, or the top’s', () => {
+    assert.equal(ol.latexOwner(link, 'workshop'), 'workshop');
+    assert.equal(ol.latexOwner(link, 'workshop/appendix'), 'workshop');
+    assert.equal(ol.latexOwner(link, 'notes/draft'), 'notes/draft');
+    assert.equal(ol.latexOwner(link, 'notes'), '');
+    assert.equal(ol.latexOwner(link, ''), '');
+    assert.equal(ol.latexLinkAt(link, '').url, A);
+    assert.equal(ol.latexLinkAt(link, 'notes/draft').url, '');
+    assert.equal(ol.latexLinkAt(link, 'workshop').gitAccount, 'a1');
+  });
+
+  it('leaves the other projects out of the one above them', () => {
+    assert.deepEqual(ol.latexSeparate(link, '').sort(), ['notes/draft', 'workshop']);
+    assert.deepEqual(ol.latexSeparate(link, 'workshop'), []);
+  });
+
+  it('changes one folder’s link, or the top’s, and lets a folder go back', () => {
+    assert.equal(ol.withLatexLink(link, 'notes/draft', { url: B }).latex['notes/draft'].url, B);
+    assert.equal(ol.withLatexLink(link, '', { gitAccount: 'a2' }).gitAccount, 'a2');
+    assert.deepEqual(Object.keys(ol.withLatexLink(link, 'workshop', null).latex), ['notes/draft']);
+  });
+});

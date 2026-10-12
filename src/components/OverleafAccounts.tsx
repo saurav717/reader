@@ -58,21 +58,29 @@ export function useOverleafAccounts(): OverleafAccount[] | null {
  * there is none (or `open`), else behind "Connect another Overleaf account".
  * `onConnected` hears the new account's id, for whatever was waiting on it.
  */
-export default function OverleafAccounts({ open = false, why, onConnected, current, onChoose, projectUrl }: { open?: boolean; why?: string; onConnected?: (id: string) => void; current?: string; /** For a project: the account it is to sync with, chosen — any it is shared with. */ onChoose?: (id: string) => void; /** The Overleaf project at hand, the token checked on it unless another is given. */ projectUrl?: string }) {
+export default function OverleafAccounts({ open = false, why, onConnected, current, onChoose, projectUrl, accountLabel }: { open?: boolean; why?: string; onConnected?: (id: string) => void; current?: string; /** For a project: the account it is to sync with, chosen — any it is shared with. */ onChoose?: (id: string) => void; /** The Overleaf project at hand, the token checked on it unless another is given. */ projectUrl?: string; /** The account the project names, to start the label with. */ accountLabel?: string }) {
   const { collections, driveConnected } = useStore();
   const accounts = useOverleafAccounts();
   const [adding, setAdding] = useState(open);
   const [token, setToken] = useState('');
-  const [label, setLabel] = useState('');
+  const [label, setLabel] = useState(accountLabel ?? '');
   const [check, setCheck] = useState(projectUrl ?? '');
+  // Known only once the project is read: filled in then, unless something was typed.
+  useEffect(() => {
+    if (projectUrl) setCheck((now) => now || projectUrl);
+  }, [projectUrl]);
+  useEffect(() => {
+    if (accountLabel) setLabel((now) => now || accountLabel);
+  }, [accountLabel]);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   if (!driveConnected) return <p className="wr-quiet">Sign in with Google first: your Overleaf accounts are kept with your Reader account, for every device.</p>;
   if (accounts === null) return <p className="wr-quiet">Asking Reader’s server about your Overleaf accounts…</p>;
   const used = (id: string) => projectsOf(collections).filter((project) => project.project.overleaf?.gitAccount === id);
   const connect = async () => {
-    const project = overleafGitUrl(check.trim());
-    if (!project) return setProblem('Paste the link of one of this account’s Overleaf projects (https://www.overleaf.com/project/…): the token is tried on it, so a token from another account is caught.');
+    // Optional: with a project, the token is tried on it now; without, at its first sync.
+    const project = check.trim() ? overleafGitUrl(check.trim()) : undefined;
+    if (project === null) return setProblem('That isn’t an Overleaf project’s link (https://www.overleaf.com/project/…). Leave it empty to connect without checking.');
     setBusy(true);
     setProblem(null);
     try {
@@ -144,13 +152,13 @@ export default function OverleafAccounts({ open = false, why, onConnected, curre
             <small>Kept encrypted by Reader’s server, for your syncs only; never in a paper, in Drive, or in this browser. Overleaf’s Git integration needs a paid Overleaf plan.</small>
           </label>
           <label className="wr-field">
-            <span>One of this account’s Overleaf projects, to check the token on</span>
+            <span>Optional: one of this account’s Overleaf projects, to check the token on</span>
             <input value={check} placeholder="https://www.overleaf.com/project/…" onChange={(event) => setCheck(event.target.value)} aria-label="An Overleaf project of this account" />
-            <small>Overleaf doesn’t say which account a token belongs to, so Reader opens this project with it: a token from another account can’t, and isn’t kept. Pick one this account owns — a project only shared with it would pass too.</small>
+            <small>Overleaf doesn’t say which account a token belongs to, so Reader opens this project with it: a token from another account can’t, and isn’t kept. Pick one this account owns — a project only shared with it would pass too. Left empty, the token is checked the first time a project syncs with it.</small>
           </label>
           <div className="wr-row">
-            <button type="button" className="btn primary" disabled={busy || !token.trim() || !check.trim()} onClick={() => void connect()}>
-              {busy ? 'Checking the token…' : 'Connect Overleaf'}
+            <button type="button" className="btn primary" disabled={busy || !token.trim()} onClick={() => void connect()}>
+              {busy ? (check.trim() ? 'Checking the token…' : 'Connecting…') : 'Connect Overleaf'}
             </button>
             <a className="link-btn" href="https://www.overleaf.com/user/settings" target="_blank" rel="noopener noreferrer">
               Overleaf’s account settings ↗

@@ -294,16 +294,20 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
             <dl className="wg-list">
               <dt>Continue…</dt>
               <dd>Opens the LaTeX project you were last writing.</dd>
+              <dt>On Overleaf, or not</dt>
+              <dd>Each LaTeX project can have an Overleaf project of its own, or none. A new one starts off Overleaf — nothing to connect, nothing synced — until you press <em>Put on Overleaf</em> on its card: Reader makes the Overleaf project with its files in it (in the account signed in in this browser), and you paste that project’s address back once. A paper brought in from Overleaf keeps syncing as before.</dd>
+              <dt>Compare with Overleaf</dt>
+              <dd>On a LaTeX project that is on Overleaf (its card, or the editor’s status bar). On the left, every file: changed on both, only on this site, only on Overleaf, or the same. On the right, a file’s two versions side by side, as GitHub shows them. Keep this site’s version or Overleaf’s in total, for one file or all of them, or pick change by change — this site’s, Overleaf’s, or both. <em>PDFs</em> compiles any two of this site’s, Overleaf’s and the result as picked, and boxes what changed on each page. <em>Apply to both</em> makes the picked version the one on this site and on Overleaf.</dd>
               <dt>View in</dt>
               <dd>Under each LaTeX project: <em>Google Drive</em> opens its folder in Drive, <em>This computer</em> opens it in Finder or Explorer (a paper kept on the computer; Companion 0.13.0 or later), and <em>Overleaf</em> opens the Overleaf project it is in.</dd>
-              <dt>Blank article</dt>
-              <dd>A main.tex with a title and a first section, in a folder of its own; add sections, a .bib and figures as it grows.</dd>
+              <dt>Blank LaTeX project</dt>
+              <dd>A main.tex that brings in sections/introduction.tex, and a references.bib, in a folder of its own: add sections, styles and figures as it grows.</dd>
               <dt>Browse templates</dt>
               <dd>Conference kits you saved before (NeurIPS, ICML, ACL…), kept in your Drive.</dd>
               <dt>Upload a template (.zip)</dt>
               <dd>The zip a conference gives out. Reader also keeps it as a template for next time.</dd>
-              <dt>Upload LaTeX files</dt>
-              <dd>A main .tex you already have, with its sections, .bib, style files and figures.</dd>
+              <dt>Upload a LaTeX project</dt>
+              <dd>Its folder from your computer, subfolders and all, so its \input and \includegraphics paths still work; or its files picked one by one. Reader finds its main .tex (main.tex, else the one with \documentclass).</dd>
             </dl>
           </section>
 

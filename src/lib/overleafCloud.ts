@@ -62,14 +62,16 @@ const fingerprint = async (base64: string) => {
 /** What has been read of each paper, by when it last changed: a sync reads only what changed since. */
 const seen = new WeakMap<PaperStore, Map<string, { stamp: string; sha: string; base64: string }>>();
 
-async function current(store: PaperStore): Promise<Map<string, { stamp: string; sha: string; base64: string }>> {
+const within = (dirs: string[], path: string) => dirs.some((dir) => path === dir || path.startsWith(`${dir}/`));
+
+async function current(store: PaperStore, exclude: string[] = []): Promise<Map<string, { stamp: string; sha: string; base64: string }>> {
   const known = seen.get(store) ?? new Map();
   seen.set(store, known);
   const listed: { path: string; stamp: string }[] = [];
   const walk = async (dir: string, depth: number) => {
     if (depth > 6) return;
     for (const entry of await store.list(dir)) {
-      if (entry.name.startsWith('.')) continue;
+      if (entry.name.startsWith('.') || within(exclude, entry.path)) continue;
       if (entry.type === 'directory') await walk(entry.path, depth + 1);
       else if (!isBuildFile(entry.path)) listed.push({ path: entry.path, stamp: `${entry.modified ?? ''}|${entry.size ?? ''}` });
     }
@@ -172,9 +174,10 @@ interface Answer {
  * `account` is the account the project was last synced with, tried first;
  * the one that opened it comes back.
  */
-export async function cloudSync(store: PaperStore, url: string, message: string, token?: string, options: { firstPushes?: boolean; account?: string } = {}): Promise<Synced & { needToken?: boolean; account?: string; accountLabel?: string; fellBackFrom?: string }> {
+export async function cloudSync(store: PaperStore, url: string, message: string, token?: string, options: { firstPushes?: boolean; account?: string; /** Folders that are other LaTeX projects, with Overleaf projects (or none) of their own: never sent, never written. */ exclude?: string[] } = {}): Promise<Synced & { needToken?: boolean; account?: string; accountLabel?: string; fellBackFrom?: string }> {
+  const exclude = options.exclude ?? [];
   const state = await readState(store);
-  const files = await current(store);
+  const files = await current(store, exclude);
   const manifest = Object.fromEntries([...files].map(([path, file]) => [path, file.sha]));
   // Never synced: nothing here is a change to send — Overleaf's files come in over it (a paper brought into Drive
   // from Overleaf) — unless `firstPushes`: then what is here goes to Overleaf, on top of what it has (a folder
@@ -183,7 +186,7 @@ export async function cloudSync(store: PaperStore, url: string, message: string,
   // Moved in from a computer and not synced from here yet: what changed since the move.
   const sinceMove = !state.commit && Boolean(state.blobs);
   const changed = state.commit || pushAll || sinceMove ? [...files].filter(([path, file]) => pushAll || state.files[path] !== file.sha).map(([path, file]) => ({ path, base64: file.base64 })) : [];
-  const deleted = state.commit || sinceMove ? Object.keys(state.files).filter((path) => !files.has(path)) : [];
+  const deleted = state.commit || sinceMove ? Object.keys(state.files).filter((path) => !files.has(path) && !within(exclude, path)) : [];
   const response = await apiFetch('/latex/overleaf/sync', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -199,11 +202,13 @@ export async function cloudSync(store: PaperStore, url: string, message: string,
   const incoming: string[] = [];
   const next = { ...manifest };
   for (const file of answer.files ?? []) {
+    if (within(exclude, file.path)) continue;
     await store.writeBase64(file.path, file.base64);
     next[file.path] = await fingerprint(file.base64);
     incoming.push(file.path);
   }
   for (const path of answer.deleted ?? []) {
+    if (within(exclude, path)) continue;
     await store.remove(path).catch(() => undefined);
     delete next[path];
     incoming.push(path);
@@ -224,4 +229,68 @@ export async function cloudSync(store: PaperStore, url: string, message: string,
     ...(answer.fellBackFrom ? { fellBackFrom: answer.fellBackFrom } : {}),
     ...(conflicts.length ? { error: 'Overleaf changed the same lines: the files are marked with <<<<<<< where they differ. Fix them, and the next sync carries on.' } : answer.error ? { error: answer.error } : {}),
   };
+}
+
+// ------------------------------------------------- compared with Overleaf --
+
+/** One file of a LaTeX project, against its Overleaf project's: the same, changed, or on one side only. */
+export interface Compared {
+  path: string;
+  status: 'same' | 'changed' | 'here' | 'overleaf';
+  /** This paper's (Drive's) version, as base64. */
+  mine?: string;
+  /** Overleaf's, at `commit`. */
+  theirs?: string;
+}
+
+export interface Comparison {
+  commit: string;
+  files: Compared[];
+  account?: string;
+}
+
+const kept = (path: string, exclude: string[]) => !path.split('/').some((part) => part.startsWith('.')) && !isBuildFile(path) && !within(exclude, path);
+
+/**
+ * The paper and its Overleaf project, file by file: Overleaf's as it is now
+ * (by Reader's server, nothing merged or pushed) against what is in Drive.
+ */
+export async function compareWithOverleaf(store: PaperStore, url: string, options: { account?: string; exclude?: string[] } = {}): Promise<Comparison> {
+  const exclude = options.exclude ?? [];
+  const response = await apiFetch('/latex/overleaf/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, ...(options.account ? { account: options.account } : {}) }) });
+  const answer = (await response.json().catch(() => ({}))) as { commit?: string; files?: { path: string; base64: string; sha?: string }[]; error?: string; needToken?: boolean; account?: string };
+  if (!response.ok || !answer.commit) throw Object.assign(new Error(answer.error ?? `Reader’s server answered ${response.status}.`), { needToken: Boolean(answer.needToken) });
+  const theirs = new Map((answer.files ?? []).filter((file) => kept(file.path, exclude)).map((file) => [file.path, file]));
+  const mine = await current(store, exclude);
+  const paths = [...new Set([...mine.keys(), ...theirs.keys()])].sort((a, b) => a.localeCompare(b));
+  const files: Compared[] = [];
+  for (const path of paths) {
+    const here = mine.get(path);
+    const there = theirs.get(path);
+    const sha = there ? there.sha ?? (await fingerprint(there.base64)) : '';
+    files.push({ path, status: here && there ? (here.sha === sha ? 'same' : 'changed') : here ? 'here' : 'overleaf', ...(here ? { mine: here.base64 } : {}), ...(there ? { theirs: there.base64 } : {}) });
+  }
+  return { commit: answer.commit, files, ...(answer.account ? { account: answer.account } : {}) };
+}
+
+/**
+ * Each file settled as it is to end up — `finals` its content as base64, or
+ * null for gone, for each file that isn't simply kept as it is in Drive —
+ * then the same everywhere: written into Drive, and Drive's pushed to
+ * Overleaf on top of the commit compared with, as a sync would.
+ */
+export async function settleWithOverleaf(store: PaperStore, url: string, comparison: Comparison, finals: Record<string, string | null>, options: { account?: string; exclude?: string[] } = {}): Promise<Synced & { needToken?: boolean; account?: string }> {
+  for (const file of comparison.files) {
+    if (!(file.path in finals)) continue;
+    const final = finals[file.path];
+    if (final === null) {
+      if (file.mine !== undefined) await store.remove(file.path);
+    } else if (final !== file.mine) await store.writeBase64(file.path, final);
+  }
+  // As if just synced at the commit compared with: what differs from it now is what goes to Overleaf.
+  const files: Record<string, string> = {};
+  for (const file of comparison.files) if (file.theirs !== undefined) files[file.path] = await fingerprint(file.theirs);
+  await store.writeText(SYNC_STATE, JSON.stringify({ commit: comparison.commit, files } satisfies SyncState));
+  seen.delete(store);
+  return cloudSync(store, url, 'Settled in Reader’s compare with Overleaf', undefined, { account: options.account ?? comparison.account, exclude: options.exclude });
 }

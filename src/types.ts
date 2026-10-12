@@ -232,6 +232,23 @@ export interface OverleafLink {
    * changed in Overleaf meanwhile taken in, rather than cloning it afresh.
    */
   earlier?: Record<string, Record<string, PaperFolder>>;
+  /**
+   * The LaTeX projects in the paper's Drive folder that have an Overleaf link of
+   * their own, by their folder there ('sub/dir'): each one its own Overleaf
+   * project, or none (url ''). A folder with no entry is part of the nearest
+   * one above it that has one, or of the top's (this link's own url) — so a
+   * folder that came in from Overleaf stays in that Overleaf project.
+   */
+  latex?: Record<string, LatexLink>;
+}
+
+/** A LaTeX project's own Overleaf link: '' when it is kept off Overleaf. Paths are relative to its folder. */
+export interface LatexLink {
+  url: string;
+  gitAccount?: string;
+  main?: string;
+  compiler?: 'pdflatex' | 'xelatex' | 'lualatex' | 'latex';
+  account?: string;
 }
 
 export interface PaperFolder {
