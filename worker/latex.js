@@ -225,6 +225,45 @@ export async function openToken(env, kept) {
   }
 }
 
+/**
+ * The person's Overleaf accounts, each with its Git token sealed: kept under
+ * one key, `{ accounts: [{ id, label, sealed, addedAt }] }`. A single sealed
+ * token, as kept before there could be several, reads as one account.
+ */
+async function readAccounts(kv, owner) {
+  const raw = await kv.get(overleafKey(owner));
+  if (!raw) return [];
+  try {
+    const kept = JSON.parse(raw);
+    if (kept && Array.isArray(kept.accounts)) return kept.accounts.filter((item) => item && typeof item.id === 'string' && typeof item.sealed === 'string');
+    if (kept && typeof kept.iv === 'string') return [{ id: 'a1', label: 'Overleaf account', sealed: raw, addedAt: '' }];
+  } catch {
+    // unreadable: as if none
+  }
+  return [];
+}
+
+const writeAccounts = (kv, owner, accounts) => (accounts.length ? kv.put(overleafKey(owner), JSON.stringify({ accounts })) : kv.delete(overleafKey(owner)));
+
+/** The accounts as the page sees them: never a token. */
+const shownAccounts = (accounts) => accounts.map(({ id, label, addedAt }) => ({ id, label, addedAt }));
+
+/** A token added as an account (or the account that has it already, its label changed when one is given); its id back. */
+async function addAccount(env, kv, owner, token, label) {
+  const accounts = await readAccounts(kv, owner);
+  for (const account of accounts) {
+    if ((await openToken(env, account.sealed)) === token) {
+      if (label) account.label = label;
+      await writeAccounts(kv, owner, accounts);
+      return { id: account.id, accounts };
+    }
+  }
+  const id = `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  accounts.push({ id, label: label || `Overleaf account ${accounts.length + 1}`, sealed: await sealToken(env, token), addedAt: new Date().toISOString() });
+  await writeAccounts(kv, owner, accounts.slice(-8));
+  return { id, accounts: accounts.slice(-8) };
+}
+
 /** The kept folder's name: whose and which paper, hashed, so one person's folder is never another's. */
 export async function projectKey(owner, project) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${owner}\n${project}`));
@@ -283,11 +322,24 @@ export async function handleLatex(request, env, path, { json, headers, authorize
   // A paper kept in Drive, in step with Overleaf by the compiler on Cloud Run: the person's Overleaf Git
   // token kept here, encrypted, and handed to each sync (src/lib/overleafCloud.ts, cloudrun/latex/server.py).
   if (path === '/latex/overleaf/token') {
+    // One account forgotten (?account=), or all of them.
     if (request.method === 'DELETE') {
-      await kv.delete(overleafKey(owner));
-      return json({ known: false }, 200, noStore);
+      const which = new URL(request.url).searchParams.get('account');
+      const left = which ? (await readAccounts(kv, owner)).filter((account) => account.id !== which) : [];
+      await writeAccounts(kv, owner, left);
+      return json({ known: left.length > 0, accounts: shownAccounts(left) }, 200, noStore);
     }
-    return json({ known: Boolean(await kv.get(overleafKey(owner))) }, 200, noStore);
+    // An account connected before any project is picked: checked by Overleaf at its first sync.
+    if (request.method === 'PUT') {
+      const body = await request.json().catch(() => null);
+      const token = typeof body?.token === 'string' ? body.token.trim() : '';
+      const label = typeof body?.label === 'string' ? body.label.trim().slice(0, 80) : '';
+      if (!token || token.length > 200 || /\s/.test(token)) return json({ error: 'an Overleaf Git token (Overleaf: Account Settings → Git integration → Generate token)' }, 400, noStore);
+      const added = await addAccount(env, kv, owner, token, label);
+      return json({ known: true, account: added.id, accounts: shownAccounts(added.accounts) }, 200, noStore);
+    }
+    const accounts = await readAccounts(kv, owner);
+    return json({ known: accounts.length > 0, accounts: shownAccounts(accounts) }, 200, noStore);
   }
   if (path === '/latex/overleaf/sync') {
     if (request.method !== 'POST') return json({ error: 'POST' }, 405, noStore);
@@ -302,25 +354,50 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     const deleted = Array.isArray(body.deleted) ? body.deleted.filter((item) => typeof item === 'string' && item.length <= 300 && !item.split('/').includes('..')).slice(0, 500) : [];
     // A paper moved in from a computer: its files' Git ids then, for the compiler to find their commit by.
     const baseTree = body.baseTree && typeof body.baseTree === 'object' && !Array.isArray(body.baseTree) && Object.keys(body.baseTree).length <= 2000 && Object.entries(body.baseTree).every(([path, blob]) => typeof path === 'string' && !path.split('/').includes('..') && /^[0-9a-f]{40}$/.test(String(blob))) ? body.baseTree : null;
-    let token = typeof body.token === 'string' ? body.token.trim() : '';
-    if (token) await kv.put(overleafKey(owner), await sealToken(env, token));
-    else token = (await openToken(env, await kv.get(overleafKey(owner)))) ?? '';
-    if (!token) return json({ error: 'Your Overleaf Git token is needed (Overleaf: Account Settings → Git integration).', needToken: true }, 400, noStore);
-    const base = String(env.LATEX_CLOUD_RUN_URL).trim().replace(/\/+$/, '');
-    let answer;
-    try {
-      answer = await fetch(`${base}/git/sync`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${String(env.LATEX_CLOUD_RUN_TOKEN).trim()}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: body.url, token, base: typeof body.base === 'string' ? body.base : '', ...(baseTree ? { baseTree } : {}), changed, deleted, manifest, message: String(body.message || 'Edits from Reader').slice(0, 200) }),
-        signal: AbortSignal.timeout(CLOUD_RUN_WAIT_MS),
-      });
-    } catch (error) {
-      return json({ error: `Reader’s server couldn’t reach its compiler (${error?.message || error}).` }, 502, noStore);
+    // Which account's token: one given now (added as an account), else the project's own (`account`), then the others —
+    // a token opens only the projects of its own Overleaf account and those shared with it.
+    const given = typeof body.token === 'string' ? body.token.trim() : '';
+    if (given) await addAccount(env, kv, owner, given, typeof body.label === 'string' ? body.label.trim().slice(0, 80) : '');
+    const accounts = await readAccounts(kv, owner);
+    const order = [...accounts].sort((a, b) => (b.id === body.account ? 1 : 0) - (a.id === body.account ? 1 : 0));
+    if (given) {
+      const opened = await Promise.all(order.map((account) => openToken(env, account.sealed)));
+      const at = opened.indexOf(given);
+      if (at > 0) order.unshift(...order.splice(at, 1));
     }
-    // A token Overleaf refused is not kept.
-    if (answer.status === 401) await kv.delete(overleafKey(owner));
-    return new Response(answer.body, { status: answer.status, headers: { ...noStore, 'Content-Type': 'application/json' } });
+    if (!order.length) return json({ error: 'Connect your Overleaf account: its Git token (Overleaf: Account Settings → Git integration).', needToken: true }, 400, noStore);
+    const base = String(env.LATEX_CLOUD_RUN_URL).trim().replace(/\/+$/, '');
+    // A project can be open to several of the person's accounts (shared between them): the one asked for goes first,
+    // and when it can't open it any more (unshared, or its token revoked), another that can is used — and said.
+    const refused = [];
+    for (const account of order) {
+      const token = await openToken(env, account.sealed);
+      if (!token) continue;
+      let answer;
+      try {
+        answer = await fetch(`${base}/git/sync`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${String(env.LATEX_CLOUD_RUN_TOKEN).trim()}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: body.url, token, base: typeof body.base === 'string' ? body.base : '', ...(baseTree ? { baseTree } : {}), changed, deleted, manifest, message: String(body.message || 'Edits from Reader').slice(0, 200) }),
+          signal: AbortSignal.timeout(CLOUD_RUN_WAIT_MS),
+        });
+      } catch (error) {
+        return json({ error: `Reader’s server couldn’t reach its compiler (${error?.message || error}).` }, 502, noStore);
+      }
+      // This account can't open the project (another account's, or its token revoked): the next one is tried.
+      if (answer.status === 401) {
+        refused.push(account);
+        continue;
+      }
+      const said = await answer.json().catch(() => ({ error: `the compiler answered ${answer.status}` }));
+      const asked = refused.find((item) => item.id === body.account);
+      return json({ ...said, account: account.id, accountLabel: account.label, ...(asked ? { fellBackFrom: asked.label } : {}) }, answer.status, noStore);
+    }
+    return json({
+      error: order.length > 1 ? `None of your ${order.length} connected Overleaf accounts can open this project. Connect the Overleaf account it is in (or one it is shared with) — or, if a token was revoked in Overleaf, connect that account again with a new one.` : 'Your connected Overleaf account can’t open this project: it may be in another Overleaf account (connect that one too), or the token was revoked in Overleaf (connect it again with a new one).',
+      needToken: true,
+      tried: order.length,
+    }, 401, noStore);
   }
 
   if (path === '/latex/jobs') {

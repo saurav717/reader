@@ -50,7 +50,8 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
   const value = raw as Partial<Record<keyof OverleafLink, unknown>>;
   const url = typeof value.url === 'string' ? parseOverleafUrl(value.url) : null;
   // The paper kept in Google Drive: its folder's name there, with or without an Overleaf project.
-  const driveFolder = value.drive && typeof value.drive === 'object' && typeof (value.drive as { folder?: unknown }).folder === 'string' ? (value.drive as { folder: string }).folder.replace(/[\\/]+/g, ' ').trim().slice(0, 120) : '';
+  const driveFolder = value.drive && typeof value.drive === 'object' && typeof (value.drive as { folder?: unknown }).folder === 'string' ? (value.drive as { folder: string }).folder.split(/[\\/]+/).map((part) => part.trim()).filter((part) => part && part !== '.' && part !== '..').join('/').slice(0, 200) : '';
+  const keep = value.keep && typeof value.keep === 'object' ? (value.keep as { where?: unknown; at?: unknown }) : null;
   if (!url && !driveFolder) return undefined;
   const repo = typeof value.repo === 'string' ? parseRepo(value.repo) : null;
   const text = (field: unknown) => (typeof field === 'string' && field.trim() ? field.trim() : undefined);
@@ -78,6 +79,8 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
   return {
     url: url ?? '',
     ...(driveFolder ? { drive: { folder: driveFolder } } : {}),
+    ...(typeof value.gitAccount === 'string' && /^[a-z0-9]{1,40}$/.test(value.gitAccount) ? { gitAccount: value.gitAccount } : {}),
+    ...(keep && (keep.where === 'drive' || keep.where === 'computer') && typeof keep.at === 'string' ? { keep: { where: keep.where, at: keep.at } } : {}),
     ...(repo ? { repo: `${repo.owner}/${repo.repo}` } : {}),
     ...(repo && text(value.branch) ? { branch: text(value.branch) } : {}),
     ...(repo && text(value.folder) ? { folder: cleanFolder(text(value.folder)!) } : {}),

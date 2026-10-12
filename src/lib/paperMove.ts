@@ -6,10 +6,11 @@
 // synced to Overleaf first (the Companion), and the paper is then brought into
 // Drive from Overleaf by Reader's server — so Drive starts from a commit the
 // next syncs go on from. Without Overleaf, the folder's files are copied into
-// Drive as they are. The folder on this computer is left as it was.
+// Drive as they are. The folder Reader made on this computer is then removed.
 
 import { paperRemote, syncPaper } from './companion';
-import { isBuildFile, overleafGitUrl } from './overleaf';
+import { jupyterDelete, jupyterList } from './colab';
+import { isBuildFile, overleafGitUrl, paperFolderFor } from './overleaf';
 import { cloudSync, recordMove } from './overleafCloud';
 import { companionStore, driveStore, paperDriveFolder, paperDriveNow, type PaperStore } from './paperStore';
 import type { Project } from './projects';
@@ -35,10 +36,39 @@ async function filesOf(store: PaperStore): Promise<string[]> {
   return found;
 }
 
-/** Whether the project's paper is still in a folder on a computer, and not yet in Drive. */
+/** A folder on this computer deleted, through the Companion: whole (to the Trash), or its files first where it won't be. */
+export async function removeFolder(server: { url: string; token: string }, path: string): Promise<void> {
+  try {
+    await jupyterDelete(server, path);
+    return;
+  } catch {
+    // A server that won't delete a folder with files in it: they go first.
+  }
+  const listing = await jupyterList(server, path);
+  for (const entry of listing.entries) {
+    if (entry.type === 'directory') await removeFolder(server, entry.path);
+    else await jupyterDelete(server, entry.path);
+  }
+  await jupyterDelete(server, path);
+}
+
+/** A project linked to Overleaf whose folder here it lost its link to: papers/<project>, when that is a clone of it. */
+export async function findLostFolder(project: Project, here: ThisCompanion): Promise<PaperFolder | null> {
+  const gitUrl = overleafGitUrl(project.project.overleaf?.url);
+  if (!gitUrl) return null;
+  const path = paperFolderFor(project.name);
+  const remote = await paperRemote(here.server, path).catch(() => null);
+  const plain = (address: string) => address.trim().replace(/^https?:\/\/[^@/]*@/, 'https://').replace(/\.git$/, '').replace(/\/+$/, '').toLowerCase();
+  return remote?.url && plain(remote.url) === plain(gitUrl) ? { path, sync: 'git' } : null;
+}
+
+/** Whether Git's error says Overleaf (or the way to it) is down, not that anything is wrong with the paper. */
+export const overleafDown = (error: string | undefined) => /\b50[234]\b|no healthy upstream|Could not resolve host|timed out|Connection (refused|reset)|Failed to connect/i.test(error ?? '');
+
+/** Whether the project's paper is still in a folder on a computer, not yet in Drive, and not chosen to be kept there. */
 export function keptLocally(project: Project): boolean {
   const link = project.project.overleaf;
-  return Boolean(link && !link.drive && link.folders && Object.keys(link.folders).length);
+  return Boolean(link && !link.drive && link.keep?.where !== 'computer' && link.folders && Object.keys(link.folders).length);
 }
 
 /**
@@ -63,7 +93,11 @@ export async function movePaperToDrive(project: Project, here: ThisCompanion | n
     if (clone) {
       step('Sending what was written on this computer to Overleaf…');
       const sent = await syncPaper(here.server, local.path, 'Edits from Reader, before the paper moved to Drive');
-      if (!sent.ok) throw new Error(`The folder on this computer couldn’t be synced with Overleaf first: ${sent.error ?? 'it didn’t finish'}.`);
+      if (!sent.ok) {
+        // Overleaf's Git down for a while (a 5xx, or not reached): said as such, and tried again later — nothing moved, nothing lost.
+        if (overleafDown(sent.error)) throw Object.assign(new Error('Overleaf’s Git isn’t answering right now (it’s down for a moment on Overleaf’s side). Nothing was moved or lost: try again in a few minutes.'), { transient: true });
+        throw new Error(`The folder on this computer couldn’t be synced with Overleaf first: ${sent.error ?? 'it didn’t finish'}.`);
+      }
     }
     // Then the folder's files into Drive, as they are; with Overleaf, recorded so the first sync from Drive goes
     // on from the commit they are (a clone, or Dropbox's copy), or sends them all (a folder never synced).
@@ -78,6 +112,16 @@ export async function movePaperToDrive(project: Project, here: ThisCompanion | n
     }
     if (!paths.length) await drive.mkdir('');
     if (gitUrl) await recordMove(drive, files, local.sync === 'folder' ? 'unsynced' : 'synced');
+    // Nothing of the paper kept on the computer: once Drive is seen to hold every file, the folder Reader made for
+    // it goes (to the computer's Trash, where Jupyter can put it there). A Dropbox folder, or one linked in from
+    // elsewhere on the computer, is never touched: deleting it there would delete it from Dropbox, and Overleaf.
+    if (local.sync !== 'dropbox' && /^papers\/[^/]+$/.test(local.path)) {
+      const there = new Set(await filesOf(drive));
+      if (paths.every((path) => there.has(path))) {
+        step('Removing the folder from this computer…');
+        await removeFolder(here.server, local.path).catch((error) => console.warn(`Reader: ${local.path} couldn’t be removed from this computer:`, error));
+      }
+    }
     return folder;
   }
   if (gitUrl) {
@@ -88,4 +132,12 @@ export async function movePaperToDrive(project: Project, here: ThisCompanion | n
     return folder;
   }
   throw new Error('The paper’s folder is on another computer: open Reader there to move it.');
+}
+
+/** The link with the paper in Drive at `folder`, and this computer's folder for it, removed with the move, forgotten. */
+export function inDrive<T extends { url: string; folders?: Record<string, unknown>; drive?: { folder: string } }>(link: T | undefined, folder: string, computer: string | undefined): T {
+  const { folders, ...rest } = (link ?? { url: '' }) as T;
+  const left = { ...(folders ?? {}) };
+  if (computer) delete left[computer];
+  return { ...rest, ...(Object.keys(left).length ? { folders: left } : {}), drive: { folder } } as T;
 }

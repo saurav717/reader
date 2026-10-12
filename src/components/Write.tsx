@@ -1,50 +1,466 @@
 // The Write tab: a project's paper, the whole page an editor — its files, the
-// LaTeX, and the PDF it makes — as Overleaf is, but on this computer. The
-// files are in a folder under the Companion's (read and written through
-// Jupyter, as the Playground's are), the Companion compiles them (latexmk, or
-// Tectonic) and keeps the folder in step with Overleaf through its Git, or
-// Dropbox does. When it compiles, how it is laid out, when it syncs and the
-// citations drawer are Settings → Projects → The Write tab (types.ts,
-// `WRITE_OPTIONS`). The folder is chosen once on each computer: a project
-// remembers it by the computer's Companion.
+// LaTeX, and the PDF it makes — as Overleaf is. By default the paper is kept
+// in Google Drive, in the project's folder there, nothing of it on the
+// computer: edited in the browser, compiled on Cloud Run, kept in step with
+// Overleaf by Reader's server. A project linked to Overleaf can be kept on the
+// computers instead (Keep on this computer): a clone of it in a folder under
+// the Companion's, compiled there or on Cloud Run, synced by its Git. When it
+// compiles, how it is laid out, when it syncs and the citations drawer are
+// Settings → Projects → The Write tab (types.ts, `WRITE_OPTIONS`).
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
-import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEXLIVE_VERSION, TEX_COMPILERS, applyTemplate, updateCompanion, waitForVersion, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, chooseFolder, clonePaper, compilePaper, deleteTemplate, forgetOverleafToken, installTectonic, isNewer, linkFolder, listTemplates, paperEngines, paperRemote, saveTemplate, syncPaper, tokenKnown, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
+import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEXLIVE_VERSION, TEX_COMPILERS, applyTemplate, chooseFolder, clonePaper, linkFolder, listTemplates, saveTemplate, tokenKnown, updateCompanion, waitForVersion, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, compilePaper, forgetOverleafToken, installTectonic, isNewer, paperEngines, paperRemote, syncPaper, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
 import { besideFeatures, bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
 import { complete as completeLatex } from '../lib/latexComplete';
 import { openPdf } from '../lib/pdfReflow';
-import { papersIn, type Project } from '../lib/projects';
+import { papersIn, projectsOf, type Project } from '../lib/projects';
 import { thisComputer, type ThisComputer } from '../lib/thisComputer';
 import type { PaperFolder, WriteOptions } from '../types';
 import { WRITE_DEFAULTS } from '../types';
 import type { View } from '../types.view';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
 import CopyBlock from './CopyBlock';
-import { DraftEditor, OpenOverleaf } from './Overleaf';
+import { OpenOverleaf } from './Overleaf';
 import { readTexLog, type CompileFile } from '../lib/latexGithub';
 import { apiFetch } from '../lib/api';
-import { cloudSync, forgetOverleafToken as forgetCloudToken, overleafTokenKnown } from '../lib/overleafCloud';
-import { companionStore, driveShelf, driveStore, paperDriveNow, setPaperDrive, unpackKit, type PaperStore, type ShelfTemplate, type TemplateShelf } from '../lib/paperStore';
-import { movePaperToDrive } from '../lib/paperMove';
+import { cloudSync, overleafTokenKnown } from '../lib/overleafCloud';
+import { companionStore, driveShelf, driveStore, paperDriveFolder, paperDriveNow, setPaperDrive, unpackKit, type PaperStore, type ShelfTemplate, type TemplateShelf } from '../lib/paperStore';
+import { findLostFolder, inDrive, movePaperToDrive, removeFolder } from '../lib/paperMove';
 import { CompanionConnect } from './Playground';
+import OverleafAccounts, { useOverleafAccounts } from './OverleafAccounts';
+import { WriteGuideLink } from './WriteGuide';
 
 type Here = Extract<ThisComputer, { server: unknown }>;
 
-/**
- * An Overleaf Git token typed before the Companion is connected: held in this
- * page's memory only — never stored in the browser — until the set-up hands
- * it to the Companion, which keeps it on the computer.
- */
-let earlyToken = '';
 
-/** The tab, for a project: this computer's Companion, then the paper's folder on it, then the desk. */
+/**
+ * The tab, for a project: its paper, kept in Google Drive — nothing on any
+ * computer — unless the project is kept on the computers (LocalWrite). A
+ * paper not in Drive yet is brought there first (ToDrive).
+ */
 export default function WritePage({ project, onView }: { project: Project; onView: (view: View) => void }) {
   const { settings, driveConnected } = useStore();
   const clientId = settings.googleClientId.trim();
   setPaperDrive(driveConnected && clientId ? { clientId, folderName: settings.driveFolderName } : null);
+  const link = project.project.overleaf;
+  if (link?.keep?.where === 'computer') return <LocalWrite project={project} onView={onView} />;
+  if (link?.drive?.folder) return <DriveWrite project={project} folder={link.drive.folder} />;
+  // Nothing yet: no Overleaf project, no folder on any computer — started here, one way or the other.
+  if (!overleafGitUrl(link?.url) && !Object.keys(link?.folders ?? {}).length) return <WriteStart project={project} />;
+  return <ToDrive project={project} />;
+}
+
+/**
+ * A project with no paper yet: started from one of the person's Overleaf
+ * projects (the account connected once, the project picked), or without
+ * Overleaf — a new paper in the project's Drive folder, to put on Overleaf
+ * later if ever.
+ */
+function WriteStart({ project }: { project: Project }) {
+  const { driveConnected, connectDrive, settings, updateCollection } = useStore();
+  const setLink = useSetLink(project);
+  const signedIn = driveConnected && Boolean(settings.googleClientId.trim());
+  const [way, setWay] = useState<'overleaf' | 'blank' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const folder = paperDriveFolder(project.name, project.id);
+  // The picked Overleaf project into the project's Drive folder, by Reader's server with whichever account opens it.
+  const bring = async (url: string) => {
+    const gitUrl = overleafGitUrl(url);
+    if (!gitUrl) throw new Error('That isn’t an Overleaf project’s address.');
+    const done = await cloudSync(driveStore(paperDriveNow, folder), gitUrl, 'From Reader');
+    if (!done.ok) throw Object.assign(new Error(done.error ?? 'It didn’t come in.'), { needToken: Boolean(done.needToken) });
+    await setLink({ url, drive: { folder }, ...(done.account ? { gitAccount: done.account } : {}) });
+  };
+  const blank = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await driveStore(paperDriveNow, folder).mkdir('');
+      await updateCollection(project.id, (collection) => {
+        const info = { ...project.project, ...(collection.project ?? {}) };
+        return { project: { ...info, overleaf: inDrive(info.overleaf, folder, undefined) } };
+      });
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="wr-scroll">
+      <div className="wr-card wr-setup">
+        <span className="eyebrow">The paper</span>
+        <h2>Start this project’s paper</h2>
+        <p>
+          Its LaTeX is kept in your Google Drive, in <span className="mono">{folder}</span> — nothing on this computer — written here in the browser and compiled on Cloud Run.{' '}
+          <WriteGuideLink section="begin">Which should I pick?</WriteGuideLink>
+        </p>
+        {!signedIn ? (
+          <div className="wr-row">
+            <button type="button" className="btn primary" onClick={() => void connectDrive()}>
+              Sign in with Google, with Drive
+            </button>
+            <span className="wr-quiet">Needed either way: Drive is where the paper is kept.</span>
+          </div>
+        ) : null}
+        <div className="wr-ways" role="radiogroup" aria-label="How to start the paper">
+          <button type="button" role="radio" aria-checked={way === 'overleaf'} className={`wr-way${way === 'overleaf' ? ' is-on' : ''}`} onClick={() => setWay('overleaf')} disabled={!signedIn}>
+            <b>From your Overleaf account</b>
+            <span>Connect your Overleaf account once, then pick one of its projects. It comes into Drive and stays in step with Overleaf both ways, so coauthors can keep writing there.</span>
+          </button>
+          <button type="button" role="radio" aria-checked={way === 'blank'} className={`wr-way${way === 'blank' ? ' is-on' : ''}`} onClick={() => setWay('blank')} disabled={!signedIn}>
+            <b>Start without Overleaf</b>
+            <span>A new LaTeX paper in your Drive: a blank article, a conference template, or files you upload. You can put it on Overleaf later.</span>
+          </button>
+        </div>
+        {way === 'overleaf' && signedIn ? <OverleafPicker project={project} mode="bring" onPicked={(url) => bring(url)} /> : null}
+        {way === 'blank' && signedIn ? (
+          <div className="wr-row">
+            <button type="button" className="btn primary" disabled={busy} onClick={() => void blank()}>
+              {busy ? 'Making its folder…' : 'Start the paper'}
+            </button>
+            <span className="wr-quiet">Then pick how its first document begins.</span>
+          </div>
+        ) : null}
+        {problem ? <p className="wr-bad">{problem}</p> : null}
+      </div>
+    </div>
+  );
+}
+
+/** A paper started in Drive without Overleaf, put into an Overleaf project (a Blank Project made for it): kept in step from then on. */
+function PutOnOverleaf({ project, store }: { project: Project; store: PaperStore }) {
+  const setLink = useSetLink(project);
+  return (
+    <OverleafPicker
+      project={project}
+      mode="push"
+      onPicked={async (url) => {
+        const gitUrl = overleafGitUrl(url);
+        if (!gitUrl) throw new Error('That isn’t an Overleaf project’s address.');
+        const done = await cloudSync(store, gitUrl, 'The paper, from Reader', undefined, { firstPushes: true });
+        if (!done.ok) throw Object.assign(new Error(done.error ?? 'The paper didn’t go to Overleaf.'), { needToken: Boolean(done.needToken) });
+        await setLink({ url, ...(done.account ? { gitAccount: done.account } : {}) });
+      }}
+    />
+  );
+}
+
+/**
+ * One of the person's Overleaf projects, picked: the account connected first
+ * (its Git token, kept sealed by Reader's server for all of its projects).
+ * Overleaf lets no other app list an account's projects, so the ones offered
+ * are those Reader knows — linked to this account's other projects — and any
+ * other is picked by its address, copied from Overleaf's project list.
+ * `bring`: the project is to come into Drive. `push`: a paper in Drive is to
+ * go into it (a Blank Project made in Overleaf for it).
+ */
+function OverleafPicker({ project, mode, onPicked }: { project: Project; mode: 'bring' | 'push'; onPicked: (url: string) => Promise<unknown> }) {
+  const { collections } = useStore();
+  const accounts = useOverleafAccounts();
+  const [address, setAddress] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [needAccount, setNeedAccount] = useState<string | null>(null);
+  const [last, setLast] = useState<string | null>(null);
+  const offered = useMemo(() => {
+    const seen = new Map<string, { url: string; label: string }>();
+    for (const other of projectsOf(collections)) {
+      const link = other.project.overleaf;
+      const url = link?.url ? parseOverleafUrl(link.url) : null;
+      if (url && other.id !== project.id && !seen.has(url)) seen.set(url, { url, label: other.name });
+      for (const before of Object.keys(link?.earlier ?? {})) if (!seen.has(before) && other.id !== project.id) seen.set(before, { url: before, label: `${other.name}, before` });
+    }
+    return [...seen.values()];
+  }, [collections, project.id]);
+  const pick = async (url: string) => {
+    setBusy(true);
+    setProblem(null);
+    setNeedAccount(null);
+    setLast(url);
+    try {
+      await onPicked(url);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // No connected account opens it: the one it is in connected, and tried again.
+      if ((error as { needToken?: boolean }).needToken) setNeedAccount(message);
+      else setProblem(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pasted = parseOverleafUrl(address);
+  if (accounts === null) return <p className="wr-quiet">Asking Reader’s server about your Overleaf accounts…</p>;
+  if (!accounts.length || needAccount)
+    return (
+      <div className="wr-form">
+        <OverleafAccounts open={Boolean(needAccount)} why={needAccount ?? undefined} onConnected={() => (needAccount && last ? void pick(last) : undefined)} />
+      </div>
+    );
+  return (
+    <div className="wr-form wr-ol-pick">
+      <details className="ol-connected">
+        <summary>
+          Overleaf: {accounts.map((account) => account.label).join(', ')} <span className="wr-quiet">· accounts</span>
+        </summary>
+        <OverleafAccounts />
+      </details>
+      {mode === 'push' ? (
+        <p>
+          In Overleaf, make a <b>Blank Project</b> for this paper (New Project → Blank Project), copy its address, and paste it here: this paper’s files go into it, and from then on it stays in step with Overleaf.
+        </p>
+      ) : offered.length ? (
+        <>
+          <span className="wr-field-label">Your Overleaf projects Reader knows</span>
+          <div className="wr-ol-list" role="list">
+            {offered.map((item) => (
+              <button key={item.url} type="button" role="listitem" className="wr-ol-item" disabled={busy} onClick={() => void pick(item.url)}>
+                <b>{item.label}</b>
+                <small className="mono">{item.url.replace('https://www.', '')}</small>
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+      <label className="wr-field">
+        <span>{mode === 'push' || !offered.length ? 'The Overleaf project’s address' : 'Or another of your projects: its address'}</span>
+        <input value={address} placeholder="https://www.overleaf.com/project/…" onChange={(event) => setAddress(event.target.value)} aria-label="The Overleaf project’s address" />
+        <small>
+          Overleaf doesn’t let other apps list your projects: open{' '}
+          <a href="https://www.overleaf.com/project" target="_blank" rel="noopener noreferrer">
+            your Overleaf projects ↗
+          </a>
+          , open the one you want, and copy the address from the browser.
+        </small>
+      </label>
+      <div className="wr-row">
+        <button type="button" className="btn primary" disabled={busy || !pasted} onClick={() => pasted && void pick(pasted)}>
+          {busy ? (mode === 'push' ? 'Sending the paper to Overleaf…' : 'Bringing it in…') : mode === 'push' ? 'Put the paper in this project' : 'Use this project'}
+        </button>
+        {address.trim() && !pasted ? <span className="wr-bad">That isn’t an Overleaf project’s address (overleaf.com/project/…).</span> : null}
+      </div>
+      {problem ? <p className="wr-bad">{problem}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * Where the project's paper is kept, and the way to the other place: from
+ * Drive to the computers (what is in Drive goes to Overleaf first, then each
+ * computer clones it), or back to Drive (this computer's clone goes to
+ * Overleaf first, then the folder is removed from the computer). Only with an
+ * Overleaf project: it is what carries the paper between the two.
+ */
+function KeepWhere({ project, here, folder, store }: { project: Project; here?: Here; folder?: PaperFolder; store?: PaperStore }) {
+  const setLink = useSetLink(project);
+  const save = useSaveFolder(project);
+  const link = project.project.overleaf;
+  const gitUrl = overleafGitUrl(link?.url);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const onComputer = link?.keep?.where === 'computer';
+  if (!gitUrl && !onComputer) return null;
+  const keep = (where: 'drive' | 'computer') => setLink({ keep: { where, at: new Date().toISOString() } });
+  const toComputer = async () => {
+    if (!window.confirm('Keep this paper on your computers instead of Google Drive? What is in Drive goes to Overleaf first; then each computer keeps a clone of the Overleaf project, set up once on each.')) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      if (store?.kind === 'drive' && gitUrl) {
+        const done = await cloudSync(store, gitUrl, 'Edits from Reader, before the paper moved to a computer');
+        if (!done.ok) throw new Error(done.needToken ? 'Your Overleaf Git token is needed to send what is in Drive to Overleaf first: give it under the files, then try again.' : done.error ?? 'What is in Drive couldn’t be sent to Overleaf first.');
+      }
+      await keep('computer');
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toDrive = async () => {
+    if (!window.confirm('Keep this paper in Google Drive instead? The folder on this computer is sent to Overleaf, brought into Drive, then removed from this computer.')) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      // Already in Drive from before: this computer's edits go to Overleaf, which Drive syncs from; the folder then goes.
+      if (link?.drive?.folder && here && folder) {
+        if (folder.sync === 'git') {
+          const sent = await syncPaper(here.server, folder.path, 'Edits from Reader, before the paper moved to Drive');
+          if (!sent.ok) throw new Error(`The folder on this computer couldn’t be synced with Overleaf first: ${sent.error ?? 'it didn’t finish'}.`);
+        }
+        if (folder.sync !== 'dropbox' && /^papers\/[^/]+$/.test(folder.path)) await removeFolder(here.server, folder.path).catch((error) => console.warn(`Reader: ${folder.path} couldn’t be removed from this computer:`, error));
+        save(here.id, undefined);
+        // Drive brought up to date with it now, not only when a document is next opened.
+        if (gitUrl && paperDriveNow()) await cloudSync(driveStore(paperDriveNow, link.drive.folder), gitUrl, 'From Reader').catch((error) => console.warn('Reader: Drive will catch up at the next sync:', error));
+      }
+      // Not in Drive yet: the tab brings it there, from this computer's folder (ToDrive).
+      await keep('drive');
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="wr-keep">
+      <button type="button" className="link-btn" disabled={busy} onClick={() => void (onComputer ? toDrive() : toComputer())} title={onComputer ? 'Keep the paper in your Google Drive, nothing of it on the computer (the default)' : 'Keep the paper in a folder on each of your computers instead: a clone of the Overleaf project'}>
+        {busy ? 'Moving…' : onComputer ? 'Keep in Google Drive instead' : 'Keep on this computer instead'}
+      </button>
+      {problem ? <span className="wr-bad"> {problem}</span> : null}
+    </span>
+  );
+}
+
+/**
+ * A project whose paper isn't in Drive yet, brought there as the tab opens,
+ * asking only what it can't do without: a sign-in with Google; the paper's
+ * folder on this computer moved (its clone synced to Overleaf first, by the
+ * Companion), then deleted from the computer; with nothing here, the paper
+ * brought in from Overleaf by Reader's server (its Git token, once); with no
+ * Overleaf, an empty paper made in Drive, its documents to start there.
+ */
+function ToDrive({ project }: { project: Project }) {
+  const { driveConnected, connectDrive, settings, updateCollection } = useStore();
+  const link = project.project.overleaf;
+  const gitUrl = overleafGitUrl(link?.url);
+  const signedIn = driveConnected && Boolean(settings.googleClientId.trim());
   const [here, setHere] = useState<ThisComputer | null>(null);
-  const [inBrowser, setInBrowser] = useState(false);
+  const [known, setKnown] = useState<boolean | null>(null);
+  const [step, setStep] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<'elsewhere' | 'token' | null>(null);
+  const [again, setAgain] = useState(0);
+  const started = useRef(false);
+  useEffect(() => {
+    void thisComputer(PAPER_VERSION, 'move the paper to Drive').then(setHere);
+  }, []);
+  useEffect(() => {
+    if (signedIn && gitUrl) void overleafTokenKnown().then(setKnown, () => setKnown(false));
+    else setKnown(false);
+  }, [signedIn, gitUrl]);
+
+  const move = async ({ token: given, force = false }: { token?: string; force?: boolean } = {}) => {
+    setProblem(null);
+    setBlocked(null);
+    const companion = here && !('error' in here) ? { id: here.id, server: here.server } : null;
+    try {
+      const local = companion ? (link?.folders?.[companion.id] ?? (await findLostFolder(project, companion))) : null;
+      // The paper's folder is on another computer (or this one, with the Companion not running): moved from there.
+      if (!local && link?.folders && Object.keys(link.folders).length && !force) return setBlocked('elsewhere');
+      // Nothing of it on a computer: from Overleaf, which takes Reader's server the Git token once.
+      // (`force`: asked for now, an account just connected among them — Reader's server says if none opens it.)
+      if (!local && gitUrl && !known && !given && !force) return setBlocked('token');
+      if (!local && !gitUrl && link?.folders && Object.keys(link.folders).length) return setBlocked('elsewhere');
+      setStep('Starting…');
+      const folder = await movePaperToDrive(project, companion, { token: given, onStep: setStep, local: local ?? undefined });
+      await updateCollection(project.id, (collection) => {
+        const info = { ...project.project, ...(collection.project ?? {}) };
+        return { project: { ...info, overleaf: inDrive(info.overleaf, folder, companion && local ? companion.id : undefined) } };
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setProblem(message);
+      if ((error as { needToken?: boolean }).needToken) (setKnown(false), setBlocked('token'));
+      // Overleaf down for a moment: tried again in a minute, nothing asked.
+      if ((error as { transient?: boolean }).transient) window.setTimeout(() => setAgain((n) => n + 1), 60_000);
+    } finally {
+      setStep(null);
+    }
+  };
+  useEffect(() => {
+    if (!signedIn || here === null || (gitUrl && known === null)) return;
+    if (started.current && !again) return;
+    started.current = true;
+    void move();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signedIn, here, known, again]);
+
+  if (!signedIn)
+    return (
+      <div className="wr-center wr-start">
+        <div className="wr-card">
+          <span className="eyebrow">The paper</span>
+          <h2>Kept in your Google Drive</h2>
+          <p>Every project’s LaTeX lives in your Drive, in the project’s folder — nothing on this computer — and opens the same on any device you sign in on. Sign in with Google, with Drive, to open it.</p>
+          <div className="wr-row">
+            <button type="button" className="btn primary" onClick={() => void connectDrive()}>
+              Sign in with Google, with Drive
+            </button>
+          </div>
+          {gitUrl ? (
+            <p className="wr-quiet">
+              Or keep it on your computers, as a clone of the Overleaf project: <KeepWhere project={project} />
+            </p>
+          ) : null}
+        </div>
+      </div>
+    );
+  return (
+    <div className="wr-center wr-start">
+      <div className="wr-card">
+        <span className="eyebrow">The paper</span>
+        <h2>{blocked ? 'Bringing the paper into Google Drive' : 'Getting the paper ready in Google Drive'}</h2>
+        <p>
+          The project’s LaTeX is kept in your Drive, in <span className="mono">{paperDriveFolder(project.name, project.id)}</span> — nothing on this computer — written here in the browser, compiled on Cloud Run
+          {gitUrl ? ', and kept in step with Overleaf by Reader’s server.' : '.'}{' '}
+          <WriteGuideLink section="where">How this works</WriteGuideLink>
+        </p>
+        {step ? (
+          <p className="wr-quiet">
+            <span className="spinner" /> {step}
+          </p>
+        ) : null}
+        {blocked === 'elsewhere' ? (
+          <>
+            <p>
+              This project’s paper is in a folder on {here && !('error' in here) ? 'another computer' : 'a computer, and this one’s Companion isn’t running'}: open the Reader app there and it moves into Drive by itself — what was written there with it.
+            </p>
+            {gitUrl ? <p className="wr-quiet">Or bring it in from Overleaf now: anything written on that computer and not yet synced stays there.</p> : null}
+          </>
+        ) : null}
+        {gitUrl && (blocked === 'token' || (blocked === 'elsewhere' && !known)) ? (
+          // No connected Overleaf account opens it (or none is connected): the one it is in connected, then brought in.
+          <OverleafAccounts open={Boolean(problem)} why={blocked === 'token' ? problem ?? undefined : undefined} onConnected={() => (setKnown(true), void move({ force: true }))} />
+        ) : null}
+        {blocked && gitUrl && known ? (
+          <div className="wr-row">
+            <button type="button" className="btn primary" disabled={Boolean(step)} onClick={() => void move({ force: true })}>
+              Bring it in from Overleaf
+            </button>
+          </div>
+        ) : null}
+        {gitUrl ? (
+          <p className="wr-quiet">
+            Rather keep it on your computers, as a clone of the Overleaf project? <KeepWhere project={project} />
+          </p>
+        ) : null}
+        {problem && blocked !== 'token' ? (
+          <>
+            <p className="wr-bad">{problem}</p>
+            {!blocked ? (
+              <div className="wr-row">
+                <button type="button" className="btn" disabled={Boolean(step)} onClick={() => void move()}>
+                  Try again
+                </button>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+
+/**
+ * A paper kept on the computers: this computer's Companion, then the paper's
+ * folder on it (a clone of the Overleaf project, set up once on each
+ * computer), then its documents and the desk.
+ */
+function LocalWrite({ project, onView }: { project: Project; onView: (view: View) => void }) {
+  const [here, setHere] = useState<ThisComputer | null>(null);
   // The project's documents first, each time the tab opens; the desk once one is picked.
   const [atDesk, setAtDesk] = useState(false);
   const updateLink = useUpdateLink(project);
@@ -68,49 +484,24 @@ export default function WritePage({ project, onView }: { project: Project; onVie
   }, [missing]);
   const link = project.project.overleaf;
   const folder = here && 'id' in here ? link?.folders?.[here.id] : undefined;
-  const { papers } = useStore();
-  const mine = useMemo(() => papersIn(project.id, papers), [project.id, papers]);
+  const store = useMemo(() => (here && 'id' in here && folder ? companionStore(here.server, folder.path) : null), [here, folder]);
+  const shelf = useMemo(() => (here && 'id' in here && folder ? companionShelf(here, folder.path) : null), [here, folder]);
 
-  // Kept in Drive: nothing of it on this computer, no Companion needed.
-  if (link?.drive?.folder) return <DriveWrite project={project} folder={link.drive.folder} />;
   if (!here) return <div className="wr-center"><p className="wr-quiet">Looking for this computer’s Companion…</p></div>;
-  if ('error' in here) {
-    if (inBrowser && link?.repo) {
-      return (
-        <div className="wr-browser">
-          <div className="wr-browser-bar">
-            <span className="pj-sub">Writing in the browser: each Save is a commit to {link.repo}, which Overleaf pulls. Compiling needs the Companion, or Overleaf.</span>
-            <span style={{ flex: 1 }} />
-            <button type="button" className="btn sm" onClick={() => setInBrowser(false)}>
-              Write on this computer
-            </button>
-          </div>
-          <DraftEditor project={project} paper={mine[0]} />
-        </div>
-      );
-    }
+  if ('error' in here)
     return (
       <div className="wr-center wr-start">
         <div className="wr-card">
-          <span className="eyebrow">The paper</span>
+          <span className="eyebrow">The paper · on your computers</span>
           <h2>Write it on this computer</h2>
-          <p>The Write tab keeps the paper in a folder on your computer, compiles it there and keeps it in step with Overleaf — your coauthors’ edits come in, yours go out. That takes the Companion, connected once here; after that this tab finds it by itself.</p>
+          <p>This project keeps its paper on your computers: a clone of the Overleaf project in a folder on each, compiled there and kept in step with Overleaf. That takes the Companion, connected once here; after that this tab finds it by itself.</p>
           {here.why === 'old' ? <p className="wr-bad">{here.error}</p> : null}
-          <DriveSetUp project={project} />
-          {overleafGitUrl(link?.url) ? (
-            <>
-              <EarlyToken />
-              <ForgetToken />
-            </>
-          ) : null}
-          {link ? (
+          <p className="wr-quiet">
+            Or, with nothing on the computer: <KeepWhere project={project} />
+          </p>
+          {link?.url ? (
             <div className="wr-row">
               <OpenOverleaf project={project} view="beside" primary={false} />
-              {link.repo ? (
-                <button type="button" className="btn" onClick={() => setInBrowser(true)} title="Edit the .tex files in the browser and commit them to the project’s GitHub repository: no Companion">
-                  Write in the browser instead
-                </button>
-              ) : null}
             </div>
           ) : null}
         </div>
@@ -121,61 +512,159 @@ export default function WritePage({ project, onView }: { project: Project; onVie
         )}
       </div>
     );
-  }
-  if (!folder) return <WriteSetUp project={project} here={here} />;
+  if (!folder || !store) return <LocalSetUp project={project} here={here} />;
   if (!atDesk)
     return (
       <WriteHome
         project={project}
         here={here}
         folder={folder}
-        store={companionStore(here.server, folder.path)}
-        shelf={companionShelf(here, folder.path)}
+        store={store}
+        shelf={shelf}
         onOpen={(main) => {
           if (main !== link?.main) updateLink({ main });
           setAtDesk(true);
         }}
       />
     );
-  return <WriteDesk key={`${here.id}:${folder.path}`} project={project} here={here} folder={folder} store={companionStore(here.server, folder.path)} onHome={() => setAtDesk(false)} />;
+  return <WriteDesk key={`${here.id}:${folder.path}`} project={project} here={here} folder={folder} store={store} onHome={() => setAtDesk(false)} />;
 }
 
-/** The way to Overleaf's Git, step by step, with the token taken now if it is to hand. */
-function EarlyToken() {
-  const [token, setToken] = useState(earlyToken);
+/** The Companion's own templates, for a paper kept on this computer. */
+function companionShelf(here: Here, folder: string): TemplateShelf {
+  const within = (dir: string, path: string) => (dir ? `${dir}/${path}` : path);
+  return {
+    list: () => listTemplates(here.server),
+    save: (name, zip) => saveTemplate(here.server, name, zip),
+    apply: async (slug, dir) => {
+      const done = await applyTemplate(here.server, slug, dir ? `${folder}/${dir}` : folder);
+      return within(dir, done.main || 'main.tex');
+    },
+  };
+}
+
+/** The paper's folder on this computer, the first time here: a clone of the Overleaf project, or Overleaf's Dropbox folder. */
+function LocalSetUp({ project, here }: { project: Project; here: Here }) {
+  const link = project.project.overleaf;
+  const save = useSaveFolder(project);
+  const gitUrl = overleafGitUrl(link?.url);
+  const [way, setWay] = useState<'git' | 'dropbox'>(gitUrl ? 'git' : 'dropbox');
+  const [token, setToken] = useState('');
+  // An Overleaf Git token is the account's: once given on this computer, every project of it uses it.
+  const [known, setKnown] = useState<boolean | null>(null);
+  const [another, setAnother] = useState(false);
+  const [where, setWhere] = useState(paperFolderFor(project.name));
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [engines, setEngines] = useState<PaperEngines | null>(null);
+  useEffect(() => {
+    void paperEngines(here.server).then(setEngines, () => setEngines(null));
+    if (gitUrl && !isNewer(PAPER_TEMPLATES_VERSION, here.version)) void tokenKnown(here.server, gitUrl).then(setKnown, () => setKnown(false));
+    else setKnown(false);
+  }, [here, gitUrl]);
+
+  const clone = async (url: string, secret: string) => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      // The folder is a clone of this project already (made here before, and the project lost its link to it): taken back as it is.
+      const plain = (address: string) => address.trim().replace(/^https?:\/\/[^@/]*@/, 'https://').replace(/\.git$/, '').replace(/\/+$/, '').toLowerCase();
+      const existing = await paperRemote(here.server, where).catch(() => null);
+      if (existing?.url) {
+        if (plain(existing.url) === plain(url)) return save(here.id, { path: where, sync: 'git' });
+        throw new Error(`${where} is a clone of another project (${existing.url.replace(/^https?:\/\/[^@/]*@/, 'https://')}): give this one another folder.`);
+      }
+      const done = await clonePaper(here.server, where, url, secret);
+      save(here.id, { path: done.folder, sync: 'git' });
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pick = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const chosen = await chooseFolder(here.server);
+      if (!chosen.path) return;
+      const linked = await linkFolder(here.server, chosen.path);
+      save(here.id, { path: linked.root, sync: 'dropbox' });
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const askToken = gitUrl && (!known || another);
+
   return (
-    <div className="wr-steps">
-      <ol>
-        <li className="is-now">
-          <b>Connect this computer</b> — below. Once, on each computer.
-        </li>
-        <li>
-          <b>Your Overleaf Git token</b> — in Overleaf: Account Settings → Git integration → Generate token.
-          <input
-            type="password"
-            value={token}
-            autoComplete="off"
-            placeholder="Paste it here now, or on the next step (olp_…)"
-            aria-label="Overleaf Git token"
-            onChange={(event) => {
-              setToken(event.target.value);
-              earlyToken = event.target.value.trim();
-            }}
-          />
-          <small>Kept in this page’s memory until the next step hands it to the Companion, which keeps it on your computer. It is not saved in the browser.</small>
-        </li>
-        <li>
-          <b>Clone the paper</b> — pick “Overleaf’s Git”, a folder, and Clone. From then on your edits go to Overleaf and your coauthors’ come in.
-        </li>
-      </ol>
+    <div className="wr-scroll">
+      <div className="wr-card wr-setup">
+        <span className="eyebrow">The paper · on {here.name}</span>
+        <h2>Where on this computer?</h2>
+        <SwitchOverleaf project={project} />
+        <p>
+          This project keeps its paper on your computers rather than in Google Drive. Set up its folder here once: the project keeps it until you change it. <KeepWhere project={project} here={here} /> · <WriteGuideLink section="where">How this works</WriteGuideLink>
+        </p>
+        <div className="wr-ways" role="radiogroup" aria-label="Where the paper’s files come from">
+          <button type="button" role="radio" aria-checked={way === 'git'} className={`wr-way${way === 'git' ? ' is-on' : ''}`} onClick={() => setWay('git')} disabled={!gitUrl}>
+            <b>
+              Overleaf’s Git <small>recommended</small>
+            </b>
+            <span>A clone of the Overleaf project. Everything you write here goes to Overleaf seconds after you stop, and coauthors’ edits come in. Needs a paid Overleaf plan.</span>
+          </button>
+          <button type="button" role="radio" aria-checked={way === 'dropbox'} className={`wr-way${way === 'dropbox' ? ' is-on' : ''}`} onClick={() => setWay('dropbox')}>
+            <b>Overleaf’s Dropbox folder</b>
+            <span>If Overleaf syncs the project to Dropbox, pick that folder: Dropbox carries edits both ways by itself.</span>
+          </button>
+        </div>
+        {way === 'git' && gitUrl ? (
+          <div className="wr-form">
+            {known && !another ? (
+              <p className="wr-ok">
+                Your Overleaf account’s Git token is on this computer already.{' '}
+                <button type="button" className="link-btn" onClick={() => setAnother(true)}>
+                  Use another
+                </button>
+              </p>
+            ) : null}
+            {known ? <ForgetToken server={here.server} onForgotten={() => setKnown(false)} /> : null}
+            {askToken ? (
+              <label className="wr-field">
+                <span>Overleaf Git token</span>
+                <input type="password" value={token} autoComplete="off" placeholder="olp_…" onChange={(event) => setToken(event.target.value)} />
+                <small>In Overleaf: Account Settings → Git integration → Generate token. The Companion keeps it on this computer, readable only by you.</small>
+              </label>
+            ) : null}
+            <label className="wr-field">
+              <span>Folder, inside the Companion’s</span>
+              <input value={where} onChange={(event) => setWhere(event.target.value)} />
+            </label>
+            <div className="wr-row">
+              <button type="button" className="btn primary" disabled={busy || known === null || (askToken ? !token.trim() : false) || !where.trim()} onClick={() => void clone(gitUrl, askToken ? token.trim() : '')}>
+                {busy ? 'Cloning…' : 'Clone from Overleaf'}
+              </button>
+              <span className="wr-quiet mono">{gitUrl}</span>
+            </div>
+          </div>
+        ) : null}
+        {way === 'dropbox' ? (
+          <div className="wr-row">
+            <button type="button" className="btn primary" disabled={busy} onClick={() => void pick()}>
+              {busy ? 'Waiting for the folder…' : 'Choose the folder on this computer'}
+            </button>
+            <span className="wr-quiet">Usually Dropbox → Apps → Overleaf → the project.</span>
+          </div>
+        ) : null}
+        {problem ? <p className="wr-bad">{problem}</p> : null}
+        {engines && !engines.latexmk && !engines.tectonic ? <p className="wr-note">There’s no TeX on this computer yet: compile on Cloud Run, or the first compile here offers to fetch Tectonic.</p> : null}
+        {engines && !engines.git && way === 'git' ? <p className="wr-bad">git isn’t installed on this computer: install it (git-scm.com, or xcode-select --install on a Mac) to sync.</p> : null}
+      </div>
     </div>
   );
 }
 
-/**
- * Where the Overleaf Git token is kept on this computer, and how to take it
- * off: a button when the Companion is here, and the steps by hand either way.
- */
 function ForgetToken({ server, open = false, onForgotten }: { server?: Here['server']; open?: boolean; onForgotten?: () => void }) {
   const [said, setSaid] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -735,298 +1224,6 @@ const fileBase64 = (file: Blob) =>
     reader.readAsDataURL(file);
   });
 
-/**
- * A conference's kit, kept once on this computer and offered to every new
- * paper: the templates there, a .zip to add as another, and the one picked.
- */
-function TemplatePicker({ here, value, onChange }: { here: Here; value: string; onChange: (slug: string) => void }) {
-  const [templates, setTemplates] = useState<ShelfTemplate[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [name, setName] = useState('');
-  const picker = useRef<HTMLInputElement>(null);
-  const old = isNewer(PAPER_TEMPLATES_VERSION, here.version);
-  useEffect(() => {
-    if (old) return;
-    void listTemplates(here.server).then(setTemplates, (error) => setProblem(error instanceof Error ? error.message : String(error)));
-  }, [here, old]);
-  if (old) return <p className="wr-quiet">Templates need the Companion {PAPER_TEMPLATES_VERSION} or later on this computer (it is {here.version}): update it from Your compute in the Playground.</p>;
-  const add = async (file: File) => {
-    setBusy(true);
-    setProblem(null);
-    try {
-      const made = await saveTemplate(here.server, name.trim() || file.name.replace(/\.zip$/i, ''), await fileBase64(file));
-      setTemplates(await listTemplates(here.server));
-      onChange(made.slug);
-      setName('');
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="wr-templates">
-      <span className="wr-field-label">Start from a conference template <small>optional</small></span>
-      <div className="wr-template-list" role="radiogroup" aria-label="Template">
-        <button type="button" role="radio" aria-checked={!value} className={`wr-template${!value ? ' is-on' : ''}`} onClick={() => onChange('')}>
-          <b>None</b>
-          <small>{templates === null ? 'Asking this computer…' : 'The project’s files as they are'}</small>
-        </button>
-        {(templates ?? []).map((template) => (
-          <span key={template.slug} className={`wr-template${value === template.slug ? ' is-on' : ''}`}>
-            <button type="button" role="radio" aria-checked={value === template.slug} onClick={() => onChange(template.slug)}>
-              <b>{template.name}</b>
-              <small>
-                {template.files} files{template.main ? ` · ${template.main}` : ''}
-              </small>
-            </button>
-            <button
-              type="button"
-              className="wr-template-x"
-              aria-label={`Delete the template ${template.name}`}
-              title="Delete this template from this computer"
-              onClick={async () => {
-                if (!window.confirm(`Delete the template “${template.name}” from this computer? Papers made from it keep their files.`)) return;
-                await deleteTemplate(here.server, template.slug);
-                if (value === template.slug) onChange('');
-                setTemplates(await listTemplates(here.server));
-              }}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
-      <div className="wr-row">
-        <input className="wr-template-name" value={name} placeholder="Its name, e.g. NeurIPS 2026" onChange={(event) => setName(event.target.value)} aria-label="The template’s name" />
-        <button type="button" className="btn sm" disabled={busy} onClick={() => picker.current?.click()}>
-          {busy ? 'Adding…' : 'Add a template (.zip)…'}
-        </button>
-        <input
-          ref={picker}
-          type="file"
-          accept=".zip,application/zip"
-          hidden
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = '';
-            if (file) void add(file);
-          }}
-        />
-        <span className="wr-quiet">The kit a conference gives out: its class, style and example paper.</span>
-      </div>
-      {problem ? <p className="wr-bad">{problem}</p> : null}
-    </div>
-  );
-}
-
-/** Where the paper's folder comes from, the first time on this computer. */
-function WriteSetUp({ project, here }: { project: Project; here: Here }) {
-  return (
-    <>
-      <DriveSetUp project={project} here={here} />
-      <WriteSetUpHere project={project} here={here} />
-    </>
-  );
-}
-
-/** Where the paper's folder comes from, on this computer. */
-function WriteSetUpHere({ project, here }: { project: Project; here: Here }) {
-  const { settings } = useStore();
-  const link = project.project.overleaf;
-  const save = useSaveFolder(project);
-  const updateLink = useUpdateLink(project);
-  const gitUrl = overleafGitUrl(link?.url);
-  const [way, setWay] = useState<'git' | 'dropbox' | 'github' | 'folder'>(gitUrl ? 'git' : link?.repo ? 'github' : 'dropbox');
-  const [token, setToken] = useState(earlyToken);
-  // An Overleaf Git token is the account's: once given on this computer, every project of it uses it.
-  const [known, setKnown] = useState<boolean | null>(null);
-  const [another, setAnother] = useState(false);
-  const [where, setWhere] = useState(paperFolderFor(project.name));
-  const [template, setTemplate] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [engines, setEngines] = useState<PaperEngines | null>(null);
-  useEffect(() => {
-    void paperEngines(here.server).then(setEngines, () => setEngines(null));
-    if (gitUrl && !isNewer(PAPER_TEMPLATES_VERSION, here.version)) void tokenKnown(here.server, gitUrl).then(setKnown, () => setKnown(false));
-    else setKnown(false);
-  }, [here, gitUrl]);
-
-  /** The template's files into the new folder, then — with Git — to Overleaf at once. */
-  const fill = async (folder: string, synced: boolean) => {
-    if (!template) return;
-    const done = await applyTemplate(here.server, template, folder, synced);
-    if (done.main) updateLink({ main: done.main });
-    if (synced) await syncPaper(here.server, folder, 'Start from a template, from Reader');
-  };
-  const clone = async (url: string, secret: string) => {
-    setBusy(true);
-    setProblem(null);
-    try {
-      // The folder is a clone of this project already — made here before, and the project has lost its link to
-      // it (another browser, a copy synced from elsewhere): taken back as it is, with what was written in it.
-      const same = (a: string, b: string) => {
-        const plain = (address: string) => address.trim().replace(/^https?:\/\/[^@/]*@/, 'https://').replace(/\.git$/, '').replace(/\/+$/, '').toLowerCase();
-        return plain(a) === plain(b);
-      };
-      const existing = await paperRemote(here.server, where).catch(() => null);
-      if (existing?.url) {
-        if (same(existing.url, url)) {
-          save(here.id, { path: where, sync: 'git' });
-          return;
-        }
-        throw new Error(`${where} is a clone of another project (${existing.url.replace(/^https?:\/\/[^@/]*@/, 'https://')}): give this one another folder.`);
-      }
-      const done = await clonePaper(here.server, where, url, secret);
-      try {
-        await fill(done.folder, true);
-      } catch (error) {
-        setProblem(`Cloned, but the template didn’t go in: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      save(here.id, { path: done.folder, sync: 'git' });
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const pick = async (sync: 'dropbox' | 'folder') => {
-    setBusy(true);
-    setProblem(null);
-    try {
-      const chosen = await chooseFolder(here.server);
-      if (!chosen.path) return;
-      const linked = await linkFolder(here.server, chosen.path);
-      await fill(linked.root, false);
-      save(here.id, { path: linked.root, sync });
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const fresh = async () => {
-    setBusy(true);
-    setProblem(null);
-    try {
-      const done = await applyTemplate(here.server, template, where);
-      if (done.main) updateLink({ main: done.main });
-      save(here.id, { path: where, sync: 'folder' });
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const askToken = gitUrl && (!known || another);
-
-  return (
-    <div className="wr-scroll">
-      <div className="wr-card wr-setup">
-        <span className="eyebrow">The paper · on {here.name}</span>
-        <h2>Where should the paper’s files be?</h2>
-        <SwitchOverleaf project={project} />
-        <p>The Write tab edits the paper in a folder on this computer, compiles it here as Overleaf does, and keeps it in step with Overleaf. Pick how, once for this computer: the project keeps it until you change it.</p>
-        {!link ? <p className="wr-bad">Link the Overleaf project on the project’s overview first (the paper card), so the tab knows which paper it is.</p> : null}
-        <p className="wr-note">
-          <b>Writing with coauthors:</b> the Overleaf project is where everyone’s edits meet. Share it with them in Overleaf (Share → their email), and each of you links the same Overleaf address here and clones it with your own Overleaf Git token. Every sync pulls the others’ edits in before pushing yours, and anyone can still write straight in Overleaf.
-        </p>
-        <div className="wr-ways" role="radiogroup" aria-label="Where the paper’s files come from">
-          <button type="button" role="radio" aria-checked={way === 'git'} className={`wr-way${way === 'git' ? ' is-on' : ''}`} onClick={() => setWay('git')} disabled={!gitUrl}>
-            <b>
-              Overleaf’s Git <small>recommended</small>
-            </b>
-            <span>A clone of the Overleaf project. Everything you write or add here goes to Overleaf seconds after you stop, and coauthors’ edits come in. Needs a paid Overleaf plan.</span>
-            {!gitUrl && link ? <span className="wr-bad">This needs the project’s address in Overleaf (overleaf.com/project/…), not a share link: change it on the paper card.</span> : null}
-          </button>
-          <button type="button" role="radio" aria-checked={way === 'dropbox'} className={`wr-way${way === 'dropbox' ? ' is-on' : ''}`} onClick={() => setWay('dropbox')}>
-            <b>Overleaf’s Dropbox folder</b>
-            <span>If Overleaf syncs the project to Dropbox, pick that folder: Dropbox carries edits both ways by itself. Needs a paid Overleaf plan and Dropbox here.</span>
-          </button>
-          <button type="button" role="radio" aria-checked={way === 'github'} className={`wr-way${way === 'github' ? ' is-on' : ''}`} onClick={() => setWay('github')} disabled={!link?.repo}>
-            <b>Its GitHub repository</b>
-            <span>{link?.repo ? `A clone of ${link.repo}, with the token from Settings → Git mirror. Overleaf takes the edits in from Menu → GitHub → Pull: not by itself.` : 'Name the repository on the paper card first (Overleaf’s GitHub sync).'}</span>
-          </button>
-          <button type="button" role="radio" aria-checked={way === 'folder'} className={`wr-way${way === 'folder' ? ' is-on' : ''}`} onClick={() => setWay('folder')}>
-            <b>A folder already here</b>
-            <span>Any folder with the paper in it, compiled here and not synced: copy it to Overleaf yourself.</span>
-          </button>
-        </div>
-
-        {way !== 'github' ? <TemplatePicker here={here} value={template} onChange={setTemplate} /> : null}
-        {template && way === 'git' ? <p className="wr-note">For a new paper from a template: in Overleaf make a <b>Blank Project</b>, put its address on the paper card, and clone it here. The template’s files go in and are pushed to Overleaf straight away.</p> : null}
-
-        {way === 'git' && gitUrl ? (
-          <div className="wr-form">
-            {known && !another ? (
-              <p className="wr-ok">
-                Your Overleaf account’s Git token is on this computer already.{' '}
-                <button type="button" className="link-btn" onClick={() => setAnother(true)}>
-                  Use another
-                </button>
-              </p>
-            ) : null}
-            {known ? <ForgetToken server={here.server} onForgotten={() => setKnown(false)} /> : null}
-            {askToken ? (
-              <label className="wr-field">
-                <span>Overleaf Git token</span>
-                <input type="password" value={token} autoComplete="off" placeholder="olp_…" onChange={(event) => setToken(event.target.value)} />
-                <small>In Overleaf: Account Settings → Git integration → Generate token. The Companion keeps it on this computer, readable only by you, for every project of your account.</small>
-              </label>
-            ) : null}
-            <label className="wr-field">
-              <span>Folder, inside the Companion’s</span>
-              <input value={where} onChange={(event) => setWhere(event.target.value)} />
-            </label>
-            <div className="wr-row">
-              <button type="button" className="btn primary" disabled={busy || known === null || (askToken ? !token.trim() : false) || !where.trim()} onClick={() => void clone(gitUrl, askToken ? token.trim() : '')}>
-                {busy ? 'Cloning…' : template ? 'Clone, and fill it from the template' : 'Clone from Overleaf'}
-              </button>
-              <span className="wr-quiet mono">{gitUrl}</span>
-            </div>
-          </div>
-        ) : null}
-        {way === 'github' && link?.repo ? (
-          <div className="wr-form">
-            <label className="wr-field">
-              <span>Folder, inside the Companion’s</span>
-              <input value={where} onChange={(event) => setWhere(event.target.value)} />
-            </label>
-            <div className="wr-row">
-              <button type="button" className="btn primary" disabled={busy || !settings.githubToken.trim()} onClick={() => void clone(`https://github.com/${link.repo}`, settings.githubToken.trim())}>
-                {busy ? 'Cloning…' : `Clone ${link.repo}`}
-              </button>
-              {!settings.githubToken.trim() ? <span className="wr-bad">Add a GitHub token in Settings → Git mirror first.</span> : null}
-            </div>
-          </div>
-        ) : null}
-        {way === 'dropbox' || way === 'folder' ? (
-          <div className="wr-row">
-            <button type="button" className="btn primary" disabled={busy} onClick={() => void pick(way)}>
-              {busy ? 'Waiting for the folder…' : 'Choose the folder on this computer'}
-            </button>
-            <span className="wr-quiet">{way === 'dropbox' ? 'Usually Dropbox → Apps → Overleaf → the project.' : 'It opens this computer’s own folder chooser.'}</span>
-            {way === 'folder' && template ? (
-              <button type="button" className="btn" disabled={busy} onClick={() => void fresh()}>
-                Or a new folder from the template: {where}
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-        {problem ? <p className="wr-bad">{problem}</p> : null}
-        {engines && !engines.latexmk && !engines.tectonic ? (
-          <p className="wr-note">
-            There’s no TeX on this computer yet: the first compile offers to fetch Tectonic, or install TeX Live or MacTeX yourself — as Overleaf does, it compiles best with TeX Live.
-          </p>
-        ) : null}
-        {engines && !engines.git && (way === 'git' || way === 'github') ? <p className="wr-bad">git isn’t installed on this computer: install it (git-scm.com, or xcode-select --install on a Mac) to sync.</p> : null}
-      </div>
-    </div>
-  );
-}
-
 // --------------------------------------------------------------- desk --
 
 interface FileState {
@@ -1077,19 +1274,6 @@ const toBlob = (base64: string) => {
 };
 
 
-/** The Companion's templates, on this computer, as a shelf the documents page takes from. */
-function companionShelf(here: Here, folder: string): TemplateShelf {
-  const within = (dir: string, path: string) => (dir ? `${dir}/${path}` : path);
-  return {
-    list: () => listTemplates(here.server),
-    save: (name, zip) => saveTemplate(here.server, name, zip),
-    apply: async (slug, dir) => {
-      const done = await applyTemplate(here.server, slug, dir ? `${folder}/${dir}` : folder);
-      return within(dir, done.main || 'main.tex');
-    },
-  };
-}
-
 /** A project's link, made if there is none, with `change` in it: a paper in Drive needs no Overleaf. */
 function useSetLink(project: Project) {
   const { updateCollection } = useStore();
@@ -1098,81 +1282,6 @@ function useSetLink(project: Project) {
       const info = { ...project.project, ...(collection.project ?? {}) };
       return { project: { ...info, overleaf: { url: '', ...(info.overleaf ?? {}), ...change } } };
     });
-}
-
-/**
- * Keeping the paper in Google Drive: nothing on this computer. With Overleaf,
- * the project is brought in from Overleaf by Reader's server — and when this
- * computer has a clone of it, that is synced to Overleaf first, so nothing
- * typed there is lost. Without, an empty paper to start.
- */
-function DriveSetUp({ project, here }: { project: Project; here?: Here }) {
-  const { settings, driveConnected, connectDrive } = useStore();
-  const setLink = useSetLink(project);
-  const link = project.project.overleaf;
-  const gitUrl = overleafGitUrl(link?.url);
-  const local = here ? link?.folders?.[here.id]?.path ?? paperFolderFor(project.name) : null;
-  const [token, setToken] = useState('');
-  const [known, setKnown] = useState<boolean | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-  const signedIn = driveConnected && Boolean(settings.googleClientId.trim());
-  useEffect(() => {
-    if (signedIn && gitUrl) void overleafTokenKnown().then(setKnown, () => setKnown(false));
-  }, [signedIn, gitUrl]);
-
-  const start = async () => {
-    setProblem(null);
-    try {
-      // A folder here of this project's (as the set-up would name it, when the project has lost its link): moved from.
-      const folder = await movePaperToDrive(project, here ?? null, { token: token.trim() || undefined, onStep: setBusy, local: local ? { path: local, sync: 'git' } : undefined });
-      await setLink({ drive: { folder } });
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  return (
-    <div className="wr-card wr-drive-card">
-      <span className="eyebrow">Recommended</span>
-      <h2>Keep the paper in Google Drive</h2>
-      <p>
-        Nothing on this computer: the paper lives in your Drive (<span className="mono">Papers_collection/Papers</span>), you write it here in the browser, Cloud Run compiles it with all of TeX Live,
-        {gitUrl ? ' and Reader’s server keeps it in step with Overleaf — coauthors’ edits come in, yours go out.' : ' and it opens the same on any computer you sign in on.'}
-      </p>
-      {!signedIn ? (
-        <div className="wr-row">
-          <button type="button" className="btn primary" onClick={() => void connectDrive()}>
-            Sign in with Google, with Drive
-          </button>
-          <span className="wr-quiet">Reader sees only the files it makes in your Drive.</span>
-        </div>
-      ) : (
-        <>
-          {gitUrl && known === false ? (
-            <label className="wr-home-name">
-              <span>Your Overleaf Git token — Overleaf: Account Settings → Git integration → Generate token{here ? ' (not needed now if the paper is on this computer: it is asked for at its first sync)' : ''}</span>
-              <input type="password" value={token} autoComplete="off" placeholder="olp_…" onChange={(event) => setToken(event.target.value)} aria-label="Overleaf Git token for Reader’s server" />
-              <small className="wr-quiet">Kept encrypted by Reader’s server, for your syncs only; never in the paper or in Drive.</small>
-            </label>
-          ) : null}
-          {gitUrl && here && local ? (
-            <p className="wr-quiet">
-              If <span className="mono">~/Reader/{local}</span> holds this project, what was written there is sent to Overleaf first; the folder is then yours to delete.
-            </p>
-          ) : null}
-          <div className="wr-row">
-            <button type="button" className="btn primary" disabled={Boolean(busy) || (gitUrl !== null && known === false && !token.trim() && !here)} onClick={() => void start()}>
-              {busy ?? (gitUrl ? 'Bring it into Drive from Overleaf' : 'Start the paper in Drive')}
-            </button>
-          </div>
-        </>
-      )}
-      {problem ? <p className="wr-bad">{problem}</p> : null}
-    </div>
-  );
 }
 
 /** A paper kept in Drive: its documents, then the desk — with nothing of it on this computer. */
@@ -1265,7 +1374,10 @@ type Making = 'blank' | 'templates' | 'zip' | 'files';
  * the others, unless the project has none yet.
  */
 function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; shelf: TemplateShelf | null; onOpen: (main: string) => void }) {
+  const [toOverleaf, setToOverleaf] = useState(false);
   const link = project.project.overleaf;
+  const accounts = useOverleafAccounts();
+  const throughAccount = folder.sync === 'drive' ? accounts?.find((account) => account.id === link?.gitAccount)?.label : undefined;
   const [docs, setDocs] = useState<PaperDoc[] | null>(null);
   const [others, setOthers] = useState<{ tex: number; bib: number; figures: number; other: number }>({ tex: 0, bib: 0, figures: 0, other: 0 });
   const [problem, setProblem] = useState<string | null>(null);
@@ -1387,8 +1499,19 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
           <span className="eyebrow">Write</span>
           <h2>{project.name}</h2>
           <p className="wr-quiet">
-            <span className="mono">{store.label}</span> · {folder.sync === 'drive' ? (overleafGitUrl(link?.url) ? 'in step with Overleaf, through Reader’s server' : 'nothing on this computer') : folder.sync === 'git' ? (link?.repo && !overleafGitUrl(link?.url) ? `in step with GitHub (${link.repo})` : 'in step with Overleaf') : folder.sync === 'dropbox' ? 'kept in step by Dropbox' : 'on this computer only'}
+            <span className="mono">{store.label}</span> · {folder.sync === 'drive' ? (overleafGitUrl(link?.url) ? (throughAccount ? `in step with Overleaf through ${throughAccount}` : 'in step with Overleaf, through Reader’s server') : 'not on Overleaf') : folder.sync === 'git' ? (link?.repo && !overleafGitUrl(link?.url) ? `in step with GitHub (${link.repo})` : 'in step with Overleaf') : folder.sync === 'dropbox' ? 'kept in step by Dropbox' : 'on this computer only'}
+            {' · '}
+            {folder.sync === 'drive' && !overleafGitUrl(link?.url) ? (
+              <button type="button" className="link-btn" aria-expanded={toOverleaf} onClick={() => setToOverleaf(!toOverleaf)}>
+                Put it on Overleaf
+              </button>
+            ) : (
+              <KeepWhere project={project} here={here} folder={folder} store={store} />
+            )}
+            {' · '}
+            <WriteGuideLink section="where" />
           </p>
+          {toOverleaf && folder.sync === 'drive' && !overleafGitUrl(link?.url) ? <PutOnOverleaf project={project} store={store} /> : null}
         </div>
         {docs?.length ? (
           <button type="button" className="btn primary" onClick={() => onOpen(docs[0].path)}>
@@ -1567,6 +1690,7 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
   const typedAt = useRef(0);
   const timers = useRef<{ save?: number; compile?: number; sync?: number }>({});
   const [tokenShown, setTokenShown] = useState(false);
+  const [fellBack, setFellBack] = useState<string | null>(null);
   const [texShown, setTexShown] = useState(false);
   // The Companion's own TeX Live, from 0.12.0: installed with a click, its packages too.
   const canOwnTex = Boolean(here) && !inDrive && !isNewer(TEXLIVE_VERSION, here?.version ?? '0');
@@ -1650,9 +1774,20 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paths, engines]);
 
+  // The Overleaf account the project syncs through, as it is now (chosen while the desk is open, too).
+  const accountRef = useRef(link?.gitAccount);
+  accountRef.current = link?.gitAccount;
   // ---- sync: by the Companion's Git here, or for a paper in Drive by Reader's server
   const syncNow = (message: string, given?: string): Promise<Synced> =>
-    inDrive ? cloudSync(store, overleafGitUrl(link?.url) ?? '', message, given) : server ? syncPaper(server, folder.path, message, given) : Promise.reject(new Error('This computer’s Companion isn’t connected.'));
+    inDrive
+      ? cloudSync(store, overleafGitUrl(link?.url) ?? '', message, given, { account: accountRef.current }).then((done) => {
+          // The account that opened it, remembered for the next sync (and shown with the project's accounts).
+          if (done.account && done.account !== accountRef.current) updateLink({ gitAccount: (accountRef.current = done.account) });
+          // Shared with several of the accounts, and the one it synced with can't open it any more: another did.
+          setFellBack(done.fellBackFrom ? `“${done.fellBackFrom}” can’t open this Overleaf project any more (unshared, or its token was revoked), so it synced through “${done.accountLabel}”, which can.` : null);
+          return done;
+        })
+      : server ? syncPaper(server, folder.path, message, given) : Promise.reject(new Error('This computer’s Companion isn’t connected.'));
   const sync = useCallback(
     async (quiet = false) => {
       if (!git) return;
@@ -2515,7 +2650,7 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
             </button>
           </>
         ) : (
-          <span>{folder.sync === 'dropbox' ? 'Dropbox keeps this folder in step with Overleaf' : 'Not synced: a folder on this computer'}</span>
+          <span>{folder.sync === 'dropbox' ? 'Dropbox keeps this folder in step with Overleaf' : inDrive ? 'Saved in Google Drive · not on Overleaf' : 'Not synced: a folder on this computer'}</span>
         )}
         <span className="wr-sep">·</span>
         <span>{saving > 0 ? 'Saving…' : dirtyCount ? `${dirtyCount} not saved` : 'Saved'}</span>
@@ -2528,12 +2663,13 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
           <span>{options.pdf === 'overleaf' ? 'Overleaf compiles it' : compiling ? 'Compiling…' : 'Not compiled yet'}</span>
         )}
         <span className="wr-sp" />
+        <WriteGuideLink section="editor" />
         <button type="button" className="link-btn" aria-expanded={texShown} onClick={() => setTexShown(!texShown)} title="The TeX that compiles the paper: Reader can install TeX Live for you">
           TeX
         </button>
         {git ? (
           <button type="button" className="link-btn" aria-expanded={tokenShown} onClick={() => setTokenShown(!tokenShown)} title={inDrive ? 'The Overleaf Git token Reader’s server keeps for you, and how to remove it' : 'The Overleaf Git token on this computer: where it is, and how to remove it'}>
-            Overleaf token
+            {inDrive ? 'Overleaf account' : 'Overleaf token'}
           </button>
         ) : null}
         <OpenOverleaf project={project} view="beside" primary={false} compact />
@@ -2553,16 +2689,20 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
       {tokenShown ? (
         <div className="wr-sync-banner">
           {inDrive ? (
-            <span>
-              Your Overleaf Git token is kept encrypted by Reader’s server, for your syncs only.{' '}
-              <button type="button" className="link-btn" onClick={() => void forgetCloudToken().then(() => (setNeedToken(true), setTokenShown(false)))}>
-                Remove it from Reader’s server
-              </button>{' '}
-              — and to make it useless everywhere, delete it in Overleaf: Account Settings → Git integration.
-            </span>
+            <div className="wr-sync-accounts">
+              <OverleafAccounts current={link?.gitAccount} onChoose={(id) => (updateLink({ gitAccount: id }), setFellBack(null))} />
+            </div>
           ) : (
             <ForgetToken server={server} open onForgotten={() => setNeedToken(true)} />
           )}
+        </div>
+      ) : null}
+      {fellBack ? (
+        <div className="wr-sync-banner">
+          <span>{fellBack}</span>
+          <button type="button" className="link-btn" onClick={() => (setTokenShown(true), setFellBack(null))}>
+            Overleaf accounts
+          </button>
         </div>
       ) : null}
       {syncError || needToken || (synced?.conflicts.length ?? 0) > 0 ? (
@@ -2577,11 +2717,15 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
               , keep what should stay, and sync again.
             </span>
           ) : needToken ? (
-            <span>The Companion has no token for this folder’s remote yet.</span>
+            <span>{inDrive ? 'No Overleaf account is connected yet: connect yours to keep the paper in step with Overleaf.' : 'The Companion has no token for this folder’s remote yet.'}</span>
           ) : (
             <span>{syncError}</span>
           )}
-          {needToken || /auth|token|403|401|denied/i.test(syncError ?? '') ? (
+          {inDrive && (needToken || /token|account/i.test(syncError ?? '')) ? (
+            <div className="wr-sync-accounts">
+              <OverleafAccounts open onConnected={() => (setNeedToken(false), void sync())} />
+            </div>
+          ) : needToken || /auth|token|403|401|denied/i.test(syncError ?? '') ? (
             <span className="wr-token">
               <input type="password" placeholder="Overleaf Git token" value={token} onChange={(event) => setToken(event.target.value)} />
               <button type="button" className="btn sm primary" disabled={!token.trim()} onClick={() => void sync()}>

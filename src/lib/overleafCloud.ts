@@ -99,16 +99,47 @@ async function readState(store: PaperStore): Promise<SyncState> {
   return { commit: '', files: {} };
 }
 
-/** Whether the Worker has this person's Overleaf Git token. */
-export async function overleafTokenKnown(): Promise<boolean> {
-  const response = await apiFetch('/latex/overleaf/token', { cache: 'no-store' });
-  if (!response.ok) return false;
-  return Boolean(((await response.json().catch(() => ({}))) as { known?: boolean }).known);
+/** An Overleaf account connected to Reader's server, as the page sees it: never its token. */
+export interface OverleafAccount {
+  id: string;
+  label: string;
+  addedAt: string;
 }
 
-/** The person's Overleaf Git token, forgotten by the Worker. */
-export async function forgetOverleafToken(): Promise<void> {
-  await apiFetch('/latex/overleaf/token', { method: 'DELETE' });
+type Listeners = Set<(accounts: OverleafAccount[]) => void>;
+const listeners: Listeners = new Set();
+const told = (accounts: OverleafAccount[]) => {
+  for (const listener of listeners) listener(accounts);
+  return accounts;
+};
+/** Told whenever the accounts change on this page: connected, forgotten, or found by a sync. */
+export const onOverleafAccounts = (listener: (accounts: OverleafAccount[]) => void) => (listeners.add(listener), () => void listeners.delete(listener));
+
+/** The Overleaf accounts connected, for every project and every device of this Reader account. */
+export async function overleafAccounts(): Promise<OverleafAccount[]> {
+  const response = await apiFetch('/latex/overleaf/token', { cache: 'no-store' });
+  if (!response.ok) return [];
+  return told(((await response.json().catch(() => ({}))) as { accounts?: OverleafAccount[] }).accounts ?? []);
+}
+
+/** Whether any Overleaf account is connected. */
+export async function overleafTokenKnown(): Promise<boolean> {
+  return (await overleafAccounts()).length > 0;
+}
+
+/** An Overleaf account connected: its Git token given to the Worker, kept sealed there; the account's id back. */
+export async function connectOverleaf(token: string, label = ''): Promise<string> {
+  const response = await apiFetch('/latex/overleaf/token', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, label }) });
+  const body = (await response.json().catch(() => ({}))) as { error?: string; account?: string; accounts?: OverleafAccount[] };
+  if (!response.ok || !body.account) throw new Error(body.error ?? `Reader’s server answered ${response.status}.`);
+  told(body.accounts ?? []);
+  return body.account;
+}
+
+/** One Overleaf account forgotten by the Worker, or all of them. */
+export async function forgetOverleafToken(account?: string): Promise<void> {
+  const response = await apiFetch(`/latex/overleaf/token${account ? `?account=${encodeURIComponent(account)}` : ''}`, { method: 'DELETE' });
+  told((((await response.json().catch(() => ({}))) as { accounts?: OverleafAccount[] }).accounts) ?? []);
 }
 
 interface Answer {
@@ -123,14 +154,21 @@ interface Answer {
   needToken?: boolean;
   /** Each file's fingerprint at `commit`: what the next sync compares Drive against. */
   tree?: Record<string, string>;
+  /** The Overleaf account that opened the project. */
+  account?: string;
+  accountLabel?: string;
+  /** The account asked for couldn't open the project (unshared, or its token revoked): `account` did. */
+  fellBackFrom?: string;
 }
 
 /**
  * The paper in Drive and the Overleaf project at `url`, in step: what changed
- * here goes there, what changed there comes here. `token` is the Overleaf Git
- * token, given once; the Worker keeps it.
+ * here goes there, what changed there comes here. `token` is an Overleaf Git
+ * token, given once; the Worker keeps it as one of the person's accounts.
+ * `account` is the account the project was last synced with, tried first;
+ * the one that opened it comes back.
  */
-export async function cloudSync(store: PaperStore, url: string, message: string, token?: string, options: { firstPushes?: boolean } = {}): Promise<Synced & { needToken?: boolean }> {
+export async function cloudSync(store: PaperStore, url: string, message: string, token?: string, options: { firstPushes?: boolean; account?: string } = {}): Promise<Synced & { needToken?: boolean; account?: string; accountLabel?: string; fellBackFrom?: string }> {
   const state = await readState(store);
   const files = await current(store);
   const manifest = Object.fromEntries([...files].map(([path, file]) => [path, file.sha]));
@@ -145,9 +183,11 @@ export async function cloudSync(store: PaperStore, url: string, message: string,
   const response = await apiFetch('/latex/overleaf/sync', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, base: state.commit, ...(!state.commit && state.blobs ? { baseTree: state.blobs } : {}), changed, deleted, manifest, message, ...(token ? { token } : {}) }),
+    body: JSON.stringify({ url, base: state.commit, ...(!state.commit && state.blobs ? { baseTree: state.blobs } : {}), changed, deleted, manifest, message, ...(token ? { token } : {}), ...(options.account ? { account: options.account } : {}) }),
   });
   const answer = (await response.json().catch(() => ({}))) as Answer;
+  // A token given now, or the accounts tried: the page's list brought up to date.
+  if (token || answer.needToken) void overleafAccounts().catch(() => undefined);
   if (!response.ok || !answer.commit) {
     return { ok: false, committed: false, pushed: false, conflicts: [], error: answer.error ?? `Reader’s server answered ${response.status}.`, needToken: answer.needToken };
   }
@@ -176,6 +216,8 @@ export async function cloudSync(store: PaperStore, url: string, message: string,
     incoming,
     conflicts,
     at: Date.now(),
+    ...(answer.account ? { account: answer.account, accountLabel: answer.accountLabel } : {}),
+    ...(answer.fellBackFrom ? { fellBackFrom: answer.fellBackFrom } : {}),
     ...(conflicts.length ? { error: 'Overleaf changed the same lines: the files are marked with <<<<<<< where they differ. Fix them, and the next sync carries on.' } : answer.error ? { error: answer.error } : {}),
   };
 }

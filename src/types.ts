@@ -213,10 +213,19 @@ export interface OverleafLink {
   main?: string;
   /**
    * The paper kept in Google Drive rather than on any computer: its folder
-   * under Papers_collection/Papers/. Edited in the browser, compiled on Cloud
-   * Run, synced with Overleaf by Reader's server. Set, it wins over `folders`.
+   * under Papers_collection/ (Projects/<project>-<id>/LaTeX). Edited in the
+   * browser, compiled on Cloud Run, synced with Overleaf by Reader's server.
+   * Set, it wins over `folders` unless `keep` says the computers.
    */
   drive?: { folder: string };
+  /**
+   * Where the paper is kept, as last chosen for the project, and when: Google
+   * Drive (the default, also when unset), or a folder on each computer — a
+   * clone of the Overleaf project there. The newest choice wins on every device.
+   */
+  keep?: { where: 'drive' | 'computer'; at: string };
+  /** The Overleaf account (connected to Reader's server) the project last synced with: tried first. */
+  gitAccount?: string;
   /**
    * The folders of the Overleaf projects this one was linked to before, by
    * their address: switching back to one opens its folder again, with what

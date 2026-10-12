@@ -106,10 +106,12 @@ export function parseLibrary(text: string): Library | null {
 function withLinks(base: Collection, extra: Collection): Collection {
   const mine = base.project?.overleaf;
   const theirs = extra.project?.overleaf;
-  if (!base.project || !theirs || (!theirs.drive && !theirs.folders)) return base;
+  if (!base.project || !theirs || (!theirs.drive && !theirs.folders && !theirs.keep)) return base;
   const folders = { ...(theirs.folders ?? {}), ...(mine?.folders ?? {}) };
   const drive = mine?.drive ?? theirs.drive;
-  const overleaf = { ...(mine ?? theirs), ...(Object.keys(folders).length ? { folders } : {}), ...(drive ? { drive } : {}) };
+  // Where it is kept: the choice made last, on whichever device.
+  const keep = (theirs.keep?.at ?? '') > (mine?.keep?.at ?? '') ? theirs.keep : (mine?.keep ?? theirs.keep);
+  const overleaf = { ...(mine ?? theirs), ...(Object.keys(folders).length ? { folders } : {}), ...(drive ? { drive } : {}), ...(keep ? { keep } : {}) };
   return { ...base, project: { ...base.project, overleaf } };
 }
 

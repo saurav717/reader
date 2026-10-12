@@ -115,6 +115,15 @@ describe('a project on two devices', () => {
     }
     assert.equal(mergeLibraries(here, drive).collections[0].project.overleaf.main, 'main.tex', 'the rest is base’s');
   });
+  it('keeps where the paper is kept as chosen last, on either device', () => {
+    const url = 'https://www.overleaf.com/project/x';
+    const before = { ...emptyLibrary(), collections: [project({ url, drive: { folder: 'Projects/Paper-p1/LaTeX' }, keep: { where: 'drive', at: '2026-10-01T00:00:00Z' } })] };
+    const after = { ...emptyLibrary(), collections: [project({ url, drive: { folder: 'Projects/Paper-p1/LaTeX' }, keep: { where: 'computer', at: '2026-10-02T00:00:00Z' } })] };
+    const unset = { ...emptyLibrary(), collections: [project({ url, drive: { folder: 'Projects/Paper-p1/LaTeX' } })] };
+    for (const [base, extra] of [[before, after], [after, before], [unset, after], [after, unset]]) {
+      assert.deepEqual(mergeLibraries(base, extra).collections[0].project.overleaf.keep, { where: 'computer', at: '2026-10-02T00:00:00Z' });
+    }
+  });
 });
 
 describe('a library rebuilt from the sidecars in Drive', () => {
