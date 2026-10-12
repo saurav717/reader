@@ -313,6 +313,7 @@ export async function readCosts(env, fetcher = fetch, now = Date.now()) {
     GROUP BY day, service, sku, type, currency
     HAVING ROUND(cost, 6) != 0 OR ROUND(credits, 6) != 0
     ORDER BY day DESC, cost DESC`;
+  // Until Google writes the export's first rows, a few hours after it is turned on, the table is not there.
   const answer = await google(env, fetcher, `https://bigquery.googleapis.com/bigquery/v2/projects/${table.split('.')[0]}/queries`, {
     method: 'POST',
     body: JSON.stringify({
@@ -322,6 +323,9 @@ export async function readCosts(env, fetcher = fetch, now = Date.now()) {
       parameterMode: 'NAMED',
       queryParameters: [{ name: 'project', parameterType: { type: 'STRING' }, parameterValue: { value: project } }],
     }),
+  }).catch((error) => {
+    if (/not found: table/i.test(error.message)) throw new Error('no billing data yet: Google fills the export in within a day of turning it on');
+    throw error;
   });
   const fields = (answer.schema?.fields || []).map((field) => field.name);
   const rows = (answer.rows || []).map((row) => Object.fromEntries(row.f.map((cell, index) => [fields[index], cell.v])));

@@ -146,6 +146,11 @@ describe('the overview', () => {
     assert.equal(await gcloud.readCosts({ ...ENV, GCP_BILLING_EXPORT_TABLE: '' }, google.fetcher, NOW), null);
   });
 
+  it('says the export has no data yet while its table is still to come', async () => {
+    const google = fakeGoogle({ 'bigquery.googleapis.com': () => Response.json({ error: { message: 'Not found: Table reader-509409:billing_export.gcp_billing_export_v1_0X was not found in location US' } }, { status: 404 }) });
+    await assert.rejects(gcloud.readCosts(ENV, google.fetcher, NOW), /no billing data yet/);
+  });
+
   it('keeps each part Google refuses as that part’s error, with the rest filled in', async () => {
     const refuse = (message) => () => Response.json({ error: { message } }, { status: 403 });
     const google = fakeGoogle({ ...ALL, '/aggregated/instances': refuse('Compute Engine API has not been used in project'), 'bigquery.googleapis.com': refuse('Access Denied: Table') });
