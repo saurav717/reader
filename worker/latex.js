@@ -196,6 +196,35 @@ export function cleanManifest(raw) {
   return manifest;
 }
 
+const OVERLEAF_REMOTE = /^https:\/\/git\.overleaf\.com\/[A-Za-z0-9]+\/?$/;
+const overleafKey = (owner) => `overleaf-token:${owner}`;
+
+/** The key Overleaf tokens are sealed with: derived from the Cloud Run token, a secret only this Worker and the compiler hold. */
+async function tokenKey(env) {
+  const material = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(env.LATEX_CLOUD_RUN_TOKEN || '').trim()), 'HKDF', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new TextEncoder().encode('reader-overleaf-token'), info: new Uint8Array() }, material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+
+/** An Overleaf token, encrypted (AES-GCM) for keeping in KV. */
+export async function sealToken(env, token) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await tokenKey(env), new TextEncoder().encode(token)));
+  const b64 = (bytes) => btoa(String.fromCharCode(...bytes));
+  return JSON.stringify({ iv: b64(iv), data: b64(sealed) });
+}
+
+/** The token back, or null when there is none or it can't be opened (the secret changed). */
+export async function openToken(env, kept) {
+  if (!kept) return null;
+  try {
+    const { iv, data } = JSON.parse(kept);
+    const bytes = (text) => Uint8Array.from(atob(text), (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes(iv) }, await tokenKey(env), bytes(data)));
+  } catch {
+    return null;
+  }
+}
+
 /** The kept folder's name: whose and which paper, hashed, so one person's folder is never another's. */
 export async function projectKey(owner, project) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${owner}\n${project}`));
@@ -249,6 +278,47 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     const started = Date.now();
     const answer = await fetch(`${String(env.LATEX_CLOUD_RUN_URL).trim().replace(/\/+$/, '')}/`, { signal: AbortSignal.timeout(60_000) }).catch(() => null);
     return json({ warm: Boolean(answer?.ok), ms: Date.now() - started }, 200, noStore);
+  }
+
+  // A paper kept in Drive, in step with Overleaf by the compiler on Cloud Run: the person's Overleaf Git
+  // token kept here, encrypted, and handed to each sync (src/lib/overleafCloud.ts, cloudrun/latex/server.py).
+  if (path === '/latex/overleaf/token') {
+    if (request.method === 'DELETE') {
+      await kv.delete(overleafKey(owner));
+      return json({ known: false }, 200, noStore);
+    }
+    return json({ known: Boolean(await kv.get(overleafKey(owner))) }, 200, noStore);
+  }
+  if (path === '/latex/overleaf/sync') {
+    if (request.method !== 'POST') return json({ error: 'POST' }, 405, noStore);
+    if (!latexCompilerReady(env, 'cloudrun')) return json({ error: 'syncing a paper in Drive with Overleaf needs the compiler on Cloud Run (LATEX_CLOUD_RUN_URL)' }, 501, noStore);
+    if (await personOverLimit(env, who)) return json({ error: 'too many requests; wait a minute', limited: true }, 429, { ...noStore, 'Retry-After': '60' });
+    const body = await request.json().catch(() => null);
+    if (!body || typeof body.url !== 'string' || !OVERLEAF_REMOTE.test(body.url)) return json({ error: 'an Overleaf Git address (https://git.overleaf.com/…)' }, 400, noStore);
+    const changed = cleanFiles(body.changed ?? []);
+    if (!changed) return json({ error: 'the changed files: relative paths inside the folder, as base64, 20 MB in all' }, 400, noStore);
+    const manifest = cleanManifest(body.manifest ?? {});
+    if (!manifest) return json({ error: 'the manifest: relative paths inside the folder, each with a SHA-256' }, 400, noStore);
+    const deleted = Array.isArray(body.deleted) ? body.deleted.filter((item) => typeof item === 'string' && item.length <= 300 && !item.split('/').includes('..')).slice(0, 500) : [];
+    let token = typeof body.token === 'string' ? body.token.trim() : '';
+    if (token) await kv.put(overleafKey(owner), await sealToken(env, token));
+    else token = (await openToken(env, await kv.get(overleafKey(owner)))) ?? '';
+    if (!token) return json({ error: 'Your Overleaf Git token is needed (Overleaf: Account Settings → Git integration).', needToken: true }, 400, noStore);
+    const base = String(env.LATEX_CLOUD_RUN_URL).trim().replace(/\/+$/, '');
+    let answer;
+    try {
+      answer = await fetch(`${base}/git/sync`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${String(env.LATEX_CLOUD_RUN_TOKEN).trim()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: body.url, token, base: typeof body.base === 'string' ? body.base : '', changed, deleted, manifest, message: String(body.message || 'Edits from Reader').slice(0, 200) }),
+        signal: AbortSignal.timeout(CLOUD_RUN_WAIT_MS),
+      });
+    } catch (error) {
+      return json({ error: `Reader’s server couldn’t reach its compiler (${error?.message || error}).` }, 502, noStore);
+    }
+    // A token Overleaf refused is not kept.
+    if (answer.status === 401) await kv.delete(overleafKey(owner));
+    return new Response(answer.body, { status: answer.status, headers: { ...noStore, 'Content-Type': 'application/json' } });
   }
 
   if (path === '/latex/jobs') {

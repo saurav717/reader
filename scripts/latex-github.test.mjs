@@ -7,7 +7,7 @@ import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
-import { FREE_MINUTES, LatexJob, cleanFiles, handleLatex, isLatexPath, latexCompiler, latexMonth, summarize } from '../worker/latex.js';
+import { FREE_MINUTES, LatexJob, cleanFiles, handleLatex, isLatexPath, latexCompiler, latexMonth, openToken, sealToken, summarize } from '../worker/latex.js';
 
 const gh = await load('src/lib/latexGithub.ts');
 after(cleanup);
@@ -236,5 +236,47 @@ describe('a job’s state', () => {
     assert.equal(latexCompiler({ SESSIONS: {}, LATEX_GITHUB_TOKEN: 'g', LATEX_RUNNER_TOKEN: 'r' }), 'github');
     assert.equal(latexCompiler({ SESSIONS: {}, LATEX_CLOUD_RUN_URL: 'http://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' }), null);
     assert.equal(latexCompiler({ LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' }), null);
+  });
+
+  it('a paper in Drive: the Overleaf token kept sealed, handed to Cloud Run for each sync, dropped when Overleaf refuses it', async (t) => {
+    const sent = [];
+    let refuse = false;
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+      sent.push({ url: String(url), job: JSON.parse(init.body) });
+      return refuse ? Response.json({ error: 'Overleaf refused the Git token', needToken: true }, { status: 401 }) : Response.json({ ok: true, commit: 'abc1234', files: [], deleted: [], conflicts: [], tree: {} });
+    });
+    const kv = staleKv();
+    const kept = new Map();
+    kv.get = async (key) => kept.get(key) ?? null;
+    kv.put = async (key, value) => void kept.set(key, value);
+    kv.delete = async (key) => void kept.delete(key);
+    const env = { SESSIONS: kv, LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' };
+    const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers });
+    const tools = { json, headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: () => {} };
+    const ask = (path, init = {}) => handleLatex(new Request(`https://w${path}`, init), env, path, tools);
+    const url = 'https://git.overleaf.com/621baf31fcfddbde3bf5fdf8';
+    const sync = (extra = {}) => ask('/latex/overleaf/sync', { method: 'POST', body: JSON.stringify({ url, base: '', changed: [], deleted: [], manifest: {}, ...extra }) });
+
+    assert.equal((await (await ask('/latex/overleaf/token')).json()).known, false);
+    const first = await sync();
+    assert.equal(first.status, 400);
+    assert.equal((await first.json()).needToken, true);
+    assert.equal((await sync({ token: 'olp_secret' })).status, 200);
+    assert.equal(sent.at(-1).url, 'https://latex.run.app/git/sync');
+    assert.equal(sent.at(-1).job.token, 'olp_secret');
+    assert.ok(![...kept.values()].some((value) => value.includes('olp_secret')), 'not kept in the clear');
+    assert.equal((await (await ask('/latex/overleaf/token')).json()).known, true);
+    await sync();
+    assert.equal(sent.at(-1).job.token, 'olp_secret', 'the kept token is used');
+    refuse = true;
+    assert.equal((await sync()).status, 401);
+    assert.equal((await (await ask('/latex/overleaf/token')).json()).known, false, 'a refused token is dropped');
+    assert.equal((await sync({ url: 'https://evil.example/repo' })).status, 400);
+  });
+
+  it('seals and opens a token, and opens nothing sealed under another secret', async () => {
+    const sealed = await sealToken({ LATEX_CLOUD_RUN_TOKEN: 'one' }, 'olp_x');
+    assert.equal(await openToken({ LATEX_CLOUD_RUN_TOKEN: 'one' }, sealed), 'olp_x');
+    assert.equal(await openToken({ LATEX_CLOUD_RUN_TOKEN: 'two' }, sealed), null);
   });
 });
