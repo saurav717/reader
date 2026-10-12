@@ -16,8 +16,10 @@ nothing of a paper is logged.
 
 A paper is someone else's TeX, so it is compiled as an unprivileged user with
 a clean environment (the secret is only in this process's, which that user
-can't read), no shell escape, kpathsea told to open no absolute or dotted
-paths (openin_any=p), and a time limit.
+can't read), restricted shell escape only (TeX Live's default, as Overleaf's:
+the few tools texmf.cnf lists as safe, such as repstopdf for .eps figures),
+kpathsea told to open no absolute or dotted paths (openin_any=p), and a time
+limit.
 
     LATEX_TOKEN   the secret the Worker sends (LATEX_CLOUD_RUN_TOKEN there)
     PORT          set by Cloud Run
@@ -56,7 +58,7 @@ CLEAN_ENV = {
     'LANG': 'C.UTF-8',
     'openin_any': 'p',
     'openout_any': 'p',
-    'shell_escape': 'f',
+    'shell_escape': 'p',
 }
 
 

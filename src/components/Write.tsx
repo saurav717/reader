@@ -1555,7 +1555,9 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     try {
       const listed = await listStamped(server, folder.path);
       for (const { path, stamp } of listed) {
-        if (state.files.get(path)?.stamp === stamp) continue;
+        // The paper's text (.tex, .bib, .sty) is read every time — a few ms from this computer — as an edit
+        // saved within the listing's timestamp resolution, or keeping the size, could look unchanged; figures go by their stamp.
+        if (state.files.get(path)?.stamp === stamp && !isTextFile(path)) continue;
         const base64 = await jupyterReadBase64(server, `${folder.path}/${path}`);
         state.files.set(path, { stamp, sha: await fingerprint(base64), base64 });
       }
