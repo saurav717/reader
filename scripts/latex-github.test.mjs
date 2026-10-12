@@ -182,6 +182,45 @@ describe('a job’s state', () => {
     assert.equal((await (await ask(`/latex/jobs/${again.id}`)).json()).pdf, false);
   });
 
+  it('compiles where the page asks, warms Cloud Run, and says when the asked-for one isn’t set up', async (t) => {
+    const asked = [];
+    t.mock.method(globalThis, 'fetch', async (url) => {
+      asked.push(String(url));
+      return String(url).endsWith('/compile') ? Response.json({ pdf: btoa('%PDF'), log: '', exit: 0, seconds: 3.2 }) : String(url).endsWith('/') ? Response.json({ ok: true }) : new Response(null, { status: 204 });
+    });
+    const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers });
+    const tools = { json, headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: () => {} };
+    const files = [{ path: 'main.tex', base64: btoa('x') }];
+    const both = { SESSIONS: staleKv(), LATEX_JOBS: jobObjects(), LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c', LATEX_GITHUB_TOKEN: 'g', LATEX_RUNNER_TOKEN: 'r' };
+    const ask = (env, path, init = {}) => handleLatex(new Request(`https://w${path}`, init), env, path, tools);
+
+    const github = await (await ask(both, '/latex/jobs', { method: 'POST', body: JSON.stringify({ files, on: 'github' }) })).json();
+    assert.deepEqual([github.on, github.state], ['github', 'queued']);
+    assert.match(asked.pop(), /api\.github\.com/);
+
+    const cloud = await (await ask({ ...both, SESSIONS: staleKv() }, '/latex/jobs', { method: 'POST', body: JSON.stringify({ files, on: 'cloudrun' }) })).json();
+    assert.equal(cloud.on, 'cloudrun');
+
+    const warm = await (await ask(both, '/latex/warm', { method: 'POST' })).json();
+    assert.equal(warm.warm, true);
+    assert.equal(asked.pop(), 'https://latex.run.app/');
+
+    const onlyGithub = { SESSIONS: staleKv(), LATEX_JOBS: jobObjects(), LATEX_GITHUB_TOKEN: 'g', LATEX_RUNNER_TOKEN: 'r' };
+    const refused = await ask(onlyGithub, '/latex/jobs', { method: 'POST', body: JSON.stringify({ files, on: 'cloudrun' }) });
+    assert.equal(refused.status, 501);
+    assert.match((await refused.json()).error, /Cloud Run/);
+  });
+
+  it('keeps how long TeX itself took', async (t) => {
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ pdf: btoa('%PDF'), log: '', exit: 0, seconds: 3.2 }));
+    const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers });
+    const tools = { json, headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: () => {} };
+    const env = { SESSIONS: staleKv(), LATEX_JOBS: jobObjects(), LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' };
+    const ask = (path, init = {}) => handleLatex(new Request(`https://w${path}`, init), env, path, tools).then((r) => r.json());
+    const { id } = await ask('/latex/jobs', { method: 'POST', body: JSON.stringify({ files: [{ path: 'main.tex', base64: btoa('x') }] }) });
+    assert.equal((await ask(`/latex/jobs/${id}`)).texSeconds, 3.2);
+  });
+
   it('uses GitHub Actions only when Cloud Run isn’t set up, and an https:// service only', () => {
     assert.equal(latexCompiler({ SESSIONS: {}, LATEX_GITHUB_TOKEN: 'g', LATEX_RUNNER_TOKEN: 'r' }), 'github');
     assert.equal(latexCompiler({ SESSIONS: {}, LATEX_CLOUD_RUN_URL: 'http://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' }), null);

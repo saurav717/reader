@@ -200,7 +200,7 @@ function ForgetToken({ server, open = false, onForgotten }: { server?: Here['ser
 
 // ------------------------------------------------- compiled in the cloud --
 
-type GithubState = { phase: 'idle' | 'setup' | 'sending' | 'queued' | 'compiling' | 'done' | 'failed'; on?: 'cloudrun' | 'github'; startedAt?: number; finishedAt?: number; runUrl?: string; error?: string };
+type GithubState = { phase: 'idle' | 'setup' | 'sending' | 'queued' | 'compiling' | 'done' | 'failed'; on?: 'cloudrun' | 'github'; startedAt?: number; finishedAt?: number; runUrl?: string; error?: string; texSeconds?: number | null; readSeconds?: number; warming?: boolean };
 
 /** Seconds since, as m:ss, ticking. */
 function useElapsed(since: number | undefined, running: boolean): string {
@@ -220,22 +220,24 @@ function useElapsed(since: number | undefined, running: boolean): string {
  * Cloud Run, or GitHub Actions where the site has no Cloud Run — so there is
  * nothing to set up; how a compile is going.
  */
-function GithubCompilePanel({ state, onCompile }: { state: GithubState; onCompile: () => void }) {
+function GithubCompilePanel({ state, on, onCompile }: { state: GithubState; on: 'cloudrun' | 'github'; onCompile: () => void }) {
   const running = state.phase === 'sending' || state.phase === 'queued' || state.phase === 'compiling';
   const elapsed = useElapsed(state.startedAt, running);
-  const where = state.on === 'github' ? 'on GitHub' : 'in the cloud';
+  const where = (state.on ?? on) === 'github' ? 'on GitHub' : 'on Cloud Run';
   const said =
     state.phase === 'sending'
-      ? 'Compiling with all of TeX Live…'
+      ? 'Gathering the paper’s files…'
       : state.phase === 'queued'
         ? 'Waiting for GitHub to start…'
         : state.phase === 'compiling'
           ? `Compiling ${where} with all of TeX Live…`
           : state.phase === 'done'
-            ? `Compiled ${where} in ${elapsed}.`
+            ? `Compiled ${where} in ${elapsed}${state.texSeconds != null ? ` — gathering the files ${Math.round(state.readSeconds ?? 0)} s, TeX ${Math.round(state.texSeconds)} s, the rest starting up and the trip` : ''}.`
             : state.phase === 'failed'
               ? state.error ?? 'It didn’t compile.'
-              : 'Press ⌘↵ or Compile: Reader’s compiler makes the PDF with all of TeX Live, and it comes back here. Nothing to set up.';
+              : on === 'github'
+                ? 'Press ⌘↵ or Compile: GitHub Actions makes the PDF with all of TeX Live, and it comes back here in a minute or two. Nothing to set up.'
+                : `Press ⌘↵ or Compile: Cloud Run makes the PDF with all of TeX Live, and it comes back here in seconds. Nothing to set up.${state.warming ? ' Starting the compiler…' : ''}`;
   return (
     <div className={`wr-ghc is-line${state.phase === 'failed' ? ' is-bad' : ''}`}>
       <span>
@@ -246,7 +248,7 @@ function GithubCompilePanel({ state, onCompile }: { state: GithubState; onCompil
           Try again
         </button>
       ) : null}
-      <small>{state.on === 'github' ? 'The files pass through Reader’s server and a GitHub runner to be compiled; they are never put in a repository, and are deleted within the hour.' : 'The files pass through Reader’s server to its compiler on Cloud Run and are deleted once compiled; the PDF and log within the hour.'}</small>
+      <small>{(state.on ?? on) === 'github' ? 'The files pass through Reader’s server and a GitHub runner to be compiled; they are never put in a repository, and are deleted within the hour.' : 'The files pass through Reader’s server to its compiler on Cloud Run and are deleted once compiled; the PDF and log within the hour.'}</small>
     </div>
   );
 }
@@ -1114,7 +1116,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
   // ---- compile
   const compile = useCallback(async () => {
     // Overleaf makes the PDF, or Reader's compiler in the cloud does (only when asked, ⌘↵ or Compile): nothing compiles here.
-    if (options.pdf === 'overleaf' || options.pdf === 'github') return;
+    if (options.pdf === 'overleaf' || options.pdf === 'github' || options.pdf === 'cloudrun') return;
     setCompiling(true);
     setCompileError(null);
     try {
@@ -1483,10 +1485,12 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
       const files: CompileFile[] = [];
       for (const path of paths) files.push({ path, base64: await jupyterReadBase64(server, `${folder.path}/${path}`) });
       const main = mainDoc ?? compiled?.main ?? 'main.tex';
-      const asked = await apiFetch('/latex/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files, main, compiler }) });
+      const on = options.pdf === 'github' ? 'github' : 'cloudrun';
+      const readSeconds = (Date.now() - started) / 1000;
+      if (on === 'cloudrun') setGh({ phase: 'compiling', on, startedAt: started });
+      const asked = await apiFetch('/latex/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files, main, compiler, on }) });
       const job = (await asked.json().catch(() => ({}))) as { id?: string; on?: 'cloudrun' | 'github'; state?: string; error?: string };
       if (!asked.ok || !job.id) throw new Error(job.error ?? `The compiler didn’t take it (${asked.status}).`);
-      const on = job.on ?? 'github';
       // Cloud Run answers once it has compiled: no waiting before the first look.
       let wait = job.state === 'done' ? 0 : 4000;
       setGh({ phase: job.state === 'done' ? 'compiling' : 'queued', on, startedAt: started });
@@ -1494,7 +1498,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
       while (Date.now() < until) {
         await new Promise((resolve) => setTimeout(resolve, wait));
         wait = 4000;
-        const now = (await (await apiFetch(`/latex/jobs/${job.id}`, { cache: 'no-store' })).json().catch(() => null)) as { state?: string; pdf?: boolean; exit?: number | null; error?: string | null } | null;
+        const now = (await (await apiFetch(`/latex/jobs/${job.id}`, { cache: 'no-store' })).json().catch(() => null)) as { state?: string; pdf?: boolean; exit?: number | null; texSeconds?: number | null; error?: string | null } | null;
         if (!now?.state) continue;
         if (now.state === 'failed') throw new Error(now.error ?? 'The compile didn’t start.');
         if (now.state !== 'done') {
@@ -1507,7 +1511,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
         setCompiled({ ok: Boolean(blob) && now.exit === 0, main, engine: `${on === 'cloudrun' ? 'Cloud Run' : 'GitHub'} · all of TeX Live`, compiler, pdf: blob ? 'github' : '', errors: read.errors, warnings: read.warnings, log, ms: Date.now() - started });
         if (blob) setPdf(new Blob([blob], { type: 'application/pdf' }));
         if (read.errors.length && !blob) setShowLog(true);
-        setGh({ phase: 'done', on, startedAt: started, finishedAt: Date.now() });
+        setGh({ phase: 'done', on, startedAt: started, finishedAt: Date.now(), texSeconds: now.texSeconds ?? null, readSeconds });
         return;
       }
       throw new Error('No PDF came back within 12 minutes.');
@@ -1518,8 +1522,27 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
     }
   };
 
+  // Cloud Run starts an instance on the first compile after a quiet spell (some
+  // seconds, all of TeX Live): one is asked for as soon as it is picked, and
+  // every ten minutes while it stays picked and this page is in view, so the
+  // compile doesn't wait for it. An idle instance costs nothing.
+  useEffect(() => {
+    if (options.pdf !== 'cloudrun') return;
+    const warm = () => {
+      if (document.visibilityState !== 'visible') return;
+      setGh((now) => (now.phase === 'idle' ? { ...now, warming: true } : now));
+      void apiFetch('/latex/warm', { method: 'POST', cache: 'no-store' })
+        .catch(() => undefined)
+        .finally(() => setGh((now) => (now.warming ? { ...now, warming: false } : now)));
+    };
+    warm();
+    const timer = window.setInterval(warm, 10 * 60_000);
+    document.addEventListener('visibilitychange', warm);
+    return () => (window.clearInterval(timer), document.removeEventListener('visibilitychange', warm));
+  }, [options.pdf]);
+
   const recompile = () => {
-    if (options.pdf === 'github') return void saveNow().then(() => compileOnGithub());
+    if (options.pdf === 'github' || options.pdf === 'cloudrun') return void saveNow().then(() => compileOnGithub());
     if (options.pdf !== 'overleaf') return void saveNow().then(() => compile());
     const overleaf = project.project.overleaf;
     let beside: Window | null = null;
@@ -1556,8 +1579,11 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
       <button type="button" aria-pressed={options.pdf === 'here'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'here' } })} title="The TeX installed on this computer compiles it, through the Companion">
         This computer
       </button>
-      <button type="button" aria-pressed={options.pdf === 'github'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'github' } })} title="Reader’s compiler compiles it with all of TeX Live on Google Cloud Run, and the PDF comes back here in seconds. It compiles: it doesn’t publish or sync anything.">
-        The cloud
+      <button type="button" aria-pressed={options.pdf === 'github'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'github' } })} title="Reader’s compiler on GitHub Actions, with all of TeX Live: the PDF comes back here in a minute or two. It compiles: it doesn’t publish or sync anything.">
+        GitHub Actions
+      </button>
+      <button type="button" aria-pressed={options.pdf === 'cloudrun'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'cloudrun' } })} title="Reader’s compiler on Google Cloud Run, with all of TeX Live: the PDF comes back here in seconds. It compiles: it doesn’t publish or sync anything.">
+        Cloud Run
       </button>
       <button type="button" aria-pressed={options.pdf === 'overleaf'} onClick={() => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'overleaf' } })} title="Overleaf’s compiler: your edits go to Overleaf, and the PDF is in Overleaf’s window">
         Overleaf
@@ -1603,8 +1629,8 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
         <button type="button" className="wr-icon" aria-pressed={big === 'pdf'} onClick={() => setBig(big === 'pdf' ? null : 'pdf')} title={big === 'pdf' ? 'Back to both panes' : 'The PDF alone, filling the space'} aria-label={big === 'pdf' ? 'Back to both panes' : 'Expand the PDF'}>
           {big === 'pdf' ? '⤡' : '⤢'}
         </button>
-        <button type="button" className="btn sm primary" disabled={compiling || (options.pdf === 'here' && Boolean(noTex))} onClick={recompile} title={options.pdf === 'github' ? 'Compile in the cloud (⌘↵)' : 'Recompile (⌘↵)'}>
-          {compiling ? 'Compiling…' : options.pdf === 'github' ? 'Compile' : 'Recompile'}
+        <button type="button" className="btn sm primary" disabled={compiling || (options.pdf === 'here' && Boolean(noTex))} onClick={recompile} title={options.pdf === 'github' ? 'Compile on GitHub Actions (⌘↵)' : options.pdf === 'cloudrun' ? 'Compile on Cloud Run (⌘↵)' : 'Recompile (⌘↵)'}>
+          {compiling ? 'Compiling…' : options.pdf === 'github' || options.pdf === 'cloudrun' ? 'Compile' : 'Recompile'}
         </button>
         {options.layout === 'tabs' ? (
           <span className="segmented sm">
@@ -1613,8 +1639,8 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
           </span>
         ) : null}
       </div>
-      {options.pdf === 'github' ? (
-        <GithubCompilePanel state={gh} onCompile={recompile} />
+      {options.pdf === 'github' || options.pdf === 'cloudrun' ? (
+        <GithubCompilePanel state={gh} on={options.pdf} onCompile={recompile} />
       ) : null}
       {noTex && options.pdf === 'here' ? (
         <div className="wr-pad">
@@ -1720,7 +1746,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
               {syncError ? <span className="wr-bad"> {syncError}</span> : null}
             </p>
           ) : null}
-          <p className="wr-quiet">⌘↵ here sends your edits and opens the project in the window beside once they’ve arrived — Overleaf compiles it as it opens. If Overleaf’s PDF doesn’t refresh after an edit comes in, press Recompile there. To compile on this computer or in the cloud instead, pick it under Compile on, above.</p>
+          <p className="wr-quiet">⌘↵ here sends your edits and opens the project in the window beside once they’ve arrived — Overleaf compiles it as it opens. If Overleaf’s PDF doesn’t refresh after an edit comes in, press Recompile there. To compile on this computer, GitHub Actions or Cloud Run instead, pick it under Compile on, above.</p>
         </div>
       </section>
     ) : (

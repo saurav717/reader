@@ -1,6 +1,6 @@
 // Compiling LaTeX for anyone signed in to the reader: all of TeX Live,
-// nothing for the person to install or set up. Two compilers, the first set
-// up is used:
+// nothing for the person to install or set up. Two compilers; the page names
+// the one it wants (the Write tab's Compile on), else the first set up is used:
 //
 // - Google Cloud Run (cloudrun/latex): the Worker hands it the files and
 //   waits — a PDF in seconds, no queue. LATEX_CLOUD_RUN_URL and
@@ -54,6 +54,14 @@ export function latexCompiler(env) {
 }
 
 export const latexAvailable = (env) => Boolean(latexCompiler(env));
+
+/** Whether this Worker can compile on that one. */
+export function latexCompilerReady(env, on) {
+  if (!env.SESSIONS) return false;
+  if (on === 'cloudrun') return /^https:\/\//.test(String(env.LATEX_CLOUD_RUN_URL || '').trim()) && Boolean(String(env.LATEX_CLOUD_RUN_TOKEN || '').trim());
+  if (on === 'github') return Boolean(String(env.LATEX_GITHUB_TOKEN || '').trim() && String(env.LATEX_RUNNER_TOKEN || '').trim());
+  return false;
+}
 
 const keys = (id) => ({ meta: `latex:meta:${id}`, source: `latex:src:${id}`, pdf: `latex:pdf:${id}`, log: `latex:log:${id}` });
 /**
@@ -151,7 +159,7 @@ async function keepResult(env, id, meta, body, tally) {
   if (pdf) await kv.put(k.pdf, pdf, { expirationTtl: TTL_S });
   await kv.put(k.log, String(body.log || '').slice(-400_000), { expirationTtl: TTL_S });
   await kv.delete(k.source);
-  await jobStates(env).put(id, { ...meta, state: 'done', pdf: Boolean(pdf), exit: Number.isFinite(body.exit) ? body.exit : null, doneAt: Date.now() });
+  await jobStates(env).put(id, { ...meta, state: 'done', pdf: Boolean(pdf), exit: Number.isFinite(body.exit) ? body.exit : null, texSeconds: Number.isFinite(body.seconds) ? body.seconds : null, doneAt: Date.now() });
   if (meta.email) await kv.delete(`latex:active:${meta.email}`);
   // On the Usage page: a compile, and the compiler's seconds on it, for its owner.
   const seconds = Math.max(1, Math.round((Date.now() - (meta.compilingAt || meta.createdAt || Date.now())) / 1000));
@@ -215,6 +223,16 @@ export async function handleLatex(request, env, path, { json, headers, authorize
   if (!who) return json({ error: 'sign in with Google to compile in the cloud' }, 401, noStore);
   const owner = who.email ?? 'owner';
 
+  // Cloud Run starts an instance on the first request after a quiet spell, which
+  // takes some seconds with all of TeX Live: the page asks for one while the
+  // paper is being written, so the compile doesn't wait for it.
+  if (path === '/latex/warm') {
+    if (!latexCompilerReady(env, 'cloudrun')) return json({ warm: false }, 200, noStore);
+    const started = Date.now();
+    const answer = await fetch(`${String(env.LATEX_CLOUD_RUN_URL).trim().replace(/\/+$/, '')}/`, { signal: AbortSignal.timeout(60_000) }).catch(() => null);
+    return json({ warm: Boolean(answer?.ok), ms: Date.now() - started }, 200, noStore);
+  }
+
   if (path === '/latex/jobs') {
     if (request.method !== 'POST') return json({ error: 'POST' }, 405, noStore);
     if (await personOverLimit(env, who)) return json({ error: 'too many requests; wait a minute', limited: true }, 429, { ...noStore, 'Retry-After': '60' });
@@ -226,12 +244,15 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     const body = await request.json().catch(() => null);
     const files = cleanFiles(body?.files);
     if (!files) return json({ error: 'the files: relative paths inside the folder, as base64, 20 MB in all' }, 400, noStore);
+    // Which compiler, when the page names one; the one set up otherwise.
+    const on = body?.on === 'github' || body?.on === 'cloudrun' ? body.on : latexCompiler(env);
+    if (!latexCompilerReady(env, on)) return json({ error: on === 'cloudrun' ? 'this site has no Cloud Run compiler set up (LATEX_CLOUD_RUN_URL, LATEX_CLOUD_RUN_TOKEN)' : 'this site has no GitHub Actions compiler set up (LATEX_GITHUB_TOKEN, LATEX_RUNNER_TOKEN)' }, 501, noStore);
     const main = typeof body.main === 'string' && /\.tex$/i.test(body.main) && !body.main.split('/').includes('..') ? body.main.replace(/^\/+/, '') : 'main.tex';
     const flag = COMPILERS[body.compiler] ?? '-pdf';
     const id = newId();
     const k = keys(id);
     // Cloud Run: compiled while the page waits for this answer, the files never stored.
-    if (latexCompiler(env) === 'cloudrun') {
+    if (on === 'cloudrun') {
       const meta = { email: owner, state: 'compiling', on: 'cloudrun', createdAt: Date.now(), compilingAt: Date.now() };
       await jobs.put(id, meta);
       await kv.put(`latex:active:${owner}`, id, { expirationTtl: ACTIVE_S });
@@ -264,7 +285,7 @@ export async function handleLatex(request, env, path, { json, headers, authorize
   const meta = await jobs.get(id);
   // Another person's job answers as if there were none.
   if (!meta || (meta.email !== owner && !who.owner)) return json({ error: 'no such job, or it has expired' }, 404, noStore);
-  if (!what) return json({ state: meta.state, on: meta.on ?? 'github', pdf: Boolean(meta.pdf), exit: meta.exit ?? null, error: meta.error ?? null, createdAt: meta.createdAt, compilingAt: meta.compilingAt ?? null, doneAt: meta.doneAt ?? null }, 200, noStore);
+  if (!what) return json({ state: meta.state, on: meta.on ?? 'github', pdf: Boolean(meta.pdf), exit: meta.exit ?? null, texSeconds: meta.texSeconds ?? null, error: meta.error ?? null, createdAt: meta.createdAt, compilingAt: meta.compilingAt ?? null, doneAt: meta.doneAt ?? null }, 200, noStore);
   if (what === 'pdf') {
     const pdf = await kv.get(k.pdf, 'arrayBuffer');
     if (!pdf) return json({ error: 'no PDF' }, 404, noStore);

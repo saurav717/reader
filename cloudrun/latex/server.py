@@ -25,6 +25,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TOKEN = os.environ.get('LATEX_TOKEN', '').strip()
@@ -79,6 +80,7 @@ def compile_job(job):
         # Written beside the main file (-cd), as openout_any=p lets TeX write nowhere else.
         out = (src / main).parent
         command = [LATEXMK, flag, '-cd', '-g', '-f', '-interaction=nonstopmode', '-file-line-error', '-jobname=output', main]
+        started = time.monotonic()
         with open(work / 'stdout.txt', 'wb') as stdout:
             process = subprocess.Popen(command, cwd=src, env=CLEAN_ENV, stdout=stdout, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, start_new_session=True, **user)
             try:
@@ -90,7 +92,8 @@ def compile_job(job):
                 code = 124
         pdf = out / 'output.pdf'
         log = ''.join(p.read_text(errors='replace') for p in (out / 'output.log', work / 'stdout.txt') if p.exists())
-        return {'pdf': base64.b64encode(pdf.read_bytes()).decode() if pdf.exists() else '', 'log': log[-400_000:], 'exit': code}
+        seconds = round(time.monotonic() - started, 2)
+        return {'pdf': base64.b64encode(pdf.read_bytes()).decode() if pdf.exists() else '', 'log': log[-400_000:], 'exit': code, 'seconds': seconds}
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
