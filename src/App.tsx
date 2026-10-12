@@ -1490,7 +1490,7 @@ export default function App() {
               onClose={closeDock}
               onOpen={openFromDiscover}
               ask={discoverAsk}
-              here={view.kind === 'collection' ? view.id : discoverProject ?? undefined}
+              here={view.kind === 'collection' || view.kind === 'project' ? view.id : discoverProject ?? undefined}
               focus={discoverFocus}
             />
           ) : (

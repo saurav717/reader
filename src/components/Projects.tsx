@@ -45,6 +45,7 @@ import type { View } from '../types.view';
 import Playground, { ComputeTag, WhereDialog } from './Playground';
 import PaperWindow from './PaperWindow';
 import Reader from './Reader';
+import Discover from './Discover';
 import { CiteButtons, DraftEditor, OpenOverleaf, OverleafCard } from './Overleaf';
 import WritePage from './Write';
 import { ComputeSwitch } from './Compute';
@@ -777,6 +778,8 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
     }
   });
   const shown = mine.find((paper) => paper.id === paperId) ?? continueWith(project, papers) ?? mine[0];
+  // With nothing to read, the search takes the cursor as the page opens.
+  const [findAt] = useState(() => Date.now());
   // Full code is where a project's work is done: the papers are a strip above it, a card each, and a window over it.
   const [chosenLayout, setLayoutState] = useState<WsLayout>(() => readWs(WS_LAYOUT, ['paper', 'both', 'code', 'write'] as const, 'code'));
   // Read is the paper alone; Code is the whole workspace. Write is there only while Settings puts the writing in the workspace.
@@ -918,7 +921,7 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
                 ))}
               </div>
             ))}
-            {!mine.length ? <p className="pj-tree-none">No papers yet — add some from the overview.</p> : null}
+            {!mine.length ? <p className="pj-tree-none">No papers yet — search for some beside this.</p> : null}
             <span className="pj-tree-sect">Code</span>
             {code ? (
               <div className="pj-tree-code">
@@ -961,11 +964,8 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
                 onOrphans={() => undefined}
               />
             ) : (
-              <div className="pj-ws-empty">
-                <p>This project has no papers yet.</p>
-                <button type="button" className="btn sm" onClick={() => onView({ kind: 'project', id: project.id })}>
-                  Go to the overview to add some
-                </button>
+              <div className="pj-ws-find">
+                <Discover embedded={{ title: `Add papers to ${project.name}` }} here={project.id} focus={findAt} onOpen={pick} onClose={() => undefined} />
               </div>
             )}
           </div>
