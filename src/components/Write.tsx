@@ -25,7 +25,7 @@ import { OpenOverleaf } from './Overleaf';
 import { readTexLog, type CompileFile } from '../lib/latexGithub';
 import { apiFetch } from '../lib/api';
 import { cloudSync, forgetOverleafToken as forgetCloudToken, overleafTokenKnown } from '../lib/overleafCloud';
-import { companionStore, driveShelf, driveStore, paperDriveNow, setPaperDrive, unpackKit, type PaperStore, type ShelfTemplate, type TemplateShelf } from '../lib/paperStore';
+import { companionStore, driveShelf, driveStore, paperDriveFolder, paperDriveNow, setPaperDrive, unpackKit, type PaperStore, type ShelfTemplate, type TemplateShelf } from '../lib/paperStore';
 import { findLostFolder, inDrive, movePaperToDrive, removeFolder } from '../lib/paperMove';
 import { CompanionConnect } from './Playground';
 
@@ -204,7 +204,7 @@ function ToDrive({ project }: { project: Project }) {
         <span className="eyebrow">The paper</span>
         <h2>{blocked ? 'Bringing the paper into Google Drive' : 'Getting the paper ready in Google Drive'}</h2>
         <p>
-          The project’s LaTeX is kept in your Drive, in <span className="mono">Projects/{project.name}/LaTeX</span> — nothing on this computer — written here in the browser, compiled on Cloud Run
+          The project’s LaTeX is kept in your Drive, in <span className="mono">{paperDriveFolder(project.name, project.id)}</span> — nothing on this computer — written here in the browser, compiled on Cloud Run
           {gitUrl ? ', and kept in step with Overleaf by Reader’s server.' : '.'}
         </p>
         {step ? (
