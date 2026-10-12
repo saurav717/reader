@@ -704,7 +704,8 @@ class BrowsersHandler(VsCodeHandler):
 class PaperHandler(VsCodeHandler):
     """A project's paper on this computer (from 0.10.0). GET: what compiles it (latexmk, Tectonic) and whether git is here.
     POST {action}: compile {folder, main?, engine} — the PDF as base64 and the log read into errors; install-tectonic;
-    clone {folder, url, token}; sync {folder, message, token?} — commit, pull, push; remote {folder}. Folders are
+    clone {folder, url, token}; sync {folder, message, token?} — commit, pull, push; remote {folder}; reveal {folder} — opened
+    in the file manager (0.13.0). Folders are
     relative to the Companion's, and the token is kept for its remote in the Companion's config. The token, as for
     every call that reaches files."""
 
@@ -746,6 +747,8 @@ class PaperHandler(VsCodeHandler):
                 main = str(body["main"]) if body.get("main") else None
                 halt = bool(body.get("halt"))
                 return self.reply(200, await loop.run_in_executor(None, lambda: paper.compile_paper(root, folder, main, engine, found, compiler=compiler, halt=halt)))
+            if action == "reveal":
+                return self.reply(200, {"opened": await loop.run_in_executor(None, lambda: paper.reveal(root, folder))})
             if action == "templates":
                 return self.reply(200, {"templates": await loop.run_in_executor(None, lambda: paper.list_templates(root))})
             if action == "save-template":
@@ -795,7 +798,7 @@ class PaperHandler(VsCodeHandler):
             return self.reply(400, {"error": str(error)})
         except OSError as error:
             return self.reply(500, {"error": str(error)})
-        self.reply(400, {"error": "compile, install-tectonic, texlive, install-texlive, cancel-texlive, remove-texlive, install-packages, clone, sync, remote, templates, save-template, apply-template, delete-template, token or forget-token"})
+        self.reply(400, {"error": "compile, reveal, install-tectonic, texlive, install-texlive, cancel-texlive, remove-texlive, install-packages, clone, sync, remote, templates, save-template, apply-template, delete-template, token or forget-token"})
 
 
 class AppHandler(VsCodeHandler):

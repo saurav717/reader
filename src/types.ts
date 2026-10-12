@@ -212,18 +212,50 @@ export interface OverleafLink {
   /** The main document, as Overleaf's Menu → Main document: the file with \documentclass when unset. */
   main?: string;
   /**
+   * The paper kept in Google Drive rather than on any computer: its folder
+   * under Papers_collection/ (Projects/<project>-<id>/LaTeX). Edited in the
+   * browser, compiled on Cloud Run, synced with Overleaf by Reader's server.
+   * Set, it wins over `folders` unless `keep` says the computers.
+   */
+  drive?: { folder: string };
+  /**
+   * Where the paper is kept, as last chosen for the project, and when: Google
+   * Drive (the default, also when unset), or a folder on each computer — a
+   * clone of the Overleaf project there. The newest choice wins on every device.
+   */
+  keep?: { where: 'drive' | 'computer'; at: string };
+  /** The Overleaf account (connected to Reader's server) the project last synced with: tried first. */
+  gitAccount?: string;
+  /**
    * The folders of the Overleaf projects this one was linked to before, by
    * their address: switching back to one opens its folder again, with what
    * changed in Overleaf meanwhile taken in, rather than cloning it afresh.
    */
   earlier?: Record<string, Record<string, PaperFolder>>;
+  /**
+   * The LaTeX projects in the paper's Drive folder that have an Overleaf link of
+   * their own, by their folder there ('sub/dir'): each one its own Overleaf
+   * project, or none (url ''). A folder with no entry is part of the nearest
+   * one above it that has one, or of the top's (this link's own url) — so a
+   * folder that came in from Overleaf stays in that Overleaf project.
+   */
+  latex?: Record<string, LatexLink>;
+}
+
+/** A LaTeX project's own Overleaf link: '' when it is kept off Overleaf. Paths are relative to its folder. */
+export interface LatexLink {
+  url: string;
+  gitAccount?: string;
+  main?: string;
+  compiler?: 'pdflatex' | 'xelatex' | 'lualatex' | 'latex';
+  account?: string;
 }
 
 export interface PaperFolder {
   /** Relative to the Companion's folder (~/Reader): papers/loss-free-routing, linked/Overleaf-paper. */
   path: string;
   /** git: synced from here (Overleaf's Git or GitHub); dropbox: Dropbox syncs it; folder: not synced. */
-  sync: 'git' | 'dropbox' | 'folder';
+  sync: 'git' | 'dropbox' | 'folder' | 'drive';
 }
 
 export interface BrowserChoice {
@@ -509,8 +541,8 @@ export interface WriteOptions {
   citations: 'drawer' | 'off';
   /** On an error: keep going, as Overleaf does, or stop at the first (Overleaf's "Stop on first error"). */
   errors: 'continue' | 'halt';
-  /** Where the PDF is made: on this computer, or by Overleaf (nothing to install; the PDF is in Overleaf's window). */
-  pdf: 'here' | 'github' | 'overleaf';
+  /** Where the PDF is made: on this computer, by Reader's compiler on GitHub Actions or Cloud Run, or by Overleaf (the PDF is in Overleaf's window). */
+  pdf: 'here' | 'github' | 'cloudrun' | 'overleaf';
 }
 
 export const WRITE_DEFAULTS: WriteOptions = { compile: 'pause', engine: 'auto', layout: 'side', sync: 'pause', citations: 'drawer', errors: 'continue', pdf: 'here' };
@@ -523,6 +555,7 @@ export const WRITE_OPTIONS: { key: keyof WriteOptions; label: string; choices: {
     choices: [
       { id: 'here', label: 'This computer', note: 'The Companion compiles it with the TeX installed here, and the PDF is beside the source.' },
       { id: 'github', label: 'GitHub Actions', note: 'Reader’s own compiler, not a sync: GitHub Actions compiles it with all of TeX Live and the PDF comes back here, in a minute or two. Nothing to install or set up; the files are never kept.' },
+      { id: 'cloudrun', label: 'Cloud Run', note: 'Reader’s own compiler on Google Cloud Run, with all of TeX Live: the PDF comes back here in seconds once it is warm. Nothing to install or set up; the files are never kept.' },
       { id: 'overleaf', label: 'By Overleaf', note: 'Nothing to install: edits go to Overleaf a moment after you stop typing, and the PDF is in Overleaf’s window, beside.' },
     ],
   },

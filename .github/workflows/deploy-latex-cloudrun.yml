@@ -1,0 +1,93 @@
+# Deploys Reader's LaTeX compiler to Google Cloud Run (cloudrun/latex): each
+# merge into main that changes it, or by hand from the Actions tab. It builds
+# the image here (all of TeX Live and server.py), pushes it to Artifact
+# Registry and deploys it; the Worker then compiles there once it has the
+# service's address (worker/latex.js, docs/deploy.md).
+#
+# It needs (see docs/deploy.md, "the LaTeX compiler on Cloud Run"):
+#   GCP_PROJECT            a variable, the Google Cloud project id
+#   GCP_REGION             a variable, optional: us-central1 when unset
+#   GCP_SA_KEY             a secret, a key of the deploying service account (JSON),
+#     or instead GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT, two variables
+#   LATEX_CLOUD_RUN_TOKEN  a secret, the same long random string as the Worker's
+# Without them it says so and deploys nothing.
+name: Deploy LaTeX compiler
+
+on:
+  push:
+    branches: [main]
+    paths: ['cloudrun/latex/**', '.github/workflows/deploy-latex-cloudrun.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-latex-cloudrun
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PROJECT: ${{ vars.GCP_PROJECT }}
+      REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+      SERVICE: reader-latex
+      SA_KEY: ${{ secrets.GCP_SA_KEY }}
+      WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      LATEX_TOKEN: ${{ secrets.LATEX_CLOUD_RUN_TOKEN }}
+    steps:
+      - name: Without a project, a way in and the token, nothing to deploy
+        id: ready
+        run: |
+          if [ -z "$PROJECT" ] || { [ -z "$SA_KEY" ] && [ -z "$WIF_PROVIDER" ]; } || [ -z "$LATEX_TOKEN" ]; then
+            echo "::notice::GCP_PROJECT, GCP_SA_KEY (or GCP_WORKLOAD_IDENTITY_PROVIDER) and LATEX_CLOUD_RUN_TOKEN aren't all set, so the compiler isn't deployed (docs/deploy.md)."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.ready.outputs.go == 'true'
+
+      - uses: google-github-actions/auth@v2
+        if: steps.ready.outputs.go == 'true'
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        if: steps.ready.outputs.go == 'true'
+
+      - name: Build the image and push it to Artifact Registry
+        if: steps.ready.outputs.go == 'true'
+        run: |
+          set -e
+          HOST="$REGION-docker.pkg.dev"
+          gcloud artifacts repositories describe reader --project "$PROJECT" --location "$REGION" >/dev/null 2>&1 \
+            || gcloud artifacts repositories create reader --project "$PROJECT" --location "$REGION" --repository-format docker --description "Reader's images"
+          gcloud auth configure-docker "$HOST" --quiet
+          IMAGE="$HOST/$PROJECT/reader/latex:${GITHUB_SHA::12}"
+          docker build -t "$IMAGE" cloudrun/latex
+          docker push -q "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Deploy it to Cloud Run
+        if: steps.ready.outputs.go == 'true'
+        run: |
+          set -e
+          # Request-based billing, nothing running between compiles (min 0):
+          # within the free tier for a few hundred compiles a day.
+          gcloud run deploy "$SERVICE" --project "$PROJECT" --region "$REGION" --image "$IMAGE" \
+            --allow-unauthenticated --port 8080 --execution-environment gen2 \
+            --cpu 2 --memory 4Gi --cpu-boost --concurrency 4 --min-instances 0 --max-instances 1 --timeout 300 \
+            --update-env-vars "LATEX_TOKEN=$LATEX_TOKEN" --quiet
+          URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" --format 'value(status.url)')"
+          {
+            echo "### Deployed the LaTeX compiler from saurav717/reader@${GITHUB_SHA::7}"
+            echo
+            echo "Its address: \`$URL\` — the Worker's \`LATEX_CLOUD_RUN_URL\` (wrangler.toml)."
+          } >> "$GITHUB_STEP_SUMMARY"

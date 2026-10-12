@@ -25,6 +25,18 @@ class Paths(unittest.TestCase):
             with self.assertRaises(paper.Refused, msg=bad):
                 paper.inside(self.root, bad)
 
+    def test_reveals_a_folder_in_the_file_manager(self):
+        (self.root / "papers" / "moe" / "workshop").mkdir(parents=True)
+        for system, program in (("Darwin", "open"), ("Windows", "explorer"), ("Linux", "xdg-open")):
+            popen = mock.Mock()
+            opened = paper.reveal(self.root, "papers/moe/workshop", system=system, popen=popen)
+            self.assertEqual(opened, str(self.root / "papers" / "moe" / "workshop"))
+            self.assertEqual(popen.call_args.args[0], [program, opened])
+        with self.assertRaises(paper.Refused):
+            paper.reveal(self.root, "papers/moe/missing", popen=mock.Mock())
+        with self.assertRaises(paper.Refused):
+            paper.reveal(self.root, "../elsewhere", popen=mock.Mock())
+
     def test_finds_the_main_file(self):
         folder = self.root / "p"
         (folder / "sections").mkdir(parents=True)

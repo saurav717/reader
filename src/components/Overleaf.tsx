@@ -17,6 +17,7 @@ import {
   keyFor,
   mainFileOf,
   openInOverleaf,
+  overleafGitUrl,
   overleafViewOf,
   parseOverleafUrl,
   quoteOf,
@@ -29,6 +30,7 @@ import { createPrivateRepo, githubAccount, makeRepoPrivate, parseRepo, repoNameF
 import { papersIn, projectsOf, type Project } from '../lib/projects';
 import type { BrowserChoice, OverleafLink, OverleafView, Paper, Settings } from '../types';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
+import { SyncedThrough } from './OverleafAccounts';
 import { CheckIcon, ChevronDownIcon, CopyIcon, ExternalIcon, LockIcon } from './icons';
 import { BROWSERS_VERSION, findLocalCompanion, isNewer, listBrowsers, openInBrowser, type InstalledBrowser } from '../lib/companion';
 import { allServers } from '../lib/playground';
@@ -112,9 +114,10 @@ const choiceLabel = (browser: InstalledBrowser, profile?: { name: string; accoun
  * picks another — every browser and profile here, through the Companion — or
  * copies the link for any other.
  */
-export function OpenOverleaf({ project, view, primary = true, compact = false }: { project: Project; view: OverleafView; primary?: boolean; compact?: boolean }) {
+export function OpenOverleaf({ project, view, primary = true, compact = false, url }: { project: Project; view: OverleafView; primary?: boolean; compact?: boolean; /** A LaTeX project's own Overleaf project, in place of the project's ('' for none). */ url?: string }) {
   const { updateCollection } = useStore();
-  const link = project.project.overleaf;
+  const own = project.project.overleaf;
+  const link = url === undefined ? own : url ? { ...(own ?? {}), url } : undefined;
   const [opener, setOpener] = useState<Opener | null>(null);
   const [menu, setMenu] = useState(false);
   const [found, setFound] = useState<InstalledBrowser[] | null>(null);
@@ -134,7 +137,7 @@ export function OpenOverleaf({ project, view, primary = true, compact = false }:
     window.addEventListener('pointerdown', away);
     return () => window.removeEventListener('pointerdown', away);
   }, [menu]);
-  if (!link) return null;
+  if (!link?.url) return null;
   const here = opener && 'id' in opener ? opener : null;
   const chosen = here ? link.browsers?.[here.id] : undefined;
   const say = (text: string) => {
@@ -680,7 +683,8 @@ export function OverleafCard({ project, onWrite }: { project: Project; /** The w
             ) : null}
             <OpenOverleaf project={project} view={view === 'tab' ? 'beside' : view} primary={view !== 'write' && view !== 'tab'} />
           </div>
-          {!link.repo ? (
+          {view === 'tab' && overleafGitUrl(link.url) ? <SyncedThrough gitAccount={link.gitAccount} /> : null}
+          {!link.repo && link.drive ? null : !link.repo ? (
             <p className="ol-note">Overleaf can’t be read from another site, so this is only the link. If the project syncs with GitHub, add the repository (Change) to see its sections and citations here.</p>
           ) : !draft.target ? (
             <p className="ol-note">Connect GitHub (Change) to read {link.repo} here.</p>

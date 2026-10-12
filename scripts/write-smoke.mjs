@@ -117,7 +117,8 @@ await context.route(/^https?:\/\/127\.0\.0\.1:473[23]1\//, async (route) => {
         return json({ folder: body.folder });
       }
       if (body.action === 'sync') return json(paper('print(json.dumps(paper.sync(root, args["folder"], "", args["message"])))', { folder: body.folder, message: body.message }));
-      if (body.action === 'remote') return json({ url: `https://git.overleaf.com/${PROJECT_ID}`, token: true });
+      // As the Companion: the folder's origin when it is a clone, nothing when it isn't.
+      if (body.action === 'remote') return json(existsSync(join(root, body.folder, '.git')) ? { url: `https://git.overleaf.com/${PROJECT_ID}`, token: true } : { url: '', token: false });
       if (body.action === 'delete-template') return json({ deleted: true });
     }
     if (url.pathname.startsWith('/api/contents')) {
@@ -196,23 +197,41 @@ async function seed(settings) {
           tx.onerror = () => reject(tx.error);
         });
       for (const store of ['papers', 'collections', 'kv']) await run(store, (s) => s.clear());
-      await run('collections', (s) => s.put({ id: 'p-moe', name: 'Sparse-gated MoE', color: '#1f5e52', createdAt: new Date().toISOString(), project: { question: '', startedAt: new Date().toISOString(), roles: {}, todos: [], overleaf: { url: `https://www.overleaf.com/project/${projectId}` } } }));
+      await run('collections', (s) => s.put({ id: 'p-moe', name: 'Sparse-gated MoE', color: '#1f5e52', createdAt: new Date().toISOString(), project: { question: '', startedAt: new Date().toISOString(), roles: {}, todos: [], overleaf: { url: `https://www.overleaf.com/project/${projectId}`, keep: { where: 'computer', at: new Date().toISOString() } } } }));
       for (const paper of papers) await run('papers', (s) => s.put(paper));
       db.close();
     },
     { papers: PAPERS, settings, projectId: PROJECT_ID },
   );
   await page.goto(`${BASE}/project/?id=p-moe&view=write`, { waitUntil: 'networkidle' });
+  await pastWelcome();
+}
+
+/** The opening screen (a build with a Google client id): past it, as someone keeping everything in this browser. */
+async function pastWelcome() {
+  const notNow = page.getByRole('button', { name: /^Not now/ });
+  if (await notNow.isVisible().catch(() => false)) await notNow.click();
 }
 
 console.log('the Write tab: set up from Overleaf’s Git');
-await seed({ navStyle: 'labelled' });
+await seed({ navStyle: 'labelled', googleClientId: '' });
 check('the project bar has a Write tab, on', (await page.locator('.pj-views').getByRole('button', { name: 'Write' }).getAttribute('aria-pressed')) === 'true');
-await page.getByText('Where should the paper’s files be?').waitFor({ timeout: 15000 });
+await page.getByText('Where on this computer?').waitFor({ timeout: 15000 });
 check('Overleaf’s Git is the way picked', (await page.getByRole('radio', { name: /^Overleaf’s Git/ }).getAttribute('aria-checked')) === 'true');
 await page.getByLabel('Overleaf Git token').fill('olp_test_token');
 await shot('write-setup');
 await page.getByRole('button', { name: 'Clone from Overleaf' }).click();
+console.log('the first page: the project’s documents, and new ones');
+await page.locator('.wr-doc').first().waitFor({ timeout: 15000 });
+const docs = await page.locator('.wr-doc').allInnerTexts();
+check('it opens on the project’s documents: main.tex, by its title', docs.length === 1 && /Loss-free routing at 8B/.test(docs[0]) && /main\.tex/.test(docs[0]) && /article/.test(docs[0]), docs.join(' | '));
+check('the other files are counted, not listed as documents', /1 other \.tex file .* 1 \.bib/.test(await page.locator('.wr-home-others').innerText()), await page.locator('.wr-home-others').innerText());
+check('four ways to start another', (await page.locator('.wr-home-way').count()) === 4);
+await shot('write-home');
+await page.locator('.wr-home-way', { hasText: 'Browse templates' }).click();
+await page.getByText('No template on this computer yet').waitFor({ timeout: 10000 });
+await shot('write-home-templates');
+await page.locator('.wr-doc').first().click();
 await page.locator('.wr-desk').waitFor({ timeout: 15000 });
 check('it clones Overleaf’s Git address, with the token', cloned?.url === `https://git.overleaf.com/${PROJECT_ID}` && cloned?.token === 'olp_test_token' && cloned?.folder === 'papers/sparse-gated-moe', JSON.stringify(cloned));
 await page.locator('.wr-tree-item', { hasText: 'intro.tex' }).waitFor({ timeout: 10000 });
@@ -323,13 +342,18 @@ check('it is saved and synced on the way out', /Typed just before leaving/.test(
 
 console.log('it sticks: the folder, the compiler, the main document');
 await page.goto(`${BASE}/project/?id=p-moe&view=write`, { waitUntil: 'networkidle' });
+await pastWelcome();
+await page.locator('.wr-home-head').getByRole('button', { name: /^Continue/ }).click();
 await page.locator('.wr-desk').waitFor({ timeout: 15000 });
-check('after a reload it opens on the paper, not the set-up', (await page.getByText('Where should the paper’s files be?').count()) === 0);
+check('after a reload it opens on the paper, not the set-up', (await page.getByText('Where on this computer?').count()) === 0);
 await page.getByRole('combobox', { name: 'Compiler' }).selectOption('xelatex');
 await page.getByRole('combobox', { name: 'Main document' }).selectOption('main.tex');
 await page.waitForTimeout(500);
 await page.reload({ waitUntil: 'networkidle' });
+await pastWelcome();
+await page.locator('.wr-doc').first().click();
 await page.locator('.wr-desk').waitFor({ timeout: 15000 });
+await page.locator('.wr-tree-item', { hasText: 'intro.tex' }).waitFor({ timeout: 10000 });
 check('the compiler picked stays picked', (await page.getByRole('combobox', { name: 'Compiler' }).inputValue()) === 'xelatex');
 check('so does the main document', (await page.getByRole('combobox', { name: 'Main document' }).inputValue()) === 'main.tex');
 await page.getByRole('combobox', { name: 'Compiler' }).selectOption('pdflatex');
@@ -405,29 +429,86 @@ console.log('a new paper from a conference template');
 cloneFrom = blank;
 answers.push(true);
 await page.locator('.wr-side-foot').getByRole('button', { name: 'Change' }).click();
-await page.getByText('Where should the paper’s files be?').waitFor({ timeout: 10000 });
+await page.getByText('Where on this computer?').waitFor({ timeout: 10000 });
 check('the Overleaf token is known: not asked again', (await page.getByText('Your Overleaf account’s Git token is on this computer already').count()) === 1 && (await page.getByLabel('Overleaf Git token').count()) === 0);
-await page.getByLabel('The template’s name').fill('NeurIPS 2026');
-await page.locator('.wr-templates input[type=file]').setInputFiles(kit);
-await page.locator('.wr-template.is-on', { hasText: 'NeurIPS 2026' }).waitFor({ timeout: 10000 });
-check('the kit is kept as a template, and picked', (await page.locator('.wr-template', { hasText: 'NeurIPS 2026' }).innerText()).includes('2 files'));
 await page.getByLabel('Folder, inside the Companion’s').fill('papers/neurips-paper');
-await shot('write-template');
-await page.getByRole('button', { name: 'Clone, and fill it from the template' }).click();
+await page.getByRole('button', { name: 'Clone from Overleaf' }).click();
 await page.locator('.wr-desk').waitFor({ timeout: 20000 });
-await page.waitForTimeout(1500);
-check('the template is in the Overleaf project at once', /usepackage\{neurips_2026\}/.test(remoteFile('neurips_2026.tex', blank) ?? '') && remoteFile('neurips_2026.sty', blank) !== null && /Start from a template/.test(sh('git', ['--git-dir', blank, 'log', '--format=%s', '-1'])));
-check('and its paper is the main document', (await page.getByRole('combobox', { name: 'Main document' }).inputValue()) === 'neurips_2026.tex');
+await page.getByRole('button', { name: '← All documents' }).click();
+await page.locator('.wr-home-way', { hasText: 'Upload a template (.zip)' }).click();
+await page.locator('.wr-home-name input').fill('NeurIPS 2026');
+await shot('write-template');
+await page.locator('.wr-home input[type=file]').first().setInputFiles(kit);
+await page.locator('.wr-desk').waitFor({ timeout: 20000 });
+for (let i = 0; i < 40 && remoteFile('neurips-2026/neurips_2026.sty', blank) === null; i += 1) await page.waitForTimeout(500);
+check('the template goes to the Overleaf project, in a folder of its own beside main.tex', /usepackage\{neurips_2026\}/.test(remoteFile('neurips-2026/neurips_2026.tex', blank) ?? '') && remoteFile('neurips-2026/neurips_2026.sty', blank) !== null);
+check('and its paper is the main document', (await page.getByRole('combobox', { name: 'Main document' }).inputValue()) === 'neurips-2026/neurips_2026.tex');
 await page.locator('.wr-page').first().waitFor({ timeout: 60000 }).catch(() => {});
 check('it compiles', (await page.locator('.wr-page').count()) >= 1);
 await shot('write-from-template');
+
+console.log('back to the documents: a new one, blank, beside the others');
+await page.getByRole('button', { name: '← All documents' }).click();
+await page.locator('.wr-doc').first().waitFor({ timeout: 15000 });
+await page.locator('.wr-home-way', { hasText: 'Blank document' }).click();
+await page.locator('.wr-home-name input').fill('Workshop version');
+check('it says where the new one goes', /workshop-version\//.test(await page.locator('.wr-home-name').innerText()), await page.locator('.wr-home-name').innerText());
+await shot('write-home-new');
+await page.getByRole('button', { name: 'Make it and open it' }).click();
+await page.locator('.wr-desk').waitFor({ timeout: 15000 });
+await page.waitForTimeout(800);
+check('the blank document is made in a folder of its own', /\\title\{Workshop version\}/.test(readFileSync(join(root, 'papers/neurips-paper/workshop-version/main.tex'), 'utf8')));
+check('and opened as the main document', (await page.getByRole('combobox', { name: 'Main document' }).inputValue()) === 'workshop-version/main.tex');
+await page.locator('.wr-page').first().waitFor({ timeout: 60000 }).catch(() => {});
+await shot('write-new-desk');
+await page.getByRole('button', { name: '← All documents' }).click();
+await page.locator('.wr-doc').nth(1).waitFor({ timeout: 15000 });
+const both = await page.locator('.wr-doc').allInnerTexts();
+check('the documents page lists the new one too, the open one first', both.length === 3 && /Workshop version/.test(both[0]) && /\bmain\b/.test(both[0].split('\n').pop()) && both.some((text) => /neurips_2026\.tex/.test(text)), both.join(' | '));
+await shot('write-home-two');
+await page.locator('.wr-doc').first().click();
+await page.locator('.wr-desk').waitFor({ timeout: 15000 });
+
+console.log('the project loses its link to the folder: set up again, the clone there is taken back');
+await page.evaluate(async () => {
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('reader');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction('collections', 'readwrite');
+    const store = tx.objectStore('collections');
+    const got = store.get('p-moe');
+    got.onsuccess = () => {
+      const project = got.result;
+      delete project.project.overleaf.folders;
+      store.put(project);
+    };
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+});
+const marker = readFileSync(join(root, 'papers/sparse-gated-moe/main.tex'), 'utf8');
+await page.reload({ waitUntil: 'networkidle' });
+await pastWelcome();
+await page.getByText('Where on this computer?').waitFor({ timeout: 15000 });
+await page.getByLabel('Folder, inside the Companion’s').fill('papers/sparse-gated-moe');
+const clonesBefore = cloned;
+await page.getByRole('button', { name: 'Clone from Overleaf' }).click();
+await page.locator('.wr-doc').first().waitFor({ timeout: 15000 });
+check('the folder there, a clone of this project, is taken back as it is: nothing cloned over it', cloned === clonesBefore && readFileSync(join(root, 'papers/sparse-gated-moe/main.tex'), 'utf8') === marker);
+check('and its documents are listed', /Loss-free routing at 8B/.test(await page.locator('.wr-docs').innerText()));
+await page.locator('.wr-doc').first().click();
+await page.locator('.wr-desk').waitFor({ timeout: 15000 });
 
 console.log('Settings: the Write tab’s choices');
 await page.evaluate(() => window.dispatchEvent(new Event('reader:open-settings')));
 const layout = page.getByRole('radiogroup', { name: 'The Write tab: The PDF' });
 await layout.waitFor({ timeout: 5000 });
 await layout.scrollIntoViewIfNeeded();
-check('six choices, each with its default first and on', (await page.locator('.write-choice').count()) === 6 && (await layout.getByRole('radio').first().getAttribute('aria-checked')) === 'true');
+check('seven choices, each with its default first and on', (await page.locator('.write-choice').count()) === 7 && (await layout.getByRole('radio').first().getAttribute('aria-checked')) === 'true');
 check('the Write tab is the default way to write', /A Write tab · default/.test(await page.getByRole('radiogroup', { name: /Where a project’s paper is written/ }).innerText()));
 await shot('write-settings');
 await layout.getByRole('radio', { name: /A tab of its own/ }).click();

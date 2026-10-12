@@ -7,7 +7,7 @@ import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
-import { FREE_MINUTES, LatexJob, cleanFiles, handleLatex, isLatexPath, latexMonth, summarize } from '../worker/latex.js';
+import { FREE_MINUTES, LatexJob, cleanFiles, handleLatex, isLatexPath, latexCompiler, latexMonth, openToken, sealToken, summarize } from '../worker/latex.js';
 
 const gh = await load('src/lib/latexGithub.ts');
 after(cleanup);
@@ -142,5 +142,203 @@ describe('a job’s state', () => {
     assert.equal(done.pdf, true);
     // The next compile isn't refused by KV's stale "still going".
     assert.ok((await ask('/latex/jobs', { method: 'POST', body: JSON.stringify({ files }) })).id);
+  });
+
+  it('on Cloud Run: compiled while the page waits, the answer handed straight back, nothing stored', async (t) => {
+    const sent = [];
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+      sent.push({ url, auth: init.headers.Authorization, job: JSON.parse(init.body) });
+      return Response.json({ pdf: btoa('%PDF'), log: 'Output written on output.pdf', exit: 0, seconds: 1.5, cached: false });
+    });
+    const kv = staleKv();
+    const stored = [];
+    const put = kv.put;
+    kv.put = (key, value, options) => (stored.push(key), put(key, value, options));
+    const env = { SESSIONS: kv, LATEX_JOBS: jobObjects(), LATEX_CLOUD_RUN_URL: 'https://latex-abc.a.run.app/', LATEX_CLOUD_RUN_TOKEN: 'c', LATEX_GITHUB_TOKEN: 'g', LATEX_RUNNER_TOKEN: 'r' };
+    assert.equal(latexCompiler(env), 'cloudrun');
+    const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers });
+    const tallied = [];
+    const tools = { json, headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: (who, counts) => tallied.push(counts) };
+    const ask = (path, init = {}) => handleLatex(new Request(`https://w${path}`, init), env, path, tools);
+
+    const files = [{ path: 'main.tex', base64: btoa('\\documentclass{article}') }];
+    const answer = await ask('/latex/jobs', { method: 'POST', body: JSON.stringify({ files, main: 'main.tex', compiler: 'xelatex' }) });
+    assert.equal(answer.status, 200);
+    const done = await answer.json();
+    assert.deepEqual([done.pdf, done.exit, done.seconds], [btoa('%PDF'), 0, 1.5]);
+    assert.deepEqual(sent, [{ url: 'https://latex-abc.a.run.app/compile', auth: 'Bearer c', job: { main: 'main.tex', flag: '-xelatex', files } }]);
+    assert.deepEqual(stored, []);
+    assert.equal(tallied[0].latex, 1);
+
+    // A compiler that doesn't answer well: the page is told.
+    t.mock.method(globalThis, 'fetch', async () => new Response('busy', { status: 503 }));
+    const failed = await ask('/latex/jobs', { method: 'POST', body: JSON.stringify({ files }) });
+    assert.equal(failed.status, 502);
+    assert.match((await failed.json()).error, /503/);
+  });
+
+  it('on Cloud Run with a project: the folder is named for whose and which paper, the manifest passed on, a 409 handed back', async (t) => {
+    const sent = [];
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+      const job = JSON.parse(init.body);
+      sent.push(job);
+      return job.files.length ? Response.json({ pdf: '', log: '', exit: 0, seconds: 0.4, cached: true }) : Response.json({ need: ['main.tex'] }, { status: 409 });
+    });
+    const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers });
+    const as = (email) => ({ json, headers: {}, authorized: async () => ({ email }), personOverLimit: async () => false, tally: () => {} });
+    const env = { SESSIONS: staleKv(), LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' };
+    const sha = 'a'.repeat(64);
+    const ask = (email, body) => handleLatex(new Request('https://w/latex/jobs', { method: 'POST', body: JSON.stringify(body) }), env, '/latex/jobs', as(email));
+
+    const need = await ask('a@b.c', { project: 'p1', manifest: { 'main.tex': sha }, files: [] });
+    assert.equal(need.status, 409);
+    assert.deepEqual(await need.json(), { need: ['main.tex'] });
+    const again = await ask('a@b.c', { project: 'p1', manifest: { 'main.tex': sha }, files: [{ path: 'main.tex', base64: 'eA==' }], fresh: true });
+    assert.equal((await again.json()).cached, true);
+    await ask('x@y.z', { project: 'p1', manifest: { 'main.tex': sha }, files: [] });
+    assert.equal(sent[0].project, sent[1].project);
+    assert.notEqual(sent[0].project, sent[2].project);
+    assert.match(sent[0].project, /^[a-f0-9]{40}$/);
+    assert.deepEqual([sent[0].manifest, sent[1].fresh], [{ 'main.tex': sha }, true]);
+    assert.equal((await ask('a@b.c', { project: 'p1', manifest: { '../x': sha }, files: [] })).status, 400);
+  });
+
+  it('compiles where the page asks, warms Cloud Run, and says when the asked-for one isn’t set up', async (t) => {
+    const asked = [];
+    t.mock.method(globalThis, 'fetch', async (url) => {
+      asked.push(String(url));
+      return String(url).endsWith('/compile') ? Response.json({ pdf: btoa('%PDF'), log: '', exit: 0, seconds: 3.2 }) : String(url).endsWith('/') ? Response.json({ ok: true }) : new Response(null, { status: 204 });
+    });
+    const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers });
+    const tools = { json, headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: () => {} };
+    const files = [{ path: 'main.tex', base64: btoa('x') }];
+    const both = { SESSIONS: staleKv(), LATEX_JOBS: jobObjects(), LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c', LATEX_GITHUB_TOKEN: 'g', LATEX_RUNNER_TOKEN: 'r' };
+    const ask = (env, path, init = {}) => handleLatex(new Request(`https://w${path}`, init), env, path, tools);
+
+    const github = await (await ask(both, '/latex/jobs', { method: 'POST', body: JSON.stringify({ files, on: 'github' }) })).json();
+    assert.deepEqual([github.on, github.state], ['github', 'queued']);
+    assert.match(asked.pop(), /api\.github\.com/);
+
+    const cloud = await (await ask(both, '/latex/jobs', { method: 'POST', body: JSON.stringify({ files, on: 'cloudrun' }) })).json();
+    assert.equal(cloud.seconds, 3.2);
+
+    const warm = await (await ask(both, '/latex/warm', { method: 'POST' })).json();
+    assert.equal(warm.warm, true);
+    assert.equal(asked.pop(), 'https://latex.run.app/');
+
+    const onlyGithub = { SESSIONS: staleKv(), LATEX_JOBS: jobObjects(), LATEX_GITHUB_TOKEN: 'g', LATEX_RUNNER_TOKEN: 'r' };
+    const refused = await ask(onlyGithub, '/latex/jobs', { method: 'POST', body: JSON.stringify({ files, on: 'cloudrun' }) });
+    assert.equal(refused.status, 501);
+    assert.match((await refused.json()).error, /Cloud Run/);
+  });
+
+  it('uses GitHub Actions only when Cloud Run isn’t set up, and an https:// service only', () => {
+    assert.equal(latexCompiler({ SESSIONS: {}, LATEX_GITHUB_TOKEN: 'g', LATEX_RUNNER_TOKEN: 'r' }), 'github');
+    assert.equal(latexCompiler({ SESSIONS: {}, LATEX_CLOUD_RUN_URL: 'http://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' }), null);
+    assert.equal(latexCompiler({ LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' }), null);
+  });
+
+  it('a paper in Drive: Overleaf accounts kept sealed, each project synced with the account that can open it', async (t) => {
+    const sent = [];
+    // Which token opens which project: one account's own, another's not.
+    const opens = { olp_mine: ['621baf31fcfddbde3bf5fdf8'], olp_lab: ['731baf31fcfddbde3bf5fdf9'] };
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+      const job = JSON.parse(init.body);
+      sent.push({ url: String(url), job });
+      return (opens[job.token] ?? []).some((id) => job.url.includes(id)) ? Response.json({ ok: true, commit: 'abc1234', files: [], deleted: [], conflicts: [], tree: {} }) : Response.json({ error: 'Overleaf refused the Git token', needToken: true }, { status: 401 });
+    });
+    const kv = staleKv();
+    const kept = new Map();
+    kv.get = async (key) => kept.get(key) ?? null;
+    kv.put = async (key, value) => void kept.set(key, value);
+    kv.delete = async (key) => void kept.delete(key);
+    const env = { SESSIONS: kv, LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' };
+    const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers });
+    const tools = { json, headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: () => {} };
+    const ask = (path, init = {}) => handleLatex(new Request(`https://w${path}`, init), env, path, tools);
+    const mine = 'https://git.overleaf.com/621baf31fcfddbde3bf5fdf8';
+    const labs = 'https://git.overleaf.com/731baf31fcfddbde3bf5fdf9';
+    const sync = (extra = {}) => ask('/latex/overleaf/sync', { method: 'POST', body: JSON.stringify({ url: mine, base: '', changed: [], deleted: [], manifest: {}, ...extra }) });
+    const accounts = async () => (await (await ask('/latex/overleaf/token')).json()).accounts;
+
+    assert.equal((await (await ask('/latex/overleaf/token')).json()).known, false);
+    const first = await sync();
+    assert.equal(first.status, 400);
+    assert.equal((await first.json()).needToken, true);
+    // A token given with a sync is kept as an account, and the answer says which.
+    const given = await sync({ token: 'olp_mine' });
+    assert.equal(given.status, 200);
+    const mineId = (await given.json()).account;
+    assert.equal(sent.at(-1).url, 'https://latex.run.app/git/sync');
+    assert.equal(sent.at(-1).job.token, 'olp_mine');
+    assert.ok(![...kept.values()].some((value) => value.includes('olp_mine')), 'not kept in the clear');
+    assert.deepEqual((await accounts()).map((item) => item.id), [mineId]);
+    await sync();
+    assert.equal(sent.at(-1).job.token, 'olp_mine', 'the kept token is used');
+    // Another account's project: refused by this account, which is kept all the same.
+    const other = await sync({ url: labs });
+    assert.equal(other.status, 401);
+    assert.match((await other.json()).error, /another Overleaf account/);
+    assert.equal((await accounts()).length, 1, 'a token that can’t open one project is not dropped');
+    // The lab account connected: its projects sync with it, and the first one's with its own.
+    assert.equal((await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: '' }) })).status, 400);
+    // Checked on one of its projects: another account's token can't open it, and isn't kept.
+    const wrong = await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: 'olp_mine', label: 'Lab account', url: labs }) });
+    assert.equal(wrong.status, 403);
+    assert.equal((await wrong.json()).mismatch, true);
+    assert.equal(sent.at(-1).url, 'https://latex.run.app/git/check');
+    assert.equal((await accounts()).length, 1, 'the wrong token isn’t kept as the lab account');
+    assert.equal((await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: 'olp_lab', url: 'https://evil.example/x' }) })).status, 400);
+    const connected = await (await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: 'olp_lab', label: 'Lab account', url: labs }) })).json();
+    assert.equal(sent.at(-1).url, 'https://latex.run.app/git/check');
+    assert.equal(connected.accounts.length, 2);
+    assert.equal(connected.accounts.find((item) => item.id === connected.account).label, 'Lab account');
+    assert.ok(![...kept.values()].some((value) => value.includes('olp_lab')), 'not kept in the clear');
+    const lab = await (await sync({ url: labs })).json();
+    assert.equal(lab.account, connected.account);
+    assert.equal(lab.accountLabel, 'Lab account');
+    sent.length = 0;
+    assert.equal((await (await sync({ url: labs, account: connected.account })).json()).ok, true);
+    assert.equal(sent.length, 1, 'the project’s own account is tried first');
+    // Shared with both accounts: synced with the one asked for; when it loses access, with the other — and said.
+    opens.olp_mine.push('731baf31fcfddbde3bf5fdf9');
+    const asMine = await (await sync({ url: labs, account: mineId })).json();
+    assert.equal(asMine.account, mineId);
+    assert.equal(asMine.fellBackFrom, undefined);
+    opens.olp_mine.pop();
+    const fell = await (await sync({ url: labs, account: mineId })).json();
+    assert.equal(fell.account, connected.account);
+    assert.equal(fell.fellBackFrom, 'Overleaf account 1');
+    // The same token again: the same account, relabelled, not a second one.
+    await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: 'olp_mine', label: 'Me' }) });
+    assert.deepEqual((await accounts()).map((item) => item.label).sort(), ['Lab account', 'Me']);
+    // The Overleaf project's files, nothing merged: through the account that opens it.
+    const files = await ask('/latex/overleaf/files', { method: 'POST', body: JSON.stringify({ url: labs, account: connected.account }) });
+    assert.equal(files.status, 200);
+    assert.equal(sent.at(-1).url, 'https://latex.run.app/git/files');
+    assert.deepEqual(Object.keys(sent.at(-1).job).sort(), ['token', 'url']);
+    assert.equal((await files.json()).account, connected.account);
+    assert.equal((await ask('/latex/overleaf/files', { method: 'POST', body: JSON.stringify({ url: 'https://evil.example/x' }) })).status, 400);
+    // One forgotten, then all.
+    assert.deepEqual((await (await handleLatex(new Request(`https://w/latex/overleaf/token?account=${connected.account}`, { method: 'DELETE' }), env, '/latex/overleaf/token', tools)).json()).accounts.map((item) => item.label), ['Me']);
+    assert.equal((await (await ask('/latex/overleaf/token', { method: 'DELETE' })).json()).known, false);
+    assert.equal((await sync({ url: 'https://evil.example/repo' })).status, 400);
+  });
+
+  it('reads a token kept before there could be several accounts as one account', async () => {
+    const kept = new Map();
+    const kv = { ...staleKv(), get: async (key) => kept.get(key) ?? null, put: async (key, value) => void kept.set(key, value), delete: async (key) => void kept.delete(key) };
+    const env = { SESSIONS: kv, LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' };
+    kept.set('overleaf-token:a@b.c', await sealToken(env, 'olp_old'));
+    const tools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers }), headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: () => {} };
+    const answer = await (await handleLatex(new Request('https://w/latex/overleaf/token'), env, '/latex/overleaf/token', tools)).json();
+    assert.equal(answer.known, true);
+    assert.equal(answer.accounts.length, 1);
+  });
+
+  it('seals and opens a token, and opens nothing sealed under another secret', async () => {
+    const sealed = await sealToken({ LATEX_CLOUD_RUN_TOKEN: 'one' }, 'olp_x');
+    assert.equal(await openToken({ LATEX_CLOUD_RUN_TOKEN: 'one' }, sealed), 'olp_x');
+    assert.equal(await openToken({ LATEX_CLOUD_RUN_TOKEN: 'two' }, sealed), null);
   });
 });

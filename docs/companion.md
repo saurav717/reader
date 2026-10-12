@@ -324,6 +324,10 @@ and shows which one it is on in the machine chip.
   `.sty`'s name looked up with `tlmgr search --global --file` when it isn't a
   package's). Compiling puts the TeX's own folder first on the PATH, so
   latexmk finds pdflatex and biber from the same TeX Live.
+- From 0.13.0, `reveal {folder}` opens a paper's folder, or a LaTeX project's
+  folder inside it, in the computer's file manager (`open` on a Mac,
+  `explorer` on Windows, `xdg-open` elsewhere), for the Write tab's
+  "Open on this computer". A folder outside the Companion's is refused.
 - Secrets (playground.md, step 8) live in the keychain and are passed to a
   kernel's environment. They are never put in the Drive mirror.
 

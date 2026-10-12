@@ -698,6 +698,11 @@ export const syncPaper = (server: { url: string; token: string }, folder: string
 /** Where the folder syncs to, and whether the Companion has a token for it. */
 export const paperRemote = (server: { url: string; token: string }, folder: string) => paperCall<{ url: string; token: boolean }>(server, { action: 'remote', folder });
 
+/** The first Companion that opens a paper's folder in the computer's file manager. */
+export const REVEAL_VERSION = '0.13.0';
+/** A paper's folder, or one inside it, opened in Finder, Explorer or the desktop's file manager (from 0.13.0). */
+export const revealPaper = (server: { url: string; token: string }, folder: string) => paperCall<{ opened: string }>(server, { action: 'reveal', folder });
+
 /** The templates kept on the Companion's computer (from 0.11.0). */
 export const listTemplates = (server: { url: string; token: string }) => paperCall<{ templates: PaperTemplate[] }>(server, { action: 'templates' }).then((body) => body.templates);
 /** A conference's kit, a .zip as base64, kept as a template. */

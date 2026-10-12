@@ -11,6 +11,8 @@ import type { FileHost } from './playground';
 import { ROOT_FOLDER } from './sidecar';
 
 export const PLAYGROUNDS_FOLDER = 'Playgrounds';
+/** Where the Write tab keeps a project's paper: Papers_collection/Papers/<project>-<id>/. */
+export const PAPERS_FOLDER = 'Papers';
 
 export interface DriveConfig {
   clientId: string;
@@ -33,6 +35,13 @@ const MIME: [RegExp, string][] = [
   [/\.csv$/i, 'text/csv'],
   [/\.(sh|bash)$/i, 'application/x-sh'],
   [/\.ipynb$/i, 'application/x-ipynb+json'],
+  [/\.(tex|sty|cls|bib|bst|bbx|cbx)$/i, 'text/x-tex'],
+  [/\.png$/i, 'image/png'],
+  [/\.jpe?g$/i, 'image/jpeg'],
+  [/\.svg$/i, 'image/svg+xml'],
+  [/\.pdf$/i, 'application/pdf'],
+  [/\.eps$/i, 'application/postscript'],
+  [/\.zip$/i, 'application/zip'],
 ];
 const mimeOf = (path: string) => MIME.find(([test]) => test.test(path))?.[1] ?? 'text/plain';
 
@@ -58,7 +67,20 @@ async function children(token: string, parentId: string): Promise<Child[]> {
  * null when the account is signed out or Drive isn't connected, and then each
  * call says so rather than keep anything elsewhere.
  */
-export function driveHost(config: () => DriveConfig | null, folder: string): FileHost {
+export interface DriveHost extends FileHost {
+  /** Any file as base64: a figure, a font, a PDF. */
+  readBase64(path: string): Promise<string | null>;
+  /** Any file from base64, made or replaced. */
+  writeBase64(path: string, base64: string): Promise<void>;
+}
+
+const toBase64 = (bytes: Uint8Array) => {
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+};
+
+export function driveHost(config: () => DriveConfig | null, folder: string, under = PLAYGROUNDS_FOLDER): DriveHost {
   const ids = new Map<string, string>();
   let rootId: Promise<string> | null = null;
   const token = async () => {
@@ -70,9 +92,10 @@ export function driveHost(config: () => DriveConfig | null, folder: string): Fil
     if (!rootId) {
       const now = config();
       rootId = (async () => {
-        const top = await ensureFolder(t, now?.folderName?.trim() || ROOT_FOLDER);
-        const all = await ensureFolder(t, PLAYGROUNDS_FOLDER, top);
-        return ensureFolder(t, folder, all);
+        // The folder at under/folder, either a path (Projects/<project>/LaTeX), each part made on the way.
+        let at = await ensureFolder(t, now?.folderName?.trim() || ROOT_FOLDER);
+        for (const part of [under, ...folder.split('/')].filter(Boolean)) at = await ensureFolder(t, part, at);
+        return at;
       })();
       rootId.catch(() => (rootId = null));
     }
@@ -136,6 +159,24 @@ export function driveHost(config: () => DriveConfig | null, folder: string): Fil
       const response = await driveFetch(t, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media`);
       return response.text();
     },
+    async readBase64(path) {
+      const t = await token();
+      const id = await fileId(t, path);
+      if (!id) return null;
+      const response = await driveFetch(t, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?alt=media`);
+      return toBase64(new Uint8Array(await response.arrayBuffer()));
+    },
+    async writeBase64(path, base64) {
+      const t = await token();
+      const { dir, name } = split(path);
+      if (!name) throw new Error('A file needs a name.');
+      const parent = await folderId(t, dir, true);
+      if (!parent) throw new Error(`Could not make the folder ${dir} in Drive.`);
+      const existing = await fileId(t, path);
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+      const saved = await uploadFile(t, { name, mimeType: mimeOf(name), parentId: parent, body: new Blob([bytes], { type: mimeOf(name) }), fileId: existing ?? undefined });
+      ids.set(`f:${path}`, saved.id);
+    },
     async write(path, text) {
       const t = await token();
       const { dir, name } = split(path);
@@ -176,9 +217,9 @@ export function driveHost(config: () => DriveConfig | null, folder: string): Fil
 }
 
 /** The address of the project's folder in Drive, for "Open in Drive". */
-export async function driveFolderLink(config: DriveConfig, folder: string): Promise<string> {
+export async function driveFolderLink(config: DriveConfig, folder: string, under = PLAYGROUNDS_FOLDER): Promise<string> {
   const t = await ensureDriveToken(config.clientId);
-  const top = await ensureFolder(t, config.folderName?.trim() || ROOT_FOLDER);
-  const all = await ensureFolder(t, PLAYGROUNDS_FOLDER, top);
-  return `https://drive.google.com/drive/folders/${await ensureFolder(t, folder, all)}`;
+  let at = await ensureFolder(t, config.folderName?.trim() || ROOT_FOLDER);
+  for (const part of [under, ...folder.split('/')].filter(Boolean)) at = await ensureFolder(t, part, at);
+  return `https://drive.google.com/drive/folders/${at}`;
 }

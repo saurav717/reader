@@ -43,6 +43,8 @@ function OverleafTokenRow() {
   );
 }
 import { overleafViewOf } from '../lib/overleaf';
+import OverleafAccounts from './OverleafAccounts';
+import { WriteGuideLink } from './WriteGuide';
 import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
@@ -843,6 +845,9 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           <div className="eyebrow" style={{ margin: '16px 0 8px' }}>
             Writing with Overleaf
           </div>
+          <p className="wg-settings-cta">
+            New to the Write tab, or unsure what to pick? <WriteGuideLink section="start">Read the guide to writing your paper</WriteGuideLink>
+          </p>
           <div className="nav-choices is-text" role="radiogroup" aria-label="Where a project’s paper is written">
             {OVERLEAF_VIEWS.map((option) => (
               <button
@@ -862,11 +867,20 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             ))}
           </div>
           <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-            A project is linked to Overleaf from the paper card on its overview, which every choice keeps. Overleaf
-            can’t be opened inside another site or read from one: the Write tab works on a copy of the paper on this
-            computer, synced with Overleaf’s Git or Dropbox; the workspace and the dock need the paper in GitHub too
-            (Overleaf’s GitHub sync), with the token from Git mirror above, and Overleaf pulls what you save from its GitHub menu.
+            A project is linked to Overleaf from its Write tab or the paper card on its overview, which every choice
+            keeps. Overleaf can’t be opened inside another site: the Write tab keeps the paper in your Google Drive (or,
+            if you choose, on your computers) and Reader’s server keeps it in step with Overleaf’s Git; the workspace and
+            the dock need the paper in GitHub too (Overleaf’s GitHub sync), with the token from Git mirror above.
           </p>
+          <div id="settings-overleaf-accounts" className="eyebrow" style={{ margin: '16px 0 8px' }}>
+            Overleaf accounts
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
+            Connected once, here or from any project’s Write tab: Reader’s server keeps each account’s Git token
+            encrypted with your Reader account, for every project and every device. Each project syncs with whichever
+            connected account can open it — its own Overleaf account’s, or one it is shared with.
+          </p>
+          <OverleafAccounts />
           {overleafViewOf(settings) === 'tab' ? (
             <>
               <div className="eyebrow" style={{ margin: '16px 0 8px' }}>
@@ -900,8 +914,9 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               })}
               <OverleafTokenRow />
               <p style={{ fontSize: 12, color: 'var(--muted)', margin: '8px 0 0' }}>
-                The Write tab needs this computer’s Companion ({'0.10.0'} or later): it keeps the paper in a folder here,
-                compiles it with your TeX (or Tectonic, which it can fetch), and syncs it with Overleaf’s Git or Dropbox.
+                A paper in Google Drive compiles on Cloud Run (or GitHub Actions, or Overleaf). One kept on your computers
+                needs the Companion ({'0.10.0'} or later): it keeps the paper in a folder there, compiles it with your TeX
+                (or Tectonic, which it can fetch), and syncs it with Overleaf’s Git or Dropbox.
               </p>
             </>
           ) : null}

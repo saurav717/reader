@@ -38,8 +38,9 @@ import { aiForEveryone, aiKey, aiKeys, AiRefused, checkAi, KEY_NAMES, relayAi, r
 import { readPage, searchWeb, webAvailable, WebRefused } from '../server/webSearch.js';
 import { handleColab, isColabPath, readSocketTicket } from '../server/colab.js';
 import { bridgeSocket } from './colabSocket.js';
-import { handleLatex, isLatexPath, latexAvailable, latexMonth } from './latex.js';
+import { cloudRunPlan, handleLatex, isLatexPath, latexAvailable, latexCompiler, latexMonth } from './latex.js';
 import { readBalance } from './deepseekBalance.js';
+import { gcloudAction, gcloudConfigured, gcloudOverview } from './gcloud.js';
 import { FRESH_MS as TAVILY_FRESH_MS, readTavilyUsage } from './tavilyUsage.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
@@ -65,7 +66,7 @@ function cors(origin) {
   return {
     'Access-Control-Allow-Origin': allowed,
     'Vary': 'Origin',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     // The browser session's input arrives as JSON; the app's token and its
     // client id come as headers (see `authorized` and `clientOf` below).
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Reader-Client, X-Google-Token, X-Captcha-Token',
@@ -332,14 +333,14 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && path !== '/usage/ai' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), latexOn: latexCompiler(env), scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
           200,
           headers,
         );
@@ -382,7 +383,7 @@ export default {
         return json({ pass, email, expires }, 200, { ...headers, 'Cache-Control': 'no-store' });
       }
 
-      // LaTeX compiled on GitHub Actions for anyone signed in: worker/latex.js.
+      // LaTeX compiled for anyone signed in, on Cloud Run or GitHub Actions: worker/latex.js.
       if (isLatexPath(path)) return await handleLatex(request, env, path, { json, headers, authorized, personOverLimit, tally: (who, counts) => tally(env, ctx, who, counts) });
 
       // Whose pass this is: the Companion asks, to know which account a page
@@ -470,10 +471,30 @@ export default {
         if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
         const noStore = { ...headers, 'Cache-Control': 'no-store' };
         if (!latexAvailable(env)) return json({ configured: false }, 200, noStore);
+        // Cloud Run: what it is given and its free tier; the compiles are in the Worker's own tally.
+        if (latexCompiler(env) === 'cloudrun') return json({ configured: true, ...cloudRunPlan(env) }, 200, noStore);
         try {
           return json({ configured: true, ...(await latexMonth(env)) }, 200, noStore);
         } catch (error) {
           return json({ configured: true, error: error.message }, 200, noStore);
+        }
+      }
+
+      // The owner's Google Cloud project, for the Usage page's Google Cloud
+      // tab: its billing account, each Cloud Run service and VM and whether it
+      // is up, and what it cost (worker/gcloud.js); and POSTed, a service
+      // started or stopped. The owner's alone, like /usage.
+      if (path === '/usage/gcloud' || path === '/usage/gcloud/service') {
+        const who = await ownerAuthorized(request, env);
+        if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        if (!gcloudConfigured(env)) return json({ configured: false }, 200, noStore);
+        if (path === '/usage/gcloud') return json(await gcloudOverview(env), 200, noStore);
+        if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+        try {
+          return json(await gcloudAction(env, await request.json().catch(() => ({}))), 200, noStore);
+        } catch (error) {
+          return json({ error: String(error?.message || error) }, 400, noStore);
         }
       }
 

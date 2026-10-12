@@ -98,6 +98,24 @@ export function parseLibrary(text: string): Library | null {
 }
 
 /**
+ * A project as `base` has it, with where its paper is from `extra` too: the
+ * paper's Drive folder, and each computer's folder for it. Kept whichever
+ * side has them, so a copy of the project that is older on one device never
+ * takes from every device where its paper is.
+ */
+function withLinks(base: Collection, extra: Collection): Collection {
+  const mine = base.project?.overleaf;
+  const theirs = extra.project?.overleaf;
+  if (!base.project || !theirs || (!theirs.drive && !theirs.folders && !theirs.keep)) return base;
+  const folders = { ...(theirs.folders ?? {}), ...(mine?.folders ?? {}) };
+  const drive = mine?.drive ?? theirs.drive;
+  // Where it is kept: the choice made last, on whichever device.
+  const keep = (theirs.keep?.at ?? '') > (mine?.keep?.at ?? '') ? theirs.keep : (mine?.keep ?? theirs.keep);
+  const overleaf = { ...(mine ?? theirs), ...(Object.keys(folders).length ? { folders } : {}), ...(drive ? { drive } : {}), ...(keep ? { keep } : {}) };
+  return { ...base, project: { ...base.project, overleaf } };
+}
+
+/**
  * Two libraries as one: everything in `base`, and whatever `extra` has that
  * `base` does not. Where both have the same paper, highlight or collection,
  * `base`'s is kept. A collection in `extra` with the name of one in `base` is
@@ -107,7 +125,11 @@ export function mergeLibraries(base: Library, extra: Library): Library {
   const collections = base.collections.slice();
   const rename = new Map<string, string>();
   for (const collection of extra.collections) {
-    if (collections.some((item) => item.id === collection.id)) continue;
+    const same = collections.findIndex((item) => item.id === collection.id);
+    if (same >= 0) {
+      collections[same] = withLinks(collections[same], collection);
+      continue;
+    }
     const sameName = collections.find((item) => item.name.trim().toLowerCase() === collection.name.trim().toLowerCase());
     if (sameName) rename.set(collection.id, sameName.id);
     else collections.push(collection);
