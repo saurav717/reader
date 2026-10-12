@@ -7648,3 +7648,74 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
   .wg-list dd { margin-bottom: 8px; }
 }
 .wg-settings-cta { margin: 0 0 10px; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); font-size: 12.5px; color: var(--accent-ink); }
+
+/* The Write tab's LaTeX project cards: each one's Overleaf, and putting it there */
+.wr-doc-overleaf { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 0 14px 10px; font-size: 11.5px; }
+.wr-doc-put { padding: 0 14px 14px; }
+
+/* Compare with Overleaf (WriteCompare.tsx): the files on the left, the chosen one's two versions on the right */
+.wc { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--paper); color: var(--ink); --wc-mine: rgba(207, 34, 46, 0.14); --wc-mine-ink: #cf222e; --wc-theirs: rgba(26, 127, 55, 0.15); --wc-theirs-ink: #1a7f37; }
+.wc-pad { padding: 8px 16px; margin: 0; }
+.wc-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.wc-back { width: auto; margin: 0; }
+.wc-title h2 { margin: 2px 0 0; font: 500 18px var(--serif); }
+.wc-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.wc-done { color: #3c9160; font-size: 12.5px; }
+.wc-body { flex: 1; display: grid; grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); min-height: 0; }
+.wc-files { border-right: 1px solid var(--border); overflow: auto; padding: 8px 0; }
+.wc-files h4 { margin: 10px 12px 4px; font: 600 11px var(--sans); letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-2); }
+.wc-file { display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 12px; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; font-size: 12px; }
+.wc-file:hover, .wc-file.is-on { background: var(--surface); }
+.wc-file.is-on { box-shadow: inset 2px 0 0 var(--accent); }
+.wc-file-mark { flex: none; width: 16px; height: 16px; display: grid; place-items: center; border-radius: 4px; font: 600 10px var(--mono); background: var(--surface); color: var(--ink-2); }
+.wc-file.is-changed .wc-file-mark { background: rgba(191, 135, 0, 0.18); color: #9a6700; }
+.wc-file.is-here .wc-file-mark { background: var(--wc-mine); color: var(--wc-mine-ink); }
+.wc-file.is-overleaf .wc-file-mark { background: var(--wc-theirs); color: var(--wc-theirs-ink); }
+.wc-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wc-file-pick { flex: none; color: var(--ink-2); font-size: 10.5px; }
+.wc-file-pick.is-open { color: #9a6700; font-weight: 600; }
+.wc-same-toggle { margin: 10px 12px 4px; padding: 0; border: 0; background: none; color: var(--ink-2); font: 600 11px var(--sans); letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; }
+.wc-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: auto; }
+.wc-tabs { display: flex; gap: 2px; padding: 8px 16px 0; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--paper); z-index: 2; }
+.wc-tabs button { padding: 6px 12px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--ink-2); font: 500 12.5px var(--sans); cursor: pointer; }
+.wc-tabs button.is-on { color: var(--ink); border-bottom-color: var(--accent); }
+.wc-file-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--border-soft, var(--border)); }
+.wc-file-head b { font-size: 12.5px; }
+.wc-choose { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.wc-table-wrap { overflow-x: auto; }
+.wc-table { width: 100%; border-collapse: collapse; table-layout: fixed; font: 12px/1.55 var(--mono); }
+.wc-col-num { width: 44px; }
+.wc-table th { position: sticky; top: 38px; z-index: 1; padding: 6px 10px; background: var(--surface); border-bottom: 1px solid var(--border); text-align: left; font: 600 11.5px var(--sans); color: var(--ink-2); }
+.wc-num { padding: 0 8px; color: var(--ink-2); text-align: right; user-select: none; vertical-align: top; opacity: 0.7; }
+.wc-code { padding: 0 10px; white-space: pre-wrap; word-break: break-word; vertical-align: top; border-left: 1px solid var(--border-soft, var(--border)); }
+.wc-code.is-mine { background: var(--wc-mine); }
+.wc-code.is-theirs { background: var(--wc-theirs); }
+.wc-code.is-blank { background: repeating-linear-gradient(135deg, transparent 0 6px, var(--surface) 6px 7px); }
+.wc-code.is-dropped { opacity: 0.45; text-decoration: line-through; text-decoration-color: currentColor; }
+.wc-hunk-bar td { padding: 6px 10px; background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); font: 11.5px var(--sans); }
+.wc-hunk-bar td > * { margin-right: 6px; }
+.wc-pick { padding: 2px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--paper); color: var(--ink); font: 11.5px var(--sans); cursor: pointer; }
+.wc-pick:hover { border-color: var(--accent); }
+.wc-pick.is-on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.wc-fold td { padding: 2px 10px; background: var(--surface); text-align: center; font: 11.5px var(--sans); }
+.wc-pdf-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 16px; font-size: 12px; }
+.wc-pdf-bar label { display: flex; align-items: center; gap: 6px; }
+.wc-pdf-bar select { padding: 4px 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--paper); color: var(--ink); font: 12px var(--sans); }
+.wc-pdf-pages { display: flex; flex-direction: column; gap: 14px; padding: 8px 16px 24px; }
+.wc-pdf-row { display: grid; grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr); gap: 10px; align-items: start; }
+.wc-pdf-heads b { font: 600 12px var(--sans); color: var(--ink-2); }
+.wc-pdf-num { text-align: center; color: var(--ink-2); font: 11px var(--mono); padding-top: 6px; }
+.wc-pdf-page { position: relative; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: #fff; }
+.wc-pdf-row.has-change .wc-pdf-page { border-color: #9a6700; }
+.wc-pdf-page img { display: block; width: 100%; height: 100%; }
+.wc-pdf-page.is-empty { display: grid; place-items: center; min-height: 120px; color: var(--ink-2); font-size: 12px; background: var(--surface); }
+.wc-hl { position: absolute; border-radius: 2px; pointer-events: none; }
+.wc-hl.is-del { background: rgba(207, 34, 46, 0.22); box-shadow: 0 0 0 1px rgba(207, 34, 46, 0.6); }
+.wc-hl.is-add { background: rgba(26, 127, 55, 0.22); box-shadow: 0 0 0 1px rgba(26, 127, 55, 0.6); }
+.wc-hl.is-whole { inset: 0; }
+@media (max-width: 760px) {
+  .wc-body { grid-template-columns: 1fr; }
+  .wc-files { max-height: 34vh; border-right: 0; border-bottom: 1px solid var(--border); }
+  .wc-pdf-row { grid-template-columns: 1fr; }
+  .wc-pdf-num { text-align: left; }
+}

@@ -10,7 +10,7 @@
 // the outline, the \cite keys and which papers they are. The calls to GitHub
 // are at the end.
 
-import type { BrowserChoice, OverleafLink, OverleafView, Paper, PaperFolder, Settings } from '../types';
+import type { BrowserChoice, LatexLink, OverleafLink, OverleafView, Paper, PaperFolder, Settings } from '../types';
 import { OVERLEAF_VIEWS } from '../types';
 import { citeKey, commitFiles, gh, parseRepo, toBibtex, type GitHubTarget } from './github';
 import { zip, type ZipEntry } from './zip';
@@ -90,7 +90,67 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
     ...(Object.keys(earlier).length ? { earlier } : {}),
     ...(value.compiler === 'xelatex' || value.compiler === 'lualatex' || value.compiler === 'latex' || value.compiler === 'pdflatex' ? { compiler: value.compiler } : {}),
     ...(typeof value.main === 'string' && /\.tex$/i.test(value.main) && !value.main.split('/').includes('..') ? { main: value.main.replace(/^\/+/, '') } : {}),
+    ...(Object.keys(latexLinksOf(value.latex)).length ? { latex: latexLinksOf(value.latex) } : {}),
   };
+}
+
+/** The LaTeX projects' own links, as they can be relied on: folders inside the paper's, an Overleaf address or ''. */
+function latexLinksOf(value: unknown): Record<string, LatexLink> {
+  const links: Record<string, LatexLink> = {};
+  if (!value || typeof value !== 'object') return links;
+  for (const [rawDir, raw] of Object.entries(value as Record<string, unknown>)) {
+    const dir = rawDir.split('/').map((part) => part.trim()).filter(Boolean).join('/');
+    const item = raw as Partial<Record<keyof LatexLink, unknown>> | null;
+    if (!dir || dir.split('/').includes('..') || dir.length > 200 || !item || typeof item !== 'object') continue;
+    const url = typeof item.url === 'string' && item.url ? parseOverleafUrl(item.url) : '';
+    if (url === null) continue;
+    links[dir] = {
+      url,
+      ...(typeof item.gitAccount === 'string' && /^[a-z0-9]{1,40}$/.test(item.gitAccount) ? { gitAccount: item.gitAccount } : {}),
+      ...(typeof item.main === 'string' && /\.tex$/i.test(item.main) && !item.main.split('/').includes('..') ? { main: item.main.replace(/^\/+/, '') } : {}),
+      ...(item.compiler === 'xelatex' || item.compiler === 'lualatex' || item.compiler === 'latex' || item.compiler === 'pdflatex' ? { compiler: item.compiler } : {}),
+      ...(typeof item.account === 'string' && item.account.trim() ? { account: item.account.trim().slice(0, 120) } : {}),
+    };
+  }
+  return links;
+}
+
+const isUnder = (dir: string, path: string) => !dir || path === dir || path.startsWith(`${dir}/`);
+
+/**
+ * Whose Overleaf link a LaTeX project's folder goes by: its own, else the
+ * nearest folder above it with one, else the top's ('').
+ */
+export function latexOwner(link: OverleafLink | undefined, dir: string): string {
+  const owners = Object.keys(link?.latex ?? {}).filter((owner) => isUnder(owner, dir));
+  return owners.sort((a, b) => b.length - a.length)[0] ?? '';
+}
+
+/** The link a folder's own: its entry, or for the top the project's link itself. */
+export function latexLinkAt(link: OverleafLink | undefined, owner: string): LatexLink {
+  if (owner) return link?.latex?.[owner] ?? { url: '' };
+  return { url: link?.url ?? '', ...(link?.gitAccount ? { gitAccount: link.gitAccount } : {}), ...(link?.main ? { main: link.main } : {}), ...(link?.compiler ? { compiler: link.compiler } : {}), ...(link?.account ? { account: link.account } : {}) };
+}
+
+/** The folders inside `owner` with links of their own (relative to it): left out of its syncs, as they are other projects. */
+export function latexSeparate(link: OverleafLink | undefined, owner: string): string[] {
+  return Object.keys(link?.latex ?? {})
+    .filter((dir) => dir !== owner && isUnder(owner, dir))
+    .map((dir) => (owner ? dir.slice(owner.length + 1) : dir));
+}
+
+/** The link with one folder's own link changed (`change` null: the folder goes back to the one above it). */
+export function withLatexLink(link: OverleafLink, owner: string, change: Partial<LatexLink> | null): OverleafLink {
+  if (!owner) {
+    if (!change) return link;
+    const { url, gitAccount, main, compiler, account } = change;
+    return { ...link, ...(url !== undefined ? { url } : {}), ...(gitAccount !== undefined ? { gitAccount } : {}), ...(main !== undefined ? { main } : {}), ...(compiler !== undefined ? { compiler } : {}), ...(account !== undefined ? { account } : {}) };
+  }
+  const latex = { ...(link.latex ?? {}) };
+  if (change) latex[owner] = { ...(latex[owner] ?? { url: '' }), ...change };
+  else delete latex[owner];
+  const { latex: _old, ...rest } = link;
+  return { ...rest, ...(Object.keys(latex).length ? { latex } : {}) };
 }
 
 const cleanFolder = (folder: string) => folder.replace(/^\/+|\/+$/g, '');

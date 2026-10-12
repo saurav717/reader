@@ -364,15 +364,17 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     const accounts = await readAccounts(kv, owner);
     return json({ known: accounts.length > 0, accounts: shownAccounts(accounts) }, 200, noStore);
   }
-  if (path === '/latex/overleaf/sync') {
+  // /files: the Overleaf project's files as they are, nothing merged or pushed — for comparing a paper with it.
+  if (path === '/latex/overleaf/sync' || path === '/latex/overleaf/files') {
+    const peek = path === '/latex/overleaf/files';
     if (request.method !== 'POST') return json({ error: 'POST' }, 405, noStore);
     if (!latexCompilerReady(env, 'cloudrun')) return json({ error: 'syncing a paper in Drive with Overleaf needs the compiler on Cloud Run (LATEX_CLOUD_RUN_URL)' }, 501, noStore);
     if (await personOverLimit(env, who)) return json({ error: 'too many requests; wait a minute', limited: true }, 429, { ...noStore, 'Retry-After': '60' });
     const body = await request.json().catch(() => null);
     if (!body || typeof body.url !== 'string' || !OVERLEAF_REMOTE.test(body.url)) return json({ error: 'an Overleaf Git address (https://git.overleaf.com/…)' }, 400, noStore);
-    const changed = cleanFiles(body.changed ?? []);
+    const changed = peek ? [] : cleanFiles(body.changed ?? []);
     if (!changed) return json({ error: 'the changed files: relative paths inside the folder, as base64, 20 MB in all' }, 400, noStore);
-    const manifest = cleanManifest(body.manifest ?? {});
+    const manifest = peek ? {} : cleanManifest(body.manifest ?? {});
     if (!manifest) return json({ error: 'the manifest: relative paths inside the folder, each with a SHA-256' }, 400, noStore);
     const deleted = Array.isArray(body.deleted) ? body.deleted.filter((item) => typeof item === 'string' && item.length <= 300 && !item.split('/').includes('..')).slice(0, 500) : [];
     // A paper moved in from a computer: its files' Git ids then, for the compiler to find their commit by.
@@ -398,15 +400,17 @@ export async function handleLatex(request, env, path, { json, headers, authorize
       if (!token) continue;
       let answer;
       try {
-        answer = await fetch(`${base}/git/sync`, {
+        answer = await fetch(`${base}/git/${peek ? 'files' : 'sync'}`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${String(env.LATEX_CLOUD_RUN_TOKEN).trim()}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: body.url, token, base: typeof body.base === 'string' ? body.base : '', ...(baseTree ? { baseTree } : {}), changed, deleted, manifest, message: String(body.message || 'Edits from Reader').slice(0, 200) }),
+          body: JSON.stringify(peek ? { url: body.url, token } : { url: body.url, token, base: typeof body.base === 'string' ? body.base : '', ...(baseTree ? { baseTree } : {}), changed, deleted, manifest, message: String(body.message || 'Edits from Reader').slice(0, 200) }),
           signal: AbortSignal.timeout(CLOUD_RUN_WAIT_MS),
         });
       } catch (error) {
         return json({ error: `Reader’s server couldn’t reach its compiler (${error?.message || error}).` }, 502, noStore);
       }
+      // The compiler not updated yet: said, not taken for every account being refused.
+      if (peek && answer.status === 404) return json({ error: 'Reader’s server is being updated and can’t compare with Overleaf for a few minutes yet: try again shortly.' }, 503, noStore);
       // This account can't open the project (another account's, or its token revoked): the next one is tried.
       if (answer.status === 401) {
         refused.push(account);
