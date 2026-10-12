@@ -293,6 +293,8 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
             <dl className="wg-list">
               <dt>Continue…</dt>
               <dd>Opens the LaTeX project you were last writing.</dd>
+              <dt>View in</dt>
+              <dd>Under each LaTeX project: <em>Google Drive</em> opens its folder in Drive, <em>This computer</em> opens it in Finder or Explorer (a paper kept on the computer; Companion 0.13.0 or later), and <em>Overleaf</em> opens the Overleaf project it is in.</dd>
               <dt>Blank article</dt>
               <dd>A main.tex with a title and a first section, in a folder of its own; add sections, a .bib and figures as it grows.</dd>
               <dt>Browse templates</dt>

@@ -30,8 +30,8 @@ export interface PaperStore {
   remove(path: string): Promise<void>;
   rename(from: string, to: string): Promise<void>;
   mkdir(path: string): Promise<void>;
-  /** An address to open the folder at, where there is one (Drive). */
-  link?(): Promise<string>;
+  /** An address to open the folder at, or a folder inside it, where there is one (Drive). */
+  link?(dir?: string): Promise<string>;
 }
 
 const join = (folder: string, path: string) => [folder, path].filter(Boolean).join('/').replace(/\/+/g, '/');
@@ -95,10 +95,10 @@ export function driveStore(config: () => DriveConfig | null, folder: string): Pa
     remove: (path) => host.remove?.(path) ?? Promise.resolve(),
     rename: (from, to) => host.rename?.(from, to) ?? Promise.reject(new Error('Drive can’t rename this.')),
     mkdir: (path) => host.mkdir?.(path) ?? Promise.resolve(),
-    link: async () => {
+    link: async (dir = '') => {
       const now = config();
       if (!now) throw new Error('Sign in with Google, with Drive.');
-      return driveFolderLink(now, folder, under(folder));
+      return driveFolderLink(now, [folder, dir].filter(Boolean).join('/'), under(folder));
     },
   };
   driveStores.set(folder, store);

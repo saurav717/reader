@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
-import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEXLIVE_VERSION, TEX_COMPILERS, applyTemplate, chooseFolder, clonePaper, linkFolder, listTemplates, saveTemplate, tokenKnown, updateCompanion, waitForVersion, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, compilePaper, forgetOverleafToken, installTectonic, isNewer, paperEngines, paperRemote, syncPaper, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
+import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, REVEAL_VERSION, TEXLIVE_VERSION, revealPaper, TEX_COMPILERS, applyTemplate, chooseFolder, clonePaper, linkFolder, listTemplates, saveTemplate, tokenKnown, updateCompanion, waitForVersion, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, compilePaper, forgetOverleafToken, installTectonic, isNewer, paperEngines, paperRemote, syncPaper, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
 import { besideFeatures, bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
 import { complete as completeLatex } from '../lib/latexComplete';
 import { openPdf } from '../lib/pdfReflow';
@@ -1434,6 +1434,54 @@ const BLANK_DOC = (title: string) => `\\documentclass{article}
 
 type Making = 'blank' | 'templates' | 'zip' | 'files';
 
+/** A LaTeX project's folder in Google Drive, in a new tab. */
+function OpenInDrive({ store, dir, onProblem, label = 'Google Drive' }: { store: PaperStore; dir: string; onProblem: (problem: string) => void; label?: string }) {
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    // Opened at once, then sent on: a tab opened after the wait would be taken for a pop-up.
+    const tab = window.open('about:blank', '_blank');
+    if (tab) tab.opener = null;
+    setBusy(true);
+    try {
+      const url = await store.link!(dir);
+      if (tab) tab.location.href = url;
+      else window.open(url, '_blank', 'noopener');
+    } catch (error) {
+      tab?.close();
+      onProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button type="button" className="wr-doc-where" disabled={busy || !store.link} onClick={() => void go()} title={`Open ${dir ? `${dir}/` : 'the folder'} in Google Drive`}>
+      {busy ? 'Opening…' : label}
+    </button>
+  );
+}
+
+/** A LaTeX project's folder on this computer, in Finder, Explorer or the desktop's file manager, by the Companion. */
+function OpenHere({ here, folder, onProblem, label = 'This computer' }: { here: Here; folder: string; onProblem: (problem: string) => void; label?: string }) {
+  const [busy, setBusy] = useState(false);
+  const old = isNewer(REVEAL_VERSION, here.version);
+  const go = async () => {
+    if (old) return onProblem(`Opening the folder needs the Companion ${REVEAL_VERSION} or later on this computer (it is ${here.version}): update it from Your compute in the Playground.`);
+    setBusy(true);
+    try {
+      await revealPaper(here.server, folder);
+    } catch (error) {
+      onProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button type="button" className="wr-doc-where" disabled={busy} onClick={() => void go()} title={`Open ~/Reader/${folder} in ${/Mac/i.test(navigator.platform) ? 'Finder' : /Win/i.test(navigator.platform) ? 'Explorer' : 'the file manager'}${old ? ` (needs the Companion ${REVEAL_VERSION})` : ''}`}>
+      {busy ? 'Opening…' : label}
+    </button>
+  );
+}
+
 /**
  * Where the Write tab opens: the LaTeX projects in this project's folder —
  * each one PDF, from a main .tex (with \documentclass) and the files it
@@ -1507,6 +1555,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
   };
   const within = (dir: string, path: string) => (dir ? `${dir}/${path}` : path);
   const open = (one: LatexProject) => onOpen(one.main.path, { dir: one.dir, exclude: one.exclude });
+  const onOverleaf = Boolean(overleafGitUrl(link?.url));
   const run = async (work: () => Promise<string | undefined>) => {
     setBusy(true);
     setProblem(null);
@@ -1601,7 +1650,8 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
         {docs?.length ? (
           <div className="wr-docs">
             {docs.map((one) => (
-              <button key={one.main.path} type="button" className="wr-doc" onClick={() => open(one)} title={`Open ${one.dir ? `${one.dir}/` : 'the top of the folder'}, compiled from ${one.main.path}`}>
+              <div key={one.main.path} className="wr-doc-card">
+              <button type="button" className="wr-doc" onClick={() => open(one)} title={`Open ${one.dir ? `${one.dir}/` : 'the top of the folder'}, compiled from ${one.main.path}`}>
                 <span className="wr-doc-page" aria-hidden="true">
                   <i />
                   <i />
@@ -1622,6 +1672,13 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
                   </span>
                 </span>
               </button>
+              <div className="wr-doc-open" aria-label={`Open ${one.main.title || one.dir || one.main.path} elsewhere`}>
+                <span className="wr-quiet">View in</span>
+                {store.kind === 'drive' ? <OpenInDrive store={store} dir={one.dir} onProblem={setProblem} /> : null}
+                {here && store.kind === 'companion' ? <OpenHere here={here} folder={[folder.path, one.dir].filter(Boolean).join('/')} onProblem={setProblem} /> : null}
+                {onOverleaf ? <OpenOverleaf project={project} view="beside" primary={false} compact /> : null}
+              </div>
+              </div>
             ))}
           </div>
         ) : null}
@@ -2634,10 +2691,10 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
             {inDrive ? 'Google Drive' : here?.name} · {folder.path}
           </span>
           {inDrive ? (
-            <button type="button" className="link-btn" onClick={() => void store.link?.().then((url) => window.open(url, '_blank', 'noopener'), (error) => setFileProblem(error instanceof Error ? error.message : String(error)))}>
-              Open in Drive
-            </button>
+            <OpenInDrive store={store} dir={scope?.dir ?? ''} onProblem={setFileProblem} label="Open in Drive" />
           ) : here ? (
+            <>
+            <OpenHere here={here} folder={[folder.path, scope?.dir].filter(Boolean).join('/')} onProblem={setFileProblem} label="Show the folder" />
             <button
               type="button"
               className="link-btn"
@@ -2647,6 +2704,7 @@ function WriteDesk({ project, here, folder, store, scope, onHome }: { project: P
             >
               Change
             </button>
+            </>
           ) : null}
         </div>
       </aside>

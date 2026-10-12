@@ -82,6 +82,17 @@ def main_file(folder: Path, main: str | None) -> str:
 # ---------------------------------------------------------------- engines --
 
 
+
+def reveal(root: Path, folder_rel: str, system: str | None = None, popen=subprocess.Popen) -> str:
+    """The folder opened in this computer's file manager — Finder, Explorer, the desktop's own (from 0.13.0)."""
+    folder = inside(root, folder_rel)
+    if not folder.is_dir():
+        raise Refused(f"{folder_rel} isn't a folder on this computer.")
+    system = system or platform.system()
+    command = ["open", str(folder)] if system == "Darwin" else ["explorer", str(folder)] if system == "Windows" else ["xdg-open", str(folder)]
+    popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+    return str(folder)
+
 def tectonic_path() -> Path:
     return state.config_dir() / "bin" / ("tectonic.exe" if os.name == "nt" else "tectonic")
 
