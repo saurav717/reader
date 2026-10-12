@@ -117,7 +117,8 @@ await context.route(/^https?:\/\/127\.0\.0\.1:473[23]1\//, async (route) => {
         return json({ folder: body.folder });
       }
       if (body.action === 'sync') return json(paper('print(json.dumps(paper.sync(root, args["folder"], "", args["message"])))', { folder: body.folder, message: body.message }));
-      if (body.action === 'remote') return json({ url: `https://git.overleaf.com/${PROJECT_ID}`, token: true });
+      // As the Companion: the folder's origin when it is a clone, nothing when it isn't.
+      if (body.action === 'remote') return json(existsSync(join(root, body.folder, '.git')) ? { url: `https://git.overleaf.com/${PROJECT_ID}`, token: true } : { url: '', token: false });
       if (body.action === 'delete-template') return json({ deleted: true });
     }
     if (url.pathname.startsWith('/api/contents')) {
@@ -464,6 +465,40 @@ await page.locator('.wr-doc').nth(1).waitFor({ timeout: 15000 });
 const both = await page.locator('.wr-doc').allInnerTexts();
 check('the documents page lists the new one too, the open one first', both.length === 3 && /Workshop version/.test(both[0]) && /\bmain\b/.test(both[0].split('\n').pop()) && both.some((text) => /neurips_2026\.tex/.test(text)), both.join(' | '));
 await shot('write-home-two');
+await page.locator('.wr-doc').first().click();
+await page.locator('.wr-desk').waitFor({ timeout: 15000 });
+
+console.log('the project loses its link to the folder: set up again, the clone there is taken back');
+await page.evaluate(async () => {
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open('reader');
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction('collections', 'readwrite');
+    const store = tx.objectStore('collections');
+    const got = store.get('p-moe');
+    got.onsuccess = () => {
+      const project = got.result;
+      delete project.project.overleaf.folders;
+      store.put(project);
+    };
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+});
+const marker = readFileSync(join(root, 'papers/sparse-gated-moe/main.tex'), 'utf8');
+await page.reload({ waitUntil: 'networkidle' });
+await pastWelcome();
+await page.getByText('Where should the paper’s files be?').waitFor({ timeout: 15000 });
+await page.getByLabel('Folder, inside the Companion’s').fill('papers/sparse-gated-moe');
+const clonesBefore = cloned;
+await page.getByRole('button', { name: 'Clone from Overleaf' }).click();
+await page.locator('.wr-doc').first().waitFor({ timeout: 15000 });
+check('the folder there, a clone of this project, is taken back as it is: nothing cloned over it', cloned === clonesBefore && readFileSync(join(root, 'papers/sparse-gated-moe/main.tex'), 'utf8') === marker);
+check('and its documents are listed', /Loss-free routing at 8B/.test(await page.locator('.wr-docs').innerText()));
 await page.locator('.wr-doc').first().click();
 await page.locator('.wr-desk').waitFor({ timeout: 15000 });
 
