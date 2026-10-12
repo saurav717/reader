@@ -175,4 +175,15 @@ describe('GitHub token kept by the Worker', () => {
     assert.equal(used.at(-1), 'Bearer ghu_2');
     assert.ok(![...kept.values()].some((value) => value.includes('ghr_')), 'the refresh token is sealed too');
   });
+
+  it('reaches the GitHub routes through the Worker itself, whatever the method', async () => {
+    // Through the Worker's own front door (worker/index.js), not the handler alone: a route it turns away by method never
+    // gets here. Not signed in, each is refused for that (401) — never "method not allowed" (405).
+    const { default: worker } = await import('../worker/index.js');
+    const env = { READER_TOKEN: 'r'.repeat(32), SECRETS_KEY: 's'.repeat(44), SESSIONS: { get: async () => null, put: async () => {}, delete: async () => {} } };
+    for (const [method, path] of [['POST', '/github/oauth/start'], ['PUT', '/github/token'], ['DELETE', '/github/token'], ['POST', '/github/api/repos/me/paper/git/blobs'], ['PATCH', '/github/api/repos/me/paper/git/refs/heads/main']]) {
+      const answer = await worker.fetch(new Request(`https://w.dev${path}`, { method, headers: { Origin: 'https://saurav717.github.io', 'Content-Type': 'application/json' }, ...(method === 'DELETE' ? {} : { body: '{}' }) }), env);
+      assert.equal(answer.status, 401, `${method} ${path}`);
+    }
+  });
 });
