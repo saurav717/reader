@@ -509,8 +509,8 @@ export interface WriteOptions {
   citations: 'drawer' | 'off';
   /** On an error: keep going, as Overleaf does, or stop at the first (Overleaf's "Stop on first error"). */
   errors: 'continue' | 'halt';
-  /** Where the PDF is made: on this computer, or by Overleaf (nothing to install; the PDF is in Overleaf's window). */
-  pdf: 'here' | 'github' | 'overleaf';
+  /** Where the PDF is made: on this computer, by Reader's compiler on GitHub Actions or Cloud Run, or by Overleaf (the PDF is in Overleaf's window). */
+  pdf: 'here' | 'github' | 'cloudrun' | 'overleaf';
 }
 
 export const WRITE_DEFAULTS: WriteOptions = { compile: 'pause', engine: 'auto', layout: 'side', sync: 'pause', citations: 'drawer', errors: 'continue', pdf: 'here' };
@@ -523,6 +523,7 @@ export const WRITE_OPTIONS: { key: keyof WriteOptions; label: string; choices: {
     choices: [
       { id: 'here', label: 'This computer', note: 'The Companion compiles it with the TeX installed here, and the PDF is beside the source.' },
       { id: 'github', label: 'GitHub Actions', note: 'Reader’s own compiler, not a sync: GitHub Actions compiles it with all of TeX Live and the PDF comes back here, in a minute or two. Nothing to install or set up; the files are never kept.' },
+      { id: 'cloudrun', label: 'Cloud Run', note: 'Reader’s own compiler on Google Cloud Run, with all of TeX Live: the PDF comes back here in seconds once it is warm. Nothing to install or set up; the files are never kept.' },
       { id: 'overleaf', label: 'By Overleaf', note: 'Nothing to install: edits go to Overleaf a moment after you stop typing, and the PDF is in Overleaf’s window, beside.' },
     ],
   },

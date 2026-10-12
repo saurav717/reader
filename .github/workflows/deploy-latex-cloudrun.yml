@@ -83,7 +83,7 @@ jobs:
           # within the free tier for a few hundred compiles a day.
           gcloud run deploy "$SERVICE" --project "$PROJECT" --region "$REGION" --image "$IMAGE" \
             --allow-unauthenticated --port 8080 --execution-environment gen2 \
-            --cpu 2 --memory 4Gi --cpu-boost --concurrency 2 --min-instances 0 --max-instances 4 --timeout 300 \
+            --cpu 2 --memory 4Gi --cpu-boost --concurrency 4 --min-instances 0 --max-instances 1 --timeout 300 \
             --update-env-vars "LATEX_TOKEN=$LATEX_TOKEN" --quiet
           URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" --format 'value(status.url)')"
           {
