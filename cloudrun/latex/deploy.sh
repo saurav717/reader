@@ -25,6 +25,13 @@ say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 say "Project $PROJECT, region $REGION"
 gcloud config set project "$PROJECT" >/dev/null
 
+# Google turns on none of the services below for a project without billing, free tier or not.
+if [ "$(gcloud billing projects describe "$PROJECT" --format 'value(billingEnabled)' 2>/dev/null)" = "False" ]; then
+  echo "This project has no billing account linked. Link one, then run this again:"
+  echo "  https://console.cloud.google.com/billing/linkedaccount?project=$PROJECT"
+  exit 1
+fi
+
 say "Turning on Cloud Run, Artifact Registry and Cloud Build (a minute the first time)"
 gcloud services enable run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com
 
