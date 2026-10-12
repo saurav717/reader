@@ -57,8 +57,14 @@ say "An account for Cloud Build to build with"
 BUILDER="reader-build@$PROJECT.iam.gserviceaccount.com"
 gcloud iam service-accounts describe "$BUILDER" >/dev/null 2>&1 \
   || gcloud iam service-accounts create reader-build --display-name "Reader: builds the LaTeX compiler"
+# A new account takes some seconds to be known to IAM: each grant is tried again until it is.
 for role in artifactregistry.writer logging.logWriter storage.objectViewer; do
-  gcloud projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$BUILDER" --role "roles/$role" --condition None >/dev/null
+  for try in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    gcloud projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$BUILDER" --role "roles/$role" --condition None >/dev/null 2>/tmp/reader-grant.err && break
+    [ "$try" = 12 ] && { cat /tmp/reader-grant.err; exit 1; }
+    sleep 10
+  done
+  echo "  roles/$role"
 done
 
 say "Building the image with Cloud Build (5–10 minutes: it fetches all of TeX Live)"
