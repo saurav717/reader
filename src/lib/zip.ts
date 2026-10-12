@@ -102,3 +102,50 @@ export function zip(entries: ZipEntry[], when = new Date()): Uint8Array {
   }
   return out;
 }
+
+/**
+ * A zip's files, read in the browser: stored and deflated entries (all a
+ * conference's kit uses), deflate undone by the browser's own
+ * DecompressionStream. Directories, macOS's __MACOSX and dot-files are left
+ * out, and a single folder the whole kit sits in is taken off the paths.
+ */
+export async function unzip(data: Uint8Array): Promise<{ path: string; bytes: Uint8Array }[]> {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  let end = -1;
+  for (let at = data.length - 22; at >= Math.max(0, data.length - 22 - 0xffff); at -= 1) {
+    if (view.getUint32(at, true) === 0x06054b50) {
+      end = at;
+      break;
+    }
+  }
+  if (end < 0) throw new Error('That isn’t a .zip file.');
+  const count = view.getUint16(end + 10, true);
+  let at = view.getUint32(end + 16, true);
+  const decoder = new TextDecoder();
+  const files: { path: string; bytes: Uint8Array }[] = [];
+  for (let i = 0; i < count; i += 1) {
+    if (view.getUint32(at, true) !== 0x02014b50) throw new Error('The .zip is damaged.');
+    const method = view.getUint16(at + 10, true);
+    const compressed = view.getUint32(at + 20, true);
+    const nameLength = view.getUint16(at + 28, true);
+    const extraLength = view.getUint16(at + 30, true);
+    const commentLength = view.getUint16(at + 32, true);
+    const local = view.getUint32(at + 42, true);
+    const path = decoder.decode(data.subarray(at + 46, at + 46 + nameLength));
+    at += 46 + nameLength + extraLength + commentLength;
+    if (path.endsWith('/') || path.startsWith('__MACOSX/') || path.split('/').some((part) => part.startsWith('.') || part === '..')) continue;
+    const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+    const raw = data.subarray(start, start + compressed);
+    let bytes: Uint8Array;
+    if (method === 0) bytes = raw.slice();
+    else if (method === 8) bytes = new Uint8Array(await new Response(new Blob([raw.slice()]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    else throw new Error(`${path} is packed in a way this can’t read (method ${method}).`);
+    files.push({ path, bytes });
+  }
+  const tops = new Set(files.map((file) => (file.path.includes('/') ? file.path.split('/')[0] : '')));
+  if (tops.size === 1 && !tops.has('')) {
+    const top = [...tops][0];
+    return files.map((file) => ({ ...file, path: file.path.slice(top.length + 1) }));
+  }
+  return files;
+}

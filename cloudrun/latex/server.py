@@ -190,6 +190,121 @@ def compile_in(work, job, keep):
     return {'pdf': base64.b64encode(pdf.read_bytes()).decode() if pdf.exists() else '', 'log': log[-400_000:], 'exit': code, 'seconds': seconds, 'cached': bool(cached)}
 
 
+# ------------------------------------------------------------ Overleaf --
+# A paper kept in Drive, in step with Overleaf (src/lib/overleafCloud.ts): the
+# project cloned afresh into a folder of its own, what changed in Drive since the
+# last sync committed on top of that sync's commit, merged with what Overleaf has
+# now, pushed — and the files the page lacks handed back. Nothing kept after.
+
+GIT_REMOTE = re.compile(r'^https://(git\.overleaf\.com/[A-Za-z0-9]+|github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(\.git)?/?$')
+GIT_TIMEOUT_S = 120
+# Local repositories never: a paper's sync reaches Overleaf or GitHub over HTTPS only (a test sets this to 'always').
+GIT_FILE_PROTOCOL = 'never'
+
+
+class GitRefused(Exception):
+    def __init__(self, message, status=400, need_token=False):
+        super().__init__(message)
+        self.status = status
+        self.need_token = need_token
+
+
+def git_sync(job):
+    url = str(job.get('url') or '')
+    token = str(job.get('token') or '')
+    if not GIT_REMOTE.match(url):
+        raise GitRefused('Only an Overleaf Git address (https://git.overleaf.com/…) or a GitHub repository.')
+    if not token:
+        raise GitRefused('No Overleaf Git token.', 401, need_token=True)
+    user = 'x-access-token' if 'github.com' in url else 'git'
+    auth = base64.b64encode(f'{user}:{token}'.encode()).decode()
+    work = pathlib.Path(tempfile.mkdtemp(prefix='git-'))
+    repo = work / 'repo'
+    env = {'PATH': CLEAN_ENV['PATH'], 'HOME': str(work), 'GIT_TERMINAL_PROMPT': '0', 'LANG': 'C.UTF-8'}
+
+    def said(done):
+        return ((done.stderr or '') + (done.stdout or '')).replace(token, '•••').replace(auth, '•••').strip()[-600:]
+
+    def git(*args, cwd=repo, check=False):
+        done = subprocess.run(
+            ['git', '-c', f'http.extraHeader=Authorization: Basic {auth}', '-c', 'core.hooksPath=/dev/null', '-c', f'protocol.file.allow={GIT_FILE_PROTOCOL}',
+             '-c', 'user.name=Reader', '-c', 'user.email=reader@localhost', '-c', 'core.quotepath=off', *args],
+            cwd=str(cwd), env=env, capture_output=True, text=True, timeout=GIT_TIMEOUT_S, stdin=subprocess.DEVNULL)
+        if check and done.returncode != 0:
+            raise GitRefused(f'git {args[0]}: {said(done)}', 502)
+        return done
+
+    def blob(commit, path):
+        done = subprocess.run(['git', 'show', f'{commit}:{path}'], cwd=str(repo), env=env, capture_output=True, timeout=GIT_TIMEOUT_S)
+        return done.stdout
+
+    try:
+        cloned = git('clone', '-q', url, str(repo), cwd=work)
+        if cloned.returncode != 0:
+            text = said(cloned)
+            if re.search(r'401|403|Authentication failed|could not read Username|invalid credentials', text, re.I):
+                raise GitRefused('Overleaf refused the Git token: generate another (Account Settings → Git integration) and give it again.', 401, need_token=True)
+            raise GitRefused(f'git couldn\'t clone the project: {text}', 502)
+        branch = git('rev-parse', '--abbrev-ref', 'HEAD', check=True).stdout.strip()
+        theirs = git('rev-parse', 'HEAD', check=True).stdout.strip()
+        base = str(job.get('base') or '')
+        if not re.fullmatch(r'[0-9a-f]{7,40}', base) or git('cat-file', '-e', f'{base}^{{commit}}').returncode != 0:
+            base = theirs
+        # What changed in Drive since the last sync, as a commit on top of it.
+        git('checkout', '-q', '-b', 'reader', base, check=True)
+        root = repo.resolve()
+        for f in job.get('changed') or []:
+            target = (root / clean_path(f['path'])).resolve()
+            if root not in target.parents or '.git' in target.relative_to(root).parts:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(base64.b64decode(f['base64']))
+        for path in job.get('deleted') or []:
+            target = (root / clean_path(path)).resolve()
+            if root in target.parents and target.is_file():
+                target.unlink()
+        git('add', '-A', check=True)
+        committed = git('diff', '--cached', '--quiet').returncode == 1
+        if committed:
+            git('commit', '-q', '-m', str(job.get('message') or 'Edits from Reader')[:200], check=True)
+        # Then what Overleaf has now, merged in.
+        git('checkout', '-q', branch, check=True)
+        merged = git('merge', '--no-edit', '-q', 'reader')
+        conflicts = [line for line in git('diff', '--name-only', '--diff-filter=U').stdout.splitlines() if line.strip()]
+        pushed = False
+        if merged.returncode != 0 and not conflicts:
+            raise GitRefused(f'git couldn\'t merge: {said(merged)}', 502)
+        if conflicts:
+            # Nothing pushed: the page gets the files as merged, marks and all, and goes on from Overleaf's commit.
+            commit = theirs
+        else:
+            commit = git('rev-parse', 'HEAD', check=True).stdout.strip()
+            if commit != theirs:
+                done = git('push', '-q', 'origin', f'HEAD:{branch}')
+                if done.returncode != 0:
+                    raise GitRefused(f'git couldn\'t push to Overleaf: {said(done)}', 502)
+                pushed = True
+        # The files the page lacks, and those it has that are gone.
+        manifest = job.get('manifest') or {}
+        files, present = [], set()
+        for path in (p for p in git('ls-files', '-co', '--exclude-standard', '-z').stdout.split('\0') if p):
+            target = root / path
+            if not target.is_file():
+                continue
+            present.add(path)
+            data = base64.b64encode(target.read_bytes()).decode()
+            if manifest.get(path) != hashlib.sha256(data.encode()).hexdigest():
+                files.append({'path': path, 'base64': data})
+        deleted = [path for path in manifest if path not in present]
+        # The files at the commit the next sync goes on from: what it compares Drive against.
+        tree = {}
+        for path in (p for p in git('ls-tree', '-r', '--name-only', '-z', commit).stdout.split('\0') if p):
+            tree[path] = hashlib.sha256(base64.b64encode(blob(commit, path))).hexdigest()
+        return {'ok': not conflicts, 'commit': commit, 'committed': committed, 'pushed': pushed, 'files': files, 'deleted': deleted, 'conflicts': conflicts, 'tree': tree}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = 'reader-latex'
     sys_version = ''
@@ -207,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
         self.answer(200, {'ok': True}) if self.path == '/' else self.answer(404, {'error': 'not found'})
 
     def do_POST(self):
-        if self.path != '/compile':
+        if self.path not in ('/compile', '/git/sync'):
             return self.answer(404, {'error': 'not found'})
         given = self.headers.get('Authorization', '').removeprefix('Bearer ').strip()
         if not TOKEN or not hmac.compare_digest(given.encode(), TOKEN.encode()):
@@ -215,6 +330,15 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get('Content-Length') or 0)
         if length <= 0 or length > MAX_BODY:
             return self.answer(413, {'error': 'a JSON body, 30 MB at most'})
+        if self.path == '/git/sync':
+            try:
+                return self.answer(200, git_sync(json.loads(self.rfile.read(length))))
+            except GitRefused as refused:
+                return self.answer(refused.status, {'error': str(refused), 'needToken': refused.need_token})
+            except (ValueError, KeyError, TypeError) as error:
+                return self.answer(400, {'error': f'not a sync: {error}'})
+            except subprocess.TimeoutExpired:
+                return self.answer(504, {'error': 'Overleaf took too long to answer.'})
         try:
             job = json.loads(self.rfile.read(length))
             result = compile_job(job)

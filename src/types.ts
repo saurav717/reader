@@ -212,6 +212,12 @@ export interface OverleafLink {
   /** The main document, as Overleaf's Menu → Main document: the file with \documentclass when unset. */
   main?: string;
   /**
+   * The paper kept in Google Drive rather than on any computer: its folder
+   * under Papers_collection/Papers/. Edited in the browser, compiled on Cloud
+   * Run, synced with Overleaf by Reader's server. Set, it wins over `folders`.
+   */
+  drive?: { folder: string };
+  /**
    * The folders of the Overleaf projects this one was linked to before, by
    * their address: switching back to one opens its folder again, with what
    * changed in Overleaf meanwhile taken in, rather than cloning it afresh.
@@ -223,7 +229,7 @@ export interface PaperFolder {
   /** Relative to the Companion's folder (~/Reader): papers/loss-free-routing, linked/Overleaf-paper. */
   path: string;
   /** git: synced from here (Overleaf's Git or GitHub); dropbox: Dropbox syncs it; folder: not synced. */
-  sync: 'git' | 'dropbox' | 'folder';
+  sync: 'git' | 'dropbox' | 'folder' | 'drive';
 }
 
 export interface BrowserChoice {
