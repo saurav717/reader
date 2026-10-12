@@ -109,7 +109,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        self.answer(200, {'ok': True}) if self.path in ('/', '/healthz') else self.answer(404, {'error': 'not found'})
+        self.answer(200, {'ok': True}) if self.path == '/' else self.answer(404, {'error': 'not found'})
 
     def do_POST(self):
         if self.path != '/compile':

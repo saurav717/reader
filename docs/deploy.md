@@ -76,50 +76,39 @@ The first compile after a quiet spell waits for an instance to start
 (a TeX Live image is large: some seconds). The image in Artifact Registry
 is about 2.5 GB, a few tens of cents a month past its 0.5 GB free storage.
 
-Set up once:
+Set up once, in the project `reader-509409`:
 
-1. A Google Cloud project with billing on (the free tier needs an account),
-   and its APIs:
+1. In console.cloud.google.com, pick the project, and make sure it has a
+   billing account (≡ → Billing; the free tier needs one).
 
-   ```sh
-   gcloud config set project YOUR_PROJECT
-   gcloud services enable run.googleapis.com artifactregistry.googleapis.com
-   ```
-
-2. A service account for GitHub to deploy with, and a key for it:
+2. Open Cloud Shell (the **>_** icon, top right) and run:
 
    ```sh
-   gcloud iam service-accounts create reader-deploy
-   SA=reader-deploy@YOUR_PROJECT.iam.gserviceaccount.com
-   for role in run.admin artifactregistry.admin iam.serviceAccountUser; do
-     gcloud projects add-iam-policy-binding YOUR_PROJECT --member "serviceAccount:$SA" --role "roles/$role"
-   done
-   gcloud iam service-accounts keys create key.json --iam-account "$SA"
+   git clone https://github.com/saurav717/reader && cd reader
+   bash cloudrun/latex/deploy.sh
    ```
 
-   (Where keys are forbidden by the organisation's policy, use Workload
-   Identity Federation instead: repository variables
-   `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT`.)
+   It turns on Cloud Run, Artifact Registry and Cloud Build, builds the
+   image with Cloud Build (5–10 minutes: all of TeX Live), deploys it, and
+   prints **`LATEX_CLOUD_RUN_URL`** and **`LATEX_CLOUD_RUN_TOKEN`**. Run it
+   again (after `git pull`) to deploy a newer `server.py`; the token is kept.
+   Another project: `bash cloudrun/latex/deploy.sh OTHER_PROJECT_ID`.
 
-3. In GitHub, Settings → Secrets and variables → Actions:
-   - variable **`GCP_PROJECT`** — the project id (and **`GCP_REGION`** if
-     not `us-central1`);
-   - secret **`GCP_SA_KEY`** — the contents of `key.json` (then delete the file);
-   - secret **`LATEX_CLOUD_RUN_TOKEN`** — `openssl rand -base64 32`; the
-     Worker gets the same.
+3. Tell the Worker: the address goes in `wrangler.toml` as
+   `LATEX_CLOUD_RUN_URL` (in `[vars]`, where it is commented out), and the
+   token is a secret — Cloudflare dashboard → Workers & Pages →
+   reader-arxiv-proxy → Settings → Variables and Secrets → Add → Secret,
+   or `npx wrangler secret put LATEX_CLOUD_RUN_TOKEN`. Once the Worker is
+   deployed, compiles go to Cloud Run.
 
-4. Run **Deploy LaTeX compiler** from the Actions tab (it also runs on each
-   merge that changes `cloudrun/latex`). Its summary prints the service's
-   address.
-
-5. Tell the Worker: put the address in `wrangler.toml` as
-   `LATEX_CLOUD_RUN_URL` (in `[vars]`, where it is commented out), and
-
-   ```sh
-   npx wrangler secret put LATEX_CLOUD_RUN_TOKEN   # the same string as GitHub's
-   ```
-
-   then deploy the Worker. Compiles go to Cloud Run from then on.
+Or deploy from GitHub instead, on each merge that changes `cloudrun/latex`
+(`.github/workflows/deploy-latex-cloudrun.yml`): a service account with
+Cloud Run Admin, Artifact Registry Admin and Service Account User, and in
+the repository's Actions settings the variable `GCP_PROJECT`, the secret
+`GCP_SA_KEY` (the account's JSON key; or the variables
+`GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT`), and the secret
+`LATEX_CLOUD_RUN_TOKEN` — the same token the service already has, or the
+next deploy changes it.
 
 The service allows unauthenticated calls (an organisation that forbids
 `allUsers` will refuse the deploy): it refuses every compile without the

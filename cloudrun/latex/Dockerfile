@@ -1,5 +1,5 @@
 # Reader's LaTeX compiler on Cloud Run: all of TeX Live and server.py.
-# Deployed by .github/workflows/deploy-latex-cloudrun.yml (docs/deploy.md).
+# Deployed by deploy.sh from Cloud Shell, or .github/workflows/deploy-latex-cloudrun.yml (docs/deploy.md).
 FROM ghcr.io/xu-cheng/texlive-full:latest
 
 # python3 for the server, and an unprivileged user to run TeX as.
