@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import {
   arxivIdFromQuery,
@@ -45,6 +45,8 @@ interface Props {
   here?: string;
   /** "Add papers" was pressed: put the cursor in the search box. `at` tells one press from the next. */
   focus?: number;
+  /** Set inside a page rather than the dock: no close button, and the heading says where papers go. */
+  embedded?: { title: string };
 }
 
 const labelFor = (id: SourceId) => sourceList().find((source) => source.id === id)?.label ?? id;
@@ -218,7 +220,9 @@ function Profile({ author }: { author: AuthorRef }) {
   );
 }
 
-export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
+export default function Discover({ onClose, onOpen, ask, here, focus, embedded }: Props) {
+  // Two of these can be on screen at once — the dock's and a page's — so the ids are their own.
+  const uid = useId();
   const { papers, collections, addPaper, createCollection, driveConnected, settings, syncPaperNow } = useStore();
   const projects = useMemo(() => projectsOf(collections), [collections]);
   const [query, setQuery] = useState('');
@@ -270,6 +274,10 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
     if (here && choices.some((collection) => collection.id === here)) setTarget(here);
     else if (!here) setTarget((current) => (plain.some((collection) => collection.id === current) ? current : plain[0]?.id ?? ''));
   }, [here, choices, plain]);
+
+  // The add button names what "Add to" points at: a project reads as one.
+  const place = choices.find((collection) => collection.id === target);
+  const kind = place && isProject(place) ? 'project' : 'collection';
 
   const queryInput = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -635,22 +643,24 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
   );
 
   return (
-    <aside className="panel discover-panel" aria-label="Discover">
+    <aside className={`panel discover-panel${embedded ? ' is-embedded' : ''}`} aria-label={embedded?.title ?? 'Discover'}>
       <div className="panel-head">
-        <h2>Discover</h2>
-        <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the discover panel">
-          <CloseIcon size={17} />
-        </button>
+        <h2>{embedded?.title ?? 'Discover'}</h2>
+        {embedded ? null : (
+          <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the discover panel">
+            <CloseIcon size={17} />
+          </button>
+        )}
       </div>
 
       <form style={{ padding: '0 16px 12px' }} onSubmit={submit}>
-        <label className="vh" htmlFor="discover-query">
+        <label className="vh" htmlFor={`discover-query-${uid}`}>
           Search papers and people
         </label>
         <div className="field">
           <SearchIcon size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
           <input
-            id="discover-query"
+            id={`discover-query-${uid}`}
             ref={queryInput}
             type="search"
             value={query}
@@ -676,11 +686,11 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
       </div>
 
       <div style={{ padding: '0 16px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <label htmlFor="discover-target" style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>
+        <label htmlFor={`discover-target-${uid}`} style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0 }}>
           Add to
         </label>
         <select
-          id="discover-target"
+          id={`discover-target-${uid}`}
           value={target}
           onChange={(event) => setTarget(event.target.value)}
           style={{
@@ -868,7 +878,7 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
                       aria-describedby={saveBlocked ? SAVE_BLOCKED_ID : undefined}
                       title={
                         saveBlocked ??
-                        'Add it to the collection, save the PDF to your Drive, and open it here on that copy'
+                        `Add it to ${place ? `“${place.name}”` : `the ${kind}`}, save the PDF to your Drive, and open it here on that copy`
                       }
                       onClick={() => void addToCollection(result)}
                     >
@@ -879,14 +889,14 @@ export default function Discover({ onClose, onOpen, ask, here, focus }: Props) {
                       ) : (
                         <>
                           <PlusIcon size={14} />
-                          {saved ? 'Add to this collection' : 'Add to collection'}
+                          {saved ? `Add to this ${kind}` : `Add to ${kind}`}
                         </>
                       )}
                     </button>
                     <button
                       type="button"
                       className="btn sm"
-                      title="Open it straight away; Drive catches up in the background"
+                      title={`Add it to ${place ? `“${place.name}”` : `the ${kind}`} and open it straight away; Drive catches up in the background`}
                       onClick={async () => {
                         await add(result);
                         onOpen(result.id);
