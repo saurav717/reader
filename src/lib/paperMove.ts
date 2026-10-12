@@ -35,6 +35,9 @@ async function filesOf(store: PaperStore): Promise<string[]> {
   return found;
 }
 
+/** Whether Git's error says Overleaf (or the way to it) is down, not that anything is wrong with the paper. */
+export const overleafDown = (error: string | undefined) => /\b50[234]\b|no healthy upstream|Could not resolve host|timed out|Connection (refused|reset)|Failed to connect/i.test(error ?? '');
+
 /** Whether the project's paper is still in a folder on a computer, and not yet in Drive. */
 export function keptLocally(project: Project): boolean {
   const link = project.project.overleaf;
@@ -63,7 +66,11 @@ export async function movePaperToDrive(project: Project, here: ThisCompanion | n
     if (clone) {
       step('Sending what was written on this computer to Overleaf…');
       const sent = await syncPaper(here.server, local.path, 'Edits from Reader, before the paper moved to Drive');
-      if (!sent.ok) throw new Error(`The folder on this computer couldn’t be synced with Overleaf first: ${sent.error ?? 'it didn’t finish'}.`);
+      if (!sent.ok) {
+        // Overleaf's Git down for a while (a 5xx, or not reached): said as such, and tried again later — nothing moved, nothing lost.
+        if (overleafDown(sent.error)) throw Object.assign(new Error('Overleaf’s Git isn’t answering right now (it’s down for a moment on Overleaf’s side). Nothing was moved or lost: try again in a few minutes.'), { transient: true });
+        throw new Error(`The folder on this computer couldn’t be synced with Overleaf first: ${sent.error ?? 'it didn’t finish'}.`);
+      }
     }
     // Then the folder's files into Drive, as they are; with Overleaf, recorded so the first sync from Drive goes
     // on from the commit they are (a clone, or Dropbox's copy), or sends them all (a folder never synced).

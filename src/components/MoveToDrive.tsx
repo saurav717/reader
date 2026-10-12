@@ -23,6 +23,8 @@ async function lostFolder(project: Project, here: ThisCompanion): Promise<PaperF
   return remote?.url && sameRemote(remote.url, gitUrl) ? { path, sync: 'git' } : null;
 }
 
+const RETRY_MS = 10 * 60_000;
+
 /** One run at a time. */
 let running = false;
 
@@ -47,6 +49,7 @@ export default function MoveToDrive() {
   const unplaced = all.filter((project) => overleafGitUrl(project.project.overleaf?.url) && !project.project.overleaf?.drive && !Object.keys(project.project.overleaf?.folders ?? {}).length);
   const [here, setHere] = useState<ThisCompanion | null | undefined>(undefined);
   const tried = useRef(new Set<string>());
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     if (!signedIn || !(waiting.length || unplaced.length) || here !== undefined) return;
@@ -73,6 +76,8 @@ export default function MoveToDrive() {
             });
           } catch (error) {
             console.warn(`Reader: “${project.name}” wasn’t moved to Drive this time:`, error);
+            // Tried again in a while, while Reader stays open (Overleaf down for a moment, say), and at its next opening.
+            window.setTimeout(() => (tried.current.delete(project.id), setRetry((n) => n + 1)), RETRY_MS);
           }
         }
       } finally {
@@ -80,7 +85,7 @@ export default function MoveToDrive() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signedIn, here, queue.map((project) => project.id).join()]);
+  }, [signedIn, here, queue.map((project) => project.id).join(), retry]);
 
   return null;
 }
