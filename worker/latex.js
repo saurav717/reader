@@ -329,12 +329,33 @@ export async function handleLatex(request, env, path, { json, headers, authorize
       await writeAccounts(kv, owner, left);
       return json({ known: left.length > 0, accounts: shownAccounts(left) }, 200, noStore);
     }
-    // An account connected before any project is picked: checked by Overleaf at its first sync.
+    // An account connected: with one of its projects (`url`), the token is tried on it first — a token
+    // from another Overleaf account can't open it, and isn't kept. Without one, checked at its first sync.
     if (request.method === 'PUT') {
       const body = await request.json().catch(() => null);
       const token = typeof body?.token === 'string' ? body.token.trim() : '';
       const label = typeof body?.label === 'string' ? body.label.trim().slice(0, 80) : '';
       if (!token || token.length > 200 || /\s/.test(token)) return json({ error: 'an Overleaf Git token (Overleaf: Account Settings → Git integration → Generate token)' }, 400, noStore);
+      if (body?.url != null) {
+        if (typeof body.url !== 'string' || !OVERLEAF_REMOTE.test(body.url)) return json({ error: 'one of the account’s Overleaf projects, by its link (https://www.overleaf.com/project/…)' }, 400, noStore);
+        if (!latexCompilerReady(env, 'cloudrun')) return json({ error: 'checking a token needs the compiler on Cloud Run (LATEX_CLOUD_RUN_URL)' }, 501, noStore);
+        if (await personOverLimit(env, who)) return json({ error: 'too many requests; wait a minute', limited: true }, 429, { ...noStore, 'Retry-After': '60' });
+        let checked;
+        try {
+          checked = await fetch(`${String(env.LATEX_CLOUD_RUN_URL).trim().replace(/\/+$/, '')}/git/check`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${String(env.LATEX_CLOUD_RUN_TOKEN).trim()}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: body.url, token }),
+            signal: AbortSignal.timeout(60_000),
+          });
+        } catch (error) {
+          return json({ error: `Reader’s server couldn’t reach its compiler to check the token (${error?.message || error}).` }, 502, noStore);
+        }
+        if (!checked.ok) {
+          const said = await checked.json().catch(() => ({}));
+          return json({ error: said.error || `the compiler answered ${checked.status}`, mismatch: checked.status === 401 }, checked.status === 401 ? 403 : 502, noStore);
+        }
+      }
       const added = await addAccount(env, kv, owner, token, label);
       return json({ known: true, account: added.id, accounts: shownAccounts(added.accounts) }, 200, noStore);
     }

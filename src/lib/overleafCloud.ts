@@ -127,9 +127,13 @@ export async function overleafTokenKnown(): Promise<boolean> {
   return (await overleafAccounts()).length > 0;
 }
 
-/** An Overleaf account connected: its Git token given to the Worker, kept sealed there; the account's id back. */
-export async function connectOverleaf(token: string, label = ''): Promise<string> {
-  const response = await apiFetch('/latex/overleaf/token', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, label }) });
+/**
+ * An Overleaf account connected: its Git token given to the Worker, kept sealed there; the account's id back.
+ * `project`, the Git address of one of the account's projects, is opened with the token first: a token
+ * from another account can't open it, and is refused rather than kept.
+ */
+export async function connectOverleaf(token: string, label = '', project?: string): Promise<string> {
+  const response = await apiFetch('/latex/overleaf/token', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, label, ...(project ? { url: project } : {}) }) });
   const body = (await response.json().catch(() => ({}))) as { error?: string; account?: string; accounts?: OverleafAccount[] };
   if (!response.ok || !body.account) throw new Error(body.error ?? `Reader’s server answered ${response.status}.`);
   told(body.accounts ?? []);

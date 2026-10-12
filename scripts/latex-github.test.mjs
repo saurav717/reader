@@ -282,7 +282,15 @@ describe('a job’s state', () => {
     assert.equal((await accounts()).length, 1, 'a token that can’t open one project is not dropped');
     // The lab account connected: its projects sync with it, and the first one's with its own.
     assert.equal((await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: '' }) })).status, 400);
-    const connected = await (await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: 'olp_lab', label: 'Lab account' }) })).json();
+    // Checked on one of its projects: another account's token can't open it, and isn't kept.
+    const wrong = await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: 'olp_mine', label: 'Lab account', url: labs }) });
+    assert.equal(wrong.status, 403);
+    assert.equal((await wrong.json()).mismatch, true);
+    assert.equal(sent.at(-1).url, 'https://latex.run.app/git/check');
+    assert.equal((await accounts()).length, 1, 'the wrong token isn’t kept as the lab account');
+    assert.equal((await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: 'olp_lab', url: 'https://evil.example/x' }) })).status, 400);
+    const connected = await (await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: 'olp_lab', label: 'Lab account', url: labs }) })).json();
+    assert.equal(sent.at(-1).url, 'https://latex.run.app/git/check');
     assert.equal(connected.accounts.length, 2);
     assert.equal(connected.accounts.find((item) => item.id === connected.account).label, 'Lab account');
     assert.ok(![...kept.values()].some((value) => value.includes('olp_lab')), 'not kept in the clear');
