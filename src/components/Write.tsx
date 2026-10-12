@@ -40,6 +40,9 @@ let earlyToken = '';
 export default function WritePage({ project, onView }: { project: Project; onView: (view: View) => void }) {
   const [here, setHere] = useState<ThisComputer | null>(null);
   const [inBrowser, setInBrowser] = useState(false);
+  // The project's documents first, each time the tab opens; the desk once one is picked.
+  const [atDesk, setAtDesk] = useState(false);
+  const updateLink = useUpdateLink(project);
   const ask = useCallback((again = false) => {
     setHere(null);
     void thisComputer(PAPER_VERSION, 'write the paper here', again).then(setHere);
@@ -112,7 +115,19 @@ export default function WritePage({ project, onView }: { project: Project; onVie
     );
   }
   if (!folder) return <WriteSetUp project={project} here={here} />;
-  return <WriteDesk key={`${here.id}:${folder.path}`} project={project} here={here} folder={folder} />;
+  if (!atDesk)
+    return (
+      <WriteHome
+        project={project}
+        here={here}
+        folder={folder}
+        onOpen={(main) => {
+          if (main !== link?.main) updateLink({ main });
+          setAtDesk(true);
+        }}
+      />
+    );
+  return <WriteDesk key={`${here.id}:${folder.path}`} project={project} here={here} folder={folder} onHome={() => setAtDesk(false)} />;
 }
 
 /** The way to Overleaf's Git, step by step, with the token taken now if it is to hand. */
@@ -1029,7 +1044,310 @@ const toBlob = (base64: string) => {
   return new Blob([bytes], { type: 'application/pdf' });
 };
 
-function WriteDesk({ project, here, folder }: { project: Project; here: Here; folder: PaperFolder }) {
+/** A document in the paper's folder: a .tex file with \documentclass, with what it says of itself. */
+interface PaperDoc {
+  path: string;
+  title: string;
+  docClass: string;
+  modified: string | null;
+}
+
+/** "3 h ago", for a document's last edit. */
+function ago(iso: string | null): string {
+  if (!iso) return '';
+  const seconds = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  if (!Number.isFinite(seconds)) return '';
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
+  if (seconds < 86_400) return `${Math.round(seconds / 3600)} h ago`;
+  if (seconds < 30 * 86_400) return `${Math.round(seconds / 86_400)} d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+/** A new document's folder name, from what it is called. */
+const folderSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+
+const BLANK_DOC = (title: string) => `\\documentclass{article}
+\\usepackage[utf8]{inputenc}
+\\usepackage{amsmath,amssymb,graphicx,hyperref}
+
+\\title{${title.replace(/[\\{}]/g, '')}}
+\\author{}
+\\date{\\today}
+
+\\begin{document}
+\\maketitle
+
+\\section{Introduction}
+
+\\end{document}
+`;
+
+type Making = 'blank' | 'templates' | 'zip' | 'files';
+
+/**
+ * Where the Write tab opens: the documents in this project's folder — each
+ * .tex with \documentclass, its title and when it was last edited — to open
+ * one, and the ways to start another: a blank document, one of the templates
+ * kept on this computer, a template's .zip (kept as a template too), or .tex
+ * files from elsewhere. A new document goes in a folder of its own, beside
+ * the others, unless the project has none yet.
+ */
+function WriteHome({ project, here, folder, onOpen }: { project: Project; here: Here; folder: PaperFolder; onOpen: (main: string) => void }) {
+  const server = here.server;
+  const link = project.project.overleaf;
+  const [docs, setDocs] = useState<PaperDoc[] | null>(null);
+  const [others, setOthers] = useState<{ tex: number; bib: number; figures: number; other: number }>({ tex: 0, bib: 0, figures: 0, other: 0 });
+  const [problem, setProblem] = useState<string | null>(null);
+  const [making, setMaking] = useState<Making | null>(null);
+  const [name, setName] = useState('');
+  const [templates, setTemplates] = useState<PaperTemplate[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const zipPicker = useRef<HTMLInputElement>(null);
+  const filePicker = useRef<HTMLInputElement>(null);
+  const templatesOld = isNewer(PAPER_TEMPLATES_VERSION, here.version);
+
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      try {
+        const listed = await listStamped(server, folder.path);
+        const found: PaperDoc[] = [];
+        const count = { tex: 0, bib: 0, figures: 0, other: 0 };
+        for (const { path, stamp } of listed) {
+          if (/\.tex$/i.test(path) && found.length + count.tex < 80) {
+            const read = await jupyterRead(server, `${folder.path}/${path}`).catch(() => null);
+            const text = read?.text ?? '';
+            const docClass = /^[^%\n]*\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}/m.exec(text)?.[1];
+            if (docClass) {
+              const title = /^[^%\n]*\\title(?:\[[^\]]*\])?\{([^}]*)\}/m.exec(text)?.[1]?.replace(/\\\\|\\[a-zA-Z]+\s*/g, ' ').replace(/\s+/g, ' ').trim() ?? '';
+              found.push({ path, title, docClass, modified: read?.modified ?? (stamp.split('|')[0] || null) });
+            } else count.tex += 1;
+          } else if (/\.bib$/i.test(path)) count.bib += 1;
+          else if (/\.(png|jpe?g|pdf|eps|svg)$/i.test(path)) count.figures += 1;
+          else count.other += 1;
+        }
+        found.sort((a, b) => (a.path === link?.main ? -1 : b.path === link?.main ? 1 : (b.modified ?? '').localeCompare(a.modified ?? '')));
+        if (live) (setDocs(found), setOthers(count));
+      } catch (error) {
+        if (live) setProblem(error instanceof Error ? error.message : String(error));
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [server, folder.path, link?.main]);
+
+  useEffect(() => {
+    if (making !== 'templates' || templates || templatesOld) return;
+    void listTemplates(server).then(setTemplates, (error) => setProblem(error instanceof Error ? error.message : String(error)));
+  }, [making, templates, templatesOld, server]);
+
+  /** Where a new document goes: a folder of its own, or the top when the project has no document yet. */
+  const placeFor = (label: string) => {
+    if (!docs?.length) return '';
+    const slug = folderSlug(label) || 'document';
+    let dir = slug;
+    for (let n = 2; docs.some((doc) => doc.path.startsWith(`${dir}/`)); n += 1) dir = `${slug}-${n}`;
+    return dir;
+  };
+  const within = (dir: string, path: string) => (dir ? `${dir}/${path}` : path);
+  const run = async (work: () => Promise<string | undefined>) => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const main = await work();
+      if (main) onOpen(main);
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const makeBlank = () =>
+    run(async () => {
+      const title = name.trim() || 'Untitled';
+      const dir = placeFor(title);
+      const main = within(dir, 'main.tex');
+      await jupyterWrite(server, `${folder.path}/${main}`, BLANK_DOC(title));
+      return main;
+    });
+  const fromTemplate = (template: PaperTemplate) =>
+    run(async () => {
+      const dir = placeFor(name.trim() || template.name);
+      const done = await applyTemplate(server, template.slug, dir ? `${folder.path}/${dir}` : folder.path);
+      return within(dir, done.main || template.main || 'main.tex');
+    });
+  const fromZip = (file: File) =>
+    run(async () => {
+      const label = name.trim() || file.name.replace(/\.zip$/i, '');
+      const kept = await saveTemplate(server, label, await fileBase64(file));
+      const dir = placeFor(label);
+      const done = await applyTemplate(server, kept.slug, dir ? `${folder.path}/${dir}` : folder.path);
+      return within(dir, done.main || kept.main || 'main.tex');
+    });
+  const fromFiles = (files: File[]) =>
+    run(async () => {
+      const tex = files.filter((file) => /\.tex$/i.test(file.name));
+      if (!tex.length) throw new Error('Pick at least one .tex file (with its .bib, styles and figures, if it has them).');
+      const dir = placeFor(name.trim() || tex[0].name.replace(/\.tex$/i, ''));
+      let main = '';
+      for (const file of files) {
+        await jupyterWriteBase64(server, `${folder.path}/${within(dir, file.name)}`, await fileBase64(file));
+        if (!main && /\.tex$/i.test(file.name) && /\\documentclass/.test(await file.text())) main = within(dir, file.name);
+      }
+      return main || within(dir, tex[0].name);
+    });
+
+  const ways: { id: Making; title: string; note: string; icon: string }[] = [
+    { id: 'blank', title: 'Blank document', note: 'An article with a title, an author and a first section.', icon: '＋' },
+    { id: 'templates', title: 'Browse templates', note: 'The conference kits kept on this computer: NeurIPS, ICML, ACL…', icon: '▦' },
+    { id: 'zip', title: 'Upload a template (.zip)', note: 'A conference’s kit, as it gives it out. Kept as a template for next time.', icon: '⇪' },
+    { id: 'files', title: 'Upload LaTeX files', note: 'A .tex from elsewhere, with its .bib, styles and figures.', icon: '⎘' },
+  ];
+
+  return (
+    <div className="wr-home">
+      <header className="wr-home-head">
+        <div>
+          <span className="eyebrow">Write</span>
+          <h2>{project.name}</h2>
+          <p className="wr-quiet">
+            <span className="mono">~/Reader/{folder.path}</span> · {folder.sync === 'git' ? (link?.repo && !overleafGitUrl(link?.url) ? `in step with GitHub (${link.repo})` : 'in step with Overleaf') : folder.sync === 'dropbox' ? 'kept in step by Dropbox' : 'on this computer only'}
+          </p>
+        </div>
+        {docs?.length ? (
+          <button type="button" className="btn primary" onClick={() => onOpen(docs[0].path)}>
+            Continue {docs[0].title || docs[0].path} →
+          </button>
+        ) : null}
+      </header>
+
+      <section className="wr-home-section" aria-label="The documents in this project">
+        <h3>Documents in this project</h3>
+        {docs === null && !problem ? <p className="wr-quiet">Reading the project’s folder…</p> : null}
+        {docs && !docs.length ? <p className="wr-quiet">No document yet: start one below. A document is a .tex file with \documentclass; the files it brings in are listed with it once open.</p> : null}
+        {docs?.length ? (
+          <div className="wr-docs">
+            {docs.map((doc) => (
+              <button key={doc.path} type="button" className="wr-doc" onClick={() => onOpen(doc.path)} title={`Open ${doc.path}`}>
+                <span className="wr-doc-page" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <span className="wr-doc-text">
+                  <b>{doc.title || doc.path.split('/').pop()}</b>
+                  <span className="mono">{doc.path}</span>
+                  <small>
+                    {doc.docClass}
+                    {doc.modified ? ` · edited ${ago(doc.modified)}` : ''}
+                    {doc.path === link?.main ? <em>main</em> : null}
+                  </small>
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {docs ? (
+          <p className="wr-quiet wr-home-others">
+            Also in the folder: {others.tex} other .tex file{others.tex === 1 ? '' : 's'} (sections, inputs) · {others.bib} .bib · {others.figures} figure{others.figures === 1 ? '' : 's'}
+            {others.other ? ` · ${others.other} other` : ''}
+          </p>
+        ) : null}
+      </section>
+
+      <section className="wr-home-section" aria-label="Start a new document">
+        <h3>Start a new document</h3>
+        <div className="wr-home-ways" role="radiogroup" aria-label="How to start it">
+          {ways.map((way) => (
+            <button key={way.id} type="button" role="radio" aria-checked={making === way.id} className={`wr-home-way${making === way.id ? ' is-on' : ''}`} onClick={() => setMaking(making === way.id ? null : way.id)}>
+              <span className="wr-home-icon" aria-hidden="true">{way.icon}</span>
+              <b>{way.title}</b>
+              <small>{way.note}</small>
+            </button>
+          ))}
+        </div>
+
+        {making ? (
+          <div className="wr-home-make">
+            <label className="wr-home-name">
+              <span>Its name</span>
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder={making === 'blank' ? 'e.g. Workshop paper' : 'Optional: the template’s or file’s name otherwise'} />
+              <small className="wr-quiet">{docs?.length ? `It goes in its own folder, ${placeFor(name.trim() || (making === 'blank' ? 'Untitled' : 'document'))}/, beside the other documents.` : 'It goes at the top of the project’s folder.'}</small>
+            </label>
+            {making === 'blank' ? (
+              <button type="button" className="btn primary" disabled={busy} onClick={() => void makeBlank()}>
+                {busy ? 'Making it…' : 'Make it and open it'}
+              </button>
+            ) : null}
+            {making === 'templates' ? (
+              templatesOld ? (
+                <p className="wr-quiet">Templates need the Companion {PAPER_TEMPLATES_VERSION} or later on this computer (it is {here.version}): update it from Your compute in the Playground.</p>
+              ) : templates === null ? (
+                <p className="wr-quiet">Asking this computer for its templates…</p>
+              ) : templates.length ? (
+                <div className="wr-home-templates">
+                  {templates.map((template) => (
+                    <button key={template.slug} type="button" className="wr-home-template" disabled={busy} onClick={() => void fromTemplate(template)}>
+                      <b>{template.name}</b>
+                      <small>
+                        {template.files} files{template.main ? ` · ${template.main}` : ''}
+                      </small>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="wr-quiet">No template on this computer yet: upload a conference’s .zip, and it is kept here for next time.</p>
+              )
+            ) : null}
+            {making === 'zip' ? (
+              <>
+                <button type="button" className="btn primary" disabled={busy || templatesOld} onClick={() => zipPicker.current?.click()}>
+                  {busy ? 'Unpacking…' : 'Choose the .zip…'}
+                </button>
+                <input
+                  ref={zipPicker}
+                  type="file"
+                  accept=".zip,application/zip"
+                  hidden
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    if (file) void fromZip(file);
+                  }}
+                />
+              </>
+            ) : null}
+            {making === 'files' ? (
+              <>
+                <button type="button" className="btn primary" disabled={busy} onClick={() => filePicker.current?.click()}>
+                  {busy ? 'Copying…' : 'Choose the files…'}
+                </button>
+                <input
+                  ref={filePicker}
+                  type="file"
+                  multiple
+                  accept=".tex,.bib,.sty,.cls,.bst,.png,.jpg,.jpeg,.pdf,.eps,.svg"
+                  hidden
+                  onChange={(event) => {
+                    const files = [...(event.target.files ?? [])];
+                    event.target.value = '';
+                    if (files.length) void fromFiles(files);
+                  }}
+                />
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        {problem ? <p className="wr-bad">{problem}</p> : null}
+      </section>
+    </div>
+  );
+}
+
+function WriteDesk({ project, here, folder, onHome }: { project: Project; here: Here; folder: PaperFolder; onHome?: () => void }) {
   const { settings, papers, updateSettings } = useStore();
   const [desk, setDesk] = useDesk();
   const setLayout = (layout: WriteOptions['layout']) => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), layout } });
@@ -1116,7 +1434,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
   }, [refreshList, server, folder.path, git]);
 
   const texts = (paths ?? []).filter(isTextFile);
-  const mainGuess = texts.find((path) => path === compiled?.main) ?? texts.find((path) => /(^|\/)main\.tex$/.test(path)) ?? texts.find((path) => path.endsWith('.tex'));
+  const mainGuess = texts.find((path) => path === link?.main) ?? texts.find((path) => path === compiled?.main) ?? texts.find((path) => /(^|\/)main\.tex$/.test(path)) ?? texts.find((path) => path.endsWith('.tex'));
   const shown = open && texts.includes(open) ? open : mainGuess;
   // The main document: as set on the project, else the one the compile found, else the first with main.tex's name.
   const mainDoc = link?.main && texts.includes(link.main) ? link.main : undefined;
@@ -1570,7 +1888,7 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
       const readSeconds = (Date.now() - started) / 1000;
       setGh((now) => ({ ...now, phase: 'compiling' }));
       const send = (paths: string[]) =>
-        apiFetch('/latex/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: 'cloudrun', project: `${project.id}:${folder.path}`, manifest, files: filesOf(paths), main, compiler, fresh }) });
+        apiFetch('/latex/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: 'cloudrun', project: `${project.id}:${folder.path}:${main}`, manifest, files: filesOf(paths), main, compiler, fresh }) });
       let answer = await send(changed);
       if (answer.status === 409) {
         // The compiler lacks some files (it restarted, or another paper pushed this one out): those, and ask again.
@@ -1841,6 +2159,11 @@ function WriteDesk({ project, here, folder }: { project: Project; here: Here; fo
       {desk.sideOpen ? (
       <aside className="wr-side">
         <Handle axis="x" className="wr-handle-side" onDrag={(dx) => setDesk((now) => ({ side: clamp(now.side + dx, 160, 520) }))} onReset={() => setDesk({ side: DESK.side })} label="Drag to widen or narrow the files" />
+        {onHome ? (
+          <button type="button" className="wr-home-back" onClick={onHome} title="The project’s documents, and new ones">
+            ← All documents
+          </button>
+        ) : null}
         <div className="wr-side-head">
           <b>Files</b>
           <span className="wr-file-ops">
