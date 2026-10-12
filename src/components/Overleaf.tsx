@@ -17,6 +17,7 @@ import {
   keyFor,
   mainFileOf,
   openInOverleaf,
+  overleafGitUrl,
   overleafViewOf,
   parseOverleafUrl,
   quoteOf,
@@ -29,6 +30,7 @@ import { createPrivateRepo, githubAccount, makeRepoPrivate, parseRepo, repoNameF
 import { papersIn, projectsOf, type Project } from '../lib/projects';
 import type { BrowserChoice, OverleafLink, OverleafView, Paper, Settings } from '../types';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
+import { SyncedThrough } from './OverleafAccounts';
 import { CheckIcon, ChevronDownIcon, CopyIcon, ExternalIcon, LockIcon } from './icons';
 import { BROWSERS_VERSION, findLocalCompanion, isNewer, listBrowsers, openInBrowser, type InstalledBrowser } from '../lib/companion';
 import { allServers } from '../lib/playground';
@@ -680,7 +682,8 @@ export function OverleafCard({ project, onWrite }: { project: Project; /** The w
             ) : null}
             <OpenOverleaf project={project} view={view === 'tab' ? 'beside' : view} primary={view !== 'write' && view !== 'tab'} />
           </div>
-          {!link.repo ? (
+          {view === 'tab' && overleafGitUrl(link.url) ? <SyncedThrough gitAccount={link.gitAccount} /> : null}
+          {!link.repo && link.drive ? null : !link.repo ? (
             <p className="ol-note">Overleaf can’t be read from another site, so this is only the link. If the project syncs with GitHub, add the repository (Change) to see its sections and citations here.</p>
           ) : !draft.target ? (
             <p className="ol-note">Connect GitHub (Change) to read {link.repo} here.</p>

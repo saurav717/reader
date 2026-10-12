@@ -238,12 +238,14 @@ describe('a job’s state', () => {
     assert.equal(latexCompiler({ LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' }), null);
   });
 
-  it('a paper in Drive: the Overleaf token kept sealed, handed to Cloud Run for each sync, dropped when Overleaf refuses it', async (t) => {
+  it('a paper in Drive: Overleaf accounts kept sealed, each project synced with the account that can open it', async (t) => {
     const sent = [];
-    let refuse = false;
+    // Which token opens which project: one account's own, another's not.
+    const opens = { olp_mine: ['621baf31fcfddbde3bf5fdf8'], olp_lab: ['731baf31fcfddbde3bf5fdf9'] };
     t.mock.method(globalThis, 'fetch', async (url, init) => {
-      sent.push({ url: String(url), job: JSON.parse(init.body) });
-      return refuse ? Response.json({ error: 'Overleaf refused the Git token', needToken: true }, { status: 401 }) : Response.json({ ok: true, commit: 'abc1234', files: [], deleted: [], conflicts: [], tree: {} });
+      const job = JSON.parse(init.body);
+      sent.push({ url: String(url), job });
+      return (opens[job.token] ?? []).some((id) => job.url.includes(id)) ? Response.json({ ok: true, commit: 'abc1234', files: [], deleted: [], conflicts: [], tree: {} }) : Response.json({ error: 'Overleaf refused the Git token', needToken: true }, { status: 401 });
     });
     const kv = staleKv();
     const kept = new Map();
@@ -254,24 +256,69 @@ describe('a job’s state', () => {
     const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers });
     const tools = { json, headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: () => {} };
     const ask = (path, init = {}) => handleLatex(new Request(`https://w${path}`, init), env, path, tools);
-    const url = 'https://git.overleaf.com/621baf31fcfddbde3bf5fdf8';
-    const sync = (extra = {}) => ask('/latex/overleaf/sync', { method: 'POST', body: JSON.stringify({ url, base: '', changed: [], deleted: [], manifest: {}, ...extra }) });
+    const mine = 'https://git.overleaf.com/621baf31fcfddbde3bf5fdf8';
+    const labs = 'https://git.overleaf.com/731baf31fcfddbde3bf5fdf9';
+    const sync = (extra = {}) => ask('/latex/overleaf/sync', { method: 'POST', body: JSON.stringify({ url: mine, base: '', changed: [], deleted: [], manifest: {}, ...extra }) });
+    const accounts = async () => (await (await ask('/latex/overleaf/token')).json()).accounts;
 
     assert.equal((await (await ask('/latex/overleaf/token')).json()).known, false);
     const first = await sync();
     assert.equal(first.status, 400);
     assert.equal((await first.json()).needToken, true);
-    assert.equal((await sync({ token: 'olp_secret' })).status, 200);
+    // A token given with a sync is kept as an account, and the answer says which.
+    const given = await sync({ token: 'olp_mine' });
+    assert.equal(given.status, 200);
+    const mineId = (await given.json()).account;
     assert.equal(sent.at(-1).url, 'https://latex.run.app/git/sync');
-    assert.equal(sent.at(-1).job.token, 'olp_secret');
-    assert.ok(![...kept.values()].some((value) => value.includes('olp_secret')), 'not kept in the clear');
-    assert.equal((await (await ask('/latex/overleaf/token')).json()).known, true);
+    assert.equal(sent.at(-1).job.token, 'olp_mine');
+    assert.ok(![...kept.values()].some((value) => value.includes('olp_mine')), 'not kept in the clear');
+    assert.deepEqual((await accounts()).map((item) => item.id), [mineId]);
     await sync();
-    assert.equal(sent.at(-1).job.token, 'olp_secret', 'the kept token is used');
-    refuse = true;
-    assert.equal((await sync()).status, 401);
-    assert.equal((await (await ask('/latex/overleaf/token')).json()).known, false, 'a refused token is dropped');
+    assert.equal(sent.at(-1).job.token, 'olp_mine', 'the kept token is used');
+    // Another account's project: refused by this account, which is kept all the same.
+    const other = await sync({ url: labs });
+    assert.equal(other.status, 401);
+    assert.match((await other.json()).error, /another Overleaf account/);
+    assert.equal((await accounts()).length, 1, 'a token that can’t open one project is not dropped');
+    // The lab account connected: its projects sync with it, and the first one's with its own.
+    assert.equal((await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: '' }) })).status, 400);
+    const connected = await (await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: 'olp_lab', label: 'Lab account' }) })).json();
+    assert.equal(connected.accounts.length, 2);
+    assert.equal(connected.accounts.find((item) => item.id === connected.account).label, 'Lab account');
+    assert.ok(![...kept.values()].some((value) => value.includes('olp_lab')), 'not kept in the clear');
+    const lab = await (await sync({ url: labs })).json();
+    assert.equal(lab.account, connected.account);
+    assert.equal(lab.accountLabel, 'Lab account');
+    sent.length = 0;
+    assert.equal((await (await sync({ url: labs, account: connected.account })).json()).ok, true);
+    assert.equal(sent.length, 1, 'the project’s own account is tried first');
+    // Shared with both accounts: synced with the one asked for; when it loses access, with the other — and said.
+    opens.olp_mine.push('731baf31fcfddbde3bf5fdf9');
+    const asMine = await (await sync({ url: labs, account: mineId })).json();
+    assert.equal(asMine.account, mineId);
+    assert.equal(asMine.fellBackFrom, undefined);
+    opens.olp_mine.pop();
+    const fell = await (await sync({ url: labs, account: mineId })).json();
+    assert.equal(fell.account, connected.account);
+    assert.equal(fell.fellBackFrom, 'Overleaf account 1');
+    // The same token again: the same account, relabelled, not a second one.
+    await ask('/latex/overleaf/token', { method: 'PUT', body: JSON.stringify({ token: 'olp_mine', label: 'Me' }) });
+    assert.deepEqual((await accounts()).map((item) => item.label).sort(), ['Lab account', 'Me']);
+    // One forgotten, then all.
+    assert.deepEqual((await (await handleLatex(new Request(`https://w/latex/overleaf/token?account=${connected.account}`, { method: 'DELETE' }), env, '/latex/overleaf/token', tools)).json()).accounts.map((item) => item.label), ['Me']);
+    assert.equal((await (await ask('/latex/overleaf/token', { method: 'DELETE' })).json()).known, false);
     assert.equal((await sync({ url: 'https://evil.example/repo' })).status, 400);
+  });
+
+  it('reads a token kept before there could be several accounts as one account', async () => {
+    const kept = new Map();
+    const kv = { ...staleKv(), get: async (key) => kept.get(key) ?? null, put: async (key, value) => void kept.set(key, value), delete: async (key) => void kept.delete(key) };
+    const env = { SESSIONS: kv, LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' };
+    kept.set('overleaf-token:a@b.c', await sealToken(env, 'olp_old'));
+    const tools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers }), headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: () => {} };
+    const answer = await (await handleLatex(new Request('https://w/latex/overleaf/token'), env, '/latex/overleaf/token', tools)).json();
+    assert.equal(answer.known, true);
+    assert.equal(answer.accounts.length, 1);
   });
 
   it('seals and opens a token, and opens nothing sealed under another secret', async () => {

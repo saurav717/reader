@@ -224,6 +224,8 @@ export interface OverleafLink {
    * clone of the Overleaf project there. The newest choice wins on every device.
    */
   keep?: { where: 'drive' | 'computer'; at: string };
+  /** The Overleaf account (connected to Reader's server) the project last synced with: tried first. */
+  gitAccount?: string;
   /**
    * The folders of the Overleaf projects this one was linked to before, by
    * their address: switching back to one opens its folder again, with what

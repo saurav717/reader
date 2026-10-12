@@ -79,6 +79,7 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
   return {
     url: url ?? '',
     ...(driveFolder ? { drive: { folder: driveFolder } } : {}),
+    ...(typeof value.gitAccount === 'string' && /^[a-z0-9]{1,40}$/.test(value.gitAccount) ? { gitAccount: value.gitAccount } : {}),
     ...(keep && (keep.where === 'drive' || keep.where === 'computer') && typeof keep.at === 'string' ? { keep: { where: keep.where, at: keep.at } } : {}),
     ...(repo ? { repo: `${repo.owner}/${repo.repo}` } : {}),
     ...(repo && text(value.branch) ? { branch: text(value.branch) } : {}),
