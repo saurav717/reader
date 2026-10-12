@@ -14,15 +14,15 @@ import {
   bibtexFor,
   draftHealth,
   draftTarget,
+  latexLinkAt,
+  latexOwner,
   keyFor,
   mainFileOf,
-  openInOverleaf,
   overleafGitUrl,
   overleafViewOf,
   parseOverleafUrl,
   quoteOf,
   readDraft,
-  starterPaper,
   writeDraft,
   type DraftFile,
 } from '../lib/overleaf';
@@ -31,6 +31,7 @@ import { papersIn, projectsOf, type Project } from '../lib/projects';
 import type { OverleafLink, OverleafView, Paper, Settings } from '../types';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
 import { SyncedThrough } from './OverleafAccounts';
+import { agoShort, lastPlace, openWriteHome, type WriteHomeAsk } from '../lib/writePlace';
 import { CheckIcon, CopyIcon, ExternalIcon, LockIcon } from './icons';
 
 // -------------------------------------------------- opening Overleaf --
@@ -427,57 +428,41 @@ function LinkForm({ project, onDone, note }: { project: Project; onDone: () => v
 
 // ------------------------------------------------- the overview card --
 
-const WHERE: Record<OverleafView, string> = {
-  tab: 'Write it in the Write tab: the LaTeX and its PDF, synced with Overleaf.',
-  beside: 'Overleaf opens in a window beside the reader.',
-  write: 'Write beside the project’s papers in the workspace.',
-  dock: 'The draft is in the dock’s Draft tab, beside any paper you open.',
-  overview: 'Overleaf opens in a tab.',
-};
-
-/** The paper on the project's overview: its link, where it is written, and what the draft makes of the project's papers. */
-export function OverleafCard({ project, onWrite }: { project: Project; /** The workspace, on its Write layout. */ onWrite: () => void }) {
+/**
+ * The paper on the project's overview. It is written here, in the Write tab —
+ * Continue writing opens it where it was left — and Overleaf is a sync beside
+ * it, linked from here when wanted: never the only way in. With a GitHub
+ * repository (Overleaf's GitHub sync), what the draft makes of the project's
+ * papers: its sections, what is cited, what is read and not.
+ */
+export function OverleafCard({ project, onWrite, onWorkspace }: { project: Project; /** The Write tab. */ onWrite: () => void; /** The workspace, on its Write layout. */ onWorkspace: () => void }) {
   const { papers, settings } = useStore();
   const view = overleafViewOf(settings);
   const link = project.project.overleaf;
   const [linking, setLinking] = useState(false);
-  const [started, setStarted] = useState(false);
   const draft = useDraft(project);
   const mine = useMemo(() => papersIn(project.id, papers), [project.id, papers]);
   const health = useMemo(() => (draft.files.length ? draftHealth(draft.files, mine) : null), [draft.files, mine]);
   const top = health?.headings.filter((heading) => heading.level <= Math.min(...health.headings.map((h) => h.level)) + 1).slice(0, 8) ?? [];
   const most = Math.max(1, ...top.map((heading) => heading.total));
+  const place = lastPlace(project.id);
+  const started = Boolean(link?.drive?.folder || Object.keys(link?.folders ?? {}).length || place);
+  // Each LaTeX project in the paper's folder has an Overleaf project of its own, or none: the one written in last speaks for the card.
+  const here = place?.dir ?? '';
+  const hereLink = latexLinkAt(link, latexOwner(link, here));
+  const onOverleaf = Boolean(overleafGitUrl(hereLink.url));
+  // The ones known by their links: the top's when it has one (or was written in), and each folder with a link of its own.
+  const latexProjects = link?.drive ? [...(overleafGitUrl(link.url) || (place && !place.dir) ? [''] : []), ...Object.keys(link.latex ?? {})].map((dir) => ({ dir, url: latexLinkAt(link, dir).url })) : [];
+  const write = (ask?: WriteHomeAsk) => {
+    if (ask) openWriteHome(project.id, ask);
+    onWrite();
+  };
 
-  if (!link || linking) {
+  if (linking) {
     return (
       <section className="pj-panel ol-card">
-        <span className="eyebrow">The paper</span>
-        {link ? null : <p className="pj-sub">Writing this up in Overleaf? Link the Overleaf project, and the paper is a click away from what you read and the code — {WHERE[view].charAt(0).toLowerCase() + WHERE[view].slice(1)}</p>}
-        {linking ? (
-          <LinkForm
-            project={project}
-            onDone={() => (setLinking(false), setStarted(false))}
-            note={started ? 'Overleaf opened the new paper in another tab (sign in there if it asks). Copy its address from that tab’s address bar here, and the paper is linked.' : undefined}
-          />
-        ) : (
-          <div className="pj-row">
-            <button
-              type="button"
-              className="btn primary sm"
-              title={`A new Overleaf project: main.tex with “${project.name}”${project.project.question ? ' and its question' : ''}, the usual sections${mine.length ? `, and references.bib with the project’s ${mine.length} paper${mine.length === 1 ? '' : 's'}` : ''}`}
-              onClick={() => {
-                openInOverleaf(starterPaper(project.name, project.project.question, mine));
-                setStarted(true);
-                setLinking(true);
-              }}
-            >
-              Start a new paper in Overleaf
-            </button>
-            <button type="button" className="btn sm" onClick={() => setLinking(true)}>
-              Link an Overleaf project
-            </button>
-          </div>
-        )}
+        <span className="eyebrow">The paper · its GitHub repository</span>
+        <LinkForm project={project} onDone={() => setLinking(false)} />
       </section>
     );
   }
@@ -485,30 +470,74 @@ export function OverleafCard({ project, onWrite }: { project: Project; /** The w
   return (
     <section className="pj-panel ol-card">
       <div className="ol-head">
-        <span className="eyebrow">The paper · Overleaf</span>
+        <span className="eyebrow">The paper</span>
+        <span className={`ol-sync${onOverleaf ? ' is-on' : ''}`} title={onOverleaf ? 'This LaTeX project: each save here goes to its Overleaf project, and what coauthors write there comes back' : 'This LaTeX project is kept in Reader only — link it to an Overleaf project of its own to write there too'}>
+          {place && latexProjects.length > 1 ? `${here || 'top'} · ` : ''}
+          {onOverleaf ? 'Synced with Overleaf' : 'Not on Overleaf'}
+        </span>
         <span style={{ flex: 1 }} />
-        {link.repo ? <RepoPrivacy repo={link.repo} /> : null}
+        {link?.repo ? <RepoPrivacy repo={link.repo} /> : null}
         {draft.target ? <DraftStatus draft={draft} /> : null}
-        <button type="button" className="link-btn" onClick={() => setLinking(true)}>
-          Change
-        </button>
+        {link && !link.drive ? (
+          <button type="button" className="link-btn" onClick={() => setLinking(true)} title="The GitHub repository Overleaf syncs the paper to: what the outline and citations below are read from">
+            GitHub sync
+          </button>
+        ) : null}
       </div>
       <div className="ol-card-body">
         <div className="ol-card-main">
-          <p className="pj-sub">{WHERE[view]}</p>
+          {place ? (
+            <p className="ol-place">
+              <span className="ol-place-label">You left off</span>
+              <span className="mono">{place.file}</span>
+              <span className="ol-place-at">
+                line {place.line} · {agoShort(place.at)}
+              </span>
+            </p>
+          ) : (
+            <p className="pj-sub">
+              {started
+                ? 'Written in the Write tab: the LaTeX beside its PDF, the project’s papers a click from \\cite.'
+                : 'Write it here: LaTeX beside its PDF, kept in your Google Drive, the project’s papers a click from \\cite. Overleaf is optional — sync with it whenever you like.'}
+            </p>
+          )}
           <div className="pj-row" style={{ marginTop: 0 }}>
-            {view === 'write' || view === 'tab' ? (
-              <button type="button" className="btn primary sm" onClick={onWrite}>
-                {view === 'tab' ? 'Write the paper' : 'Write beside the papers'}
+            <button type="button" className="btn primary sm" onClick={() => write()} title={started ? 'The Write tab, at the file and line you were last in' : 'The Write tab: a blank paper, a conference template, or files you upload'}>
+              {started ? 'Continue writing →' : 'Start writing'}
+            </button>
+            {view === 'write' && link?.repo ? (
+              <button type="button" className="btn sm" onClick={onWorkspace}>
+                Write beside the papers
               </button>
             ) : null}
-            <OpenOverleaf project={project} view={view === 'tab' ? 'beside' : view} primary={view !== 'write' && view !== 'tab'} />
+            {onOverleaf ? (
+              <OpenOverleaf project={project} view={view === 'beside' ? 'beside' : 'overview'} primary={false} url={hereLink.url} />
+            ) : (
+              <button type="button" className="btn ghost sm" onClick={() => write('overleaf')} title={started ? `Link ${here ? `${here}/` : 'this LaTeX project'} to an Overleaf project of its own, kept in step both ways` : 'Already writing it in Overleaf? Bring it here, kept in step both ways'}>
+                <ExternalIcon size={13} /> {started ? 'Sync with Overleaf…' : 'Bring it from Overleaf…'}
+              </button>
+            )}
           </div>
-          {view === 'tab' && overleafGitUrl(link.url) ? <SyncedThrough gitAccount={link.gitAccount} /> : null}
-          {!link.repo && link.drive ? null : !link.repo ? (
-            <p className="ol-note">Overleaf can’t be read from another site, so this is only the link. If the project syncs with GitHub, add the repository (Change) to see its sections and citations here.</p>
-          ) : !draft.target ? (
-            <p className="ol-note">Connect GitHub (Change) to read {link.repo} here.</p>
+          {onOverleaf ? <SyncedThrough gitAccount={hereLink.gitAccount ?? link?.gitAccount} /> : null}
+          {latexProjects.length > 1 ? (
+            <ul className="ol-latex" aria-label="Each LaTeX project’s Overleaf project">
+              {latexProjects.map((one) => (
+                <li key={one.dir}>
+                  <span className="mono">{one.dir ? `${one.dir}/` : 'top of the folder'}</span>
+                  {overleafGitUrl(one.url) ? (
+                    <a href={one.url} target="_blank" rel="noopener noreferrer" className="ol-latex-on">
+                      Overleaf …{one.url.slice(-6)} ↗
+                    </a>
+                  ) : (
+                    <span className="ol-latex-off">not on Overleaf</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {view === 'dock' && link?.repo ? <p className="ol-note">Also in the dock’s Draft tab, beside any paper you open.</p> : null}
+          {!link?.repo ? null : !draft.target ? (
+            <p className="ol-note">Connect GitHub (Projects → Connections) to read {link.repo} here.</p>
           ) : draft.state.status === 'error' && !draft.files.length ? (
             <p className="ol-bad">{draft.state.error}</p>
           ) : null}
@@ -553,7 +582,7 @@ export function OverleafCard({ project, onWrite }: { project: Project; /** The w
             </div>
           </>
         ) : draft.state.status === 'loading' ? (
-          <p className="pj-sub">Reading {link.repo}…</p>
+          <p className="pj-sub">Reading {link?.repo}…</p>
         ) : null}
       </div>
     </section>

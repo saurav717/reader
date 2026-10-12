@@ -144,8 +144,8 @@ const settings = { githubToken: 'test-token', overleafView: 'beside' };
 await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(BASE).origin });
 
 console.log('linking a project to Overleaf');
-await seed(settings, { kind: 'project', id: 'p-moe' }, null);
-await page.getByRole('button', { name: 'Link an Overleaf project' }).click();
+await seed(settings, { kind: 'project', id: 'p-moe' }, { url: LINK.url });
+await page.locator('.ol-card').getByRole('button', { name: 'GitHub sync' }).click();
 await page.getByLabel('Overleaf project').fill('overleaf.com/project/nope');
 check('an address that is not a project is refused', await page.locator('.ol-form button[type=submit]').isDisabled());
 await page.getByLabel('Overleaf project').fill('https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5');
@@ -168,6 +168,7 @@ check('it counts what the draft cites', /3 of 5 cited/i.test(flags), flags.match
 check('it names the paper read and not cited', /Read, not cited:[\s\S]*Auxiliary-Loss-Free/.test(flags) && /Outrageously Large/.test(flags));
 check('it names the key with no entry', /lepikhin2020gshard/.test(flags));
 check('beside: the button opens Overleaf beside', (await page.getByRole('button', { name: /Open Overleaf beside/ }).count()) === 1);
+check('the paper is written here first: Continue writing', (await page.locator('.ol-card').getByRole('button', { name: /Continue writing|Start writing/ }).count()) === 1);
 await shot('overleaf-overview');
 
 console.log('the Open button: one button, no browser or profile list, no account under it');
@@ -239,7 +240,7 @@ const choice = page.getByRole('radiogroup', { name: /Where a project’s paper i
 await choice.waitFor({ timeout: 5000 }).catch(() => {});
 if (await choice.isVisible().catch(() => false)) {
   await choice.scrollIntoViewIfNeeded();
-  check('five choices, the Write tab the default', (await choice.getByRole('radio').count()) === 5 && /A Write tab · default/.test(await choice.getByRole('radio').first().innerText()));
+  check('five choices, the Write tab the default', (await choice.getByRole('radio').count()) === 5 && /Just the Write tab · default/.test(await choice.getByRole('radio').first().innerText()));
   await shot('overleaf-settings');
 } else check('Settings opens', false);
 

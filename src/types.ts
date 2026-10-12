@@ -176,6 +176,19 @@ export interface ProjectInfo {
   todos: ProjectTodo[];
   /** The Overleaf project the work is being written up in, once linked. */
   overleaf?: OverleafLink;
+  /** The GitHub repository the project's code is pushed to, once set up from the workspace. */
+  codeRepo?: CodeRepo;
+}
+
+/** Where a project's code goes on GitHub: one commit of its files each time Sync to GitHub is pressed. */
+export interface CodeRepo {
+  /** owner/name. */
+  repo: string;
+  branch: string;
+  /** The last push: when, its commit, how many files. */
+  pushedAt?: string;
+  commit?: string;
+  files?: number;
 }
 
 /**
@@ -503,11 +516,11 @@ export const COMPUTE_CONTROLS: { id: ComputeControls; label: string; note: strin
 export type OverleafView = 'tab' | 'beside' | 'write' | 'dock' | 'overview';
 
 export const OVERLEAF_VIEWS: { id: OverleafView; label: string; note: string }[] = [
-  { id: 'tab', label: 'A Write tab', note: 'Board · Overview · Workspace · Write: the paper’s files, the LaTeX and its PDF, compiled on this computer and synced with Overleaf.' },
-  { id: 'beside', label: 'Overleaf beside', note: 'Overleaf opens in a window beside the reader; cite keys and BibTeX are a click away. Works on any Overleaf plan.' },
-  { id: 'write', label: 'Write in the workspace', note: 'The workspace gets a Write layout: the paper you read beside the .tex files, \\cite from the project’s papers.' },
-  { id: 'dock', label: 'Draft in the dock', note: 'A Draft tab beside Discover and Notes, next to whatever paper is open: cite it or quote it into the draft.' },
-  { id: 'overview', label: 'Just the overview', note: 'Only the paper’s card on the overview — sections, what is cited, what is read and not. Overleaf opens in a tab.' },
+  { id: 'tab', label: 'Just the Write tab', note: 'The paper card’s Continue writing opens the Write tab where you left off: the files, the LaTeX and its PDF. Synced with Overleaf when you link one.' },
+  { id: 'beside', label: 'Write tab + Overleaf beside', note: 'As the Write tab, and Open in Overleaf puts Overleaf in a window beside the reader, cite keys and BibTeX a click away.' },
+  { id: 'write', label: 'Write tab + the workspace', note: 'As the Write tab, and the workspace gets a Write layout: the paper you read beside the .tex files (needs Overleaf’s GitHub sync).' },
+  { id: 'dock', label: 'Write tab + the dock', note: 'As the Write tab, and a Draft tab beside Discover and Notes, next to whatever paper is open (needs Overleaf’s GitHub sync).' },
+  { id: 'overview', label: 'Write tab + Overleaf in a tab', note: 'As the Write tab, and Open in Overleaf opens it in a new browser tab.' },
 ];
 
 export interface WriteOptions {
