@@ -1,6 +1,16 @@
-// Compiling LaTeX for anyone signed in to the reader, on GitHub Actions in
-// the reader's own repository (.github/workflows/latex-compile.yml): all of
-// TeX Live, nothing for the person to install or set up.
+// Compiling LaTeX for anyone signed in to the reader: all of TeX Live,
+// nothing for the person to install or set up. Two compilers, the first set
+// up is used:
+//
+// - Google Cloud Run (cloudrun/latex): the Worker hands it the files and
+//   waits — a PDF in seconds, no queue. LATEX_CLOUD_RUN_URL and
+//   LATEX_CLOUD_RUN_TOKEN.
+// - GitHub Actions in the reader's own repository
+//   (.github/workflows/latex-compile.yml): a minute or two, as below.
+//   LATEX_GITHUB_TOKEN and LATEX_RUNNER_TOKEN.
+//
+// Either way the page sees the same thing: a job it asks after, whose PDF and
+// log it reads.
 //
 // The repository is public, so a paper never goes into it. The page hands
 // the paper's files to this Worker, which keeps them in KV for an hour and
@@ -18,7 +28,11 @@
 // files, the PDF and the log are each written once and read once, which KV
 // does well.
 //
-// Needs, besides the SESSIONS KV namespace (wrangler.toml):
+// Needs, besides the SESSIONS KV namespace (wrangler.toml), for Cloud Run:
+//   LATEX_CLOUD_RUN_URL    a var, the service's https:// address
+//   LATEX_CLOUD_RUN_TOKEN  any long random string, the same as the service's LATEX_TOKEN
+//   LATEX_CLOUD_RUN_CPU, LATEX_CLOUD_RUN_MEMORY_GIB  vars, what the service was given (2 and 4 when unset), for the Usage page
+// or, for GitHub Actions:
 //   LATEX_GITHUB_TOKEN  a fine-grained token on the repository, Actions: read and write (to start the workflow)
 //   LATEX_RUNNER_TOKEN  any long random string, the same as the repository's secret of that name
 //   LATEX_REPO          a var, owner/repo; saurav717/reader when unset
@@ -29,7 +43,17 @@ const ACTIVE_S = 10 * 60;
 const WORKFLOW = 'latex-compile.yml';
 const COMPILERS = { pdflatex: '-pdf', xelatex: '-xelatex', lualatex: '-lualatex', latex: '-pdfdvi' };
 
-export const latexAvailable = (env) => Boolean(env.SESSIONS && String(env.LATEX_GITHUB_TOKEN || '').trim() && String(env.LATEX_RUNNER_TOKEN || '').trim());
+const CLOUD_RUN_WAIT_MS = 5 * 60_000;
+
+/** Which compiler this Worker has: 'cloudrun', 'github', or null. */
+export function latexCompiler(env) {
+  if (!env.SESSIONS) return null;
+  if (/^https:\/\//.test(String(env.LATEX_CLOUD_RUN_URL || '').trim()) && String(env.LATEX_CLOUD_RUN_TOKEN || '').trim()) return 'cloudrun';
+  if (String(env.LATEX_GITHUB_TOKEN || '').trim() && String(env.LATEX_RUNNER_TOKEN || '').trim()) return 'github';
+  return null;
+}
+
+export const latexAvailable = (env) => Boolean(latexCompiler(env));
 
 const keys = (id) => ({ meta: `latex:meta:${id}`, source: `latex:src:${id}`, pdf: `latex:pdf:${id}`, log: `latex:log:${id}` });
 /**
@@ -119,6 +143,39 @@ async function startRun(env, id) {
   if (!response.ok) throw new Error(`GitHub didn't start the compile (${response.status} ${(await response.text()).slice(0, 200)})`);
 }
 
+/** A compile's PDF and log, kept for its owner's page; its files dropped, and it counted on the Usage page. */
+async function keepResult(env, id, meta, body, tally) {
+  const kv = env.SESSIONS;
+  const k = keys(id);
+  const pdf = typeof body.pdf === 'string' && body.pdf ? Uint8Array.from(atob(body.pdf), (char) => char.charCodeAt(0)) : null;
+  if (pdf) await kv.put(k.pdf, pdf, { expirationTtl: TTL_S });
+  await kv.put(k.log, String(body.log || '').slice(-400_000), { expirationTtl: TTL_S });
+  await kv.delete(k.source);
+  await jobStates(env).put(id, { ...meta, state: 'done', pdf: Boolean(pdf), exit: Number.isFinite(body.exit) ? body.exit : null, doneAt: Date.now() });
+  if (meta.email) await kv.delete(`latex:active:${meta.email}`);
+  // On the Usage page: a compile, and the compiler's seconds on it, for its owner.
+  const seconds = Math.max(1, Math.round((Date.now() - (meta.compilingAt || meta.createdAt || Date.now())) / 1000));
+  tally?.(meta.email === 'owner' ? { owner: true } : { email: meta.email }, { latex: 1, latex_s: seconds });
+}
+
+/** The files compiled by the Cloud Run service (cloudrun/latex/server.py): {pdf, log, exit}. */
+async function compileOnCloudRun(env, job) {
+  const base = String(env.LATEX_CLOUD_RUN_URL).trim().replace(/\/+$/, '');
+  let response;
+  try {
+    response = await fetch(`${base}/compile`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${String(env.LATEX_CLOUD_RUN_TOKEN).trim()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(job),
+      signal: AbortSignal.timeout(CLOUD_RUN_WAIT_MS),
+    });
+  } catch (error) {
+    throw new Error(error?.name === 'TimeoutError' ? 'The compiler took more than 5 minutes.' : `The compiler couldn't be reached (${error?.message || error}).`);
+  }
+  if (!response.ok) throw new Error(`The compiler answered ${response.status} (${(await response.text()).slice(0, 200)})`);
+  return response.json();
+}
+
 /**
  * The routes. `who` is the signed-in person (or the owner) from the
  * Worker's own check; the runner's routes take LATEX_RUNNER_TOKEN instead.
@@ -127,7 +184,7 @@ export async function handleLatex(request, env, path, { json, headers, authorize
   const noStore = { ...headers, 'Cache-Control': 'no-store' };
   // HTTPS only: a paper, a pass or the runner's secret never over plain HTTP (LATEX_ALLOW_HTTP is for a local test).
   if (new URL(request.url).protocol !== 'https:' && !env.LATEX_ALLOW_HTTP) return json({ error: 'HTTPS only' }, 403, noStore);
-  if (!latexAvailable(env)) return json({ error: 'this site has no LaTeX compiler set up yet (LATEX_GITHUB_TOKEN, LATEX_RUNNER_TOKEN — see worker/latex.js)' }, 501, noStore);
+  if (!latexAvailable(env)) return json({ error: 'this site has no LaTeX compiler set up yet (LATEX_CLOUD_RUN_URL and LATEX_CLOUD_RUN_TOKEN, or LATEX_GITHUB_TOKEN and LATEX_RUNNER_TOKEN — see worker/latex.js)' }, 501, noStore);
   const kv = env.SESSIONS;
   const jobs = jobStates(env);
 
@@ -149,27 +206,19 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     if (request.method !== 'POST') return json({ error: 'POST' }, 405, noStore);
     const body = await request.json().catch(() => null);
     if (!body || typeof body !== 'object') return json({ error: 'a JSON body' }, 400, noStore);
-    const pdf = typeof body.pdf === 'string' && body.pdf ? Uint8Array.from(atob(body.pdf), (char) => char.charCodeAt(0)) : null;
-    if (pdf) await kv.put(k.pdf, pdf, { expirationTtl: TTL_S });
-    await kv.put(k.log, String(body.log || '').slice(-400_000), { expirationTtl: TTL_S });
-    await kv.delete(k.source);
-    await jobs.put(id, { ...meta, state: 'done', pdf: Boolean(pdf), exit: Number.isFinite(body.exit) ? body.exit : null, doneAt: Date.now() });
-    if (meta.email) await kv.delete(`latex:active:${meta.email}`);
-    // On the Usage page: a compile, and the runner's seconds on it, for its owner.
-    const seconds = Math.max(1, Math.round((Date.now() - (meta.compilingAt || meta.createdAt || Date.now())) / 1000));
-    tally?.(meta.email === 'owner' ? { owner: true } : { email: meta.email }, { latex: 1, latex_s: seconds });
+    await keepResult(env, id, meta, body, tally);
     return json({ ok: true }, 200, noStore);
   }
 
   // ---- the page's: signed in
   const who = await authorized(request, env);
-  if (!who) return json({ error: 'sign in with Google to compile on GitHub' }, 401, noStore);
+  if (!who) return json({ error: 'sign in with Google to compile in the cloud' }, 401, noStore);
   const owner = who.email ?? 'owner';
 
   if (path === '/latex/jobs') {
     if (request.method !== 'POST') return json({ error: 'POST' }, 405, noStore);
     if (await personOverLimit(env, who)) return json({ error: 'too many requests; wait a minute', limited: true }, 429, { ...noStore, 'Retry-After': '60' });
-    // One compile at a time each: GitHub's minutes are free here, but not for spending on a loop.
+    // One compile at a time each: the compiler is free here, but not for spending on a loop.
     // The marker in KV can be a minute stale; the job's own state says whether it is still going.
     const active = await kv.get(`latex:active:${owner}`);
     const going = active && isId(active) ? ['queued', 'compiling'].includes((await jobs.get(active))?.state) : false;
@@ -181,17 +230,31 @@ export async function handleLatex(request, env, path, { json, headers, authorize
     const flag = COMPILERS[body.compiler] ?? '-pdf';
     const id = newId();
     const k = keys(id);
+    // Cloud Run: compiled while the page waits for this answer, the files never stored.
+    if (latexCompiler(env) === 'cloudrun') {
+      const meta = { email: owner, state: 'compiling', on: 'cloudrun', createdAt: Date.now(), compilingAt: Date.now() };
+      await jobs.put(id, meta);
+      await kv.put(`latex:active:${owner}`, id, { expirationTtl: ACTIVE_S });
+      try {
+        await keepResult(env, id, meta, await compileOnCloudRun(env, { main, flag, files }), tally);
+      } catch (error) {
+        await kv.delete(`latex:active:${owner}`);
+        await jobs.put(id, { ...meta, state: 'failed', error: error.message });
+        return json({ error: error.message }, 502, noStore);
+      }
+      return json({ id, on: 'cloudrun', state: 'done' }, 200, noStore);
+    }
     await kv.put(k.source, JSON.stringify({ main, flag, files }), { expirationTtl: TTL_S });
-    await jobs.put(id, { email: owner, state: 'queued', createdAt: Date.now() });
+    await jobs.put(id, { email: owner, state: 'queued', on: 'github', createdAt: Date.now() });
     await kv.put(`latex:active:${owner}`, id, { expirationTtl: ACTIVE_S });
     try {
       await startRun(env, id);
     } catch (error) {
       await kv.delete(`latex:active:${owner}`);
-      await jobs.put(id, { email: owner, state: 'failed', error: error.message, createdAt: Date.now() });
+      await jobs.put(id, { email: owner, state: 'failed', on: 'github', error: error.message, createdAt: Date.now() });
       return json({ error: error.message }, 502, noStore);
     }
-    return json({ id }, 202, noStore);
+    return json({ id, on: 'github', state: 'queued' }, 202, noStore);
   }
 
   const asked = /^\/latex\/jobs\/([a-f0-9]{32})(?:\/(pdf|log))?$/.exec(path);
@@ -201,7 +264,7 @@ export async function handleLatex(request, env, path, { json, headers, authorize
   const meta = await jobs.get(id);
   // Another person's job answers as if there were none.
   if (!meta || (meta.email !== owner && !who.owner)) return json({ error: 'no such job, or it has expired' }, 404, noStore);
-  if (!what) return json({ state: meta.state, pdf: Boolean(meta.pdf), exit: meta.exit ?? null, error: meta.error ?? null, createdAt: meta.createdAt, compilingAt: meta.compilingAt ?? null, doneAt: meta.doneAt ?? null }, 200, noStore);
+  if (!what) return json({ state: meta.state, on: meta.on ?? 'github', pdf: Boolean(meta.pdf), exit: meta.exit ?? null, error: meta.error ?? null, createdAt: meta.createdAt, compilingAt: meta.compilingAt ?? null, doneAt: meta.doneAt ?? null }, 200, noStore);
   if (what === 'pdf') {
     const pdf = await kv.get(k.pdf, 'arrayBuffer');
     if (!pdf) return json({ error: 'no PDF' }, 404, noStore);
@@ -212,6 +275,13 @@ export async function handleLatex(request, env, path, { json, headers, authorize
 }
 
 // ------------------------------------------------------------ the month --
+
+/** Cloud Run's free tier a month (request-based billing), and what the service is given, for the Usage page. */
+export function cloudRunPlan(env) {
+  const cpu = Number(env.LATEX_CLOUD_RUN_CPU) || 2;
+  const memoryGib = Number(env.LATEX_CLOUD_RUN_MEMORY_GIB) || 4;
+  return { on: 'cloudrun', service: String(env.LATEX_CLOUD_RUN_URL || '').trim(), cpu, memoryGib, free: { vcpuSeconds: 180_000, gibSeconds: 360_000, requests: 2_000_000 } };
+}
 
 /** GitHub's Free plan: minutes a month for private repositories, and jobs at once. Public ones aren't metered. */
 export const FREE_MINUTES = 2000;
@@ -240,7 +310,7 @@ export async function latexMonth(env, now = Date.now(), fetcher = fetch) {
     runs.push(...(answer.workflow_runs || []));
     if ((answer.workflow_runs || []).length < 100) break;
   }
-  return { repo, ...summarize(runs, { private: Boolean(info.private), month, now }) };
+  return { on: 'github', repo, ...summarize(runs, { private: Boolean(info.private), month, now }) };
 }
 
 /** The numbers out of the runs: pure, so it can be tested without GitHub. */

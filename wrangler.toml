@@ -172,6 +172,16 @@ BROWSERLESS_COUNTRY = "us"
 #
 BROWSER_SESSION_LOCATION = "wnam"
 
+# The LaTeX compiler on Google Cloud Run (cloudrun/latex, worker/latex.js):
+# its address, as cloudrun/latex/deploy.sh prints it (project reader-509409,
+# us-central1), and what it was given.
+# With it and the secret LATEX_CLOUD_RUN_TOKEN, compiles go there rather
+# than to GitHub Actions (docs/deploy.md).
+#
+LATEX_CLOUD_RUN_URL = "https://reader-latex-fgk7igwsuq-uc.a.run.app"
+LATEX_CLOUD_RUN_CPU = "2"
+LATEX_CLOUD_RUN_MEMORY_GIB = "4"
+
 # Somewhere to keep the cookies of a sign-in made in that browser, so it
 # holds for the next paper and lets /pdf through a login wall — and so the
 # browser, which Cloudflare rations, is not needed again for a publisher
@@ -199,10 +209,15 @@ id = "4b383f85f5d041569dc04f04350b1c38"
 # paid accounts, under PERSON_LIMIT above. Without any, the button in the
 # app says the proxy has no search key.
 
-# LaTeX compiled for anyone signed in, on GitHub Actions in the reader's own
-# repository (worker/latex.js, .github/workflows/latex-compile.yml): the
-# jobs are kept in SESSIONS above, for an hour at most. Two secrets, both
-# needed (docs/deploy.md, "the LaTeX compiler"):
+# LaTeX compiled for anyone signed in (worker/latex.js), on Cloud Run — its
+# address in [vars] above, and its secret:
+#
+#     npx wrangler secret put LATEX_CLOUD_RUN_TOKEN  # also the repository secret of that name
+#
+# or, where there is no Cloud Run, on GitHub Actions in the reader's own
+# repository (.github/workflows/latex-compile.yml): the jobs are kept in
+# SESSIONS above, for an hour at most. Two secrets, both needed
+# (docs/deploy.md, "the LaTeX compiler"):
 #
 #     npx wrangler secret put LATEX_RUNNER_TOKEN   # also a repository secret of that name
 #     npx wrangler secret put LATEX_GITHUB_TOKEN   # fine-grained, Actions: read and write on the repository

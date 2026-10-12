@@ -56,7 +56,67 @@ Cloudflare token:
 Until they are there, *Deploy worker* says so on a merge and deploys nothing;
 `npm run deploy:worker` from a computer signed in to Cloudflare still does it.
 
-## Once more: the LaTeX compiler (Write tab → Compile on GitHub Actions)
+## Once more: the LaTeX compiler (Write tab → Compile on → The cloud)
+
+Anyone signed in to the reader can compile a paper with all of TeX Live,
+with nothing to install or set up. The compiler is a small service on
+**Google Cloud Run** (`cloudrun/latex`: TeX Live and `server.py`): the
+Worker hands it the paper's files and waits, and the PDF is back in
+seconds — no queue, nothing stored but the PDF and log, which the Worker
+keeps for the page for an hour (`worker/latex.js`). TeX runs as an
+unprivileged user, without shell escape, unable to open absolute paths,
+and is stopped after 4 minutes. Where Cloud Run isn't set up, the Worker
+uses GitHub Actions instead (below).
+
+It runs with nothing between compiles (minimum 0 instances) on request-based
+billing, so it costs only while compiling: Cloud Run's free tier — 180,000
+vCPU-seconds and 360,000 GiB-seconds a month — is about 25 hours of
+compiling at 2 vCPU and 4 GiB. The Usage page shows how much of it is used.
+The first compile after a quiet spell waits for an instance to start
+(a TeX Live image is large: some seconds). The image in Artifact Registry
+is about 2.5 GB, a few tens of cents a month past its 0.5 GB free storage.
+
+Set up once, in the project `reader-509409`:
+
+1. In console.cloud.google.com, pick the project, and make sure it has a
+   billing account (≡ → Billing; the free tier needs one).
+
+2. Open Cloud Shell (the **>_** icon, top right) and run:
+
+   ```sh
+   git clone https://github.com/saurav717/reader && cd reader
+   bash cloudrun/latex/deploy.sh
+   ```
+
+   It turns on Cloud Run, Artifact Registry and Cloud Build, builds the
+   image with Cloud Build (5–10 minutes: all of TeX Live), deploys it, and
+   prints **`LATEX_CLOUD_RUN_URL`** and **`LATEX_CLOUD_RUN_TOKEN`**. Run it
+   again (after `git pull`) to deploy a newer `server.py`; the token is kept.
+   Another project: `bash cloudrun/latex/deploy.sh OTHER_PROJECT_ID`.
+
+3. Tell the Worker: the address goes in `wrangler.toml` as
+   `LATEX_CLOUD_RUN_URL` (in `[vars]`, where it is commented out), and the
+   token is a secret — Cloudflare dashboard → Workers & Pages →
+   reader-arxiv-proxy → Settings → Variables and Secrets → Add → Secret,
+   or `npx wrangler secret put LATEX_CLOUD_RUN_TOKEN`. Once the Worker is
+   deployed, compiles go to Cloud Run.
+
+Or deploy from GitHub instead, on each merge that changes `cloudrun/latex`
+(`.github/workflows/deploy-latex-cloudrun.yml`): a service account with
+Cloud Run Admin, Artifact Registry Admin and Service Account User, and in
+the repository's Actions settings the variable `GCP_PROJECT`, the secret
+`GCP_SA_KEY` (the account's JSON key; or the variables
+`GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT`), and the secret
+`LATEX_CLOUD_RUN_TOKEN` — the same token the service already has, or the
+next deploy changes it.
+
+The service allows unauthenticated calls (an organisation that forbids
+`allUsers` will refuse the deploy): it refuses every compile without the
+token, and is reached only over HTTPS.
+
+### The fallback: GitHub Actions
+
+Where the Worker has no Cloud Run compiler (below), it compiles on GitHub Actions.
 
 Anyone signed in to the reader can compile a paper with all of TeX Live,
 with nothing to install or set up: the Worker hands the paper to the
