@@ -193,7 +193,7 @@ LATEX_CLOUD_RUN_MEMORY_GIB = "4"
 #
 # GCP_PROJECT = "reader-509409"
 # GCP_REGIONS = "us-central1"
-# GCP_BILLING_EXPORT_TABLE = "reader-509409.billing.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX"
+GCP_BILLING_EXPORT_TABLE = "reader-509409.billing_export.gcp_billing_export_v1_017A1A_D5F3BA_E6D8A0"
 
 # Somewhere to keep the cookies of a sign-in made in that browser, so it
 # holds for the next paper and lets /pdf through a login wall — and so the
