@@ -634,15 +634,15 @@ export function SortHeading({
   );
 }
 
-/** The search box in a list card's header: filters its rows by email. */
-export function SearchBox({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+/** The search box in a list card's header: filters its rows by email, or by what `label` names. */
+export function SearchBox({ value, onChange, label = 'Search by email' }: { value: string; onChange: (value: string) => void; label?: string }) {
   return (
     <input
       type="search"
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      placeholder="Search by email…"
-      aria-label="Search by email"
+      placeholder={`${label}…`}
+      aria-label={label}
       style={{
         width: 260,
         maxWidth: '100%',

@@ -6,11 +6,11 @@
 import { apiFetch } from './api';
 import { liveAccessToken } from './google';
 
-export function ownerFetch(path: string, token?: string): Promise<Response> {
-  const headers: Record<string, string> = {};
+export function ownerFetch(path: string, token?: string, init: RequestInit = {}): Promise<Response> {
+  const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
   // Named, since the token api.ts holds may be a render behind the one in Settings.
   if (token?.trim()) headers.Authorization = `Bearer ${token.trim()}`;
   const google = liveAccessToken();
   if (google) headers['X-Google-Token'] = google;
-  return apiFetch(path, { headers });
+  return apiFetch(path, { ...init, headers });
 }

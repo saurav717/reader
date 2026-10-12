@@ -40,6 +40,7 @@ import { handleColab, isColabPath, readSocketTicket } from '../server/colab.js';
 import { bridgeSocket } from './colabSocket.js';
 import { cloudRunPlan, handleLatex, isLatexPath, latexAvailable, latexCompiler, latexMonth } from './latex.js';
 import { readBalance } from './deepseekBalance.js';
+import { gcloudAction, gcloudConfigured, gcloudOverview } from './gcloud.js';
 import { FRESH_MS as TAVILY_FRESH_MS, readTavilyUsage } from './tavilyUsage.js';
 import * as browse from './browse.js';
 import * as browserless from './browserless.js';
@@ -332,7 +333,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers });
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api(?=\/|$)/, '') || '/';
-    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && path !== '/usage/ai' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path)) {
+    if (request.method !== 'GET' && !path.startsWith('/access/') && !path.startsWith('/scholar/captcha') && !path.startsWith('/browse/') && path !== '/auth/google' && !path.startsWith('/devices/') && path !== '/usage/ai' && path !== '/usage/gcloud/service' && !AI_ROUTES[path] && !isColabPath(path) && !isLatexPath(path)) {
       return json({ error: 'method not allowed' }, 405, headers);
     }
 
@@ -476,6 +477,24 @@ export default {
           return json({ configured: true, ...(await latexMonth(env)) }, 200, noStore);
         } catch (error) {
           return json({ configured: true, error: error.message }, 200, noStore);
+        }
+      }
+
+      // The owner's Google Cloud project, for the Usage page's Google Cloud
+      // tab: its billing account, each Cloud Run service and VM and whether it
+      // is up, and what it cost (worker/gcloud.js); and POSTed, a service
+      // started or stopped. The owner's alone, like /usage.
+      if (path === '/usage/gcloud' || path === '/usage/gcloud/service') {
+        const who = await ownerAuthorized(request, env);
+        if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
+        const noStore = { ...headers, 'Cache-Control': 'no-store' };
+        if (!gcloudConfigured(env)) return json({ configured: false }, 200, noStore);
+        if (path === '/usage/gcloud') return json(await gcloudOverview(env), 200, noStore);
+        if (request.method !== 'POST') return json({ error: 'POST' }, 405, headers);
+        try {
+          return json(await gcloudAction(env, await request.json().catch(() => ({}))), 200, noStore);
+        } catch (error) {
+          return json({ error: String(error?.message || error) }, 400, noStore);
         }
       }
 

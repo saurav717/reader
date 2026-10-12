@@ -182,6 +182,19 @@ LATEX_CLOUD_RUN_URL = "https://reader-latex-fgk7igwsuq-uc.a.run.app"
 LATEX_CLOUD_RUN_CPU = "2"
 LATEX_CLOUD_RUN_MEMORY_GIB = "4"
 
+# The Usage page's Google Cloud tab (worker/gcloud.js): the project's billing
+# account, its Cloud Run services and VMs with Start and Stop, and its cost and
+# transactions. It reads the project as a service account whose JSON key is
+# the secret GCP_SERVICE_ACCOUNT_KEY (docs/deploy.md, "Google Cloud on the
+# Usage page"); without it the tab says how to connect one. The project is the
+# key's own unless GCP_PROJECT names another; Cloud Run is listed in
+# GCP_REGIONS (us-central1 unless set); cost and transactions need the billing
+# export to BigQuery, named in GCP_BILLING_EXPORT_TABLE.
+#
+# GCP_PROJECT = "reader-509409"
+# GCP_REGIONS = "us-central1"
+# GCP_BILLING_EXPORT_TABLE = "reader-509409.billing.gcp_billing_export_v1_XXXXXX_XXXXXX_XXXXXX"
+
 # Somewhere to keep the cookies of a sign-in made in that browser, so it
 # holds for the next paper and lets /pdf through a login wall — and so the
 # browser, which Cloudflare rations, is not needed again for a publisher

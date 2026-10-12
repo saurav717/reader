@@ -165,3 +165,60 @@ another repository, and a repository variable `LATEX_WORKER` if the Worker
 is not at `https://reader-arxiv-proxy.es16btech11007.workers.dev`. Until both
 secrets are set, the Write tab says the site has no compiler set up yet.
 The jobs are kept in the `SESSIONS` KV namespace the Worker already has.
+
+## Google Cloud on the Usage page
+
+The Usage page has two tabs. **People & services** is who used what. **Google
+Cloud** is your project as Google reports it:
+
+- the billing account and whether billing is on;
+- this month's cost by service;
+- every Cloud Run service and Compute Engine VM, with its state, its requests
+  and instance time over 30 days, and **Start** / **Stop**;
+- the charges and credits of the last 90 days;
+- the LaTeX compiler's free tier, which used to sit in the middle of the
+  single page.
+
+The Worker reads all of this as a service account (`worker/gcloud.js`). Set it
+up once, in Cloud Shell:
+
+```sh
+PROJECT=reader-509409
+gcloud iam service-accounts create reader-usage --project $PROJECT --display-name "Reader Usage page"
+SA=reader-usage@$PROJECT.iam.gserviceaccount.com
+for role in roles/run.developer roles/compute.instanceAdmin.v1 roles/monitoring.viewer roles/bigquery.jobUser roles/bigquery.dataViewer; do
+  gcloud projects add-iam-policy-binding $PROJECT --member serviceAccount:$SA --role $role
+done
+# The billing account itself: Viewer, so the page can name it.
+gcloud billing accounts add-iam-policy-binding "$(gcloud billing projects describe $PROJECT --format 'value(billingAccountName.basename())')" \
+  --member serviceAccount:$SA --role roles/billing.viewer
+# Run.developer may change a service but not act as its runtime account:
+gcloud iam service-accounts add-iam-policy-binding "$(gcloud projects describe $PROJECT --format 'value(projectNumber)')-compute@developer.gserviceaccount.com" \
+  --member serviceAccount:$SA --role roles/iam.serviceAccountUser
+gcloud iam service-accounts keys create key.json --iam-account $SA
+```
+
+Then give the Worker the key, and delete it from Cloud Shell:
+
+```sh
+npx wrangler secret put GCP_SERVICE_ACCOUNT_KEY < key.json && rm key.json
+```
+
+Cost and transactions come from the billing export. Google has no other API
+for them. To turn the export on, go to console → Billing → Billing export →
+BigQuery export and pick **Standard usage cost**. Then name its table in
+`wrangler.toml`, as `GCP_BILLING_EXPORT_TABLE`. The table fills in a few hours
+after it is turned on.
+
+How Start and Stop work:
+
+- **Cloud Run.** Cloud Run has no stopped state. **Stop** closes the service
+  to the internet (ingress internal only), and **Start** opens it again. A
+  service with no minimum instances costs nothing while closed. Stopping
+  `reader-latex` stops compiles for everyone until it is started.
+- **Compute Engine.** A VM is stopped and started as Compute Engine does it.
+  A stopped VM still pays for its disk.
+
+**Recharge** opens the billing account's payment page in the Cloud console.
+Google takes payments, prepayments and added funds only there, never through
+an API. Payments you made are listed on the same page.
