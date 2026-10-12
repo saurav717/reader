@@ -178,6 +178,17 @@ export function runService(service) {
   const failed = condition.state === 'CONDITION_FAILED';
   const status = reconciling ? (closed ? 'stopping' : 'starting') : failed ? 'error' : closed ? 'stopped' : 'running';
   const scaling = service.template?.scaling || {};
+  // Billed while idle: instances kept running (a minimum), or CPU always
+  // allocated (instance-based billing) on whatever is up. Otherwise Cloud Run
+  // bills only while a request is being served, and scales to zero between.
+  const minInstances = Math.max(Number(scaling.minInstanceCount) || 0, Number(service.scaling?.minInstanceCount) || 0);
+  const cpuAlways = (service.template?.containers || []).some((container) => container.resources?.cpuIdle === false);
+  const idle = closed ? 'closed: costs nothing while it stays so' + (minInstances ? `, but for its ${minInstances} kept instance${minInstances > 1 ? 's' : ''}` : '')
+    : minInstances
+      ? `${minInstances} instance${minInstances > 1 ? 's' : ''} always on: billed while idle`
+      : cpuAlways
+        ? 'CPU always allocated: billed while an instance is up'
+        : 'scales to zero: billed only while serving requests';
   return {
     kind: 'cloudrun',
     id: service.name,
@@ -188,7 +199,9 @@ export function runService(service) {
     detail: failed ? condition.message || 'not ready' : closed ? 'closed to the internet (internal ingress)' : service.uri || '',
     url: service.uri || null,
     updated: service.updateTime || null,
-    minInstances: Number(scaling.minInstanceCount) || 0,
+    minInstances,
+    billedIdle: Boolean(minInstances || cpuAlways),
+    billing: idle,
     maxInstances: Number(scaling.maxInstanceCount) || null,
     consoleUrl: `https://console.cloud.google.com/run/detail/${location}/${name}/metrics?project=${String(service.name).split('/')[1]}`,
   };

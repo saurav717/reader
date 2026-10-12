@@ -162,6 +162,15 @@ describe('the overview', () => {
     assert.equal(gcloud.runService({ ...RUN, reconciling: true }).status, 'starting');
     assert.equal(gcloud.runService({ ...RUN, terminalCondition: { state: 'CONDITION_FAILED', message: 'image gone' } }).status, 'error');
   });
+
+  it('says whether a Cloud Run service costs anything while idle', () => {
+    assert.equal(gcloud.runService(RUN).billedIdle, false);
+    assert.match(gcloud.runService(RUN).billing, /scales to zero/);
+    const kept = gcloud.runService({ ...RUN, template: { scaling: { minInstanceCount: 1 } } });
+    assert.equal(kept.billedIdle, true);
+    assert.match(kept.billing, /1 instance always on/);
+    assert.equal(gcloud.runService({ ...RUN, template: { containers: [{ resources: { cpuIdle: false } }] } }).billedIdle, true);
+  });
 });
 
 describe('starting and stopping', () => {

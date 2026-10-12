@@ -26,6 +26,9 @@ export interface CloudService {
   updated: string | null;
   consoleUrl: string;
   minInstances?: number;
+  /** Cloud Run: how it is billed, and whether it costs anything while idle. */
+  billing?: string;
+  billedIdle?: boolean;
   requests?: number;
   instanceSeconds?: number;
   daily?: { day: string; n: number }[];
@@ -292,6 +295,9 @@ export default function CloudUsage({ report, refreshedAt }: { report: UsageRepor
                         {service.type}
                         {service.detail ? ` · ${service.detail}` : ''}
                       </div>
+                      {service.billing ? (
+                        <div style={{ ...muted, fontSize: 11.5, color: service.billedIdle ? 'var(--danger)' : 'var(--viz-1)' }}>{service.billing}</div>
+                      ) : null}
                     </td>
                     <td style={{ ...cell, textAlign: 'left' }}>
                       <StatusPill status={service.status} />
@@ -336,8 +342,9 @@ export default function CloudUsage({ report, refreshedAt }: { report: UsageRepor
           </table>
         </div>
         <p style={{ ...muted, fontSize: 11.5, margin: 0, padding: '10px 16px', borderTop: rule, lineHeight: 1.5 }}>
-          Stop closes a Cloud Run service to the internet — with no minimum instances it then costs nothing — and Start opens it again. A VM is stopped and
-          started as Compute Engine does it; a stopped VM still pays for its disk.
+          A Cloud Run service that scales to zero needs no stopping: it is billed only while it serves a request. Stop closes one to the internet,
+          so nothing can reach it (or run up its bill), and Start opens it again. A VM is billed while it runs: Stop it when it is idle; a stopped VM
+          still pays for its disk.
         </p>
       </div>
 

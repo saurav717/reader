@@ -37,8 +37,8 @@ const REPORT = { days: 30, since: day(29), until: day(0), people, totals, models
 
 const runDaily = (scale) => Array.from({ length: 30 }, (_, back) => ({ day: day(29 - back), n: wave(back, scale) }));
 const services = [
-  { kind: 'cloudrun', id: 'projects/reader-509409/locations/us-central1/services/reader-latex', name: 'reader-latex', location: 'us-central1', type: 'Cloud Run service', status: 'running', detail: 'https://reader-latex-fgk7igwsuq-uc.a.run.app', consoleUrl: 'https://console.cloud.google.com/run', daily: runDaily(40) },
-  { kind: 'cloudrun', id: 'projects/reader-509409/locations/us-central1/services/reader-figures', name: 'reader-figures', location: 'us-central1', type: 'Cloud Run service', status: 'stopped', detail: 'closed to the internet (internal ingress)', consoleUrl: 'https://console.cloud.google.com/run', daily: runDaily(6) },
+  { kind: 'cloudrun', id: 'projects/reader-509409/locations/us-central1/services/reader-latex', name: 'reader-latex', location: 'us-central1', type: 'Cloud Run service', status: 'running', detail: 'https://reader-latex-fgk7igwsuq-uc.a.run.app', billing: 'scales to zero: billed only while serving requests', billedIdle: false, consoleUrl: 'https://console.cloud.google.com/run', daily: runDaily(40) },
+  { kind: 'cloudrun', id: 'projects/reader-509409/locations/us-central1/services/reader-figures', name: 'reader-figures', location: 'us-central1', type: 'Cloud Run service', status: 'stopped', detail: 'closed to the internet (internal ingress)', billing: 'closed: costs nothing while it stays so', billedIdle: false, consoleUrl: 'https://console.cloud.google.com/run', daily: runDaily(6) },
   { kind: 'vm', id: 'projects/reader-509409/zones/us-central1-a/instances/gpu-box', name: 'gpu-box', location: 'us-central1-a', type: 'VM · g2-standard-4', status: 'stopped', detail: 'terminated', consoleUrl: 'https://console.cloud.google.com/compute' },
   { kind: 'vm', id: 'projects/reader-509409/zones/us-central1-a/instances/notebook-cpu', name: 'notebook-cpu', location: 'us-central1-a', type: 'VM · e2-standard-2', status: 'running', detail: `up since ${day(3)}T08:12:44Z`, consoleUrl: 'https://console.cloud.google.com/compute' },
 ].map((service) => (service.daily ? { ...service, requests: service.daily.reduce((s, p) => s + p.n, 0), instanceSeconds: service.daily.reduce((s, p) => s + p.n, 0) * 13 } : service));
@@ -100,7 +100,7 @@ routes.push(['**/api/usage**', async (route) => {
     actions.push(body);
     const status = body.action === 'stop' ? 'stopped' : 'running';
     const detail = (s) => (s.kind === 'vm' ? status === 'running' ? `up since ${new Date().toISOString().slice(0, 19)}Z` : 'terminated' : status === 'running' ? `https://${s.name}-fgk7igwsuq-uc.a.run.app` : 'closed to the internet (internal ingress)');
-    OVERVIEW = { ...OVERVIEW, services: OVERVIEW.services.map((s) => (s.id === body.id ? { ...s, status, detail: detail(s) } : s)) };
+    OVERVIEW = { ...OVERVIEW, services: OVERVIEW.services.map((s) => (s.id === body.id ? { ...s, status, detail: detail(s), ...(s.kind === 'cloudrun' ? { billing: status === 'running' ? 'scales to zero: billed only while serving requests' : 'closed: costs nothing while it stays so' } : {}) } : s)) };
     return json({ ok: true, status: body.action === 'stop' ? 'stopping' : 'starting' });
   }
   return json({ configured: false });
