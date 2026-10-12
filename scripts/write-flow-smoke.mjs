@@ -167,7 +167,7 @@ const CODE_FILES = { 'train.py': 'import torch\n\n# Loss-free balancing: a bias 
 
 /** The app as someone signed in with Google left it: the projects, papers, code; `place` is where they last wrote. */
 async function seed({ projects, settings = {}, local = {} }) {
-  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await page.goto(BASE, { waitUntil: "load" });
   await page.evaluate(
     async ({ projects, papers, settings, local, code, theme }) => {
       localStorage.clear();
@@ -280,6 +280,12 @@ check('at the line it was left at', caretLine === 12, `line ${caretLine}`);
 await page.keyboard.press('Control+Enter');
 await page.waitForTimeout(1500);
 await shot('flow-5-write-resumed');
+check('compiled: nothing over the PDF', (await page.locator('.wr-ghc, .wr-ghs').count()) === 0);
+await page.getByRole('button', { name: 'Compile details' }).click();
+check('ⓘ opens what the compile did', /Compiled on Cloud Run[\s\S]*deleted once compiled/.test(await page.locator('.wr-ghc').innerText()));
+await shot('flow-5b-compile-details');
+await page.getByRole('button', { name: 'Close the compile details' }).click();
+check('× closes it', (await page.locator('.wr-ghc').count()) === 0);
 
 console.log('6. in the editor, not on Overleaf: Connect to Overleaf, the account known');
 await seed({ projects: [project(inDrive)], local: left });

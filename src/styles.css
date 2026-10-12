@@ -7767,3 +7767,12 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .wr-step-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .wr-step-title { font: 600 13px var(--sans); }
 .wr-step-why { margin: 0; font-size: 12.5px; color: var(--muted); }
+/* The cloud compile, out of the PDF's way: a thin line while compiling or failed; details only when asked. */
+.wr-ghs { display: flex; align-items: center; gap: 8px; margin: 6px 12px 0; padding: 3px 4px 3px 10px; min-height: 26px; border-radius: 7px; background: var(--panel); font-size: 12px; color: var(--ink-2); }
+.wr-ghs.is-bad { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--ink); }
+.wr-ghs-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wr-ghs-x { flex: none; width: 22px; height: 22px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; }
+.wr-ghs-x:hover { background: rgba(127, 127, 127, 0.14); color: var(--ink); }
+.wr-ghc { position: relative; padding-right: 34px; }
+.wr-ghc > .wr-ghs-x { position: absolute; top: 6px; right: 6px; }
+.wr-info { font-size: 13px; }
