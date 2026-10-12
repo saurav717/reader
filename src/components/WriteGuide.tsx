@@ -1,5 +1,5 @@
 // The guide to the Write tab, on the site itself: where a paper is kept, the
-// ways to start one, Overleaf accounts, the documents page, the editor and its
+// ways to start one, Overleaf accounts, the LaTeX projects page, the editor and its
 // settings — each with what it does for you and when to pick it. Opened from
 // wherever those choices are (WriteGuideLink), at the part about them.
 
@@ -13,7 +13,7 @@ const SECTIONS: { id: GuideSection; title: string }[] = [
   { id: 'where', title: 'Where your paper is kept' },
   { id: 'begin', title: 'Starting a paper' },
   { id: 'accounts', title: 'Overleaf accounts' },
-  { id: 'documents', title: 'The documents page' },
+  { id: 'documents', title: 'LaTeX projects' },
   { id: 'editor', title: 'In the editor' },
   { id: 'settings', title: 'Your Write tab settings' },
   { id: 'questions', title: 'Questions' },
@@ -203,7 +203,7 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
                 </p>
               </Choice>
               <Choice name="Start without Overleaf" pick="it’s your own paper, or you don’t have a paid Overleaf plan.">
-                <p>An empty paper in Drive. You choose how its first document begins: blank, a conference template, or files you upload.</p>
+                <p>An empty paper in Drive. You choose how its first LaTeX project begins: blank, a conference template, or files you upload.</p>
               </Choice>
             </div>
             <div className="wg-how">
@@ -288,19 +288,21 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
           </section>
 
           <section id="wg-documents" className="wg-section">
-            <h3>The documents page</h3>
-            <p className="wg-lede">What the Write tab opens on: the project’s documents, and ways to start another. A project can hold several — the paper and a workshop version, say — each in a folder of its own.</p>
+            <h3>LaTeX projects</h3>
+            <p className="wg-lede">What the Write tab opens on: the project’s LaTeX projects, and ways to start another. Each one makes one PDF, from a main .tex and the files it brings in — sections, a .bib, styles, figures — kept together in a folder. A project can hold several: the paper, a workshop version, a rebuttal. In the editor, the file list shows only the open one’s files; new files and uploads go in its folder.</p>
             <dl className="wg-list">
               <dt>Continue…</dt>
-              <dd>Opens the document you were last writing.</dd>
-              <dt>Blank document</dt>
-              <dd>A simple article with a title and a first section.</dd>
+              <dd>Opens the LaTeX project you were last writing.</dd>
+              <dt>View in</dt>
+              <dd>Under each LaTeX project: <em>Google Drive</em> opens its folder in Drive, <em>This computer</em> opens it in Finder or Explorer (a paper kept on the computer; Companion 0.13.0 or later), and <em>Overleaf</em> opens the Overleaf project it is in.</dd>
+              <dt>Blank article</dt>
+              <dd>A main.tex with a title and a first section, in a folder of its own; add sections, a .bib and figures as it grows.</dd>
               <dt>Browse templates</dt>
               <dd>Conference kits you saved before (NeurIPS, ICML, ACL…), kept in your Drive.</dd>
               <dt>Upload a template (.zip)</dt>
               <dd>The zip a conference gives out. Reader also keeps it as a template for next time.</dd>
               <dt>Upload LaTeX files</dt>
-              <dd>A .tex you already have, with its .bib, style files and figures.</dd>
+              <dd>A main .tex you already have, with its sections, .bib, style files and figures.</dd>
             </dl>
           </section>
 

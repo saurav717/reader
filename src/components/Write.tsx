@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useStore } from '../lib/store';
-import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, TEXLIVE_VERSION, TEX_COMPILERS, applyTemplate, chooseFolder, clonePaper, linkFolder, listTemplates, saveTemplate, tokenKnown, updateCompanion, waitForVersion, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, compilePaper, forgetOverleafToken, installTectonic, isNewer, paperEngines, paperRemote, syncPaper, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
+import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, REVEAL_VERSION, TEXLIVE_VERSION, revealPaper, TEX_COMPILERS, applyTemplate, chooseFolder, clonePaper, linkFolder, listTemplates, saveTemplate, tokenKnown, updateCompanion, waitForVersion, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, type TexLiveStatus, compilePaper, forgetOverleafToken, installTectonic, isNewer, paperEngines, paperRemote, syncPaper, type Compiled, type PaperEngines, type PaperTemplate, type Synced, type TexCompiler, type TexProblem } from '../lib/companion';
 import { besideFeatures, bibEntries, isBuildFile, isTextFile, keyFor, overleafGitUrl, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
 import { complete as completeLatex } from '../lib/latexComplete';
 import { openPdf } from '../lib/pdfReflow';
@@ -121,7 +121,7 @@ function WriteStart({ project }: { project: Project }) {
             <button type="button" className="btn primary" disabled={busy} onClick={() => void blank()}>
               {busy ? 'Making its folder…' : 'Start the paper'}
             </button>
-            <span className="wr-quiet">Then pick how its first document begins.</span>
+            <span className="wr-quiet">Then pick how its first LaTeX project begins.</span>
           </div>
         ) : null}
         {problem ? <p className="wr-bad">{problem}</p> : null}
@@ -461,8 +461,8 @@ function ToDrive({ project }: { project: Project }) {
  */
 function LocalWrite({ project, onView }: { project: Project; onView: (view: View) => void }) {
   const [here, setHere] = useState<ThisComputer | null>(null);
-  // The project's documents first, each time the tab opens; the desk once one is picked.
-  const [atDesk, setAtDesk] = useState(false);
+  // The project's LaTeX projects first, each time the tab opens; the desk once one is picked.
+  const [scope, setScope] = useState<PaperScope | null>(null);
   const updateLink = useUpdateLink(project);
   const ask = useCallback((again = false) => {
     setHere(null);
@@ -513,7 +513,7 @@ function LocalWrite({ project, onView }: { project: Project; onView: (view: View
       </div>
     );
   if (!folder || !store) return <LocalSetUp project={project} here={here} />;
-  if (!atDesk)
+  if (!scope)
     return (
       <WriteHome
         project={project}
@@ -521,13 +521,13 @@ function LocalWrite({ project, onView }: { project: Project; onView: (view: View
         folder={folder}
         store={store}
         shelf={shelf}
-        onOpen={(main) => {
+        onOpen={(main, opened) => {
           if (main !== link?.main) updateLink({ main });
-          setAtDesk(true);
+          setScope(opened);
         }}
       />
     );
-  return <WriteDesk key={`${here.id}:${folder.path}`} project={project} here={here} folder={folder} store={store} onHome={() => setAtDesk(false)} />;
+  return <WriteDesk key={`${here.id}:${folder.path}:${scope.dir}`} project={project} here={here} folder={folder} store={store} scope={scope} onHome={() => setScope(null)} />;
 }
 
 /** The Companion's own templates, for a paper kept on this computer. */
@@ -1253,7 +1253,8 @@ async function listStamped(store: PaperStore): Promise<{ path: string; stamp: st
     for (const entry of await store.list(dir)) {
       if (entry.name.startsWith('.')) continue;
       if (entry.type === 'directory') await walk(entry.path, depth + 1);
-      else if (!isBuildFile(entry.path)) found.push({ path: entry.path, stamp: `${entry.modified ?? ''}|${entry.size ?? ''}` });
+      // Drive can hold two files of one name in a folder: the paper has one, the first listed.
+      else if (!isBuildFile(entry.path) && !found.some((file) => file.path === entry.path)) found.push({ path: entry.path, stamp: `${entry.modified ?? ''}|${entry.size ?? ''}` });
     }
   };
   await walk('', 0);
@@ -1284,12 +1285,12 @@ function useSetLink(project: Project) {
     });
 }
 
-/** A paper kept in Drive: its documents, then the desk — with nothing of it on this computer. */
+/** A paper kept in Drive: its LaTeX projects, then the desk — with nothing of it on this computer. */
 function DriveWrite({ project, folder }: { project: Project; folder: string }) {
   const { driveConnected, connectDrive, settings } = useStore();
   const updateLink = useUpdateLink(project);
   const link = project.project.overleaf;
-  const [atDesk, setAtDesk] = useState(false);
+  const [scope, setScope] = useState<PaperScope | null>(null);
   const store = useMemo(() => driveStore(paperDriveNow, folder), [folder]);
   const shelf = useMemo(() => driveShelf(paperDriveNow, store), [store]);
   const place: PaperFolder = { path: folder, sync: 'drive' };
@@ -1308,28 +1309,96 @@ function DriveWrite({ project, folder }: { project: Project; folder: string }) {
         </div>
       </div>
     );
-  if (!atDesk)
+  if (!scope)
     return (
       <WriteHome
         project={project}
         folder={place}
         store={store}
         shelf={shelf}
-        onOpen={(main) => {
+        onOpen={(main, opened) => {
           if (main !== link?.main) updateLink({ main });
-          setAtDesk(true);
+          setScope(opened);
         }}
       />
     );
-  return <WriteDesk key={`drive:${folder}`} project={project} folder={place} store={store} onHome={() => setAtDesk(false)} />;
+  return <WriteDesk key={`drive:${folder}:${scope.dir}`} project={project} folder={place} store={store} scope={scope} onHome={() => setScope(null)} />;
 }
 
-/** A document in the paper's folder: a .tex file with \documentclass, with what it says of itself. */
+/** A main document in the paper's folder: a .tex file with \documentclass, with what it says of itself. */
 interface PaperDoc {
   path: string;
   title: string;
   docClass: string;
   modified: string | null;
+}
+
+/** Which part of the folder a LaTeX project is: its folder ('' the top), less the other projects' folders inside it. */
+interface PaperScope {
+  dir: string;
+  exclude: string[];
+}
+
+/** A LaTeX project: one PDF, from a main .tex and the files it brings in — sections, a .bib, styles, figures. */
+interface LatexProject extends PaperScope {
+  main: PaperDoc;
+  /** Other .tex files with \documentclass in the same folder: standalone figures, a cover letter. */
+  alsoMain: string[];
+  /** Everything else it holds, as paths relative to the folder. */
+  files: string[];
+  modified: string | null;
+}
+
+const dirOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
+const isWithin = (dir: string, path: string) => !dir || path.startsWith(`${dir}/`);
+/** Whether a path is one of this LaTeX project's files, not another's in a folder inside it. */
+const inScope = (scope: PaperScope, path: string) => isWithin(scope.dir, path) && !scope.exclude.some((dir) => isWithin(dir, path));
+
+/**
+ * The folder's LaTeX projects: one for each folder with a main document in it
+ * (the project's main if it is there, else main.tex, else the latest edited),
+ * each holding the files under it that no deeper project does.
+ */
+function groupProjects(docs: PaperDoc[], listed: { path: string; stamp: string }[], preferred?: string): LatexProject[] {
+  const byDir = new Map<string, PaperDoc[]>();
+  for (const doc of docs) byDir.set(dirOf(doc.path), [...(byDir.get(dirOf(doc.path)) ?? []), doc]);
+  const dirs = [...byDir.keys()];
+  const owner = (path: string) => dirs.filter((dir) => isWithin(dir, path)).sort((a, b) => b.length - a.length)[0];
+  return dirs.map((dir) => {
+    const here = byDir.get(dir) ?? [];
+    const main = here.find((doc) => doc.path === preferred) ?? here.find((doc) => /(^|\/)main\.tex$/i.test(doc.path)) ?? [...here].sort((a, b) => (b.modified ?? '').localeCompare(a.modified ?? ''))[0];
+    const mine = listed.filter((file) => owner(file.path) === dir);
+    const modified = mine.map((file) => file.stamp.split('|')[0]).concat(here.map((doc) => doc.modified ?? '')).filter(Boolean).sort().pop() ?? null;
+    const exclude = dirs.filter((other) => other !== dir && isWithin(dir, other));
+    const relative = (path: string) => (dir ? path.slice(dir.length + 1) : path);
+    return {
+      dir,
+      exclude,
+      main,
+      alsoMain: here.filter((doc) => doc !== main).map((doc) => relative(doc.path)),
+      files: mine.filter((file) => !here.some((doc) => doc.path === file.path)).map((file) => relative(file.path)),
+      modified,
+    };
+  });
+}
+
+/** What a LaTeX project brings in, counted: "3 sections · 1 .bib · 6 figures". */
+function filesSummary(files: string[]): string {
+  const count = (test: RegExp) => files.filter((path) => test.test(path)).length;
+  const tex = count(/\.tex$/i);
+  const bib = count(/\.bib$/i);
+  const figures = count(/\.(png|jpe?g|pdf|eps|svg)$/i);
+  const styles = count(/\.(sty|cls|bst|bbx|cbx)$/i);
+  const other = files.length - tex - bib - figures - styles;
+  return [
+    tex ? `${tex} .tex input${tex === 1 ? '' : 's'}` : '',
+    bib ? `${bib} .bib` : '',
+    figures ? `${figures} figure${figures === 1 ? '' : 's'}` : '',
+    styles ? `${styles} style${styles === 1 ? '' : 's'}` : '',
+    other ? `${other} other` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 /** "3 h ago", for a document's last edit. */
@@ -1344,7 +1413,7 @@ function ago(iso: string | null): string {
   return new Date(iso).toLocaleDateString();
 }
 
-/** A new document's folder name, from what it is called. */
+/** A new LaTeX project's folder name, from what it is called. */
 const folderSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
 
 const BLANK_DOC = (title: string) => `\\documentclass{article}
@@ -1365,21 +1434,72 @@ const BLANK_DOC = (title: string) => `\\documentclass{article}
 
 type Making = 'blank' | 'templates' | 'zip' | 'files';
 
+/** A LaTeX project's folder in Google Drive, in a new tab. */
+function OpenInDrive({ store, dir, onProblem, label = 'Google Drive' }: { store: PaperStore; dir: string; onProblem: (problem: string) => void; label?: string }) {
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    // Opened at once, then sent on: a tab opened after the wait would be taken for a pop-up.
+    const tab = window.open('about:blank', '_blank');
+    if (tab) tab.opener = null;
+    setBusy(true);
+    try {
+      const url = await store.link!(dir);
+      if (tab) tab.location.href = url;
+      else window.open(url, '_blank', 'noopener');
+    } catch (error) {
+      tab?.close();
+      onProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button type="button" className="wr-doc-where" disabled={busy || !store.link} onClick={() => void go()} title={`Open ${dir ? `${dir}/` : 'the folder'} in Google Drive`}>
+      {busy ? 'Opening…' : label}
+    </button>
+  );
+}
+
+/** A LaTeX project's folder on this computer, in Finder, Explorer or the desktop's file manager, by the Companion. */
+function OpenHere({ here, folder, onProblem, label = 'This computer' }: { here: Here; folder: string; onProblem: (problem: string) => void; label?: string }) {
+  const [busy, setBusy] = useState(false);
+  const old = isNewer(REVEAL_VERSION, here.version);
+  const go = async () => {
+    if (old) return onProblem(`Opening the folder needs the Companion ${REVEAL_VERSION} or later on this computer (it is ${here.version}): update it from Your compute in the Playground.`);
+    setBusy(true);
+    try {
+      await revealPaper(here.server, folder);
+    } catch (error) {
+      onProblem(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button type="button" className="wr-doc-where" disabled={busy} onClick={() => void go()} title={`Open ~/Reader/${folder} in ${/Mac/i.test(navigator.platform) ? 'Finder' : /Win/i.test(navigator.platform) ? 'Explorer' : 'the file manager'}${old ? ` (needs the Companion ${REVEAL_VERSION})` : ''}`}>
+      {busy ? 'Opening…' : label}
+    </button>
+  );
+}
+
 /**
- * Where the Write tab opens: the documents in this project's folder — each
- * .tex with \documentclass, its title and when it was last edited — to open
- * one, and the ways to start another: a blank document, one of the templates
- * kept on this computer, a template's .zip (kept as a template too), or .tex
- * files from elsewhere. A new document goes in a folder of its own, beside
- * the others, unless the project has none yet.
+ * Where the Write tab opens: the LaTeX projects in this project's folder —
+ * each one PDF, from a main .tex (with \documentclass) and the files it
+ * brings in: sections, a .bib, styles, figures — to open one, and the ways
+ * to start another: a blank article, one of the templates kept on this
+ * computer, a template's .zip (kept as a template too), or LaTeX files from
+ * elsewhere. A new one goes in a folder of its own, beside the others,
+ * unless the project has none yet.
  */
-function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; shelf: TemplateShelf | null; onOpen: (main: string) => void }) {
+function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; shelf: TemplateShelf | null; onOpen: (main: string, scope: PaperScope) => void }) {
   const [toOverleaf, setToOverleaf] = useState(false);
   const link = project.project.overleaf;
   const accounts = useOverleafAccounts();
   const throughAccount = folder.sync === 'drive' ? accounts?.find((account) => account.id === link?.gitAccount)?.label : undefined;
-  const [docs, setDocs] = useState<PaperDoc[] | null>(null);
-  const [others, setOthers] = useState<{ tex: number; bib: number; figures: number; other: number }>({ tex: 0, bib: 0, figures: 0, other: 0 });
+  const [docs, setDocs] = useState<LatexProject[] | null>(null);
+  // Files no LaTeX project holds: beside them at the top, with no main document there.
+  const [loose, setLoose] = useState<string[]>([]);
+  const [taken, setTaken] = useState<string[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const [making, setMaking] = useState<Making | null>(null);
   const [name, setName] = useState('');
@@ -1396,22 +1516,21 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
       try {
         const listed = await listStamped(store);
         const found: PaperDoc[] = [];
-        const count = { tex: 0, bib: 0, figures: 0, other: 0 };
+        let read = 0;
         for (const { path, stamp } of listed) {
-          if (/\.tex$/i.test(path) && found.length + count.tex < 80) {
-            const read = await store.readText(path).catch(() => null);
-            const text = read?.text ?? '';
-            const docClass = /^[^%\n]*\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}/m.exec(text)?.[1];
-            if (docClass) {
-              const title = /^[^%\n]*\\title(?:\[[^\]]*\])?\{([^}]*)\}/m.exec(text)?.[1]?.replace(/\\\\|\\[a-zA-Z]+\s*/g, ' ').replace(/\s+/g, ' ').trim() ?? '';
-              found.push({ path, title, docClass, modified: read?.modified ?? (stamp.split('|')[0] || null) });
-            } else count.tex += 1;
-          } else if (/\.bib$/i.test(path)) count.bib += 1;
-          else if (/\.(png|jpe?g|pdf|eps|svg)$/i.test(path)) count.figures += 1;
-          else count.other += 1;
+          if (!/\.tex$/i.test(path) || read >= 80) continue;
+          read += 1;
+          const got = await store.readText(path).catch(() => null);
+          const text = got?.text ?? '';
+          const docClass = /^[^%\n]*\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}/m.exec(text)?.[1];
+          if (!docClass) continue;
+          const title = /^[^%\n]*\\title(?:\[[^\]]*\])?\{([^}]*)\}/m.exec(text)?.[1]?.replace(/\\\\|\\[a-zA-Z]+\s*/g, ' ').replace(/\s+/g, ' ').trim() ?? '';
+          found.push({ path, title, docClass, modified: got?.modified ?? (stamp.split('|')[0] || null) });
         }
-        found.sort((a, b) => (a.path === link?.main ? -1 : b.path === link?.main ? 1 : (b.modified ?? '').localeCompare(a.modified ?? '')));
-        if (live) (setDocs(found), setOthers(count));
+        const projects = groupProjects(found, listed, link?.main);
+        const holds = (path: string) => projects.some((one) => inScope(one, path));
+        projects.sort((a, b) => (a.main.path === link?.main ? -1 : b.main.path === link?.main ? 1 : (b.modified ?? '').localeCompare(a.modified ?? '')));
+        if (live) (setDocs(projects), setLoose(listed.map((file) => file.path).filter((path) => !holds(path))), setTaken(listed.map((file) => file.path)));
       } catch (error) {
         if (live) setProblem(error instanceof Error ? error.message : String(error));
       }
@@ -1426,21 +1545,24 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
     void shelf?.list().then(setTemplates, (error) => setProblem(error instanceof Error ? error.message : String(error)));
   }, [making, templates, templatesOld, shelf]);
 
-  /** Where a new document goes: a folder of its own, or the top when the project has no document yet. */
+  /** Where a new LaTeX project goes: a folder of its own, or the top when the folder has nothing yet. */
   const placeFor = (label: string) => {
-    if (!docs?.length) return '';
-    const slug = folderSlug(label) || 'document';
+    if (!docs?.length && !taken.length) return '';
+    const slug = folderSlug(label) || 'paper';
     let dir = slug;
-    for (let n = 2; docs.some((doc) => doc.path.startsWith(`${dir}/`)); n += 1) dir = `${slug}-${n}`;
+    for (let n = 2; taken.some((path) => path.startsWith(`${dir}/`)); n += 1) dir = `${slug}-${n}`;
     return dir;
   };
   const within = (dir: string, path: string) => (dir ? `${dir}/${path}` : path);
+  const open = (one: LatexProject) => onOpen(one.main.path, { dir: one.dir, exclude: one.exclude });
+  const onOverleaf = Boolean(overleafGitUrl(link?.url));
   const run = async (work: () => Promise<string | undefined>) => {
     setBusy(true);
     setProblem(null);
     try {
       const main = await work();
-      if (main) onOpen(main);
+      // The new one's folder, less any project already inside it (only the top can have those).
+      if (main) onOpen(main, { dir: dirOf(main), exclude: dirOf(main) ? [] : (docs ?? []).map((one) => one.dir).filter(Boolean) });
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1486,10 +1608,10 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
     });
 
   const ways: { id: Making; title: string; note: string; icon: string }[] = [
-    { id: 'blank', title: 'Blank document', note: 'An article with a title, an author and a first section.', icon: '＋' },
+    { id: 'blank', title: 'Blank article', note: 'A main.tex with a title, an author and a first section; add sections, a .bib and figures as it grows.', icon: '＋' },
     { id: 'templates', title: 'Browse templates', note: store.kind === 'drive' ? 'The conference kits kept in your Drive: NeurIPS, ICML, ACL…' : 'The conference kits kept on this computer: NeurIPS, ICML, ACL…', icon: '▦' },
     { id: 'zip', title: 'Upload a template (.zip)', note: 'A conference’s kit, as it gives it out. Kept as a template for next time.', icon: '⇪' },
-    { id: 'files', title: 'Upload LaTeX files', note: 'A .tex from elsewhere, with its .bib, styles and figures.', icon: '⎘' },
+    { id: 'files', title: 'Upload LaTeX files', note: 'A main .tex from elsewhere, with its sections, .bib, styles and figures.', icon: '⎘' },
   ];
 
   return (
@@ -1514,20 +1636,22 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
           {toOverleaf && folder.sync === 'drive' && !overleafGitUrl(link?.url) ? <PutOnOverleaf project={project} store={store} /> : null}
         </div>
         {docs?.length ? (
-          <button type="button" className="btn primary" onClick={() => onOpen(docs[0].path)}>
-            Continue {docs[0].title || docs[0].path} →
+          <button type="button" className="btn primary" onClick={() => open(docs[0])}>
+            Continue {docs[0].main.title || docs[0].dir || docs[0].main.path} →
           </button>
         ) : null}
       </header>
 
-      <section className="wr-home-section" aria-label="The documents in this project">
-        <h3>Documents in this project</h3>
+      <section className="wr-home-section" aria-label="The LaTeX projects in this project">
+        <h3>LaTeX projects</h3>
+        <p className="wr-quiet wr-home-lede">Each makes one PDF: a main .tex and the files it brings in — sections, a .bib, styles, figures — kept together in a folder.</p>
         {docs === null && !problem ? <p className="wr-quiet">Reading the project’s folder…</p> : null}
-        {docs && !docs.length ? <p className="wr-quiet">No document yet: start one below. A document is a .tex file with \documentclass; the files it brings in are listed with it once open.</p> : null}
+        {docs && !docs.length ? <p className="wr-quiet">None yet: start one below. A LaTeX project is a folder with a main .tex (the one with \documentclass) and its supporting files.</p> : null}
         {docs?.length ? (
           <div className="wr-docs">
-            {docs.map((doc) => (
-              <button key={doc.path} type="button" className="wr-doc" onClick={() => onOpen(doc.path)} title={`Open ${doc.path}`}>
+            {docs.map((one) => (
+              <div key={one.main.path} className="wr-doc-card">
+              <button type="button" className="wr-doc" onClick={() => open(one)} title={`Open ${one.dir ? `${one.dir}/` : 'the top of the folder'}, compiled from ${one.main.path}`}>
                 <span className="wr-doc-page" aria-hidden="true">
                   <i />
                   <i />
@@ -1535,28 +1659,38 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
                   <i />
                 </span>
                 <span className="wr-doc-text">
-                  <b>{doc.title || doc.path.split('/').pop()}</b>
-                  <span className="mono">{doc.path}</span>
+                  <b>{one.main.title || one.dir.split('/').pop() || one.main.path.split('/').pop()}</b>
+                  <span className="mono">{one.dir ? `${one.dir}/` : 'top of the folder'} · {one.main.path.split('/').pop()}</span>
                   <small>
-                    {doc.docClass}
-                    {doc.modified ? ` · edited ${ago(doc.modified)}` : ''}
-                    {doc.path === link?.main ? <em>main</em> : null}
+                    {one.main.docClass}
+                    {one.modified ? ` · edited ${ago(one.modified)}` : ''}
+                    {one.main.path === link?.main ? <em>last open</em> : null}
                   </small>
+                  <span className="wr-doc-files">
+                    {one.files.length ? filesSummary(one.files) : 'No supporting files yet'}
+                    {one.alsoMain.length ? ` · also ${one.alsoMain.join(', ')}` : ''}
+                  </span>
                 </span>
               </button>
+              <div className="wr-doc-open" aria-label={`Open ${one.main.title || one.dir || one.main.path} elsewhere`}>
+                <span className="wr-quiet">View in</span>
+                {store.kind === 'drive' ? <OpenInDrive store={store} dir={one.dir} onProblem={setProblem} /> : null}
+                {here && store.kind === 'companion' ? <OpenHere here={here} folder={[folder.path, one.dir].filter(Boolean).join('/')} onProblem={setProblem} /> : null}
+                {onOverleaf ? <OpenOverleaf project={project} view="beside" primary={false} compact /> : null}
+              </div>
+              </div>
             ))}
           </div>
         ) : null}
-        {docs ? (
+        {docs?.length && loose.length ? (
           <p className="wr-quiet wr-home-others">
-            Also in the folder: {others.tex} other .tex file{others.tex === 1 ? '' : 's'} (sections, inputs) · {others.bib} .bib · {others.figures} figure{others.figures === 1 ? '' : 's'}
-            {others.other ? ` · ${others.other} other` : ''}
+            Not in any LaTeX project: {filesSummary(loose)} — files at the top with no main .tex beside them.
           </p>
         ) : null}
       </section>
 
-      <section className="wr-home-section" aria-label="Start a new document">
-        <h3>Start a new document</h3>
+      <section className="wr-home-section" aria-label="Start a new LaTeX project">
+        <h3>Start a new LaTeX project</h3>
         <div className="wr-home-ways" role="radiogroup" aria-label="How to start it">
           {ways.map((way) => (
             <button key={way.id} type="button" role="radio" aria-checked={making === way.id} className={`wr-home-way${making === way.id ? ' is-on' : ''}`} onClick={() => setMaking(making === way.id ? null : way.id)}>
@@ -1572,7 +1706,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
             <label className="wr-home-name">
               <span>Its name</span>
               <input value={name} onChange={(event) => setName(event.target.value)} placeholder={making === 'blank' ? 'e.g. Workshop paper' : 'Optional: the template’s or file’s name otherwise'} />
-              <small className="wr-quiet">{docs?.length ? `It goes in its own folder, ${placeFor(name.trim() || (making === 'blank' ? 'Untitled' : 'document'))}/, beside the other documents.` : 'It goes at the top of the project’s folder.'}</small>
+              <small className="wr-quiet">{docs?.length || taken.length ? `It goes in a folder of its own, ${placeFor(name.trim() || (making === 'blank' ? 'Untitled' : 'paper'))}/, beside the other LaTeX projects; its supporting files go in there with it.` : 'It goes at the top of the project’s folder.'}</small>
             </label>
             {making === 'blank' ? (
               <button type="button" className="btn primary" disabled={busy} onClick={() => void makeBlank()}>
@@ -1644,7 +1778,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
   );
 }
 
-function WriteDesk({ project, here, folder, store, onHome }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; onHome?: () => void }) {
+function WriteDesk({ project, here, folder, store, scope, onHome }: { project: Project; here?: Here; folder: PaperFolder; store: PaperStore; /** The LaTeX project open: its files are the ones listed. */ scope?: PaperScope; onHome?: () => void }) {
   const { settings, papers, updateSettings } = useStore();
   const [desk, setDesk] = useDesk();
   const setLayout = (layout: WriteOptions['layout']) => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), layout } });
@@ -1735,7 +1869,10 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
     if (git && inDrive) void overleafTokenKnown().then((known) => setNeedToken(!known), () => undefined);
   }, [refreshList, server, folder.path, git, inDrive]);
 
-  const texts = (paths ?? []).filter(isTextFile);
+  // The open LaTeX project's own files; the folder's other projects are a step back, on the home page.
+  const scoped = scope ? (paths ?? []).filter((path) => inScope(scope, path)) : paths ?? [];
+  const at = (path: string) => (scope?.dir ? `${scope.dir}/${path}` : path);
+  const texts = scoped.filter(isTextFile);
   const mainGuess = texts.find((path) => path === link?.main) ?? texts.find((path) => path === compiled?.main) ?? texts.find((path) => /(^|\/)main\.tex$/.test(path)) ?? texts.find((path) => path.endsWith('.tex'));
   const shown = open && texts.includes(open) ? open : mainGuess;
   // The main document: as set on the project, else the one the compile found, else the first with main.tex's name.
@@ -1908,7 +2045,7 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
     }
   };
   const newFile = () => {
-    const path = cleanPath(window.prompt('A new file — its path in the paper:', 'sections/new-section.tex'));
+    const path = cleanPath(window.prompt('A new file — its path in the paper:', at('sections/new-section.tex')));
     if (!path) return;
     if ((paths ?? []).includes(path)) return setFileProblem(`${path} is there already.`);
     void fileOp(async () => {
@@ -1918,7 +2055,7 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
     });
   };
   const newFolder = () => {
-    const path = cleanPath(window.prompt('A new folder — its path in the paper (it reaches Overleaf once a file is in it):', 'figures'));
+    const path = cleanPath(window.prompt('A new folder — its path in the paper (it reaches Overleaf once a file is in it):', at('figures')));
     if (!path) return;
     void fileOp(async () => {
       const parts = path.split('/');
@@ -1929,7 +2066,7 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
   const upload = (list: FileList) => {
     const chosen = Array.from(list);
     if (!chosen.length) return;
-    const dir = window.prompt(`Put ${chosen.length === 1 ? chosen[0].name : `${chosen.length} files`} in which folder? (empty for the top)`, chosen.every((file) => /\.(png|jpe?g|pdf|eps|svg)$/i.test(file.name)) ? 'figures' : '');
+    const dir = window.prompt(`Put ${chosen.length === 1 ? chosen[0].name : `${chosen.length} files`} in which folder? (empty for the top)`, chosen.every((file) => /\.(png|jpe?g|pdf|eps|svg)$/i.test(file.name)) ? at('figures') : scope?.dir ?? '');
     if (dir === null) return;
     const base = dir.trim() ? cleanPath(dir) : '';
     if (base === null) return setFileProblem('That folder name won’t do.');
@@ -2480,8 +2617,8 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
       <aside className="wr-side">
         <Handle axis="x" className="wr-handle-side" onDrag={(dx) => setDesk((now) => ({ side: clamp(now.side + dx, 160, 520) }))} onReset={() => setDesk({ side: DESK.side })} label="Drag to widen or narrow the files" />
         {onHome ? (
-          <button type="button" className="wr-home-back" onClick={onHome} title="The project’s documents, and new ones">
-            ← All documents
+          <button type="button" className="wr-home-back" onClick={onHome} title="The project’s LaTeX projects, and new ones">
+            ← All LaTeX projects
           </button>
         ) : null}
         <div className="wr-side-head">
@@ -2506,7 +2643,7 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
         {fileProblem ? <p className="wr-bad wr-pad">{fileProblem}</p> : null}
         <div className="wr-tree">
           {listError ? <p className="wr-bad wr-pad">{listError}</p> : null}
-          {(paths ?? []).map((path) => (
+          {scoped.map((path) => (
             <div key={path} className={`wr-tree-row${path === shown ? ' is-on' : ''}`}>
               <button
                 type="button"
@@ -2515,7 +2652,7 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
                 onClick={() => setOpen(path)}
                 title={path}
               >
-                {path.includes('/') ? <span className="wr-tree-dir">{path.slice(0, path.lastIndexOf('/') + 1)}</span> : null}
+                {path.slice(scope?.dir ? scope.dir.length + 1 : 0).includes('/') ? <span className="wr-tree-dir">{path.slice(scope?.dir ? scope.dir.length + 1 : 0, path.lastIndexOf('/') + 1)}</span> : null}
                 {path.split('/').pop()}
                 {files[path] && files[path].text !== files[path].disk ? <i> ●</i> : null}
                 {path === (mainDoc ?? compiled?.main) ? <small> main</small> : null}
@@ -2554,10 +2691,10 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
             {inDrive ? 'Google Drive' : here?.name} · {folder.path}
           </span>
           {inDrive ? (
-            <button type="button" className="link-btn" onClick={() => void store.link?.().then((url) => window.open(url, '_blank', 'noopener'), (error) => setFileProblem(error instanceof Error ? error.message : String(error)))}>
-              Open in Drive
-            </button>
+            <OpenInDrive store={store} dir={scope?.dir ?? ''} onProblem={setFileProblem} label="Open in Drive" />
           ) : here ? (
+            <>
+            <OpenHere here={here} folder={[folder.path, scope?.dir].filter(Boolean).join('/')} onProblem={setFileProblem} label="Show the folder" />
             <button
               type="button"
               className="link-btn"
@@ -2567,6 +2704,7 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
             >
               Change
             </button>
+            </>
           ) : null}
         </div>
       </aside>

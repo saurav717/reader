@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.12.0';
+export const COMPANION_VERSION = '0.13.0';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -668,6 +668,11 @@ export const syncPaper = (server: { url: string; token: string }, folder: string
   paperCall<Synced>(server, { action: 'sync', folder, message, ...(token ? { token } : {}) });
 /** Where the folder syncs to, and whether the Companion has a token for it. */
 export const paperRemote = (server: { url: string; token: string }, folder: string) => paperCall<{ url: string; token: boolean }>(server, { action: 'remote', folder });
+
+/** The first Companion that opens a paper's folder in the computer's file manager. */
+export const REVEAL_VERSION = '0.13.0';
+/** A paper's folder, or one inside it, opened in Finder, Explorer or the desktop's file manager (from 0.13.0). */
+export const revealPaper = (server: { url: string; token: string }, folder: string) => paperCall<{ opened: string }>(server, { action: 'reveal', folder });
 
 /** The templates kept on the Companion's computer (from 0.11.0). */
 export const listTemplates = (server: { url: string; token: string }) => paperCall<{ templates: PaperTemplate[] }>(server, { action: 'templates' }).then((body) => body.templates);

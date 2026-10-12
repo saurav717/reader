@@ -532,7 +532,7 @@ await page.getByRole('button', { name: 'Start the paper' }).click();
 await page.locator('.wr-home-way').first().waitFor({ timeout: 20000 });
 check('its folder is made in Drive, and it is not on Overleaf', /Google Drive › Projects › Workshop note-p-blank › LaTeX/.test(await page.locator('.wr-home-head').innerText()) && /not on Overleaf/.test(await page.locator('.wr-home-head').innerText()));
 await shot('write-start-blank-home');
-await page.locator('.wr-home-way', { hasText: 'Blank document' }).click();
+await page.locator('.wr-home-way', { hasText: 'Blank article' }).click();
 await page.locator('.wr-home-name input').fill('Workshop note');
 await page.getByRole('button', { name: 'Make it and open it' }).click();
 await page.locator('.wr-desk').waitFor({ timeout: 20000 });
@@ -542,7 +542,7 @@ check('its first document is in Drive', /\\title\{Workshop note\}/.test(driveFil
 check('and compiled on Cloud Run', /Compiled on Cloud Run/.test(await page.locator('.wr-ghc').innerText()));
 check('which says it is in Drive, not on Overleaf', /Saved in Google Drive · not on Overleaf/.test(await page.locator('.wr-status').innerText()));
 await shot('write-start-blank-desk');
-await page.getByRole('button', { name: /All documents/ }).click();
+await page.getByRole('button', { name: /All LaTeX projects/ }).click();
 await page.getByRole('button', { name: 'Put it on Overleaf' }).click();
 await page.getByLabel('The Overleaf project’s address').fill(`https://www.overleaf.com/project/${FRESH_ID}`);
 await shot('write-start-put');
