@@ -173,13 +173,14 @@ BROWSERLESS_COUNTRY = "us"
 BROWSER_SESSION_LOCATION = "wnam"
 
 # The LaTeX compiler on Google Cloud Run (cloudrun/latex, worker/latex.js):
-# its address, as "Deploy LaTeX compiler" prints it, and what it was given.
+# its address, as cloudrun/latex/deploy.sh prints it (project reader-509409,
+# us-central1), and what it was given.
 # With it and the secret LATEX_CLOUD_RUN_TOKEN, compiles go there rather
 # than to GitHub Actions (docs/deploy.md).
 #
-# LATEX_CLOUD_RUN_URL = "https://reader-latex-XXXXXXXXXX-uc.a.run.app"
-# LATEX_CLOUD_RUN_CPU = "2"
-# LATEX_CLOUD_RUN_MEMORY_GIB = "4"
+LATEX_CLOUD_RUN_URL = "https://reader-latex-fgk7igwsuq-uc.a.run.app"
+LATEX_CLOUD_RUN_CPU = "2"
+LATEX_CLOUD_RUN_MEMORY_GIB = "4"
 
 # Somewhere to keep the cookies of a sign-in made in that browser, so it
 # holds for the next paper and lets /pdf through a login wall — and so the
