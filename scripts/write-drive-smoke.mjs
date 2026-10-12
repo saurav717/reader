@@ -410,7 +410,7 @@ sh('git', ['push', '-q'], coauthor);
 await page.locator('.wr-status').getByRole('button', { name: 'Compare with Overleaf' }).click();
 await page.locator('.wc-file').first().waitFor({ timeout: 30000 });
 const listed = await page.locator('.wc-files').innerText();
-check('the files that differ are listed, by how', /Changed on both[\s\S]*main\.tex[\s\S]*sections\/intro\.tex/.test(listed) && /Only on Overleaf[\s\S]*sections\/related\.tex/.test(listed), listed);
+check('the files that differ are listed, by how', /Changed on both[\s\S]*main\.tex[\s\S]*sections\/intro\.tex/i.test(listed) && /Only on Overleaf[\s\S]*sections\/related\.tex/i.test(listed), listed);
 check('and the new LaTeX project isn’t part of it', !/rebuttal/.test(listed));
 check('Apply waits until every changed file is picked', await page.getByRole('button', { name: 'Apply to both' }).isDisabled());
 await page.locator('.wc-file', { hasText: 'sections/intro.tex' }).click();

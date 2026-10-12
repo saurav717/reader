@@ -7685,7 +7685,7 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .wc-table-wrap { overflow-x: auto; }
 .wc-table { width: 100%; border-collapse: collapse; table-layout: fixed; font: 12px/1.55 var(--mono); }
 .wc-col-num { width: 44px; }
-.wc-table th { position: sticky; top: 38px; z-index: 1; padding: 6px 10px; background: var(--surface); border-bottom: 1px solid var(--border); text-align: left; font: 600 11.5px var(--sans); color: var(--ink-2); }
+.wc-table th { padding: 6px 10px; background: var(--surface); border-bottom: 1px solid var(--border); text-align: left; font: 600 11.5px var(--sans); color: var(--ink-2); }
 .wc-num { padding: 0 8px; color: var(--ink-2); text-align: right; user-select: none; vertical-align: top; opacity: 0.7; }
 .wc-code { padding: 0 10px; white-space: pre-wrap; word-break: break-word; vertical-align: top; border-left: 1px solid var(--border-soft, var(--border)); }
 .wc-code.is-mine { background: var(--wc-mine); }

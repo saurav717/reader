@@ -294,6 +294,10 @@ export default function WriteGuide({ section = 'start', onClose }: { section?: G
             <dl className="wg-list">
               <dt>Continue…</dt>
               <dd>Opens the LaTeX project you were last writing.</dd>
+              <dt>On Overleaf, or not</dt>
+              <dd>Each LaTeX project can have an Overleaf project of its own, or none. A new one starts off Overleaf — nothing to connect, nothing synced — until you press <em>Put on Overleaf</em> on its card: Reader makes the Overleaf project with its files in it (in the account signed in in this browser), and you paste that project’s address back once. A paper brought in from Overleaf keeps syncing as before.</dd>
+              <dt>Compare with Overleaf</dt>
+              <dd>On a LaTeX project that is on Overleaf (its card, or the editor’s status bar). On the left, every file: changed on both, only on this site, only on Overleaf, or the same. On the right, a file’s two versions side by side, as GitHub shows them. Keep this site’s version or Overleaf’s in total, for one file or all of them, or pick change by change — this site’s, Overleaf’s, or both. <em>PDFs</em> compiles any two of this site’s, Overleaf’s and the result as picked, and boxes what changed on each page. <em>Apply to both</em> makes the picked version the one on this site and on Overleaf.</dd>
               <dt>View in</dt>
               <dd>Under each LaTeX project: <em>Google Drive</em> opens its folder in Drive, <em>This computer</em> opens it in Finder or Explorer (a paper kept on the computer; Companion 0.13.0 or later), and <em>Overleaf</em> opens the Overleaf project it is in.</dd>
               <dt>Blank article</dt>

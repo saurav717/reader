@@ -317,8 +317,9 @@ function FileCompare({ file, decision, onDecide }: { file: Compared; decision?: 
       for (let k = 0; k < Math.max(left.length, right.length); k += 1) {
         const l = left[k];
         const r = right[k];
-        const keptL = pick !== 'theirs';
-        const keptR = pick !== 'mine';
+        // Struck through: the side a pick leaves out (nothing yet, before one is made).
+        const keptL = !decision || pick !== 'theirs';
+        const keptR = !decision || pick !== 'mine';
         body.push(
           <tr key={`h${n}-${k}`} className="wc-row is-change">
             <td className="wc-num">{l?.a ?? ''}</td>
