@@ -438,6 +438,17 @@ check('its token, refresh token and login kept sealed', workerKv.size === 1 && !
 check('choosing its repositories is a click away', (await page.getByRole('link', { name: /Choose repositories/ }).getAttribute('href')) === 'https://github.com/apps/reader-papers/installations/new');
 await page.locator('.cx-panel').scrollIntoViewIfNeeded();
 await shot('flow-15-github-app-connected');
+// Signed in through the App, but given no repositories yet: the code's menu says so, and where to give it some.
+const reposBefore = github.repos.splice(0);
+await page.goto(`${BASE}/project/?id=p-moe&view=workspace`, { waitUntil: 'networkidle' });
+await page.locator('.cx-gh-btn').click();
+await page.locator('.cx-pop').getByText(/has none yet/).waitFor({ timeout: 10000 }).catch(() => {});
+check('no repositories given to the App yet: the menu says how to give it some', /Reader’s GitHub App reaches only the repositories you give it/.test(await page.locator('.cx-pop').innerText()) && (await page.locator('.cx-pop').getByRole('link', { name: /Choose repositories/ }).getAttribute('href')) === 'https://github.com/apps/reader-papers/installations/new');
+await shot('flow-16-github-app-no-repos');
+github.repos.push(...reposBefore);
+await page.locator('.cx-pop').getByRole('button', { name: 'Look again' }).click();
+await page.locator('.cx-pop select option', { hasText: 'moe-experiments' }).waitFor({ state: 'attached', timeout: 10000 }).catch(() => {});
+check('given some, Look again lists them', (await page.locator('.cx-pop select option', { hasText: 'moe-experiments' }).count()) === 1);
 
 check('no errors on the page', !errors.length, errors.join(' | '));
 await browser.close();

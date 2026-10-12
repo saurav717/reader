@@ -413,10 +413,27 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
     return () => document.removeEventListener('mousedown', away);
   }, [open]);
   const choosing = Boolean(token && (!repo || changing));
+  // How GitHub is connected (Reader's GitHub App reaches only the repositories it was given), asked as the menu opens.
+  const [connection, setConnection] = useState<GitHubStatus | null>(null);
+  useEffect(() => {
+    if (!open || token !== ON_SERVER) return;
+    githubStatus().then(setConnection, () => setConnection(null));
+  }, [open, token]);
+  // The repositories asked afresh each time the menu opens, and when the person comes back to this tab
+  // (from giving Reader's GitHub App its repositories on GitHub).
+  useEffect(() => {
+    if (!open) return;
+    setMine(null);
+    const back = () => setMine(null);
+    window.addEventListener('focus', back);
+    return () => window.removeEventListener('focus', back);
+  }, [open]);
   useEffect(() => {
     if (!open || !choosing || mine) return;
     writableRepos(token).then(setMine, () => setMine([]));
   }, [open, choosing, mine, token]);
+  const viaApp = connection?.via === 'app';
+  const chooseRepos = `https://github.com/apps/${connection?.methods?.appSlug ?? ''}/installations/new`;
 
   const setRepo = (next: { repo: string; branch: string }) =>
     updateCollection(project.id, (collection) => {
@@ -496,7 +513,7 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
                 <span className="cx-way-title">Or use one of yours</span>
                 <div className="cx-row">
                   <select value={picked} onChange={(event) => setPicked(event.target.value)} aria-label="One of your repositories" disabled={!mine?.length}>
-                    <option value="">{mine === null ? 'Asking GitHub…' : mine.length ? 'Pick a repository' : 'None the token can write to'}</option>
+                    <option value="">{mine === null ? 'Asking GitHub…' : mine.length ? 'Pick a repository' : viaApp ? 'None given to Reader’s GitHub App yet' : 'None the token can write to'}</option>
                     {mine?.map((one) => (
                       <option key={one.fullName} value={one.fullName}>
                         {one.fullName}
@@ -508,6 +525,30 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
                     Use
                   </button>
                 </div>
+                {mine && !mine.length ? (
+                  <p className="cx-quiet">
+                    {viaApp ? (
+                      <>
+                        Reader’s GitHub App reaches only the repositories you give it, and has none yet: install it on your account and pick them (or All repositories, so Create can use the ones it makes).{' '}
+                        <a href={connection?.methods?.appSlug ? chooseRepos : 'https://github.com/settings/installations'} target="_blank" rel="noopener noreferrer">
+                          Choose repositories ↗
+                        </a>
+                      </>
+                    ) : (
+                      'Your GitHub connection can’t write to any repository: give the token access to one (or connect another way under Projects → Connections).'
+                    )}{' '}
+                    <button type="button" className="link-btn" onClick={() => setMine(null)}>
+                      Look again
+                    </button>
+                  </p>
+                ) : viaApp ? (
+                  <p className="cx-quiet">
+                    Only the repositories given to Reader’s GitHub App are listed.{' '}
+                    <a href={connection?.methods?.appSlug ? chooseRepos : 'https://github.com/settings/installations'} target="_blank" rel="noopener noreferrer">
+                      Choose repositories ↗
+                    </a>
+                  </p>
+                ) : null}
               </div>
               {repo ? (
                 <button type="button" className="link-btn" onClick={() => setChanging(false)}>
