@@ -218,7 +218,18 @@ await shot('write-drive-setup');
 await page.getByRole('button', { name: 'Bring it into Drive from Overleaf' }).click();
 
 console.log('brought in from Overleaf by Reader’s server, into Drive');
-await page.locator('.wr-doc').first().waitFor({ timeout: 30000 });
+await page.locator('.wr-doc').first().waitFor({ timeout: 30000 }).catch(async (error) => {
+  await shot('write-drive-failed');
+  console.log((await page.locator('main, .app, body').first().innerText()).slice(0, 1500));
+  console.log('drive:', [...items.values()].filter((item) => item.data).map(pathOf).join(', '));
+  console.log('bad:', await page.locator('.wr-bad').allInnerTexts());
+  console.log('stored:', await page.evaluate(async () => {
+    const db = await new Promise((resolve) => { const r = indexedDB.open('reader'); r.onsuccess = () => resolve(r.result); });
+    return new Promise((resolve) => { const g = db.transaction('collections').objectStore('collections').getAll(); g.onsuccess = () => resolve(JSON.stringify(g.result.map((c) => [c.id, c.name, c.project?.overleaf]))); });
+  }));
+  console.log('errors:', errors);
+  throw error;
+});
 const folder = 'Papers_collection/Papers/Sparse-gated MoE-p-moe';
 check('the paper is in Drive, under Papers_collection/Papers', Boolean(driveFile(`${folder}/main.tex`)) && Boolean(driveFile(`${folder}/sections/intro.tex`)), [...items.values()].filter((item) => item.data).map(pathOf).join(', '));
 check('with where it last synced', /"commit":"[0-9a-f]{40}"/.test(driveFile(`${folder}/.reader-sync.json`)?.data?.toString() ?? ''));

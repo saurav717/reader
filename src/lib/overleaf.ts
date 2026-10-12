@@ -49,7 +49,9 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
   if (!raw || typeof raw !== 'object') return undefined;
   const value = raw as Partial<Record<keyof OverleafLink, unknown>>;
   const url = typeof value.url === 'string' ? parseOverleafUrl(value.url) : null;
-  if (!url) return undefined;
+  // The paper kept in Google Drive: its folder's name there, with or without an Overleaf project.
+  const driveFolder = value.drive && typeof value.drive === 'object' && typeof (value.drive as { folder?: unknown }).folder === 'string' ? (value.drive as { folder: string }).folder.replace(/[\\/]+/g, ' ').trim().slice(0, 120) : '';
+  if (!url && !driveFolder) return undefined;
   const repo = typeof value.repo === 'string' ? parseRepo(value.repo) : null;
   const text = (field: unknown) => (typeof field === 'string' && field.trim() ? field.trim() : undefined);
   const browsers: Record<string, BrowserChoice> = {};
@@ -74,7 +76,8 @@ export function overleafLinkOf(raw: unknown): OverleafLink | undefined {
     }
   }
   return {
-    url,
+    url: url ?? '',
+    ...(driveFolder ? { drive: { folder: driveFolder } } : {}),
     ...(repo ? { repo: `${repo.owner}/${repo.repo}` } : {}),
     ...(repo && text(value.branch) ? { branch: text(value.branch) } : {}),
     ...(repo && text(value.folder) ? { folder: cleanFolder(text(value.folder)!) } : {}),

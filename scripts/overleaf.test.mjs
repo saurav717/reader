@@ -107,6 +107,16 @@ const files = [
   { path: 'refs.bib', text: '@comment{x}\n@article{fedus2022switch,\n  title = {Switch Transformers: Scaling to Trillion Parameter Models},\n  doi = {10.5555/SWITCH}\n}\n@misc{zoph2022stmoe, title = "ST-MoE", eprint = {2202.08906}}\n@misc{wang2024auxfree,\n title={Auxiliary-Loss-Free Load Balancing},\n}\n' },
 ];
 
+describe('a paper kept in Drive', () => {
+  it('keeps its Drive folder, with an Overleaf project or without', () => {
+    const url = 'https://www.overleaf.com/project/66f1c0a9e2b7d4a1b2c3d4e5';
+    assert.deepEqual(ol.overleafLinkOf({ url, drive: { folder: 'Paper-p1' } }).drive, { folder: 'Paper-p1' });
+    assert.deepEqual(ol.overleafLinkOf({ url: '', drive: { folder: 'Paper-p1' } }), { url: '', drive: { folder: 'Paper-p1' } });
+    assert.equal(ol.overleafLinkOf({ url: '', drive: { folder: '' } }), undefined);
+    assert.equal(ol.overleafLinkOf({ url, drive: { folder: '../a/b' } }).drive.folder, '.. a b');
+  });
+});
+
 describe('the files', () => {
   it('counts words without commands, maths or comments', () => {
     assert.equal(ol.wordCount('Hello \\textbf{bold} world~\\cite{a} with $x^2$ maths. % not this'), 5);
