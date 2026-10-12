@@ -156,20 +156,22 @@ await context.route('**/api.github.com/**', async (route) => {
 });
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (url, init = {}) => {
+  // GitHub's sign-in: a code (or a refresh token) for a GitHub App's token.
+  if (String(url) === 'https://github.com/login/oauth/access_token') return Response.json({ access_token: 'ghu_smokeapp000000000000000000', expires_in: 28800, refresh_token: 'ghr_smoke', refresh_token_expires_in: 15897600 });
   if (!String(url).startsWith('https://api.github.com/')) return realFetch(url, init);
   const answer = fakeGithub(init.method ?? 'GET', new URL(String(url)).pathname, init.body ? JSON.parse(init.body) : null, init.headers?.Authorization);
   return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { 'Content-Type': 'application/json', ...(answer.headers ?? {}) } });
 };
 const workerKv = new Map();
 const workerEnv = { SESSIONS: { get: async (key) => workerKv.get(key) ?? null, put: async (key, value) => void workerKv.set(key, value), delete: async (key) => void workerKv.delete(key) }, SECRETS_KEY: 'smoke-'.repeat(8) };
-const workerTools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } }), headers: {}, authorized: async () => ({ email: 'reader@example.org' }) };
+const workerTools = { origins: [new URL(BASE).origin], json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } }), headers: {}, authorized: async () => ({ email: 'reader@example.org' }) };
 await context.route('**/api/github/**', async (route) => {
   const request = route.request();
   const url = new URL(request.url());
   const path = url.pathname.replace(/^\/api/, '');
   const body = request.method() === 'GET' ? undefined : request.postDataBuffer() ?? undefined;
-  const answer = await handleGithub(new Request(`https://reader.test${path}${url.search}`, { method: request.method(), body, headers: { 'Content-Type': 'application/json' } }), workerEnv, path, workerTools);
-  return route.fulfill({ status: answer.status, contentType: 'application/json', body: Buffer.from(await answer.arrayBuffer()) });
+  const answer = await handleGithub(new Request(`https://reader.test${path}${url.search}`, { method: request.method(), body, headers: { 'Content-Type': 'application/json', ...(request.headers().origin ? { Origin: request.headers().origin } : {}) } }), workerEnv, path, workerTools);
+  return route.fulfill({ status: answer.status, contentType: answer.headers.get('Content-Type') || 'application/json', body: Buffer.from(await answer.arrayBuffer()) });
 });
 const TOKEN = 'github_pat_11SMOKE00000000000000_abcdefghijklmnopqrstuvwxyz0123';
 
@@ -260,7 +262,7 @@ await page.waitForFunction(() => JSON.parse(localStorage.getItem('reader.setting
 const stored = await page.evaluate(() => JSON.stringify({ ...localStorage }));
 check('a GitHub token in the browser is moved to Reader’s server, and leaves the browser', !stored.includes(TOKEN) && /"githubToken":"server"/.test(stored.replace(/\\/g, '')));
 check('the server keeps it sealed: no token, login or email in its KV', ![...workerKv.entries()].some(([key, value]) => `${key}${value}`.includes(TOKEN) || `${key}${value}`.includes('saurav') || `${key}${value}`.includes('reader@example.org')) && workerKv.size === 1);
-check('it says what kind of token, and when it expires', /Kept encrypted by Reader’s server[\s\S]*Fine-grained token, expires/.test(await page.locator('.cx-panel').innerText()));
+check('it says what kind of token, and when it expires', /Fine-grained token, expires[\s\S]*Kept encrypted by Reader’s server/.test(await page.locator('.cx-panel').innerText()));
 await page.getByLabel('Overleaf Git token').waitFor({ timeout: 5000 }).catch(() => {});
 check('Overleaf, not connected yet, is open to connect', (await page.getByLabel('Overleaf Git token').count()) === 1);
 await page.getByLabel('Which Overleaf account').fill('saurav@iith.ac.in');
@@ -402,6 +404,40 @@ await signIn();
 await page.locator('.wr-editor textarea').waitFor({ timeout: 20000 });
 await page.waitForTimeout(1500);
 check('Not now is remembered: no nudge the next time', (await page.locator('.wr-nudge-actions').count()) === 0);
+
+console.log('13. GitHub: the App or Sign in with GitHub, explained, the App recommended; signed in through the App');
+Object.assign(workerEnv, { GITHUB_APP_CLIENT_ID: 'Iv1.smoke', GITHUB_APP_CLIENT_SECRET: 'app-secret', GITHUB_APP_SLUG: 'reader-papers', GITHUB_OAUTH_CLIENT_ID: 'Ov23.smoke', GITHUB_OAUTH_CLIENT_SECRET: 'oauth-secret' });
+workerKv.clear();
+// GitHub's sign-in page, standing in: it sends the person straight back to Reader's server with a code.
+await context.route(/^https:\/\/github\.com\/login\/oauth\/authorize/, (route) => {
+  const asked = new URL(route.request().url());
+  // As a page that moves on (a redirect answered here isn't routed again): the callback, as GitHub would send it.
+  const back = `${BASE}/api/github/callback?code=smoke&state=${asked.searchParams.get('state')}`;
+  return route.fulfill({ status: 200, contentType: 'text/html', body: `<!doctype html><script>location.replace(${JSON.stringify(back)})</script>` });
+});
+await seed({ projects: [project(inDrive)] });
+await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' });
+await signIn();
+await page.goto(`${BASE}/projects`, { waitUntil: 'networkidle' });
+await page.locator('.cx-head').click();
+await page.locator('.cx-way').first().waitFor({ timeout: 10000 });
+const ways = await page.locator('.cx-way').allInnerTexts();
+check('both sign-ins offered, the GitHub App first and recommended', ways.length === 2 && /GitHub App[\s\S]*recommended/i.test(ways[0]) && /Sign in with GitHub[\s\S]*quickest/i.test(ways[1]), ways.join(' | ').replace(/\s+/g, ' '));
+await page.locator('.cx-which > summary').click();
+check('what each does, and the recommendation, explained', /Only the repositories you tick/.test(await page.locator('.cx-which').innerText()) && /Recommended: the GitHub App/.test(await page.locator('.cx-which').innerText()));
+await page.locator('.cx-which').scrollIntoViewIfNeeded();
+await shot('flow-14-github-choose');
+const popupOpened = context.waitForEvent('page', { timeout: 10000 });
+await page.locator('.cx-way.is-recommended').click();
+const popup = await popupOpened;
+popup.on('console', (message) => console.log('   popup:', message.text()));
+await popup.waitForEvent('close', { timeout: 15000 }).catch(async () => console.log('   popup still open at', popup.url(), (await popup.locator('body').innerText().catch(() => '')).slice(0, 300)));
+await page.locator('.cx-via').waitFor({ timeout: 15000 }).catch(async () => console.log('   panel:', (await page.locator('.cx-panel').innerText()).replace(/\s+/g, ' ').slice(0, 400)));
+check('signed in through the App: the window closed itself, Reader says so', /GitHub App/.test(await page.locator('.cx-via').innerText().catch(() => '')) && popup.isClosed());
+check('its token, refresh token and login kept sealed', workerKv.size === 1 && ![...workerKv.values()].some((value) => /ghu_|ghr_|saurav/.test(value)));
+check('choosing its repositories is a click away', (await page.getByRole('link', { name: /Choose repositories/ }).getAttribute('href')) === 'https://github.com/apps/reader-papers/installations/new');
+await page.locator('.cx-panel').scrollIntoViewIfNeeded();
+await shot('flow-15-github-app-connected');
 
 check('no errors on the page', !errors.length, errors.join(' | '));
 await browser.close();

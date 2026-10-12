@@ -101,4 +101,78 @@ describe('GitHub token kept by the Worker', () => {
     assert.equal(allowedCall('GET', '/repos/me/paper/collaborators', null), null);
     assert.equal(allowedCall('PUT', '/repos/me/paper/contents/x', {}), null);
   });
+
+  it('signs in with GitHub (OAuth App): PKCE, one-time state, the token kept, the grant revoked on disconnect', async (t) => {
+    const kept = new Map();
+    const kv = { get: async (key) => kept.get(key) ?? null, put: async (key, value) => void kept.set(key, value), delete: async (key) => void kept.delete(key) };
+    const env = { SESSIONS: kv, SECRETS_KEY: 's'.repeat(44), GITHUB_OAUTH_CLIENT_ID: 'oauth-id', GITHUB_OAUTH_CLIENT_SECRET: 'oauth-secret' };
+    const sent = [];
+    let verifier = null;
+    t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+      sent.push({ url: String(url), method: init.method ?? 'GET', body: init.body, auth: init.headers?.Authorization });
+      if (String(url) === 'https://github.com/login/oauth/access_token') {
+        verifier = JSON.parse(init.body).code_verifier;
+        return Response.json({ access_token: 'gho_signedin', scope: 'repo', token_type: 'bearer' });
+      }
+      if (String(url).endsWith('/user')) return Response.json({ login: 'saurav' });
+      return new Response(null, { status: 204 });
+    });
+    const tools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers }), headers: {}, authorized: async () => ({ email: 'me@uni.edu' }), origins: ['https://saurav717.github.io'] };
+    const ask = (path, init = {}) => handleGithub(new Request(`https://w.dev${path}`, init), env, path.split('?')[0], tools);
+    const methods = (await (await ask('/github/token')).json()).methods;
+    assert.deepEqual([methods.oauth, methods.app], [true, false]);
+    assert.equal((await ask('/github/oauth/start', { method: 'POST', headers: { Origin: 'https://evil.example' }, body: JSON.stringify({ via: 'oauth' }) })).status, 403);
+    assert.equal((await ask('/github/oauth/start', { method: 'POST', headers: { Origin: 'https://saurav717.github.io' }, body: JSON.stringify({ via: 'app' }) })).status, 501, 'no GitHub App set up');
+    const { url } = await (await ask('/github/oauth/start', { method: 'POST', headers: { Origin: 'https://saurav717.github.io' }, body: JSON.stringify({ via: 'oauth' }) })).json();
+    const go = new URL(url);
+    assert.equal(go.origin + go.pathname, 'https://github.com/login/oauth/authorize');
+    assert.deepEqual([go.searchParams.get('client_id'), go.searchParams.get('scope'), go.searchParams.get('code_challenge_method'), go.searchParams.get('redirect_uri')], ['oauth-id', 'repo', 'S256', 'https://w.dev/github/callback']);
+    assert.ok(![...kept.values()].some((value) => value.includes('me@uni.edu')), 'the state names no one in the clear');
+    const state = go.searchParams.get('state');
+    const back = await ask(`/github/callback?code=abc&state=${state}`);
+    assert.equal(back.status, 200);
+    const page = await back.text();
+    assert.match(page, /postMessage\(\{"type":"reader-github","ok":true,"login":"saurav","via":"oauth"\},"https:\/\/saurav717\.github\.io"\)/);
+    const challenge = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    assert.equal(challenge, go.searchParams.get('code_challenge'), 'PKCE: the verifier sent matches the challenge');
+    assert.equal((await ask(`/github/callback?code=abc&state=${state}`)).status, 400, 'a state is used once');
+    const status = await (await ask('/github/token')).json();
+    assert.deepEqual([status.connected, status.login, status.via, status.scopes], [true, 'saurav', 'oauth', 'repo']);
+    assert.ok(![...kept.values()].some((value) => value.includes('gho_signedin')));
+    await ask('/github/token', { method: 'DELETE' });
+    const revoke = sent.find((item) => item.url === 'https://api.github.com/applications/oauth-id/grant');
+    assert.equal(revoke?.method, 'DELETE');
+    assert.equal(revoke.auth, `Basic ${btoa('oauth-id:oauth-secret')}`);
+    assert.equal(kept.size, 0);
+  });
+
+  it('a GitHub App’s eight-hour token is renewed with its refresh token', async (t) => {
+    const kept = new Map();
+    const kv = { get: async (key) => kept.get(key) ?? null, put: async (key, value) => void kept.set(key, value), delete: async (key) => void kept.delete(key) };
+    const env = { SESSIONS: kv, SECRETS_KEY: 's'.repeat(44), GITHUB_APP_CLIENT_ID: 'app-id', GITHUB_APP_CLIENT_SECRET: 'app-secret', GITHUB_APP_SLUG: 'reader-papers' };
+    let issued = 0;
+    const used = [];
+    t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+      if (String(url) === 'https://github.com/login/oauth/access_token') {
+        issued += 1;
+        const body = JSON.parse(init.body);
+        // The first token is already all but spent: the next use renews it.
+        return Response.json({ access_token: `ghu_${issued}`, expires_in: issued === 1 ? 60 : 28800, refresh_token: `ghr_${issued}`, refresh_token_expires_in: 15897600, grant: body.grant_type ?? 'code' });
+      }
+      used.push(init.headers?.Authorization);
+      if (String(url).endsWith('/user')) return Response.json({ login: 'saurav' });
+      return Response.json({ ok: true });
+    });
+    const tools = { json: (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers }), headers: {}, authorized: async () => ({ email: 'me@uni.edu' }), origins: ['https://saurav717.github.io'] };
+    const ask = (path, init = {}) => handleGithub(new Request(`https://w.dev${path}`, init), env, path.split('?')[0], tools);
+    const { url } = await (await ask('/github/oauth/start', { method: 'POST', headers: { Origin: 'https://saurav717.github.io' }, body: JSON.stringify({ via: 'app' }) })).json();
+    assert.equal(new URL(url).searchParams.get('scope'), null, 'a GitHub App asks for no scopes: its permissions are its own');
+    await ask(`/github/callback?code=abc&state=${new URL(url).searchParams.get('state')}`);
+    const status = await (await ask('/github/token')).json();
+    assert.deepEqual([status.via, status.renews, status.methods.appSlug], ['app', true, 'reader-papers']);
+    assert.equal(issued, 2, 'renewed as it was read');
+    await ask('/github/api/user');
+    assert.equal(used.at(-1), 'Bearer ghu_2');
+    assert.ok(![...kept.values()].some((value) => value.includes('ghr_')), 'the refresh token is sealed too');
+  });
 });

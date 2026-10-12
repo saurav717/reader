@@ -1273,6 +1273,12 @@ Point it at a repository in **Settings → Git mirror**. It needs:
 - **A fine-grained personal access token**, scoped to that one repository, with
   **Contents: read and write** and nothing else.
 
+Three ways to connect GitHub, each person's choice under Projects → Connections:
+**Reader's GitHub App** (recommended — only the repositories you tick, a token that
+lasts hours and renews itself), **Sign in with GitHub** (one click, as in VS Code,
+reaching all your repositories), or **a pasted token**. The two sign-ins need the
+Worker set up for them (docs/deploy.md).
+
 Where the token is kept. Connected (here, or under Projects → Connections) while
 signed in, it goes to the Worker, which checks it with GitHub and keeps it sealed
 for you alone with its `SECRETS_KEY` (`worker/secrets.js`, docs/deploy.md): it is

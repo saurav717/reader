@@ -81,6 +81,66 @@ Worker the next time they open the site signed in. A token unused for six
 months is forgotten, and a GitHub token past the expiry GitHub gave it, or
 that GitHub no longer takes, at once.
 
+## Optional: Sign in with GitHub, and Reader's GitHub App
+
+Projects → Connections → GitHub offers up to three ways in, and each person
+picks: **Reader's GitHub App** (recommended: only the repositories they tick,
+an eight-hour token the Worker renews), **Sign in with GitHub** (an OAuth App:
+one click, as in VS Code, but every repository of theirs), or **a pasted
+token** (always there). The two sign-ins appear once the Worker has their IDs;
+set up either or both. Both send people back to the Worker:
+
+    https://reader-arxiv-proxy.es16btech11007.workers.dev/github/callback
+
+(your Worker's address, then `/github/callback`).
+
+**Reader's GitHub App** (github.com → Settings → Developer settings → GitHub
+Apps → New GitHub App):
+
+1. **GitHub App name**: anything, e.g. *Reader papers*. **Homepage URL**:
+   `https://saurav717.github.io/reader/`.
+2. Under **Identifying and authorizing users**: **Redirect URI** (called
+   *Callback URL* on older versions of the form) is the address above;
+   **Allow wildcard matching** unticked; keep **Expire user authorization
+   tokens** ticked; leave **Request user authorization (OAuth) during
+   installation** and **Enable Device Flow** unticked (Reader starts the
+   sign-in itself). Under **Post installation**: **Setup URL** empty,
+   **Redirect on update** unticked.
+3. **Webhook**: untick **Active**.
+4. **Permissions → Repository permissions**: **Contents: Read and write**,
+   **Administration: Read and write** (to make a private repository for a
+   project's code; leave it out and people make them on GitHub instead),
+   **Metadata: Read-only** (always on). Nothing else.
+5. **Where can this GitHub App be installed?** *Only on this account* if Reader
+   is yours alone; *Any account* if others sign in to it.
+6. **Create GitHub App**. On its page: copy the **Client ID**, **Generate a new
+   client secret** and copy it, and note its name in its address
+   (github.com/apps/**reader-papers**): the slug.
+
+```sh
+npx wrangler secret put GITHUB_APP_CLIENT_ID       # the Client ID
+npx wrangler secret put GITHUB_APP_CLIENT_SECRET   # the client secret
+npx wrangler secret put GITHUB_APP_SLUG            # e.g. reader-papers
+```
+
+After signing in, each person chooses its repositories (Connections →
+**Choose repositories**, which opens github.com/apps/<slug>/installations/new).
+
+**Sign in with GitHub** (github.com → Settings → Developer settings → OAuth
+Apps → New OAuth App): **Application name** *Reader*, **Homepage URL** as
+above, **Authorization callback URL** the address above; **Register
+application**, then copy the **Client ID** and **Generate a new client
+secret**.
+
+```sh
+npx wrangler secret put GITHUB_OAUTH_CLIENT_ID
+npx wrangler secret put GITHUB_OAUTH_CLIENT_SECRET
+```
+
+Both sign-ins use PKCE and a one-time state bound to the person; the Worker
+keeps the tokens sealed with `SECRETS_KEY` (above), renews the GitHub App's,
+and on **Disconnect** revokes the person's grant with GitHub.
+
 ## Once more: the LaTeX compiler (Write tab → Compile on → The cloud)
 
 Anyone signed in to the reader can compile a paper with all of TeX Live,
