@@ -4045,13 +4045,14 @@ runs `reader-companion setup`, which:
   goes to `~/.reader-companion/companion.log`;
 - opens the site with a pairing link, so one click on **Connect** finishes.
 
-**A `.dmg`.** Once the *macOS app* workflow has published a release (see
-[docs/macos-app.md](docs/macos-app.md)), the card's macOS download is the
-Reader.app in a `.dmg` instead: drag Reader to Applications and open it, and it
-sets itself up the first time. Notarized (with an Apple Developer ID, US$99 a
-year) it opens with no warning. Without that (`Reader-unsigned.dmg`) macOS
-stops it once: **Done**, then **Open Anyway** in System Settings → Privacy &
-Security.
+**The desktop app.** Once the *Desktop app* workflow has published a release
+(see [docs/desktop-app.md](docs/desktop-app.md)), the card's download is the
+Reader desktop app instead: Reader in a window of its own, with no browser
+needed. It's a `.dmg` on macOS, a setup wizard on Windows, and a `.deb`, `.rpm`
+or AppImage on Linux. It sets the Companion up the first time it opens.
+Uninstalling is the system's own way (Settings → Apps on Windows), or
+**Uninstall Reader…** in the app, which can delete your files too if you ask.
+Unsigned (`…-unsigned`), macOS and Windows each ask once before opening it.
 
 **Without one.** A downloaded app has to be signed and notarized
 (Apple's $99 a year) or macOS won't open it without a fight; Windows'

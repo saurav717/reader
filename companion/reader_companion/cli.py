@@ -35,7 +35,8 @@ def parse(argv=None, command=""):
         parser = argparse.ArgumentParser(prog="reader-companion setup", description="Set this computer up for the reader's Playground: the VS Code extension, the Companion at every login, and a browser paired with it.")
         parser.add_argument("--no-vscode", action="store_true", help="don't install the Reader extension into VS Code")
         parser.add_argument("--no-login", action="store_true", help="don't start the Companion at login: run it here, in this terminal, as plain reader-companion does")
-        parser.add_argument("--no-app", action="store_true", help="don't make the Reader app (Reader.app from the .dmg runs setup with this: it is the app)")
+        parser.add_argument("--no-app", action="store_true", help="don't make the Reader app (the Reader desktop app runs setup with this: it is the app)")
+        parser.add_argument("--print-url", action="store_true", help="print the pairing link as READER_URL=<link> and open nothing: the Reader desktop app shows it in its own window")
     else:
         parser = argparse.ArgumentParser(prog="reader-companion", description="Connect this computer to the reader's Playground.", epilog="Also: reader-companion setup (install it for good: the Reader app, VS Code, start at login, pair), reader-companion open (what the Reader app runs), reader-companion start (start it in the background, also after a shutdown from the page), reader-companion pair (a new pairing link for the one running), reader-companion release (disconnect it from its Google account), reader-companion trust (let Safari reach it, on macOS), reader-companion uninstall (remove the Reader app and stop starting it at login).")
     parser.add_argument("--root", help="the folder the page may read, write and run in (default ~/Reader)")
@@ -88,11 +89,16 @@ def serve(config: dict, args):
         sys.exit(f"reader-companion: {error}")
     root = Path(os.path.expanduser(config.get("root") or "~/Reader")).resolve()
     root.mkdir(parents=True, exist_ok=True)
+    # Written before the environment is made (a minute, the first time), so that an uninstall stops it then too.
+    pid_file = state.config_dir() / desktop.PID
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    pid_file.write_text(str(os.getpid()))
     # Kernels start where the server does; the page's paths are relative to the root.
     os.chdir(root)
     try:
         interpreter = env.prepare(root, config.get("python"))
     except subprocess.CalledProcessError as error:
+        pid_file.unlink(missing_ok=True)
         sys.exit(f"reader-companion: couldn't set up the Python environment ({error}). Try --python with one you have.")
     env.use(root, interpreter)
 
@@ -197,11 +203,9 @@ def serve(config: dict, args):
             desktop.install_url_handler(desktop.executable())
         except OSError:
             pass
-    if platform.system() == "Darwin" and desktop.launch_agent_path().exists():
+    if desktop.login_installed() and (platform.system() == "Darwin" or config.get("app")):
         watch_app(app, config)
     keep_listed(app)
-    pid_file = state.config_dir() / desktop.PID
-    pid_file.write_text(str(os.getpid()))
     try:
         app.start()
     except KeyboardInterrupt:
@@ -230,16 +234,20 @@ def keep_listed(app) -> None:
 
 
 def watch_app(app, config: dict) -> None:
-    """On a Mac, stops for good once Reader.app is deleted (desktop.forget_install): looked for every minute."""
-    # Set up before the app's place was recorded: it is looked for where apps are usually put and with
-    # Spotlight. A login item with no Reader.app anywhere is one whose app was deleted (setup always makes
-    # one, or is run by one), and goes too.
+    """Stops for good once the Reader app is deleted (desktop.forget_install): looked for every minute.
+
+    On a Mac, Reader.app is looked for where it was, where apps are usually put and with Spotlight: one set up
+    before the app's place was recorded, with no Reader.app anywhere, is one whose app was deleted (setup always
+    makes one, or is run by one), and goes too. On Windows and Linux only the Reader desktop app records itself
+    (READER_APP), so only then is it watched: uninstalled with the system's own tools (apt remove, say), it
+    leaves no Companion behind starting at every login.
+    """
     from tornado.ioloop import PeriodicCallback
 
     missing = [0]
 
     def look():
-        found = desktop.find_mac_app(config.get("app"))
+        found = desktop.find_app(config.get("app"))
         if found:
             missing[0] = 0
             if found != config.get("app"):  # moved, not deleted
@@ -255,7 +263,7 @@ def watch_app(app, config: dict) -> None:
         stored.pop("app", None)
         state.save_config(stored)
         what = f" (removed {', '.join(removed)})" if removed else ""
-        print(f"  Reader.app was deleted, so the Companion stops and no longer starts at login{what}. Your files stay in {config.get('root') or '~/Reader'}; opening Reader again sets it up again.", flush=True)
+        print(f"  The Reader app was deleted, so the Companion stops and no longer starts at login{what}. Your files stay in {config.get('root') or '~/Reader'}; opening Reader again sets it up again.", flush=True)
         app.stop()
 
     look()
@@ -272,7 +280,9 @@ def setup(argv):
     site = config.get("site") or DEFAULT_SITE
     port = int(config.get("port") or DEFAULT_PORT)
     print(f"\n  {BOLD}Reader Companion {__version__}: setting up this computer{RESET}\n", flush=True)
-    if tls.needed() and not make_trusted():
+    # Safari's certificate (its password prompt), and the tunnel without it: not for the desktop app (--print-url),
+    # whose window reaches the Companion on its own. `reader-companion trust` gives Safari its way in later.
+    if tls.needed() and not args.print_url and not make_trusted():
         if args.tunnel is None and "tunnel" not in config and not desktop.app_browser():
             # No https of its own, and no Chrome, Edge or Brave: the tunnel is Safari's only way in.
             config["tunnel"] = True
@@ -304,15 +314,22 @@ def setup(argv):
     if not args.no_app:
         print(f"  {DIM}The app   {RESET} {desktop.install_app(command, site)}", flush=True)
     desktop.install_url_handler(command, force=True)
-    # Where Reader.app is, on a Mac: the .dmg's (it runs this with READER_APP set) or the one just made.
+    # Where the Reader app is: the desktop app's (it runs this with READER_APP set), or on a Mac the one just made.
     # The Companion stops for good once it is deleted (watch_app).
-    if platform.system() == "Darwin":
-        made = os.environ.get("READER_APP") or (None if args.no_app else str(desktop.mac_app_path()))
-        if made:
-            config = state.load_config()
-            config["app"] = made
-            state.save_config(config)
+    made = os.environ.get("READER_APP") or (str(desktop.mac_app_path()) if platform.system() == "Darwin" and not args.no_app else None)
+    if made:
+        config = state.load_config()
+        config["app"] = made
+        state.save_config(config)
+    if os.environ.get("READER_APP") and args.no_app:
+        # The desktop app replaces the small one an earlier installer made: one Reader in the menus, not two.
+        for path in desktop.retire_made_app(os.environ["READER_APP"]):
+            print(f"  {DIM}The app   {RESET} removed the earlier one, {path}", flush=True)
     link = desktop.fresh_link(config["token"], running)
+    if args.print_url:
+        print(f"  {DIM}Listening {RESET} http://127.0.0.1:{running}/", flush=True)
+        print(f"READER_URL={app_window_url(link)}", flush=True)
+        return
     print(f"""  {DIM}Listening {RESET} http://127.0.0.1:{running}/  {DIM}(folder {Path(os.path.expanduser(config.get("root") or "~/Reader")).resolve()}){RESET}
 
   {GREEN}Done.{RESET} Opening Reader to pair it with this computer:
@@ -330,18 +347,27 @@ APP_WHERE = {"Darwin": "Applications in Finder, Launchpad or Spotlight; drag it 
 
 def open_app(argv):
     """What the Reader app runs: the Companion started if it isn't running, and the site in its own window."""
-    argparse.ArgumentParser(prog="reader-companion open", description="Start the Companion if it isn't running, and open the reader in a window of its own.").parse_args(argv)
+    parser = argparse.ArgumentParser(prog="reader-companion open", description="Start the Companion if it isn't running, and open the reader in a window of its own.")
+    parser.add_argument("--print-url", action="store_true", help="print the address to open as READER_URL=<address> and open nothing: the Reader desktop app opens it in its own window")
+    args = parser.parse_args(argv)
     config = state.load_config()
     site = config.get("site") or DEFAULT_SITE
+
+    def show(url: str) -> None:
+        if args.print_url:
+            print(f"READER_URL={url}", flush=True)
+        else:
+            desktop.open_window(url)
+
     if not config.get("token"):
-        return desktop.open_window(site)
+        return show(site)
     # Safari's certificate, not trusted yet (the prompt was turned down, or failed): ask again, at most once a week.
-    if tls.needed() and tls.days_left() and not tls.is_trusted() and time.time() - float(config.get("trust_asked_at") or 0) > 7 * 86400:
+    if tls.needed() and not args.print_url and tls.days_left() and not tls.is_trusted() and time.time() - float(config.get("trust_asked_at") or 0) > 7 * 86400:
         make_trusted()
     port = int(config.get("port") or DEFAULT_PORT)
     state.set_off(False)  # opening the app is starting it on purpose
-    if platform.system() == "Darwin" and not desktop.login_installed() and desktop.is_lasting(desktop.executable()):
-        # Reader.app was deleted (watch_app took the login item away) and is back: so is starting at login.
+    if (platform.system() == "Darwin" or os.environ.get("READER_APP")) and not desktop.login_installed() and desktop.is_lasting(desktop.executable()):
+        # The Reader app was deleted (watch_app took the login item away) and is back: so is starting at login.
         desktop.install_login(desktop.executable(), start_now=False)
         if os.environ.get("READER_APP"):
             config["app"] = os.environ["READER_APP"]
@@ -352,7 +378,7 @@ def open_app(argv):
         running = desktop.wait_for(config["token"], port, 120)
     # A pairing link: a browser that knows this Companion reconnects with no click, also at a new tunnel address.
     link = desktop.fresh_link(config["token"], running) if running else None
-    desktop.open_window(app_window_url(link or site))
+    show(app_window_url(link or site))
 
 
 def app_window_url(url: str) -> str:
@@ -451,12 +477,26 @@ def release(argv):
 
 def uninstall(argv):
     """Removes the Reader app and the login item (and stops the Companion that runs). Keeps the folder and the settings."""
-    argparse.ArgumentParser(prog="reader-companion uninstall", description="Remove the Reader app and stop starting the Companion at login. Your folder and settings stay.").parse_args(argv)
+    parser = argparse.ArgumentParser(prog="reader-companion uninstall", description="Remove the Reader app and stop starting the Companion at login. Your folder and settings stay unless --delete-files.")
+    parser.add_argument("--vscode", action="store_true", help="also remove the Reader extension from VS Code (and Cursor, VSCodium)")
+    parser.add_argument("--delete-files", action="store_true", help="also delete the Companion's folder (~/Reader: your projects and notebooks) and its settings")
+    args = parser.parse_args(argv)
     config = state.load_config()
-    running = bool(config.get("token")) and desktop.wait_for(config["token"], int(config.get("port") or DEFAULT_PORT), 0) is not None
+    # Running: listening, or still making its environment (its process id written, and alive).
+    running = desktop.pid_alive() or (bool(config.get("token")) and desktop.wait_for(config["token"], int(config.get("port") or DEFAULT_PORT), 0) is not None)
     removed = desktop.uninstall_login(running) + desktop.uninstall_app() + desktop.uninstall_url_handler()
     print("\n".join(f"Removed {path}" for path in removed) if removed else "It wasn't set to start at login.")
-    print(f"Your files are still in {Path(os.path.expanduser(config.get('root') or '~/Reader')).resolve()}, and the settings in {state.config_dir()}.")
+    if args.vscode:
+        editors = desktop.uninstall_extension()
+        print(f"Removed the Reader extension from {', '.join(editors)}." if editors else "The Reader extension wasn't in VS Code.")
+    root = Path(os.path.expanduser(config.get("root") or "~/Reader")).resolve()
+    if args.delete_files:
+        if running:
+            time.sleep(1)  # the Companion it stopped, and what it was running, let go of the folder
+        for path in desktop.delete_files(root):
+            print(f"Deleted {path}")
+    else:
+        print(f"Your files are still in {root}, and the settings in {state.config_dir()}.")
     if shutil.which("uv"):
         print("To remove the program too: uv tool uninstall reader-companion")
 

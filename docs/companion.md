@@ -35,7 +35,11 @@ project. This document is the design.
 > app opens the site in an app window, starting the Companion first. It is
 > made on the computer, not downloaded, so it needs no signing (see *Why not a
 > `.dmg`*). The page installs the VS Code extension through the Companion
-> (`/companion/vscode`). Steps 2, 3, 5 and 6 are not built yet. The
+> (`/companion/vscode`). Since 0.13.0 there is also the **Reader desktop
+> app** ([desktop-app.md](desktop-app.md)): a real app with its own window and
+> installers for macOS, Windows and Linux, which sets the same Companion up
+> (`setup --no-app --print-url`) and shows the site itself rather than opening
+> a browser. Steps 2, 3, 5 and 6 are not built yet. The
 pictures are static mock-ups in the app's own colours. Their sources are in
 [`mockups/companion-src/`](mockups/companion-src/), and
 `node docs/mockups/companion-src/render.mjs` renders them again.

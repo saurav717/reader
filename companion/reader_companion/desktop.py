@@ -128,7 +128,8 @@ def startup_script(command: list[str]) -> str:
 
 def login_environment() -> dict[str, str]:
     """What a login item doesn't get on its own: this terminal's PATH (Homebrew, conda), shell and language."""
-    keep = ("PATH", "SHELL", "LANG", "LC_ALL", "READER_COMPANION_HOME", "UV")
+    # UV_PYTHON_*: the Reader desktop app keeps the Companion's Python with it (~/.reader-companion/python), updates too.
+    keep = ("PATH", "SHELL", "LANG", "LC_ALL", "READER_COMPANION_HOME", "UV", "UV_PYTHON_INSTALL_DIR", "UV_PYTHON_PREFERENCE")
     return {key: os.environ[key] for key in keep if os.environ.get(key)}
 
 
@@ -222,18 +223,46 @@ def launchd_start(path: Path, domain: str) -> bool:
     return run_quietly("launchctl", "load", "-w", str(path))
 
 
+def running_pid() -> int | None:
+    """The process id the running Companion wrote here, if any."""
+    try:
+        return int((state.config_dir() / PID).read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def pid_alive() -> bool:
+    """Whether the Companion that wrote its process id here is still running (also while it makes its environment)."""
+    pid = running_pid()
+    if pid is None:
+        return False
+    if os.name == "nt":
+        found = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True, timeout=30).stdout if shutil.which("tasklist") else ""
+        return str(pid) in found
+    try:
+        os.kill(pid, 0)
+        return True
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
 def stop_running() -> None:
     """Stops the Companion that wrote its process id here, as one started in the background is restarted on an update."""
     path = state.config_dir() / PID
-    try:
-        pid = int(path.read_text().strip())
-    except (OSError, ValueError):
+    pid = running_pid()
+    if pid is None:
         return
     if os.name == "nt":
         run_quietly("taskkill", "/PID", str(pid), "/T", "/F")
     else:
         try:
-            os.kill(pid, 15)
+            # Started in a session of its own (start_detached): what it runs (uv making its environment) stops too.
+            if os.getpgid(pid) == pid:
+                os.killpg(pid, 15)
+            else:
+                os.kill(pid, 15)
         except OSError:
             pass
     path.unlink(missing_ok=True)
@@ -600,19 +629,96 @@ def find_mac_app(recorded: str | None = None) -> str | None:
     return next((path for path in found if path.endswith(".app") and "/.Trash/" not in path and mac_bundle_id(path) == MAC_BUNDLE_ID), None)
 
 
-def forget_install() -> list[str]:
+def find_app(recorded: str | None = None, system: str | None = None) -> str | None:
+    """Where the Reader app is now. On a Mac, wherever it was moved (find_mac_app); elsewhere, where the desktop app said it is."""
+    system = system or platform.system()
+    if system == "Darwin":
+        return find_mac_app(recorded)
+    return recorded if recorded and Path(recorded).exists() else None
+
+
+def forget_install(system: str | None = None) -> list[str]:
     """What the deleted app leaves behind, taken away by the running Companion itself: its login item and its link.
 
-    The LaunchAgent's file is only removed, not booted out: booting it out would stop this process
-    before it had finished. It stops by itself afterwards with 0, which launchd doesn't restart, and
+    The login item's file is only removed, not stopped through launchd or systemd: that would stop this
+    process before it had finished. It stops by itself afterwards with 0, which neither restarts, and
     without the file nothing starts it at the next login.
     """
+    system = system or platform.system()
+    if system == "Darwin":
+        paths = [launch_agent_path()]
+    elif system == "Windows":
+        paths = [startup_path()]
+    else:
+        unit = systemd_unit_path()
+        paths = [unit, unit.parent / "default.target.wants" / unit.name, autostart_path()]
     removed = []
-    path = launch_agent_path()
-    if path.exists():
-        path.unlink()
-        removed.append(str(path))
-    return removed + uninstall_url_handler("Darwin")
+    for path in paths:
+        if path.is_symlink() or path.exists():
+            path.unlink()
+            removed.append(str(path))
+    return removed + uninstall_url_handler(system)
+
+
+def retire_made_app(desktop_app: str, system: str | None = None) -> list[str]:
+    """The small Reader app an earlier installer made here, taken away now that the desktop app at `desktop_app` is installed.
+
+    On Windows the desktop app's installer puts its own shortcuts where the made ones were, under the same
+    names, so there is nothing to take away (and taking them would take its own).
+    """
+    system = system or platform.system()
+    if system == "Darwin":
+        made = mac_app_path()
+        if made.exists() and made.resolve() != Path(desktop_app).resolve():
+            shutil.rmtree(made, ignore_errors=True)
+            return [str(made)]
+        return []
+    if system == "Windows":
+        return []
+    if linux_entry_path().exists():
+        linux_entry_path().unlink()
+        return [str(linux_entry_path())]
+    return []
+
+
+def uninstall_extension() -> list[str]:
+    """Removes the Reader extension from each editor here that has it. The editors it was removed from."""
+    done = []
+    for command in editor_commands():
+        result = editor_call(command, "--uninstall-extension", EXTENSION_ID)
+        if result and result.returncode == 0:
+            done.append(EDITOR_NAMES.get(Path(command).stem.lower(), Path(command).stem))
+    return done
+
+
+# Folders `delete_files` never deletes, whatever the Companion's folder was set to.
+KEPT_FOLDERS = ("Desktop", "Documents", "Downloads", "Music", "Pictures", "Videos", "Movies", "OneDrive")
+
+
+def delete_files(root: Path) -> list[str]:
+    """Deletes the Companion's folder and its settings (everything an uninstaller asked to delete). What it deleted.
+
+    The folder only when it is inside the home folder and isn't the home folder, one of its usual folders
+    (Documents and the like) or above it: a folder set to one of those holds more than Reader's. The settings
+    folder's bin/ stays: it holds the uv the uninstaller still runs, and removes itself.
+    """
+    deleted = []
+    home = Path.home().resolve()
+    root = root.resolve()
+    if root.exists() and home in root.parents and root not in [home / name for name in KEPT_FOLDERS]:
+        shutil.rmtree(root, ignore_errors=True)
+        deleted.append(str(root))
+    settings = state.config_dir()
+    if settings.is_dir():
+        for path in settings.iterdir():
+            if path.name == "bin":
+                continue
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                path.unlink(missing_ok=True)
+        deleted.append(str(settings))
+    return deleted
 
 
 # ------------------------------------------------- started from the page ----

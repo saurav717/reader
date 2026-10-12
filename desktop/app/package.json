@@ -1,0 +1,24 @@
+{
+  "name": "reader",
+  "productName": "Reader",
+  "version": "0.13.0",
+  "private": true,
+  "description": "Reader for research papers, as an app: its own window, the Reader Companion set up and started with it.",
+  "homepage": "https://saurav717.github.io/reader/",
+  "author": {
+    "name": "saurav717",
+    "email": "saurav717@users.noreply.github.com"
+  },
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "prepare-companion": "node scripts/prepare-companion.mjs",
+    "dist": "node scripts/prepare-companion.mjs && electron-builder --config electron-builder.config.cjs --publish never",
+    "pack": "node scripts/prepare-companion.mjs && electron-builder --config electron-builder.config.cjs --dir --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3"
+  },
+  "desktopName": "reader.desktop"
+}

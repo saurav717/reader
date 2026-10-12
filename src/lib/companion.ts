@@ -4,7 +4,7 @@
 // and the one-line installers into the site build. See docs/companion.md.
 
 /** The Companion's version: the wheel the installers fetch. Kept equal to companion/pyproject.toml by scripts/companion.test.mjs. */
-export const COMPANION_VERSION = '0.12.0';
+export const COMPANION_VERSION = '0.13.0';
 /** Where the Companion listens unless told otherwise. */
 export const COMPANION_PORT = 47321;
 /** Its https address on this computer, for Safari, which won't call http://127.0.0.1 from an https page (companion/reader_companion/tls.py). */
@@ -241,52 +241,81 @@ export async function companionVsCode(server: { url: string; token: string }, in
   return { editors: Array.isArray(body.editors) ? body.editors : [] };
 }
 
-/** Where the signed, notarized Reader.dmg is published: the macOS app workflow's GitHub Releases. */
-export const MAC_RELEASES = 'saurav717/reader';
+/** Where the Reader desktop app is published: the desktop app workflow's GitHub Releases (docs/desktop-app.md). */
+export const APP_RELEASES = 'saurav717/reader';
 
-/** A published Reader.app for macOS: notarized (opens with no warning) or not (macOS stops it once). */
-export interface MacDmg {
+/** One installer of the Reader desktop app, as a release carries it. */
+export interface AppDownload {
   url: string;
-  notarized: boolean;
+  file: string;
+  /** Signed (and on macOS notarized): it opens with no warning. */
+  signed: boolean;
+}
+
+/** The newest installers of the Reader desktop app, per system: a .dmg, a setup .exe, and for Linux an AppImage, a .deb and an .rpm. */
+export interface DesktopApps {
+  mac?: AppDownload;
+  windows?: AppDownload;
+  linux?: { appImage?: AppDownload; deb?: AppDownload; rpm?: AppDownload };
+}
+
+/** Which installer an asset of a release is, by its name (desktop/app/electron-builder.config.cjs and the workflow name them). */
+export function appAssetKind(name: string): { kind: 'mac' | 'windows' | 'appImage' | 'deb' | 'rpm'; signed: boolean } | null {
+  if (/^Reader(-[\d.]+)?-unsigned\.dmg$/.test(name)) return { kind: 'mac', signed: false };
+  if (/^Reader(-[\d.]+)?\.dmg$/.test(name)) return { kind: 'mac', signed: true };
+  if (/^Reader-Setup-[\d.]+(-unsigned)?\.exe$/.test(name)) return { kind: 'windows', signed: !name.includes('-unsigned') };
+  if (/^Reader-[\d.]+-x86_64\.AppImage$/.test(name)) return { kind: 'appImage', signed: false };
+  if (/^reader_[\d.]+_amd64\.deb$/.test(name)) return { kind: 'deb', signed: false };
+  if (/^reader-[\d.]+\.x86_64\.rpm$/.test(name)) return { kind: 'rpm', signed: false };
+  return null;
 }
 
 /**
- * The newest published Reader.app .dmg (the macOS app workflow, see
- * docs/macos-app.md): Reader.dmg when it is notarized, Reader-unsigned.dmg when
- * it isn't. Null while there is neither: then the Mac download stays the
- * .command in a zip.
+ * The newest published installers of the Reader desktop app (the desktop app
+ * workflow), each from the newest release that has one: a signed one before an
+ * unsigned one in the same release. Empty while there are none: then the
+ * downloads stay the installer scripts (companionDownloads).
  */
-export async function latestMacDmg(repo = MAC_RELEASES): Promise<MacDmg | null> {
+export async function latestDesktopApps(repo = APP_RELEASES): Promise<DesktopApps> {
   try {
-    const cached = sessionStorage.getItem('reader.macDmg');
-    if (cached !== null) return cached ? (JSON.parse(cached) as MacDmg) : null;
+    const cached = sessionStorage.getItem('reader.desktopApps');
+    if (cached !== null) return JSON.parse(cached) as DesktopApps;
   } catch {
     // no storage, or not ours: ask
   }
-  let found: MacDmg | null = null;
+  const found: Partial<Record<'mac' | 'windows' | 'appImage' | 'deb' | 'rpm', AppDownload>> = {};
   try {
-    const response = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=10`, { headers: { Accept: 'application/vnd.github+json' } });
-    if (!response.ok) return null;
+    const response = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=20`, { headers: { Accept: 'application/vnd.github+json' } });
+    if (!response.ok) return {};
     const releases = (await response.json()) as { draft?: boolean; prerelease?: boolean; assets?: { name?: string; browser_download_url?: string }[] }[];
     for (const release of releases) {
       if (release.draft || release.prerelease) continue;
-      const signed = release.assets?.find((asset) => asset.name === 'Reader.dmg');
-      const unsigned = release.assets?.find((asset) => asset.name === 'Reader-unsigned.dmg');
-      const asset = signed ?? unsigned;
-      if (asset?.browser_download_url) {
-        found = { url: asset.browser_download_url, notarized: asset === signed };
-        break;
+      const here: typeof found = {};
+      for (const asset of release.assets ?? []) {
+        const what = asset.name ? appAssetKind(asset.name) : null;
+        if (!what || !asset.browser_download_url || found[what.kind]) continue;
+        if (!here[what.kind] || (what.signed && !here[what.kind]?.signed)) here[what.kind] = { url: asset.browser_download_url, file: asset.name as string, signed: what.signed };
       }
+      Object.assign(found, here);
     }
   } catch {
-    return null;
+    return {};
   }
+  const apps: DesktopApps = {};
+  if (found.mac) apps.mac = found.mac;
+  if (found.windows) apps.windows = found.windows;
+  if (found.appImage || found.deb || found.rpm) apps.linux = { appImage: found.appImage, deb: found.deb, rpm: found.rpm };
   try {
-    sessionStorage.setItem('reader.macDmg', found ? JSON.stringify(found) : '');
+    sessionStorage.setItem('reader.desktopApps', JSON.stringify(apps));
   } catch {
     // fine
   }
-  return found;
+  return apps;
+}
+
+/** Whether this page is in the Reader desktop app's window (desktop/app/preload-site.js says so). */
+export function inDesktopApp(): boolean {
+  return typeof window !== 'undefined' && Boolean((window as Window & { readerDesktop?: { app?: boolean } }).readerDesktop?.app);
 }
 
 /** Whether `version` is newer than `than` (dotted numbers: 0.10.0 is newer than 0.9.2). */
