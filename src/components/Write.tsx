@@ -845,6 +845,20 @@ function WriteSetUp({ project, here }: { project: Project; here: Here }) {
     setBusy(true);
     setProblem(null);
     try {
+      // The folder is a clone of this project already — made here before, and the project has lost its link to
+      // it (another browser, a copy synced from elsewhere): taken back as it is, with what was written in it.
+      const same = (a: string, b: string) => {
+        const plain = (address: string) => address.trim().replace(/^https?:\/\/[^@/]*@/, 'https://').replace(/\.git$/, '').replace(/\/+$/, '').toLowerCase();
+        return plain(a) === plain(b);
+      };
+      const existing = await paperRemote(here.server, where).catch(() => null);
+      if (existing?.url) {
+        if (same(existing.url, url)) {
+          save(here.id, { path: where, sync: 'git' });
+          return;
+        }
+        throw new Error(`${where} is a clone of another project (${existing.url.replace(/^https?:\/\/[^@/]*@/, 'https://')}): give this one another folder.`);
+      }
       const done = await clonePaper(here.server, where, url, secret);
       try {
         await fill(done.folder, true);
