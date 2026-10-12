@@ -44,6 +44,7 @@ function OverleafTokenRow() {
 }
 import { overleafViewOf } from '../lib/overleaf';
 import OverleafAccounts from './OverleafAccounts';
+import { WriteGuideLink } from './WriteGuide';
 import type { PassageLook, ZenHaze } from '../types';
 import { prepare as prepareGoogle } from '../lib/google';
 import { CheckIcon, CloseIcon, CloudCheckIcon, GoogleMark } from './icons';
@@ -844,6 +845,9 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           <div className="eyebrow" style={{ margin: '16px 0 8px' }}>
             Writing with Overleaf
           </div>
+          <p className="wg-settings-cta">
+            New to the Write tab, or unsure what to pick? <WriteGuideLink section="start">Read the guide to writing your paper</WriteGuideLink>
+          </p>
           <div className="nav-choices is-text" role="radiogroup" aria-label="Where a project’s paper is written">
             {OVERLEAF_VIEWS.map((option) => (
               <button

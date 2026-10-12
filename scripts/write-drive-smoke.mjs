@@ -485,6 +485,29 @@ await page.goto(`${BASE}/project/?id=p-start&view=write`, { waitUntil: 'networki
 await page.getByText('Start this project’s paper').waitFor({ timeout: 20000 });
 check('two ways to start: from Overleaf, or without it', (await page.getByRole('radio', { name: /From your Overleaf account/ }).count()) === 1 && (await page.getByRole('radio', { name: /Start without Overleaf/ }).count()) === 1);
 await shot('write-start');
+
+console.log('the guide, on the site: opened from the choices it explains');
+await page.getByRole('button', { name: /Which should I pick\?/ }).click();
+await page.getByRole('dialog', { name: 'Writing your paper' }).waitFor({ timeout: 10000 });
+await page.waitForTimeout(300);
+check('it opens at the part about the choice', (await page.locator('.wg-nav button.is-on').innerText()).includes('Starting a paper'));
+await shot('guide-begin');
+for (const [part, name] of [['Quick start', 'guide-start'], ['Where your paper is kept', 'guide-where'], ['Overleaf accounts', 'guide-accounts'], ['In the editor', 'guide-editor'], ['Your Write tab settings', 'guide-settings']]) {
+  await page.locator('.wg-nav').getByRole('button', { name: new RegExp(part) }).click();
+  await page.waitForTimeout(700);
+  await shot(name);
+}
+check('its parts are reached from the contents', (await page.locator('.wg-nav button.is-on').innerText()).includes('Your Write tab settings'));
+await page.keyboard.press('Escape');
+check('Escape closes it', (await page.getByRole('dialog', { name: 'Writing your paper' }).count()) === 0);
+await page.setViewportSize({ width: 390, height: 844 });
+await page.getByRole('button', { name: /Which should I pick\?/ }).click();
+await page.getByRole('dialog', { name: 'Writing your paper' }).waitFor({ timeout: 10000 });
+await page.waitForTimeout(300);
+await shot('guide-phone');
+check('on a phone, nothing is wider than the screen', await page.evaluate(() => { const sheet = document.querySelector('.wg-sheet'); return Boolean(sheet) && sheet.scrollWidth <= sheet.clientWidth + 1; }));
+await page.keyboard.press('Escape');
+await page.setViewportSize({ width: 1440, height: 900 });
 await page.getByRole('radio', { name: /From your Overleaf account/ }).click();
 await page.getByLabel('Which Overleaf account').fill('priya@uni.edu');
 await page.getByLabel('Overleaf Git token').fill('olp_test_token');
@@ -544,10 +567,11 @@ await page.locator('.wr-desk').waitFor({ timeout: 20000 });
 await page.getByRole('button', { name: 'Overleaf account' }).click();
 await page.locator('.ol-account.is-current', { hasText: 'lab@uni.edu' }).waitFor({ timeout: 10000 });
 await page.locator('.ol-account', { hasText: 'priya@uni.edu' }).getByRole('button', { name: 'Sync with this one' }).click();
-const syncedAs = syncs.length;
-await page.locator('.wr-status').getByRole('button', { name: /^Sync$/ }).click();
-for (let i = 0; i < 30 && syncs.length === syncedAs; i += 1) await page.waitForTimeout(300);
-await page.locator('.ol-account.is-current', { hasText: 'priya@uni.edu' }).waitFor({ timeout: 15000 });
+// (A sync may still be under way from opening the paper: Sync again until one goes through the chosen account.)
+for (let i = 0; i < 4 && !(await page.locator('.ol-account.is-current', { hasText: 'priya@uni.edu' }).count()); i += 1) {
+  await page.locator('.wr-status').getByRole('button', { name: /^Sync$/ }).click();
+  await page.locator('.ol-account.is-current', { hasText: 'priya@uni.edu' }).waitFor({ timeout: 6000 }).catch(() => {});
+}
 check('synced through the account chosen', (await page.locator('.ol-account.is-current').innerText()).includes('priya@uni.edu'));
 await shot('write-shared-accounts');
 allow({ [FRESH_ID]: ['olp_lab'] });

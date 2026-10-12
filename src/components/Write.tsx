@@ -29,6 +29,7 @@ import { companionStore, driveShelf, driveStore, paperDriveFolder, paperDriveNow
 import { findLostFolder, inDrive, movePaperToDrive, removeFolder } from '../lib/paperMove';
 import { CompanionConnect } from './Playground';
 import OverleafAccounts, { useOverleafAccounts } from './OverleafAccounts';
+import { WriteGuideLink } from './WriteGuide';
 
 type Here = Extract<ThisComputer, { server: unknown }>;
 
@@ -93,7 +94,8 @@ function WriteStart({ project }: { project: Project }) {
         <span className="eyebrow">The paper</span>
         <h2>Start this project’s paper</h2>
         <p>
-          Its LaTeX is kept in your Google Drive, in <span className="mono">{folder}</span> — nothing on this computer — written here in the browser and compiled on Cloud Run.
+          Its LaTeX is kept in your Google Drive, in <span className="mono">{folder}</span> — nothing on this computer — written here in the browser and compiled on Cloud Run.{' '}
+          <WriteGuideLink section="begin">Which should I pick?</WriteGuideLink>
         </p>
         {!signedIn ? (
           <div className="wr-row">
@@ -402,7 +404,8 @@ function ToDrive({ project }: { project: Project }) {
         <h2>{blocked ? 'Bringing the paper into Google Drive' : 'Getting the paper ready in Google Drive'}</h2>
         <p>
           The project’s LaTeX is kept in your Drive, in <span className="mono">{paperDriveFolder(project.name, project.id)}</span> — nothing on this computer — written here in the browser, compiled on Cloud Run
-          {gitUrl ? ', and kept in step with Overleaf by Reader’s server.' : '.'}
+          {gitUrl ? ', and kept in step with Overleaf by Reader’s server.' : '.'}{' '}
+          <WriteGuideLink section="where">How this works</WriteGuideLink>
         </p>
         {step ? (
           <p className="wr-quiet">
@@ -602,7 +605,7 @@ function LocalSetUp({ project, here }: { project: Project; here: Here }) {
         <h2>Where on this computer?</h2>
         <SwitchOverleaf project={project} />
         <p>
-          This project keeps its paper on your computers rather than in Google Drive. Set up its folder here once: the project keeps it until you change it. <KeepWhere project={project} here={here} />
+          This project keeps its paper on your computers rather than in Google Drive. Set up its folder here once: the project keeps it until you change it. <KeepWhere project={project} here={here} /> · <WriteGuideLink section="where">How this works</WriteGuideLink>
         </p>
         <div className="wr-ways" role="radiogroup" aria-label="Where the paper’s files come from">
           <button type="button" role="radio" aria-checked={way === 'git'} className={`wr-way${way === 'git' ? ' is-on' : ''}`} onClick={() => setWay('git')} disabled={!gitUrl}>
@@ -1505,6 +1508,8 @@ function WriteHome({ project, here, folder, store, shelf, onOpen }: { project: P
             ) : (
               <KeepWhere project={project} here={here} folder={folder} store={store} />
             )}
+            {' · '}
+            <WriteGuideLink section="where" />
           </p>
           {toOverleaf && folder.sync === 'drive' && !overleafGitUrl(link?.url) ? <PutOnOverleaf project={project} store={store} /> : null}
         </div>
@@ -2658,6 +2663,7 @@ function WriteDesk({ project, here, folder, store, onHome }: { project: Project;
           <span>{options.pdf === 'overleaf' ? 'Overleaf compiles it' : compiling ? 'Compiling…' : 'Not compiled yet'}</span>
         )}
         <span className="wr-sp" />
+        <WriteGuideLink section="editor" />
         <button type="button" className="link-btn" aria-expanded={texShown} onClick={() => setTexShown(!texShown)} title="The TeX that compiles the paper: Reader can install TeX Live for you">
           TeX
         </button>

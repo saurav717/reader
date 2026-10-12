@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../lib/store';
 import { projectsOf } from '../lib/projects';
+import { WriteGuideLink } from './WriteGuide';
 import { connectOverleaf, forgetOverleafToken, onOverleafAccounts, overleafAccounts, type OverleafAccount } from '../lib/overleafCloud';
 
 /** Settings, at its Overleaf accounts (the app listens for this event: Projects.tsx's OPEN_SETTINGS). */
@@ -144,6 +145,7 @@ export default function OverleafAccounts({ open = false, why, onConnected, curre
             <a className="link-btn" href="https://www.overleaf.com/user/settings" target="_blank" rel="noopener noreferrer">
               Overleaf’s account settings ↗
             </a>
+            <WriteGuideLink section="accounts">What is this?</WriteGuideLink>
             {accounts.length && !open ? (
               <button type="button" className="link-btn" onClick={() => setAdding(false)}>
                 Cancel
