@@ -7,7 +7,7 @@ import { after, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { cleanup, load } from './bundle.mjs';
-import { FREE_MINUTES, LatexJob, cleanFiles, handleLatex, isLatexPath, latexMonth, summarize } from '../worker/latex.js';
+import { FREE_MINUTES, LatexJob, cleanFiles, handleLatex, isLatexPath, latexCompiler, latexMonth, summarize } from '../worker/latex.js';
 
 const gh = await load('src/lib/latexGithub.ts');
 after(cleanup);
@@ -142,5 +142,49 @@ describe('a job’s state', () => {
     assert.equal(done.pdf, true);
     // The next compile isn't refused by KV's stale "still going".
     assert.ok((await ask('/latex/jobs', { method: 'POST', body: JSON.stringify({ files }) })).id);
+  });
+
+  it('on Cloud Run: compiled while the page waits, the files never stored', async (t) => {
+    const sent = [];
+    t.mock.method(globalThis, 'fetch', async (url, init) => {
+      sent.push({ url, auth: init.headers.Authorization, job: JSON.parse(init.body) });
+      return Response.json({ pdf: btoa('%PDF'), log: 'Output written on output.pdf', exit: 0 });
+    });
+    const kv = staleKv();
+    const put = kv.put;
+    const stored = [];
+    kv.put = (key, value, options) => (stored.push(key), put(key, value, options));
+    const env = { SESSIONS: kv, LATEX_JOBS: jobObjects(), LATEX_CLOUD_RUN_URL: 'https://latex-abc.a.run.app/', LATEX_CLOUD_RUN_TOKEN: 'c', LATEX_GITHUB_TOKEN: 'g', LATEX_RUNNER_TOKEN: 'r' };
+    assert.equal(latexCompiler(env), 'cloudrun');
+    const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status, headers });
+    const tallied = [];
+    const tools = { json, headers: {}, authorized: async () => ({ email: 'a@b.c' }), personOverLimit: async () => false, tally: (who, counts) => tallied.push(counts) };
+    const ask = (path, init = {}) => handleLatex(new Request(`https://w${path}`, init), env, path, tools);
+
+    const files = [{ path: 'main.tex', base64: btoa('\\documentclass{article}') }];
+    const started = await (await ask('/latex/jobs', { method: 'POST', body: JSON.stringify({ files, main: 'main.tex', compiler: 'xelatex' }) })).json();
+    assert.deepEqual([started.on, started.state], ['cloudrun', 'done']);
+    assert.deepEqual(sent, [{ url: 'https://latex-abc.a.run.app/compile', auth: 'Bearer c', job: { main: 'main.tex', flag: '-xelatex', files } }]);
+    assert.ok(!stored.some((key) => key.startsWith('latex:src:')));
+    const done = await (await ask(`/latex/jobs/${started.id}`)).json();
+    assert.deepEqual([done.state, done.on, done.pdf, done.exit], ['done', 'cloudrun', true, 0]);
+    assert.equal(await (await ask(`/latex/jobs/${started.id}/pdf`)).text(), '%PDF');
+    assert.equal(tallied[0].latex, 1);
+
+    // A compiler that doesn't answer well: the page is told, and may compile again.
+    t.mock.method(globalThis, 'fetch', async () => new Response('busy', { status: 503 }));
+    const failed = await ask('/latex/jobs', { method: 'POST', body: JSON.stringify({ files }) });
+    assert.equal(failed.status, 502);
+    assert.match((await failed.json()).error, /503/);
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ pdf: '', log: '! Undefined control sequence.', exit: 12 }));
+    const again = await (await ask('/latex/jobs', { method: 'POST', body: JSON.stringify({ files }) })).json();
+    assert.equal(again.state, 'done');
+    assert.equal((await (await ask(`/latex/jobs/${again.id}`)).json()).pdf, false);
+  });
+
+  it('uses GitHub Actions only when Cloud Run isn’t set up, and an https:// service only', () => {
+    assert.equal(latexCompiler({ SESSIONS: {}, LATEX_GITHUB_TOKEN: 'g', LATEX_RUNNER_TOKEN: 'r' }), 'github');
+    assert.equal(latexCompiler({ SESSIONS: {}, LATEX_CLOUD_RUN_URL: 'http://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' }), null);
+    assert.equal(latexCompiler({ LATEX_CLOUD_RUN_URL: 'https://latex.run.app', LATEX_CLOUD_RUN_TOKEN: 'c' }), null);
   });
 });

@@ -56,7 +56,78 @@ Cloudflare token:
 Until they are there, *Deploy worker* says so on a merge and deploys nothing;
 `npm run deploy:worker` from a computer signed in to Cloudflare still does it.
 
-## Once more: the LaTeX compiler (Write tab → Compile on GitHub Actions)
+## Once more: the LaTeX compiler (Write tab → Compile on → The cloud)
+
+Anyone signed in to the reader can compile a paper with all of TeX Live,
+with nothing to install or set up. The compiler is a small service on
+**Google Cloud Run** (`cloudrun/latex`: TeX Live and `server.py`): the
+Worker hands it the paper's files and waits, and the PDF is back in
+seconds — no queue, nothing stored but the PDF and log, which the Worker
+keeps for the page for an hour (`worker/latex.js`). TeX runs as an
+unprivileged user, without shell escape, unable to open absolute paths,
+and is stopped after 4 minutes. Where Cloud Run isn't set up, the Worker
+uses GitHub Actions instead (below).
+
+It runs with nothing between compiles (minimum 0 instances) on request-based
+billing, so it costs only while compiling: Cloud Run's free tier — 180,000
+vCPU-seconds and 360,000 GiB-seconds a month — is about 25 hours of
+compiling at 2 vCPU and 4 GiB. The Usage page shows how much of it is used.
+The first compile after a quiet spell waits for an instance to start
+(a TeX Live image is large: some seconds). The image in Artifact Registry
+is about 2.5 GB, a few tens of cents a month past its 0.5 GB free storage.
+
+Set up once:
+
+1. A Google Cloud project with billing on (the free tier needs an account),
+   and its APIs:
+
+   ```sh
+   gcloud config set project YOUR_PROJECT
+   gcloud services enable run.googleapis.com artifactregistry.googleapis.com
+   ```
+
+2. A service account for GitHub to deploy with, and a key for it:
+
+   ```sh
+   gcloud iam service-accounts create reader-deploy
+   SA=reader-deploy@YOUR_PROJECT.iam.gserviceaccount.com
+   for role in run.admin artifactregistry.admin iam.serviceAccountUser; do
+     gcloud projects add-iam-policy-binding YOUR_PROJECT --member "serviceAccount:$SA" --role "roles/$role"
+   done
+   gcloud iam service-accounts keys create key.json --iam-account "$SA"
+   ```
+
+   (Where keys are forbidden by the organisation's policy, use Workload
+   Identity Federation instead: repository variables
+   `GCP_WORKLOAD_IDENTITY_PROVIDER` and `GCP_SERVICE_ACCOUNT`.)
+
+3. In GitHub, Settings → Secrets and variables → Actions:
+   - variable **`GCP_PROJECT`** — the project id (and **`GCP_REGION`** if
+     not `us-central1`);
+   - secret **`GCP_SA_KEY`** — the contents of `key.json` (then delete the file);
+   - secret **`LATEX_CLOUD_RUN_TOKEN`** — `openssl rand -base64 32`; the
+     Worker gets the same.
+
+4. Run **Deploy LaTeX compiler** from the Actions tab (it also runs on each
+   merge that changes `cloudrun/latex`). Its summary prints the service's
+   address.
+
+5. Tell the Worker: put the address in `wrangler.toml` as
+   `LATEX_CLOUD_RUN_URL` (in `[vars]`, where it is commented out), and
+
+   ```sh
+   npx wrangler secret put LATEX_CLOUD_RUN_TOKEN   # the same string as GitHub's
+   ```
+
+   then deploy the Worker. Compiles go to Cloud Run from then on.
+
+The service allows unauthenticated calls (an organisation that forbids
+`allUsers` will refuse the deploy): it refuses every compile without the
+token, and is reached only over HTTPS.
+
+### The fallback: GitHub Actions
+
+Where the Worker has no Cloud Run compiler (below), it compiles on GitHub Actions.
 
 Anyone signed in to the reader can compile a paper with all of TeX Live,
 with nothing to install or set up: the Worker hands the paper to the

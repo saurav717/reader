@@ -38,7 +38,7 @@ import { aiForEveryone, aiKey, aiKeys, AiRefused, checkAi, KEY_NAMES, relayAi, r
 import { readPage, searchWeb, webAvailable, WebRefused } from '../server/webSearch.js';
 import { handleColab, isColabPath, readSocketTicket } from '../server/colab.js';
 import { bridgeSocket } from './colabSocket.js';
-import { handleLatex, isLatexPath, latexAvailable, latexMonth } from './latex.js';
+import { cloudRunPlan, handleLatex, isLatexPath, latexAvailable, latexCompiler, latexMonth } from './latex.js';
 import { readBalance } from './deepseekBalance.js';
 import { FRESH_MS as TAVILY_FRESH_MS, readTavilyUsage } from './tavilyUsage.js';
 import * as browse from './browse.js';
@@ -339,7 +339,7 @@ export default {
     try {
       if (path === '/health') {
         return json(
-          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
+          { ok: true, access: false, auth: Boolean(String(env.READER_TOKEN || '').trim()), google: Boolean(String(env.READER_TOKEN || '').trim() && env.GOOGLE_CLIENT_ID), googleClientId: String(env.GOOGLE_CLIENT_ID || ''), captcha: captchaSiteKey(env), browse: browse.availability(env).available, gemini: Boolean(aiKey(env, 'gemini')), ai: aiKeys(env), web: webAvailable(webKeys), colab: true, latex: latexAvailable(env), latexOn: latexCompiler(env), scholar: servicesLabel({ serply: serplyKey, serpapi: serpKey }, env.SCHOLAR_FIRST) },
           200,
           headers,
         );
@@ -382,7 +382,7 @@ export default {
         return json({ pass, email, expires }, 200, { ...headers, 'Cache-Control': 'no-store' });
       }
 
-      // LaTeX compiled on GitHub Actions for anyone signed in: worker/latex.js.
+      // LaTeX compiled for anyone signed in, on Cloud Run or GitHub Actions: worker/latex.js.
       if (isLatexPath(path)) return await handleLatex(request, env, path, { json, headers, authorized, personOverLimit, tally: (who, counts) => tally(env, ctx, who, counts) });
 
       // Whose pass this is: the Companion asks, to know which account a page
@@ -470,6 +470,8 @@ export default {
         if (!who?.owner) return json({ error: 'the tally is for the owner: READER_TOKEN, or a Google sign-in named in READER_OWNERS' }, 401, headers);
         const noStore = { ...headers, 'Cache-Control': 'no-store' };
         if (!latexAvailable(env)) return json({ configured: false }, 200, noStore);
+        // Cloud Run: what it is given and its free tier; the compiles are in the Worker's own tally.
+        if (latexCompiler(env) === 'cloudrun') return json({ configured: true, ...cloudRunPlan(env) }, 200, noStore);
         try {
           return json({ configured: true, ...(await latexMonth(env)) }, 200, noStore);
         } catch (error) {
