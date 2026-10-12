@@ -5877,6 +5877,8 @@ button.brand[aria-current='page'] { box-shadow: 0 0 0 2px var(--rail), 0 0 0 4px
 .pg-companion-install { display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border-soft); }
 .pg-companion-ask { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .pg-companion-download { align-self: flex-start; text-decoration: none; }
+.pg-companion-downloads { display: flex; flex-wrap: wrap; gap: 8px; }
+.pg-companion-downloads .pg-companion-download small { font-weight: 400; opacity: 0.75; margin-left: 4px; }
 .proxy-pass { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 10px; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); }
 .proxy-pass b { color: var(--ink); font-weight: 600; }
 .proxy-pass .banner { margin: 0; }

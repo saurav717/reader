@@ -139,26 +139,35 @@ describe('the page’s side', () => {
     assert.equal(downloads.windows.href, 'https://saurav717.github.io/reader/download/Reader-Companion-Setup.cmd');
     assert.equal(downloads.linux.command, 'curl -LsSf https://saurav717.github.io/reader/companion-setup.sh | sh');
   });
-  it('offers the newest Reader.app .dmg, notarized or not, and nothing while there is none', async () => {
+  it('offers the newest Reader desktop app for each system, signed before unsigned, and nothing while there is none', async () => {
     const realFetch = globalThis.fetch;
     const store = new Map();
     globalThis.sessionStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, v) };
     const answer = (releases) => (globalThis.fetch = async () => new Response(JSON.stringify(releases), { status: 200 }));
+    const asset = (name) => ({ name, browser_download_url: `https://x/${name}` });
     try {
       answer([
-        { draft: true, assets: [{ name: 'Reader.dmg', browser_download_url: 'https://x/draft.dmg' }] },
-        { tag_name: 'v9', assets: [{ name: 'notes.txt', browser_download_url: 'https://x/notes' }] },
-        { assets: [{ name: 'Reader-unsigned.dmg', browser_download_url: 'https://x/unsigned.dmg' }] },
+        { draft: true, assets: [asset('Reader-0.14.0.dmg')] },
+        { tag_name: 'v9', assets: [asset('notes.txt')] },
+        { assets: [asset('Reader-0.13.0-unsigned.dmg'), asset('Reader-Setup-0.13.0.exe'), asset('reader_0.13.0_amd64.deb'), asset('Reader-0.13.0-x86_64.AppImage'), asset('reader-0.13.0.x86_64.rpm')] },
+        { assets: [asset('Reader.dmg')] },
       ]);
-      assert.deepEqual(await companion.latestMacDmg(), { url: 'https://x/unsigned.dmg', notarized: false });
+      const apps = await companion.latestDesktopApps();
+      assert.deepEqual(apps.mac, { url: 'https://x/Reader-0.13.0-unsigned.dmg', file: 'Reader-0.13.0-unsigned.dmg', signed: false });
+      assert.equal(apps.windows.file, 'Reader-Setup-0.13.0.exe');
+      assert.equal(apps.linux.deb.file, 'reader_0.13.0_amd64.deb');
+      assert.equal(apps.linux.rpm.file, 'reader-0.13.0.x86_64.rpm');
+      assert.equal(apps.linux.appImage.file, 'Reader-0.13.0-x86_64.AppImage');
       store.clear();
-      answer([{ assets: [{ name: 'Reader-unsigned.dmg', browser_download_url: 'https://x/u.dmg' }, { name: 'Reader.dmg', browser_download_url: 'https://x/signed.dmg' }] }]);
-      assert.deepEqual(await companion.latestMacDmg(), { url: 'https://x/signed.dmg', notarized: true });
+      answer([{ assets: [asset('Reader-0.13.0-unsigned.dmg'), asset('Reader-0.13.0.dmg')] }]);
+      assert.deepEqual(await companion.latestDesktopApps(), { mac: { url: 'https://x/Reader-0.13.0.dmg', file: 'Reader-0.13.0.dmg', signed: true } });
       // asked once a session
       answer([]);
-      assert.deepEqual(await companion.latestMacDmg(), { url: 'https://x/signed.dmg', notarized: true });
+      assert.equal((await companion.latestDesktopApps()).mac.file, 'Reader-0.13.0.dmg');
       store.clear();
-      assert.equal(await companion.latestMacDmg(), null);
+      assert.deepEqual(await companion.latestDesktopApps(), {});
+      assert.equal(companion.appAssetKind('Reader.dmg').kind, 'mac'); // the Swift launcher's releases still count
+      assert.equal(companion.appAssetKind('Reader-Companion-Setup.cmd'), null);
     } finally {
       globalThis.fetch = realFetch;
       delete globalThis.sessionStorage;

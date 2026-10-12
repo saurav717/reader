@@ -10,10 +10,10 @@ Merging a pull request into `main` here publishes everything it changes:
   refuses to publish one without it.
 - **The proxy.** The *Deploy worker* workflow deploys the Cloudflare Worker
   when a merge changes it (below).
-- **The Mac app.** The *macOS app* workflow builds Reader.app and publishes it
-  as the release `app-v<Companion version>` (see [macos-app.md](macos-app.md)),
-  when the merge touches the app or the Companion. The site's **Download for
-  macOS** offers the newest, and **Settings → Updates → Update** brings an
+- **The desktop app.** The *Desktop app* workflow builds Reader for macOS,
+  Windows and Linux and publishes it as the release `app-v<Companion version>`
+  (see [desktop-app.md](desktop-app.md)), when the merge touches the app or the
+  Companion. The site's **Download for …** offers the newest, and **Settings → Updates → Update** brings an
   installed Companion up to the version the site serves.
 
 ## Once: the token the site needs

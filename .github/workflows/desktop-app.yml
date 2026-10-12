@@ -1,0 +1,199 @@
+# Builds the Reader desktop app (desktop/app, Electron) and its installers, on each system's own runner:
+#   macOS    Reader-<version>.dmg                    one universal app (Apple silicon and Intel)
+#   Windows  Reader-Setup-<version>.exe              a setup wizard; uninstalled from Settings → Apps
+#   Linux    Reader-<version>-x86_64.AppImage, reader_<version>_amd64.deb, reader-<version>.x86_64.rpm
+# <version> is the Companion's (companion/pyproject.toml).
+#
+# Every run uploads the installers as artifacts. A pull request only builds them, to check. A merge
+# into main that touches the app or the Companion publishes them as the GitHub Release
+# app-v<version> (a new one, or the same version's refreshed), as does a tag app-v* or a manual run
+# with "release" ticked. The site's "Download for …" offers the newest (src/lib/companion.ts).
+#
+# Signing, all optional (Settings → Secrets and variables → Actions), see docs/desktop-app.md:
+#   MACOS_CERTIFICATE           your Developer ID Application certificate, a .p12, base64
+#   MACOS_CERTIFICATE_PASSWORD  the .p12's password
+#   APPLE_ID                    the Apple Account of the developer membership
+#   APPLE_TEAM_ID               its Team ID (10 characters)
+#   APPLE_APP_PASSWORD          an app-specific password for it (account.apple.com)
+#   WINDOWS_CERTIFICATE         a code signing certificate for Windows, a .pfx, base64
+#   WINDOWS_CERTIFICATE_PASSWORD  its password
+# Without them the .dmg is named Reader-<version>-unsigned.dmg (macOS stops it once) and the .exe
+# Reader-Setup-<version>-unsigned.exe (Windows SmartScreen warns once).
+name: Desktop app
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Publish the installers as a GitHub Release
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    tags: ['app-v*']
+    paths: ['desktop/app/**', 'companion/**', 'scripts/build-companion.mjs', '.github/workflows/desktop-app.yml']
+  pull_request:
+    paths: ['desktop/app/**', 'companion/**', 'scripts/build-companion.mjs', '.github/workflows/desktop-app.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: --mac
+          - os: windows-latest
+            target: --win
+          - os: ubuntu-latest
+            target: --linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop/app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/app/package-lock.json
+
+      - name: Tools for the .rpm
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      - run: npm ci
+
+      - name: The Companion and uv, inside the app
+        run: node scripts/prepare-companion.mjs
+
+      - name: Signing, when the secrets are set
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          # electron-builder reads these (a base64 certificate in CSC_LINK is fine). Nothing set: unsigned.
+          if [ "$RUNNER_OS" = macOS ] && [ -n "$MACOS_CERTIFICATE" ]; then
+            {
+              echo "CSC_LINK=$MACOS_CERTIFICATE"
+              echo "CSC_KEY_PASSWORD=$MACOS_CERTIFICATE_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "SIGNED=yes" >> "$GITHUB_ENV"
+            if [ -n "$APPLE_ID" ] && [ -n "$APPLE_TEAM_ID" ] && [ -n "$APPLE_APP_PASSWORD" ]; then
+              {
+                echo "APPLE_ID=$APPLE_ID"
+                echo "APPLE_TEAM_ID=$APPLE_TEAM_ID"
+                echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_PASSWORD"
+              } >> "$GITHUB_ENV"
+            else
+              echo "SIGNED=" >> "$GITHUB_ENV" # signed but not notarized still makes macOS stop it
+            fi
+          elif [ "$RUNNER_OS" = Windows ] && [ -n "$WINDOWS_CERTIFICATE" ]; then
+            {
+              echo "CSC_LINK=$WINDOWS_CERTIFICATE"
+              echo "CSC_KEY_PASSWORD=$WINDOWS_CERTIFICATE_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "SIGNED=yes" >> "$GITHUB_ENV"
+          else
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build the installers
+        run: npx electron-builder --config electron-builder.config.cjs ${{ matrix.target }} --publish never
+
+      - name: Name them for the release
+        run: |
+          mkdir -p out
+          VERSION="$(node -p "require('./companion/info.json').version")"
+          case "$RUNNER_OS" in
+            macOS)
+              NAME="Reader-$VERSION.dmg"; [ -n "$SIGNED" ] || NAME="Reader-$VERSION-unsigned.dmg"
+              cp "dist/Reader-$VERSION.dmg" "out/$NAME" ;;
+            Windows)
+              NAME="Reader-Setup-$VERSION.exe"; [ -n "$SIGNED" ] || NAME="Reader-Setup-$VERSION-unsigned.exe"
+              cp "dist/Reader-Setup-$VERSION.exe" "out/$NAME" ;;
+            Linux)
+              cp "dist/Reader-$VERSION-x86_64.AppImage" "dist/reader_${VERSION}_amd64.deb" "dist/reader-$VERSION.x86_64.rpm" out/ ;;
+          esac
+          ls -la out
+          {
+            echo "### $RUNNER_OS"
+            for file in out/*; do echo "- $(basename "$file") ($(du -h "$file" | cut -f1))"; done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check the Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          VERSION="$(node -p "require('./companion/info.json').version")"
+          dpkg-deb -I "out/reader_${VERSION}_amd64.deb"
+          dpkg-deb -c "out/reader_${VERSION}_amd64.deb" | grep -E 'resources/companion/(uv|info.json|reader_companion-.*\.whl)'
+          rpm -qip "out/reader-$VERSION.x86_64.rpm"
+
+      - name: Check the app on macOS
+        if: runner.os == 'macOS'
+        run: |
+          APP="dist/mac-universal/Reader.app"
+          codesign --verify --verbose=2 "$APP" || true
+          lipo -archs "$APP/Contents/MacOS/Reader"
+          lipo -archs "$APP/Contents/Resources/companion/uv"
+          "$APP/Contents/Resources/companion/uv" --version
+          plutil -p "$APP/Contents/Info.plist" | grep -E 'CFBundleIdentifier|CFBundleShortVersionString'
+
+      - name: Check Safari's certificate on a real Mac
+        if: runner.os == 'macOS'
+        working-directory: .
+        run: |
+          # The certificate the Companion makes (companion/reader_companion/tls.py), trusted as setup
+          # trusts it: trustRoot, for SSL. Setup trusts it in the login keychain, which needs a person
+          # to type a password; a runner has none, so the system domain (sudo, -d) stands in.
+          export READER_COMPANION_HOME="$RUNNER_TEMP/companion-home"
+          UV=desktop/app/companion/uv
+          CERT="$("$UV" run --quiet --python 3.12 --with cryptography python -c "import sys; sys.path.insert(0, 'companion'); from reader_companion import tls; tls.ensure_certificate(); print(tls.cert_path())")"
+          sudo security add-trusted-cert -d -r trustRoot -p ssl -k /Library/Keychains/System.keychain "$CERT"
+          security verify-cert -c "$CERT" -p ssl -s localhost
+          security verify-cert -c "$CERT" -p ssl -s 127.0.0.1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reader-${{ runner.os }}
+          path: desktop/app/out/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' || startsWith(github.ref, 'refs/tags/app-v') || inputs.release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' companion/pyproject.toml)"
+          TAG="${GITHUB_REF_NAME}"
+          case "$TAG" in app-v*) ;; *) TAG="app-v$VERSION" ;; esac
+          NOTES="Reader $VERSION as an app: its own window, no browser needed, with the Reader Companion $VERSION set up the first time it opens.
+
+          - **macOS**: open the .dmg and drag Reader to Applications. To uninstall: Reader menu → Uninstall Reader…
+          - **Windows**: run Reader-Setup. To uninstall: Settings → Apps → Reader → Uninstall.
+          - **Linux**: the .deb (Ubuntu, Debian), the .rpm (Fedora, openSUSE) or the AppImage (any). To uninstall: Uninstall Reader in your applications, or sudo apt remove reader.
+
+          An installer named …-unsigned isn't signed: macOS stops it once (Done, then Open Anyway in System Settings → Privacy & Security), and Windows asks once (More info → Run anyway)."
+          ls -la installers
+          gh release create "$TAG" installers/* --title "Reader $VERSION" --notes "$NOTES" \
+            || gh release upload "$TAG" installers/* --clobber

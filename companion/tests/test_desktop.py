@@ -296,7 +296,7 @@ class DeletedAppTest(Sandbox):
             desktop.install_login(["/x/reader-companion"], start_now=False, system="Darwin")
         desktop.install_url_handler(["/x/reader-companion"], system="Darwin")
         desktop.run_quietly.reset_mock()
-        removed = desktop.forget_install()
+        removed = desktop.forget_install("Darwin")
         self.assertEqual(len(removed), 2)
         self.assertFalse(desktop.launch_agent_path().exists())
         self.assertFalse(desktop.url_handler_path("Darwin").exists())
@@ -316,7 +316,7 @@ class DeletedAppTest(Sandbox):
             def start(self):
                 pass
 
-        with mock.patch("tornado.ioloop.PeriodicCallback", Periodic), mock.patch.object(desktop, "find_mac_app", return_value=None), mock.patch.object(desktop, "forget_install", return_value=["x"]) as forget:
+        with mock.patch("tornado.ioloop.PeriodicCallback", Periodic), mock.patch.object(desktop, "find_app", return_value=None), mock.patch.object(desktop, "forget_install", return_value=["x"]) as forget:
             cli.watch_app(server, state.load_config())  # looks once at once: one miss
             server.stop.assert_not_called()
             callbacks[0]()
@@ -329,8 +329,90 @@ class DeletedAppTest(Sandbox):
 
         state.save_config({"token": "t"})
         server = mock.Mock()
-        with mock.patch("tornado.ioloop.PeriodicCallback"), mock.patch.object(desktop, "find_mac_app", return_value="/Applications/Reader.app"):
+        with mock.patch("tornado.ioloop.PeriodicCallback"), mock.patch.object(desktop, "find_app", return_value="/Applications/Reader.app"):
             config = state.load_config()
             cli.watch_app(server, config)
         self.assertEqual(state.load_config()["app"], "/Applications/Reader.app")
         server.stop.assert_not_called()
+
+    def test_the_desktop_app_is_found_where_it_said_it_is_on_windows_and_linux(self):
+        app = Path(self.home.name) / "Reader.AppImage"
+        self.assertIsNone(desktop.find_app(str(app), "Linux"))
+        self.assertIsNone(desktop.find_app(None, "Windows"))
+        app.write_bytes(b"")
+        self.assertEqual(desktop.find_app(str(app), "Linux"), str(app))
+
+    def test_forget_install_on_linux_and_windows(self):
+        desktop.install_login(["/x/reader-companion"], start_now=False, system="Windows")
+        self.assertEqual(desktop.forget_install("Windows"), [str(desktop.startup_path())])
+        unit = desktop.systemd_unit_path()
+        unit.parent.mkdir(parents=True, exist_ok=True)
+        unit.write_text("[Unit]\n")
+        wants = unit.parent / "default.target.wants" / unit.name
+        wants.parent.mkdir()
+        wants.symlink_to(unit)
+        removed = desktop.forget_install("Linux")
+        self.assertIn(str(unit), removed)
+        self.assertIn(str(wants), removed)
+        self.assertFalse(unit.exists() or wants.is_symlink())
+
+
+class DesktopAppTest(Sandbox):
+    """What the Reader desktop app (desktop/app) needs: the earlier made app retired, and an uninstall that can delete files."""
+
+    def test_retire_made_app(self):
+        desktop.mac_app_path().mkdir(parents=True)
+        self.assertEqual(desktop.retire_made_app(str(desktop.mac_app_path()), "Darwin"), [])  # it is the desktop app itself
+        self.assertEqual(desktop.retire_made_app("/Applications/Reader.app", "Darwin"), [str(desktop.mac_app_path())])
+        self.assertFalse(desktop.mac_app_path().exists())
+        desktop.linux_entry_path().parent.mkdir(parents=True, exist_ok=True)
+        desktop.linux_entry_path().write_text("[Desktop Entry]\n")
+        self.assertEqual(desktop.retire_made_app("/opt/Reader/reader", "Linux"), [str(desktop.linux_entry_path())])
+        self.assertEqual(desktop.retire_made_app("C:/Reader/Reader.exe", "Windows"), [])
+
+    def test_delete_files_keeps_uv_and_folders_that_hold_more_than_reader(self):
+        from reader_companion import state
+
+        home = Path(self.home.name)
+        root = home / "Reader"
+        (root / "project").mkdir(parents=True)
+        settings = state.config_dir()
+        (settings / "bin").mkdir(parents=True)
+        (settings / "bin" / "uv").write_text("")
+        (settings / "config.json").write_text("{}")
+        (settings / "logs").mkdir()
+        self.assertEqual(desktop.delete_files(root), [str(root.resolve()), str(settings)])
+        self.assertFalse(root.exists())
+        self.assertEqual([path.name for path in settings.iterdir()], ["bin"])
+        for kept in (home, home / "Documents", home.parent):
+            kept.mkdir(exist_ok=True)
+            self.assertNotIn(str(kept.resolve()), desktop.delete_files(kept))
+            self.assertTrue(kept.exists())
+
+    def test_uninstall_extension(self):
+        with mock.patch.object(desktop, "editor_commands", return_value=["/usr/bin/code", "/usr/bin/cursor"]), mock.patch.object(desktop, "editor_call", side_effect=[mock.Mock(returncode=0), mock.Mock(returncode=1)]) as call:
+            self.assertEqual(desktop.uninstall_extension(), ["VS Code"])
+        call.assert_any_call("/usr/bin/code", "--uninstall-extension", desktop.EXTENSION_ID)
+
+
+class PrintUrlTest(Sandbox):
+    """`open --print-url`: what the desktop app runs, the address printed rather than a browser opened."""
+
+    def test_open_prints_the_address_and_opens_nothing(self):
+        import contextlib
+        import io
+
+        from reader_companion import cli, state
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), mock.patch.object(desktop, "open_window") as window:
+            cli.open_app(["--print-url"])
+        window.assert_not_called()
+        self.assertEqual(out.getvalue().strip(), f"READER_URL={cli.DEFAULT_SITE}")
+
+        state.save_config({"token": "t", "port": 47321})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), mock.patch.object(desktop, "open_window") as window, mock.patch.object(desktop, "wait_for", return_value=47321), mock.patch.object(desktop, "fresh_link", return_value="https://site/playground#pair=abc&port=47321"), mock.patch.object(desktop, "login_installed", return_value=True), mock.patch.object(cli.tls, "needed", return_value=False):
+            cli.open_app(["--print-url"])
+        window.assert_not_called()
+        self.assertEqual(out.getvalue().strip(), "READER_URL=https://site/playground#pair=abc&port=47321&app=1")
