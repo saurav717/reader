@@ -3,7 +3,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { hasProxy } from '../lib/api';
 import AiUsage, { ROW_HEIGHT, ROWS_IN_VIEW, SearchBox, SortControl, SortHeading, card, cardHead, cardTitle, useSort } from './AiUsage';
 import WebUsage from './WebUsage';
-import LatexUsage from './LatexUsage';
+import CloudUsage from './CloudUsage';
 import type { SortOption } from './AiUsage';
 import { ChartIcon, ChevronDownIcon, ChevronRightIcon, RestoreIcon } from './icons';
 import { KEEP_DAYS, addDays, dayOf, daysSpanned, resolvePeriod, sliceReport } from '../lib/usagePeriod';
@@ -139,7 +139,28 @@ const SERVICE_SORTS: SortOption<Person>[] = [
 /** How often the page asks again while it is open and in view. */
 export const REFRESH_MS = 30_000;
 
+/** The page's tabs: who used what, and the Google Cloud project. */
+type UsageTab = 'people' | 'cloud';
+const TAB_KEY = 'reader.usageTab';
+
+function rememberedTab(): UsageTab {
+  try {
+    return window.localStorage.getItem(TAB_KEY) === 'cloud' ? 'cloud' : 'people';
+  } catch {
+    return 'people';
+  }
+}
+
 export default function UsageView() {
+  const [tab, setTab] = useState<UsageTab>(rememberedTab);
+  const pickTab = (next: UsageTab) => {
+    setTab(next);
+    try {
+      window.localStorage.setItem(TAB_KEY, next);
+    } catch {
+      // Not kept: the page opens on People next time.
+    }
+  };
   const [days, setDays] = useState(30);
   // The AI credits' own period; the page's until another is picked there.
   const [aiPeriod, setAiPeriod] = useState<AiPeriod>({ preset: 'page', from: '', to: null });
@@ -225,6 +246,18 @@ export default function UsageView() {
             <ChartIcon size={18} />
           </span>
           <h1 className="collection-title">Usage</h1>
+          <div className="segmented" role="tablist" aria-label="Usage" style={{ marginLeft: 8 }}>
+            {(
+              [
+                ['people', 'People & services'],
+                ['cloud', 'Google Cloud'],
+              ] as const
+            ).map(([id, label]) => (
+              <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => pickTab(id)}>
+                {label}
+              </button>
+            ))}
+          </div>
           <span style={{ flexGrow: 1 }} />
           {updatedAt ? (
             <span style={{ fontSize: 12, color: 'var(--muted)' }} title="Refreshes every 30 seconds while this page is open and in view">
@@ -256,12 +289,18 @@ export default function UsageView() {
               {report.people.length} {report.people.length === 1 ? 'person' : 'people'} · {report.since} to {report.until} (UTC)
             </span>
           ) : null}
-          <span>what everyone signed in used on your accounts — only you see this</span>
+          <span>
+            {tab === 'cloud'
+              ? 'your Google Cloud project: services, billing and transactions — only you see this'
+              : 'what everyone signed in used on your accounts — only you see this'}
+          </span>
         </p>
       </div>
 
       <div className="scroll" style={{ padding: '18px 32px 32px' }}>
-        {report === undefined ? (
+        {tab === 'cloud' ? (
+          <CloudUsage report={report} refreshedAt={updatedAt} />
+        ) : report === undefined ? (
           <p style={{ fontSize: 13, color: 'var(--muted)' }}>Asking the proxy…</p>
         ) : report === null ? (
           <p className="banner error">The proxy did not answer with the tally. Sign in again, or check that your email is in READER_OWNERS.</p>
@@ -367,7 +406,6 @@ export default function UsageView() {
               </>
             )}
             <WebUsage report={report} days={days} refreshedAt={updatedAt} />
-            <LatexUsage report={report} refreshedAt={updatedAt} />
             {aiReport ? <AiUsage report={aiReport} period={aiPeriod} range={aiRange} onPeriod={setAiPeriod} /> : null}
           </>
         )}
