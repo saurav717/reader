@@ -45,16 +45,40 @@ cat > /tmp/reader-cleanup.json <<'JSON'
 JSON
 gcloud artifacts repositories set-cleanup-policies reader --location "$REGION" --policy /tmp/reader-cleanup.json --no-dry-run >/dev/null || echo "(no cleanup policy: delete old images by hand now and then)"
 
-say "Letting Cloud Build push the image and write its log"
-NUMBER="$(gcloud projects describe "$PROJECT" --format 'value(projectNumber)')"
-for account in "$NUMBER-compute@developer.gserviceaccount.com" "$NUMBER@cloudbuild.gserviceaccount.com"; do
-  for role in artifactregistry.writer logging.logWriter storage.objectViewer; do
-    gcloud projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$account" --role "roles/$role" --condition None >/dev/null 2>&1 || true
-  done
+say "Who is deploying"
+ME="$(gcloud config get account 2>/dev/null)"
+ROLES="$(gcloud projects get-iam-policy "$PROJECT" --flatten 'bindings[].members' --filter "bindings.members:user:$ME" --format 'value(bindings.role)' 2>/dev/null | tr '\n' ' ')"
+echo "$ME: ${ROLES:-no roles it can see}"
+case " $ROLES " in *" roles/owner "*|"  ") ;; *) echo "This needs the project's Owner role (IAM & Admin → IAM). Sign in to Cloud Shell as the owner, or have them grant it."; exit 1;; esac
+
+say "An account for Cloud Build to build with"
+# Its own account rather than the project's default one, which new projects
+# no longer have, or have without the rights to push an image.
+BUILDER="reader-build@$PROJECT.iam.gserviceaccount.com"
+gcloud iam service-accounts describe "$BUILDER" >/dev/null 2>&1 \
+  || gcloud iam service-accounts create reader-build --display-name "Reader: builds the LaTeX compiler"
+for role in artifactregistry.writer logging.logWriter storage.objectViewer; do
+  gcloud projects add-iam-policy-binding "$PROJECT" --member "serviceAccount:$BUILDER" --role "roles/$role" --condition None >/dev/null
 done
 
 say "Building the image with Cloud Build (5–10 minutes: it fetches all of TeX Live)"
-gcloud builds submit "$HERE" --tag "$IMAGE" --timeout 1800s
+cat > /tmp/reader-cloudbuild.yaml <<YAML
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: [build, -t, '$IMAGE', .]
+images: ['$IMAGE']
+serviceAccount: projects/$PROJECT/serviceAccounts/$BUILDER
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1800s
+YAML
+# A project whose Cloud Build was only just turned on can refuse for a few minutes while its rights settle.
+for try in 1 2 3 4; do
+  if gcloud builds submit "$HERE" --config /tmp/reader-cloudbuild.yaml; then break; fi
+  [ "$try" = 4 ] && { echo "Cloud Build refused four times: paste the error above."; exit 1; }
+  echo "Refused; trying again in a minute (rights take a while in a new project)…"
+  sleep 60
+done
 
 say "The token the Worker sends"
 TOKEN="$(gcloud run services describe "$SERVICE" --region "$REGION" --format json 2>/dev/null \
