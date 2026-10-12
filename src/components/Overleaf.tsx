@@ -30,8 +30,8 @@ import { createPrivateRepo, githubAccount, makeRepoPrivate, parseRepo, repoNameF
 import { papersIn, projectsOf, type Project } from '../lib/projects';
 import type { OverleafLink, OverleafView, Paper, Settings } from '../types';
 import CodeEditor, { type CodeEditorHandle } from './CodeEditor';
-import { SyncedThrough } from './OverleafAccounts';
-import { agoShort, lastPlace, openWriteHome, type WriteHomeAsk } from '../lib/writePlace';
+import { SyncedThrough, useOverleafAccounts } from './OverleafAccounts';
+import { agoShort, lastPlace, notNow, openWriteHome, saidNotNow, type WriteHomeAsk } from '../lib/writePlace';
 import { CheckIcon, CopyIcon, ExternalIcon, LockIcon } from './icons';
 
 // -------------------------------------------------- opening Overleaf --
@@ -453,6 +453,20 @@ export function OverleafCard({ project, onWrite, onWorkspace }: { project: Proje
   const onOverleaf = Boolean(overleafGitUrl(hereLink.url));
   // The ones known by their links: the top's when it has one (or was written in), and each folder with a link of its own.
   const latexProjects = link?.drive ? [...(overleafGitUrl(link.url) || (place && !place.dir) ? [''] : []), ...Object.keys(link.latex ?? {})].map((dir) => ({ dir, url: latexLinkAt(link, dir).url })) : [];
+  // Overleaf offered, never required: a suggestion for this state, put away with Not now (the button stays).
+  const accounts = useOverleafAccounts();
+  const [quiet, setQuiet] = useState(() => saidNotNow(project.id, 'card'));
+  const accountLabel = accounts?.[0]?.label;
+  const suggest: { text: string; action: string; tone: 'warn' | 'idea' } | null =
+    !started || accounts === null || quiet
+      ? null
+      : onOverleaf && !accounts.length
+        ? { text: `${here ? `${here}/ is` : 'This paper is'} linked to Overleaf but isn’t syncing: connect your Overleaf account once, for every project, and it stays in step both ways.`, action: 'Connect account…', tone: 'warn' }
+        : !onOverleaf && !accounts.length
+          ? { text: 'Coauthors on Overleaf? Optionally connect your Overleaf account and link this LaTeX project to an Overleaf project — kept in step both ways.', action: 'Connect Overleaf…', tone: 'idea' }
+          : !onOverleaf
+            ? { text: `Coauthors on Overleaf? Link ${here ? `${here}/` : 'this LaTeX project'} to an Overleaf project as ${accountLabel}${accounts.length > 1 ? ` (or ${accounts.length - 1} other account${accounts.length > 2 ? 's' : ''})` : ''} — nothing more to enter.`, action: 'Sync with Overleaf…', tone: 'idea' }
+            : null;
   const write = (ask?: WriteHomeAsk) => {
     if (ask) openWriteHome(project.id, ask);
     onWrite();
@@ -512,13 +526,26 @@ export function OverleafCard({ project, onWrite, onWorkspace }: { project: Proje
             ) : null}
             {onOverleaf ? (
               <OpenOverleaf project={project} view={view === 'beside' ? 'beside' : 'overview'} primary={false} url={hereLink.url} />
-            ) : (
+            ) : suggest ? null : (
               <button type="button" className="btn ghost sm" onClick={() => write('overleaf')} title={started ? `Link ${here ? `${here}/` : 'this LaTeX project'} to an Overleaf project of its own, kept in step both ways` : 'Already writing it in Overleaf? Bring it here, kept in step both ways'}>
                 <ExternalIcon size={13} /> {started ? 'Sync with Overleaf…' : 'Bring it from Overleaf…'}
               </button>
             )}
           </div>
-          {onOverleaf ? <SyncedThrough gitAccount={hereLink.gitAccount ?? link?.gitAccount} /> : null}
+          {suggest ? (
+            <div className={`ol-suggest is-${suggest.tone}`} role="note">
+              <p>{suggest.text}</p>
+              <span className="ol-suggest-actions">
+                <button type="button" className="btn sm" onClick={() => write('overleaf')}>
+                  <ExternalIcon size={13} /> {suggest.action}
+                </button>
+                <button type="button" className="link-btn" onClick={() => (notNow(project.id, 'card'), setQuiet(true))} title="Put this suggestion away; Overleaf stays a button away">
+                  Not now
+                </button>
+              </span>
+            </div>
+          ) : null}
+          {onOverleaf && accounts?.length ? <SyncedThrough gitAccount={hereLink.gitAccount ?? link?.gitAccount} /> : null}
           {latexProjects.length > 1 ? (
             <ul className="ol-latex" aria-label="Each LaTeX project’s Overleaf project">
               {latexProjects.map((one) => (

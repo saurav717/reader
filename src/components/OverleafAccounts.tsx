@@ -47,7 +47,8 @@ export function useOverleafAccounts(): OverleafAccount[] | null {
   const [accounts, setAccounts] = useState<OverleafAccount[] | null>(null);
   useEffect(() => {
     const stop = onOverleafAccounts(setAccounts);
-    void overleafAccounts().catch(() => setAccounts([]));
+    // Answered whatever the server says: an answer that isn't the list (signed out, a server without accounts) is none.
+    overleafAccounts().then(setAccounts, () => setAccounts([]));
     return stop;
   }, []);
   return accounts;

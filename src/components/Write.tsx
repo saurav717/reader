@@ -31,7 +31,7 @@ import { CompanionConnect } from './Playground';
 import OverleafAccounts, { useOverleafAccounts } from './OverleafAccounts';
 import { WriteGuideLink } from './WriteGuide';
 import CompareOverleaf from './WriteCompare';
-import { lineIn, rememberPlace, takeWriteHome } from '../lib/writePlace';
+import { lineIn, notNow, rememberPlace, saidNotNow, takeWriteHome } from '../lib/writePlace';
 import type { ZipEntry } from '../lib/zip';
 
 type Here = Extract<ThisComputer, { server: unknown }>;
@@ -231,76 +231,106 @@ function OverleafPicker({ project, mode, onPicked, onMake }: { project: Project;
   };
   const pasted = parseOverleafUrl(address);
   if (accounts === null) return <p className="wr-quiet">Asking Reader’s server about your Overleaf accounts…</p>;
-  if (!accounts.length || needAccount)
-    return (
-      <div className="wr-form">
-        <OverleafAccounts open={Boolean(needAccount)} why={needAccount ?? undefined} onConnected={() => (needAccount && last ? void pick(last) : undefined)} />
-      </div>
-    );
+  // Two steps, the first only when it is needed: the Overleaf account, connected once for every project
+  // (here or under Projects → Connections) — never asked again once it is — then this project's Overleaf project.
+  const hasAccount = accounts.length > 0 && !needAccount;
+  const labels = accounts.map((account) => account.label).join(', ');
   return (
     <div className="wr-form wr-ol-pick">
-      <details className="ol-connected">
-        <summary>
-          Overleaf: {accounts.map((account) => account.label).join(', ')} <span className="wr-quiet">· accounts</span>
-        </summary>
-        <OverleafAccounts />
-      </details>
-      {mode === 'push' && onMake ? (
-        <div className="wr-ol-make">
-          <p>
-            <b>1.</b> Reader makes a new Overleaf project with this paper in it, in the Overleaf account signed in in this browser. Overleaf’s Git can’t make projects, so this opens Overleaf in a new tab.
-          </p>
-          <div className="wr-row">
-            <button
-              type="button"
-              className="btn primary"
-              disabled={busy}
-              onClick={() => {
-                setProblem(null);
-                void onMake().then(() => setMade(true), (error) => setProblem(error instanceof Error ? error.message : String(error)));
-              }}
-            >
-              {made ? 'Make another' : 'Make it on Overleaf'}
-            </button>
+      <ol className="wr-steps">
+        <li className={`wr-step${hasAccount ? ' is-done' : ' is-now'}`}>
+          <span className="wr-step-n" aria-hidden="true">
+            {hasAccount ? '✓' : '1'}
+          </span>
+          <div className="wr-step-body">
+            {hasAccount ? (
+              <details className="ol-connected">
+                <summary>
+                  Overleaf account <b>{labels}</b> <span className="wr-quiet">· connected once, for every project · change</span>
+                </summary>
+                <OverleafAccounts />
+              </details>
+            ) : (
+              <>
+                <p className="wr-step-why">
+                  {needAccount ? 'This Overleaf project needs the account it belongs to.' : 'First, your Overleaf account — once, for every project and device. It isn’t asked again, and can be changed under Projects → Connections.'}
+                </p>
+                <OverleafAccounts open why={needAccount ?? undefined} onConnected={() => (needAccount && last ? void pick(last) : undefined)} />
+              </>
+            )}
           </div>
-          <p>
-            <b>2.</b> {made ? 'In the tab that opened, ' : 'Then, in that tab, '}copy the project’s address from the browser and paste it below: Overleaf lets no other site read it. From then on the paper stays in step with Overleaf.
-          </p>
-        </div>
-      ) : mode === 'push' ? (
-        <p>
-          In Overleaf, make a <b>Blank Project</b> for this paper (New Project → Blank Project), copy its address, and paste it here: this paper’s files go into it, and from then on it stays in step with Overleaf.
-        </p>
-      ) : offered.length ? (
-        <>
-          <span className="wr-field-label">Your Overleaf projects Reader knows</span>
-          <div className="wr-ol-list" role="list">
-            {offered.map((item) => (
-              <button key={item.url} type="button" role="listitem" className="wr-ol-item" disabled={busy} onClick={() => void pick(item.url)}>
-                <b>{item.label}</b>
-                <small className="mono">{item.url.replace('https://www.', '')}</small>
-              </button>
-            ))}
+        </li>
+        <li className={`wr-step${hasAccount ? ' is-now' : ' is-later'}`}>
+          <span className="wr-step-n" aria-hidden="true">
+            2
+          </span>
+          <div className="wr-step-body">
+            <b className="wr-step-title">{mode === 'push' ? 'Link it to an Overleaf project' : 'Pick the Overleaf project'}</b>
+            {!hasAccount ? (
+              <p className="wr-quiet">Next, once the account is connected.</p>
+            ) : (
+              <>
+              {mode === 'push' && onMake ? (
+                <div className="wr-ol-make">
+                  <p>
+                    <b>a.</b> Reader makes a new Overleaf project with this paper in it, in the Overleaf account signed in in this browser. Overleaf’s Git can’t make projects, so this opens Overleaf in a new tab.
+                  </p>
+                  <div className="wr-row">
+                    <button
+                      type="button"
+                      className="btn primary"
+                      disabled={busy}
+                      onClick={() => {
+                        setProblem(null);
+                        void onMake().then(() => setMade(true), (error) => setProblem(error instanceof Error ? error.message : String(error)));
+                      }}
+                    >
+                      {made ? 'Make another' : 'Make it on Overleaf'}
+                    </button>
+                  </div>
+                  <p>
+                    <b>b.</b> {made ? 'In the tab that opened, ' : 'Then, in that tab, '}copy the project’s address from the browser and paste it below: Overleaf lets no other site read it. From then on the paper stays in step with Overleaf.
+                  </p>
+                </div>
+              ) : mode === 'push' ? (
+                <p>
+                  In Overleaf, make a <b>Blank Project</b> for this paper (New Project → Blank Project), copy its address, and paste it here: this paper’s files go into it, and from then on it stays in step with Overleaf.
+                </p>
+              ) : offered.length ? (
+                <>
+                  <span className="wr-field-label">Your Overleaf projects Reader knows</span>
+                  <div className="wr-ol-list" role="list">
+                    {offered.map((item) => (
+                      <button key={item.url} type="button" role="listitem" className="wr-ol-item" disabled={busy} onClick={() => void pick(item.url)}>
+                        <b>{item.label}</b>
+                        <small className="mono">{item.url.replace('https://www.', '')}</small>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              <label className="wr-field">
+                <span>{mode === 'push' || !offered.length ? 'The Overleaf project’s address' : 'Or another of your projects: its address'}</span>
+                <input value={address} placeholder="https://www.overleaf.com/project/…" onChange={(event) => setAddress(event.target.value)} aria-label="The Overleaf project’s address" />
+                <small>
+                  Overleaf doesn’t let other apps list your projects: open{' '}
+                  <a href="https://www.overleaf.com/project" target="_blank" rel="noopener noreferrer">
+                    your Overleaf projects ↗
+                  </a>
+                  , open the one you want, and copy the address from the browser.
+                </small>
+              </label>
+              <div className="wr-row">
+                <button type="button" className="btn primary" disabled={busy || !pasted} onClick={() => pasted && void pick(pasted)}>
+                  {busy ? (mode === 'push' ? 'Sending the paper to Overleaf…' : 'Bringing it in…') : mode === 'push' ? 'Put the paper in this project' : 'Use this project'}
+                </button>
+                {address.trim() && !pasted ? <span className="wr-bad">That isn’t an Overleaf project’s address (overleaf.com/project/…).</span> : null}
+              </div>
+              </>
+            )}
           </div>
-        </>
-      ) : null}
-      <label className="wr-field">
-        <span>{mode === 'push' || !offered.length ? 'The Overleaf project’s address' : 'Or another of your projects: its address'}</span>
-        <input value={address} placeholder="https://www.overleaf.com/project/…" onChange={(event) => setAddress(event.target.value)} aria-label="The Overleaf project’s address" />
-        <small>
-          Overleaf doesn’t let other apps list your projects: open{' '}
-          <a href="https://www.overleaf.com/project" target="_blank" rel="noopener noreferrer">
-            your Overleaf projects ↗
-          </a>
-          , open the one you want, and copy the address from the browser.
-        </small>
-      </label>
-      <div className="wr-row">
-        <button type="button" className="btn primary" disabled={busy || !pasted} onClick={() => pasted && void pick(pasted)}>
-          {busy ? (mode === 'push' ? 'Sending the paper to Overleaf…' : 'Bringing it in…') : mode === 'push' ? 'Put the paper in this project' : 'Use this project'}
-        </button>
-        {address.trim() && !pasted ? <span className="wr-bad">That isn’t an Overleaf project’s address (overleaf.com/project/…).</span> : null}
-      </div>
+        </li>
+      </ol>
       {problem ? <p className="wr-bad">{problem}</p> : null}
     </div>
   );
@@ -798,11 +828,15 @@ function useElapsed(since: number | undefined, running: boolean): string {
 /**
  * The PDF pane's line about compiling in the cloud: Reader's own compiler —
  * Cloud Run, or GitHub Actions where the site has no Cloud Run — so there is
- * nothing to set up; how a compile is going.
+ * nothing to set up. Kept out of the PDF's way: a thin line only while it
+ * compiles or when it failed; what a compile did (and where the files go)
+ * only when asked for, from the ⓘ beside the engine, closed with ×.
  */
-function GithubCompilePanel({ state, on, onCompile }: { state: GithubState; on: 'cloudrun' | 'github'; onCompile: () => void }) {
+function GithubCompilePanel({ state, on, onCompile, open, onClose }: { state: GithubState; on: 'cloudrun' | 'github'; onCompile: () => void; /** The details asked for (ⓘ). */ open: boolean; onClose: () => void }) {
   const running = state.phase === 'sending' || state.phase === 'queued' || state.phase === 'compiling';
   const elapsed = useElapsed(state.startedAt, running);
+  // A failure put away stays away until the next one.
+  const [dismissed, setDismissed] = useState<number | undefined>(undefined);
   const where = (state.on ?? on) === 'github' ? 'on GitHub' : 'on Cloud Run';
   const said =
     state.phase === 'sending'
@@ -810,7 +844,7 @@ function GithubCompilePanel({ state, on, onCompile }: { state: GithubState; on: 
       : state.phase === 'queued'
         ? 'Waiting for GitHub to start…'
         : state.phase === 'compiling'
-          ? `Compiling ${where} with all of TeX Live…`
+          ? `Compiling ${where}…`
           : state.phase === 'done'
             ? state.on === 'cloudrun' && state.finishedAt && state.startedAt
               ? `Compiled on Cloud Run in ${((state.finishedAt - state.startedAt) / 1000).toFixed(1)} s — ${state.sent === 0 ? 'nothing changed to send' : `${state.sent} changed file${state.sent === 1 ? '' : 's'} sent`}, TeX ${(state.texSeconds ?? 0).toFixed(1)} s${state.kept ? '' : ', from scratch'}.`
@@ -820,17 +854,40 @@ function GithubCompilePanel({ state, on, onCompile }: { state: GithubState; on: 
               : on === 'github'
                 ? 'Press ⌘↵ or Compile: GitHub Actions makes the PDF with all of TeX Live, and it comes back here in a minute or two. Nothing to set up.'
                 : `Cloud Run makes the PDF with all of TeX Live as you type, as Overleaf does (⌘↵ or Compile at any time); only what changed is sent. Nothing to set up.${state.warming ? ' Starting the compiler…' : ''}`;
-  return (
-    <div className={`wr-ghc is-line${state.phase === 'failed' ? ' is-bad' : ''}`}>
-      <span>
-        {running ? <span className="spinner" /> : null} {said} {running && elapsed ? <span className="mono">{elapsed}</span> : null}
-      </span>
-      {state.phase === 'failed' ? (
+  const failed = state.phase === 'failed' && dismissed !== state.startedAt;
+  if (running && !open)
+    return (
+      <div className="wr-ghs" role="status">
+        <span className="spinner" /> <span>{said}</span> {elapsed ? <span className="mono wr-quiet">{elapsed}</span> : null}
+      </div>
+    );
+  if (failed && !open)
+    return (
+      <div className="wr-ghs is-bad" role="alert">
+        <span className="wr-ghs-text" title={said}>{said}</span>
         <button type="button" className="link-btn" onClick={onCompile}>
           Try again
         </button>
-      ) : null}
+        <button type="button" className="wr-ghs-x" onClick={() => setDismissed(state.startedAt)} aria-label="Hide" title="Hide">
+          ×
+        </button>
+      </div>
+    );
+  if (!open) return null;
+  return (
+    <div className={`wr-ghc${state.phase === 'failed' ? ' is-bad' : ''}`} role="note">
+      <span>
+        {running ? <span className="spinner" /> : null} {said} {running && elapsed ? <span className="mono">{elapsed}</span> : null}
+        {state.phase === 'failed' ? (
+          <button type="button" className="link-btn" onClick={onCompile}>
+            Try again
+          </button>
+        ) : null}
+      </span>
       <small>{(state.on ?? on) === 'github' ? 'The files pass through Reader’s server and a GitHub runner to be compiled; they are never put in a repository, and are deleted within the hour.' : 'The files pass through Reader’s server to its compiler on Cloud Run and are deleted once compiled; the PDF and log within the hour.'}</small>
+      <button type="button" className="wr-ghs-x" onClick={onClose} aria-label="Close the compile details" title="Close">
+        ×
+      </button>
     </div>
   );
 }
@@ -2208,7 +2265,8 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
     void refreshList();
     if (server && !inDrive) void paperEngines(server).then(setEngines, () => setEngines(null));
     if (git && server && !inDrive) void paperRemote(server, folder.path).then((remote) => setNeedToken(!remote.token && /overleaf|github/.test(remote.url)), () => undefined);
-    if (git && inDrive) void overleafTokenKnown().then((known) => setNeedToken(!known), () => undefined);
+    // No account, and "Not now" said for this project: written without syncing, no nudge, until Sync is pressed.
+    if (git && inDrive) void overleafTokenKnown().then((known) => (known ? setNeedToken(false) : saidNotNow(project.id) ? setUnsynced(true) : setNeedToken(true)), () => undefined);
   }, [refreshList, server, folder.path, git, inDrive]);
 
   // The open LaTeX project's own files; the folder's other projects are a step back, on the home page.
@@ -2548,6 +2606,24 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
   const placeTimer = useRef<number>();
   // Each LaTeX project its own Overleaf project: this one linked by itself, from the paper's whole folder.
   const [connecting, setConnecting] = useState(connectOverleaf);
+  // The cloud compile's details over the PDF: only when asked for (ⓘ), remembered on this device.
+  const [compileInfo, setCompileInfo] = useState(() => {
+    try {
+      return localStorage.getItem('reader.write.compileInfo') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const showCompileInfo = (show: boolean) => {
+    setCompileInfo(show);
+    try {
+      localStorage.setItem('reader.write.compileInfo', show ? '1' : '0');
+    } catch {
+      // only a convenience
+    }
+  };
+  // Linked to Overleaf with no account to sync with: a nudge, the account's form only when asked for (or the paper card asked).
+  const [accountOpen, setAccountOpen] = useState(connectOverleaf);
   const canConnect = inDrive && !git && Boolean(rootStore);
   useEffect(() => {
     if (!shown || !current || placed.current === shown) return;
@@ -2859,6 +2935,11 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
             {texLive ? `TeX Live ${texLive}` : compiled.engine} · {(compiled.ms / 1000).toFixed(1)} s
           </span>
         ) : null}
+        {options.pdf === 'github' || options.pdf === 'cloudrun' ? (
+          <button type="button" className="wr-icon wr-info" aria-pressed={compileInfo} onClick={() => showCompileInfo(!compileInfo)} title={compileInfo ? 'Hide the compile details' : 'What the last compile did, and where the files go'} aria-label="Compile details">
+            ⓘ
+          </button>
+        ) : null}
         <span className="wr-sp" />
         <button type="button" className="wr-icon" aria-pressed={big === 'pdf'} onClick={() => setBig(big === 'pdf' ? null : 'pdf')} title={big === 'pdf' ? 'Back to both panes' : 'The PDF alone, filling the space'} aria-label={big === 'pdf' ? 'Back to both panes' : 'Expand the PDF'}>
           {big === 'pdf' ? '⤡' : '⤢'}
@@ -2874,7 +2955,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
         ) : null}
       </div>
       {options.pdf === 'github' || options.pdf === 'cloudrun' ? (
-        <GithubCompilePanel state={gh} on={options.pdf} onCompile={options.pdf === 'cloudrun' ? () => void saveNow().then(() => compileOnCloudRun(true)) : recompile} />
+        <GithubCompilePanel state={gh} on={options.pdf} open={compileInfo} onClose={() => showCompileInfo(false)} onCompile={options.pdf === 'cloudrun' ? () => void saveNow().then(() => compileOnCloudRun(true)) : recompile} />
       ) : null}
       {noTex && options.pdf === 'here' ? (
         <div className="wr-pad">
@@ -3240,14 +3321,23 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
               , keep what should stay, and sync again.
             </span>
           ) : needToken ? (
-            <span>{inDrive ? 'No Overleaf account is connected yet: connect yours to keep the paper in step with Overleaf.' : 'The Companion has no token for this folder’s remote yet.'}</span>
+            <span>{inDrive ? 'This LaTeX project is linked to Overleaf, but isn’t syncing: no Overleaf account is connected yet. Optional — writing and compiling here go on either way.' : 'The Companion has no token for this folder’s remote yet.'}</span>
           ) : (
             <span>{syncError}</span>
           )}
-          {inDrive && (needToken || /token|account/i.test(syncError ?? '')) ? (
+          {inDrive && (needToken || /token|account/i.test(syncError ?? '')) && !accountOpen ? (
+            <span className="wr-nudge-actions">
+              <button type="button" className="btn sm primary" onClick={() => setAccountOpen(true)}>
+                Connect Overleaf account
+              </button>
+              <button type="button" className="link-btn" onClick={() => (notNow(project.id), setUnsynced(true), setNeedToken(false), setSyncError(null))} title="Keep writing and compiling here; nothing goes to Overleaf until you press Sync">
+                Not now
+              </button>
+            </span>
+          ) : inDrive && (needToken || /token|account/i.test(syncError ?? '')) ? (
             <div className="wr-sync-accounts">
-              <OverleafAccounts open projectUrl={link?.url} onConnected={() => (setNeedToken(false), void sync())} />
-              <button type="button" className="link-btn" onClick={() => (setUnsynced(true), setNeedToken(false), setSyncError(null))} title="Keep writing and compiling here; nothing goes to Overleaf until you press Sync">
+              <OverleafAccounts open projectUrl={link?.url} onConnected={() => (setAccountOpen(false), setNeedToken(false), void sync())} />
+              <button type="button" className="link-btn" onClick={() => (notNow(project.id), setAccountOpen(false), setUnsynced(true), setNeedToken(false), setSyncError(null))} title="Keep writing and compiling here; nothing goes to Overleaf until you press Sync">
                 Not now: write without syncing
               </button>
             </div>
