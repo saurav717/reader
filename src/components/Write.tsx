@@ -2675,7 +2675,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
   const [accountOpen, setAccountOpen] = useState(connectOverleaf);
   const canConnect = inDrive && !git && Boolean(rootStore);
   // A line asked for in a file not open yet (a double-click on the PDF): gone to as the file opens, in place of where it was left.
-  const jump = useRef<{ file: string; line: number } | null>(null);
+  const jump = useRef<{ file: string; line: number; word?: string } | null>(null);
   useEffect(() => {
     if (!shown || !current) return;
     const asked = jump.current?.file === shown ? jump.current : null;
@@ -2683,7 +2683,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
     placed.current = shown;
     jump.current = null;
     const line = asked ? asked.line : lineIn(project.id, placeDir, shown);
-    window.setTimeout(() => (line > 1 ? editor.current?.goToLine(line) : editor.current?.focus()), 60);
+    window.setTimeout(() => (line > 1 || asked?.word ? editor.current?.goToLine(line, asked?.word) : editor.current?.focus()), 60);
   }, [shown, current, project.id, placeDir]);
 
   // ---- from the PDF to the source: a double-click, as in Overleaf, by the compile's SyncTeX
@@ -2695,7 +2695,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
     window.clearTimeout(noteTimer.current);
     noteTimer.current = window.setTimeout(() => setSyncNote(null), 5000);
   };
-  const toSource = async (page: number, x: number, y: number) => {
+  const toSource = async (page: number, x: number, y: number, word?: string) => {
     if (!synctex) {
       return note(options.pdf === 'here' && here && !inDrive ? 'Double-clicking the PDF to reach its source needs the Companion’s latest version, and a compile after.' : 'Compile once more, and a double-click on the PDF opens the line that made it.');
     }
@@ -2710,8 +2710,8 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
     if (!place) return note('Nothing there came from this project’s files.');
     setSyncNote(null);
     if (options.layout === 'tabs') setPane('source');
-    if (place.file === shown && current && !looking) return void editor.current?.goToLine(place.line);
-    jump.current = place;
+    if (place.file === shown && current && !looking) return void editor.current?.goToLine(place.line, word);
+    jump.current = { ...place, word };
     // Opened again even if it is the file open, so the effect above goes to the line once it shows.
     if (place.file === shown) placed.current = null;
     setOpen(place.file);
@@ -3149,7 +3149,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
         </p>
       ) : null}
       {syncNote ? <p className="wr-banner is-soft">{syncNote}</p> : null}
-      <PdfPages blob={pdf} onSource={(page, x, y) => void toSource(page, x, y)} />
+      <PdfPages blob={pdf} onSource={(page, x, y, word) => void toSource(page, x, y, word)} />
     </section>
   );
 
@@ -3557,8 +3557,8 @@ function FilePreview({ store, path }: { store: PaperStore; path: string }) {
   return <div className="wr-figure">{url ? <img src={url} alt={path} /> : null}</div>;
 }
 
-/** The compiled PDF, every page drawn at the pane's width; where you were stays put across compiles. */
-function PdfPages({ blob, onSource }: { blob: Blob | null; /** A double-click on a page: its number, and the point in PDF points from its top-left corner. */ onSource?: (page: number, x: number, y: number) => void }) {
+/** The compiled PDF, every page drawn at the pane's width, its text selectable; where you were stays put across compiles. */
+function PdfPages({ blob, onSource }: { blob: Blob | null; /** A double-click on a page: its number, the point in PDF points from its top-left corner, and the word there. */ onSource?: (page: number, x: number, y: number, word?: string) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const pagesRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -3581,29 +3581,37 @@ function PdfPages({ blob, onSource }: { blob: Blob | null; /** A double-click on
       try {
         const opened = await openPdf(blob);
         close = opened.close;
-        const canvases: HTMLCanvasElement[] = [];
+        const { TextLayer } = await import('../lib/pdfReflow');
+        const drawn: HTMLDivElement[] = [];
         const scale = window.devicePixelRatio || 1;
         for (let n = 1; n <= opened.doc.numPages; n += 1) {
           const page = await opened.doc.getPage(n);
           const base = page.getViewport({ scale: 1 });
           const fit = Math.max(0.2, (width - 32) / base.width);
           const viewport = page.getViewport({ scale: fit * scale });
+          const sheet = document.createElement('div');
+          sheet.className = 'wr-page';
+          sheet.style.width = `${Math.floor(viewport.width / scale)}px`;
+          sheet.style.height = `${Math.floor(viewport.height / scale)}px`;
+          sheet.dataset.page = String(n);
+          sheet.dataset.width = String(base.width);
+          sheet.dataset.height = String(base.height);
           const canvas = document.createElement('canvas');
           canvas.width = Math.floor(viewport.width);
           canvas.height = Math.floor(viewport.height);
-          canvas.style.width = `${Math.floor(viewport.width / scale)}px`;
-          canvas.style.height = `${Math.floor(viewport.height / scale)}px`;
-          canvas.className = 'wr-page';
-          canvas.dataset.page = String(n);
-          canvas.dataset.width = String(base.width);
-          canvas.dataset.height = String(base.height);
           await page.render({ canvas, canvasContext: canvas.getContext('2d')!, viewport }).promise;
+          // The words over the picture, invisible, as pdf.js's viewer lays them: selected and copied as text.
+          const text = document.createElement('div');
+          text.className = 'pdf-text';
+          text.style.setProperty('--scale-factor', String(fit));
+          await new TextLayer({ textContentSource: page.streamTextContent(), container: text, viewport: page.getViewport({ scale: fit }) }).render();
           if (cancelled) return;
-          canvases.push(canvas);
+          sheet.append(canvas, text);
+          drawn.push(sheet);
         }
         if (cancelled || !pagesRef.current) return;
         // Swapped in whole, so the pane never shows half a PDF; the place you were in is kept.
-        pagesRef.current.replaceChildren(...canvases);
+        pagesRef.current.replaceChildren(...drawn);
         if (scroller) scroller.scrollTop = ratio * scroller.scrollHeight;
         setProblem(null);
       } catch (error) {
@@ -3625,12 +3633,12 @@ function PdfPages({ blob, onSource }: { blob: Blob | null; /** A double-click on
         ref={pagesRef}
         title={onSource && blob ? 'Double-click to go to its source' : undefined}
         onDoubleClick={(event) => {
-          const canvas = event.target instanceof HTMLCanvasElement ? event.target : null;
-          if (!onSource || !canvas?.dataset.page) return;
-          event.preventDefault();
-          window.getSelection()?.removeAllRanges();
-          const rect = canvas.getBoundingClientRect();
-          onSource(Number(canvas.dataset.page), ((event.clientX - rect.left) / rect.width) * Number(canvas.dataset.width), ((event.clientY - rect.top) / rect.height) * Number(canvas.dataset.height));
+          const sheet = event.target instanceof Element ? event.target.closest<HTMLElement>('.wr-page') : null;
+          if (!onSource || !sheet?.dataset.page) return;
+          // The browser has selected the word double-clicked: it is looked for on the line SyncTeX names.
+          const word = window.getSelection()?.toString().trim().split(/\s+/)[0];
+          const rect = sheet.getBoundingClientRect();
+          onSource(Number(sheet.dataset.page), ((event.clientX - rect.left) / rect.width) * Number(sheet.dataset.width), ((event.clientY - rect.top) / rect.height) * Number(sheet.dataset.height), word || undefined);
         }}
       />
     </div>

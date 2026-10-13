@@ -18,8 +18,8 @@ import { CloseIcon } from './icons';
 
 export interface CodeEditorHandle {
   focus: () => void;
-  /** Puts the caret at the start of a line (from 1) and brings it into view. */
-  goToLine: (line: number) => void;
+  /** Puts the caret at the start of a line (from 1) and brings it into view; with a word, selects it there (or on a line beside). */
+  goToLine: (line: number, word?: string) => void;
   /** The find bar, or find and replace; with the selection as the query when there is one. */
   openFind: (replace?: boolean) => void;
   /** Types text in over the selection, or at the caret, so undo takes it back. */
@@ -239,7 +239,22 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
     ref,
     () => ({
       focus: () => text.current?.focus(),
-      goToLine: (line: number) => go(offsetOfLine(text.current?.value ?? value, line)),
+      goToLine: (line: number, word?: string) => {
+        const all = text.current?.value ?? value;
+        // The word as the PDF has it (ligatures, quotes) and without the punctuation about it.
+        const plain = word?.normalize('NFKC').replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+        if (plain) {
+          const whole = new RegExp(`(?<![\\p{L}\\p{N}])${plain.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'u');
+          for (const at of [line, line + 1, line - 1, line + 2, line - 2]) {
+            if (at < 1) continue;
+            const start = offsetOfLine(all, at);
+            const end = all.indexOf('\n', start);
+            const found = whole.exec(all.slice(start, end < 0 ? undefined : end));
+            if (found) return go(start + found.index, start + found.index + plain.length);
+          }
+        }
+        go(offsetOfLine(all, line));
+      },
       insert: (insert: string) => {
         const element = text.current;
         if (!element) return;
