@@ -92,12 +92,20 @@ export default function ProjectsPage({
   onView,
   onOpenPaper,
   onAddPapers,
+  explaining,
+  onToggleExplain,
+  onReading,
 }: {
   view: ProjectPageView;
   onView: (view: View) => void;
   onOpenPaper: (id: string) => void;
   /** Discover, open beside the page, saving to the project on show. */
   onAddPapers: () => void;
+  /** Whether the Explain page is open — over the workspace's paper, as over a paper's own page. */
+  explaining?: boolean;
+  onToggleExplain?: () => void;
+  /** The paper up in the workspace, for Explain to be about; null with none, or on leaving. */
+  onReading?: (id: string | null) => void;
 }) {
   const { collections, settings } = useStore();
   const projects = useMemo(() => projectsOf(collections), [collections]);
@@ -163,7 +171,7 @@ export default function ProjectsPage({
   } else if (view.mode === 'write') {
     body = <WritePage key={project.id} project={project} onView={onView} />;
   } else if (view.mode === 'read' || view.mode === 'workspace') {
-    body = <ProjectWorkspace key={`${project.id}:${view.mode}`} project={project} focus={view.mode === 'read' ? 'read' : 'code'} onView={onView} onOpenPaper={onOpenPaper} />;
+    body = <ProjectWorkspace key={`${project.id}:${view.mode}`} project={project} focus={view.mode === 'read' ? 'read' : 'code'} onView={onView} onOpenPaper={onOpenPaper} explaining={explaining} onToggleExplain={onToggleExplain} onReading={onReading} />;
   } else {
     body = <ProjectOverview key={project.id} project={project} projects={projects} onView={onView} onOpenPaper={onOpenPaper} onAddPapers={onAddPapers} />;
   }
@@ -767,7 +775,24 @@ function readWs<T extends string>(key: string, allowed: readonly T[], fallback: 
   }
 }
 
-function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Project; /** Read: just the papers. Code: the workspace as it always was. */ focus: 'read' | 'code'; onView: (view: View) => void; onOpenPaper: (id: string) => void }) {
+function ProjectWorkspace({
+  project,
+  focus,
+  onView,
+  onOpenPaper,
+  explaining,
+  onToggleExplain,
+  onReading,
+}: {
+  project: Project;
+  /** Read: just the papers. Code: the workspace as it always was. */
+  focus: 'read' | 'code';
+  onView: (view: View) => void;
+  onOpenPaper: (id: string) => void;
+  explaining?: boolean;
+  onToggleExplain?: () => void;
+  onReading?: (id: string | null) => void;
+}) {
   const { papers, highlights, updateCollection, settings } = useStore();
   const mine = papersIn(project.id, papers);
   const writing = overleafViewOf(settings);
@@ -858,8 +883,17 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
   };
   // The search fills the paper pane while adding, and whenever there is nothing to read.
   const finding = adding || !shown;
+  // The app is told which paper is up, so that Explain — a page of the app's, over everything — is about it.
+  const reading = !finding && shown && layout !== 'code' ? shown.id : null;
+  useEffect(() => {
+    onReading?.(reading);
+    return () => onReading?.(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reading]);
   const floatPaper = mine.find((paper) => paper.id === floating);
   const link = (id: string | undefined) => void updateCollection(project.id, (collection) => ({ project: { ...project.project, ...(collection.project ?? {}), playgroundId: id } }));
+  // Explain beside the paper takes more than half the screen: the tree steps aside while it is open, and is back as it was after.
+  const treeShown = treeOpen && !explaining;
   const showPaper = layout !== 'code';
   const showWrite = layout === 'write';
   const showCode = layout === 'both' || layout === 'code';
@@ -928,7 +962,7 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
         ) : null}
       </div>
       <div className="pj-ws-body">
-        {treeOpen && !fullCode ? (
+        {treeShown && !fullCode ? (
           <aside className="pj-tree" aria-label="The project">
             <div className="pj-tree-head">
               <span className="pj-dot" style={{ background: project.color }} />
@@ -991,6 +1025,8 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
                 onToggleSidebar={() => setTreeOpen(!treeOpen)}
                 zen={false}
                 onToggleZen={() => onOpenPaper(shown.id)}
+                explaining={explaining}
+                onToggleExplain={onToggleExplain}
                 onSelectHighlight={setSelectedHighlight}
                 onOrphans={() => undefined}
               />
