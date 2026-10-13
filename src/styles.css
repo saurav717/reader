@@ -7359,7 +7359,8 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
 .wr-figure { display: flex; align-items: center; justify-content: center; overflow: auto; padding: 16px; background: repeating-conic-gradient(rgba(127, 127, 127, 0.12) 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
 .wr-figure img { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25); }
 .wr-pdf-pages { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px; }
-.wr-page { background: #fff; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2); }
+.wr-page { position: relative; flex: none; background: #fff; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2); }
+.wr-page > canvas { display: block; width: 100%; height: 100%; }
 .wr-banner { margin: 0; padding: 8px 12px; font-size: 12px; color: #b0384f; background: color-mix(in srgb, #b0384f 10%, var(--surface)); }
 .wr-log { grid-area: log; max-height: 34vh; display: flex; flex-direction: column; border-top: 1px solid var(--border); background: var(--surface); }
 .wr-log-body { overflow: auto; padding: 6px; }
