@@ -46,7 +46,18 @@ export interface CalendarEvent {
   /** The calendar's colour, or the event's own when it was given one. */
   color: string;
   organizer?: string;
+  /** For one meeting of a repeating series: the series' id, so a tag can be put on every one of them. */
+  seriesId?: string;
 }
+
+/** The key a tag on a meeting's whole series is kept under on a project; null for a meeting that does not repeat. */
+export const seriesKey = (event: CalendarEvent): string | null => (event.seriesId ? `${event.calendarId}:${event.seriesId}` : null);
+
+/** The keys a project may hold a tag for this meeting under: the meeting's own first, then its series'. */
+export const tagKeys = (event: CalendarEvent): string[] => {
+  const series = seriesKey(event);
+  return series ? [event.id, series] : [event.id];
+};
 
 export type Response = 'accepted' | 'declined' | 'tentative' | 'needsAction';
 
@@ -281,6 +292,7 @@ export interface GoogleEvent {
   organizer?: { email?: string; displayName?: string; self?: boolean };
   conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] };
   eventType?: string;
+  recurringEventId?: string;
 }
 
 export interface GoogleCalendarListEntry {
@@ -337,6 +349,7 @@ export function parseEvent(item: GoogleEvent, calendar: CalendarInfo): CalendarE
     status: item.status === 'tentative' ? 'tentative' : 'confirmed',
     color: (item.colorId && EVENT_COLORS[item.colorId]) || calendar.color,
     organizer: item.organizer?.displayName || item.organizer?.email,
+    ...(item.recurringEventId ? { seriesId: item.recurringEventId } : {}),
   };
 }
 

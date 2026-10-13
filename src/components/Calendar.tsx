@@ -26,11 +26,13 @@ import {
   placeTimed,
   sameDay,
   sameMonth,
+  seriesKey,
   sortEvents,
   spanFor,
   spansDays,
   startOfDay,
   step,
+  tagKeys,
   timeLabel,
   whenLabel,
   type CalendarEvent,
@@ -38,6 +40,7 @@ import {
   type CalendarView,
   type Span,
 } from '../lib/calendar';
+import { initialsOf, meetingProject, projectInfo, projectsOf, withMeeting, type Project } from '../lib/projects';
 import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExternalIcon, PeopleIcon, PinIcon, RestoreIcon, VideoIcon } from './icons';
 
 const VIEW_KEY = 'reader.calendar.view';
@@ -166,8 +169,8 @@ interface Picked {
   anchor: DOMRect;
 }
 
-export default function Calendar({ onOpenSettings }: { onOpenSettings: () => void }) {
-  const { user, settings } = useStore();
+export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSettings: () => void; onOpenProject?: (id: string) => void }) {
+  const { user, settings, collections, updateCollection } = useStore();
   const clientId = settings.googleClientId.trim();
   const connected = useCalendarAccess();
   const [view, setViewState] = useState<CalendarView>(readView);
@@ -319,6 +322,32 @@ export default function Calendar({ onOpenSettings }: { onOpenSettings: () => voi
   const events = useMemo(() => (shown ? shown.events.filter((event) => !hidden.includes(event.calendarId)) : []), [shown, hidden]);
   const days = useMemo(() => daysIn(span), [span]);
   const meetings = events.filter((event) => event.response !== 'declined').length;
+  const projects = useMemo(() => projectsOf(collections), [collections]);
+  /** The project each meeting on screen is tagged with, by the meeting's id. */
+  const tags = useMemo(() => {
+    const map = new Map<string, Project>();
+    for (const event of events) {
+      const project = meetingProject(projects, tagKeys(event));
+      if (project) map.set(event.id, project);
+    }
+    return map;
+  }, [events, projects]);
+  /**
+   * Tag a meeting — or, for one of a series, every meeting in it — as a
+   * project's, or as no project's. The key is kept on the project's own
+   * record, so it goes to Drive with the library; it leaves every other
+   * project it was on.
+   */
+  const tag = (event: CalendarEvent, projectId: string | null, series: boolean) => {
+    const key = (series && seriesKey(event)) || event.id;
+    for (const project of projects) {
+      const mine = project.id === projectId;
+      if (!mine && !project.project.meetings?.[key]) continue;
+      void updateCollection(project.id, (collection) => ({
+        project: withMeeting(projectInfo(collection) ?? project.project, key, mine ? { title: event.title, taggedAt: new Date().toISOString() } : null),
+      }));
+    }
+  };
 
   const pick = (event: CalendarEvent, target: HTMLElement) => setPicked({ event, anchor: target.getBoundingClientRect() });
 
@@ -433,12 +462,22 @@ export default function Calendar({ onOpenSettings }: { onOpenSettings: () => voi
         </p>
       ) : null}
       {view === 'month' ? (
-        <MonthGrid days={days} date={date} events={events} today={now} onDay={openDay} onEvent={pick} picked={picked?.event.id} />
+        <MonthGrid days={days} date={date} events={events} today={now} tags={tags} onDay={openDay} onEvent={pick} picked={picked?.event.id} />
       ) : (
-        <TimeGrid days={days} events={events} now={now} onEvent={pick} picked={picked?.event.id} onDay={view === 'week' ? openDay : undefined} />
+        <TimeGrid days={days} events={events} now={now} tags={tags} onEvent={pick} picked={picked?.event.id} onDay={view === 'week' ? openDay : undefined} />
       )}
       {!shown && !loading && !error ? <div className="cal-blank">Reading your calendar…</div> : null}
-      {picked ? <EventCard picked={picked} calendar={calendars?.find((calendar) => calendar.id === picked.event.calendarId)} onClose={() => setPicked(null)} /> : null}
+      {picked ? (
+        <EventCard
+          picked={picked}
+          calendar={calendars?.find((calendar) => calendar.id === picked.event.calendarId)}
+          projects={projects}
+          project={tags.get(picked.event.id)}
+          onTag={(projectId, series) => tag(picked.event, projectId, series)}
+          onOpenProject={onOpenProject}
+          onClose={() => setPicked(null)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -461,11 +500,24 @@ function Empty({ title, text, error, action }: { title: string; text: string; er
 
 const colorStyle = (event: CalendarEvent): CSSProperties => ({ '--ev': event.color }) as CSSProperties;
 
+/** The mark of the project a meeting is tagged with, as the rail draws projects; nothing when it has none. */
+function Tag({ project, named = false }: { project?: Project; named?: boolean }) {
+  if (!project) return null;
+  return (
+    <span className={`cal-tag${named ? ' is-named' : ''}`} title={`Project: ${project.name}`}>
+      <span className="pj-mark sm" style={{ background: project.color }}>
+        {initialsOf(project.name)}
+      </span>
+      {named ? <span className="cal-tag-name">{project.name}</span> : null}
+    </span>
+  );
+}
+
 const eventClass = (event: CalendarEvent, extra = '', picked?: string) =>
   `cal-ev${extra ? ` ${extra}` : ''}${event.response === 'declined' ? ' is-declined' : ''}${event.response === 'tentative' || event.status === 'tentative' ? ' is-tentative' : ''}${event.response === 'needsAction' ? ' is-asked' : ''}${picked === event.id ? ' is-picked' : ''}`;
 
 /** The month: six weeks of seven days, each day's events as a short list, the rest behind "+N more". */
-function MonthGrid({ days, date, events, today, onDay, onEvent, picked }: { days: Date[]; date: Date; events: CalendarEvent[]; today: Date; onDay: (day: Date) => void; onEvent: (event: CalendarEvent, target: HTMLElement) => void; picked?: string }) {
+function MonthGrid({ days, date, events, today, tags, onDay, onEvent, picked }: { days: Date[]; date: Date; events: CalendarEvent[]; today: Date; tags: Map<string, Project>; onDay: (day: Date) => void; onEvent: (event: CalendarEvent, target: HTMLElement) => void; picked?: string }) {
   const MOST = 3;
   return (
     <div className="cal-month" role="grid" aria-label="Month">
@@ -494,6 +546,7 @@ function MonthGrid({ days, date, events, today, onDay, onEvent, picked }: { days
                   <button key={event.id} type="button" className={eventClass(event, spansDays(event) ? 'is-bar' : 'is-line', picked)} style={colorStyle(event)} onClick={(click) => onEvent(event, click.currentTarget)} title={event.title}>
                     {spansDays(event) ? null : <time>{timeLabel(event.start)}</time>}
                     <span>{event.title}</span>
+                    <Tag project={tags.get(event.id)} />
                   </button>
                 ))}
                 {more > 1 ? (
@@ -528,7 +581,7 @@ function lanes(events: CalendarEvent[], days: Date[]): { event: CalendarEvent; f
 }
 
 /** A day or a week on a time axis: the all-day row above, the hours below, each column's meetings side by side where they overlap. */
-function TimeGrid({ days, events, now, onEvent, picked, onDay }: { days: Date[]; events: CalendarEvent[]; now: Date; onEvent: (event: CalendarEvent, target: HTMLElement) => void; picked?: string; onDay?: (day: Date) => void }) {
+function TimeGrid({ days, events, now, tags, onEvent, picked, onDay }: { days: Date[]; events: CalendarEvent[]; now: Date; tags: Map<string, Project>; onEvent: (event: CalendarEvent, target: HTMLElement) => void; picked?: string; onDay?: (day: Date) => void }) {
   const scroller = useRef<HTMLDivElement>(null);
   const single = days.length === 1;
   const allDay = useMemo(() => lanes(events, days), [events, days]);
@@ -574,6 +627,7 @@ function TimeGrid({ days, events, now, onEvent, picked, onDay }: { days: Date[];
                 {allDay.map(({ event, from, span, lane }) => (
                   <button key={event.id} type="button" className={eventClass(event, 'is-bar', picked)} style={{ ...colorStyle(event), gridColumn: `${from + 1} / span ${span}`, gridRow: lane + 1 }} onClick={(click) => onEvent(event, click.currentTarget)} title={event.title}>
                     <span>{event.title}</span>
+                    <Tag project={tags.get(event.id)} />
                   </button>
                 ))}
               </div>
@@ -609,6 +663,7 @@ function TimeGrid({ days, events, now, onEvent, picked, onDay }: { days: Date[];
                         onClick={(click) => onEvent(event, click.currentTarget)}
                         title={`${event.title} · ${timeLabel(event.start)} – ${timeLabel(event.end)}`}
                       >
+                        <Tag project={tags.get(event.id)} />
                         <span className="cal-ev-title">{event.title}</span>
                         <span className="cal-ev-time">
                           {timeLabel(event.start)} – {timeLabel(event.end)}
@@ -624,13 +679,13 @@ function TimeGrid({ days, events, now, onEvent, picked, onDay }: { days: Date[];
           </div>
         </div>
       </div>
-      {single ? <Agenda day={days[0]} events={agenda} inMeetings={inMeetings} now={now} onEvent={onEvent} picked={picked} /> : null}
+      {single ? <Agenda day={days[0]} events={agenda} inMeetings={inMeetings} now={now} tags={tags} onEvent={onEvent} picked={picked} /> : null}
     </div>
   );
 }
 
 /** Beside the day: its meetings as a list, the one on now marked. */
-function Agenda({ day, events, inMeetings, now, onEvent, picked }: { day: Date; events: CalendarEvent[]; inMeetings: number; now: Date; onEvent: (event: CalendarEvent, target: HTMLElement) => void; picked?: string }) {
+function Agenda({ day, events, inMeetings, now, tags, onEvent, picked }: { day: Date; events: CalendarEvent[]; inMeetings: number; now: Date; tags: Map<string, Project>; onEvent: (event: CalendarEvent, target: HTMLElement) => void; picked?: string }) {
   const hours = Math.floor(inMeetings / 60);
   const minutes = Math.round(inMeetings % 60);
   const inMeetingsLabel = inMeetings ? `${hours ? `${hours} h` : ''}${hours && minutes ? ' ' : ''}${minutes ? `${minutes} min` : ''} in meetings` : null;
@@ -653,6 +708,7 @@ function Agenda({ day, events, inMeetings, now, onEvent, picked }: { day: Date; 
             <span className="cal-agenda-what">
               <b>{event.title}</b>
               {event.location ? <small>{event.location}</small> : null}
+              <Tag project={tags.get(event.id)} named />
               {onNow ? <em>now</em> : null}
             </span>
             {event.meet ? (
@@ -671,9 +727,29 @@ function Agenda({ day, events, inMeetings, now, onEvent, picked }: { day: Date; 
 const RESPONSES: Record<string, string> = { accepted: 'Going', declined: 'Not going', tentative: 'Maybe', needsAction: 'Not answered' };
 
 /** One meeting, in a card beside what was clicked: when, where, who, the link to join and the event in Google Calendar. */
-function EventCard({ picked, calendar, onClose }: { picked: Picked; calendar?: CalendarInfo; onClose: () => void }) {
+function EventCard({
+  picked,
+  calendar,
+  projects,
+  project,
+  onTag,
+  onOpenProject,
+  onClose,
+}: {
+  picked: Picked;
+  calendar?: CalendarInfo;
+  projects: Project[];
+  /** The project the meeting is tagged with now. */
+  project?: Project;
+  onTag: (projectId: string | null, series: boolean) => void;
+  onOpenProject?: (id: string) => void;
+  onClose: () => void;
+}) {
   const { event, anchor } = picked;
   const card = useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = useState(false);
+  /** For a meeting that repeats: whether the tag goes on every one in the series (the usual want) or this one alone. */
+  const [series, setSeries] = useState(Boolean(event.seriesId));
   useEffect(() => {
     const away = (press: PointerEvent) => {
       if (!card.current?.contains(press.target as Node)) onClose();
@@ -686,7 +762,7 @@ function EventCard({ picked, calendar, onClose }: { picked: Picked; calendar?: C
     };
   }, [onClose]);
   const WIDTH = 340;
-  const HEIGHT = 360;
+  const HEIGHT = 440;
   const room = typeof window === 'undefined' ? { w: 1200, h: 800 } : { w: window.innerWidth, h: window.innerHeight };
   const left = anchor.right + WIDTH + 12 < room.w ? anchor.right + 8 : Math.max(8, anchor.left - WIDTH - 8);
   const top = Math.max(8, Math.min(anchor.top, room.h - HEIGHT - 8));
@@ -726,6 +802,76 @@ function EventCard({ picked, calendar, onClose }: { picked: Picked; calendar?: C
         </span>
       </p>
       {event.description ? <p className="cal-card-desc">{event.description.replace(/<[^>]+>/g, '').slice(0, 400)}</p> : null}
+      <div className="cal-card-project">
+        <button
+          type="button"
+          className={`cal-card-tag${project ? ' is-on' : ''}`}
+          aria-haspopup="menu"
+          aria-expanded={menu}
+          title={project ? `${project.name} — change the project this meeting is for` : 'Tag this meeting with the project it is for'}
+          onClick={() => setMenu(!menu)}
+        >
+          {project ? (
+            <span className="pj-mark sm" style={{ background: project.color }}>
+              {initialsOf(project.name)}
+            </span>
+          ) : (
+            <span className="pj-mark sm cal-tag-none">＋</span>
+          )}
+          <span className="cal-card-tag-name">{project ? project.name : 'Add to a project'}</span>
+          <span className="cal-card-tag-chev">⌄</span>
+        </button>
+        {project && onOpenProject ? (
+          <button type="button" className="link-btn cal-card-open" onClick={() => onOpenProject(project.id)}>
+            Open project
+          </button>
+        ) : null}
+        {event.seriesId ? (
+          <div className="segmented sm cal-card-series" role="radiogroup" aria-label="Tag which meetings">
+            <button type="button" role="radio" aria-checked={series} onClick={() => setSeries(true)} title="The tag goes on every meeting in this series">
+              Whole series
+            </button>
+            <button type="button" role="radio" aria-checked={!series} onClick={() => setSeries(false)} title="The tag goes on this meeting alone">
+              This one only
+            </button>
+          </div>
+        ) : null}
+        {menu ? (
+          <div className="nav-pmenu cal-pmenu" role="menu" aria-label="Projects">
+            <span className="nav-pmenu-head">{event.seriesId && series ? 'Every one of these is for' : 'This meeting is for'}</span>
+            {projects.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={item.id === project?.id}
+                className={item.id === project?.id ? 'is-on' : undefined}
+                onClick={() => {
+                  onTag(item.id, series);
+                  setMenu(false);
+                }}
+              >
+                <span className="nav-pmenu-sq" style={{ background: item.color }} />
+                <span className="nav-pmenu-name">{item.name}</span>
+              </button>
+            ))}
+            {projects.length === 0 ? <span className="cal-pmenu-none">No projects yet. Start one on the Projects page, and tag your meetings with it here.</span> : null}
+            <span className="nav-pmenu-line" />
+            <button
+              type="button"
+              role="menuitemradio"
+              aria-checked={!project}
+              className="is-quiet"
+              onClick={() => {
+                onTag(null, series);
+                setMenu(false);
+              }}
+            >
+              ○ No project
+            </button>
+          </div>
+        ) : null}
+      </div>
       <div className="cal-card-actions">
         {event.meet ? (
           <a className="btn primary sm" href={event.meet} target="_blank" rel="noreferrer" onClick={stop}>

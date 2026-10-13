@@ -46,6 +46,8 @@ const me = { email: 'reader@example.org', self: true, responseStatus: 'accepted'
 const people = (...names) => names.map((name) => ({ email: `${name.toLowerCase().replace(/\s+/g, '.')}@example.org`, displayName: name, responseStatus: 'accepted' }));
 let n = 0;
 const timed = (calendar, summary, start, end, extra = {}) => ({ calendar, item: { id: `e${++n}`, summary, status: 'confirmed', start: { dateTime: start }, end: { dateTime: end }, htmlLink: `https://calendar.google.com/calendar/event?eid=e${n}`, ...extra } });
+/** One meeting of a repeating series, as Google expands it: its own id under the series' id. */
+const repeat = (series, calendar, summary, start, end, extra = {}) => ({ calendar, item: { id: `${series}_${start.replace(/[-:+]/g, '')}`, recurringEventId: series, summary, status: 'confirmed', start: { dateTime: start }, end: { dateTime: end }, htmlLink: `https://calendar.google.com/calendar/event?eid=${series}`, ...extra } });
 const allDay = (calendar, summary, from, to = from, extra = {}) => ({ calendar, item: { id: `e${++n}`, summary, status: 'confirmed', start: { date: key(from) }, end: { date: key(new Date(to.getTime() + 86_400_000)) }, htmlLink: `https://calendar.google.com/calendar/event?eid=e${n}`, ...extra } });
 const meet = (code) => ({ hangoutLink: `https://meet.google.com/${code}`, conferenceData: { entryPoints: [{ entryPointType: 'video', uri: `https://meet.google.com/${code}` }] } });
 
@@ -62,7 +64,7 @@ const EVENTS = [
   timed('primary', 'Call: NeurIPS camera-ready', at(tue, 17, 30), at(tue, 18), { attendees: [{ ...me, responseStatus: 'tentative' }, ...people('Lin Zhao')], ...meet('neurips-cr') }),
   // Wednesday
   allDay('primary', 'ICLR abstract deadline', wed, wed, { colorId: '11' }),
-  timed('lab', 'Group meeting', at(wed, 9), at(wed, 10), { attendees: [me, ...people('Prof. Rao', 'Priya Nair', 'Arjun Mehta', 'Lin Zhao', 'Sam Okafor', 'Meera Iyer', 'Tom Becker')], ...meet('lab-weekly'), organizer: { email: 'prof.rao@example.org', displayName: 'Prof. Rao' } }),
+  repeat('lab-weekly', 'lab', 'Group meeting', at(wed, 9), at(wed, 10), { attendees: [me, ...people('Prof. Rao', 'Priya Nair', 'Arjun Mehta', 'Lin Zhao', 'Sam Okafor', 'Meera Iyer', 'Tom Becker')], ...meet('lab-weekly'), organizer: { email: 'prof.rao@example.org', displayName: 'Prof. Rao' } }),
   timed('lab', 'Journal club', at(wed, 16), at(wed, 17), { location: 'Room 204, CSE block' }),
   // Thursday to Saturday
   allDay('primary', 'Visiting IISc', thu, sat),
@@ -75,12 +77,12 @@ const EVENTS = [
   // Around the week, for the month
   timed('lab', 'Standup', at(day(-6), 9, 30), at(day(-6), 10)),
   timed('primary', 'Dentist', at(day(-4), 16), at(day(-4), 16, 45)),
-  timed('lab', 'Group meeting', at(day(-4), 9), at(day(-4), 10), meet('lab-weekly')),
+  repeat('lab-weekly', 'lab', 'Group meeting', at(day(-4), 9), at(day(-4), 10), meet('lab-weekly')),
   allDay('lab', 'Workshop: Scientific ML', day(8), day(9)),
   timed('lab', 'Standup', at(day(8), 9, 30), at(day(8), 10)),
-  timed('lab', 'Group meeting', at(day(10), 9), at(day(10), 10), meet('lab-weekly')),
+  repeat('lab-weekly', 'lab', 'Group meeting', at(day(10), 9), at(day(10), 10), meet('lab-weekly')),
   timed('primary', 'Flight to Delhi', at(day(12), 6, 15), at(day(12), 8, 30), { colorId: '7' }),
-  timed('lab', 'Group meeting', at(day(17), 9), at(day(17), 10), meet('lab-weekly')),
+  repeat('lab-weekly', 'lab', 'Group meeting', at(day(17), 9), at(day(17), 10), meet('lab-weekly')),
   timed('teaching', 'TA: Deep Learning lab', at(day(15), 14), at(day(15), 15, 30), { location: 'LHC-3' }),
   timed('teaching', 'Grading due', at(day(19), 17), at(day(19), 18)),
   allDay('holidays', 'Dussehra', day(7)),
@@ -104,6 +106,7 @@ async function open({ theme = 'light', navStyle = 'labelled' } = {}) {
       requestAccessToken: () => setTimeout(() => config.callback({ access_token: `token-${config.scope.split(' ').length}`, expires_in: 3600, scope: config.scope }), 10),
     });
   });
+  await context.route('**/www.googleapis.com/oauth2/v3/userinfo*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ name: 'Saurav Chennuri', email: 'reader@example.org' }) }));
   const asked = { calendars: 0, events: [] };
   await context.route('**/www.googleapis.com/calendar/v3/**', (route) => {
     const url = new URL(route.request().url());
@@ -146,6 +149,32 @@ async function signIn(page) {
   await page.waitForTimeout(400);
 }
 
+/** Two projects in the account's library, to tag meetings with; the page is reloaded to read them. */
+async function seedProjects(page) {
+  await page.evaluate(async () => {
+    const names = (await indexedDB.databases()).map((item) => item.name);
+    const name = names.find((item) => item.includes('reader@example.org')) ?? 'reader';
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open(name, 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const put = (value) =>
+      new Promise((resolve, reject) => {
+        const tx = db.transaction('collections', 'readwrite');
+        tx.objectStore('collections').put(value);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    const project = (id, name, color, question) => ({ id, name, color, createdAt: '2026-09-01T00:00:00.000Z', project: { question, startedAt: '2026-09-01T00:00:00.000Z', roles: {}, todos: [] } });
+    await put(project('pj-fno', 'Neural operators', '#2d64a0', 'Do neural operators generalise across discretisations?'));
+    await put(project('pj-moe', 'MoE routing', '#b27414', 'What does expert choice cost at inference?'));
+    db.close();
+  });
+  await page.reload();
+  await page.waitForTimeout(800);
+}
+
 console.log('\n== the rail, and the connect card ==');
 const { context, page, asked } = await open();
 await signIn(page);
@@ -184,6 +213,77 @@ await page.screenshot({ path: `${OUT}calendar-card.png` });
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
 check('Escape closes the card', (await card.count()) === 0);
+
+console.log('\n== tagged with a project ==');
+await seedProjects(page);
+await page.waitForSelector('.cal-time', { timeout: 5000 });
+check('no meeting is tagged yet', (await page.locator('.cal-tag').count()) === 0);
+await page.locator('.cal-ev.is-block', { hasText: 'Group meeting' }).first().click();
+await page.waitForTimeout(300);
+const tagButton = page.locator('.cal-card-tag');
+check('the card offers to add the meeting to a project', (await tagButton.innerText()).includes('Add to a project'));
+check('a meeting of a series is tagged as the whole series by default', (await page.getByRole('radio', { name: 'Whole series' }).getAttribute('aria-checked')) === 'true');
+await tagButton.click();
+await page.waitForTimeout(200);
+check('the menu lists the projects', (await page.locator('.cal-pmenu [role="menuitemradio"]').count()) === 3);
+await page.screenshot({ path: `${OUT}calendar-tag-menu.png` });
+await page.locator('.cal-pmenu [role="menuitemradio"]', { hasText: 'Neural operators' }).click();
+await page.waitForTimeout(400);
+check('the card names the project', (await tagButton.innerText()).includes('Neural operators'));
+check('Open project is offered', (await page.locator('.cal-card-open').count()) === 1);
+check('the meeting carries the project’s mark', (await page.locator('.cal-ev.is-block .cal-tag').count()) === 1);
+await page.screenshot({ path: `${OUT}calendar-tag-card.png` });
+await page.keyboard.press('Escape');
+// Only this one: Reading group is not a series.
+await page.locator('.cal-ev.is-block', { hasText: 'Reading group' }).click();
+await page.waitForTimeout(300);
+check('a meeting that does not repeat has no series choice', (await page.locator('.cal-card-series').count()) === 0);
+await page.locator('.cal-card-tag').click();
+await page.locator('.cal-pmenu [role="menuitemradio"]', { hasText: 'MoE routing' }).click();
+await page.waitForTimeout(400);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+await page.screenshot({ path: `${OUT}calendar-tag-week.png` });
+await page.getByRole('tab', { name: 'Month' }).click();
+await page.waitForTimeout(400);
+check('every meeting in the series is tagged, in the month', (await page.locator('.cal-ev', { hasText: 'Group meeting' }).locator('.cal-tag').count()) === 4);
+check('the one-off is tagged on its own', (await page.locator('.cal-tag').count()) === 5);
+await page.screenshot({ path: `${OUT}calendar-tag-month.png` });
+await page.reload();
+await page.waitForSelector('.cal-month', { timeout: 5000 });
+await page.waitForTimeout(600);
+check('the tags are kept with the library across a reload', (await page.locator('.cal-tag').count()) === 5);
+await page.getByRole('tab', { name: 'Week' }).click();
+await page.waitForTimeout(400);
+// This one only, on a meeting of the series: the series stays tagged, this one goes elsewhere.
+await page.locator('.cal-ev.is-block', { hasText: 'Group meeting' }).first().click();
+await page.waitForTimeout(300);
+await page.getByRole('radio', { name: 'This one only' }).click();
+await page.locator('.cal-card-tag').click();
+await page.locator('.cal-pmenu [role="menuitemradio"]', { hasText: 'MoE routing' }).click();
+await page.waitForTimeout(400);
+check('this one alone can be another project’s', (await page.locator('.cal-card-tag').innerText()).includes('MoE routing'));
+await page.getByRole('tab', { name: 'Month' }).click();
+await page.waitForTimeout(400);
+const marks = await page.locator('.cal-ev', { hasText: 'Group meeting' }).locator('.cal-tag .pj-mark').allInnerTexts();
+check('the rest of the series keeps its project', marks.filter((mark) => mark === 'NO').length === 3 && marks.filter((mark) => mark === 'MR').length === 1, marks.join(','));
+await page.locator('.cal-ev', { hasText: 'Reading group' }).click();
+await page.waitForTimeout(300);
+await page.locator('.cal-card-tag').click();
+await page.locator('.cal-pmenu [role="menuitemradio"]', { hasText: 'No project' }).click();
+await page.waitForTimeout(400);
+check('No project takes a tag off', (await page.locator('.cal-tag').count()) === 4);
+await page.locator('.cal-card-open').count();
+await page.keyboard.press('Escape');
+await page.locator('.cal-ev', { hasText: 'Group meeting' }).first().click();
+await page.waitForTimeout(300);
+await page.locator('.cal-card-open').click();
+await page.waitForTimeout(500);
+check('Open project goes to the project', new URL(page.url()).pathname.startsWith('/project'), page.url());
+await page.goto(`${BASE}/calendar`);
+await page.waitForSelector('.cal-time, .cal-month', { timeout: 5000 });
+await page.getByRole('tab', { name: 'Week' }).click();
+await page.waitForTimeout(300);
 
 console.log('\n== the day ==');
 await page.keyboard.press('d');

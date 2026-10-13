@@ -5,7 +5,7 @@
 // What is here reads that record and nothing else: no store, no React, so it
 // can be tested without a browser.
 
-import type { CodeRepo, Collection, Paper, PaperRole, ProjectInfo, ProjectTodo } from '../types';
+import type { CodeRepo, Collection, MeetingTag, Paper, PaperRole, ProjectInfo, ProjectTodo } from '../types';
 import { overleafLinkOf } from './overleaf';
 
 export interface Project extends Collection {
@@ -45,6 +45,12 @@ export function projectInfo(collection: Collection | undefined): ProjectInfo | n
         .filter((todo): todo is ProjectTodo => Boolean(todo) && typeof todo.id === 'string' && typeof todo.text === 'string')
         .map((todo) => ({ id: todo.id, text: todo.text, done: Boolean(todo.done) }))
     : [];
+  const meetings: Record<string, MeetingTag> = {};
+  if (raw.meetings && typeof raw.meetings === 'object') {
+    for (const [key, tag] of Object.entries(raw.meetings as Record<string, Partial<MeetingTag> | null>)) {
+      if (tag && typeof tag === 'object' && typeof tag.title === 'string') meetings[key] = { title: tag.title, taggedAt: typeof tag.taggedAt === 'string' ? tag.taggedAt : collection!.createdAt };
+    }
+  }
   return {
     question: typeof raw.question === 'string' ? raw.question : '',
     startedAt: typeof raw.startedAt === 'string' ? raw.startedAt : collection!.createdAt,
@@ -53,7 +59,31 @@ export function projectInfo(collection: Collection | undefined): ProjectInfo | n
     todos,
     ...(overleafLinkOf(raw.overleaf) ? { overleaf: overleafLinkOf(raw.overleaf) } : {}),
     ...(codeRepoOf(raw.codeRepo) ? { codeRepo: codeRepoOf(raw.codeRepo) } : {}),
+    ...(Object.keys(meetings).length ? { meetings } : {}),
   };
+}
+
+/**
+ * The project a meeting on the Calendar page is tagged with, given the keys
+ * it may be tagged under — its own first, then its series' — or none. A tag
+ * on the meeting itself wins over one on the whole series, in any project.
+ */
+export function meetingProject(projects: Project[], keys: string[]): Project | undefined {
+  for (const key of keys) {
+    const held = projects.find((project) => Boolean(project.project.meetings?.[key]));
+    if (held) return held;
+  }
+  return undefined;
+}
+
+/** The record with a meeting tagged under `key` (with `tag`), or the tag taken off (null). */
+export function withMeeting(info: ProjectInfo, key: string, tag: MeetingTag | null): ProjectInfo {
+  const meetings = { ...(info.meetings ?? {}) };
+  if (tag) meetings[key] = tag;
+  else delete meetings[key];
+  if (Object.keys(meetings).length) return { ...info, meetings };
+  const { meetings: _none, ...rest } = info;
+  return rest;
 }
 
 /** Where the project's code goes on GitHub, as kept: owner/name and a branch, or nothing. */

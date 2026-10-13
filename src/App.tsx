@@ -1517,7 +1517,7 @@ export default function App() {
       ) : view.kind === 'playground' ? (
         <Playground id={view.id} onOpen={(id) => setView(id ? { kind: 'playground', id } : { kind: 'playground' })} onOpenPaper={openPaper} />
       ) : view.kind === 'calendar' ? (
-        <Calendar onOpenSettings={() => setSettingsOpen(true)} />
+        <Calendar onOpenSettings={() => setSettingsOpen(true)} onOpenProject={(id) => (setUsageOpen(false), setView(projectView(id, settings.projectOpensOn)))} />
       ) : view.kind === 'projects' || view.kind === 'project' ? (
         <ProjectsPage view={view} onView={setView} onOpenPaper={openPaper} onAddPapers={addPapersToProject} />
       ) : view.kind === 'junk' ? (

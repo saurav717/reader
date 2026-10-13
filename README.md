@@ -4608,6 +4608,18 @@ away for good is done at myaccount.google.com/permissions.
 Click a meeting anywhere and a card opens beside it: when and for how long,
 where, how many guests and how many are going, which calendar it is on and
 your answer, the description, **Join**, and **Open in Google Calendar**.
+Under those, **Add to a project** tags the meeting with the project it is
+for, from the [projects](#projects) you are working on; a tagged meeting
+carries the project's mark in every view and names it in the day's list, and
+the card's **Open project** goes there. A meeting that repeats is tagged as
+its **whole series** by default — every group meeting, say — or **this one
+only**. The tag is kept on the project's record (`meetings` in its
+`ProjectInfo`), so it goes to Drive with the library and is the same in every
+browser; **No project** takes it off.
+
+![a meeting's card with its project picked, Open project beside it, and Whole series chosen](docs/calendar-tag-card.png)
+
+![the month, every group meeting carrying the project's mark](docs/calendar-tag-month.png)
 Every calendar the account keeps is a chip under the title; click one to hide
 it from the page, and again to bring it back. **Today**, **‹** and **›** step
 the view; so do <kbd>T</kbd>, <kbd>←</kbd> and <kbd>→</kbd>, and <kbd>D</kbd>,

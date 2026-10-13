@@ -131,6 +131,16 @@ describe("Google's events", () => {
     assert.equal(event.organizer, 'Advisor');
     assert.equal(event.color, '#1f5e52');
   });
+  it('one meeting of a series knows its series, and is tagged under either key', () => {
+    const one = cal.parseEvent({ id: 'abc_20261013T043000Z', recurringEventId: 'abc', summary: 'Group meeting', start: { dateTime: '2026-10-13T10:00:00+05:30' }, end: { dateTime: '2026-10-13T11:00:00+05:30' } }, calendar);
+    assert.equal(one.seriesId, 'abc');
+    assert.equal(cal.seriesKey(one), 'primary:abc');
+    assert.deepEqual(cal.tagKeys(one), ['primary:abc_20261013T043000Z', 'primary:abc']);
+    const once = cal.parseEvent({ id: 'xyz', summary: 'Lunch', start: { dateTime: '2026-10-13T12:00:00+05:30' }, end: { dateTime: '2026-10-13T13:00:00+05:30' } }, calendar);
+    assert.equal(once.seriesId, undefined);
+    assert.equal(cal.seriesKey(once), null);
+    assert.deepEqual(cal.tagKeys(once), ['primary:xyz']);
+  });
   it('an all-day event is a local day, not midnight UTC', () => {
     const event = cal.parseEvent({ id: 'x', summary: 'Deadline', start: { date: '2026-10-13' }, end: { date: '2026-10-14' } }, calendar);
     assert.ok(event.allDay);
