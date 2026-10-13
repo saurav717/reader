@@ -7316,6 +7316,8 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
 .wr-home-template { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--paper); color: var(--ink); text-align: left; cursor: pointer; font: 12px var(--sans); }
 .wr-home-template:hover { border-color: var(--accent); }
 .wr-home-template small { color: var(--ink-2); }
+.wr-home-template small.mono { color: var(--muted); font: 11px var(--mono); }
+.wr-home-shelf { width: 100%; margin: 6px 0 0; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .wr-home-back { display: block; width: calc(100% - 16px); margin: 8px 8px 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--ink-2); text-align: left; font: 12px var(--sans); cursor: pointer; }
 .wr-home-back:hover { color: var(--ink); border-color: var(--accent); }
 @media (max-width: 640px) { .wr-home { padding: 20px 16px 40px; } .wr-home-head h2 { font-size: 23px; } }
@@ -7354,6 +7356,8 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
 .wr-preview { background: #d9d5ca; }
 :root[data-theme='dark'] .wr-preview { background: #0e0f12; }
 .wr-pdf { flex: 1; min-height: 0; overflow: auto; }
+.wr-figure { display: flex; align-items: center; justify-content: center; overflow: auto; padding: 16px; background: repeating-conic-gradient(rgba(127, 127, 127, 0.12) 0 25%, transparent 0 50%) 0 0 / 16px 16px; }
+.wr-figure img { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25); }
 .wr-pdf-pages { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px; }
 .wr-page { background: #fff; box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2); }
 .wr-banner { margin: 0; padding: 8px 12px; font-size: 12px; color: #b0384f; background: color-mix(in srgb, #b0384f 10%, var(--surface)); }
@@ -7529,6 +7533,8 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .wr-overleaf-pane p { margin: 0; }
 .wr-overleaf-pane .wr-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .wr-overleaf-pane .wr-row { align-items: flex-start; }
+.wr-overleaf-signin { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; margin-bottom: 8px; border: 1px solid var(--accent); border-radius: 10px; background: var(--accent-soft); }
+.wr-overleaf-signin h3 { color: var(--accent-ink); }
 
 /* Compiled on GitHub: set up once, then how a run is going. */
 .wr-ghc { display: flex; flex-direction: column; gap: 6px; margin: 10px 12px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
