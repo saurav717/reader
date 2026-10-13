@@ -20,6 +20,12 @@ export interface PaperContent {
    * which are where they were when they wrote it.
    */
   byline?: PaperByline;
+  /**
+   * Whether the PDF withholds its authors — the blind-review copy of a
+   * submission — so that the names shown over it are from the paper's
+   * record, not from the file.
+   */
+  anonymous?: boolean;
   /** Hands back what the HTML refers to — the images painted from a PDF — once it is off the screen. */
   release?: () => void;
 }
@@ -77,6 +83,7 @@ export async function loadPaperContentFromPdf(
     sourceLabel: `Reflowed from the PDF · ${reflowed.pages} ${reflowed.pages === 1 ? 'page' : 'pages'}`,
     authors: reflowed.authors,
     byline: reflowed.byline,
+    anonymous: reflowed.anonymous,
     release: reflowed.release,
   };
 }
