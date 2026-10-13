@@ -46,8 +46,10 @@ export function targetFrom(settings: Settings): GitHubTarget | null {
 export async function gh<T>(target: GitHubTarget, path: string, init: RequestInit = {}): Promise<T> {
   const response = await githubFetch(target.token, `/repos/${target.owner}/${target.repo}${path}`, init);
   if (!response.ok) {
-    const detail = (await response.json().catch(() => null)) as { message?: string } | null;
+    const detail = (await response.json().catch(() => null)) as { message?: string; error?: string } | null;
     const message = detail?.message || `${response.status}`;
+    // Reader's server's own answer (no GitHub connection for this account, a call it doesn't make): said as it is.
+    if (detail?.error) throw new Error(detail.error);
     if (response.status === 401) throw new Error('GitHub rejected the token — check it has not expired.');
     if (response.status === 403) {
       throw new Error(`GitHub refused the write (${message}). The token needs Contents: read and write on this repository.`);
@@ -69,8 +71,10 @@ export async function gh<T>(target: GitHubTarget, path: string, init: RequestIni
 async function api<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
   const response = await githubFetch(token, path, init);
   if (!response.ok) {
-    const detail = (await response.json().catch(() => null)) as { message?: string; errors?: { message?: string }[] } | null;
+    const detail = (await response.json().catch(() => null)) as { message?: string; error?: string; errors?: { message?: string }[] } | null;
     const said = detail?.errors?.[0]?.message || detail?.message || String(response.status);
+    // Reader's server's own answer (no GitHub connection for this account, a call it doesn't make): said as it is.
+    if (detail?.error) throw new Error(detail.error);
     if (response.status === 401) throw new Error('GitHub rejected the token: it may have expired or been revoked.');
     if (response.status === 403) throw new Error(`GitHub refused (${said}). The token needs Administration and Contents: read and write.`);
     if (response.status === 404) throw new Error('GitHub answered “not found”: the token can’t see that repository, or isn’t allowed to do this.');

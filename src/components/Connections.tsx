@@ -48,7 +48,12 @@ function useGitHubStatus(): GitHubState {
     } else {
       const asked = token === ON_SERVER ? githubStatus() : githubAccount(token).then((account): GitHubStatus => ({ connected: true, login: account.login, via: 'token' }));
       asked.then(
-        (status) => live && setState({ status, problem: null, local: token !== ON_SERVER }),
+        (status) => {
+          if (!live) return;
+          // Kept by the server for whoever was signed in to Reader in this browser before, not for this account: forgotten here.
+          if (token === ON_SERVER && !status.connected) updateSettings({ githubToken: '' });
+          else setState({ status, problem: null, local: token !== ON_SERVER });
+        },
         (error) => live && setState({ status: { connected: false }, problem: error instanceof Error ? error.message : String(error), local: token !== ON_SERVER }),
       );
     }
@@ -413,13 +418,30 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
     document.addEventListener('mousedown', away);
     return () => document.removeEventListener('mousedown', away);
   }, [open]);
-  const choosing = Boolean(token && (!repo || changing));
-  // How GitHub is connected (Reader's GitHub App reaches only the repositories it was given), asked as the menu opens.
-  const [connection, setConnection] = useState<GitHubStatus | null>(null);
+  // Whether GitHub is connected — and how (Reader's GitHub App reaches only the repositories it was given) — asked of
+  // Reader's server as the menu opens: this browser's setting says only that a connection was kept there, by whoever
+  // was signed in to Reader then; the server answers for whoever is signed in now. Undefined while asking.
+  const [connection, setConnection] = useState<GitHubStatus | null | undefined>(undefined);
+  const [connectionProblem, setConnectionProblem] = useState<string | null>(null);
   useEffect(() => {
     if (!open || token !== ON_SERVER) return;
-    githubStatus().then(setConnection, () => setConnection(null));
-  }, [open, token]);
+    setConnection(undefined);
+    setConnectionProblem(null);
+    githubStatus().then(
+      (status) => {
+        setConnection(status);
+        // None for this Reader account (another one connected it in this browser, or it was forgotten): the setting goes.
+        if (!status.connected) updateSettings({ githubToken: '' });
+      },
+      (error: unknown) => {
+        setConnection({ connected: false });
+        setConnectionProblem(error instanceof Error ? error.message : String(error));
+      },
+    );
+  }, [open, token, updateSettings]);
+  const asking = token === ON_SERVER && connection === undefined;
+  const linked = Boolean(token) && (token !== ON_SERVER || connection?.connected === true);
+  const choosing = linked && (!repo || changing);
   // The repositories asked afresh each time the menu opens, and when the person comes back to this tab
   // (from giving Reader's GitHub App its repositories on GitHub).
   useEffect(() => {
@@ -506,11 +528,18 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
       </button>
       {open ? (
         <div className="cx-pop" role="dialog" aria-label="The code on GitHub">
-          {!token ? (
+          {asking ? (
+            <p className="cx-quiet">Checking your GitHub connection…</p>
+          ) : !linked ? (
             <>
-              <b>Connect GitHub</b>
-              <p className="cx-quiet">Once, for every project: then pick or make the repository for this one.</p>
-              <GitHubConnect compact />
+              <b>Connect GitHub first</b>
+              <p className="cx-quiet">
+                {connectionProblem && /sign in/i.test(connectionProblem)
+                  ? 'Sign in to Reader (with Google) first: your GitHub connection is kept with your Reader account.'
+                  : 'Once, for every project: then pick or make the repository for this one. Optional — the code stays where it is without it.'}
+              </p>
+              {connectionProblem && !/sign in/i.test(connectionProblem) ? <p className="cx-bad">{connectionProblem}</p> : null}
+              {connectionProblem && /sign in/i.test(connectionProblem) ? null : <GitHubConnect compact />}
             </>
           ) : choosing ? (
             <>
@@ -609,7 +638,7 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
             </>
           ) : null}
           {busy ? <p className="cx-quiet">{busy}</p> : null}
-          {token ? (
+          {linked ? (
             <div className="cx-pop-foot">
               <span className="cx-quiet">
                 GitHub: <b>{token === ON_SERVER ? connection?.login ?? '…' : 'a token in this browser'}</b>

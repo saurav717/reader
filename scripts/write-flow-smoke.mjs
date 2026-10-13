@@ -455,6 +455,18 @@ await page.locator('.cx-pop-foot').getByRole('button', { name: 'Disconnect' }).c
 await page.locator('.cx-pop').getByText('Connect GitHub').first().waitFor({ timeout: 10000 }).catch(() => {});
 check('Disconnect there signs out of GitHub: the token forgotten by the server', workerKv.size === 0 && (await page.locator('.cx-pop').getByText('Connect GitHub').count()) > 0);
 
+console.log('14. another Reader account in this browser: the setting says connected, the server knows of none for this one');
+workerKv.clear();
+await seed({ projects: [project(inDrive)], settings: { githubToken: 'server' } });
+await page.goto(`${BASE}/project/?id=p-moe&view=workspace`, { waitUntil: 'networkidle' });
+await signIn();
+await page.locator('.cx-gh-btn').click();
+await page.locator('.cx-pop').getByText('Connect GitHub first').waitFor({ timeout: 10000 }).catch(() => {});
+const asked = await page.locator('.cx-pop').innerText();
+check('the menu asks to connect GitHub first, offering nothing else', /Connect GitHub first/.test(asked) && !/Where should the code go/.test(asked) && (await page.locator('.cx-pop .cx-way').count()) >= 1);
+check('the setting left by the other account is cleared', await page.evaluate(() => JSON.parse(localStorage.getItem('reader.settings') || '{}').githubToken === ''));
+await shot('flow-17-github-connect-first');
+
 check('no errors on the page', !errors.length, errors.join(' | '));
 await browser.close();
 if (problems.length) {
