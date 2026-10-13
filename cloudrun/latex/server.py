@@ -56,6 +56,8 @@ CLEAN_ENV = {
     'PATH': os.environ.get('PATH', '/usr/local/bin:/usr/bin:/bin'),
     'HOME': '/tmp',
     'LANG': 'C.UTF-8',
+    # XeLaTeX's and LuaLaTeX's font caches, built into the image (Dockerfile) rather than by each new instance's first compile.
+    **({'TEXMFVAR': os.environ['TEXMFVAR']} if os.environ.get('TEXMFVAR') else {}),
     'openin_any': 'p',
     'openout_any': 'p',
     'shell_escape': 'p',
@@ -393,6 +395,60 @@ def git_sync(job):
         shutil.rmtree(work, ignore_errors=True)
 
 
+# ------------------------------------------------------------ warming --
+# A new instance has TeX Live in its image but none of it read yet: Cloud Run
+# fetches an image's files as they are first opened, so the first compile used
+# to spend most of its time on the formats, the packages and the fonts — the
+# page's wake-up (GET /) only started Python. Now the instance compiles a small
+# paper of the usual packages as it starts, and GET / answers once that's done.
+
+WARM_TEX = r'''\documentclass{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern,amsmath,amssymb,amsthm,mathtools,graphicx,xcolor,geometry,booktabs,hyperref,cleveref,natbib,tikz,pgfplots,float,caption,subcaption,enumitem,listings,algorithm,algpseudocode}
+\usepackage[english,spanish]{babel}
+\begin{document}
+\section{Warm}
+Warm \textbf{text} \emph{here}, $\int_0^1 x^2\,dx = \frac{1}{3}$ \cite{x}.
+\begin{tikzpicture}\draw (0,0) -- (1,1);\end{tikzpicture}
+\bibliographystyle{plain}
+\begin{thebibliography}{1}\bibitem{x} X.\end{thebibliography}
+\end{document}
+'''
+WARM_S = int(os.environ.get('LATEX_WARM_S', '90'))
+WARMED = threading.Event()
+
+
+def warm():
+    """Reads what nearly every compile reads (each engine's format, the usual packages and fonts), once per instance."""
+    work = pathlib.Path(tempfile.mkdtemp(prefix='warm-'))
+    try:
+        for engine, fmt in (('pdftex', 'pdflatex.fmt'), ('xetex', 'xelatex.fmt'), ('luahbtex', 'lualatex.fmt')):
+            found = subprocess.run(['kpsewhich', f'-engine={engine}', fmt], env=CLEAN_ENV, capture_output=True, text=True, timeout=20).stdout.strip()
+            if found:
+                with open(found, 'rb') as f:
+                    while f.read(1 << 20):
+                        pass
+        (work / 'warm.tex').write_text(WARM_TEX)
+        user = as_user()
+        if user:
+            for path in [work, *work.rglob('*')]:
+                os.chown(path, user['user'], user['group'])
+        # A package the image lacks only means less is warmed: -f goes on past it.
+        process = subprocess.Popen([LATEXMK, '-pdf', '-f', '-interaction=batchmode', 'warm.tex'], cwd=work, env=CLEAN_ENV,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, start_new_session=True, **user)
+        try:
+            process.wait(timeout=WARM_S)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+        WARMED.set()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = 'reader-latex'
     sys_version = ''
@@ -407,7 +463,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        self.answer(200, {'ok': True}) if self.path == '/' else self.answer(404, {'error': 'not found'})
+        if self.path != '/':
+            return self.answer(404, {'error': 'not found'})
+        # The page's wake-up: answered once TeX Live is warm (or after 50 s), so the request keeps the instance's CPU while it warms.
+        self.answer(200, {'ok': True, 'warm': WARMED.wait(50)})
 
     def do_POST(self):
         if self.path not in ('/compile', '/git/sync', '/git/check', '/git/files'):
@@ -444,4 +503,5 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     if not TOKEN:
         sys.stderr.write('LATEX_TOKEN is not set: every compile will be refused\n')
+    threading.Thread(target=warm, daemon=True).start()
     ThreadingHTTPServer(('', int(os.environ.get('PORT', '8080'))), Handler).serve_forever()
