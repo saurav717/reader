@@ -52,6 +52,11 @@ describe('the days a view shows', () => {
     assert.match(cal.periodLabel('week', d(2026, 10, 31), MONDAY, 'en-US'), /^Oct 26\s*–\s*Nov 1, 2026$/);
     assert.match(cal.periodLabel('day', d(2026, 10, 13), MONDAY, 'en-US'), /Tuesday, October 13, 2026/);
   });
+  it('names the hours of the axis the way the clock does', () => {
+    assert.equal(cal.hourLabel(13, 'en-US'), '1 PM');
+    assert.equal(cal.hourLabel(13, 'en-GB'), '13:00');
+    assert.equal(cal.hourLabel(9, 'de-DE'), '9:00');
+  });
   it('reads the first weekday from the locale', () => {
     assert.equal(cal.firstWeekday('en-US'), 0);
     assert.equal(cal.firstWeekday('en-GB'), 1);
