@@ -81,6 +81,18 @@ Press **P** for the [Playground](#playground), a page for code of your own:
 a notebook or a project, on your Colab, on this PC, or with the files on this
 PC and the GPU somewhere else. Every page has [its own address](#addresses).
 
+New here? A **guided tour** opens the first time a visit reaches Home: a ring
+round one part of the window at a time, the rest shaded, and a card beside it
+saying what that part does — the rail, Home's views, Find papers, the palette,
+then a paper: its top bar, the highlights, Ask AI, Explain, zen, and the way
+back. A few steps ask for the key itself — <kbd>2</kbd>, <kbd>⌘K</kbd>,
+<kbd>H</kbd>, <kbd>⌘\\</kbd>, <kbd>Z</kbd>, <kbd>G</kbd> — and the tour watches
+for what it opens, says *there it is*, and moves on. <kbd>Esc</kbd> or **Skip
+tour** leaves it at any step; **Settings → Guided tour**, or <kbd>⌘K</kbd> and
+*Take the tour*, bring it back.
+
+![the tour on the highlights step: the ring round the Notes pane, which H has just opened, and the card saying so](docs/tour.png)
+
 ## Running it
 
 ```bash
