@@ -12,6 +12,7 @@
 //   /playground            the Playground's home
 //   /playground/?id=<id>   one playground
 //   /projects              every project, side by side
+//   /calendar              the signed-in account's calendar
 //   /project/?id=<id>      a project's overview; &view=workspace its workspace, &view=write its paper
 //
 // The id rides in the query, so every address is a folder that exists on a
@@ -107,6 +108,7 @@ export function placeFor(address: string, base = basePath()): Place | null {
   if (head === 'collection' && id) return { view: { kind: 'collection', id } };
   if (head === 'paper' && id) return { view: { kind: 'paper', id } };
   if (head === 'projects' && !extra) return { view: { kind: 'projects' } };
+  if (head === 'calendar' && !extra) return { view: { kind: 'calendar' } };
   if (head === 'project' && id) {
     const asked = new URLSearchParams(query).get('view');
     const mode = asked === 'read' || asked === 'workspace' || asked === 'write' ? asked : undefined;

@@ -81,6 +81,30 @@ describe('between projects', () => {
   });
 });
 
+describe('a project’s meetings', () => {
+  const tag = { title: 'Group meeting', taggedAt: '2026-10-13T10:00:00.000Z' };
+  it('a tag goes on the record and comes off it, and the record is bare again without any', () => {
+    const tagged = pj.withMeeting(pj.newProjectInfo(), 'cal:e1', tag);
+    assert.deepEqual(tagged.meetings, { 'cal:e1': tag });
+    assert.equal('meetings' in pj.withMeeting(tagged, 'cal:e1', null), false);
+    assert.deepEqual(pj.withMeeting(tagged, 'cal:e2', tag).meetings, { 'cal:e1': tag, 'cal:e2': tag });
+  });
+  it('a meeting’s project is whichever holds its key, the meeting’s own over its series’', () => {
+    const a = collection('a', { ...pj.newProjectInfo(), meetings: { 'cal:series': tag } });
+    const b = collection('b', { ...pj.newProjectInfo(), meetings: { 'cal:series_20261013': tag } });
+    const projects = pj.projectsOf([a, b]);
+    assert.equal(pj.meetingProject(projects, ['cal:series_20261013', 'cal:series']).id, 'b');
+    assert.equal(pj.meetingProject(projects, ['cal:series_20261020', 'cal:series']).id, 'a');
+    assert.equal(pj.meetingProject(projects, ['cal:other']), undefined);
+  });
+  it('the tags survive a record read back from Drive, and a broken one is dropped', () => {
+    const info = pj.projectInfo(collection('x', { meetings: { 'cal:e1': tag, 'cal:e2': { title: 'No date' }, 'cal:e3': { taggedAt: 'no title' }, 'cal:e4': 'nonsense' } }));
+    assert.deepEqual(Object.keys(info.meetings), ['cal:e1', 'cal:e2']);
+    assert.equal(info.meetings['cal:e2'].taggedAt, '2026-01-01T00:00:00.000Z');
+    assert.equal('meetings' in pj.projectInfo(collection('y', { question: 'q' })), false);
+  });
+});
+
 describe('a project’s mark', () => {
   it('is two letters', () => {
     assert.equal(pj.initialsOf('Sparse-gated MoE'), 'SG');

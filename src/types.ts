@@ -178,6 +178,14 @@ export interface ProjectInfo {
   overleaf?: OverleafLink;
   /** The GitHub repository the project's code is pushed to, once set up from the workspace. */
   codeRepo?: CodeRepo;
+  /** The meetings tagged with this project on the Calendar page, by the key the page tags them under (lib/calendar.ts, `tagKeys`). */
+  meetings?: Record<string, MeetingTag>;
+}
+
+/** A meeting on the Calendar page tagged as a project's: its title when it was tagged, for the project's own record. */
+export interface MeetingTag {
+  title: string;
+  taggedAt: string;
 }
 
 /** Where a project's code goes on GitHub: one commit of its files each time Sync to GitHub is pressed. */

@@ -55,6 +55,7 @@ import CompanionUpdates from './CompanionUpdate';
 import ProxyPass from './ProxyPass';
 import { RunningChooser } from './PlaygroundRuns';
 import { GitHubConnect } from './Connections';
+import { CalendarConnect } from './Calendar';
 import { startTour } from '../lib/tour';
 import { startShowcase } from '../lib/showcase';
 
@@ -270,6 +271,8 @@ export default function Settings({ onClose }: { onClose: () => void }) {
               {librarySync.message}
             </p>
           ) : null}
+
+          <CalendarConnect />
 
           {librarySync.state === 'error' ? (
             <p className="banner error" style={{ marginTop: 10 }}>

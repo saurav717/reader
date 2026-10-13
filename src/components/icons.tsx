@@ -420,3 +420,28 @@ export const HomeIcon = (props: IconProps) => (
     <path d="M10 20v-5.5h4V20" />
   </Icon>
 );
+export const CalendarIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="3" y="5" width="18" height="16" rx="2.5" />
+    <path d="M3 10h18M8 3v4M16 3v4" />
+    <path d="M8 14h2M14 14h2M8 17.5h2" />
+  </Icon>
+);
+export const VideoIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="3" y="7" width="13" height="10" rx="2" />
+    <path d="m16 11 5-3v8l-5-3z" />
+  </Icon>
+);
+export const PinIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M12 21s-6-5.3-6-11a6 6 0 0 1 12 0c0 5.7-6 11-6 11z" />
+    <circle cx="12" cy="10" r="2.2" />
+  </Icon>
+);
+export const PeopleIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="9" cy="8" r="3.2" />
+    <path d="M3.5 19a5.5 5.5 0 0 1 11 0M15.5 5.5a3.2 3.2 0 0 1 0 5.5M17 14.5a5 5 0 0 1 3.5 4.5" />
+  </Icon>
+);
