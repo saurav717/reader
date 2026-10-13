@@ -14,9 +14,15 @@ import {
   MINUTES_IN_DAY,
   VIEWS,
   addDays,
+  atKeys,
+  createEvent,
   dayKey,
   daysIn,
+  deleteEvent,
+  draftOf,
+  draftProblem,
   durationLabel,
+  emptyDraft,
   eventsOn,
   fetchAllEvents,
   fetchCalendars,
@@ -25,6 +31,7 @@ import {
   onDay,
   periodLabel,
   placeTimed,
+  respondToEvent,
   sameDay,
   sameMonth,
   seriesKey,
@@ -34,15 +41,22 @@ import {
   startOfDay,
   step,
   tagKeys,
+  timeKey,
   timeLabel,
+  toHalfHour,
+  updateEvent,
   whenLabel,
+  withEvent,
+  withoutEvent,
   type CalendarEvent,
   type CalendarInfo,
   type CalendarView,
+  type EventDraft,
+  type Response as Rsvp,
   type Span,
 } from '../lib/calendar';
 import { initialsOf, meetingProject, projectInfo, projectsOf, withMeeting, type Project } from '../lib/projects';
-import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExternalIcon, PeopleIcon, PinIcon, RestoreIcon, VideoIcon } from './icons';
+import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, CloseIcon, ExternalIcon, PeopleIcon, PinIcon, PlusIcon, RestoreIcon, TrashIcon, VideoIcon } from './icons';
 
 const VIEW_KEY = 'reader.calendar.view';
 const HIDDEN_KEY = 'reader.calendar.hidden';
@@ -140,8 +154,8 @@ export function CalendarConnect() {
         <div style={{ fontSize: 13, fontWeight: 500 }}>{connected ? 'Google Calendar connected' : 'Google Calendar not connected'}</div>
         <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
           {connected
-            ? 'Your meetings are on the Calendar page, by day, week or month. Read only: nothing here writes to your calendar.'
-            : error || 'The Calendar page shows the meetings in this account’s calendars. Connecting asks Google for read access to them, once.'}
+            ? 'Your meetings are on the Calendar page, by day, week or month. Your calendar changes only when you change it there: a meeting added, changed or deleted, or an invitation answered.'
+            : error || 'The Calendar page shows the meetings in this account’s calendars, and can add to them. Connecting asks Google once, for your calendars and their events.'}
         </div>
       </div>
       {connected ? (
@@ -184,6 +198,12 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Picked | null>(null);
+  /** The editor: a new event being drafted, or an existing one (`of`) being changed. */
+  const [editing, setEditing] = useState<{ draft: EventDraft; of?: CalendarEvent } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  /** An answer to an invitation on its way to Google. */
+  const [responding, setResponding] = useState(false);
   const cache = useRef(new Map<string, Loaded>());
   const firstDay = useMemo(() => firstWeekday(), []);
   const span = useMemo(() => spanFor(view, date, firstDay), [view, date, firstDay]);
@@ -303,8 +323,10 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
       if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return;
       if (event.key === 'Escape') {
         setPicked(null);
+        setEditing(null);
         return;
       }
+      if (editing) return;
       if (event.key === 'ArrowLeft') go(-1);
       else if (event.key === 'ArrowRight') go(1);
       else if (event.key.toLowerCase() === 't') goToday();
@@ -317,7 +339,7 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+  }, [view, Boolean(editing)]);
 
   const shown = useMemo(() => (loaded && loaded.span.start.getTime() === span.start.getTime() && loaded.span.end.getTime() === span.end.getTime() ? loaded : null), [loaded, span]);
   const events = useMemo(() => (shown ? shown.events.filter((event) => !hidden.includes(event.calendarId)) : []), [shown, hidden]);
@@ -352,6 +374,105 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
 
   const pick = (event: CalendarEvent, target: HTMLElement) => setPicked({ event, anchor: target.getBoundingClientRect() });
 
+  // ---- making, changing, deleting and answering: each goes to Google, then into what is on screen.
+  /** The calendars events can be put on: the person's own, and shared ones they may write to. */
+  const writable = useMemo(() => (calendars ?? []).filter((calendar) => calendar.writable), [calendars]);
+  const calendarOf = (event: CalendarEvent) => calendars?.find((calendar) => calendar.id === event.calendarId);
+  /** The events on screen changed, in the cache too, so a step away and back shows the same. */
+  const patchEvents = (change: (events: CalendarEvent[]) => CalendarEvent[]) => {
+    setLoaded((current) => {
+      if (!current) return current;
+      const next = { ...current, events: change(current.events) };
+      cache.current.set(`${current.span.start.getTime()}-${current.span.end.getTime()}`, next);
+      return next;
+    });
+  };
+  const tokenOrSay = async (): Promise<string | null> => {
+    const token = await google.calendarToken(clientId);
+    if (!token) {
+      tellAccess();
+      setError('The calendar has to be connected again first.');
+    }
+    return token;
+  };
+  const said = (failure: unknown) => (failure instanceof CalendarRequestError && failure.status === 403 ? 'Google would not allow that on this calendar.' : message(failure));
+  /** A new event from `start`, on the person's own calendar unless they pick another. */
+  const startNew = (start: Date, allDay = false) => {
+    if (!writable.length) {
+      setError('None of your calendars can be written to from here, so there is nowhere to put a new event.');
+      return;
+    }
+    setPicked(null);
+    setEditError(null);
+    setEditing({ draft: emptyDraft((writable.find((calendar) => calendar.primary) ?? writable[0]).id, start, allDay) });
+  };
+  /** New from the head: the next half hour of today when today is on screen, else nine in the morning of the day shown. */
+  const startNewNow = () => {
+    const today = sameDay(date, now) || (view !== 'day' && daysIn(span).some((day) => sameDay(day, now)));
+    startNew(today ? new Date(toHalfHour(now).getTime() + 30 * 60_000) : new Date(date.getFullYear(), date.getMonth(), date.getDate(), 9));
+  };
+  const startEdit = (event: CalendarEvent) => {
+    setPicked(null);
+    setEditError(null);
+    setEditing({ draft: draftOf(event), of: event });
+  };
+  const save = async () => {
+    if (!editing) return;
+    const problem = draftProblem(editing.draft);
+    if (problem) {
+      setEditError(problem);
+      return;
+    }
+    setSaving(true);
+    setEditError(null);
+    try {
+      const token = await tokenOrSay();
+      if (!token) return;
+      const list = calendars ?? [];
+      const next = editing.of ? await updateEvent(token, list, editing.of, editing.draft) : await createEvent(token, list.find((calendar) => calendar.id === editing.draft.calendarId)!, editing.draft);
+      const before = editing.of?.id;
+      patchEvents((events) => withEvent(before ? withoutEvent(events, before) : events, next));
+      setEditing(null);
+    } catch (failure) {
+      setEditError(said(failure));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const remove = async (event: CalendarEvent) => {
+    if (!window.confirm(`Delete “${event.title}”${event.seriesId ? ' — this one only; the rest of the series stays' : ''}?`)) return;
+    setSaving(true);
+    try {
+      const token = await tokenOrSay();
+      if (!token) return;
+      await deleteEvent(token, event);
+      patchEvents((events) => withoutEvent(events, event.id));
+      setEditing(null);
+      setPicked(null);
+    } catch (failure) {
+      if (editing) setEditError(said(failure));
+      else setError(said(failure));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const respond = async (event: CalendarEvent, response: Rsvp) => {
+    const calendar = calendarOf(event);
+    if (!calendar || event.response === response) return;
+    setResponding(true);
+    try {
+      const token = await tokenOrSay();
+      if (!token) return;
+      const next = await respondToEvent(token, calendar, event, response);
+      patchEvents((events) => withEvent(events, next));
+      setPicked((current) => (current && current.event.id === event.id ? { ...current, event: next } : current));
+    } catch (failure) {
+      setError(said(failure));
+    } finally {
+      setResponding(false);
+    }
+  };
+
   const head = (
     <div className="collection-head cal-head">
       <div className="collection-titlebar">
@@ -374,6 +495,10 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
             </span>
             <h2 className="cal-period">{periodLabel(view, date, firstDay)}</h2>
             <span style={{ flexGrow: 1 }} />
+            <button type="button" className="btn primary sm cal-new" onClick={startNewNow} disabled={!calendars} title="A new event — or click an empty hour on the grid">
+              <PlusIcon size={14} />
+              New
+            </button>
             <div className="segmented" role="tablist" aria-label="View">
               {VIEWS.map((item) => (
                 <button key={item.id} type="button" role="tab" aria-selected={view === item.id} onClick={() => setView(item.id)} title={`${item.label} (${item.key})`}>
@@ -445,13 +570,13 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
           text={
             wasConnected()
               ? `The sign-in for ${user.email} has to be renewed for the calendar. One click; Google asks nothing new.`
-              : `Reader reads the calendars in ${user.email} — just reads: the calendars you keep and the meetings in them — and shows them by day, week or month. Connecting asks Google for read access, once.`
+              : `Reader shows the calendars in ${user.email} — the ones you keep and the meetings in them — by day, week or month, and lets you add a meeting, change one, or answer an invitation from here. Connecting asks Google once, for your calendars and their events.`
           }
           error={error}
           note={
             wasConnected()
               ? undefined
-              : 'Reading a calendar is what Google calls a sensitive permission, so until this copy of Reader is verified with Google its window first says “Google hasn’t verified this app”: Advanced, then Go to Reader, lets you through to the usual consent screen.'
+              : 'A calendar is what Google calls a sensitive permission, so until this copy of Reader is verified with Google its window first says “Google hasn’t verified this app”: Advanced, then Go to Reader, lets you through to the usual consent screen.'
           }
           more={{ href: `${basePath()}privacy/`, label: 'What Reader does with your calendar: the privacy policy' }}
           action={{ label: connecting ? 'Connecting…' : wasConnected() ? 'Reconnect calendar' : 'Connect Google Calendar', onClick: connect, disabled: connecting, primary: true }}
@@ -469,20 +594,36 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
         </p>
       ) : null}
       {view === 'month' ? (
-        <MonthGrid days={days} date={date} events={events} today={now} tags={tags} onDay={openDay} onEvent={pick} picked={picked?.event.id} />
+        <MonthGrid days={days} date={date} events={events} today={now} tags={tags} onDay={openDay} onEvent={pick} picked={picked?.event.id} onSlot={(day) => startNew(new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9))} />
       ) : (
-        <TimeGrid days={days} events={events} now={now} tags={tags} onEvent={pick} picked={picked?.event.id} onDay={view === 'week' ? openDay : undefined} />
+        <TimeGrid days={days} events={events} now={now} tags={tags} onEvent={pick} picked={picked?.event.id} onDay={view === 'week' ? openDay : undefined} onSlot={(start) => startNew(start)} />
       )}
       {!shown && !loading && !error ? <div className="cal-blank">Reading your calendar…</div> : null}
       {picked ? (
         <EventCard
           picked={picked}
-          calendar={calendars?.find((calendar) => calendar.id === picked.event.calendarId)}
+          calendar={calendarOf(picked.event)}
           projects={projects}
           project={tags.get(picked.event.id)}
           onTag={(projectId, series) => tag(picked.event, projectId, series)}
           onOpenProject={onOpenProject}
+          onEdit={() => startEdit(picked.event)}
+          onDelete={() => void remove(picked.event)}
+          onRespond={(response) => void respond(picked.event, response)}
+          responding={responding}
           onClose={() => setPicked(null)}
+        />
+      ) : null}
+      {editing ? (
+        <EventEditor
+          editing={editing}
+          calendars={writable}
+          busy={saving}
+          error={editError}
+          onChange={(draft) => setEditing({ ...editing, draft })}
+          onSave={() => void save()}
+          onDelete={editing.of ? () => void remove(editing.of!) : undefined}
+          onCancel={() => setEditing(null)}
         />
       ) : null}
     </div>
@@ -532,7 +673,7 @@ const eventClass = (event: CalendarEvent, extra = '', picked?: string) =>
   `cal-ev${extra ? ` ${extra}` : ''}${event.response === 'declined' ? ' is-declined' : ''}${event.response === 'tentative' || event.status === 'tentative' ? ' is-tentative' : ''}${event.response === 'needsAction' ? ' is-asked' : ''}${picked === event.id ? ' is-picked' : ''}`;
 
 /** The month: six weeks of seven days, each day's events as a short list, the rest behind "+N more". */
-function MonthGrid({ days, date, events, today, tags, onDay, onEvent, picked }: { days: Date[]; date: Date; events: CalendarEvent[]; today: Date; tags: Map<string, Project>; onDay: (day: Date) => void; onEvent: (event: CalendarEvent, target: HTMLElement) => void; picked?: string }) {
+function MonthGrid({ days, date, events, today, tags, onDay, onEvent, picked, onSlot }: { days: Date[]; date: Date; events: CalendarEvent[]; today: Date; tags: Map<string, Project>; onDay: (day: Date) => void; onEvent: (event: CalendarEvent, target: HTMLElement) => void; picked?: string; /** A double-click on a day's empty space: a new event that day. */ onSlot?: (day: Date) => void }) {
   const MOST = 3;
   return (
     <div className="cal-month" role="grid" aria-label="Month">
@@ -552,7 +693,16 @@ function MonthGrid({ days, date, events, today, tags, onDay, onEvent, picked }: 
           const more = listed.length - MOST;
           const isToday = sameDay(day, today);
           return (
-            <div key={dayKey(day)} role="gridcell" className={`cal-month-cell${sameMonth(day, date) ? '' : ' is-outside'}${isToday ? ' is-today' : ''}`} aria-label={day.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}>
+            <div
+              key={dayKey(day)}
+              role="gridcell"
+              className={`cal-month-cell${sameMonth(day, date) ? '' : ' is-outside'}${isToday ? ' is-today' : ''}`}
+              aria-label={day.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
+              title={onSlot ? 'Double-click to add an event' : undefined}
+              onDoubleClick={(click) => {
+                if (onSlot && (click.target === click.currentTarget || (click.target as HTMLElement).classList.contains('cal-month-list'))) onSlot(day);
+              }}
+            >
               <button type="button" className="cal-month-num" onClick={() => onDay(day)} title="Open this day">
                 {day.getDate() === 1 ? day.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : day.getDate()}
               </button>
@@ -596,7 +746,7 @@ function lanes(events: CalendarEvent[], days: Date[]): { event: CalendarEvent; f
 }
 
 /** A day or a week on a time axis: the all-day row above, the hours below, each column's meetings side by side where they overlap. */
-function TimeGrid({ days, events, now, tags, onEvent, picked, onDay }: { days: Date[]; events: CalendarEvent[]; now: Date; tags: Map<string, Project>; onEvent: (event: CalendarEvent, target: HTMLElement) => void; picked?: string; onDay?: (day: Date) => void }) {
+function TimeGrid({ days, events, now, tags, onEvent, picked, onDay, onSlot }: { days: Date[]; events: CalendarEvent[]; now: Date; tags: Map<string, Project>; onEvent: (event: CalendarEvent, target: HTMLElement) => void; picked?: string; onDay?: (day: Date) => void; /** A click on an empty hour: a new event starting there, on the half hour. */ onSlot?: (start: Date) => void }) {
   const scroller = useRef<HTMLDivElement>(null);
   const single = days.length === 1;
   const allDay = useMemo(() => lanes(events, days), [events, days]);
@@ -662,7 +812,19 @@ function TimeGrid({ days, events, now, tags, onEvent, picked, onDay }: { days: D
               const isToday = sameDay(day, now);
               const minutesNow = now.getHours() * 60 + now.getMinutes();
               return (
-                <div key={dayKey(day)} className={`cal-col${isToday ? ' is-today' : ''}`} role="group" aria-label={day.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}>
+                <div
+                  key={dayKey(day)}
+                  className={`cal-col${isToday ? ' is-today' : ''}${onSlot ? ' can-add' : ''}`}
+                  role="group"
+                  aria-label={day.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
+                  title={onSlot ? 'Click an empty hour to add an event' : undefined}
+                  onClick={(click) => {
+                    if (!onSlot || click.target !== click.currentTarget) return;
+                    const box = click.currentTarget.getBoundingClientRect();
+                    const minutes = Math.max(0, Math.min(MINUTES_IN_DAY - 30, ((click.clientY - box.top) / HOUR_PX) * 60));
+                    onSlot(toHalfHour(new Date(day.getFullYear(), day.getMonth(), day.getDate(), Math.floor(minutes / 60), minutes % 60)));
+                  }}
+                >
                   {Array.from({ length: 24 }, (_, hour) => (
                     <i key={hour} className="cal-hline" style={{ top: hour * HOUR_PX }} />
                   ))}
@@ -749,6 +911,10 @@ function EventCard({
   project,
   onTag,
   onOpenProject,
+  onEdit,
+  onDelete,
+  onRespond,
+  responding,
   onClose,
 }: {
   picked: Picked;
@@ -758,9 +924,14 @@ function EventCard({
   project?: Project;
   onTag: (projectId: string | null, series: boolean) => void;
   onOpenProject?: (id: string) => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onRespond: (response: Rsvp) => void;
+  responding: boolean;
   onClose: () => void;
 }) {
   const { event, anchor } = picked;
+  const writable = Boolean(calendar?.writable);
   const card = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState(false);
   /** For a meeting that repeats: whether the tag goes on every one in the series (the usual want) or this one alone. */
@@ -817,6 +988,24 @@ function EventCard({
         </span>
       </p>
       {event.description ? <p className="cal-card-desc">{event.description.replace(/<[^>]+>/g, '').slice(0, 400)}</p> : null}
+      {event.response && writable ? (
+        <div className="cal-card-rsvp">
+          <span className="cal-card-rsvp-cap">Going?</span>
+          <div className="segmented sm" role="radiogroup" aria-label="Your answer" aria-busy={responding}>
+            {(
+              [
+                ['accepted', 'Yes'],
+                ['tentative', 'Maybe'],
+                ['declined', 'No'],
+              ] as const
+            ).map(([response, label]) => (
+              <button key={response} type="button" role="radio" aria-checked={event.response === response} disabled={responding} onClick={() => onRespond(response)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="cal-card-project">
         <button
           type="button"
@@ -900,7 +1089,130 @@ function EventCard({
             Open in Google Calendar
           </a>
         ) : null}
+        {writable ? (
+          <>
+            <span style={{ flexGrow: 1 }} />
+            <button type="button" className="btn sm" onClick={onEdit} title="Change this event">
+              Edit
+            </button>
+            <button type="button" className="icon-btn sm cal-card-delete" onClick={onDelete} aria-label="Delete this event" title={event.seriesId ? 'Delete this one — the rest of the series stays' : 'Delete this event'}>
+              <TrashIcon size={14} />
+            </button>
+          </>
+        ) : null}
       </div>
+    </div>
+  );
+}
+
+/** The editor: a new event, or one being changed. Saves to Google; the page shows the result. */
+function EventEditor({
+  editing,
+  calendars,
+  busy,
+  error,
+  onChange,
+  onSave,
+  onDelete,
+  onCancel,
+}: {
+  editing: { draft: EventDraft; of?: CalendarEvent };
+  /** The calendars it may go on: the writable ones. */
+  calendars: CalendarInfo[];
+  busy: boolean;
+  error: string | null;
+  onChange: (draft: EventDraft) => void;
+  onSave: () => void;
+  onDelete?: () => void;
+  onCancel: () => void;
+}) {
+  const { draft, of } = editing;
+  const set = (change: Partial<EventDraft>) => onChange({ ...draft, ...change });
+  const minutes = (draft.end.getTime() - draft.start.getTime()) / 60_000;
+  /** All day shows an inclusive last day; the draft's end stays exclusive. */
+  const lastDay = addDays(draft.end, -1);
+  const setStart = (next: Date) => set({ start: next, end: new Date(next.getTime() + Math.max(draft.allDay ? 24 * 60 : 15, minutes) * 60_000) });
+  const toggleAllDay = (allDay: boolean) => {
+    if (allDay) set({ allDay, start: startOfDay(draft.start), end: addDays(startOfDay(draft.end > startOfDay(addDays(draft.start, 1)) ? addDays(draft.end, -1) : draft.start), 1) });
+    else {
+      const start = new Date(draft.start.getFullYear(), draft.start.getMonth(), draft.start.getDate(), 9);
+      set({ allDay, start, end: new Date(start.getTime() + 60 * 60_000) });
+    }
+  };
+  return (
+    <div
+      className="cal-editor-shade"
+      onPointerDown={(press) => {
+        if (press.target === press.currentTarget) onCancel();
+      }}
+    >
+      <form
+        className="cal-editor"
+        role="dialog"
+        aria-label={of ? 'Edit event' : 'New event'}
+        onSubmit={(submit) => {
+          submit.preventDefault();
+          onSave();
+        }}
+        onKeyDown={(key) => {
+          if (key.key === 'Escape') onCancel();
+        }}
+      >
+        <h3>{of ? 'Edit event' : 'New event'}</h3>
+        <input className="cal-editor-title" placeholder="Title" value={draft.title} onChange={(change) => set({ title: change.target.value })} autoFocus aria-label="Title" />
+        <div className="cal-editor-when">
+          <input type="date" value={dayKey(draft.start)} onChange={(change) => change.target.value && setStart(atKeys(change.target.value, draft.allDay ? '00:00' : timeKey(draft.start)))} aria-label="Date" />
+          {draft.allDay ? (
+            <>
+              <span className="cal-editor-to">to</span>
+              <input type="date" value={dayKey(lastDay)} min={dayKey(draft.start)} onChange={(change) => change.target.value && set({ end: addDays(atKeys(change.target.value), 1) })} aria-label="Last day" />
+            </>
+          ) : (
+            <>
+              <input type="time" value={timeKey(draft.start)} step={300} onChange={(change) => change.target.value && setStart(atKeys(dayKey(draft.start), change.target.value))} aria-label="Start time" />
+              <span className="cal-editor-to">–</span>
+              <input type="time" value={timeKey(draft.end)} step={300} onChange={(change) => change.target.value && set({ end: atKeys(dayKey(draft.start), change.target.value) })} aria-label="End time" />
+            </>
+          )}
+          <label className="cal-editor-allday">
+            <input type="checkbox" checked={draft.allDay} onChange={(change) => toggleAllDay(change.target.checked)} />
+            All day
+          </label>
+        </div>
+        <div className="cal-editor-row">
+          <select value={draft.calendarId} onChange={(change) => set({ calendarId: change.target.value })} aria-label="Calendar">
+            {calendars.map((calendar) => (
+              <option key={calendar.id} value={calendar.id}>
+                {calendar.name}
+              </option>
+            ))}
+          </select>
+          <input placeholder="Where" value={draft.location} onChange={(change) => set({ location: change.target.value })} aria-label="Where" />
+        </div>
+        <textarea placeholder="Notes" rows={3} value={draft.description} onChange={(change) => set({ description: change.target.value })} aria-label="Notes" />
+        {!of ? (
+          <label className="cal-editor-meet">
+            <input type="checkbox" checked={draft.meet} onChange={(change) => set({ meet: change.target.checked })} />
+            Add a Google Meet call
+          </label>
+        ) : null}
+        {of?.seriesId ? <p className="cal-editor-note">This is one meeting of a series: the change is to this one only, and the rest of the series stays as it is.</p> : null}
+        {error ? <p className="banner error">{error}</p> : null}
+        <div className="cal-editor-actions">
+          {onDelete ? (
+            <button type="button" className="btn sm cal-editor-delete" onClick={onDelete} disabled={busy}>
+              Delete
+            </button>
+          ) : null}
+          <span style={{ flexGrow: 1 }} />
+          <button type="button" className="btn sm" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button type="submit" className="btn primary sm" disabled={busy}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

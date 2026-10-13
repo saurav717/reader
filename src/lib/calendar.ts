@@ -22,10 +22,15 @@ export interface CalendarInfo {
   /** Google's colour for it, a hex string. */
   color: string;
   primary: boolean;
+  /** Whether the person may make, change and delete events on it (owner or writer); a subscribed or shared-read-only calendar is not. */
+  writable: boolean;
 }
 
 export interface CalendarEvent {
+  /** The page's own key: the calendar's id and Google's event id together. */
   id: string;
+  /** Google's id for the event, as the API names it — for one of a series, the instance's. */
+  eventId: string;
   calendarId: string;
   title: string;
   start: Date;
@@ -330,6 +335,7 @@ export function parseEvent(item: GoogleEvent, calendar: CalendarInfo): CalendarE
   const meet = item.hangoutLink || item.conferenceData?.entryPoints?.find((entry) => entry.entryPointType === 'video')?.uri;
   return {
     id: `${calendar.id}:${item.id}`,
+    eventId: item.id,
     calendarId: calendar.id,
     title: item.summary?.trim() || '(No title)',
     start,
@@ -359,8 +365,92 @@ export function parseCalendar(entry: GoogleCalendarListEntry): CalendarInfo {
     name: entry.summaryOverride?.trim() || entry.summary?.trim() || entry.id,
     color: entry.backgroundColor || '#1f5e52',
     primary: Boolean(entry.primary),
+    writable: entry.accessRole === 'owner' || entry.accessRole === 'writer',
   };
 }
+
+// ---------------------------------------------------------------- drafts ---
+
+/** An event as the editor holds it: what is written to Google on Save. */
+export interface EventDraft {
+  calendarId: string;
+  title: string;
+  allDay: boolean;
+  start: Date;
+  /** Exclusive, as on an event: an all-day draft on the 3rd ends on the 4th. */
+  end: Date;
+  location: string;
+  description: string;
+  /** For a new event: ask Google for a Meet call with it. */
+  meet: boolean;
+}
+
+/** The time zone the person is in, named for Google, so a time means the same there. */
+export const timeZone = (): string => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+};
+
+/** A quarter past, half past: the nearest half hour at or before `date`, for a click on the grid. */
+export const toHalfHour = (date: Date): Date => new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours(), date.getMinutes() < 30 ? 0 : 30);
+
+/** A fresh draft starting at `start`: an hour long, or the day when all-day. */
+export function emptyDraft(calendarId: string, start: Date, allDay = false): EventDraft {
+  const from = allDay ? startOfDay(start) : start;
+  return { calendarId, title: '', allDay, start: from, end: allDay ? addDays(from, 1) : new Date(from.getTime() + 60 * 60_000), location: '', description: '', meet: false };
+}
+
+/** An event as a draft, to edit it. */
+export const draftOf = (event: CalendarEvent): EventDraft => ({
+  calendarId: event.calendarId,
+  title: event.title === '(No title)' ? '' : event.title,
+  allDay: event.allDay,
+  start: event.start,
+  end: event.end,
+  location: event.location ?? '',
+  description: event.description ?? '',
+  meet: false,
+});
+
+/** What stops a draft being saved, said; null when nothing does. */
+export function draftProblem(draft: EventDraft): string | null {
+  if (!draft.calendarId) return 'Pick a calendar to put it on.';
+  if (Number.isNaN(draft.start.getTime()) || Number.isNaN(draft.end.getTime())) return 'The date or time is not one.';
+  if (draft.end <= draft.start) return draft.allDay ? 'It ends before it starts.' : 'It ends before it starts: the end time has to be after the start.';
+  return null;
+}
+
+/** The local day as the date input wants it (`dayKey`), and the time as the time input does. */
+export const timeKey = (date: Date): string => `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+
+/** A local date from what the date and time inputs hold. */
+export function atKeys(day: string, time = '00:00'): Date {
+  const [year, month, date] = day.split('-').map(Number);
+  const [hours, minutes] = time.split(':').map(Number);
+  return new Date(year, month - 1, date, hours || 0, minutes || 0);
+}
+
+/** The draft as Google's event body: dates for an all-day event, times with the zone otherwise. */
+export function toGoogleEvent(draft: EventDraft): Record<string, unknown> {
+  const zone = timeZone();
+  const body: Record<string, unknown> = {
+    summary: draft.title.trim(),
+    location: draft.location.trim(),
+    description: draft.description.trim(),
+    start: draft.allDay ? { date: dayKey(draft.start) } : { dateTime: draft.start.toISOString(), timeZone: zone },
+    end: draft.allDay ? { date: dayKey(draft.end) } : { dateTime: draft.end.toISOString(), timeZone: zone },
+  };
+  if (draft.meet) body.conferenceData = { createRequest: { requestId: `reader-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`, conferenceSolutionKey: { type: 'hangoutsMeet' } } };
+  return body;
+}
+
+/** `events` with `next` in place of the one with its id, or added; in order. */
+export const withEvent = (events: CalendarEvent[], next: CalendarEvent): CalendarEvent[] => sortEvents([...events.filter((event) => event.id !== next.id), next]);
+
+export const withoutEvent = (events: CalendarEvent[], id: string): CalendarEvent[] => events.filter((event) => event.id !== id);
 
 // ------------------------------------------------------------------- API ---
 
@@ -378,7 +468,17 @@ export class CalendarRequestError extends Error {
 }
 
 async function get<T>(token: string, url: string): Promise<T> {
-  const answer = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  return send<T>(token, 'GET', url);
+}
+
+/** One request to Google Calendar, with the body as JSON where there is one; a refusal is a `CalendarRequestError`. */
+async function send<T>(token: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, body?: unknown): Promise<T> {
+  const answer = await fetch(url, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  if (answer.status === 204) return undefined as T;
   if (!answer.ok) {
     let detail = '';
     try {
@@ -407,6 +507,56 @@ export async function fetchCalendars(token: string): Promise<CalendarInfo[]> {
     pageToken = page.nextPageToken;
   } while (pageToken);
   return calendars.sort((a, b) => Number(b.primary) - Number(a.primary) || a.name.localeCompare(b.name));
+}
+
+const eventUrl = (calendarId: string, eventId?: string) => `${API}/calendars/${encodeURIComponent(calendarId)}/events${eventId ? `/${encodeURIComponent(eventId)}` : ''}`;
+
+/** A new event on a calendar, as drafted; Google's copy of it comes back, with its Meet link when one was asked for. */
+export async function createEvent(token: string, calendar: CalendarInfo, draft: EventDraft): Promise<CalendarEvent> {
+  const made = await send<GoogleEvent>(token, 'POST', `${eventUrl(calendar.id)}?conferenceDataVersion=1`, toGoogleEvent(draft));
+  const event = parseEvent(made, calendar);
+  if (!event) throw new CalendarRequestError(500, 'Google made the event but sent back one the page cannot read');
+  return event;
+}
+
+/**
+ * An event changed to match a draft. For one meeting of a series, Google
+ * changes that occurrence alone — the rest of the series stays as it was.
+ * A draft on another calendar than the event's moves it there first.
+ */
+export async function updateEvent(token: string, calendars: CalendarInfo[], event: CalendarEvent, draft: EventDraft): Promise<CalendarEvent> {
+  let calendar = calendars.find((item) => item.id === event.calendarId);
+  let eventId = event.eventId;
+  if (draft.calendarId !== event.calendarId) {
+    const moved = await send<GoogleEvent>(token, 'POST', `${eventUrl(event.calendarId, event.eventId)}/move?destination=${encodeURIComponent(draft.calendarId)}`);
+    calendar = calendars.find((item) => item.id === draft.calendarId);
+    eventId = moved.id;
+  }
+  if (!calendar) throw new CalendarRequestError(404, 'That calendar is not one of yours');
+  const { conferenceData: _unchanged, ...body } = toGoogleEvent({ ...draft, meet: false });
+  void _unchanged;
+  const changed = await send<GoogleEvent>(token, 'PATCH', eventUrl(calendar.id, eventId), body);
+  const next = parseEvent(changed, calendar);
+  if (!next) throw new CalendarRequestError(500, 'Google changed the event but sent back one the page cannot read');
+  return next;
+}
+
+/** The event gone from its calendar. For one meeting of a series, that occurrence alone. */
+export async function deleteEvent(token: string, event: CalendarEvent): Promise<void> {
+  await send<void>(token, 'DELETE', eventUrl(event.calendarId, event.eventId));
+}
+
+/**
+ * The person's answer to an invitation: their own entry among the guests
+ * changed, the others sent back as they were (Google replaces the list).
+ */
+export async function respondToEvent(token: string, calendar: CalendarInfo, event: CalendarEvent, response: Response): Promise<CalendarEvent> {
+  const current = await get<GoogleEvent>(token, eventUrl(calendar.id, event.eventId));
+  const attendees = (current.attendees ?? []).map((attendee) => (attendee.self ? { ...attendee, responseStatus: response } : attendee));
+  const changed = await send<GoogleEvent>(token, 'PATCH', eventUrl(calendar.id, event.eventId), { attendees });
+  const next = parseEvent(changed, calendar);
+  if (!next) throw new CalendarRequestError(500, 'Google took the answer but sent back an event the page cannot read');
+  return next;
 }
 
 /** Every event of one calendar in a span, recurrences expanded, in order of start. */

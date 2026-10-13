@@ -7998,6 +7998,34 @@ button.cal-time-num:hover { background: rgba(127, 127, 127, 0.14); }
 .cal-card .cal-pmenu { position: absolute; left: 0; top: calc(100% + 4px); z-index: 2; width: 260px; }
 .cal-pmenu-none { padding: 6px 8px; font-size: 11.5px; line-height: 1.45; color: var(--muted); }
 
+/* Adding and changing: an empty hour takes a click, the card has Edit and Delete, the editor is a small dialog. */
+.cal-col.can-add { cursor: cell; }
+.cal-new { display: inline-flex; align-items: center; gap: 5px; }
+.cal-card-rsvp { display: flex; align-items: center; gap: 10px; margin: 4px 0 2px; }
+.cal-card-rsvp-cap { font-size: 12px; color: var(--muted); }
+.cal-card-delete { color: var(--muted); }
+.cal-card-delete:hover { color: var(--danger); }
+.cal-editor-shade { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(26, 26, 23, 0.28); }
+:root[data-theme='dark'] .cal-editor-shade { background: rgba(0, 0, 0, 0.5); }
+.cal-editor { width: 440px; max-width: 100%; display: flex; flex-direction: column; gap: 10px; padding: 18px 20px 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-lg); color: var(--ink); }
+.cal-editor h3 { margin: 0 0 2px; font: 600 18px/1.2 var(--serif); }
+.cal-editor input, .cal-editor select, .cal-editor textarea { font: inherit; font-size: 13px; color: var(--ink); background: var(--paper); border: 1px solid var(--border); border-radius: 9px; padding: 7px 10px; min-width: 0; }
+.cal-editor input:focus, .cal-editor select:focus, .cal-editor textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent); outline-offset: 0; border-color: var(--accent); }
+.cal-editor-title { font-size: 17px !important; font-weight: 500; padding: 9px 12px !important; }
+.cal-editor-when { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.cal-editor-when input[type='date'] { flex: 1 1 140px; }
+.cal-editor-when input[type='time'] { width: 110px; }
+.cal-editor-to { color: var(--muted); font-size: 12px; }
+.cal-editor-allday, .cal-editor-meet { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); margin-left: auto; cursor: pointer; }
+.cal-editor-meet { margin-left: 0; }
+.cal-editor-allday input, .cal-editor-meet input { accent-color: var(--accent); }
+.cal-editor-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 8px; }
+.cal-editor textarea { resize: vertical; min-height: 56px; }
+.cal-editor-note { margin: 0; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+.cal-editor .banner { margin: 0; }
+.cal-editor-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.cal-editor-delete { color: var(--danger); }
+
 /* One meeting's card, beside what was clicked. */
 .cal-card { position: fixed; z-index: 60; padding: 16px 18px 14px; border: 1px solid var(--border); border-top: 4px solid var(--ev); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-md); color: var(--ink); }
 .cal-card-close { position: absolute; top: 8px; right: 8px; }

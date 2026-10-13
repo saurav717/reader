@@ -775,7 +775,8 @@ verification under **APIs & Services → OAuth consent screen**: Google asks for
 a homepage and a privacy policy on your own domain (the site serves one at
 `/privacy/`, and terms at `/terms/`, from `public/`; the opening screen, Settings → Google
 and the Calendar page's connect card link to them) and why the scope is
-needed (read only, shown to the person signed in, nothing kept on a server),
+needed (shown to the person signed in, and written only when they add, change
+or answer a meeting themselves; nothing kept on a server),
 and answers in days to a couple of weeks. Testing mode is not the way round
 it: it would block everyone not on its list from the Drive sign-in too.
 
@@ -4618,9 +4619,11 @@ step aside for it as they do for the Playground.
 ![the week: seven columns on a time axis, the all-day row above, today marked with the line of now, overlapping meetings side by side](docs/calendar-week.png)
 
 The first time, the page offers to **connect** the calendar. Google asks for
-read access to it — `calendar.readonly`, asked for on its own like Colab's
-scope, on top of the sign-in's identity and Drive — and nothing here ever
-writes to a calendar. The grant is remembered in this tab with the sign-in;
+two scopes — `calendar.events`, the events of your calendars to read and
+write, and `calendar.calendarlist.readonly`, the list of them — asked for on
+their own like Colab's scope, on top of the sign-in's identity and Drive.
+Your calendar changes only when you change it here: a meeting added, changed
+or deleted, or an invitation answered. The grant is remembered in this tab with the sign-in;
 after Google's hour it is renewed quietly, and Settings → Google says whether
 the calendar is connected, with **Forget** beside it. Taking the permission
 away for good is done at myaccount.google.com/permissions.
@@ -4663,6 +4666,22 @@ the view; so do <kbd>T</kbd>, <kbd>←</kbd> and <kbd>→</kbd>, and <kbd>D</kbd
 every five minutes while it is open, and **Refresh** does so now.
 
 ![a meeting's card over the week](docs/calendar-card.png)
+
+**Adding and changing.** Click an empty hour on the week or the day and the
+editor opens with that half hour as the start, an hour long; **New** at the
+top does the same for the next half hour of today, and a double-click on a
+day of the month for nine that morning. Title, date and times or **All day**,
+the calendar it goes on (your own, or a shared one you may write to), where,
+notes, and for a new event **Add a Google Meet call**; **Save** writes it to
+Google and it is on the grid. A meeting's card has **Edit** and **Delete**
+when its calendar is yours to write, and, for an invitation, **Going? Yes ·
+Maybe · No**, which is sent as your answer with the other guests left as they
+were. One meeting of a repeating series is changed or deleted on its own; the
+rest of the series stays. A calendar you can only read — a subscribed holiday
+calendar, a colleague's shared read-only — shows its meetings without any of
+this.
+
+![a new event drafted in the editor over the week](docs/calendar-editor.png)
 
 ![the week in the dark theme, on the two-zone rail](docs/calendar-week-dark.png)
 
