@@ -1391,15 +1391,26 @@ async function listStamped(store: PaperStore): Promise<{ path: string; stamp: st
   const found: { path: string; stamp: string }[] = [];
   const walk = async (dir: string, depth: number) => {
     if (depth > 5 || found.length >= MAX_FILES) return;
+    const below: string[] = [];
     for (const entry of await store.list(dir)) {
       if (entry.name.startsWith('.')) continue;
-      if (entry.type === 'directory') await walk(entry.path, depth + 1);
+      if (entry.type === 'directory') below.push(entry.path);
       // Drive can hold two files of one name in a folder: the paper has one, the first listed.
       else if (!isBuildFile(entry.path) && !found.some((file) => file.path === entry.path)) found.push({ path: entry.path, stamp: `${entry.modified ?? ''}|${entry.size ?? ''}` });
     }
+    // The folders inside, all at once: in Drive each is a request of its own.
+    await Promise.all(below.map((path) => walk(path, depth + 1)));
   };
   await walk('', 0);
   return found.sort((a, b) => (a.path.includes('/') === b.path.includes('/') ? a.path.localeCompare(b.path) : a.path.includes('/') ? 1 : -1));
+}
+
+/** A text's UTF-8 bytes as base64, as a store writes them. */
+function textBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
 }
 
 /** The SHA-256 of a file's base64, as the compiler on Cloud Run reckons it (cloudrun/latex/server.py). */
@@ -2370,6 +2381,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
         const conflicted = done.conflicts ?? [];
         const reload = [...new Set([...incoming, ...conflicted])].filter((path) => filesRef.current[path] && filesRef.current[path].text === filesRef.current[path].disk);
         if (reload.length || incoming.some((path) => !(paths ?? []).includes(path))) void refreshList();
+        if (incoming.length) cloud.current.listed = null;
         await Promise.all(reload.map((path) => load(path, true)));
         if (incoming.length && options.compile !== 'manual') void compile();
       } catch (error) {
@@ -2421,10 +2433,14 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
     return results.some(Boolean);
   }, [writeOut]);
 
+  // On Cloud Run an edit is compiled from the editor's own text once typing pauses (edit, below), not after it is saved.
+  const compilesFromEditor = options.pdf === 'cloudrun' && options.compile === 'pause';
   const afterSave = (how: 'pause' | 'save') => {
-    window.clearTimeout(timers.current.compile);
     window.clearTimeout(timers.current.sync);
-    if (options.compile === how) timers.current.compile = window.setTimeout(() => void compile(), how === 'pause' ? COMPILE_PAUSE_MS : 0);
+    if (options.compile === how && !(compilesFromEditor && how === 'pause')) {
+      window.clearTimeout(timers.current.compile);
+      timers.current.compile = window.setTimeout(() => void compile(), how === 'pause' ? COMPILE_PAUSE_MS : 0);
+    }
     // With Overleaf making the PDF, the edit goes sooner: the PDF waits on it.
     if (git && options.sync === how) timers.current.sync = window.setTimeout(() => void sync(true), how === 'pause' ? (options.pdf === 'overleaf' ? OVERLEAF_SYNC_PAUSE_MS : SYNC_PAUSE_MS) : 0);
   };
@@ -2436,6 +2452,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
     window.clearTimeout(timers.current.compile);
     window.clearTimeout(timers.current.sync);
     timers.current.save = window.setTimeout(() => void saveAll().then((wrote) => wrote && afterSave('pause')), SAVE_PAUSE_MS);
+    if (compilesFromEditor) timers.current.compile = window.setTimeout(() => void compile(), COMPILE_PAUSE_MS);
   };
   useEffect(() => () => {
     window.clearTimeout(timers.current.save);
@@ -2456,6 +2473,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
     timers.current.sync = window.setTimeout(() => void sync(true), 1500);
   };
   const afterChange = async () => {
+    cloud.current.listed = null;
     await refreshList();
     if (options.compile !== 'manual') void compile();
     scheduleSync();
@@ -2809,25 +2827,42 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
   // the Companion says they changed, and TeX reruns only what it must. The
   // service asks (409) for any file it lacks — it restarted, say — and gets it.
   // One compile at a time; edits made during one are compiled right after.
-  const cloud = useRef<{ folder: string; files: Map<string, { stamp: string; sha: string; base64: string }>; acked: Map<string, string>; busy: boolean; again: boolean }>({ folder: '', files: new Map(), acked: new Map(), busy: false, again: false });
-  const compileOnCloudRun = async (fresh = false) => {
+  // The text of a file open in the editor is taken from the editor, as typed — not read back from where it is
+  // saved (Drive: a request a file), nor waited on to be saved there; and in Drive, where a listing is a request
+  // a folder, the folder's listing is kept a minute between compiles as you type, until a file is added, moved
+  // or synced in (paths, sync). Compile and ⌘↵ always list afresh.
+  const cloud = useRef<{ folder: string; files: Map<string, { stamp: string; sha: string; base64: string; text?: string }>; acked: Map<string, string>; busy: boolean; again: boolean; listed: { of: string[] | null; at: number; files: { path: string; stamp: string }[] } | null }>({ folder: '', files: new Map(), acked: new Map(), busy: false, again: false, listed: null });
+  const compileOnCloudRun = async (fresh = false, relist = false) => {
     const state = cloud.current;
     if (state.busy) return void (state.again = true);
-    if (state.folder !== folder.path) Object.assign(state, { folder: folder.path, files: new Map(), acked: new Map() });
+    if (state.folder !== folder.path) Object.assign(state, { folder: folder.path, files: new Map(), acked: new Map(), listed: null });
     state.busy = true;
     const started = Date.now();
     setCompiling(true);
     setCompileError(null);
     setGh((now) => ({ ...now, phase: 'sending', on: 'cloudrun', startedAt: started, error: undefined }));
     try {
-      const listed = await listStamped(store);
+      const kept = state.listed;
+      const listed = !relist && store.kind === 'drive' && kept && kept.of === paths && Date.now() - kept.at < 60_000 ? kept.files : await listStamped(store);
+      if (listed !== kept?.files) state.listed = { of: paths, at: Date.now(), files: listed };
+      const toRead: { path: string; stamp: string }[] = [];
       for (const { path, stamp } of listed) {
-        // The paper's text (.tex, .bib, .sty) is read every time — a few ms from this computer — as an edit
-        // saved within the listing's timestamp resolution, or keeping the size, could look unchanged; figures go by their stamp.
-        if (state.files.get(path)?.stamp === stamp && !isTextFile(path)) continue;
+        const open = isTextFile(path) ? filesRef.current[path] : undefined;
+        if (open) {
+          if (state.files.get(path)?.text === open.text) continue;
+          const base64 = textBase64(open.text);
+          state.files.set(path, { stamp, sha: await fingerprint(base64), base64, text: open.text });
+          continue;
+        }
+        // On this computer the paper's other text (.bib, .sty) is read every time — a few ms — as an edit saved within
+        // the listing's timestamp resolution, or keeping the size, could look unchanged; Drive's stamps are exact, and figures go by theirs.
+        if (state.files.get(path)?.stamp === stamp && (store.kind === 'drive' || !isTextFile(path))) continue;
+        toRead.push({ path, stamp });
+      }
+      await Promise.all(toRead.map(async ({ path, stamp }) => {
         const base64 = await store.readBase64(path);
         state.files.set(path, { stamp, sha: await fingerprint(base64), base64 });
-      }
+      }));
       const here = new Set(listed.map((file) => file.path));
       for (const path of [...state.files.keys()]) if (!here.has(path)) state.files.delete(path);
       const manifest = Object.fromEntries([...state.files].map(([path, file]) => [path, file.sha]));
@@ -2850,10 +2885,10 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
       state.acked = new Map(Object.entries(manifest));
       const log = result.log ?? '';
       const read = readTexLog(log);
-      const bytes = result.pdf ? Uint8Array.from(atob(result.pdf), (char) => char.charCodeAt(0)) : null;
-      setCompiled({ ok: Boolean(bytes) && result.exit === 0, main, engine: 'Cloud Run · all of TeX Live', compiler, pdf: bytes ? 'github' : '', errors: read.errors, warnings: read.warnings, log, ms: Date.now() - started });
-      if (bytes) setPdf(new Blob([bytes], { type: 'application/pdf' }));
-      if (read.errors.length && !bytes) setShowLog(true);
+      const blob = result.pdf ? toBlob(result.pdf) : null;
+      setCompiled({ ok: Boolean(blob) && result.exit === 0, main, engine: 'Cloud Run · all of TeX Live', compiler, pdf: blob ? 'github' : '', errors: read.errors, warnings: read.warnings, log, ms: Date.now() - started });
+      if (blob) setPdf(blob);
+      if (read.errors.length && !blob) setShowLog(true);
       setGh({ phase: 'done', on: 'cloudrun', startedAt: started, finishedAt: Date.now(), texSeconds: result.seconds ?? null, readSeconds, sent: changed.length, kept: Boolean(result.cached) });
     } catch (error) {
       setGh({ phase: 'failed', on: 'cloudrun', startedAt: started, error: error instanceof Error ? error.message : String(error) });
@@ -2888,7 +2923,8 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
   }, [options.pdf]);
 
   const recompile = () => {
-    if (options.pdf === 'cloudrun') return void saveNow().then(() => compileOnCloudRun());
+    // Compiled from the editor's text at once, while it is saved.
+    if (options.pdf === 'cloudrun') return void (saveNow(), compileOnCloudRun(false, true));
     if (options.pdf === 'github') return void saveNow().then(() => compileOnGithub());
     if (options.pdf !== 'overleaf') return void saveNow().then(() => compile());
     const overleaf = link;
@@ -2994,7 +3030,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
         ) : null}
       </div>
       {options.pdf === 'github' || options.pdf === 'cloudrun' ? (
-        <GithubCompilePanel state={gh} on={options.pdf} open={compileInfo} onClose={() => showCompileInfo(false)} onCompile={options.pdf === 'cloudrun' ? () => void saveNow().then(() => compileOnCloudRun(true)) : recompile} />
+        <GithubCompilePanel state={gh} on={options.pdf} open={compileInfo} onClose={() => showCompileInfo(false)} onCompile={options.pdf === 'cloudrun' ? () => void (saveNow(), compileOnCloudRun(true, true)) : recompile} />
       ) : null}
       {noTex && options.pdf === 'here' ? (
         <div className="wr-pad">

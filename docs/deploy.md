@@ -158,7 +158,12 @@ billing, so it costs only while compiling: Cloud Run's free tier — 180,000
 vCPU-seconds and 360,000 GiB-seconds a month — is about 25 hours of
 compiling at 2 vCPU and 4 GiB. The Usage page shows how much of it is used.
 The first compile after a quiet spell waits for an instance to start
-(a TeX Live image is large: some seconds). The image in Artifact Registry
+(a TeX Live image is large: some seconds). Cloud Run reads an image's files
+only as they are first opened, so a new instance compiles a small paper of
+the usual packages as it starts, and the Write tab's wake-up waits for that:
+the formats, packages and fonts are then read before the paper's first
+compile, not during it. XeLaTeX's and LuaLaTeX's font caches are built into
+the image, not by each instance. The image in Artifact Registry
 is about 2.5 GB, a few tens of cents a month past its 0.5 GB free storage.
 
 Like Overleaf's, the compiler keeps each paper's folder between compiles —

@@ -7,6 +7,14 @@ RUN set -e; \
     for tool in python3 git; do command -v $tool >/dev/null || { if command -v apk >/dev/null; then apk add --no-cache $tool; else apt-get update && apt-get install -y --no-install-recommends $tool ca-certificates && rm -rf /var/lib/apt/lists/*; fi; }; done; \
     id tex >/dev/null 2>&1 || adduser -D -H tex 2>/dev/null || useradd --no-create-home --shell /usr/sbin/nologin tex
 
+# XeLaTeX's and LuaLaTeX's font caches, built here once: otherwise each new instance's first XeLaTeX or
+# LuaLaTeX compile spends a minute or more listing every font in TeX Live. Writable by TeX, for what it adds.
+ENV TEXMFVAR=/opt/texmf-var
+RUN set -e; mkdir -p "$TEXMFVAR"; \
+    fc-cache -s >/dev/null 2>&1 || true; \
+    luaotfload-tool --update --force >/dev/null 2>&1 || true; \
+    chown -R tex "$TEXMFVAR"
+
 COPY server.py /srv/server.py
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8080
