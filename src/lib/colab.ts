@@ -18,6 +18,7 @@
 // reader never mounts Drive or puts credentials in the kernel; output is
 // text and pictures, never markup; and every output says where it ran.
 
+import { replaying } from './replayFlag';
 import { api, apiFetch, hasProxy } from './api';
 import { colabToken, connectColab, dropColab, hasColabAccess } from './google';
 import type { MachineSample, MachineSpecs } from './telemetry';
@@ -407,7 +408,7 @@ export function subscribeColab(listener: () => void) {
 }
 
 /** Whether cells can be run at all here: a proxy to reach Colab through, and a client ID to sign in with. */
-export const colabAvailable = (clientId: string) => current.state.backend.kind === 'jupyter' || (hasProxy() && Boolean(clientId.trim()));
+export const colabAvailable = (clientId: string) => current.state.backend.kind === 'jupyter' || (hasProxy() && (Boolean(clientId.trim()) || replaying()));
 
 /** Whether the connected runtime is Colab's, so Colab's own page can be opened on it. */
 export const onColab = () => current.state.backend.kind === 'colab';

@@ -56,6 +56,7 @@ import ProxyPass from './ProxyPass';
 import { RunningChooser } from './PlaygroundRuns';
 import { GitHubConnect } from './Connections';
 import { startTour } from '../lib/tour';
+import { startShowcase } from '../lib/showcase';
 
 /** Every model, grouped by who runs it, saying which still need a key. */
 function ModelOptions({ keys }: { keys: Record<string, boolean> }) {
@@ -1089,6 +1090,17 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             }}
           >
             Take the tour
+          </button>{' '}
+          <button
+            type="button"
+            className="btn sm"
+            onClick={() => {
+              onClose();
+              startShowcase();
+            }}
+            title="Watch the app used on a real paper — found, opened, asked about, explained, planned and run — with the model and Colab replayed"
+          >
+            Show me, with a paper
           </button>
         </section>
 

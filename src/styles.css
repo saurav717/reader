@@ -7867,3 +7867,24 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
   box-shadow: var(--shadow-lg), inset 0 1px 0 rgb(255 255 255 / 0.25);
 }
 :root[data-glass='on'] .tour-try .tour-key, :root[data-glass='on'] .tour-key { background: rgb(var(--float-rgb) / 0.6); }
+
+/* ------------------------------------------------------------- showcase -- */
+
+/* The showcase (components/Showcase.tsx): the tour's card at the foot of the
+   window, no shade — the page itself is what is being shown — and a pointer
+   of its own that glides to what it presses. */
+.showcase-card { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); width: min(420px, calc(100vw - 24px)); z-index: 9500; }
+.showcase-note { color: var(--danger); font-style: normal; }
+.sc-cursor { position: fixed; z-index: 9600; pointer-events: none; width: 22px; height: 22px; margin: -2px 0 0 -2px; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35)); }
+.sc-cursor svg { position: relative; display: block; }
+.sc-ring { position: absolute; left: 11px; top: 11px; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: rgb(var(--accent-rgb) / 0.35); border: 2px solid var(--accent); opacity: 0; transform: scale(0.4); }
+.sc-cursor.is-down .sc-ring { animation: sc-pulse 420ms ease-out; }
+@keyframes sc-pulse { 0% { opacity: 0.9; transform: scale(0.4); } 100% { opacity: 0; transform: scale(3.2); } }
+.sc-key {
+  position: fixed; z-index: 9600; pointer-events: none;
+  font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--accent-on);
+  background: var(--accent); border-radius: 7px; padding: 4px 9px; box-shadow: var(--shadow-md);
+  opacity: 0; transform: translateY(4px); transition: opacity 160ms, transform 160ms;
+}
+.sc-key.is-shown { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .sc-cursor { transition: none !important; } }

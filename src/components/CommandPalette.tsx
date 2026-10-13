@@ -3,6 +3,7 @@ import { useStore } from '../lib/store';
 import { arxivIdFromQuery, defaultSources, lookupArxiv, search } from '../lib/sources';
 import { hasProxy } from '../lib/api';
 import { startTour } from '../lib/tour';
+import { startShowcase } from '../lib/showcase';
 import type { PaperRef } from '../types';
 import { FileIcon, PlusIcon, SearchIcon, SettingsIcon, StackIcon } from './icons';
 
@@ -106,6 +107,17 @@ export default function CommandPalette({ onClose, onOpenPaper, onOpenSettings }:
         run: () => {
           onClose();
           startTour();
+        },
+      });
+    }
+    if (!needle || 'show me with a paper showcase demo'.includes(needle)) {
+      actions.push({
+        kind: 'action',
+        id: 'showcase',
+        title: 'Show me, with a paper — the app used on Attention Is All You Need',
+        run: () => {
+          onClose();
+          startShowcase();
         },
       });
     }

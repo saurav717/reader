@@ -34,6 +34,7 @@
  * and awaiting a script download in between spends it. So the script is
  * fetched ahead of time (see `prepare`) and the request itself never awaits.
  */
+import { replaying, SHOWCASE_TOKEN } from './replayFlag';
 import type { GoogleUser } from '../types';
 
 const GIS_SRC = 'https://accounts.google.com/gsi/client';
@@ -416,7 +417,7 @@ export function hasAppDataAccess(): boolean {
 }
 
 export function hasColabAccess(): boolean {
-  return currentScopes().includes(COLAB_SCOPE);
+  return replaying() || currentScopes().includes(COLAB_SCOPE);
 }
 
 async function fetchProfile(accessToken: string): Promise<GoogleUser> {
@@ -622,6 +623,8 @@ export function connectColab(clientId: string): Promise<string> {
 
 /** The live token with Colab on it, renewed quietly on the grant already given; null when Colab was never connected in this tab. */
 export async function colabToken(clientId: string): Promise<string | null> {
+  // The showcase's replay: a token the stand-in Colab takes, never Google.
+  if (replaying()) return SHOWCASE_TOKEN;
   if (token && token.expiresAt > Date.now() && token.scopes.includes(COLAB_SCOPE)) return token.accessToken;
   if (!token?.scopes.includes(COLAB_SCOPE)) return null;
   const scopes = [IDENTITY_SCOPES, token.scopes.includes(DRIVE_SCOPE) ? DRIVE_SCOPES : '', COLAB_SCOPE].filter(Boolean);

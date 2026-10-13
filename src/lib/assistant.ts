@@ -37,6 +37,7 @@
 //  the proxy owner's search key, and most questions are about the paper.
 // ===========================================================================
 
+import { replaying, SHOWCASE_KEY } from './replayFlag';
 import type AnthropicClient from '@anthropic-ai/sdk';
 import { DeepSeekStream, proxyReason } from './deepseek';
 import { GeminiStream } from './gemini';
@@ -549,7 +550,19 @@ const storedKey = (provider: Provider) => {
     return '';
   }
 };
-export const keyFor = (provider: Provider) => (PROVIDERS[provider].viaProxy ? '' : memKeys[provider] || storedKey(provider));
+export const keyFor = (provider: Provider) => {
+  // The showcase's replay: a key that is never sent anywhere, so the pages and the chat run on the stand-in.
+  if (replaying() && provider === 'anthropic') return SHOWCASE_KEY;
+  return PROVIDERS[provider].viaProxy ? '' : memKeys[provider] || storedKey(provider);
+};
+
+/** The keys again, after the showcase's replay starts or ends: what is usable has changed without a key being typed. */
+export function refreshKeys(): void {
+  clients.own = null;
+  const own = { ...state.own, anthropic: Boolean(keyFor('anthropic')) };
+  const keys = usableKeys(own, state.site);
+  set({ own, keys, hasKey: keys[modelSpec(state.prefs.model).provider] });
+}
 /** Which providers have a key of this browser's own. */
 const ownKeys = () => Object.fromEntries(PROVIDER_IDS.map((provider) => [provider, Boolean(keyFor(provider))])) as Record<Provider, boolean>;
 /** Whether each provider can answer from here: a key of this browser's own, or the site's, on a proxy ready to ask with it. */
