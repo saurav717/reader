@@ -2,6 +2,7 @@
 // client. `npm run build && npm start`.
 import express from 'express';
 import { createServer } from 'node:http';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import apiRouter, { fromThisApp } from './api.js';
@@ -29,7 +30,12 @@ if (!tokenRequired() && !loopbackHost(host)) {
 const app = express();
 app.use('/api', apiRouter);
 app.use(express.static(dist, { index: false, maxAge: '1h' }));
-app.get('*', (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+// A folder with a page of its own (/privacy/, /terms/, from public/) is that page; every other path is the app.
+app.get('*', (req, res) => {
+  const own = path.join(dist, req.path, 'index.html');
+  if (req.path !== '/' && own.startsWith(dist) && fs.existsSync(own)) return res.sendFile(own);
+  res.sendFile(path.join(dist, 'index.html'));
+});
 
 // The one WebSocket the proxy carries: a Colab kernel's, for the page (server/colabSocket.js).
 const server = createServer(app);
