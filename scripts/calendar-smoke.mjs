@@ -19,7 +19,7 @@ const { check, problems } = reporter();
 
 const TZ = 'Asia/Kolkata';
 const OFFSET = '+05:30';
-const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
 
 // ---------------------------------------------------------------- fixture ---
 
@@ -107,30 +107,61 @@ async function open({ theme = 'light', navStyle = 'labelled' } = {}) {
     });
   });
   await context.route('**/www.googleapis.com/oauth2/v3/userinfo*', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ name: 'Saurav Chennuri', email: 'reader@example.org' }) }));
-  const asked = { calendars: 0, events: [] };
+  const asked = { calendars: 0, events: [], writes: [] };
+  // The events, by calendar, as Google would hold them: reads come from here, and writes go here.
+  const store = new Map(Object.values(CAL_IDS).map((id) => [id, new Map()]));
+  for (const { calendar, item } of EVENTS) store.get(CAL_IDS[calendar]).set(item.id, structuredClone(item));
+  let made = 0;
   await context.route('**/www.googleapis.com/calendar/v3/**', (route) => {
-    const url = new URL(route.request().url());
-    const auth = route.request().headers().authorization || '';
+    const request = route.request();
+    const url = new URL(request.url());
+    const auth = request.headers().authorization || '';
     const json = (status, body) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (!auth.startsWith('Bearer ')) return json(401, { error: { code: 401, message: 'Login Required' } });
     if (url.pathname.endsWith('/users/me/calendarList')) {
       asked.calendars += 1;
       return json(200, { items: CALENDARS });
     }
-    const match = url.pathname.match(/\/calendars\/([^/]+)\/events$/);
-    if (match) {
-      const calendar = decodeURIComponent(match[1]);
+    const list = url.pathname.match(/\/calendars\/([^/]+)\/events$/);
+    if (list && request.method() === 'GET') {
+      const calendar = decodeURIComponent(list[1]);
       const min = Date.parse(url.searchParams.get('timeMin'));
       const max = Date.parse(url.searchParams.get('timeMax'));
       asked.events.push(calendar);
-      const items = EVENTS.filter(({ calendar: which, item }) => CAL_IDS[which] === calendar)
-        .map(({ item }) => item)
-        .filter((item) => {
-          const start = Date.parse(item.start.dateTime || `${item.start.date}T00:00:00${OFFSET}`);
-          const end = Date.parse(item.end.dateTime || `${item.end.date}T00:00:00${OFFSET}`);
-          return start < max && end > min;
-        });
+      const items = [...(store.get(calendar)?.values() ?? [])].filter((item) => {
+        const start = Date.parse(item.start.dateTime || `${item.start.date}T00:00:00${OFFSET}`);
+        const end = Date.parse(item.end.dateTime || `${item.end.date}T00:00:00${OFFSET}`);
+        return start < max && end > min;
+      });
       return json(200, { items });
+    }
+    if (list && request.method() === 'POST') {
+      const calendar = decodeURIComponent(list[1]);
+      const body = JSON.parse(request.postData() || '{}');
+      const item = { id: `made-${++made}`, status: 'confirmed', htmlLink: `https://calendar.google.com/calendar/event?eid=made-${made}`, ...body };
+      if (body.conferenceData?.createRequest) item.hangoutLink = `https://meet.google.com/made-${made}`;
+      store.get(calendar).set(item.id, item);
+      asked.writes.push({ method: 'POST', calendar, body });
+      return json(200, item);
+    }
+    const one = url.pathname.match(/\/calendars\/([^/]+)\/events\/([^/]+)$/);
+    if (one) {
+      const calendar = decodeURIComponent(one[1]);
+      const id = decodeURIComponent(one[2]);
+      const held = store.get(calendar)?.get(id);
+      if (!held) return json(404, { error: { code: 404, message: 'Not Found' } });
+      if (request.method() === 'GET') return json(200, held);
+      if (request.method() === 'PATCH') {
+        const body = JSON.parse(request.postData() || '{}');
+        Object.assign(held, body);
+        asked.writes.push({ method: 'PATCH', calendar, id, body });
+        return json(200, held);
+      }
+      if (request.method() === 'DELETE') {
+        store.get(calendar).delete(id);
+        asked.writes.push({ method: 'DELETE', calendar, id });
+        return route.fulfill({ status: 204, body: '' });
+      }
     }
     return json(404, { error: { code: 404, message: 'Not Found' } });
   });
@@ -138,6 +169,8 @@ async function open({ theme = 'light', navStyle = 'labelled' } = {}) {
   // Mid-morning, whenever this runs: the grid opens an hour before now, with the day's meetings in view.
   await page.clock.setFixedTime(new Date(`${todayKey}T11:20:00${OFFSET}`));
   page.on('pageerror', (error) => check('no page error', false, error.message));
+  // Delete asks; the answer is yes.
+  page.on('dialog', (dialog) => dialog.accept());
   return { context, page, asked };
 }
 
@@ -192,7 +225,7 @@ console.log('\n== connected: the week ==');
 await connect.click();
 await page.waitForSelector('.cal-time', { timeout: 5000 });
 await page.waitForTimeout(600);
-check('asked Google for the calendar scope alone, on top of what it had', true);
+check('asked Google for the calendar scopes, on top of what it had', true);
 check('read the calendar list once', asked.calendars === 1, String(asked.calendars));
 check('read the events of every calendar', new Set(asked.events).size === CALENDARS.length, String(asked.events.length));
 const weekBlocks = await page.locator('.cal-ev.is-block').count();
@@ -213,6 +246,78 @@ await page.screenshot({ path: `${OUT}calendar-card.png` });
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
 check('Escape closes the card', (await card.count()) === 0);
+
+console.log('\n== adding, changing, answering and deleting ==');
+// A click on an empty hour: Thursday at 5 pm. The grid is scrolled so that hour is in view first.
+await page.locator('.cal-time-scroll').evaluate((box) => (box.scrollTop = 15 * 75));
+await page.waitForTimeout(200);
+const thursday = page.locator('.cal-col').nth(4);
+await thursday.click({ position: { x: 30, y: 17 * 75 + 10 } });
+await page.waitForTimeout(300);
+const editor = page.locator('form.cal-editor');
+check('a click on an empty hour opens the editor', (await editor.count()) === 1);
+check('on the half hour clicked, an hour long', (await editor.getByLabel('Start time').inputValue()) === '17:00' && (await editor.getByLabel('End time').inputValue()) === '18:00');
+check('on the person’s own calendar, with only writable ones offered', (await editor.getByLabel('Calendar').inputValue()) === CALENDARS[0].id && (await editor.locator('option').count()) === 2);
+await editor.getByLabel('Title').fill('Thesis writing');
+await editor.getByLabel('Where').fill('Library, 3rd floor');
+await editor.getByLabel('Add a Google Meet call').check();
+await page.screenshot({ path: `${OUT}calendar-editor.png` });
+await editor.getByRole('button', { name: 'Save' }).click();
+await page.waitForTimeout(500);
+check('the editor closes and the event is on the grid', (await editor.count()) === 0 && (await page.locator('.cal-ev.is-block', { hasText: 'Thesis writing' }).count()) === 1);
+const posted = asked.writes.find((write) => write.method === 'POST');
+check('Google was sent the event, with its time zone and a Meet asked for', posted && posted.body.summary === 'Thesis writing' && posted.body.location === 'Library, 3rd floor' && ['Asia/Kolkata', 'Asia/Calcutta'].includes(posted.body.start.timeZone) && posted.body.conferenceData?.createRequest?.conferenceSolutionKey?.type === 'hangoutsMeet', JSON.stringify(posted?.body));
+await page.screenshot({ path: `${OUT}calendar-new.png` });
+// Change it from its card.
+await page.locator('.cal-ev.is-block', { hasText: 'Thesis writing' }).click();
+await page.waitForTimeout(300);
+check('the card of a writable calendar has Edit and Delete', (await page.locator('.cal-card').getByRole('button', { name: 'Edit' }).count()) === 1 && (await page.locator('.cal-card-delete').count()) === 1);
+check('the card offers to join the Meet Google made', (await page.locator('.cal-card').getByRole('link', { name: 'Join' }).count()) === 1);
+await page.locator('.cal-card').getByRole('button', { name: 'Edit' }).click();
+await page.waitForTimeout(300);
+check('Edit opens the editor filled in', (await editor.getByLabel('Title').inputValue()) === 'Thesis writing');
+await editor.getByLabel('Title').fill('Thesis writing block');
+await editor.getByLabel('End time').fill('18:30');
+await editor.getByRole('button', { name: 'Save' }).click();
+await page.waitForTimeout(500);
+const patched = asked.writes.find((write) => write.method === 'PATCH' && write.id.startsWith('made-'));
+check('the change went to Google and shows on the grid', patched && patched.body.summary === 'Thesis writing block' && (await page.locator('.cal-ev.is-block', { hasText: 'Thesis writing block' }).innerText()).includes('6:30 pm'));
+// A new all-day event from the head's button, on another writable calendar.
+await page.getByRole('button', { name: 'New' }).click();
+await page.waitForTimeout(300);
+await editor.getByLabel('Title').fill('Paper deadline');
+await editor.getByLabel('All day').check();
+await editor.getByLabel('Calendar').selectOption(CALENDARS[1].id);
+await editor.getByRole('button', { name: 'Save' }).click();
+await page.waitForTimeout(500);
+check('an all-day event lands in the all-day row, on the calendar picked', (await page.locator('.cal-allday .cal-ev', { hasText: 'Paper deadline' }).count()) === 1 && asked.writes.filter((write) => write.method === 'POST').at(-1).calendar === CALENDARS[1].id);
+// Answer an invitation.
+await page.locator('.cal-ev.is-block', { hasText: 'Group meeting' }).first().click();
+await page.waitForTimeout(300);
+const rsvp = page.locator('.cal-card-rsvp');
+check('an invitation can be answered from the card', (await rsvp.count()) === 1 && (await rsvp.getByRole('radio', { name: 'Yes' }).getAttribute('aria-checked')) === 'true');
+await rsvp.getByRole('radio', { name: 'Maybe' }).click();
+await page.waitForTimeout(500);
+const answered = asked.writes.find((write) => write.method === 'PATCH' && write.body.attendees);
+check('the answer went to Google with the other guests untouched', answered && answered.body.attendees.find((a) => a.self)?.responseStatus === 'tentative' && answered.body.attendees.length === 8);
+check('the card and the grid show it', (await rsvp.getByRole('radio', { name: 'Maybe' }).getAttribute('aria-checked')) === 'true' && (await page.locator('.cal-ev.is-block.is-tentative', { hasText: 'Group meeting' }).count()) === 1);
+await page.screenshot({ path: `${OUT}calendar-rsvp.png` });
+await page.keyboard.press('Escape');
+// A read-only calendar's event cannot be changed.
+await page.locator('.cal-ev.is-block', { hasText: 'TA: Deep Learning lab' }).click();
+await page.waitForTimeout(300);
+check('a read-only calendar’s event has no Edit', (await page.locator('.cal-card').getByRole('button', { name: 'Edit' }).count()) === 0);
+await page.keyboard.press('Escape');
+// Delete, from the card.
+await page.locator('.cal-ev.is-block', { hasText: 'Thesis writing block' }).click();
+await page.waitForTimeout(300);
+await page.locator('.cal-card-delete').click();
+await page.waitForTimeout(500);
+check('Delete takes it off Google and the grid', asked.writes.some((write) => write.method === 'DELETE' && write.id === 'made-1') && (await page.locator('.cal-ev', { hasText: 'Thesis writing block' }).count()) === 0);
+await page.reload();
+await page.waitForSelector('.cal-time', { timeout: 5000 });
+await page.waitForTimeout(600);
+check('after a reload, Google’s copy agrees', (await page.locator('.cal-ev', { hasText: 'Thesis writing' }).count()) === 0 && (await page.locator('.cal-allday .cal-ev', { hasText: 'Paper deadline' }).count()) === 1);
 
 console.log('\n== tagged with a project ==');
 await seedProjects(page);
@@ -291,7 +396,8 @@ await page.waitForSelector('.cal-time.is-day', { timeout: 3000 });
 await page.waitForTimeout(400);
 const todayRows = await page.locator('.cal-agenda-row').count();
 const expectToday = EVENTS.filter(({ item }) => (item.start.dateTime || '').startsWith(todayKey) || (item.start.date && item.start.date <= todayKey && item.end.date > todayKey)).length;
-check('the day lists its events beside the grid', todayRows === expectToday, `${todayRows} of ${expectToday}`);
+// Plus the all-day Paper deadline added above, which New put on today.
+check('the day lists its events beside the grid', todayRows === expectToday + 1, `${todayRows} of ${expectToday + 1}`);
 check('the head names the day', /^[A-Z][a-z]+day\b.*\b20\d\d\b/.test(await page.locator('.cal-period').innerText()), await page.locator('.cal-period').innerText());
 await page.screenshot({ path: `${OUT}calendar-day.png` });
 await page.keyboard.press('ArrowRight');

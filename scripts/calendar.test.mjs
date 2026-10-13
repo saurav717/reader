@@ -154,8 +154,57 @@ describe("Google's events", () => {
     assert.equal(cal.parseEvent({ id: 'no-times', summary: 'x' }, calendar), null);
   });
   it('a calendar from the list', () => {
-    assert.deepEqual(cal.parseCalendar({ id: 'p', summary: 'Saurav', backgroundColor: '#9fe1cb', primary: true }), { id: 'p', name: 'Saurav', color: '#9fe1cb', primary: true });
-    assert.equal(cal.parseCalendar({ id: 'q', summary: 'Lab', summaryOverride: 'The lab' }).name, 'The lab');
+    assert.deepEqual(cal.parseCalendar({ id: 'p', summary: 'Saurav', backgroundColor: '#9fe1cb', primary: true, accessRole: 'owner' }), { id: 'p', name: 'Saurav', color: '#9fe1cb', primary: true, writable: true });
+    assert.equal(cal.parseCalendar({ id: 'q', summary: 'Lab', summaryOverride: 'The lab', accessRole: 'writer' }).name, 'The lab');
+    assert.equal(cal.parseCalendar({ id: 'h', summary: 'Holidays', accessRole: 'reader' }).writable, false);
+  });
+});
+
+describe('drafting an event', () => {
+  it('a fresh draft is an hour from the start, or the day when all-day', () => {
+    const timed = cal.emptyDraft('primary', d(2026, 10, 13, 14, 30));
+    assert.deepEqual([timed.start, timed.end, timed.allDay], [d(2026, 10, 13, 14, 30), d(2026, 10, 13, 15, 30), false]);
+    const whole = cal.emptyDraft('primary', d(2026, 10, 13, 14, 30), true);
+    assert.deepEqual([whole.start, whole.end], [d(2026, 10, 13), d(2026, 10, 14)]);
+  });
+  it('a click lands on the half hour at or before it', () => {
+    assert.deepEqual(cal.toHalfHour(d(2026, 10, 13, 14, 29)), d(2026, 10, 13, 14, 0));
+    assert.deepEqual(cal.toHalfHour(d(2026, 10, 13, 14, 31)), d(2026, 10, 13, 14, 30));
+  });
+  it('an event becomes a draft, and the inputs’ keys become dates', () => {
+    const event = cal.parseEvent({ id: 'e', summary: 'Lunch', location: 'Canteen', start: { dateTime: '2026-10-13T12:30:00+05:30' }, end: { dateTime: '2026-10-13T13:30:00+05:30' } }, calendar);
+    const draft = cal.draftOf(event);
+    assert.equal(draft.title, 'Lunch');
+    assert.equal(draft.location, 'Canteen');
+    assert.equal(draft.start.getTime(), event.start.getTime());
+    assert.deepEqual(cal.atKeys('2026-10-13', '09:05'), d(2026, 10, 13, 9, 5));
+    assert.equal(cal.timeKey(d(2026, 10, 13, 9, 5)), '09:05');
+    assert.equal(cal.dayKey(d(2026, 10, 13)), '2026-10-13');
+  });
+  it('says what stops a draft being saved', () => {
+    const draft = cal.emptyDraft('primary', d(2026, 10, 13, 14));
+    assert.equal(cal.draftProblem(draft), null);
+    assert.match(cal.draftProblem({ ...draft, end: draft.start }), /ends before it starts/);
+    assert.match(cal.draftProblem({ ...draft, calendarId: '' }), /Pick a calendar/);
+  });
+  it('becomes Google’s event: dates for all-day, times with the zone otherwise, and a Meet only when asked', () => {
+    const draft = { ...cal.emptyDraft('primary', d(2026, 10, 13, 14)), title: ' Standup ', location: 'Room 1', description: 'Notes' };
+    const body = cal.toGoogleEvent(draft);
+    assert.equal(body.summary, 'Standup');
+    assert.equal(body.start.dateTime, d(2026, 10, 13, 14).toISOString());
+    assert.equal(typeof body.start.timeZone, 'string');
+    assert.equal(body.conferenceData, undefined);
+    const whole = cal.toGoogleEvent({ ...cal.emptyDraft('primary', d(2026, 10, 13), true), meet: true });
+    assert.deepEqual(whole.start, { date: '2026-10-13' });
+    assert.deepEqual(whole.end, { date: '2026-10-14' });
+    assert.equal(whole.conferenceData.createRequest.conferenceSolutionKey.type, 'hangoutsMeet');
+  });
+  it('puts an event into the list, or takes it out, keeping the order', () => {
+    const a = cal.parseEvent({ id: 'a', summary: 'A', start: { dateTime: '2026-10-13T10:00:00Z' }, end: { dateTime: '2026-10-13T11:00:00Z' } }, calendar);
+    const b = cal.parseEvent({ id: 'b', summary: 'B', start: { dateTime: '2026-10-13T08:00:00Z' }, end: { dateTime: '2026-10-13T09:00:00Z' } }, calendar);
+    assert.deepEqual(cal.withEvent([a], b).map((event) => event.title), ['B', 'A']);
+    assert.deepEqual(cal.withEvent([a, b], { ...a, title: 'A2' }).map((event) => event.title), ['B', 'A2']);
+    assert.deepEqual(cal.withoutEvent([a, b], a.id).map((event) => event.title), ['B']);
   });
 });
 
