@@ -15,6 +15,7 @@ const BASE = process.env.SMOKE_BASE || 'http://localhost:8080';
 const OUT = process.env.SMOKE_OUT || new URL('./shots/', import.meta.url).pathname;
 await mkdir(OUT, { recursive: true });
 const THEME = process.env.THEME || 'light';
+const GLASS = process.env.GLASS === '1';
 
 const TITLE = 'Fourier Neural Operator for Parametric Partial Differential Equations';
 const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
@@ -63,9 +64,9 @@ const PAPERS = [
 
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.evaluate(
-  async ({ papers, theme }) => {
+  async ({ papers, theme, glass }) => {
     localStorage.setItem('reader.welcomed', 'true');
-    localStorage.setItem('reader.settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('reader.settings') || '{}'), theme, userName: 'Saurav' }));
+    localStorage.setItem('reader.settings', JSON.stringify({ ...JSON.parse(localStorage.getItem('reader.settings') || '{}'), theme, userName: 'Saurav', ...(glass ? { glass: true, glassWall: 'spotlight' } : {}) }));
     localStorage.removeItem('reader.tour');
     localStorage.setItem('reader.home', JSON.stringify({ opensOn: 'search', tabs: ['search', 'continue', 'today', 'inbox', 'board'], last: 'search', clearPanels: true, v: 2 }));
     const db = await new Promise((resolve, reject) => {
@@ -83,7 +84,7 @@ await page.evaluate(
     await put('highlights', { id: 'h2', paperId: 'scholar:moe', color: 'blue', exact: 'sparse gating selects the top-k experts per token', prefix: '', suffix: '', hint: 0, tags: [], createdAt: at(3000) });
     db.close();
   },
-  { papers: PAPERS, theme: THEME },
+  { papers: PAPERS, theme: THEME, glass: GLASS },
 );
 
 // A new visit: the tour should start on its own.
@@ -94,7 +95,7 @@ await page.goto(BASE, { waitUntil: 'networkidle' });
 const skip = page.getByRole('button', { name: /Not now — keep everything in this browser/i });
 if (await skip.isVisible().catch(() => false)) await skip.click();
 
-const shot = async (name) => { await page.waitForTimeout(450); await page.screenshot({ path: `${OUT}/${THEME}-${name}.png` }); console.log('  shot', name); };
+const shot = async (name) => { await page.waitForTimeout(450); await page.screenshot({ path: `${OUT}/${THEME}${GLASS ? '-glass' : ''}-${name}.png` }); console.log('  shot', name); };
 const stepIs = (id) => page.waitForSelector(`.tour[data-step="${id}"] .tour-card`, { timeout: 15000 });
 const next = () => page.locator('.tour-card .btn.primary').click();
 const tried = async () => { await page.waitForSelector('.tour-try.is-done', { timeout: 8000 }); };
