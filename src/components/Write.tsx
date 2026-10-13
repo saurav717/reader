@@ -2236,6 +2236,8 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
   const [needToken, setNeedToken] = useState(false);
   // Written without syncing, for now: no account asked for, nothing sent until Sync is pressed.
   const [unsynced, setUnsynced] = useState(false);
+  // The Overleaf accounts connected to Reader: none means a paper in Drive can't reach Overleaf, "Not now" or not.
+  const overleafConnected = useOverleafAccounts();
   const unsyncedRef = useRef(false);
   unsyncedRef.current = unsynced;
   const [token, setToken] = useState('');
@@ -3059,7 +3061,8 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
   );
 
   // No Overleaf account to sync through: said first where Overleaf makes the PDF, and connecting is the step to take.
-  const noAccount = git && !unsynced && (needToken || (inDrive && /token|account/i.test(syncError ?? '')));
+  // Told by the accounts themselves for a paper in Drive, so it holds after "Not now" too; by the sync's answer otherwise.
+  const noAccount = git && ((inDrive && overleafConnected?.length === 0) || (!unsynced && (needToken || (inDrive && /token|account/i.test(syncError ?? '')))));
   // That pane, when it is in view, carries the account's connecting for a paper in Drive: the banner below stands aside.
   const paneConnects = inDrive && options.pdf === 'overleaf' && big !== 'source' && !(options.layout === 'tabs' && pane === 'source');
   const preview =
@@ -3082,22 +3085,24 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
               <h3>You’re not signed in to Overleaf here</h3>
               <p>
                 {inDrive
-                  ? 'Your edits can’t reach Overleaf — and its PDF won’t change — until an Overleaf account is connected to Reader. It takes a minute: Overleaf’s Git token, from Account Settings → Git integration on Overleaf.'
+                  ? `Your edits can’t reach Overleaf — and its PDF won’t change — until an Overleaf account is connected to Reader.${unsynced ? ' Syncing is off for this project until then.' : ''} It takes a minute: Overleaf’s Git token, from Account Settings → Git integration on Overleaf.`
                   : 'The Companion on this computer has no Overleaf Git token for this folder yet, so your edits can’t reach Overleaf: give it in the bar below (Overleaf: Account Settings → Git integration).'}
               </p>
               {inDrive ? (
                 accountOpen ? (
                   <div className="wr-sync-accounts">
-                    <OverleafAccounts open projectUrl={link?.url} onConnected={() => (setAccountOpen(false), setNeedToken(false), void sync())} />
+                    <OverleafAccounts open projectUrl={link?.url} onConnected={() => (setAccountOpen(false), setNeedToken(false), setUnsynced(false), void sync())} />
                   </div>
                 ) : (
                   <div className="wr-row">
                     <button type="button" className="btn sm primary" onClick={() => setAccountOpen(true)}>
                       Connect Overleaf account
                     </button>
-                    <button type="button" className="link-btn" onClick={() => (notNow(project.id), setUnsynced(true), setNeedToken(false), setSyncError(null))} title="Keep writing and compiling here; nothing goes to Overleaf until you press Sync">
-                      Not now
-                    </button>
+                    {unsynced ? null : (
+                      <button type="button" className="link-btn" onClick={() => (notNow(project.id), setUnsynced(true), setNeedToken(false), setSyncError(null))} title="Keep writing and compiling here; nothing goes to Overleaf until you press Sync">
+                        Not now
+                      </button>
+                    )}
                   </div>
                 )
               ) : null}
