@@ -61,15 +61,18 @@ jobs:
           MAIN="$(cat /tmp/job/main)"
           FLAG="$(cat /tmp/job/flag)"
           docker run --rm -v /tmp/job:/job -w /job/src "$IMAGE" \
-            latexmk "$FLAG" -cd -g -f -interaction=nonstopmode -file-line-error \
+            latexmk "$FLAG" -cd -g -f -interaction=nonstopmode -file-line-error -synctex=1 \
             -jobname=output -outdir=/job/out "$MAIN" > /tmp/job/out/stdout.txt 2>&1
           EXIT=$?
           python3 - "$EXIT" <<'PY'
           import base64, json, pathlib, sys
           out = pathlib.Path('/tmp/job/out')
           pdf = out / 'output.pdf'
+          synctex = out / 'output.synctex.gz'
+          # SyncTeX: a double-click on the PDF opens its source line.
+          sync = base64.b64encode(synctex.read_bytes()).decode() if pdf.exists() and synctex.exists() and synctex.stat().st_size <= 8 * 1024 * 1024 else ''
           log = ''.join(p.read_text(errors='replace') for p in (out / 'output.log', out / 'stdout.txt') if p.exists())
-          json.dump({'pdf': base64.b64encode(pdf.read_bytes()).decode() if pdf.exists() else '', 'log': log[-400000:], 'exit': int(sys.argv[1])}, open('/tmp/job/result.json', 'w'))
+          json.dump({'pdf': base64.b64encode(pdf.read_bytes()).decode() if pdf.exists() else '', 'synctex': sync, 'log': log[-400000:], 'exit': int(sys.argv[1])}, open('/tmp/job/result.json', 'w'))
           PY
           $CURL -X POST -H "Authorization: Bearer $RUNNER_TOKEN" -H 'Content-Type: application/json' \
             --data-binary @/tmp/job/result.json "$WORKER/latex/runner/$JOB/result" > /dev/null || { echo "couldn't hand the PDF back"; exit 1; }
