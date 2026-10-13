@@ -55,6 +55,7 @@ import CompanionUpdates from './CompanionUpdate';
 import ProxyPass from './ProxyPass';
 import { RunningChooser } from './PlaygroundRuns';
 import { GitHubConnect } from './Connections';
+import { startTour } from '../lib/tour';
 
 /** Every model, grouped by who runs it, saying which still need a key. */
 function ModelOptions({ keys }: { keys: Record<string, boolean> }) {
@@ -1069,6 +1070,26 @@ export default function Settings({ onClose }: { onClose: () => void }) {
             Ask AI <i>“show me where…”</i> and the paper scrolls to the passage, which is{' '}
             {PASSAGE_LOOKS.find((look) => look.id === settings.passageLook)?.note}
           </p>
+        </section>
+
+        <section style={{ marginTop: 22 }}>
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            Guided tour
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
+            A two-minute walk round the app — its pages, its panes and their keys, with a few to try as you go. It
+            opens once, on a first visit; take it again whenever you like, and leave it with <kbd>Esc</kbd>.
+          </p>
+          <button
+            type="button"
+            className="btn sm"
+            onClick={() => {
+              onClose();
+              startTour();
+            }}
+          >
+            Take the tour
+          </button>
         </section>
 
         <section style={{ marginTop: 22 }}>

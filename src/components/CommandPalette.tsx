@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import { arxivIdFromQuery, defaultSources, lookupArxiv, search } from '../lib/sources';
 import { hasProxy } from '../lib/api';
+import { startTour } from '../lib/tour';
 import type { PaperRef } from '../types';
 import { FileIcon, PlusIcon, SearchIcon, SettingsIcon, StackIcon } from './icons';
 
@@ -97,6 +98,17 @@ export default function CommandPalette({ onClose, onOpenPaper, onOpenSettings }:
         onClose();
       },
     });
+    if (!needle || 'take the tour guide help'.includes(needle)) {
+      actions.push({
+        kind: 'action',
+        id: 'tour',
+        title: 'Take the tour — a walk round the app and its keys',
+        run: () => {
+          onClose();
+          startTour();
+        },
+      });
+    }
 
     return [...library, ...found, ...actions];
   }, [papers, collections, remote, query, createCollection, onClose, onOpenSettings]);

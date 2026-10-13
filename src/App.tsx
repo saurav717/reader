@@ -54,6 +54,8 @@ import { RailRunBadge, RunDock, RunSwitcher, RunTabs } from './components/Playgr
 import PlaygroundPeek from './components/PlaygroundPeek';
 import { peekPlayground } from './lib/playgroundRuns';
 import { useMoveGitHubToken } from './components/Connections';
+import Tour, { type TourHost } from './components/Tour';
+import { START_TOUR, tourSeen } from './lib/tour';
 
 const WELCOME_KEY = 'reader.welcomed';
 const VIEW_KEY = 'reader.view';
@@ -280,6 +282,14 @@ export default function App() {
     if (view.kind === 'playground') setView(beforePlayground.current);
   };
   const [welcomed, setWelcomed] = useState(() => localStorage.getItem(WELCOME_KEY) === 'true');
+  // The guided tour: round the app once, on the first visit past the opening
+  // screen; again whenever Settings or the palette asks (START_TOUR).
+  const [tourOpen, setTourOpen] = useState(false);
+  useEffect(() => {
+    const open = () => setTourOpen(true);
+    window.addEventListener(START_TOUR, open);
+    return () => window.removeEventListener(START_TOUR, open);
+  }, []);
   // Dismissing the opening screen is remembered for this page load only. A
   // sign-in is kept in this browser for the hour Google's token lasts, so a
   // reload comes back connected; once it has run out — there is no backend to
@@ -962,6 +972,16 @@ export default function App() {
   const boardPaper = view.kind === 'paper' ? view.id : null;
   useEffect(() => setBoardOpen(false), [boardPaper]);
 
+  // A first visit that reaches Home — signed in, or past the opening screen —
+  // is shown round. One that lands on a paper by its link is left to read it;
+  // the tour waits for Home. (Before the early return below: a hook.)
+  const needsDriveNow = Boolean(settings.googleClientId.trim()) && !driveConnected;
+  const needsSignInNow = SIGN_IN_REQUIRED && Boolean(settings.googleClientId.trim()) && !user;
+  const welcomeNow = needsSignInNow || (!skippedConnect && (needsDriveNow || (!welcomed && !papers.length)));
+  useEffect(() => {
+    if (ready && !welcomeNow && view.kind === 'home' && !onUsage && !tourSeen()) setTourOpen(true);
+  }, [ready, welcomeNow, view.kind, onUsage]);
+
   if (!ready) {
     return (
       <div className="app">
@@ -982,6 +1002,27 @@ export default function App() {
   const needsSignIn = SIGN_IN_REQUIRED && Boolean(settings.googleClientId.trim()) && !user;
   const showWelcome = needsSignIn || (!skippedConnect && (needsDrive || (!welcomed && !papers.length)));
   const reading = view.kind === 'paper' ? view.id : null;
+  const tourHost: TourHost = {
+    hasPaper: papers.length > 0,
+    atHome: view.kind === 'home' && !onUsage,
+    reading: view.kind === 'paper',
+    goHome: () => {
+      setUsageOpen(false);
+      setView({ kind: 'home' });
+    },
+    openPaper: () => {
+      const paper = returnPaper ?? [...papers].sort((a, b) => (b.lastOpenedAt ?? '').localeCompare(a.lastOpenedAt ?? ''))[0];
+      if (paper) openPaperRef.current(paper.id);
+    },
+    closePalette: () => setPaletteOpen(false),
+    closeAssistant: () => setAssistantOpen(false),
+    closeNotes: () => {
+      if (notesShown) closeNotes();
+    },
+    leaveZen: () => {
+      if (zen) toggleZen();
+    },
+  };
   // With no paper open the notes pane lists every paper's notes, a card to each.
   // The Draft tab goes when Settings no longer puts the writing in the dock: Discover takes its place.
   const dockPane: Dock = dock === 'draft' && !draftDock ? 'discover' : dock;
@@ -1584,6 +1625,7 @@ export default function App() {
       {assistantOpen && !showWelcome ? <Assistant onClose={closeAssistant} screen={readScreen} reading={Boolean(reading)} /> : null}
 
       {settingsOpen ? <Settings onClose={() => setSettingsOpen(false)} /> : null}
+      {tourOpen && !showWelcome ? <Tour host={tourHost} onClose={() => setTourOpen(false)} /> : null}
     </div>
   );
 }
