@@ -48,6 +48,7 @@ import Reader from './Reader';
 import Discover from './Discover';
 import { CiteButtons, DraftEditor, OpenOverleaf, OverleafCard } from './Overleaf';
 import WritePage from './Write';
+import BibliographyCard from './Bibliography';
 import { ComputeSwitch } from './Compute';
 import { COLAB, computeId, isOn, serversOn, switchesOnCards } from '../lib/compute';
 import { overleafViewOf } from '../lib/overleaf';
@@ -542,6 +543,9 @@ function ProjectOverview({
             onView({ kind: 'project', id: project.id, mode: 'workspace' });
           }}
         />
+      </div>
+      <div className="pj-paper-row">
+        <BibliographyCard project={project} />
       </div>
 
       <div className="pj-section-head">

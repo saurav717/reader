@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { PaperRef } from '../types';
+import type { Paper, PaperRef } from '../types';
+import { useStore } from '../lib/store';
+import { bibtexOf, keyOf, lookupCitations } from '../lib/citeRecord';
+import { asPaper, copyText } from './CiteMenu';
 import {
   authorDetails,
   profilesElsewhere,
@@ -692,6 +695,7 @@ function CiteCard({ entries, onJump }: { entries: CitedEntry[]; onJump: (id: str
         >
           Google Scholar <ExternalIcon size={10} />
         </a>
+        {paper ? <ReferenceCite paper={paper} /> : null}
         <button
           type="button"
           className="hc-action"
@@ -702,5 +706,35 @@ function CiteCard({ entries, onJump }: { entries: CitedEntry[]; onJump: (id: str
         </button>
       </div>
     </>
+  );
+}
+
+/**
+ * The cited paper's citation, copied from the card: BibTeX as the library
+ * would make it — the official entry where it is already in the library,
+ * else fetched by its DOI or found at dblp on the first click.
+ */
+function ReferenceCite({ paper }: { paper: PaperRef }) {
+  const { papers, settings } = useStore();
+  const [said, setSaid] = useState<string | null>(null);
+  const known = papers.find((item) => item.id === paper.id || (paper.doi && item.doi?.toLowerCase() === paper.doi.toLowerCase()) || (paper.arxivId && item.arxivId === paper.arxivId));
+  const say = (what: string) => {
+    setSaid(what);
+    window.setTimeout(() => setSaid(null), 1500);
+  };
+  const copyBib = async () => {
+    let subject: Paper = known ?? asPaper(paper);
+    if (!known) {
+      say('Fetching…');
+      const record = await lookupCitations(subject, settings.citations).catch(() => null);
+      if (record) subject = { ...subject, citation: record };
+    }
+    const ok = await copyText(bibtexOf(subject, settings.citations));
+    say(ok ? `Copied \\cite{${keyOf(subject, settings.citations)}}'s entry` : 'Could not copy');
+  };
+  return (
+    <button type="button" className="hc-action" onClick={() => void copyBib()} title={known ? `In your library as ${keyOf(known, settings.citations)}: copy its BibTeX` : 'Its BibTeX, fetched from the publisher by DOI, else dblp, else made from the record'}>
+      {said ?? 'Copy BibTeX'}
+    </button>
   );
 }

@@ -39,6 +39,7 @@ import { type Highlight, type ReadingMode } from '../types';
 import MarkPicker, { highlightIn, markKey, type Mark } from './MarkPicker';
 import LookupPopover, { type LookupTarget } from './LookupPopover';
 import HoverCard, { type CitedEntry, type HoverTarget } from './HoverCard';
+import CiteMenu from './CiteMenu';
 import { pdfPageTexts, showPdf } from '../lib/screen';
 import { findPassage, FLASH_EVENT, LOCATE_EVENT, pageOf, type LocateRequest, type LocateResult } from '../lib/locate';
 import PassageFlash, { type Flash } from './PassageFlash';
@@ -161,6 +162,7 @@ export default function Reader({
     setPaperPdfChoice,
     setPaperDriveFile,
     setPaperAuthors,
+    lookupPaperCitations,
     settings,
     updateSettings,
     driveConnected,
@@ -1683,6 +1685,7 @@ export default function Reader({
               <ExplainIcon size={15} /> Explain
             </button>
           ) : null}
+          <CiteMenu paper={paper} onLookup={() => lookupPaperCitations([paper.id])} />
           <button
             type="button"
             className="icon-btn sm"

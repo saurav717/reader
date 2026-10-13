@@ -6,7 +6,7 @@
 // browser (insertText), so ⌘Z and ⇧⌘Z undo and redo it as they do typing.
 // What it does to the text is src/lib/editing.ts.
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { highlightCode } from '../lib/languages';
 import { highlightTex } from '../lib/overleaf';
@@ -24,11 +24,19 @@ export interface CodeEditorHandle {
   openFind: (replace?: boolean) => void;
   /** Types text in over the selection, or at the caret, so undo takes it back. */
   insert: (text: string) => void;
+  /** Puts the caret (or a selection) at offsets in the text, and brings it into view. */
+  select: (from: number, to?: number) => void;
+  /** Where an offset in the text is, in the editor's inner box: for a card beside the caret. */
+  caretPoint: (at: number) => { x: number; y: number };
+  /** The text as it is in the editor right now. */
+  value: () => string;
 }
 
 export interface Cursor {
   line: number;
   col: number;
+  /** The caret's offset in the text. */
+  offset: number;
   /** Characters selected. */
   selected: number;
   lines: number;
@@ -62,7 +70,14 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
    * the caret as you type: ↑↓ to move, ↵ or Tab to take one, Esc to close, Ctrl+Space to ask.
    */
   complete?: (text: string, caret: number) => Completion | null;
-}>(function CodeEditor({ value, path, fontSize = 13, minimap = true, onChange, onKeyDown, onCursor, onFocus, readOnly = false, wrap = false, complete }, ref) {
+  /**
+   * Keys taken before the editor's own: a card open beside the caret (the Write tab's citation helper) that wants
+   * ↑↓, ↵ and Esc. True means the key was taken.
+   */
+  beforeKey?: (event: ReactKeyboardEvent<HTMLTextAreaElement>) => boolean;
+  /** A card shown at an offset in the text, under the caret's line, as the suggestions are. */
+  aside?: { at: number; node: ReactNode } | null;
+}>(function CodeEditor({ value, path, fontSize = 13, minimap = true, onChange, onKeyDown, onCursor, onFocus, readOnly = false, wrap = false, complete, beforeKey, aside }, ref) {
   const text = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const map = useRef<HTMLCanvasElement>(null);
@@ -107,7 +122,7 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
     if (!element) return;
     setCaret(element.selectionEnd);
     const { line, col } = lineCol(element.value, element.selectionEnd);
-    onCursor?.({ line, col, selected: Math.abs(element.selectionEnd - element.selectionStart), lines: element.value.split('\n').length });
+    onCursor?.({ line, col, offset: element.selectionEnd, selected: Math.abs(element.selectionEnd - element.selectionStart), lines: element.value.split('\n').length });
   }, [onCursor]);
 
   /** The caret kept in view, as an editor scrolls to it: the box scrolls, not the textarea. */
@@ -262,6 +277,9 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
         const at = from + insert.length;
         apply({ from, to: element.selectionEnd, insert, select: { start: at, end: at } });
       },
+      select: (from: number, to: number = from) => go(from, to),
+      caretPoint: (at: number) => caretPoint(at),
+      value: () => text.current?.value ?? value,
       openFind: (replace = false) => {
         const element = text.current;
         const picked = element ? element.value.slice(element.selectionStart, element.selectionEnd) : '';
@@ -273,7 +291,7 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
         });
       },
     }),
-    [go, value, apply],
+    [go, value, apply, caretPoint],
   );
 
   // A new query goes to the match nearest after the caret.
@@ -348,6 +366,7 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
     const sel = { start: element.selectionStart, end: element.selectionEnd };
     const mod = mac ? event.metaKey : event.ctrlKey;
     const k = event.key;
+    if (beforeKey?.(event)) return;
     const open = suggestRef.current;
     if (open && open.list.items.length) {
       if (k === 'ArrowDown' || k === 'ArrowUp') {
@@ -508,6 +527,7 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
             onBlur={() => window.setTimeout(() => setSuggest(null), 120)}
             onFocus={() => (report(), onFocus?.())}
           />
+          {aside && !suggest ? <AsideAt at={aside.at} point={caretPoint} lineHeight={lineHeight}>{aside.node}</AsideAt> : null}
           {suggest && suggest.list.items.length ? (
             <div className="ce-suggest" ref={listBox} role="listbox" aria-label="Suggestions" style={{ left: suggest.x, top: suggest.y + lineHeight + 2 }} onMouseDown={(event) => event.preventDefault()}>
               {suggest.list.items.map((item, index) => (
@@ -602,3 +622,31 @@ const CodeEditor = forwardRef<CodeEditorHandle, {
 });
 
 export default CodeEditor;
+
+/**
+ * A card at an offset in the text, under the caret's line — or above it
+ * when there is no room below — and kept inside the editor's width.
+ * Measured once the editor has drawn, and again as the text changes.
+ */
+function AsideAt({ at, point, lineHeight, children }: { at: number; point: (at: number) => { x: number; y: number }; lineHeight: number; children: ReactNode }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [where, setWhere] = useState<{ x: number; y: number } | null>(null);
+  useLayoutEffect(() => {
+    const element = box.current;
+    const scroller = element?.closest('.ce-scroll') as HTMLElement | null;
+    const caret = point(at);
+    if (!element || !scroller) return setWhere({ x: caret.x, y: caret.y + lineHeight + 4 });
+    const width = element.offsetWidth;
+    const height = element.offsetHeight;
+    const x = Math.max(8, Math.min(caret.x, scroller.clientWidth - width - 12));
+    const below = caret.y + lineHeight + 4;
+    const fits = below + height <= scroller.scrollTop + scroller.clientHeight - 8;
+    const above = caret.y - height - 6;
+    setWhere({ x, y: fits || above < scroller.scrollTop ? below : above });
+  }, [at, point, lineHeight, children]);
+  return (
+    <div className="ce-aside" ref={box} style={where ? { left: where.x, top: where.y } : { left: 0, top: 0, visibility: 'hidden' }} onMouseDown={(event) => event.preventDefault()}>
+      {children}
+    </div>
+  );
+}

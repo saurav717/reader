@@ -2,6 +2,7 @@ import type { Collection, Highlight, Paper, Settings } from '../types';
 import { HIGHLIGHT_COLORS } from '../types';
 import { pathName, sidecar } from './sidecar';
 import { githubFetch } from './githubToken';
+import { bibtexOf, keyOf } from './citeRecord';
 
 /**
  * The annotation layer, mirrored into a Git repository.
@@ -135,44 +136,14 @@ export function repoNameFor(projectName: string): string {
 
 // ------------------------------------------------------------------ files ----
 
-function escapeBib(value: string): string {
-  return value.replace(/[{}\\]/g, '').replace(/[&%$#_]/g, (character) => `\\${character}`);
-}
-
-function familyName(author: string): string {
-  const parts = author.trim().split(/\s+/);
-  return parts.length > 1 ? parts[parts.length - 1] : parts[0] || '';
-}
-
-/** A cite key a person would recognise: lecun2015deep. */
+/** A cite key a person would recognise: lecun2015deep — or the style Settings → Citations asks, or the key kept on the paper. */
 export function citeKey(paper: Paper): string {
-  const author = familyName(paper.authors[0] || '').toLowerCase().replace(/[^a-z]/g, '') || 'anon';
-  const year = (paper.published || '').slice(0, 4) || 'nd';
-  const word =
-    (paper.title.toLowerCase().match(/[a-z]{4,}/g) || []).find((candidate) => candidate.length >= 4) || 'paper';
-  return `${author}${year}${word}`;
+  return keyOf(paper);
 }
 
+/** The paper's BibTeX: the entry chosen for it (src/lib/citeRecord.ts), under its key. */
 export function toBibtex(paper: Paper): string {
-  // A preprint with no venue is a @misc; anything that was published somewhere
-  // is an @article, which is what a bibliography style expects to be given.
-  const type = paper.venue ? 'article' : 'misc';
-  const fields: [string, string | undefined][] = [
-    ['title', paper.title],
-    ['author', paper.authors.map(escapeBib).join(' and ') || undefined],
-    ['year', (paper.published || '').slice(0, 4) || undefined],
-    ['journal', paper.venue],
-    ['doi', paper.doi],
-    ['eprint', paper.arxivId],
-    ['archivePrefix', paper.arxivId ? 'arXiv' : undefined],
-    ['url', paper.landingUrl],
-    ['keywords', paper.tags.join(', ') || undefined],
-  ];
-  const body = fields
-    .filter(([, value]) => value)
-    .map(([key, value]) => `  ${key} = {${escapeBib(String(value))}}`)
-    .join(',\n');
-  return `@${type}{${citeKey(paper)},\n${body}\n}`;
+  return bibtexOf(paper);
 }
 
 /** The human-readable half: what you actually marked up, as Markdown. */
