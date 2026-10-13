@@ -23,7 +23,8 @@ const {
   isInDrive,
   fetchPaperPdf,
   findPdfInDrive,
-} = await loadTogether(['src/lib/driveSync.ts', 'src/lib/pdf.ts']);
+  provablyNotHere,
+} = await loadTogether(['src/lib/driveSync.ts', 'src/lib/pdf.ts', 'src/lib/driveLibrary.ts']);
 
 const realFetch = globalThis.fetch;
 after(async () => {
@@ -607,5 +608,31 @@ describe('opening a paper reads the copy in Drive first', () => {
   it('answers null, not a folder, when the root itself is missing', async () => {
     assert.equal(await findPdfInDrive('token', paper(), { rootFolderName: ROOT_FOLDER }), null);
     assert.equal(drive.folderId('root', ROOT_FOLDER), undefined);
+  });
+});
+
+// A library file that another account's library was mixed into is put right
+// by what this account's Drive can open: with drive.file, a paper whose
+// folder, sidecar and PDF all answer 404 was saved by someone else.
+describe('telling another account’s papers from this one’s', () => {
+  let drive;
+  beforeEach(() => {
+    drive = stubDrive();
+  });
+
+  it('names the papers whose Drive files this account cannot open, and no other', async () => {
+    const saved = await syncPaperToDrive(paper(), context({ pdf: new Blob(['%PDF-1.4']) }));
+    const mine = paper({ drive: { folderId: saved.folderId, pdfFileId: saved.pdfFileId, metaFileId: saved.metaFileId } });
+    const theirs = paper({ id: 'arxiv:9999.00001', drive: { folderId: 'in-someone-elses-drive', pdfFileId: 'theirs-pdf', metaFileId: 'theirs-json' } });
+    const unsaved = paper({ id: 'arxiv:9999.00002' });
+    const partlyMine = paper({ id: 'arxiv:9999.00003', drive: { folderId: 'gone-by-hand', metaFileId: saved.metaFileId } });
+    assert.deepEqual([...(await provablyNotHere(settings.googleClientId, [mine, theirs, unsaved, partlyMine]))], [theirs.id]);
+  });
+
+  it('refuses to guess when Drive answers anything but yes or 404', async () => {
+    const theirs = paper({ drive: { folderId: 'in-someone-elses-drive' } });
+    const failing = globalThis.fetch;
+    globalThis.fetch = async (url, init) => (String(url).includes('in-someone-elses-drive') ? new Response('slow down', { status: 429 }) : failing(url, init));
+    await assert.rejects(provablyNotHere(settings.googleClientId, [theirs]), /Drive request failed \(429\)/);
   });
 });

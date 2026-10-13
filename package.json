@@ -9,7 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "start": "node server/index.js",
-    "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false || tsc -b",
+    "typecheck": "tsc -b",
     "typecheck:vscode": "tsc -p vscode/tsconfig.json",
     "test:api": "node --test scripts/colab.test.mjs scripts/pdf-proxy.test.mjs scripts/access.test.mjs scripts/workspace.test.mjs scripts/scholar-captcha.test.mjs scripts/browse.test.mjs scripts/serpapi.test.mjs scripts/serply.test.mjs scripts/profile-reader.test.mjs scripts/contribution-reader.test.mjs scripts/gemini-relay.test.mjs scripts/web-search.test.mjs scripts/passes.test.mjs scripts/devices.test.mjs scripts/usage.test.mjs scripts/usage-period.test.mjs scripts/gcloud.test.mjs",
     "build:pages": "VITE_REQUIRE_SIGN_IN=${VITE_REQUIRE_SIGN_IN:-true} VITE_GOOGLE_CLIENT_ID=${VITE_GOOGLE_CLIENT_ID:-308274983351-s52d0ustml5bneg91ju6of40tmitnaoa.apps.googleusercontent.com} VITE_BASE=/reader/ VITE_SOURCEMAP=false VITE_API_BASE=${VITE_API_BASE:-https://reader-arxiv-proxy.es16btech11007.workers.dev} vite build --outDir dist-pages --emptyOutDir && node scripts/pages-routes.mjs dist-pages && node scripts/build-companion.mjs dist-pages && node scripts/build-vscode.mjs dist-pages",

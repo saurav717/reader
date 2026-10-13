@@ -881,6 +881,14 @@ app opens that account's library rather than carrying on under the first
 one's name: nothing of one account's is read into, or written to, the other's
 Drive. **Sign out** revokes the token outright and forgets it.
 
+An earlier version did assume it, and could write one account's library into
+the other's Drive under the first one's name. A `library.json` found in your
+Drive carrying another account's name is put right on the next sign-in: the
+papers whose Drive folders are not yours — with `drive.file`, this account
+cannot open another's — go to Junk, where **Restore** brings one back if it was
+wanted here after all; the rest stay, and the file is yours again. The sync
+line in Settings says what was done.
+
 ### Your library is your account's, and lives in its Drive
 
 The library — every paper, its collections, its highlights, and what is in
