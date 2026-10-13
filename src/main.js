@@ -1,0 +1,16 @@
+import { jsx as _jsx } from "react/jsx-runtime";
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import App from './App';
+import { StoreProvider } from './lib/store';
+import { keepCompanionCompany } from './lib/appWindow';
+import './styles.css';
+// A deep link on a static host: the host's 404 page sent /reader/paper/<id>
+// here as /reader/?route=/reader/paper/<id>; the address is put back before
+// the app reads it, so the page it names opens and the bar shows it.
+const route = new URLSearchParams(window.location.search).get('route');
+if (route && route.startsWith(import.meta.env.BASE_URL))
+    window.history.replaceState(null, '', route);
+// Opened by the Reader app: this window keeps the Companion running, and it shuts down with it.
+keepCompanionCompany();
+createRoot(document.getElementById('root')).render(_jsx(StrictMode, { children: _jsx(StoreProvider, { children: _jsx(App, {}) }) }));

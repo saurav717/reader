@@ -1,0 +1,2356 @@
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+// The Write tab: a project's paper, the whole page an editor — its files, the
+// LaTeX, and the PDF it makes — as Overleaf is. By default the paper is kept
+// in Google Drive, in the project's folder there, nothing of it on the
+// computer: edited in the browser, compiled on Cloud Run, kept in step with
+// Overleaf by Reader's server. A project linked to Overleaf can be kept on the
+// computers instead (Keep on this computer): a clone of it in a folder under
+// the Companion's, compiled there or on Cloud Run, synced by its Git. When it
+// compiles, how it is laid out, when it syncs and the citations drawer are
+// Settings → Projects → The Write tab (types.ts, `WRITE_OPTIONS`).
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useStore } from '../lib/store';
+import { COMPANION_VERSION, PAPER_TEMPLATES_VERSION, PAPER_VERSION, REVEAL_VERSION, TEXLIVE_VERSION, revealPaper, TEX_COMPILERS, applyTemplate, chooseFolder, clonePaper, linkFolder, listTemplates, saveTemplate, tokenKnown, updateCompanion, waitForVersion, cancelTexLive, installPackages, installTexLive, removeTexLive, texLiveStatus, compilePaper, forgetOverleafToken, installTectonic, isNewer, paperEngines, paperRemote, syncPaper } from '../lib/companion';
+import { besideFeatures, bibEntries, isBuildFile, isTextFile, keyFor, latexLinkAt, latexOwner, latexSeparate, openInOverleaf, overleafGitUrl, withLatexLink, paperFolderFor, parseOverleafUrl, switchedLink, withEntry } from '../lib/overleaf';
+import { complete as completeLatex } from '../lib/latexComplete';
+import { openPdf } from '../lib/pdfReflow';
+import { parseSyncTex, sourceAt, unzipSyncTex } from '../lib/synctex';
+import { papersIn, projectsOf } from '../lib/projects';
+import { thisComputer } from '../lib/thisComputer';
+import { WRITE_DEFAULTS } from '../types';
+import CodeEditor from './CodeEditor';
+import CopyBlock from './CopyBlock';
+import { OpenOverleaf } from './Overleaf';
+import { readTexLog } from '../lib/latexGithub';
+import { apiFetch } from '../lib/api';
+import { cloudSync, overleafTokenKnown } from '../lib/overleafCloud';
+import { applyGallery, LATEX_GALLERY } from '../lib/latexGallery';
+import { companionStore, driveShelf, driveStore, subStore, paperDriveFolder, paperDriveNow, setPaperDrive, unpackKit } from '../lib/paperStore';
+import { findLostFolder, inDrive, movePaperToDrive, removeFolder } from '../lib/paperMove';
+import { CompanionConnect } from './Playground';
+import OverleafAccounts, { useOverleafAccounts } from './OverleafAccounts';
+import { WriteGuideLink } from './WriteGuide';
+import CompareOverleaf from './WriteCompare';
+import { lineIn, notNow, rememberPlace, saidNotNow, takeWriteHome } from '../lib/writePlace';
+/**
+ * The tab, for a project: its paper, kept in Google Drive — nothing on any
+ * computer — unless the project is kept on the computers (LocalWrite). A
+ * paper not in Drive yet is brought there first (ToDrive).
+ */
+export default function WritePage({ project, onView }) {
+    const { settings, driveConnected } = useStore();
+    const clientId = settings.googleClientId.trim();
+    setPaperDrive(driveConnected && clientId ? { clientId, folderName: settings.driveFolderName } : null);
+    const link = project.project.overleaf;
+    if (link?.keep?.where === 'computer')
+        return _jsx(LocalWrite, { project: project, onView: onView });
+    if (link?.drive?.folder)
+        return _jsx(DriveWrite, { project: project, folder: link.drive.folder });
+    // Nothing yet: no Overleaf project, no folder on any computer — started here, one way or the other.
+    if (!overleafGitUrl(link?.url) && !Object.keys(link?.folders ?? {}).length)
+        return _jsx(WriteStart, { project: project });
+    return _jsx(ToDrive, { project: project });
+}
+/**
+ * A project with no paper yet: started from one of the person's Overleaf
+ * projects (the account connected once, the project picked), or without
+ * Overleaf — a new paper in the project's Drive folder, to put on Overleaf
+ * later if ever.
+ */
+function WriteStart({ project }) {
+    const { driveConnected, connectDrive, settings, updateCollection } = useStore();
+    const setLink = useSetLink(project);
+    const signedIn = driveConnected && Boolean(settings.googleClientId.trim());
+    // Written here unless the paper card asked for Overleaf: Overleaf is a sync, never the only way in.
+    const [way, setWay] = useState(() => (takeWriteHome(project.id) === 'overleaf' ? 'overleaf' : 'blank'));
+    const [busy, setBusy] = useState(false);
+    const [problem, setProblem] = useState(null);
+    const folder = paperDriveFolder(project.name, project.id);
+    // The picked Overleaf project into the project's Drive folder, by Reader's server with whichever account opens it.
+    const bring = async (url) => {
+        const gitUrl = overleafGitUrl(url);
+        if (!gitUrl)
+            throw new Error('That isn’t an Overleaf project’s address.');
+        const done = await cloudSync(driveStore(paperDriveNow, folder), gitUrl, 'From Reader');
+        if (!done.ok)
+            throw Object.assign(new Error(done.error ?? 'It didn’t come in.'), { needToken: Boolean(done.needToken) });
+        await setLink({ url, drive: { folder }, ...(done.account ? { gitAccount: done.account } : {}) });
+    };
+    const blank = async () => {
+        setBusy(true);
+        setProblem(null);
+        try {
+            await driveStore(paperDriveNow, folder).mkdir('');
+            await updateCollection(project.id, (collection) => {
+                const info = { ...project.project, ...(collection.project ?? {}) };
+                return { project: { ...info, overleaf: inDrive(info.overleaf, folder, undefined) } };
+            });
+        }
+        catch (error) {
+            setProblem(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    return (_jsx("div", { className: "wr-scroll", children: _jsxs("div", { className: "wr-card wr-setup", children: [_jsx("span", { className: "eyebrow", children: "The paper" }), _jsx("h2", { children: "Start this project\u2019s paper" }), _jsxs("p", { children: ["Its LaTeX is kept in your Google Drive, in ", _jsx("span", { className: "mono", children: folder }), " \u2014 nothing on this computer \u2014 written here in the browser and compiled on Cloud Run.", ' ', _jsx(WriteGuideLink, { section: "begin", children: "Which should I pick?" })] }), !signedIn ? (_jsxs("div", { className: "wr-row", children: [_jsx("button", { type: "button", className: "btn primary", onClick: () => void connectDrive(), children: "Sign in with Google, with Drive" }), _jsx("span", { className: "wr-quiet", children: "Needed either way: Drive is where the paper is kept." })] })) : null, _jsxs("div", { className: "wr-ways", role: "radiogroup", "aria-label": "How to start the paper", children: [_jsxs("button", { type: "button", role: "radio", "aria-checked": way === 'blank', className: `wr-way${way === 'blank' ? ' is-on' : ''}`, onClick: () => setWay('blank'), disabled: !signedIn, children: [_jsxs("b", { children: ["Write it here ", _jsx("small", { children: "\u00B7 recommended" })] }), _jsx("span", { children: "A new LaTeX paper in your Drive, written in this tab: a blank article, a conference template, or files you upload. Sync it with Overleaf whenever you like \u2014 or never." })] }), _jsxs("button", { type: "button", role: "radio", "aria-checked": way === 'overleaf', className: `wr-way${way === 'overleaf' ? ' is-on' : ''}`, onClick: () => setWay('overleaf'), disabled: !signedIn, children: [_jsx("b", { children: "Bring it from Overleaf, kept in sync" }), _jsx("span", { children: "Already started in Overleaf? Connect your Overleaf account once and pick the project. It comes into Drive, you write it here, and it stays in step with Overleaf both ways, so coauthors can keep writing there." })] })] }), way === 'overleaf' && signedIn ? _jsx(OverleafPicker, { project: project, mode: "bring", onPicked: (url) => bring(url) }) : null, way === 'blank' && signedIn ? (_jsxs("div", { className: "wr-row", children: [_jsx("button", { type: "button", className: "btn primary", disabled: busy, onClick: () => void blank(), children: busy ? 'Making its folder…' : 'Start the paper' }), _jsx("span", { className: "wr-quiet", children: "Then pick how its first LaTeX project begins." })] })) : null, problem ? _jsx("p", { className: "wr-bad", children: problem }) : null] }) }));
+}
+/**
+ * A LaTeX project in Drive put into an Overleaf project — made for it from
+ * here, or one made in Overleaf — and kept in step from then on. `dir` is its
+ * folder ('' the top, the project's own link); a folder gets a link of its
+ * own, and the other LaTeX projects inside it stay out.
+ */
+function PutOnOverleaf({ project, store, dir = '', main, onDone }) {
+    const { updateCollection } = useStore();
+    const link = project.project.overleaf;
+    const own = subStore(store, dir);
+    const exclude = latexSeparate(link, dir);
+    const outside = (path) => exclude.some((other) => path === other || path.startsWith(`${other}/`));
+    const keep = (change) => updateCollection(project.id, (collection) => {
+        const info = { ...project.project, ...(collection.project ?? {}) };
+        return info.overleaf ? { project: { ...info, overleaf: withLatexLink(info.overleaf, dir, change) } } : {};
+    });
+    // A new Overleaf project made with the paper in it: Overleaf's /docs, in the account signed in in this browser.
+    // (Overleaf's Git can't make a project, and no other site may read its address: it is copied back from the tab.)
+    const make = async () => {
+        const name = `reader-overleaf-${Date.now()}`;
+        const tab = window.open('about:blank', name);
+        try {
+            const files = [];
+            for (const path of (await listAll(own)).filter((path) => !outside(path)))
+                files.push({ path, content: Uint8Array.from(atob(await own.readBase64(path)), (char) => char.charCodeAt(0)) });
+            if (!files.length)
+                throw new Error('This LaTeX project has no files yet: write its main document, then put it on Overleaf.');
+            openInOverleaf(files, { main: main || latexLinkAt(link, dir).main || 'main.tex', target: tab ? name : '_blank' });
+        }
+        catch (error) {
+            tab?.close();
+            throw error;
+        }
+    };
+    return (_jsx(OverleafPicker, { project: project, onMake: make, mode: "push", onPicked: async (url) => {
+            const gitUrl = overleafGitUrl(url);
+            if (!gitUrl)
+                throw new Error('That isn’t an Overleaf project’s address.');
+            const done = await cloudSync(own, gitUrl, 'The paper, from Reader', undefined, { firstPushes: true, exclude });
+            if (!done.ok)
+                throw Object.assign(new Error(done.error ?? 'The paper didn’t go to Overleaf.'), { needToken: Boolean(done.needToken) });
+            await keep({ url, ...(done.account ? { gitAccount: done.account } : {}), ...(main ? { main } : {}) });
+            onDone?.();
+        } }));
+}
+/**
+ * One of the person's Overleaf projects, picked: the account connected first
+ * (its Git token, kept sealed by Reader's server for all of its projects).
+ * Overleaf lets no other app list an account's projects, so the ones offered
+ * are those Reader knows — linked to this account's other projects — and any
+ * other is picked by its address, copied from Overleaf's project list.
+ * `bring`: the project is to come into Drive. `push`: a paper in Drive is to
+ * go into it (a Blank Project made in Overleaf for it).
+ */
+function OverleafPicker({ project, mode, onPicked, onMake }) {
+    const { collections } = useStore();
+    const accounts = useOverleafAccounts();
+    const [address, setAddress] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [problem, setProblem] = useState(null);
+    const [needAccount, setNeedAccount] = useState(null);
+    const [last, setLast] = useState(null);
+    const [made, setMade] = useState(false);
+    const offered = useMemo(() => {
+        const seen = new Map();
+        for (const other of projectsOf(collections)) {
+            const link = other.project.overleaf;
+            const url = link?.url ? parseOverleafUrl(link.url) : null;
+            if (url && other.id !== project.id && !seen.has(url))
+                seen.set(url, { url, label: other.name });
+            for (const before of Object.keys(link?.earlier ?? {}))
+                if (!seen.has(before) && other.id !== project.id)
+                    seen.set(before, { url: before, label: `${other.name}, before` });
+        }
+        return [...seen.values()];
+    }, [collections, project.id]);
+    const pick = async (url) => {
+        setBusy(true);
+        setProblem(null);
+        setNeedAccount(null);
+        setLast(url);
+        try {
+            await onPicked(url);
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            // No connected account opens it: the one it is in connected, and tried again.
+            if (error.needToken)
+                setNeedAccount(message);
+            else
+                setProblem(message);
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    const pasted = parseOverleafUrl(address);
+    if (accounts === null)
+        return _jsx("p", { className: "wr-quiet", children: "Asking Reader\u2019s server about your Overleaf accounts\u2026" });
+    // Two steps, the first only when it is needed: the Overleaf account, connected once for every project
+    // (here or under Projects → Connections) — never asked again once it is — then this project's Overleaf project.
+    const hasAccount = accounts.length > 0 && !needAccount;
+    const labels = accounts.map((account) => account.label).join(', ');
+    return (_jsxs("div", { className: "wr-form wr-ol-pick", children: [_jsxs("ol", { className: "wr-steps", children: [_jsxs("li", { className: `wr-step${hasAccount ? ' is-done' : ' is-now'}`, children: [_jsx("span", { className: "wr-step-n", "aria-hidden": "true", children: hasAccount ? '✓' : '1' }), _jsx("div", { className: "wr-step-body", children: hasAccount ? (_jsxs("details", { className: "ol-connected", children: [_jsxs("summary", { children: ["Overleaf account ", _jsx("b", { children: labels }), " ", _jsx("span", { className: "wr-quiet", children: "\u00B7 connected once, for every project \u00B7 change" })] }), _jsx(OverleafAccounts, {})] })) : (_jsxs(_Fragment, { children: [_jsx("p", { className: "wr-step-why", children: needAccount ? 'This Overleaf project needs the account it belongs to.' : 'First, your Overleaf account — once, for every project and device. It isn’t asked again, and can be changed under Projects → Connections.' }), _jsx(OverleafAccounts, { open: true, why: needAccount ?? undefined, onConnected: () => (needAccount && last ? void pick(last) : undefined) })] })) })] }), _jsxs("li", { className: `wr-step${hasAccount ? ' is-now' : ' is-later'}`, children: [_jsx("span", { className: "wr-step-n", "aria-hidden": "true", children: "2" }), _jsxs("div", { className: "wr-step-body", children: [_jsx("b", { className: "wr-step-title", children: mode === 'push' ? 'Link it to an Overleaf project' : 'Pick the Overleaf project' }), !hasAccount ? (_jsx("p", { className: "wr-quiet", children: "Next, once the account is connected." })) : (_jsxs(_Fragment, { children: [mode === 'push' && onMake ? (_jsxs("div", { className: "wr-ol-make", children: [_jsxs("p", { children: [_jsx("b", { children: "a." }), " Reader makes a new Overleaf project with this paper in it, in the Overleaf account signed in in this browser. Overleaf\u2019s Git can\u2019t make projects, so this opens Overleaf in a new tab."] }), _jsx("div", { className: "wr-row", children: _jsx("button", { type: "button", className: "btn primary", disabled: busy, onClick: () => {
+                                                                setProblem(null);
+                                                                void onMake().then(() => setMade(true), (error) => setProblem(error instanceof Error ? error.message : String(error)));
+                                                            }, children: made ? 'Make another' : 'Make it on Overleaf' }) }), _jsxs("p", { children: [_jsx("b", { children: "b." }), " ", made ? 'In the tab that opened, ' : 'Then, in that tab, ', "copy the project\u2019s address from the browser and paste it below: Overleaf lets no other site read it. From then on the paper stays in step with Overleaf."] })] })) : mode === 'push' ? (_jsxs("p", { children: ["In Overleaf, make a ", _jsx("b", { children: "Blank Project" }), " for this paper (New Project \u2192 Blank Project), copy its address, and paste it here: this paper\u2019s files go into it, and from then on it stays in step with Overleaf."] })) : offered.length ? (_jsxs(_Fragment, { children: [_jsx("span", { className: "wr-field-label", children: "Your Overleaf projects Reader knows" }), _jsx("div", { className: "wr-ol-list", role: "list", children: offered.map((item) => (_jsxs("button", { type: "button", role: "listitem", className: "wr-ol-item", disabled: busy, onClick: () => void pick(item.url), children: [_jsx("b", { children: item.label }), _jsx("small", { className: "mono", children: item.url.replace('https://www.', '') })] }, item.url))) })] })) : null, _jsxs("label", { className: "wr-field", children: [_jsx("span", { children: mode === 'push' || !offered.length ? 'The Overleaf project’s address' : 'Or another of your projects: its address' }), _jsx("input", { value: address, placeholder: "https://www.overleaf.com/project/\u2026", onChange: (event) => setAddress(event.target.value), "aria-label": "The Overleaf project\u2019s address" }), _jsxs("small", { children: ["Overleaf doesn\u2019t let other apps list your projects: open", ' ', _jsx("a", { href: "https://www.overleaf.com/project", target: "_blank", rel: "noopener noreferrer", children: "your Overleaf projects \u2197" }), ", open the one you want, and copy the address from the browser."] })] }), _jsxs("div", { className: "wr-row", children: [_jsx("button", { type: "button", className: "btn primary", disabled: busy || !pasted, onClick: () => pasted && void pick(pasted), children: busy ? (mode === 'push' ? 'Sending the paper to Overleaf…' : 'Bringing it in…') : mode === 'push' ? 'Put the paper in this project' : 'Use this project' }), address.trim() && !pasted ? _jsx("span", { className: "wr-bad", children: "That isn\u2019t an Overleaf project\u2019s address (overleaf.com/project/\u2026)." }) : null] })] }))] })] })] }), problem ? _jsx("p", { className: "wr-bad", children: problem }) : null] }));
+}
+/**
+ * Where the project's paper is kept, and the way to the other place: from
+ * Drive to the computers (what is in Drive goes to Overleaf first, then each
+ * computer clones it), or back to Drive (this computer's clone goes to
+ * Overleaf first, then the folder is removed from the computer). Only with an
+ * Overleaf project: it is what carries the paper between the two.
+ */
+function KeepWhere({ project, here, folder, store }) {
+    const setLink = useSetLink(project);
+    const save = useSaveFolder(project);
+    const link = project.project.overleaf;
+    const gitUrl = overleafGitUrl(link?.url);
+    const [busy, setBusy] = useState(false);
+    const [problem, setProblem] = useState(null);
+    const onComputer = link?.keep?.where === 'computer';
+    if (!gitUrl && !onComputer)
+        return null;
+    const keep = (where) => setLink({ keep: { where, at: new Date().toISOString() } });
+    const toComputer = async () => {
+        if (!window.confirm('Keep this paper on your computers instead of Google Drive? What is in Drive goes to Overleaf first; then each computer keeps a clone of the Overleaf project, set up once on each.'))
+            return;
+        setBusy(true);
+        setProblem(null);
+        try {
+            if (store?.kind === 'drive' && gitUrl) {
+                const done = await cloudSync(store, gitUrl, 'Edits from Reader, before the paper moved to a computer');
+                if (!done.ok)
+                    throw new Error(done.needToken ? 'Your Overleaf Git token is needed to send what is in Drive to Overleaf first: give it under the files, then try again.' : done.error ?? 'What is in Drive couldn’t be sent to Overleaf first.');
+            }
+            await keep('computer');
+        }
+        catch (error) {
+            setProblem(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    const toDrive = async () => {
+        if (!window.confirm('Keep this paper in Google Drive instead? The folder on this computer is sent to Overleaf, brought into Drive, then removed from this computer.'))
+            return;
+        setBusy(true);
+        setProblem(null);
+        try {
+            // Already in Drive from before: this computer's edits go to Overleaf, which Drive syncs from; the folder then goes.
+            if (link?.drive?.folder && here && folder) {
+                if (folder.sync === 'git') {
+                    const sent = await syncPaper(here.server, folder.path, 'Edits from Reader, before the paper moved to Drive');
+                    if (!sent.ok)
+                        throw new Error(`The folder on this computer couldn’t be synced with Overleaf first: ${sent.error ?? 'it didn’t finish'}.`);
+                }
+                if (folder.sync !== 'dropbox' && /^papers\/[^/]+$/.test(folder.path))
+                    await removeFolder(here.server, folder.path).catch((error) => console.warn(`Reader: ${folder.path} couldn’t be removed from this computer:`, error));
+                save(here.id, undefined);
+                // Drive brought up to date with it now, not only when a document is next opened.
+                if (gitUrl && paperDriveNow())
+                    await cloudSync(driveStore(paperDriveNow, link.drive.folder), gitUrl, 'From Reader').catch((error) => console.warn('Reader: Drive will catch up at the next sync:', error));
+            }
+            // Not in Drive yet: the tab brings it there, from this computer's folder (ToDrive).
+            await keep('drive');
+        }
+        catch (error) {
+            setProblem(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    return (_jsxs("span", { className: "wr-keep", children: [_jsx("button", { type: "button", className: "link-btn", disabled: busy, onClick: () => void (onComputer ? toDrive() : toComputer()), title: onComputer ? 'Keep the paper in your Google Drive, nothing of it on the computer (the default)' : 'Keep the paper in a folder on each of your computers instead: a clone of the Overleaf project', children: busy ? 'Moving…' : onComputer ? 'Keep in Google Drive instead' : 'Keep on this computer instead' }), problem ? _jsxs("span", { className: "wr-bad", children: [" ", problem] }) : null] }));
+}
+/**
+ * A project whose paper isn't in Drive yet, brought there as the tab opens,
+ * asking only what it can't do without: a sign-in with Google; the paper's
+ * folder on this computer moved (its clone synced to Overleaf first, by the
+ * Companion), then deleted from the computer; with nothing here, the paper
+ * brought in from Overleaf by Reader's server (its Git token, once); with no
+ * Overleaf, an empty paper made in Drive, its documents to start there.
+ */
+function ToDrive({ project }) {
+    const { driveConnected, connectDrive, settings, updateCollection } = useStore();
+    const link = project.project.overleaf;
+    const gitUrl = overleafGitUrl(link?.url);
+    const signedIn = driveConnected && Boolean(settings.googleClientId.trim());
+    const [here, setHere] = useState(null);
+    const [known, setKnown] = useState(null);
+    const [step, setStep] = useState(null);
+    const [problem, setProblem] = useState(null);
+    const [blocked, setBlocked] = useState(null);
+    const [again, setAgain] = useState(0);
+    const started = useRef(false);
+    useEffect(() => {
+        void thisComputer(PAPER_VERSION, 'move the paper to Drive').then(setHere);
+    }, []);
+    useEffect(() => {
+        if (signedIn && gitUrl)
+            void overleafTokenKnown().then(setKnown, () => setKnown(false));
+        else
+            setKnown(false);
+    }, [signedIn, gitUrl]);
+    const move = async ({ token: given, force = false } = {}) => {
+        setProblem(null);
+        setBlocked(null);
+        const companion = here && !('error' in here) ? { id: here.id, server: here.server } : null;
+        try {
+            const local = companion ? (link?.folders?.[companion.id] ?? (await findLostFolder(project, companion))) : null;
+            // The paper's folder is on another computer (or this one, with the Companion not running): moved from there.
+            if (!local && link?.folders && Object.keys(link.folders).length && !force)
+                return setBlocked('elsewhere');
+            // Nothing of it on a computer: from Overleaf, which takes Reader's server the Git token once.
+            // (`force`: asked for now, an account just connected among them — Reader's server says if none opens it.)
+            if (!local && gitUrl && !known && !given && !force)
+                return setBlocked('token');
+            if (!local && !gitUrl && link?.folders && Object.keys(link.folders).length)
+                return setBlocked('elsewhere');
+            setStep('Starting…');
+            const folder = await movePaperToDrive(project, companion, { token: given, onStep: setStep, local: local ?? undefined });
+            await updateCollection(project.id, (collection) => {
+                const info = { ...project.project, ...(collection.project ?? {}) };
+                return { project: { ...info, overleaf: inDrive(info.overleaf, folder, companion && local ? companion.id : undefined) } };
+            });
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            setProblem(message);
+            if (error.needToken)
+                (setKnown(false), setBlocked('token'));
+            // Overleaf down for a moment: tried again in a minute, nothing asked.
+            if (error.transient)
+                window.setTimeout(() => setAgain((n) => n + 1), 60_000);
+        }
+        finally {
+            setStep(null);
+        }
+    };
+    useEffect(() => {
+        if (!signedIn || here === null || (gitUrl && known === null))
+            return;
+        if (started.current && !again)
+            return;
+        started.current = true;
+        void move();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [signedIn, here, known, again]);
+    if (!signedIn)
+        return (_jsx("div", { className: "wr-center wr-start", children: _jsxs("div", { className: "wr-card", children: [_jsx("span", { className: "eyebrow", children: "The paper" }), _jsx("h2", { children: "Kept in your Google Drive" }), _jsx("p", { children: "Every project\u2019s LaTeX lives in your Drive, in the project\u2019s folder \u2014 nothing on this computer \u2014 and opens the same on any device you sign in on. Sign in with Google, with Drive, to open it." }), _jsx("div", { className: "wr-row", children: _jsx("button", { type: "button", className: "btn primary", onClick: () => void connectDrive(), children: "Sign in with Google, with Drive" }) }), gitUrl ? (_jsxs("p", { className: "wr-quiet", children: ["Or keep it on your computers, as a clone of the Overleaf project: ", _jsx(KeepWhere, { project: project })] })) : null] }) }));
+    return (_jsx("div", { className: "wr-center wr-start", children: _jsxs("div", { className: "wr-card", children: [_jsx("span", { className: "eyebrow", children: "The paper" }), _jsx("h2", { children: blocked ? 'Bringing the paper into Google Drive' : 'Getting the paper ready in Google Drive' }), _jsxs("p", { children: ["The project\u2019s LaTeX is kept in your Drive, in ", _jsx("span", { className: "mono", children: paperDriveFolder(project.name, project.id) }), " \u2014 nothing on this computer \u2014 written here in the browser, compiled on Cloud Run", gitUrl ? ', and kept in step with Overleaf by Reader’s server.' : '.', ' ', _jsx(WriteGuideLink, { section: "where", children: "How this works" })] }), step ? (_jsxs("p", { className: "wr-quiet", children: [_jsx("span", { className: "spinner" }), " ", step] })) : null, blocked === 'elsewhere' ? (_jsxs(_Fragment, { children: [_jsxs("p", { children: ["This project\u2019s paper is in a folder on ", here && !('error' in here) ? 'another computer' : 'a computer, and this one’s Companion isn’t running', ": open the Reader app there and it moves into Drive by itself \u2014 what was written there with it."] }), gitUrl ? _jsx("p", { className: "wr-quiet", children: "Or bring it in from Overleaf now: anything written on that computer and not yet synced stays there." }) : null] })) : null, gitUrl && (blocked === 'token' || (blocked === 'elsewhere' && !known)) ? (
+                // No connected Overleaf account opens it (or none is connected): the one it is in connected, then brought in.
+                _jsx(OverleafAccounts, { open: Boolean(problem), projectUrl: project.project.overleaf?.url, why: blocked === 'token' ? problem ?? undefined : undefined, onConnected: () => (setKnown(true), void move({ force: true })) })) : null, blocked && gitUrl && known ? (_jsx("div", { className: "wr-row", children: _jsx("button", { type: "button", className: "btn primary", disabled: Boolean(step), onClick: () => void move({ force: true }), children: "Bring it in from Overleaf" }) })) : null, gitUrl ? (_jsxs("p", { className: "wr-quiet", children: ["Rather keep it on your computers, as a clone of the Overleaf project? ", _jsx(KeepWhere, { project: project })] })) : null, problem && blocked !== 'token' ? (_jsxs(_Fragment, { children: [_jsx("p", { className: "wr-bad", children: problem }), !blocked ? (_jsx("div", { className: "wr-row", children: _jsx("button", { type: "button", className: "btn", disabled: Boolean(step), onClick: () => void move(), children: "Try again" }) })) : null] })) : null] }) }));
+}
+/**
+ * A paper kept on the computers: this computer's Companion, then the paper's
+ * folder on it (a clone of the Overleaf project, set up once on each
+ * computer), then its documents and the desk.
+ */
+function LocalWrite({ project, onView }) {
+    const [here, setHere] = useState(null);
+    // The LaTeX project last open, as the tab opens (unless the paper card asked for the home); the home a click back.
+    const [scope, setScope] = useState(null);
+    const [asked] = useState(() => takeWriteHome(project.id));
+    // Sync with Overleaf from the paper card: the LaTeX project last open, its own link to make.
+    const [resume, setResume] = useState(asked !== 'home');
+    const updateLink = useUpdateLink(project);
+    const ask = useCallback((again = false) => {
+        setHere(null);
+        void thisComputer(PAPER_VERSION, 'write the paper here', again).then(setHere);
+    }, []);
+    useEffect(() => ask(), [ask]);
+    // Missing, it is looked for again every few seconds: started (the Reader app, or the command), the tab goes on by itself.
+    const missing = Boolean(here && 'error' in here);
+    useEffect(() => {
+        if (!missing)
+            return;
+        let live = true;
+        const timer = window.setInterval(() => {
+            void thisComputer(PAPER_VERSION, 'write the paper here', true).then((found) => live && !('error' in found) && setHere(found));
+        }, 4000);
+        return () => {
+            live = false;
+            window.clearInterval(timer);
+        };
+    }, [missing]);
+    const link = project.project.overleaf;
+    const folder = here && 'id' in here ? link?.folders?.[here.id] : undefined;
+    const store = useMemo(() => (here && 'id' in here && folder ? companionStore(here.server, folder.path) : null), [here, folder]);
+    const shelf = useMemo(() => (here && 'id' in here && folder ? companionShelf(here, folder.path) : null), [here, folder]);
+    if (!here)
+        return _jsx("div", { className: "wr-center", children: _jsx("p", { className: "wr-quiet", children: "Looking for this computer\u2019s Companion\u2026" }) });
+    if ('error' in here)
+        return (_jsxs("div", { className: "wr-center wr-start", children: [_jsxs("div", { className: "wr-card", children: [_jsx("span", { className: "eyebrow", children: "The paper \u00B7 on your computers" }), _jsx("h2", { children: "Write it on this computer" }), _jsx("p", { children: "This project keeps its paper on your computers: a clone of the Overleaf project in a folder on each, compiled there and kept in step with Overleaf. That takes the Companion, connected once here; after that this tab finds it by itself." }), here.why === 'old' ? _jsx("p", { className: "wr-bad", children: here.error }) : null, _jsxs("p", { className: "wr-quiet", children: ["Or, with nothing on the computer: ", _jsx(KeepWhere, { project: project })] }), link?.url ? (_jsx("div", { className: "wr-row", children: _jsx(OpenOverleaf, { project: project, view: "beside", primary: false }) })) : null] }), here.why === 'old' ? null : (_jsx("div", { className: "wr-connect", children: _jsx(CompanionConnect, { onPaired: () => ask(true), onManual: () => onView({ kind: 'playground' }) }) }))] }));
+    if (!folder || !store)
+        return _jsx(LocalSetUp, { project: project, here: here });
+    if (!scope)
+        return (_jsx(WriteHome, { project: project, here: here, folder: folder, store: store, shelf: shelf, onOpen: (main, opened) => {
+                if (main !== link?.main)
+                    updateLink({ main });
+                rememberOpened(project.id, opened.dir);
+                setScope(opened);
+            }, resume: resume, toOverleaf: asked === 'overleaf' }));
+    return _jsx(WriteDesk, { project: project, here: here, folder: folder, store: store, scope: scope, onHome: () => (setResume(false), setScope(null)) }, `${here.id}:${folder.path}:${scope.dir}`);
+}
+/** The Companion's own templates, for a paper kept on this computer. */
+function companionShelf(here, folder) {
+    const within = (dir, path) => (dir ? `${dir}/${path}` : path);
+    return {
+        list: () => listTemplates(here.server),
+        save: (name, zip) => saveTemplate(here.server, name, zip),
+        apply: async (slug, dir) => {
+            const done = await applyTemplate(here.server, slug, dir ? `${folder}/${dir}` : folder);
+            return within(dir, done.main || 'main.tex');
+        },
+    };
+}
+/** The paper's folder on this computer, the first time here: a clone of the Overleaf project, or Overleaf's Dropbox folder. */
+function LocalSetUp({ project, here }) {
+    const link = project.project.overleaf;
+    const save = useSaveFolder(project);
+    const gitUrl = overleafGitUrl(link?.url);
+    const [way, setWay] = useState(gitUrl ? 'git' : 'dropbox');
+    const [token, setToken] = useState('');
+    // An Overleaf Git token is the account's: once given on this computer, every project of it uses it.
+    const [known, setKnown] = useState(null);
+    const [another, setAnother] = useState(false);
+    const [where, setWhere] = useState(paperFolderFor(project.name));
+    const [busy, setBusy] = useState(false);
+    const [problem, setProblem] = useState(null);
+    const [engines, setEngines] = useState(null);
+    useEffect(() => {
+        void paperEngines(here.server).then(setEngines, () => setEngines(null));
+        if (gitUrl && !isNewer(PAPER_TEMPLATES_VERSION, here.version))
+            void tokenKnown(here.server, gitUrl).then(setKnown, () => setKnown(false));
+        else
+            setKnown(false);
+    }, [here, gitUrl]);
+    const clone = async (url, secret) => {
+        setBusy(true);
+        setProblem(null);
+        try {
+            // The folder is a clone of this project already (made here before, and the project lost its link to it): taken back as it is.
+            const plain = (address) => address.trim().replace(/^https?:\/\/[^@/]*@/, 'https://').replace(/\.git$/, '').replace(/\/+$/, '').toLowerCase();
+            const existing = await paperRemote(here.server, where).catch(() => null);
+            if (existing?.url) {
+                if (plain(existing.url) === plain(url))
+                    return save(here.id, { path: where, sync: 'git' });
+                throw new Error(`${where} is a clone of another project (${existing.url.replace(/^https?:\/\/[^@/]*@/, 'https://')}): give this one another folder.`);
+            }
+            const done = await clonePaper(here.server, where, url, secret);
+            save(here.id, { path: done.folder, sync: 'git' });
+        }
+        catch (error) {
+            setProblem(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    const pick = async () => {
+        setBusy(true);
+        setProblem(null);
+        try {
+            const chosen = await chooseFolder(here.server);
+            if (!chosen.path)
+                return;
+            const linked = await linkFolder(here.server, chosen.path);
+            save(here.id, { path: linked.root, sync: 'dropbox' });
+        }
+        catch (error) {
+            setProblem(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    const askToken = gitUrl && (!known || another);
+    return (_jsx("div", { className: "wr-scroll", children: _jsxs("div", { className: "wr-card wr-setup", children: [_jsxs("span", { className: "eyebrow", children: ["The paper \u00B7 on ", here.name] }), _jsx("h2", { children: "Where on this computer?" }), _jsx(SwitchOverleaf, { project: project }), _jsxs("p", { children: ["This project keeps its paper on your computers rather than in Google Drive. Set up its folder here once: the project keeps it until you change it. ", _jsx(KeepWhere, { project: project, here: here }), " \u00B7 ", _jsx(WriteGuideLink, { section: "where", children: "How this works" })] }), _jsxs("div", { className: "wr-ways", role: "radiogroup", "aria-label": "Where the paper\u2019s files come from", children: [_jsxs("button", { type: "button", role: "radio", "aria-checked": way === 'git', className: `wr-way${way === 'git' ? ' is-on' : ''}`, onClick: () => setWay('git'), disabled: !gitUrl, children: [_jsxs("b", { children: ["Overleaf\u2019s Git ", _jsx("small", { children: "recommended" })] }), _jsx("span", { children: "A clone of the Overleaf project. Everything you write here goes to Overleaf seconds after you stop, and coauthors\u2019 edits come in. Needs a paid Overleaf plan." })] }), _jsxs("button", { type: "button", role: "radio", "aria-checked": way === 'dropbox', className: `wr-way${way === 'dropbox' ? ' is-on' : ''}`, onClick: () => setWay('dropbox'), children: [_jsx("b", { children: "Overleaf\u2019s Dropbox folder" }), _jsx("span", { children: "If Overleaf syncs the project to Dropbox, pick that folder: Dropbox carries edits both ways by itself." })] })] }), way === 'git' && gitUrl ? (_jsxs("div", { className: "wr-form", children: [known && !another ? (_jsxs("p", { className: "wr-ok", children: ["Your Overleaf account\u2019s Git token is on this computer already.", ' ', _jsx("button", { type: "button", className: "link-btn", onClick: () => setAnother(true), children: "Use another" })] })) : null, known ? _jsx(ForgetToken, { server: here.server, onForgotten: () => setKnown(false) }) : null, askToken ? (_jsxs("label", { className: "wr-field", children: [_jsx("span", { children: "Overleaf Git token" }), _jsx("input", { type: "password", value: token, autoComplete: "off", placeholder: "olp_\u2026", onChange: (event) => setToken(event.target.value) }), _jsx("small", { children: "In Overleaf: Account Settings \u2192 Git integration \u2192 Generate token. The Companion keeps it on this computer, readable only by you." })] })) : null, _jsxs("label", { className: "wr-field", children: [_jsx("span", { children: "Folder, inside the Companion\u2019s" }), _jsx("input", { value: where, onChange: (event) => setWhere(event.target.value) })] }), _jsxs("div", { className: "wr-row", children: [_jsx("button", { type: "button", className: "btn primary", disabled: busy || known === null || (askToken ? !token.trim() : false) || !where.trim(), onClick: () => void clone(gitUrl, askToken ? token.trim() : ''), children: busy ? 'Cloning…' : 'Clone from Overleaf' }), _jsx("span", { className: "wr-quiet mono", children: gitUrl })] })] })) : null, way === 'dropbox' ? (_jsxs("div", { className: "wr-row", children: [_jsx("button", { type: "button", className: "btn primary", disabled: busy, onClick: () => void pick(), children: busy ? 'Waiting for the folder…' : 'Choose the folder on this computer' }), _jsx("span", { className: "wr-quiet", children: "Usually Dropbox \u2192 Apps \u2192 Overleaf \u2192 the project." })] })) : null, problem ? _jsx("p", { className: "wr-bad", children: problem }) : null, engines && !engines.latexmk && !engines.tectonic ? _jsx("p", { className: "wr-note", children: "There\u2019s no TeX on this computer yet: compile on Cloud Run, or the first compile here offers to fetch Tectonic." }) : null, engines && !engines.git && way === 'git' ? _jsx("p", { className: "wr-bad", children: "git isn\u2019t installed on this computer: install it (git-scm.com, or xcode-select --install on a Mac) to sync." }) : null] }) }));
+}
+function ForgetToken({ server, open = false, onForgotten }) {
+    const [said, setSaid] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const windows = typeof navigator !== 'undefined' && /Win/i.test(navigator.platform || navigator.userAgent);
+    const file = windows ? '%USERPROFILE%\\.reader-companion\\config.json' : '~/.reader-companion/config.json';
+    return (_jsxs("details", { className: "wr-forget", open: open, children: [_jsx("summary", { children: "Remove the Overleaf token from this computer" }), _jsxs("p", { children: ["The Companion keeps it in ", _jsx("code", { children: file }), ", under ", _jsx("code", { children: "git_tokens" }), ", readable only by your user account. The paper\u2019s folder doesn\u2019t hold it: Git is handed it for each sync and keeps nothing."] }), server ? (_jsxs("p", { className: "wr-row", children: [_jsx("button", { type: "button", className: "btn sm", disabled: busy, onClick: async () => {
+                            setBusy(true);
+                            try {
+                                const done = await forgetOverleafToken(server);
+                                setSaid(done.forgotten ? 'Removed from this computer. The next sync asks for a token again.' : 'There was no Overleaf token on this computer.');
+                                onForgotten?.();
+                            }
+                            catch (error) {
+                                setSaid(error instanceof Error ? error.message : String(error));
+                            }
+                            finally {
+                                setBusy(false);
+                            }
+                        }, children: busy ? 'Removing…' : 'Remove it now' }), said ? _jsx("span", { className: "wr-quiet", children: said }) : null] })) : null, _jsxs("ol", { children: [_jsxs("li", { children: [server ? 'Or by hand: open' : 'Open', " ", _jsx("code", { children: file }), " in a text editor", windows ? '' : _jsxs(_Fragment, { children: [" (on a Mac: ", _jsx("code", { children: "open -e ~/.reader-companion/config.json" }), " in Terminal)"] }), ", delete the ", _jsx("code", { children: "\"git_tokens\"" }), " entry, and save."] }), _jsx("li", { children: "To make the token useless everywhere \u2014 on this computer and any other \u2014 delete it in Overleaf: Account Settings \u2192 Git integration." })] })] }));
+}
+/** Seconds since, as m:ss, ticking. */
+function useElapsed(since, running) {
+    const [now, setNow] = useState(Date.now());
+    useEffect(() => {
+        if (!running)
+            return;
+        const timer = window.setInterval(() => setNow(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, [running]);
+    if (!since)
+        return '';
+    const seconds = Math.max(0, Math.round(((running ? now : now) - since) / 1000));
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+/**
+ * The PDF pane's line about compiling in the cloud: Reader's own compiler —
+ * Cloud Run, or GitHub Actions where the site has no Cloud Run — so there is
+ * nothing to set up. Kept out of the PDF's way: a thin line only while it
+ * compiles or when it failed; what a compile did (and where the files go)
+ * only when asked for, from the ⓘ beside the engine, closed with ×.
+ */
+function GithubCompilePanel({ state, on, onCompile, open, onClose }) {
+    const running = state.phase === 'sending' || state.phase === 'queued' || state.phase === 'compiling';
+    const elapsed = useElapsed(state.startedAt, running);
+    // A failure put away stays away until the next one.
+    const [dismissed, setDismissed] = useState(undefined);
+    const where = (state.on ?? on) === 'github' ? 'on GitHub' : 'on Cloud Run';
+    const said = state.phase === 'sending'
+        ? 'Gathering the paper’s files…'
+        : state.phase === 'queued'
+            ? 'Waiting for GitHub to start…'
+            : state.phase === 'compiling'
+                ? `Compiling ${where}…`
+                : state.phase === 'done'
+                    ? state.on === 'cloudrun' && state.finishedAt && state.startedAt
+                        ? `Compiled on Cloud Run in ${((state.finishedAt - state.startedAt) / 1000).toFixed(1)} s — ${state.sent === 0 ? 'nothing changed to send' : `${state.sent} changed file${state.sent === 1 ? '' : 's'} sent`}, TeX ${(state.texSeconds ?? 0).toFixed(1)} s${state.kept ? '' : ', from scratch'}.`
+                        : `Compiled ${where} in ${elapsed}.`
+                    : state.phase === 'failed'
+                        ? state.error ?? 'It didn’t compile.'
+                        : on === 'github'
+                            ? 'Press ⌘↵ or Compile: GitHub Actions makes the PDF with all of TeX Live, and it comes back here in a minute or two. Nothing to set up.'
+                            : `Cloud Run makes the PDF with all of TeX Live as you type, as Overleaf does (⌘↵ or Compile at any time); only what changed is sent. Nothing to set up.${state.warming ? ' Starting the compiler…' : ''}`;
+    const failed = state.phase === 'failed' && dismissed !== state.startedAt;
+    if (running && !open)
+        return (_jsxs("div", { className: "wr-ghs", role: "status", children: [_jsx("span", { className: "spinner" }), " ", _jsx("span", { children: said }), " ", elapsed ? _jsx("span", { className: "mono wr-quiet", children: elapsed }) : null] }));
+    if (failed && !open)
+        return (_jsxs("div", { className: "wr-ghs is-bad", role: "alert", children: [_jsx("span", { className: "wr-ghs-text", title: said, children: said }), _jsx("button", { type: "button", className: "link-btn", onClick: onCompile, children: "Try again" }), _jsx("button", { type: "button", className: "wr-ghs-x", onClick: () => setDismissed(state.startedAt), "aria-label": "Hide", title: "Hide", children: "\u00D7" })] }));
+    if (!open)
+        return null;
+    return (_jsxs("div", { className: `wr-ghc${state.phase === 'failed' ? ' is-bad' : ''}`, role: "note", children: [_jsxs("span", { children: [running ? _jsx("span", { className: "spinner" }) : null, " ", said, " ", running && elapsed ? _jsx("span", { className: "mono", children: elapsed }) : null, state.phase === 'failed' ? (_jsx("button", { type: "button", className: "link-btn", onClick: onCompile, children: "Try again" })) : null] }), _jsx("small", { children: (state.on ?? on) === 'github' ? 'The files pass through Reader’s server and a GitHub runner to be compiled; they are never put in a repository, and are deleted within the hour.' : 'The files pass through Reader’s server to its compiler on Cloud Run and are deleted once compiled; the PDF and log within the hour.' }), _jsx("button", { type: "button", className: "wr-ghs-x", onClick: onClose, "aria-label": "Close the compile details", title: "Close", children: "\u00D7" })] }));
+}
+const DESK = { side: 250, split: 0.5, log: 220, swapped: false, sideOpen: true };
+const DESK_KEY = 'reader.write.desk';
+const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+function useDesk() {
+    const [desk, setDeskState] = useState(() => {
+        try {
+            return { ...DESK, ...JSON.parse(localStorage.getItem(DESK_KEY) || '{}') };
+        }
+        catch {
+            return DESK;
+        }
+    });
+    const setDesk = useCallback((change) => {
+        setDeskState((now) => {
+            const next = { ...now, ...(typeof change === 'function' ? change(now) : change) };
+            try {
+                localStorage.setItem(DESK_KEY, JSON.stringify(next));
+            }
+            catch {
+                // only a convenience
+            }
+            return next;
+        });
+    }, []);
+    return [desk, setDesk];
+}
+/** A line to drag between two panes; a double-click puts it back. Arrow keys move it too. */
+function Handle({ axis, className, style, onDrag, onReset, label }) {
+    return (_jsx("div", { className: `wr-handle is-${axis} ${className}`, style: style, role: "separator", "aria-orientation": axis === 'x' ? 'vertical' : 'horizontal', "aria-label": label, title: `${label} (double-click to reset)`, tabIndex: 0, onDoubleClick: onReset, onKeyDown: (event) => {
+            const step = event.shiftKey ? 40 : 12;
+            const keys = axis === 'x' ? { ArrowLeft: -step, ArrowRight: step } : { ArrowUp: -step, ArrowDown: step };
+            const delta = keys[event.key];
+            if (delta)
+                (event.preventDefault(), onDrag(delta));
+        }, onPointerDown: (event) => {
+            event.preventDefault();
+            const handle = event.currentTarget;
+            handle.setPointerCapture(event.pointerId);
+            let last = axis === 'x' ? event.clientX : event.clientY;
+            document.body.classList.add(axis === 'x' ? 'is-dragging-x' : 'is-dragging-y');
+            const move = (e) => {
+                const at = axis === 'x' ? e.clientX : e.clientY;
+                onDrag(at - last);
+                last = at;
+            };
+            const up = () => {
+                handle.removeEventListener('pointermove', move);
+                handle.removeEventListener('pointerup', up);
+                document.body.classList.remove('is-dragging-x', 'is-dragging-y');
+            };
+            handle.addEventListener('pointermove', move);
+            handle.addEventListener('pointerup', up);
+        } }));
+}
+/** Above the source: how the two panes sit — side by side, one above the other, or one at a time — which goes first, and the source alone. */
+function PaneTools({ layout, onLayout, swapped, onSwap, big, onBig }) {
+    return (_jsxs("span", { className: "wr-pane-tools", children: [_jsxs("span", { className: "segmented sm", role: "group", "aria-label": "How the source and the PDF sit", children: [_jsx("button", { type: "button", "aria-pressed": layout === 'side', onClick: () => onLayout('side'), title: "Side by side", children: "\u25EB" }), _jsx("button", { type: "button", "aria-pressed": layout === 'stacked', onClick: () => onLayout('stacked'), title: "One above the other", children: "\u2B12" }), _jsx("button", { type: "button", "aria-pressed": layout === 'tabs', onClick: () => onLayout('tabs'), title: "One at a time", children: "\u25AD" })] }), layout !== 'tabs' ? (_jsx("button", { type: "button", className: "wr-icon", "aria-pressed": swapped, onClick: onSwap, title: layout === 'stacked' ? 'Swap: the PDF on top' : 'Swap: the PDF on the left', "aria-label": "Swap the panes", children: "\u21C4" })) : null, _jsx("button", { type: "button", className: "wr-icon", "aria-pressed": big, onClick: onBig, title: big ? 'Back to both panes' : 'The source alone, filling the space', "aria-label": big ? 'Back to both panes' : 'Expand the source', children: big ? '⤡' : '⤢' })] }));
+}
+// ------------------------------------------------- the Companion, updated --
+/** From this version the Companion updates itself when asked; an older one is updated the way it was installed. */
+const SELF_UPDATING = '0.5.0';
+/** Update the Companion from here, and the page comes back to it once the new one answers. */
+function UpdateCompanion({ server, version }) {
+    const [state, setState] = useState('idle');
+    const [problem, setProblem] = useState(null);
+    if (isNewer(SELF_UPDATING, version)) {
+        return _jsxs("span", { className: "wr-quiet", children: ["This Companion (", version, ") is from before it could update itself: install it again the way you did (the Reader app\u2019s .dmg, or the line on the Connect card), once."] });
+    }
+    return (_jsxs("span", { className: "wr-update", children: [_jsx("button", { type: "button", className: "btn primary sm", disabled: state === 'updating', onClick: async () => {
+                    setState('updating');
+                    setProblem(null);
+                    try {
+                        const done = await updateCompanion(server);
+                        const back = done.updated ? await waitForVersion(server.url, done.version) : true;
+                        if (!back)
+                            throw new Error('It installed the update but hasn’t answered since. Open the Reader app to start it.');
+                        window.location.reload();
+                    }
+                    catch (error) {
+                        setState('failed');
+                        setProblem(error instanceof Error ? error.message : String(error));
+                    }
+                }, children: state === 'updating' ? 'Updating the Companion…' : `Update the Companion (${version} → ${COMPANION_VERSION})` }), problem ? _jsx("span", { className: "wr-bad", children: problem }) : null] }));
+}
+// ------------------------------------------------- TeX Live for Reader --
+/**
+ * The Companion's own TeX Live: one click installs TeX Live — the same as
+ * Overleaf's — into its folder, no password, and it is used before any other
+ * TeX on the computer. While it installs, how far it has got.
+ */
+function OwnTex({ server, status, onStatus, onReady }) {
+    const [problem, setProblem] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const installing = status?.state === 'installing';
+    useEffect(() => {
+        if (!installing)
+            return;
+        let live = true;
+        const timer = window.setInterval(async () => {
+            try {
+                const now = await texLiveStatus(server);
+                if (!live)
+                    return;
+                onStatus(now);
+                if (now.state === 'done')
+                    onReady();
+            }
+            catch {
+                // asked again in a moment
+            }
+        }, 3000);
+        return () => {
+            live = false;
+            window.clearInterval(timer);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [installing, server]);
+    const act = async (call) => {
+        setBusy(true);
+        setProblem(null);
+        try {
+            onStatus(await call());
+        }
+        catch (error) {
+            setProblem(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    if (status?.installed) {
+        return (_jsxs("div", { className: "wr-owntex is-done", children: [_jsxs("span", { children: [_jsx("b", { children: "TeX Live for Reader is installed" }), " \u2014 compiling uses it, and a missing package installs with one click."] }), _jsx("button", { type: "button", className: "link-btn", disabled: busy, onClick: () => {
+                        if (window.confirm('Remove TeX Live for Reader from this computer? Compiling goes back to the TeX installed before, if there is one.'))
+                            void act(() => removeTexLive(server)).then(onReady);
+                    }, children: "Remove" }), problem ? _jsx("p", { className: "wr-bad", children: problem }) : null] }));
+    }
+    if (installing) {
+        const share = status?.of ? Math.round(((status.done ?? 0) / status.of) * 100) : 0;
+        return (_jsxs("div", { className: "wr-owntex", children: [_jsxs("b", { children: ["Installing TeX Live for Reader", status?.scheme === 'medium' ? ' (medium)' : '', "\u2026"] }), _jsx("div", { className: "wr-owntex-bar", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": 100, "aria-valuenow": share, children: _jsx("span", { style: { width: `${Math.max(2, share)}%` } }) }), _jsxs("small", { children: [status?.step || 'Starting…', " ", status?.of ? `· ${share}%` : '', " \u2014 it carries on if you leave this page; keep the Companion running."] }), _jsx("p", { className: "wr-row", children: _jsx("button", { type: "button", className: "btn sm", disabled: busy, onClick: () => void act(() => cancelTexLive(server)), children: "Cancel" }) })] }));
+    }
+    return (_jsxs("div", { className: "wr-owntex", children: [_jsx("b", { children: "Let Reader install TeX Live" }), _jsx("span", { children: "TeX Live \u2014 the same as Overleaf\u2019s \u2014 goes into the Companion\u2019s folder: no password, and nothing else on this computer changes. Reader compiles with it from then on, and a package it lacks installs with one click." }), status?.state === 'failed' ? (_jsxs("div", { className: "wr-bad", children: [status.error, status.tail?.length ? _jsx("pre", { className: "wr-owntex-tail", children: status.tail.join('\n') }) : null] })) : null, problem ? _jsx("p", { className: "wr-bad", children: problem }) : null, _jsxs("p", { className: "wr-row", children: [_jsx("button", { type: "button", className: "btn primary sm", disabled: busy, onClick: () => void act(() => installTexLive(server, 'full')), title: "scheme-full, without the documentation: about 5 GB, 20\u201360 minutes", children: "Install everything, as Overleaf (about 5 GB)" }), _jsx("button", { type: "button", className: "btn sm", disabled: busy, onClick: () => void act(() => installTexLive(server, 'medium')), title: "scheme-medium: about 1.5 GB, more installed as papers ask", children: "A medium set (about 1.5 GB)" })] })] }));
+}
+/** One click: the missing packages into the Companion's TeX Live, then compile again. */
+function InstallMissing({ server, names, onDone }) {
+    const [busy, setBusy] = useState(false);
+    const [said, setSaid] = useState(null);
+    return (_jsxs("p", { className: "wr-row", children: [_jsx("button", { type: "button", className: "btn primary sm", disabled: busy, onClick: async () => {
+                    setBusy(true);
+                    setSaid(null);
+                    try {
+                        const done = await installPackages(server, names);
+                        setSaid(done.failed.length ? `Installed ${done.installed.join(', ') || 'nothing'}; couldn’t find ${done.failed.join(', ')}.` : `Installed ${done.installed.join(', ')}. Compiling again…`);
+                        if (done.installed.length)
+                            onDone();
+                    }
+                    catch (error) {
+                        setSaid(error instanceof Error ? error.message : String(error));
+                    }
+                    finally {
+                        setBusy(false);
+                    }
+                }, children: busy ? 'Installing…' : `Install ${names.join(', ')} now` }), said ? _jsx("span", { className: "wr-quiet", children: said }) : null] }));
+}
+// ---------------------------------------------------- packages not here --
+/** The packages a compile stopped for: "File `physics.sty' not found". */
+function missingPackages(compiled) {
+    if (!compiled)
+        return [];
+    const found = new Set();
+    for (const text of [...compiled.errors.map((item) => item.message), compiled.log ?? '']) {
+        for (const match of text.matchAll(/File [`'‘]([\w.-]+)\.(?:sty|cls)['’] not found/g))
+            found.add(match[1]);
+    }
+    return [...found];
+}
+/** A TeX Live whose year is frozen: tlmgr then installs only from that year's archive. */
+function frozen(year) {
+    const now = new Date();
+    // A year's TeX Live is replaced by the next, about April.
+    return year < now.getFullYear() - 1 || (year === now.getFullYear() - 1 && now.getMonth() >= 3);
+}
+/** What to do about packages this computer's TeX hasn't got: install them, or let Tectonic fetch them. */
+function MissingPackages({ names, texLive, tectonic, onTectonic, first }) {
+    const year = texLive ? Number(texLive) : NaN;
+    const old = Number.isFinite(year) && frozen(year);
+    const windows = typeof navigator !== 'undefined' && /Win/i.test(navigator.platform || navigator.userAgent);
+    const sudo = windows ? '' : 'sudo ';
+    const install = `${sudo}tlmgr install ${names.join(' ')}`;
+    const command = old ? `${sudo}tlmgr option repository https://ftp.math.utah.edu/pub/tex/historic/systems/texlive/${year}/tlnet-final\n${install}` : install;
+    return (_jsxs("div", { className: "wr-missing", children: [_jsxs("p", { children: [_jsxs("b", { children: ["Not on this computer: ", names.map((name) => `${name}.sty`).join(', '), "."] }), " Overleaf has every package; this computer\u2019s TeX", texLive ? ` Live ${texLive}` : '', " is a smaller install.", first ? '' : ' Either:'] }), first, first ? _jsx("p", { className: "wr-quiet", children: "Or by hand:" }) : null, _jsxs("ol", { children: [_jsxs("li", { children: ["Install ", names.length === 1 ? 'it' : 'them', " \u2014 in a terminal", windows ? ' (as administrator)' : '', ":", _jsx(CopyBlock, { code: command }), old ? _jsxs("small", { children: ["TeX Live ", texLive, " is frozen, so tlmgr has to install from its archive (the first line). Installing this year\u2019s TeX Live instead brings it up to date with Overleaf."] }) : null, _jsxs("small", { children: ["If tlmgr can\u2019t find it by that name: ", _jsxs("span", { className: "mono", children: ["tlmgr search --global --file /", names[0], ".sty"] }), " names the package that has it."] })] }), _jsxs("li", { children: ["Or install the whole of TeX Live, as Overleaf has it:", ' ', _jsx("a", { href: windows ? 'https://www.tug.org/texlive/' : /Mac/i.test(navigator.userAgent) ? 'https://www.tug.org/mactex/' : 'https://www.tug.org/texlive/', target: "_blank", rel: "noreferrer noopener", children: /Mac/i.test(navigator.userAgent) ? 'MacTeX' : 'TeX Live' }), ' ', "(a few GB; nothing missing after that)."] }), tectonic ? (_jsxs("li", { children: ["Or", ' ', _jsx("button", { type: "button", className: "link-btn", onClick: onTectonic, children: "compile with Tectonic" }), ", which fetches any package it needs by itself \u2014 but always as XeLaTeX."] })) : null] })] }));
+}
+/** The end of an Overleaf project's address, enough to tell two apart. */
+const shortProject = (url) => {
+    const last = url.replace(/\/+$/, '').split('/').pop() ?? url;
+    return last.length > 10 ? `…${last.slice(-6)}` : last;
+};
+/**
+ * Which Overleaf project the paper is, and the way to another: the folder of
+ * the one left stays on the computer, the new one is cloned with all that is
+ * written in it so far, and one switched back to opens its folder again and
+ * takes in what changed in Overleaf meanwhile. Or off Overleaf altogether.
+ */
+function SwitchOverleaf({ project }) {
+    const { updateCollection } = useStore();
+    const link = project.project.overleaf;
+    const [open, setOpen] = useState(false);
+    const [url, setUrl] = useState('');
+    const parsed = parseOverleafUrl(url);
+    if (!link)
+        return null;
+    const earlier = Object.keys(link.earlier ?? {});
+    const move = (next) => {
+        void updateCollection(project.id, (collection) => {
+            const info = { ...project.project, ...(collection.project ?? {}) };
+            if (!info.overleaf)
+                return {};
+            if (!next) {
+                const { overleaf: _gone, ...rest } = info;
+                return { project: rest };
+            }
+            return { project: { ...info, overleaf: switchedLink(info.overleaf, next) } };
+        });
+        setOpen(false);
+        setUrl('');
+    };
+    if (!open) {
+        return (_jsxs("span", { className: "wr-switch", children: [_jsxs("a", { className: "mono", href: link.url, target: "_blank", rel: "noreferrer noopener", title: link.url, children: ["Overleaf ", shortProject(link.url)] }), _jsx("button", { type: "button", className: "link-btn", onClick: () => setOpen(true), title: "Write in another Overleaf project, or disconnect from this one", children: "Switch" })] }));
+    }
+    return (_jsxs("form", { className: "wr-switch-form", onSubmit: (event) => {
+            event.preventDefault();
+            if (parsed && parsed !== link.url)
+                move(parsed);
+        }, children: [_jsx("b", { children: "Another Overleaf project" }), _jsx("input", { autoFocus: true, value: url, placeholder: "https://www.overleaf.com/project/\u2026", onChange: (event) => setUrl(event.target.value), "aria-label": "The Overleaf project\u2019s address" }), url.trim() && !parsed ? _jsx("small", { className: "wr-bad", children: "Copy the address from Overleaf\u2019s address bar with the project open." }) : null, earlier.length ? (_jsxs("span", { className: "wr-switch-back", children: ["Or back to:", ' ', earlier.map((address) => (_jsx("button", { type: "button", className: "link-btn", onClick: () => move(address), title: `${address} — its folder is kept, and Overleaf’s changes come in when it opens`, children: shortProject(address) }, address)))] })) : null, _jsxs("small", { children: ["The folder of ", shortProject(link.url), " stays on this computer as it is. The new project is cloned with everything written in it so far; one you come back to opens its folder again and takes in what changed in Overleaf meanwhile."] }), _jsxs("span", { className: "wr-row", children: [_jsx("button", { type: "submit", className: "btn primary sm", disabled: !parsed || parsed === link.url, children: "Switch" }), _jsx("button", { type: "button", className: "btn sm", onClick: () => setOpen(false), children: "Cancel" }), _jsx("span", { className: "wr-sp" }), _jsx("button", { type: "button", className: "link-btn wr-danger", onClick: () => {
+                            if (window.confirm(`Disconnect “${project.name}” from Overleaf? The Overleaf project and the folders on your computers stay as they are; link one again from the project’s overview.`))
+                                move(undefined);
+                        }, children: "Disconnect from Overleaf" })] })] }));
+}
+// ------------------------------------------------------------- set-up --
+/** Fields of the project's Overleaf link changed, whatever else is on it kept: the compiler, the main document. */
+function useUpdateLink(project) {
+    const { updateCollection } = useStore();
+    return (change) => void updateCollection(project.id, (collection) => {
+        const info = { ...project.project, ...(collection.project ?? {}) };
+        if (!info.overleaf)
+            return {};
+        return { project: { ...info, overleaf: { ...info.overleaf, ...change } } };
+    });
+}
+/**
+ * The Overleaf link a LaTeX project goes by — the folder `owner`'s own, or the
+ * project's for the top — with the way to change it: only that folder's.
+ */
+function useLatexLink(project, owner) {
+    const { updateCollection } = useStore();
+    const base = project.project.overleaf;
+    const link = owner && base ? { ...base, ...latexLinkAt(base, owner) } : base;
+    const update = (change) => void updateCollection(project.id, (collection) => {
+        const info = { ...project.project, ...(collection.project ?? {}) };
+        if (!info.overleaf)
+            return {};
+        return { project: { ...info, overleaf: withLatexLink(info.overleaf, owner, change) } };
+    });
+    return [link, update];
+}
+function useSaveFolder(project) {
+    const { updateCollection } = useStore();
+    return (computer, folder, url) => void updateCollection(project.id, (collection) => {
+        const info = { ...project.project, ...(collection.project ?? {}) };
+        const link = info.overleaf ?? (url ? { url } : undefined);
+        if (!link)
+            return {};
+        const folders = { ...(link.folders ?? {}) };
+        if (folder)
+            folders[computer] = folder;
+        else
+            delete folders[computer];
+        const { folders: _old, ...rest } = link;
+        return { project: { ...info, overleaf: { ...rest, ...(Object.keys(folders).length ? { folders } : {}) } } };
+    });
+}
+/** A file as base64, for the Companion or Jupyter. */
+const fileBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ''));
+    reader.onerror = () => reject(reader.error ?? new Error('The file couldn’t be read.'));
+    reader.readAsDataURL(file);
+});
+const COMPILE_PAUSE_MS = 1000;
+const SAVE_PAUSE_MS = 600;
+const SYNC_PAUSE_MS = 4000;
+const OVERLEAF_SYNC_PAUSE_MS = 1500;
+const PULL_EVERY_MS = 30_000;
+const MAX_FILES = 400;
+/** Every file under the folder, as paths relative to it; what compiling leaves and .git left out. */
+async function listAll(store) {
+    return (await listStamped(store)).map((file) => file.path);
+}
+/** The same, each with when it last changed and its size: enough to tell a changed file without reading it. */
+async function listStamped(store) {
+    const found = [];
+    const walk = async (dir, depth) => {
+        if (depth > 5 || found.length >= MAX_FILES)
+            return;
+        const below = [];
+        for (const entry of await store.list(dir)) {
+            if (entry.name.startsWith('.'))
+                continue;
+            if (entry.type === 'directory')
+                below.push(entry.path);
+            // Drive can hold two files of one name in a folder: the paper has one, the first listed.
+            else if (!isBuildFile(entry.path) && !found.some((file) => file.path === entry.path))
+                found.push({ path: entry.path, stamp: `${entry.modified ?? ''}|${entry.size ?? ''}` });
+        }
+        // The folders inside, all at once: in Drive each is a request of its own.
+        await Promise.all(below.map((path) => walk(path, depth + 1)));
+    };
+    await walk('', 0);
+    return found.sort((a, b) => (a.path.includes('/') === b.path.includes('/') ? a.path.localeCompare(b.path) : a.path.includes('/') ? 1 : -1));
+}
+/** A text's UTF-8 bytes as base64, as a store writes them. */
+function textBase64(text) {
+    const bytes = new TextEncoder().encode(text);
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 0x8000)
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(binary);
+}
+/** The SHA-256 of a file's base64, as the compiler on Cloud Run reckons it (cloudrun/latex/server.py). */
+async function fingerprint(base64) {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(base64));
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+const toBlob = (base64) => {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1)
+        bytes[i] = binary.charCodeAt(i);
+    return new Blob([bytes], { type: 'application/pdf' });
+};
+/** A project's link, made if there is none, with `change` in it: a paper in Drive needs no Overleaf. */
+function useSetLink(project) {
+    const { updateCollection } = useStore();
+    return (change) => updateCollection(project.id, (collection) => {
+        const info = { ...project.project, ...(collection.project ?? {}) };
+        return { project: { ...info, overleaf: { url: '', ...(info.overleaf ?? {}), ...change } } };
+    });
+}
+/** A paper kept in Drive: its LaTeX projects, then the desk — with nothing of it on this computer. */
+function DriveWrite({ project, folder }) {
+    const { driveConnected, connectDrive, settings, updateCollection } = useStore();
+    const link = project.project.overleaf;
+    const [scope, setScope] = useState(null);
+    const [comparing, setComparing] = useState(null);
+    const store = useMemo(() => driveStore(paperDriveNow, folder), [folder]);
+    const shelf = useMemo(() => driveShelf(paperDriveNow, store), [store]);
+    const place = { path: folder, sync: 'drive' };
+    // Where it was left, as the tab opens — unless the paper card asked for the tab's home.
+    const [asked] = useState(() => takeWriteHome(project.id));
+    // Sync with Overleaf from the paper card: the LaTeX project last open, its own link to make.
+    const [resume, setResume] = useState(asked !== 'home');
+    if (!driveConnected || !settings.googleClientId.trim())
+        return (_jsx("div", { className: "wr-center wr-start", children: _jsxs("div", { className: "wr-card", children: [_jsx("span", { className: "eyebrow", children: "The paper" }), _jsx("h2", { children: "It\u2019s in your Google Drive" }), _jsx("p", { children: "This project\u2019s paper is kept in Drive, not on any computer. Sign in with Google, with Drive, to open it here." }), _jsx("div", { className: "wr-row", children: _jsx("button", { type: "button", className: "btn primary", onClick: () => void connectDrive(), children: "Sign in with Google, with Drive" }) })] }) }));
+    if (comparing !== null)
+        return _jsx(CompareOverleaf, { project: project, store: store, dir: comparing, onClose: () => setComparing(null) });
+    if (!scope)
+        return (_jsx(WriteHome, { project: project, folder: place, store: store, shelf: shelf, onOpen: (main, opened) => {
+                // Its main document, kept on the link it goes by: its own folder's, or the top's — relative to that folder.
+                const owner = latexOwner(link, opened.dir);
+                const relative = owner ? main.slice(owner.length + 1) : main;
+                if (relative !== latexLinkAt(link, owner).main)
+                    void updateCollection(project.id, (collection) => {
+                        const info = { ...project.project, ...(collection.project ?? {}) };
+                        return info.overleaf ? { project: { ...info, overleaf: withLatexLink(info.overleaf, owner, { main: relative }) } } : {};
+                    });
+                rememberOpened(project.id, opened.dir);
+                setScope(opened);
+            }, onCompare: (dir) => setComparing(dir), resume: resume, toOverleaf: asked === 'overleaf' }));
+    // Rooted at the folder whose Overleaf link it goes by: that is what syncs and compiles as one.
+    const owner = latexOwner(link, scope.dir);
+    const relative = (path) => (owner ? (path === owner ? '' : path.slice(owner.length + 1)) : path);
+    const deskScope = { dir: relative(scope.dir), exclude: scope.exclude.filter((dir) => !owner || dir.startsWith(`${owner}/`)).map(relative) };
+    return _jsx(WriteDesk, { project: project, folder: place, store: subStore(store, owner), rootStore: store, scope: deskScope, owner: owner, connectOverleaf: asked === 'overleaf' && resume, onHome: () => (setResume(false), setScope(null)), onCompare: () => (setResume(false), setComparing(scope.dir), setScope(null)) }, `drive:${folder}:${scope.dir}:${owner}`);
+}
+/** The LaTeX project last opened in a project, on this device: where Continue goes. */
+const OPENED_KEY = (project) => `reader.write.${project}.opened`;
+function rememberOpened(project, dir) {
+    try {
+        localStorage.setItem(OPENED_KEY(project), dir);
+    }
+    catch {
+        // only a convenience
+    }
+}
+function lastOpened(project) {
+    try {
+        return localStorage.getItem(OPENED_KEY(project));
+    }
+    catch {
+        return null;
+    }
+}
+const dirOf = (path) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
+const isWithin = (dir, path) => !dir || path.startsWith(`${dir}/`);
+/** Whether a path is one of this LaTeX project's files, not another's in a folder inside it. */
+const inScope = (scope, path) => isWithin(scope.dir, path) && !scope.exclude.some((dir) => isWithin(dir, path));
+/**
+ * The folder's LaTeX projects: one for each folder with a main document in it
+ * (the project's main if it is there, else main.tex, else the latest edited),
+ * each holding the files under it that no deeper project does.
+ */
+function groupProjects(docs, listed, preferred = []) {
+    const byDir = new Map();
+    for (const doc of docs)
+        byDir.set(dirOf(doc.path), [...(byDir.get(dirOf(doc.path)) ?? []), doc]);
+    const dirs = [...byDir.keys()];
+    const owner = (path) => dirs.filter((dir) => isWithin(dir, path)).sort((a, b) => b.length - a.length)[0];
+    return dirs.map((dir) => {
+        const here = byDir.get(dir) ?? [];
+        const main = here.find((doc) => preferred.includes(doc.path)) ?? here.find((doc) => /(^|\/)main\.tex$/i.test(doc.path)) ?? [...here].sort((a, b) => (b.modified ?? '').localeCompare(a.modified ?? ''))[0];
+        const mine = listed.filter((file) => owner(file.path) === dir);
+        const modified = mine.map((file) => file.stamp.split('|')[0]).concat(here.map((doc) => doc.modified ?? '')).filter(Boolean).sort().pop() ?? null;
+        const exclude = dirs.filter((other) => other !== dir && isWithin(dir, other));
+        const relative = (path) => (dir ? path.slice(dir.length + 1) : path);
+        return {
+            dir,
+            exclude,
+            main,
+            alsoMain: here.filter((doc) => doc !== main).map((doc) => relative(doc.path)),
+            files: mine.filter((file) => !here.some((doc) => doc.path === file.path)).map((file) => relative(file.path)),
+            modified,
+        };
+    });
+}
+/** What a LaTeX project brings in, counted: "3 sections · 1 .bib · 6 figures". */
+function filesSummary(files) {
+    const count = (test) => files.filter((path) => test.test(path)).length;
+    const tex = count(/\.tex$/i);
+    const bib = count(/\.bib$/i);
+    const figures = count(/\.(png|jpe?g|pdf|eps|svg)$/i);
+    const styles = count(/\.(sty|cls|bst|bbx|cbx)$/i);
+    const other = files.length - tex - bib - figures - styles;
+    return [
+        tex ? `${tex} .tex input${tex === 1 ? '' : 's'}` : '',
+        bib ? `${bib} .bib` : '',
+        figures ? `${figures} figure${figures === 1 ? '' : 's'}` : '',
+        styles ? `${styles} style${styles === 1 ? '' : 's'}` : '',
+        other ? `${other} other` : '',
+    ]
+        .filter(Boolean)
+        .join(' · ');
+}
+/** "3 h ago", for a document's last edit. */
+function ago(iso) {
+    if (!iso)
+        return '';
+    const seconds = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+    if (!Number.isFinite(seconds))
+        return '';
+    if (seconds < 60)
+        return 'just now';
+    if (seconds < 3600)
+        return `${Math.round(seconds / 60)} min ago`;
+    if (seconds < 86_400)
+        return `${Math.round(seconds / 3600)} h ago`;
+    if (seconds < 30 * 86_400)
+        return `${Math.round(seconds / 86_400)} d ago`;
+    return new Date(iso).toLocaleDateString();
+}
+/** A new LaTeX project's folder name, from what it is called. */
+const folderSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+/**
+ * A new LaTeX project's files: a main.tex that brings in a section of its
+ * own and has a bibliography to turn on, so it starts as the project it will
+ * grow into rather than one file.
+ */
+const BLANK_PROJECT = (title) => [
+    {
+        path: 'main.tex',
+        text: `\\documentclass{article}
+\\usepackage[utf8]{inputenc}
+\\usepackage{amsmath,amssymb,graphicx,hyperref}
+\\graphicspath{{figures/}}
+
+\\title{${title.replace(/[\\{}]/g, '')}}
+\\author{}
+\\date{\\today}
+
+\\begin{document}
+\\maketitle
+
+\\input{sections/introduction}
+
+% Cite from references.bib, then turn the bibliography on:
+% \\bibliographystyle{plain}
+% \\bibliography{references}
+
+\\end{document}
+`,
+    },
+    { path: 'sections/introduction.tex', text: '\\section{Introduction}\n\n' },
+    { path: 'references.bib', text: '% The bibliography: BibTeX entries, cited with \\cite{key} in the .tex files.\n' },
+];
+/** A file picked from a folder, by its path inside that folder: its top folder's name left off, and what isn't the paper's left out. */
+const pickedPath = (file) => {
+    const parts = (file.webkitRelativePath || file.name).split('/').filter(Boolean);
+    return parts.length > 1 ? parts.slice(1).join('/') : parts.join('/');
+};
+const worthKeeping = (path) => !path.split('/').some((part) => part.startsWith('.') || part === '__MACOSX') && !isBuildFile(path);
+/** A LaTeX project's folder in Google Drive, in a new tab. */
+function OpenInDrive({ store, dir, onProblem, label = 'Google Drive' }) {
+    const [busy, setBusy] = useState(false);
+    const go = async () => {
+        // Opened at once, then sent on: a tab opened after the wait would be taken for a pop-up.
+        const tab = window.open('about:blank', '_blank');
+        if (tab)
+            tab.opener = null;
+        setBusy(true);
+        try {
+            const url = await store.link(dir);
+            if (tab)
+                tab.location.href = url;
+            else
+                window.open(url, '_blank', 'noopener');
+        }
+        catch (error) {
+            tab?.close();
+            onProblem(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    return (_jsx("button", { type: "button", className: "wr-doc-where", disabled: busy || !store.link, onClick: () => void go(), title: `Open ${dir ? `${dir}/` : 'the folder'} in Google Drive`, children: busy ? 'Opening…' : label }));
+}
+/**
+ * Where another project keeps its LaTeX in Drive, to copy a LaTeX project
+ * into: its Drive folder, or the one it will have when it has no paper yet.
+ * Null when it keeps its paper on a computer (a clone there), where Drive
+ * isn't what it writes in.
+ */
+function driveFolderOf(project) {
+    const link = project.project.overleaf;
+    if (link?.keep?.where === 'computer')
+        return null;
+    if (link?.drive?.folder)
+        return link.drive.folder;
+    if (!overleafGitUrl(link?.url) && !Object.keys(link?.folders ?? {}).length)
+        return paperDriveFolder(project.name, project.id);
+    return null;
+}
+/**
+ * A copy of a LaTeX project — its main .tex and every file it brings in,
+ * subfolders and all — put into another project's Drive folder, as a LaTeX
+ * project of its own there: off Overleaf, and from then on apart from this one.
+ */
+function CopyToProject({ project, store, one, onDone }) {
+    const { collections, updateCollection } = useStore();
+    const others = useMemo(() => projectsOf(collections).filter((other) => other.id !== project.id), [collections, project.id]);
+    const [to, setTo] = useState(others.find((other) => driveFolderOf(other))?.id ?? '');
+    const [busy, setBusy] = useState(false);
+    const [said, setSaid] = useState(null);
+    const [problem, setProblem] = useState(null);
+    const target = others.find((other) => other.id === to);
+    const copy = async () => {
+        if (!target)
+            return;
+        const folder = driveFolderOf(target);
+        if (!folder)
+            return setProblem(`“${target.name}” keeps its paper on a computer, not in Drive: copy it there from that computer.`);
+        setBusy(true);
+        setProblem(null);
+        setSaid(null);
+        try {
+            const into = driveStore(paperDriveNow, folder);
+            const there = await listAll(into).catch(() => []);
+            const title = one.main.title || one.dir.split('/').pop() || 'paper';
+            // A folder of its own there — unless that project has no paper and no Overleaf yet: then it is the paper, at its top.
+            const fresh = !there.length && !overleafGitUrl(target.project.overleaf?.url);
+            const slug = folderSlug(one.dir.split('/').pop() || title) || 'paper';
+            let dir = fresh ? '' : slug;
+            for (let n = 2; dir && there.some((path) => path.startsWith(`${dir}/`)); n += 1)
+                dir = `${slug}-${n}`;
+            const own = subStore(store, one.dir);
+            // Paths in it: its main .tex, the other .tex files with \documentclass beside it, and every file it holds.
+            const files = [one.dir ? one.main.path.slice(one.dir.length + 1) : one.main.path, ...one.alsoMain, ...one.files];
+            for (const path of [...new Set(files)])
+                await into.writeBase64(dir ? `${dir}/${path}` : path, await own.readBase64(path));
+            const main = one.dir ? one.main.path.slice(one.dir.length + 1) : one.main.path;
+            await updateCollection(target.id, (collection) => {
+                const info = { ...target.project, ...(collection.project ?? {}) };
+                const link = info.overleaf?.drive?.folder ? info.overleaf : inDrive(info.overleaf, folder, undefined);
+                return { project: { ...info, overleaf: dir ? withLatexLink(link, dir, { url: '', main }) : { ...link, main } } };
+            });
+            setSaid(`Copied to “${target.name}”${dir ? `, as ${dir}/` : ''}: ${files.length} file${files.length === 1 ? '' : 's'}. It is its own there, off Overleaf; this one is left as it is.`);
+        }
+        catch (error) {
+            setProblem(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    if (!others.length)
+        return _jsx("p", { className: "wr-quiet", children: "There is no other project to copy it to yet." });
+    return (_jsxs("div", { className: "wr-copy", children: [_jsxs("label", { className: "wr-field", children: [_jsxs("span", { children: ["Copy \u201C", one.main.title || one.dir || one.main.path, "\u201D to"] }), _jsx("select", { value: to, onChange: (event) => setTo(event.target.value), "aria-label": "The project to copy it to", children: others.map((other) => (_jsxs("option", { value: other.id, disabled: !driveFolderOf(other), children: [other.name, driveFolderOf(other) ? '' : ' — keeps its paper on a computer'] }, other.id))) }), _jsx("small", { children: "Its main .tex and every file it brings in \u2014 sections, .bib, styles, figures \u2014 with their folders. The copy is a LaTeX project of its own there, not on Overleaf; changes to one don\u2019t reach the other." })] }), _jsxs("div", { className: "wr-row", children: [_jsx("button", { type: "button", className: "btn primary", disabled: busy || !target, onClick: () => void copy(), children: busy ? 'Copying…' : 'Copy it' }), _jsx("button", { type: "button", className: "link-btn", onClick: onDone, children: said ? 'Done' : 'Cancel' })] }), said ? _jsx("p", { className: "wc-done", children: said }) : null, problem ? _jsx("p", { className: "wr-bad", children: problem }) : null] }));
+}
+/** A LaTeX project's folder on this computer, in Finder, Explorer or the desktop's file manager, by the Companion. */
+function OpenHere({ here, folder, onProblem, label = 'This computer' }) {
+    const [busy, setBusy] = useState(false);
+    const old = isNewer(REVEAL_VERSION, here.version);
+    const go = async () => {
+        if (old)
+            return onProblem(`Opening the folder needs the Companion ${REVEAL_VERSION} or later on this computer (it is ${here.version}): update it from Your compute in the Playground.`);
+        setBusy(true);
+        try {
+            await revealPaper(here.server, folder);
+        }
+        catch (error) {
+            onProblem(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    return (_jsx("button", { type: "button", className: "wr-doc-where", disabled: busy, onClick: () => void go(), title: `Open ~/Reader/${folder} in ${/Mac/i.test(navigator.platform) ? 'Finder' : /Win/i.test(navigator.platform) ? 'Explorer' : 'the file manager'}${old ? ` (needs the Companion ${REVEAL_VERSION})` : ''}`, children: busy ? 'Opening…' : label }));
+}
+/**
+ * Where the Write tab opens: the LaTeX projects in this project's folder —
+ * each one PDF, from a main .tex (with \documentclass) and the files it
+ * brings in: sections, a .bib, styles, figures — to open one, and the ways
+ * to start another: a blank article, one of the templates kept on this
+ * computer, a template's .zip (kept as a template too), or LaTeX files from
+ * elsewhere. A new one goes in a folder of its own, beside the others,
+ * unless the project has none yet.
+ */
+function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare, resume = false, toOverleaf: askedOverleaf = false }) {
+    const { updateCollection } = useStore();
+    const [toOverleaf, setToOverleaf] = useState(askedOverleaf);
+    const [putting, setPutting] = useState(null);
+    const [copying, setCopying] = useState(null);
+    const placed = useRef('');
+    const link = project.project.overleaf;
+    const inDrive = store.kind === 'drive';
+    // Each LaTeX project's Overleaf project (in Drive): its own, the one above it, or the top's — or none.
+    const overleafOf = (dir) => {
+        const owner = inDrive ? latexOwner(link, dir) : '';
+        const url = latexLinkAt(link, owner).url;
+        return { owner, url: overleafGitUrl(url) ? url : '' };
+    };
+    const opened = lastOpened(project.id);
+    const next = (all) => all.find((one) => one.dir === opened) ?? all[0];
+    const accounts = useOverleafAccounts();
+    const throughAccount = folder.sync === 'drive' ? accounts?.find((account) => account.id === link?.gitAccount)?.label : undefined;
+    const [docs, setDocs] = useState(null);
+    // Files no LaTeX project holds: beside them at the top, with no main document there.
+    const [loose, setLoose] = useState([]);
+    const [taken, setTaken] = useState([]);
+    const [problem, setProblem] = useState(null);
+    const [making, setMaking] = useState(null);
+    const [name, setName] = useState('');
+    const [templates, setTemplates] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const zipPicker = useRef(null);
+    const filePicker = useRef(null);
+    const folderPicker = useRef(null);
+    // The Companion's templates are on this computer, from its 0.11.0; Drive's are in Drive, as their .zip.
+    const templatesOld = !shelf || (here && store.kind === 'companion' ? isNewer(PAPER_TEMPLATES_VERSION, here.version) : false);
+    useEffect(() => {
+        let live = true;
+        void (async () => {
+            try {
+                const listed = await listStamped(store);
+                const found = [];
+                let read = 0;
+                for (const { path, stamp } of listed) {
+                    if (!/\.tex$/i.test(path) || read >= 80)
+                        continue;
+                    read += 1;
+                    const got = await store.readText(path).catch(() => null);
+                    const text = got?.text ?? '';
+                    const docClass = /^[^%\n]*\\documentclass(?:\[[^\]]*\])?\{([^}]+)\}/m.exec(text)?.[1];
+                    if (!docClass)
+                        continue;
+                    const title = /^[^%\n]*\\title(?:\[[^\]]*\])?\{([^}]*)\}/m.exec(text)?.[1]?.replace(/\\\\|\\[a-zA-Z]+\s*/g, ' ').replace(/\s+/g, ' ').trim() ?? '';
+                    found.push({ path, title, docClass, modified: got?.modified ?? (stamp.split('|')[0] || null) });
+                }
+                const mains = [link?.main, ...Object.entries(link?.latex ?? {}).map(([dir, own]) => (own.main ? `${dir}/${own.main}` : undefined))].filter((path) => Boolean(path));
+                const projects = groupProjects(found, listed, mains);
+                const holds = (path) => projects.some((one) => inScope(one, path));
+                const last = lastOpened(project.id);
+                projects.sort((a, b) => (a.dir === last ? -1 : b.dir === last ? 1 : (b.modified ?? '').localeCompare(a.modified ?? '')));
+                if (live)
+                    (setDocs(projects), setLoose(listed.map((file) => file.path).filter((path) => !holds(path))), setTaken(listed.map((file) => file.path)));
+            }
+            catch (error) {
+                if (live)
+                    setProblem(error instanceof Error ? error.message : String(error));
+            }
+        })();
+        return () => {
+            live = false;
+        };
+    }, [store, link?.main]);
+    useEffect(() => {
+        if (making !== 'templates' || templates || templatesOld)
+            return;
+        void shelf?.list().then(setTemplates, (error) => setProblem(error instanceof Error ? error.message : String(error)));
+    }, [making, templates, templatesOld, shelf]);
+    /** Where a new LaTeX project goes: a folder of its own, or the top when the folder has nothing yet. */
+    const placeFor = (label) => {
+        if (!docs?.length && !taken.length)
+            return '';
+        const slug = folderSlug(label) || 'paper';
+        let dir = slug;
+        for (let n = 2; taken.some((path) => path.startsWith(`${dir}/`)); n += 1)
+            dir = `${slug}-${n}`;
+        return dir;
+    };
+    const within = (dir, path) => (dir ? `${dir}/${path}` : path);
+    const open = (one) => onOpen(one.main.path, { dir: one.dir, exclude: one.exclude });
+    // As the tab opens: the LaTeX project last open, at once — once, so its home stays a click back.
+    const resumed = useRef(false);
+    const resuming = resume && opened !== null && !resumed.current && !problem;
+    useEffect(() => {
+        if (!resume || resumed.current || !docs)
+            return;
+        resumed.current = true;
+        const one = opened === null ? undefined : docs.find((doc) => doc.dir === opened);
+        if (one)
+            open(one);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [docs, resume]);
+    const onOverleaf = Boolean(overleafGitUrl(link?.url));
+    const run = async (work) => {
+        setBusy(true);
+        setProblem(null);
+        try {
+            placed.current = '';
+            const main = await work();
+            const dir = placed.current;
+            // A new LaTeX project in a folder of its own is off Overleaf until it is put there: never in the top's Overleaf project.
+            if (main && dir && inDrive)
+                await updateCollection(project.id, (collection) => {
+                    const info = { ...project.project, ...(collection.project ?? {}) };
+                    return info.overleaf ? { project: { ...info, overleaf: withLatexLink(info.overleaf, dir, { url: '', main: main.slice(dir.length + 1) }) } } : {};
+                });
+            // The new one's folder, less any project already inside it (only the top can have those).
+            if (main)
+                onOpen(main, { dir, exclude: dir ? [] : (docs ?? []).map((one) => one.dir).filter(Boolean) });
+        }
+        catch (error) {
+            setProblem(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            setBusy(false);
+        }
+    };
+    const makeBlank = () => run(async () => {
+        const title = name.trim() || 'Untitled';
+        const dir = (placed.current = placeFor(title));
+        for (const file of BLANK_PROJECT(title))
+            await store.writeText(within(dir, file.path), file.text);
+        return within(dir, 'main.tex');
+    });
+    const fromGallery = (template) => run(async () => applyGallery(store, template, (placed.current = placeFor(name.trim() || template.name))));
+    const fromTemplate = (template) => run(async () => {
+        if (!shelf)
+            throw new Error('Templates need the Companion on this computer, or the paper in Drive.');
+        return shelf.apply(template.slug, (placed.current = placeFor(name.trim() || template.name)));
+    });
+    const fromZip = (file) => run(async () => {
+        const label = name.trim() || file.name.replace(/\.zip$/i, '');
+        const zipped = await fileBase64(file);
+        const dir = (placed.current = placeFor(label));
+        // Kept for next time where there is a shelf; unpacked into the paper either way.
+        if (shelf) {
+            const kept = await shelf.save(label, zipped);
+            return shelf.apply(kept.slug, dir);
+        }
+        return unpackKit(store, zipped, dir);
+    });
+    /** A LaTeX project from elsewhere: a folder, its subfolders kept as they are, or files picked one by one. */
+    const fromFiles = (files) => run(async () => {
+        const picked = files.map((file) => ({ file, path: pickedPath(file) })).filter(({ path }) => path && worthKeeping(path));
+        const tex = picked.filter(({ path }) => /\.tex$/i.test(path));
+        if (!tex.length)
+            throw new Error('There is no .tex file in it: pick the LaTeX project’s folder, or its main .tex with the files it needs.');
+        const folderName = files[0]?.webkitRelativePath?.split('/')[0];
+        const dir = (placed.current = placeFor(name.trim() || folderName || tex[0].path.replace(/\.tex$/i, '')));
+        // Its main document: main.tex at its top if there is one, else the shallowest .tex with \documentclass.
+        const mains = [];
+        for (const { file, path } of tex)
+            if (/^[^%\n]*\\documentclass/m.test(await file.text()))
+                mains.push(path);
+        mains.sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b));
+        for (const { file, path } of picked)
+            await store.writeBase64(within(dir, path), await fileBase64(file));
+        return within(dir, mains.find((path) => path === 'main.tex') ?? mains[0] ?? tex[0].path);
+    });
+    const ways = [
+        { id: 'blank', title: 'Blank LaTeX project', note: 'A main.tex, a first section in sections/ and a references.bib, in a folder of its own: add more files as it grows.', icon: '＋' },
+        { id: 'templates', title: 'Browse templates', note: `ICLR, CVPR, ACL, IEEE, ACM, Springer and Elsevier, and the kits you’ve kept ${store.kind === 'drive' ? 'in your Drive' : 'on this computer'}.`, icon: '▦' },
+        { id: 'zip', title: 'Upload a template (.zip)', note: 'A conference’s kit, as it gives it out. Kept as a template for next time.', icon: '⇪' },
+        { id: 'files', title: 'Upload a LaTeX project', note: 'Its folder from your computer, subfolders and all — the main .tex with its sections, .bib, styles and figures.', icon: '⎘' },
+    ];
+    if (resuming)
+        return (_jsx("div", { className: "wr-home", children: _jsx("p", { className: "wr-quiet", children: "Opening where you left off\u2026" }) }));
+    return (_jsxs("div", { className: "wr-home", children: [_jsxs("header", { className: "wr-home-head", children: [_jsxs("div", { children: [_jsx("span", { className: "eyebrow", children: "Write" }), _jsx("h2", { children: project.name }), _jsxs("p", { className: "wr-quiet", children: [_jsx("span", { className: "mono", children: store.label }), " \u00B7 ", folder.sync === 'drive' ? (overleafGitUrl(link?.url) ? (throughAccount ? `in step with Overleaf through ${throughAccount}` : 'in step with Overleaf, through Reader’s server') : 'not on Overleaf') : folder.sync === 'git' ? (link?.repo && !overleafGitUrl(link?.url) ? `in step with GitHub (${link.repo})` : 'in step with Overleaf') : folder.sync === 'dropbox' ? 'kept in step by Dropbox' : 'on this computer only', ' · ', folder.sync === 'drive' && !overleafGitUrl(link?.url) && (docs?.length ?? 0) > 1 ? (_jsx("span", { className: "wr-quiet", children: "each LaTeX project links to Overleaf on its own, below" })) : folder.sync === 'drive' && !overleafGitUrl(link?.url) ? (_jsx("button", { type: "button", className: "link-btn", "aria-expanded": toOverleaf, onClick: () => setToOverleaf(!toOverleaf), children: "Put it on Overleaf" })) : (_jsx(KeepWhere, { project: project, here: here, folder: folder, store: store })), ' · ', _jsx(WriteGuideLink, { section: "where" })] }), toOverleaf && folder.sync === 'drive' && !overleafGitUrl(link?.url) && (docs?.length ?? 0) <= 1 ? _jsx(PutOnOverleaf, { project: project, store: store, dir: docs?.[0]?.dir ?? '' }) : null] }), docs?.length ? (_jsxs("button", { type: "button", className: "btn primary", onClick: () => open(next(docs)), children: ["Continue ", next(docs).main.title || next(docs).dir || next(docs).main.path, " \u2192"] })) : null] }), _jsxs("section", { className: "wr-home-section", "aria-label": "The LaTeX projects in this project", children: [_jsx("h3", { children: "LaTeX projects" }), _jsx("p", { className: "wr-quiet wr-home-lede", children: "Each makes one PDF: a main .tex and the files it brings in \u2014 sections, a .bib, styles, figures \u2014 kept together in a folder." }), docs === null && !problem ? _jsx("p", { className: "wr-quiet", children: "Reading the project\u2019s folder\u2026" }) : null, docs && !docs.length ? _jsx("p", { className: "wr-quiet", children: "None yet: start one below. A LaTeX project is a folder with a main .tex (the one with \\documentclass) and its supporting files." }) : null, docs?.length ? (_jsx("div", { className: "wr-docs", children: docs.map((one) => (_jsxs("div", { className: "wr-doc-card", children: [_jsxs("button", { type: "button", className: "wr-doc", onClick: () => open(one), title: `Open ${one.dir ? `${one.dir}/` : 'the top of the folder'}, compiled from ${one.main.path}`, children: [_jsxs("span", { className: "wr-doc-page", "aria-hidden": "true", children: [_jsx("i", {}), _jsx("i", {}), _jsx("i", {}), _jsx("i", {})] }), _jsxs("span", { className: "wr-doc-text", children: [_jsx("b", { children: one.main.title || one.dir.split('/').pop() || one.main.path.split('/').pop() }), _jsxs("span", { className: "mono", children: [one.dir ? `${one.dir}/` : 'top of the folder', " \u00B7 ", one.main.path.split('/').pop()] }), _jsxs("small", { children: [one.main.docClass, one.modified ? ` · edited ${ago(one.modified)}` : '', one.dir === opened ? _jsx("em", { children: "last open" }) : null] }), _jsxs("span", { className: "wr-doc-files", children: [one.files.length ? filesSummary(one.files) : 'No supporting files yet', one.alsoMain.length ? ` · also ${one.alsoMain.join(', ')}` : ''] })] })] }), _jsxs("div", { className: "wr-doc-open", "aria-label": `Open ${one.main.title || one.dir || one.main.path} elsewhere`, children: [_jsx("span", { className: "wr-quiet", children: "View in" }), store.kind === 'drive' ? _jsx(OpenInDrive, { store: store, dir: one.dir, onProblem: setProblem }) : null, here && store.kind === 'companion' ? _jsx(OpenHere, { here: here, folder: [folder.path, one.dir].filter(Boolean).join('/'), onProblem: setProblem }) : null, (inDrive ? overleafOf(one.dir).url : onOverleaf) ? _jsx(OpenOverleaf, { project: project, view: "beside", primary: false, compact: true, url: inDrive ? overleafOf(one.dir).url : undefined }) : null] }), inDrive ? (_jsx("div", { className: "wr-doc-overleaf", children: overleafOf(one.dir).url ? (_jsxs(_Fragment, { children: [_jsx("span", { className: "wr-quiet", children: overleafOf(one.dir).owner === one.dir ? 'On Overleaf' : 'On Overleaf, in the project of the folder above' }), onCompare ? (_jsx("button", { type: "button", className: "wr-doc-where", onClick: () => onCompare(one.dir), title: "See which files differ from Overleaf\u2019s, compare the two PDFs, and pick which version each file keeps \u2014 here and on Overleaf", children: "Compare with Overleaf" })) : null] })) : (_jsxs(_Fragment, { children: [_jsx("span", { className: "wr-quiet", children: "Not on Overleaf" }), _jsx("button", { type: "button", className: "wr-doc-where", "aria-expanded": putting === one.dir, onClick: () => setPutting(putting === one.dir ? null : one.dir), children: "Put on Overleaf" })] })) })) : null, inDrive ? (_jsx("div", { className: "wr-doc-overleaf", children: _jsx("button", { type: "button", className: "wr-doc-where", "aria-expanded": copying === one.dir, onClick: () => setCopying(copying === one.dir ? null : one.dir), title: "A copy of it, with every file it brings in, into another of your projects", children: "Copy to another project" }) })) : null, copying === one.dir ? (_jsx("div", { className: "wr-doc-put", children: _jsx(CopyToProject, { project: project, store: store, one: one, onDone: () => setCopying(null) }) })) : null, putting === one.dir ? (_jsx("div", { className: "wr-doc-put", children: _jsx(PutOnOverleaf, { project: project, store: store, dir: one.dir, main: one.dir ? one.main.path.slice(one.dir.length + 1) : one.main.path, onDone: () => setPutting(null) }) })) : null] }, one.main.path))) })) : null, docs?.length && loose.length ? (_jsxs("p", { className: "wr-quiet wr-home-others", children: ["Not in any LaTeX project: ", filesSummary(loose), " \u2014 files at the top with no main .tex beside them."] })) : null] }), _jsxs("section", { className: "wr-home-section", "aria-label": "Start a new LaTeX project", children: [_jsx("h3", { children: "Start a new LaTeX project" }), _jsx("div", { className: "wr-home-ways", role: "radiogroup", "aria-label": "How to start it", children: ways.map((way) => (_jsxs("button", { type: "button", role: "radio", "aria-checked": making === way.id, className: `wr-home-way${making === way.id ? ' is-on' : ''}`, onClick: () => setMaking(making === way.id ? null : way.id), children: [_jsx("span", { className: "wr-home-icon", "aria-hidden": "true", children: way.icon }), _jsx("b", { children: way.title }), _jsx("small", { children: way.note })] }, way.id))) }), making ? (_jsxs("div", { className: "wr-home-make", children: [_jsxs("label", { className: "wr-home-name", children: [_jsx("span", { children: "Its name" }), _jsx("input", { value: name, onChange: (event) => setName(event.target.value), placeholder: making === 'blank' ? 'e.g. Workshop paper' : 'Optional: the template’s or folder’s name otherwise' }), _jsx("small", { className: "wr-quiet", children: docs?.length || taken.length ? `It goes in a folder of its own, ${placeFor(name.trim() || (making === 'blank' ? 'Untitled' : 'paper'))}/, beside the other LaTeX projects; its supporting files go in there with it.` : 'It goes at the top of the project’s folder.' })] }), making === 'blank' ? (_jsx("button", { type: "button", className: "btn primary", disabled: busy, onClick: () => void makeBlank(), children: busy ? 'Making it…' : 'Make it and open it' })) : null, making === 'templates' ? (_jsxs(_Fragment, { children: [_jsx("p", { className: "wr-home-shelf", children: "Come with Reader" }), _jsx("div", { className: "wr-home-templates", children: LATEX_GALLERY.map((template) => (_jsxs("button", { type: "button", className: "wr-home-template", disabled: busy, onClick: () => void fromGallery(template), title: `${template.note} — from ${template.source}`, children: [_jsx("b", { children: template.name }), _jsx("small", { children: template.note }), _jsxs("small", { className: "mono", children: [template.files.length, " files \u00B7 ", template.main] })] }, template.slug))) }), _jsxs("p", { className: "wr-quiet", children: ["NeurIPS and ICML give theirs out each year on their own sites (", _jsx("a", { href: "https://neurips.cc/Conferences/2026/CallForPapers", target: "_blank", rel: "noreferrer", children: "NeurIPS" }), ", ", _jsx("a", { href: "https://icml.cc/Conferences/2026/AuthorInstructions", target: "_blank", rel: "noreferrer", children: "ICML" }), "): download the .zip, then ", _jsx("button", { type: "button", className: "link-btn", onClick: () => setMaking('zip'), children: "upload it as a template" }), ", and it is kept here."] }), _jsxs("p", { className: "wr-home-shelf", children: ["Yours, ", store.kind === 'drive' ? 'in your Drive' : 'on this computer'] }), templatesOld ? (_jsx("p", { className: "wr-quiet", children: shelf ? _jsxs(_Fragment, { children: ["Templates of your own need the Companion ", PAPER_TEMPLATES_VERSION, " or later on this computer", here ? ` (it is ${here.version})` : '', ": update it from Your compute in the Playground."] }) : 'Templates of your own are kept in Drive, or by the Companion on this computer.' })) : templates === null ? (_jsx("p", { className: "wr-quiet", children: store.kind === 'drive' ? 'Looking in your Drive…' : 'Asking this computer for its templates…' })) : templates.length ? (_jsx("div", { className: "wr-home-templates", children: templates.map((template) => (_jsxs("button", { type: "button", className: "wr-home-template", disabled: busy, onClick: () => void fromTemplate(template), children: [_jsx("b", { children: template.name }), _jsxs("small", { children: [template.files, " files", template.main ? ` · ${template.main}` : ''] })] }, template.slug))) })) : (_jsx("p", { className: "wr-quiet", children: "None yet: upload a conference\u2019s .zip, and it is kept here for next time." }))] })) : null, making === 'zip' ? (_jsxs(_Fragment, { children: [_jsx("button", { type: "button", className: "btn primary", disabled: busy, onClick: () => zipPicker.current?.click(), children: busy ? 'Unpacking…' : 'Choose the .zip…' }), _jsx("input", { ref: zipPicker, type: "file", accept: ".zip,application/zip", hidden: true, onChange: (event) => {
+                                            const file = event.target.files?.[0];
+                                            event.target.value = '';
+                                            if (file)
+                                                void fromZip(file);
+                                        } })] })) : null, making === 'files' ? (_jsxs(_Fragment, { children: [_jsxs("div", { className: "wr-row", children: [_jsx("button", { type: "button", className: "btn primary", disabled: busy, onClick: () => folderPicker.current?.click(), children: busy ? 'Copying…' : 'Choose its folder…' }), _jsx("button", { type: "button", className: "btn", disabled: busy, onClick: () => filePicker.current?.click(), children: "Or pick its files\u2026" })] }), _jsx("small", { className: "wr-quiet", children: "Its folder keeps its subfolders (sections/, figures/) as they are, so \\input and \\includegraphics paths still work. Picked one by one, the files all go at its top." }), _jsx("input", { ref: (input) => {
+                                            folderPicker.current = input;
+                                            // A folder, its subfolders and all: not in React's own attributes yet.
+                                            input?.setAttribute('webkitdirectory', '');
+                                        }, type: "file", multiple: true, hidden: true, onChange: (event) => {
+                                            const files = [...(event.target.files ?? [])];
+                                            event.target.value = '';
+                                            if (files.length)
+                                                void fromFiles(files);
+                                        } }), _jsx("input", { ref: filePicker, type: "file", multiple: true, accept: ".tex,.bib,.sty,.cls,.bst,.bbx,.cbx,.png,.jpg,.jpeg,.pdf,.eps,.svg", hidden: true, onChange: (event) => {
+                                            const files = [...(event.target.files ?? [])];
+                                            event.target.value = '';
+                                            if (files.length)
+                                                void fromFiles(files);
+                                        } })] })) : null] })) : null, problem ? _jsx("p", { className: "wr-bad", children: problem }) : null] })] }));
+}
+function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '', onHome, onCompare, connectOverleaf = false }) {
+    const { settings, papers, updateSettings } = useStore();
+    const [desk, setDesk] = useDesk();
+    const setLayout = (layout) => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), layout } });
+    const [big, setBig] = useState(null);
+    // A paper in Drive has nothing on this computer to compile with: Cloud Run makes its PDF unless another is picked.
+    const inDrive = folder.sync === 'drive';
+    const options = { ...WRITE_DEFAULTS, ...(settings.write ?? {}) };
+    if (inDrive && options.pdf === 'here')
+        options.pdf = 'cloudrun';
+    const save = useSaveFolder(project);
+    const [link, updateLink] = useLatexLink(project, owner);
+    // Other LaTeX projects inside this one's folder, with Overleaf projects (or none) of their own: never synced with it.
+    const separate = useMemo(() => latexSeparate(project.project.overleaf, owner), [project.project.overleaf, owner]);
+    const separateKey = separate.join('|');
+    // As the Overleaf project is set (Menu → Compiler, Main document): kept on the project, so it stays as picked.
+    const compiler = link?.compiler ?? 'pdflatex';
+    const server = here?.server;
+    const [paths, setPaths] = useState(null);
+    const [listError, setListError] = useState(null);
+    const [files, setFiles] = useState({});
+    const filesRef = useRef(files);
+    filesRef.current = files;
+    const [open, setOpenState] = useState(() => {
+        try {
+            return localStorage.getItem(`reader.write.${project.id}${owner ? `:${owner}` : ''}.file`);
+        }
+        catch {
+            return null;
+        }
+    });
+    // A figure or a PDF in the folder, shown in the source's place: the .tex stays open behind it.
+    const [viewing, setViewing] = useState(null);
+    const editor = useRef(null);
+    const [compiled, setCompiled] = useState(null);
+    const [pdf, setPdf] = useState(null);
+    // The PDF's SyncTeX (gzipped), from the same compile: a double-click on the PDF opens the line that made it.
+    const [synctex, setSynctex] = useState(null);
+    const [compiling, setCompiling] = useState(false);
+    const [compileError, setCompileError] = useState(null);
+    const [engines, setEngines] = useState(null);
+    const [installing, setInstalling] = useState(false);
+    const [synced, setSynced] = useState(null);
+    const [syncing, setSyncing] = useState(false);
+    const [syncError, setSyncError] = useState(null);
+    const [needToken, setNeedToken] = useState(false);
+    // Written without syncing, for now: no account asked for, nothing sent until Sync is pressed.
+    const [unsynced, setUnsynced] = useState(false);
+    // The Overleaf accounts connected to Reader: none means a paper in Drive can't reach Overleaf, "Not now" or not.
+    const overleafConnected = useOverleafAccounts();
+    const unsyncedRef = useRef(false);
+    unsyncedRef.current = unsynced;
+    const [token, setToken] = useState('');
+    const [saving, setSaving] = useState(0);
+    const [showLog, setShowLog] = useState(false);
+    const [pane, setPane] = useState('source');
+    const [drawer, setDrawer] = useState(true);
+    const typedAt = useRef(0);
+    const timers = useRef({});
+    const [tokenShown, setTokenShown] = useState(false);
+    const [fellBack, setFellBack] = useState(null);
+    const [texShown, setTexShown] = useState(false);
+    // The Companion's own TeX Live, from 0.12.0: installed with a click, its packages too.
+    const canOwnTex = Boolean(here) && !inDrive && !isNewer(TEXLIVE_VERSION, here?.version ?? '0');
+    const setOwnTex = (status) => setEngines((now) => (now ? { ...now, texlive: status } : now));
+    const panesRef = useRef(null);
+    // With Overleaf: by the Companion's Git on this computer, or for a paper in Drive by Reader's server (Cloud Run).
+    const git = folder.sync === 'git' || (inDrive && Boolean(overleafGitUrl(link?.url)));
+    const setOpen = (path) => {
+        setViewing(null);
+        setOpenState(path);
+        try {
+            localStorage.setItem(`reader.write.${project.id}${owner ? `:${owner}` : ''}.file`, path);
+        }
+        catch {
+            // only a convenience
+        }
+    };
+    const load = useCallback(async (relative, force = false) => {
+        if (!force && filesRef.current[relative])
+            return;
+        const read = await store.readText(relative);
+        const text = read?.text ?? '';
+        setFiles((current) => (!force && current[relative] ? current : { ...current, [relative]: { text, disk: text } }));
+    }, 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [store]);
+    const refreshList = useCallback(async () => {
+        try {
+            setPaths(await listAll(store));
+            setListError(null);
+        }
+        catch (error) {
+            setListError(error instanceof Error ? error.message : String(error));
+        }
+    }, [store]);
+    useEffect(() => {
+        void refreshList();
+        if (server && !inDrive)
+            void paperEngines(server).then(setEngines, () => setEngines(null));
+        if (git && server && !inDrive)
+            void paperRemote(server, folder.path).then((remote) => setNeedToken(!remote.token && /overleaf|github/.test(remote.url)), () => undefined);
+        // No account, and "Not now" said for this project: written without syncing, no nudge, until Sync is pressed.
+        if (git && inDrive)
+            void overleafTokenKnown().then((known) => (known ? setNeedToken(false) : saidNotNow(project.id) ? setUnsynced(true) : setNeedToken(true)), () => undefined);
+    }, [refreshList, server, folder.path, git, inDrive]);
+    // The open LaTeX project's own files; the folder's other projects are a step back, on the home page.
+    const scoped = scope ? (paths ?? []).filter((path) => inScope(scope, path)) : paths ?? [];
+    const at = (path) => (scope?.dir ? `${scope.dir}/${path}` : path);
+    const texts = scoped.filter(isTextFile);
+    const mainGuess = texts.find((path) => path === link?.main) ?? texts.find((path) => path === compiled?.main) ?? texts.find((path) => /(^|\/)main\.tex$/.test(path)) ?? texts.find((path) => path.endsWith('.tex'));
+    const shown = open && texts.includes(open) ? open : mainGuess;
+    const looking = viewing && scoped.includes(viewing) ? viewing : null;
+    // The main document: as set on the project, else the one the compile found, else the first with main.tex's name.
+    const mainDoc = link?.main && texts.includes(link.main) ? link.main : undefined;
+    const mainRef = useRef(mainDoc);
+    mainRef.current = mainDoc;
+    useEffect(() => {
+        if (shown)
+            void load(shown);
+    }, [shown, load]);
+    // ---- compile
+    // On Cloud Run, compiling as you type (or on save) goes there, as Overleaf's does: see compileOnCloudRun below.
+    const cloudCompile = useRef(null);
+    const compile = useCallback(async () => {
+        if (options.pdf === 'cloudrun')
+            return void cloudCompile.current?.();
+        // Overleaf makes the PDF, or GitHub Actions does (only when asked, ⌘↵ or Compile: a minute or two): nothing compiles here.
+        if (options.pdf === 'overleaf' || options.pdf === 'github')
+            return;
+        if (!server || inDrive)
+            return;
+        setCompiling(true);
+        setCompileError(null);
+        try {
+            const done = await compilePaper(server, folder.path, options.engine, { main: mainRef.current, compiler, halt: options.errors === 'halt' });
+            setCompiled(done);
+            if (done.pdf)
+                (setPdf(toBlob(done.pdf)), setSynctex(done.synctex ? toBlob(done.synctex) : null));
+            if (done.errors.length && !done.pdf)
+                setShowLog(true);
+        }
+        catch (error) {
+            setCompileError(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            setCompiling(false);
+        }
+    }, [server, folder.path, options.engine, compiler, options.errors, options.pdf]);
+    useEffect(() => {
+        // Opened: compiled at once, with the TeX here, or for a paper in Drive on Cloud Run.
+        const ready = inDrive ? options.pdf === 'cloudrun' : Boolean(engines && (engines.latexmk || engines.tectonic));
+        if (paths && texts.length && ready && !compiled && !compiling)
+            void compile();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paths, engines]);
+    // The Overleaf account the project syncs through, as it is now (chosen while the desk is open, too).
+    const accountRef = useRef(link?.gitAccount);
+    accountRef.current = link?.gitAccount;
+    // ---- sync: by the Companion's Git here, or for a paper in Drive by Reader's server
+    const syncNow = (message, given) => {
+        const asked = accountRef.current;
+        return inDrive
+            ? cloudSync(store, overleafGitUrl(link?.url) ?? '', message, given, { account: asked, exclude: separateKey ? separateKey.split('|') : [] }).then((done) => {
+                // The account that opened it, remembered for the next sync (and shown with the project's accounts) —
+                // unless another was chosen while it ran: that choice stands.
+                if (done.account && done.account !== asked && accountRef.current === asked)
+                    updateLink({ gitAccount: (accountRef.current = done.account) });
+                // Shared with several of the accounts, and the one it synced with can't open it any more: another did.
+                setFellBack(done.fellBackFrom ? `“${done.fellBackFrom}” can’t open this Overleaf project any more (unshared, or its token was revoked), so it synced through “${done.accountLabel}”, which can.` : null);
+                return done;
+            })
+            : server ? syncPaper(server, folder.path, message, given) : Promise.reject(new Error('This computer’s Companion isn’t connected.'));
+    };
+    const sync = useCallback(async (quiet = false) => {
+        if (!git || (quiet && unsyncedRef.current))
+            return;
+        if (!quiet)
+            setUnsynced(false);
+        setSyncing(true);
+        if (!quiet)
+            setSyncError(null);
+        try {
+            const done = await syncNow('Edits from Reader', token.trim() || undefined);
+            setSynced(done);
+            setSyncError(done.ok ? null : done.error ?? 'The sync didn’t finish.');
+            if (token.trim() && done.ok)
+                setNeedToken(false);
+            const incoming = (done.incoming ?? []).map((path) => path.replace(/^\.\//, ''));
+            const conflicted = done.conflicts ?? [];
+            const reload = [...new Set([...incoming, ...conflicted])].filter((path) => filesRef.current[path] && filesRef.current[path].text === filesRef.current[path].disk);
+            if (reload.length || incoming.some((path) => !(paths ?? []).includes(path)))
+                void refreshList();
+            if (incoming.length)
+                cloud.current.listed = null;
+            await Promise.all(reload.map((path) => load(path, true)));
+            if (incoming.length && options.compile !== 'manual')
+                void compile();
+        }
+        catch (error) {
+            setSyncError(error instanceof Error ? error.message : String(error));
+        }
+        finally {
+            setSyncing(false);
+        }
+    }, 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [git, server, folder.path, token, paths, options.compile, compile]);
+    // Opening the tab takes in what changed in Overleaf since, at once.
+    const openedSync = useRef(false);
+    useEffect(() => {
+        if (!git || options.sync === 'manual' || openedSync.current || paths === null)
+            return;
+        openedSync.current = true;
+        void sync(true);
+    }, [git, options.sync, paths, sync]);
+    // What coauthors write in Overleaf comes in while nothing is being typed here.
+    useEffect(() => {
+        if (!git || options.sync === 'manual')
+            return;
+        const timer = window.setInterval(() => {
+            const dirty = Object.values(filesRef.current).some((file) => file.text !== file.disk);
+            if (!dirty && Date.now() - typedAt.current > 5000)
+                void sync(true);
+        }, PULL_EVERY_MS);
+        return () => window.clearInterval(timer);
+    }, [git, options.sync, sync]);
+    // ---- save
+    const writeOut = useCallback(async (relative) => {
+        const file = filesRef.current[relative];
+        if (!file || file.text === file.disk)
+            return false;
+        const text = file.text;
+        setSaving((n) => n + 1);
+        try {
+            await store.writeText(relative, text);
+            setFiles((current) => (current[relative] ? { ...current, [relative]: { ...current[relative], disk: text } } : current));
+            return true;
+        }
+        finally {
+            setSaving((n) => n - 1);
+        }
+    }, [store]);
+    const saveAll = useCallback(async () => {
+        const dirty = Object.keys(filesRef.current).filter((path) => filesRef.current[path].text !== filesRef.current[path].disk);
+        const results = await Promise.all(dirty.map(writeOut));
+        return results.some(Boolean);
+    }, [writeOut]);
+    // On Cloud Run an edit is compiled from the editor's own text once typing pauses (edit, below), not after it is saved.
+    const compilesFromEditor = options.pdf === 'cloudrun' && options.compile === 'pause';
+    const afterSave = (how) => {
+        window.clearTimeout(timers.current.sync);
+        if (options.compile === how && !(compilesFromEditor && how === 'pause')) {
+            window.clearTimeout(timers.current.compile);
+            timers.current.compile = window.setTimeout(() => void compile(), how === 'pause' ? COMPILE_PAUSE_MS : 0);
+        }
+        // With Overleaf making the PDF, the edit goes sooner: the PDF waits on it.
+        if (git && options.sync === how)
+            timers.current.sync = window.setTimeout(() => void sync(true), how === 'pause' ? (options.pdf === 'overleaf' ? OVERLEAF_SYNC_PAUSE_MS : SYNC_PAUSE_MS) : 0);
+    };
+    const edit = (relative, text) => {
+        typedAt.current = Date.now();
+        setFiles((current) => ({ ...current, [relative]: { disk: current[relative]?.disk ?? '', text } }));
+        window.clearTimeout(timers.current.save);
+        window.clearTimeout(timers.current.compile);
+        window.clearTimeout(timers.current.sync);
+        timers.current.save = window.setTimeout(() => void saveAll().then((wrote) => wrote && afterSave('pause')), SAVE_PAUSE_MS);
+        if (compilesFromEditor)
+            timers.current.compile = window.setTimeout(() => void compile(), COMPILE_PAUSE_MS);
+    };
+    useEffect(() => () => {
+        window.clearTimeout(timers.current.save);
+        window.clearTimeout(timers.current.compile);
+        window.clearTimeout(timers.current.sync);
+    }, []);
+    const saveNow = async () => {
+        window.clearTimeout(timers.current.save);
+        await saveAll();
+        afterSave('save');
+    };
+    // ---- files made, added, moved and deleted: compiled, and synced like an edit
+    const scheduleSync = () => {
+        if (!git || options.sync === 'manual')
+            return;
+        window.clearTimeout(timers.current.sync);
+        timers.current.sync = window.setTimeout(() => void sync(true), 1500);
+    };
+    const afterChange = async () => {
+        cloud.current.listed = null;
+        await refreshList();
+        if (options.compile !== 'manual')
+            void compile();
+        scheduleSync();
+    };
+    const [fileProblem, setFileProblem] = useState(null);
+    const cleanPath = (raw) => {
+        const parts = (raw ?? '').trim().replace(/\\/g, '/').split('/').filter(Boolean);
+        if (!parts.length || parts.some((part) => part === '..' || part === '.' || part.startsWith('.')))
+            return null;
+        return parts.join('/');
+    };
+    const fileOp = async (what) => {
+        setFileProblem(null);
+        try {
+            await what();
+            await afterChange();
+        }
+        catch (error) {
+            setFileProblem(error instanceof Error ? error.message : String(error));
+        }
+    };
+    const newFile = () => {
+        const path = cleanPath(window.prompt('A new file — its path in the paper:', at('sections/new-section.tex')));
+        if (!path)
+            return;
+        if ((paths ?? []).includes(path))
+            return setFileProblem(`${path} is there already.`);
+        void fileOp(async () => {
+            await store.writeText(path, '');
+            setFiles((current) => ({ ...current, [path]: { text: '', disk: '' } }));
+            setOpen(path);
+        });
+    };
+    const newFolder = () => {
+        const path = cleanPath(window.prompt('A new folder — its path in the paper (it reaches Overleaf once a file is in it):', at('figures')));
+        if (!path)
+            return;
+        void fileOp(async () => {
+            const parts = path.split('/');
+            for (let i = 1; i <= parts.length; i += 1)
+                await store.mkdir(parts.slice(0, i).join('/')).catch(() => undefined);
+        });
+    };
+    const uploader = useRef(null);
+    const upload = (list) => {
+        const chosen = Array.from(list);
+        if (!chosen.length)
+            return;
+        const dir = window.prompt(`Put ${chosen.length === 1 ? chosen[0].name : `${chosen.length} files`} in which folder? (empty for the top)`, chosen.every((file) => /\.(png|jpe?g|pdf|eps|svg)$/i.test(file.name)) ? at('figures') : scope?.dir ?? '');
+        if (dir === null)
+            return;
+        const base = dir.trim() ? cleanPath(dir) : '';
+        if (base === null)
+            return setFileProblem('That folder name won’t do.');
+        void fileOp(async () => {
+            for (const file of chosen)
+                await store.writeBase64(base ? `${base}/${file.name}` : file.name, await fileBase64(file));
+        });
+    };
+    const rename = (path) => {
+        const to = cleanPath(window.prompt('Rename or move it — its new path:', path));
+        if (!to || to === path)
+            return;
+        void fileOp(async () => {
+            await writeOut(path);
+            await store.rename(path, to);
+            setFiles((current) => {
+                const { [path]: moved, ...rest } = current;
+                return moved ? { ...rest, [to]: moved } : rest;
+            });
+            if (path === shown)
+                setOpen(to);
+            if (path === looking)
+                setViewing(to);
+            if (path === link?.main)
+                updateLink({ main: to });
+        });
+    };
+    const remove = (path) => {
+        if (!window.confirm(`Delete ${path}?${git ? ' It goes from Overleaf too with the next sync (Overleaf’s history keeps it).' : ''}`))
+            return;
+        void fileOp(async () => {
+            await store.remove(path);
+            setFiles((current) => {
+                const { [path]: _gone, ...rest } = current;
+                return rest;
+            });
+        });
+    };
+    // ---- leaving: nothing typed is left behind, and with Git it goes to Overleaf
+    const flushRef = useRef(() => undefined);
+    flushRef.current = () => {
+        window.clearTimeout(timers.current.save);
+        void saveAll().then((wrote) => {
+            if (git && options.sync !== 'manual' && (wrote || synced?.ok !== true || Date.now() - (synced?.at ?? 0) > 2000))
+                void syncNow('Edits from Reader').catch(() => undefined);
+        });
+    };
+    useEffect(() => {
+        const hidden = () => document.visibilityState === 'hidden' && flushRef.current();
+        const leaving = () => flushRef.current();
+        document.addEventListener('visibilitychange', hidden);
+        window.addEventListener('pagehide', leaving);
+        return () => {
+            document.removeEventListener('visibilitychange', hidden);
+            window.removeEventListener('pagehide', leaving);
+            flushRef.current();
+        };
+    }, []);
+    // A compiler or main document picked: the PDF made again with it.
+    const firstPick = useRef(true);
+    useEffect(() => {
+        if (firstPick.current) {
+            firstPick.current = false;
+            return;
+        }
+        if (compiled)
+            void compile();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [compiler, link?.main]);
+    // ---- citations
+    const mine = useMemo(() => papersIn(project.id, papers), [project.id, papers]);
+    const bibPath = texts.find((path) => path.endsWith('.bib'));
+    const bibText = bibPath ? files[bibPath]?.text : undefined;
+    useEffect(() => {
+        if (bibPath && options.citations === 'drawer')
+            void load(bibPath);
+    }, [bibPath, options.citations, load]);
+    const entries = useMemo(() => bibEntries(bibPath && bibText !== undefined ? [{ path: bibPath, text: bibText }] : []), [bibPath, bibText]);
+    // ---- autocomplete: every text file read, for its labels and its own commands; the cite keys from the .bib and the project
+    useEffect(() => {
+        for (const path of texts.slice(0, 80))
+            void load(path);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paths, load]);
+    const allEntries = useMemo(() => bibEntries(Object.entries(files).filter(([path]) => path.endsWith('.bib')).map(([path, file]) => ({ path, text: file.text }))), [files]);
+    const completeFor = useCallback((text, caret) => {
+        const others = Object.entries(files)
+            .filter(([path]) => path !== shown && /\.(tex|sty|cls)$/.test(path))
+            .map(([path, file]) => ({ path, text: file.text }));
+        const keys = [
+            ...allEntries.map((entry) => ({ key: entry.key, detail: entry.title ?? 'in the .bib' })),
+            ...mine.filter((paper) => !allEntries.some((entry) => entry.key === keyFor(paper, allEntries))).map((paper) => ({ key: keyFor(paper, allEntries), detail: `${paper.title} · adds its BibTeX` })),
+        ];
+        return completeLatex(text, caret, { files: [{ path: shown ?? '', text }, ...others], paths: paths ?? [], keys });
+    }, [files, shown, allEntries, mine, paths]);
+    // A project paper's key cited by hand, or from the suggestions, brings its BibTeX entry into the .bib.
+    const bibFor = useRef(() => undefined);
+    bibFor.current = (text) => {
+        if (!bibPath || bibText === undefined)
+            return;
+        const cited = new Set([...text.matchAll(/\\[a-zA-Z]*cite[a-zA-Z]*\*?(?:\[[^\]]*\]){0,2}\{([^}]*)\}/g)].flatMap((match) => match[1].split(',').map((key) => key.trim())));
+        let bib = bibText;
+        let current = entries;
+        for (const paper of mine) {
+            if (!cited.has(keyFor(paper, current)))
+                continue;
+            const added = withEntry(bib, paper, current);
+            if (!added)
+                continue;
+            bib = added;
+            current = bibEntries([{ path: bibPath, text: bib }]);
+        }
+        if (bib !== bibText)
+            edit(bibPath, bib);
+    };
+    const cite = (paperId) => {
+        const paper = mine.find((item) => item.id === paperId);
+        if (!paper || !shown)
+            return;
+        editor.current?.insert(`\\cite{${keyFor(paper, entries)}}`);
+        if (bibPath && bibText !== undefined) {
+            const added = withEntry(bibText, paper, entries);
+            if (added)
+                edit(bibPath, added);
+        }
+    };
+    const goTo = (problem) => {
+        const file = problem.file ? problem.file.replace(/^\.\//, '') : compiled?.main;
+        if (file && texts.includes(file))
+            setOpen(file);
+        if (options.layout === 'tabs')
+            setPane('source');
+        if (problem.line)
+            window.setTimeout(() => editor.current?.goToLine(problem.line), 60);
+    };
+    const current = shown ? files[shown] : undefined;
+    // Where it was left: the caret's line in each file, put back as the file opens, kept as it moves.
+    const placeDir = [owner, scope?.dir].filter(Boolean).join('/');
+    const placed = useRef(null);
+    const placeTimer = useRef();
+    // Each LaTeX project its own Overleaf project: this one linked by itself, from the paper's whole folder.
+    const [connecting, setConnecting] = useState(connectOverleaf);
+    // The cloud compile's details over the PDF: only when asked for (ⓘ), remembered on this device.
+    const [compileInfo, setCompileInfo] = useState(() => {
+        try {
+            return localStorage.getItem('reader.write.compileInfo') === '1';
+        }
+        catch {
+            return false;
+        }
+    });
+    const showCompileInfo = (show) => {
+        setCompileInfo(show);
+        try {
+            localStorage.setItem('reader.write.compileInfo', show ? '1' : '0');
+        }
+        catch {
+            // only a convenience
+        }
+    };
+    // Linked to Overleaf with no account to sync with: a nudge, the account's form only when asked for (or the paper card asked).
+    const [accountOpen, setAccountOpen] = useState(connectOverleaf);
+    const canConnect = inDrive && !git && Boolean(rootStore);
+    // A line asked for in a file not open yet (a double-click on the PDF): gone to as the file opens, in place of where it was left.
+    const jump = useRef(null);
+    useEffect(() => {
+        if (!shown || !current)
+            return;
+        const asked = jump.current?.file === shown ? jump.current : null;
+        if (!asked && placed.current === shown)
+            return;
+        placed.current = shown;
+        jump.current = null;
+        const line = asked ? asked.line : lineIn(project.id, placeDir, shown);
+        window.setTimeout(() => (line > 1 || asked?.word ? editor.current?.goToLine(line, asked?.word) : editor.current?.focus()), 60);
+    }, [shown, current, project.id, placeDir]);
+    // ---- from the PDF to the source: a double-click, as in Overleaf, by the compile's SyncTeX
+    const syncRead = useRef(null);
+    const [syncNote, setSyncNote] = useState(null);
+    const noteTimer = useRef();
+    const note = (text) => {
+        setSyncNote(text);
+        window.clearTimeout(noteTimer.current);
+        noteTimer.current = window.setTimeout(() => setSyncNote(null), 5000);
+    };
+    const toSource = async (page, x, y, word) => {
+        if (!synctex) {
+            return note(options.pdf === 'here' && here && !inDrive ? 'Double-clicking the PDF to reach its source needs the Companion’s latest version, and a compile after.' : 'Compile once more, and a double-click on the PDF opens the line that made it.');
+        }
+        if (syncRead.current?.of !== synctex)
+            syncRead.current = { of: synctex, map: synctex.arrayBuffer().then((bytes) => unzipSyncTex(new Uint8Array(bytes))).then(parseSyncTex) };
+        let map;
+        try {
+            map = await syncRead.current.map;
+        }
+        catch (error) {
+            return note(`The PDF’s SyncTeX couldn’t be read: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        const place = sourceAt(map, page, x, y, texts);
+        if (!place)
+            return note('Nothing there came from this project’s files.');
+        setSyncNote(null);
+        if (options.layout === 'tabs')
+            setPane('source');
+        if (place.file === shown && current && !looking)
+            return void editor.current?.goToLine(place.line, word);
+        jump.current = { ...place, word };
+        // Opened again even if it is the file open, so the effect above goes to the line once it shows.
+        if (place.file === shown)
+            placed.current = null;
+        setOpen(place.file);
+    };
+    const onCursor = useCallback((cursor) => {
+        if (!shown)
+            return;
+        window.clearTimeout(placeTimer.current);
+        placeTimer.current = window.setTimeout(() => rememberPlace(project.id, { dir: placeDir, file: [owner, shown].filter(Boolean).join('/'), line: cursor.line }), 400);
+    }, [shown, project.id, placeDir, owner]);
+    const dirtyCount = Object.values(files).filter((file) => file.text !== file.disk).length;
+    const noTex = engines && !engines.latexmk && !engines.tectonic;
+    const texLive = compiled?.engine === 'latexmk' ? engines?.texVersion?.match(/TeX Live (\d{4})/)?.[1] : undefined;
+    // Packages the compile looked for and this computer's TeX hasn't got: Overleaf has them all.
+    const missing = useMemo(() => missingPackages(compiled), [compiled]);
+    // Figures "not found" that are there, as PNG, JPEG or PDF: the LaTeX compiler goes through DVI, which takes only EPS.
+    const dviFigures = useMemo(() => {
+        if (compiler !== 'latex' || !compiled)
+            return [];
+        const figures = scoped.filter((path) => /\.(png|jpe?g|pdf)$/i.test(path)).map((path) => path.split('/').pop().replace(/\.[^.]+$/, ''));
+        const named = compiled.errors.map((item) => /File `([^']+)' not found/.exec(item.message)?.[1]?.split('/').pop()?.replace(/\.(png|jpe?g|pdf)$/i, ''));
+        return [...new Set(named.filter((name) => Boolean(name) && figures.includes(name)))];
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [compiled, compiler, paths]);
+    const source = (_jsxs("section", { className: "wr-source", children: [_jsxs("div", { className: "wr-tabs", children: [_jsx("button", { type: "button", className: "wr-icon", "aria-pressed": desk.sideOpen, onClick: () => setDesk({ sideOpen: !desk.sideOpen }), title: desk.sideOpen ? 'Hide the files' : 'Show the files', "aria-label": desk.sideOpen ? 'Hide the files' : 'Show the files', children: "\u2630" }), looking ? (_jsxs("span", { className: "wr-file mono", children: [looking, ' ', _jsxs("button", { type: "button", className: "link-btn", onClick: () => setViewing(null), title: shown ? `Back to ${shown}` : 'Back to the source', children: ["\u2190 ", shown ?? 'source'] })] })) : shown ? (_jsxs("span", { className: "wr-file mono", children: [shown, current && current.text !== current.disk ? ' ●' : ''] })) : null, _jsx("span", { className: "wr-sp" }), canConnect ? (_jsx("button", { type: "button", className: "btn sm ghost wr-ol-btn", "aria-expanded": connecting, onClick: () => setConnecting(!connecting), title: `Link this LaTeX project${placeDir ? ` (${placeDir}/)` : ''} to an Overleaf project of its own, kept in step both ways — with the Overleaf account connected under Projects → Connections`, children: "\u21C4 Connect to Overleaf" })) : null, _jsx(PaneTools, { layout: options.layout, onLayout: setLayout, swapped: desk.swapped, onSwap: () => setDesk({ swapped: !desk.swapped }), big: big === 'source', onBig: () => setBig(big === 'source' ? null : 'source') }), options.layout === 'tabs' ? (_jsxs("span", { className: "segmented sm", children: [_jsx("button", { type: "button", "aria-pressed": pane === 'source', onClick: () => setPane('source'), children: "Source" }), _jsx("button", { type: "button", "aria-pressed": pane === 'pdf', onClick: () => setPane('pdf'), children: "PDF" })] })) : null] }), connecting && canConnect && rootStore ? (_jsxs("div", { className: "wr-ol-connect", children: [_jsxs("p", { className: "wr-quiet", children: ["Linking ", _jsx("b", { children: placeDir ? `${placeDir}/` : 'this LaTeX project' }), " to an Overleaf project of its own: the other LaTeX projects in this paper\u2019s folder keep theirs."] }), _jsx(PutOnOverleaf, { project: project, store: rootStore, dir: placeDir, main: mainDoc ? [owner, mainDoc].filter(Boolean).join('/').slice(placeDir ? placeDir.length + 1 : 0) : undefined, onDone: () => setConnecting(false) })] })) : null, _jsx("div", { className: "wr-editor", children: looking ? (_jsx(FilePreview, { store: store, path: looking }, looking)) : shown && current ? (_jsx(CodeEditor, { ref: editor, value: current.text, path: shown, wrap: true, minimap: false, onCursor: onCursor, complete: /\.(tex|sty|cls)$/.test(shown) ? completeFor : undefined, onChange: (next) => {
+                        edit(shown, next);
+                        if (shown.endsWith('.tex') && next.includes('cite'))
+                            bibFor.current(next);
+                    }, onKeyDown: (event) => {
+                        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+                            event.preventDefault();
+                            void saveNow();
+                        }
+                        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                            event.preventDefault();
+                            recompile();
+                        }
+                    } }, shown)) : (_jsx("p", { className: "wr-quiet wr-pad", children: paths === null ? 'Reading the folder…' : texts.length ? 'Opening…' : 'No .tex file in this folder yet.' })) })] }));
+    /**
+     * ⌘↵. Here: save and compile. With Overleaf making the PDF: the window
+     * beside is taken in the keypress itself (a browser lets a page open one
+     * only then) and says the edits are on their way; once they have reached
+     * Overleaf, the project opens in it — and Overleaf compiles a project as it
+     * opens, so the PDF there is of what was just written.
+     */
+    // ---- compiling in the cloud: Reader's compiler, Cloud Run or GitHub Actions, through its Worker (worker/latex.js)
+    const [gh, setGh] = useState({ phase: 'idle' });
+    const compileOnGithub = async () => {
+        const started = Date.now();
+        setCompiling(true);
+        setCompileError(null);
+        // What this computer's compile said (a package it lacks, say) isn't the cloud's: cleared until it answers.
+        setCompiled(null);
+        setShowLog(false);
+        try {
+            setGh({ phase: 'sending', startedAt: started });
+            const paths = await listAll(store);
+            const files = [];
+            for (const path of paths)
+                files.push({ path, base64: await store.readBase64(path) });
+            const main = mainDoc ?? compiled?.main ?? 'main.tex';
+            const on = 'github';
+            const asked = await apiFetch('/latex/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files, main, compiler, on }) });
+            const job = (await asked.json().catch(() => ({})));
+            if (!asked.ok || !job.id)
+                throw new Error(job.error ?? `The compiler didn’t take it (${asked.status}).`);
+            // Cloud Run answers once it has compiled: no waiting before the first look.
+            let wait = job.state === 'done' ? 0 : 4000;
+            setGh({ phase: job.state === 'done' ? 'compiling' : 'queued', on, startedAt: started });
+            const until = Date.now() + 12 * 60_000;
+            while (Date.now() < until) {
+                await new Promise((resolve) => setTimeout(resolve, wait));
+                wait = 4000;
+                const now = (await (await apiFetch(`/latex/jobs/${job.id}`, { cache: 'no-store' })).json().catch(() => null));
+                if (!now?.state)
+                    continue;
+                if (now.state === 'failed')
+                    throw new Error(now.error ?? 'The compile didn’t start.');
+                if (now.state !== 'done') {
+                    setGh({ phase: now.state === 'compiling' ? 'compiling' : 'queued', on, startedAt: started });
+                    continue;
+                }
+                const log = await (await apiFetch(`/latex/jobs/${job.id}/log`, { cache: 'no-store' })).text().catch(() => '');
+                const blob = now.pdf ? await (await apiFetch(`/latex/jobs/${job.id}/pdf`, { cache: 'no-store' })).blob() : null;
+                const sync = blob && now.synctex ? await apiFetch(`/latex/jobs/${job.id}/synctex`, { cache: 'no-store' }).then((got) => (got.ok ? got.blob() : null), () => null) : null;
+                const read = readTexLog(log);
+                setCompiled({ ok: Boolean(blob) && now.exit === 0, main, engine: 'GitHub · all of TeX Live', compiler, pdf: blob ? 'github' : '', errors: read.errors, warnings: read.warnings, log, ms: Date.now() - started });
+                if (blob)
+                    (setPdf(new Blob([blob], { type: 'application/pdf' })), setSynctex(sync));
+                if (read.errors.length && !blob)
+                    setShowLog(true);
+                setGh({ phase: 'done', on, startedAt: started, finishedAt: Date.now(), });
+                return;
+            }
+            throw new Error('No PDF came back within 12 minutes.');
+        }
+        catch (error) {
+            setGh({ phase: 'failed', startedAt: started, error: error instanceof Error ? error.message : String(error) });
+        }
+        finally {
+            setCompiling(false);
+        }
+    };
+    // ---- compiling on Cloud Run, as Overleaf does: the compiler keeps this
+    // paper's folder between compiles (and TeX's .aux, .bbl and .toc in it), so
+    // each compile sends only the files changed since the last, read only when
+    // the Companion says they changed, and TeX reruns only what it must. The
+    // service asks (409) for any file it lacks — it restarted, say — and gets it.
+    // One compile at a time; edits made during one are compiled right after.
+    // The text of a file open in the editor is taken from the editor, as typed — not read back from where it is
+    // saved (Drive: a request a file), nor waited on to be saved there; and in Drive, where a listing is a request
+    // a folder, the folder's listing is kept a minute between compiles as you type, until a file is added, moved
+    // or synced in (paths, sync). Compile and ⌘↵ always list afresh.
+    const cloud = useRef({ folder: '', files: new Map(), acked: new Map(), busy: false, again: false, listed: null });
+    const compileOnCloudRun = async (fresh = false, relist = false) => {
+        const state = cloud.current;
+        if (state.busy)
+            return void (state.again = true);
+        if (state.folder !== folder.path)
+            Object.assign(state, { folder: folder.path, files: new Map(), acked: new Map(), listed: null });
+        state.busy = true;
+        const started = Date.now();
+        setCompiling(true);
+        setCompileError(null);
+        setGh((now) => ({ ...now, phase: 'sending', on: 'cloudrun', startedAt: started, error: undefined }));
+        try {
+            const kept = state.listed;
+            const listed = !relist && store.kind === 'drive' && kept && kept.of === paths && Date.now() - kept.at < 60_000 ? kept.files : await listStamped(store);
+            if (listed !== kept?.files)
+                state.listed = { of: paths, at: Date.now(), files: listed };
+            const toRead = [];
+            for (const { path, stamp } of listed) {
+                const open = isTextFile(path) ? filesRef.current[path] : undefined;
+                if (open) {
+                    if (state.files.get(path)?.text === open.text)
+                        continue;
+                    const base64 = textBase64(open.text);
+                    state.files.set(path, { stamp, sha: await fingerprint(base64), base64, text: open.text });
+                    continue;
+                }
+                // On this computer the paper's other text (.bib, .sty) is read every time — a few ms — as an edit saved within
+                // the listing's timestamp resolution, or keeping the size, could look unchanged; Drive's stamps are exact, and figures go by theirs.
+                if (state.files.get(path)?.stamp === stamp && (store.kind === 'drive' || !isTextFile(path)))
+                    continue;
+                toRead.push({ path, stamp });
+            }
+            await Promise.all(toRead.map(async ({ path, stamp }) => {
+                const base64 = await store.readBase64(path);
+                state.files.set(path, { stamp, sha: await fingerprint(base64), base64 });
+            }));
+            const here = new Set(listed.map((file) => file.path));
+            for (const path of [...state.files.keys()])
+                if (!here.has(path))
+                    state.files.delete(path);
+            const manifest = Object.fromEntries([...state.files].map(([path, file]) => [path, file.sha]));
+            const filesOf = (paths) => paths.filter((path) => state.files.has(path)).map((path) => ({ path, base64: state.files.get(path).base64 }));
+            let changed = [...state.files].filter(([path, file]) => state.acked.get(path) !== file.sha).map(([path]) => path);
+            const main = mainDoc ?? compiled?.main ?? 'main.tex';
+            const readSeconds = (Date.now() - started) / 1000;
+            setGh((now) => ({ ...now, phase: 'compiling' }));
+            const send = (paths) => apiFetch('/latex/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: 'cloudrun', project: `${project.id}:${owner ? `${folder.path}/${owner}` : folder.path}:${main}`, manifest, files: filesOf(paths), main, compiler, fresh }) });
+            let answer = await send(changed);
+            if (answer.status === 409) {
+                // The compiler lacks some files (it restarted, or another paper pushed this one out): those, and ask again.
+                const { need = [] } = (await answer.json().catch(() => ({})));
+                changed = [...new Set([...changed, ...need])];
+                answer = await send(need);
+            }
+            const result = (await answer.json().catch(() => ({})));
+            if (!answer.ok)
+                throw new Error(result.error ?? `The compiler answered ${answer.status}.`);
+            state.acked = new Map(Object.entries(manifest));
+            const log = result.log ?? '';
+            const read = readTexLog(log);
+            const blob = result.pdf ? toBlob(result.pdf) : null;
+            setCompiled({ ok: Boolean(blob) && result.exit === 0, main, engine: 'Cloud Run · all of TeX Live', compiler, pdf: blob ? 'github' : '', errors: read.errors, warnings: read.warnings, log, ms: Date.now() - started });
+            if (blob)
+                (setPdf(blob), setSynctex(result.synctex ? toBlob(result.synctex) : null));
+            if (read.errors.length && !blob)
+                setShowLog(true);
+            setGh({ phase: 'done', on: 'cloudrun', startedAt: started, finishedAt: Date.now(), texSeconds: result.seconds ?? null, readSeconds, sent: changed.length, kept: Boolean(result.cached) });
+        }
+        catch (error) {
+            setGh({ phase: 'failed', on: 'cloudrun', startedAt: started, error: error instanceof Error ? error.message : String(error) });
+        }
+        finally {
+            state.busy = false;
+            setCompiling(false);
+            if (state.again) {
+                state.again = false;
+                void compileOnCloudRun();
+            }
+        }
+    };
+    cloudCompile.current = () => void compileOnCloudRun();
+    // Cloud Run starts an instance on the first compile after a quiet spell (some
+    // seconds, all of TeX Live): one is asked for as soon as it is picked, and
+    // every ten minutes while it stays picked and this page is in view, so the
+    // compile doesn't wait for it. An idle instance costs nothing.
+    useEffect(() => {
+        if (options.pdf !== 'cloudrun')
+            return;
+        const warm = () => {
+            if (document.visibilityState !== 'visible')
+                return;
+            setGh((now) => (now.phase === 'idle' ? { ...now, warming: true } : now));
+            void apiFetch('/latex/warm', { method: 'POST', cache: 'no-store' })
+                .catch(() => undefined)
+                .finally(() => setGh((now) => (now.warming ? { ...now, warming: false } : now)));
+        };
+        warm();
+        const timer = window.setInterval(warm, 10 * 60_000);
+        document.addEventListener('visibilitychange', warm);
+        return () => (window.clearInterval(timer), document.removeEventListener('visibilitychange', warm));
+    }, [options.pdf]);
+    const recompile = () => {
+        // Compiled from the editor's text at once, while it is saved.
+        if (options.pdf === 'cloudrun')
+            return void (saveNow(), compileOnCloudRun(false, true));
+        if (options.pdf === 'github')
+            return void saveNow().then(() => compileOnGithub());
+        if (options.pdf !== 'overleaf')
+            return void saveNow().then(() => compile());
+        const overleaf = link;
+        let beside = null;
+        if (overleaf) {
+            beside = window.open('about:blank', `reader-overleaf-${project.id}`, besideFeatures(window.screen));
+            try {
+                if (beside) {
+                    beside.document.title = 'Overleaf';
+                    beside.document.body.style.cssText = 'font: 15px system-ui, sans-serif; color: #555; display: grid; place-items: center; height: 100vh; margin: 0';
+                    beside.document.body.textContent = 'Sending your edits to Overleaf…';
+                }
+            }
+            catch {
+                // a window already on Overleaf: it is only navigated
+            }
+        }
+        const show = () => {
+            if (!beside || !overleaf)
+                return;
+            beside.location.href = overleaf.url;
+            try {
+                beside.opener = null;
+            }
+            catch {
+                // already across
+            }
+            beside.focus();
+        };
+        if (git)
+            void saveNow().then(() => sync()).finally(show);
+        else
+            show();
+    };
+    const pdfWhere = (_jsxs("span", { className: "wr-where", children: [_jsx("span", { className: "wr-where-label", children: "Compile on" }), _jsxs("span", { className: "segmented sm", role: "group", "aria-label": "Which compiler makes the PDF", children: [inDrive ? null : (_jsx("button", { type: "button", "aria-pressed": options.pdf === 'here', onClick: () => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'here' } }), title: "The TeX installed on this computer compiles it, through the Companion", children: "This computer" })), _jsx("button", { type: "button", "aria-pressed": options.pdf === 'github', onClick: () => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'github' } }), title: "Reader\u2019s compiler on GitHub Actions, with all of TeX Live: the PDF comes back here in a minute or two. It compiles: it doesn\u2019t publish or sync anything.", children: "GitHub Actions" }), _jsx("button", { type: "button", "aria-pressed": options.pdf === 'cloudrun', onClick: () => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'cloudrun' } }), title: "Reader\u2019s compiler on Google Cloud Run, with all of TeX Live: the PDF comes back here in seconds. It compiles: it doesn\u2019t publish or sync anything.", children: "Cloud Run" }), _jsx("button", { type: "button", "aria-pressed": options.pdf === 'overleaf', onClick: () => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), pdf: 'overleaf' } }), title: "Overleaf\u2019s compiler: your edits go to Overleaf, and the PDF is in Overleaf\u2019s window", children: "Overleaf" })] })] }));
+    const local = (_jsxs("section", { className: "wr-preview", children: [_jsxs("div", { className: "wr-tabs", children: [_jsx("b", { children: "PDF" }), pdfWhere, _jsx("select", { className: "wr-pick", value: compiler, onChange: (event) => updateLink({ compiler: event.target.value }), "aria-label": "Compiler", title: "As the Overleaf project is set: Menu \u2192 Compiler. pdfLaTeX is Overleaf\u2019s default.", children: TEX_COMPILERS.map((item) => (_jsx("option", { value: item.id, children: item.label }, item.id))) }), _jsxs("select", { className: "wr-pick mono", value: mainDoc ?? compiled?.main ?? '', onChange: (event) => updateLink({ main: event.target.value }), "aria-label": "Main document", title: "As the Overleaf project is set: Menu \u2192 Main document", children: [!mainDoc && !compiled?.main ? _jsx("option", { value: "", children: "main document\u2026" }) : null, texts
+                                .filter((path) => path.endsWith('.tex'))
+                                .map((path) => (_jsx("option", { value: path, children: path }, path)))] }), compiled ? (_jsxs("span", { className: "wr-quiet", title: texLive ? `Overleaf compiles with the TeX Live set in its Menu → TeX Live version: pick ${texLive} there for the same output as here.` : undefined, children: [texLive ? `TeX Live ${texLive}` : compiled.engine, " \u00B7 ", (compiled.ms / 1000).toFixed(1), " s"] })) : null, options.pdf === 'github' || options.pdf === 'cloudrun' ? (_jsx("button", { type: "button", className: "wr-icon wr-info", "aria-pressed": compileInfo, onClick: () => showCompileInfo(!compileInfo), title: compileInfo ? 'Hide the compile details' : 'What the last compile did, and where the files go', "aria-label": "Compile details", children: "\u24D8" })) : null, _jsx("span", { className: "wr-sp" }), _jsx("button", { type: "button", className: "wr-icon", "aria-pressed": big === 'pdf', onClick: () => setBig(big === 'pdf' ? null : 'pdf'), title: big === 'pdf' ? 'Back to both panes' : 'The PDF alone, filling the space', "aria-label": big === 'pdf' ? 'Back to both panes' : 'Expand the PDF', children: big === 'pdf' ? '⤡' : '⤢' }), _jsx("button", { type: "button", className: "btn sm primary", disabled: compiling || (options.pdf === 'here' && Boolean(noTex)), onClick: recompile, title: options.pdf === 'github' ? 'Compile on GitHub Actions (⌘↵)' : options.pdf === 'cloudrun' ? 'Compile on Cloud Run (⌘↵)' : 'Recompile (⌘↵)', children: compiling ? 'Compiling…' : options.pdf === 'github' || options.pdf === 'cloudrun' ? 'Compile' : 'Recompile' }), options.layout === 'tabs' ? (_jsxs("span", { className: "segmented sm", children: [_jsx("button", { type: "button", "aria-pressed": pane === 'source', onClick: () => setPane('source'), children: "Source" }), _jsx("button", { type: "button", "aria-pressed": pane === 'pdf', onClick: () => setPane('pdf'), children: "PDF" })] })) : null] }), options.pdf === 'github' || options.pdf === 'cloudrun' ? (_jsx(GithubCompilePanel, { state: gh, on: options.pdf, open: compileInfo, onClose: () => showCompileInfo(false), onCompile: options.pdf === 'cloudrun' ? () => void (saveNow(), compileOnCloudRun(true, true)) : recompile })) : null, noTex && options.pdf === 'here' ? (_jsxs("div", { className: "wr-pad", children: [_jsx("p", { children: "There\u2019s no TeX on this computer to compile with." }), canOwnTex && server ? _jsx(OwnTex, { server: server, status: engines?.texlive, onStatus: setOwnTex, onReady: () => void paperEngines(server).then(setEngines).then(() => compile()) }) : null, engines?.tectonicInstallable ? (_jsx("button", { type: "button", className: "btn primary sm", disabled: installing, onClick: async () => {
+                            if (!server)
+                                return;
+                            setInstalling(true);
+                            try {
+                                await installTectonic(server);
+                                setEngines(await paperEngines(server));
+                                void compile();
+                            }
+                            catch (error) {
+                                setCompileError(error instanceof Error ? error.message : String(error));
+                            }
+                            finally {
+                                setInstalling(false);
+                            }
+                        }, children: installing ? 'Fetching Tectonic…' : 'Fetch Tectonic (about 30 MB)' })) : null, _jsx("p", { className: "wr-quiet", children: "Or install TeX Live (Linux, Windows) or MacTeX (Mac), and compile again." })] })) : null, compileError ? _jsx("p", { className: "wr-banner", children: compileError }) : null, compiled && !compiled.pdf && !compiled.errors.length && !compiling ? (_jsxs("div", { className: "wr-banner", children: [_jsx("b", { children: "No PDF came out, and TeX reported no error." }), ' ', here && server && isNewer('0.11.1', here.version) ? (_jsxs(_Fragment, { children: ["This Companion skips a file that failed until the file changes. Update it, and it compiles every time \u2014 and can install TeX Live and missing packages for you:", ' ', _jsx(UpdateCompanion, { server: server, version: here.version })] })) : ('Check the main document above is the file with \\documentclass, and see what the compiler said:'), compiled.log.trim() ? (_jsxs("details", { className: "wr-raw", children: [_jsx("summary", { children: "What the compiler said" }), _jsx("pre", { children: compiled.log.trim().split('\n').slice(-40).join('\n') })] })) : null] })) : null, missing.length && !showLog ? (_jsxs("p", { className: "wr-banner", children: [_jsx("b", { children: missing.map((name) => `${name}.sty`).join(', ') }), " isn\u2019t on this computer.", ' ', _jsx("button", { type: "button", className: "link-btn", onClick: () => setShowLog(true), children: "How to fix it" })] })) : null, compiled && compiled.compiler && compiled.compiler !== compiler ? (_jsxs("p", { className: "wr-banner is-soft", children: ["Compiled with Tectonic, which is always XeLaTeX, not this project\u2019s ", TEX_COMPILERS.find((item) => item.id === compiler)?.label, ": install TeX Live (or MacTeX) for the PDF Overleaf makes."] })) : null, dviFigures.length ? (_jsxs("p", { className: "wr-banner", children: [_jsx("b", { children: dviFigures.join(', ') }), " ", dviFigures.length === 1 ? 'is a PNG, JPEG or PDF figure' : 'are PNG, JPEG or PDF figures', ", which the LaTeX compiler can\u2019t include: it goes through DVI, which takes EPS only (on Overleaf too). pdfLaTeX takes them.", ' ', _jsx("button", { type: "button", className: "link-btn", onClick: () => updateLink({ compiler: 'pdflatex' }), children: "Compile with pdfLaTeX" })] })) : null, syncNote ? _jsx("p", { className: "wr-banner is-soft", children: syncNote }) : null, _jsx(PdfPages, { blob: pdf, onSource: (page, x, y, word) => void toSource(page, x, y, word) })] }));
+    // No Overleaf account to sync through: said first where Overleaf makes the PDF, and connecting is the step to take.
+    // Told by the accounts themselves for a paper in Drive, so it holds after "Not now" too; by the sync's answer otherwise.
+    const noAccount = git && ((inDrive && overleafConnected?.length === 0) || (!unsynced && (needToken || (inDrive && /token|account/i.test(syncError ?? '')))));
+    // That pane, when it is in view, carries the account's connecting for a paper in Drive: the banner below stands aside.
+    const paneConnects = inDrive && options.pdf === 'overleaf' && big !== 'source' && !(options.layout === 'tabs' && pane === 'source');
+    const preview = options.pdf === 'overleaf' ? (_jsxs("section", { className: "wr-preview is-overleaf", children: [_jsxs("div", { className: "wr-tabs", children: [_jsx("b", { children: "PDF" }), pdfWhere, _jsx("span", { className: "wr-sp" }), options.layout === 'tabs' ? (_jsxs("span", { className: "segmented sm", children: [_jsx("button", { type: "button", "aria-pressed": pane === 'source', onClick: () => setPane('source'), children: "Source" }), _jsx("button", { type: "button", "aria-pressed": pane === 'pdf', onClick: () => setPane('pdf'), children: "PDF" })] })) : null] }), _jsxs("div", { className: "wr-overleaf-pane", children: [noAccount ? (_jsxs("div", { className: "wr-overleaf-signin", children: [_jsx("h3", { children: "You\u2019re not signed in to Overleaf here" }), _jsx("p", { children: inDrive
+                                    ? `Your edits can’t reach Overleaf — and its PDF won’t change — until an Overleaf account is connected to Reader.${unsynced ? ' Syncing is off for this project until then.' : ''} It takes a minute: Overleaf’s Git token, from Account Settings → Git integration on Overleaf.`
+                                    : 'The Companion on this computer has no Overleaf Git token for this folder yet, so your edits can’t reach Overleaf: give it in the bar below (Overleaf: Account Settings → Git integration).' }), inDrive ? (accountOpen ? (_jsx("div", { className: "wr-sync-accounts", children: _jsx(OverleafAccounts, { open: true, projectUrl: link?.url, onConnected: () => (setAccountOpen(false), setNeedToken(false), setUnsynced(false), void sync()) }) })) : (_jsxs("div", { className: "wr-row", children: [_jsx("button", { type: "button", className: "btn sm primary", onClick: () => setAccountOpen(true), children: "Connect Overleaf account" }), unsynced ? null : (_jsx("button", { type: "button", className: "link-btn", onClick: () => (notNow(project.id), setUnsynced(true), setNeedToken(false), setSyncError(null)), title: "Keep writing and compiling here; nothing goes to Overleaf until you press Sync", children: "Not now" }))] }))) : null, _jsx("p", { className: "wr-quiet", children: "Or compile without Overleaf: pick Cloud Run or GitHub Actions under Compile on, above." })] })) : null, _jsx("h3", { children: "Overleaf makes the PDF" }), _jsx("p", { children: git
+                            ? 'Your edits go to Overleaf a moment after you stop typing, and Overleaf compiles them with all of TeX Live — nothing to install here. The PDF is in Overleaf’s window: open it beside this one.'
+                            : 'This folder isn’t synced with Overleaf’s Git, so Overleaf won’t see these edits by itself: copy them there, or set the folder up with Overleaf’s Git (Change, under the files).' }), _jsxs("div", { className: "wr-row", children: [_jsx(OpenOverleaf, { project: project, view: "beside", url: link?.url ?? '', primary: !noAccount }), git ? (_jsx("button", { type: "button", className: "btn sm", disabled: syncing || noAccount, onClick: () => void saveNow().then(() => sync()), children: syncing ? 'Sending…' : 'Send now' })) : null] }), git ? (_jsxs("p", { className: "wr-quiet", children: [syncing
+                                ? 'Sending your edits to Overleaf…'
+                                : dirtyCount
+                                    ? 'Typing… your edits go to Overleaf when you pause.'
+                                    : synced?.at
+                                        ? `Overleaf has everything up to ${new Date(synced.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}.`
+                                        : 'Not sent yet.', syncError && !noAccount ? _jsxs("span", { className: "wr-bad", children: [" ", syncError] }) : null] })) : null, _jsx("p", { className: "wr-quiet", children: "\u2318\u21B5 here sends your edits and opens the project in the window beside once they\u2019ve arrived \u2014 Overleaf compiles it as it opens. If Overleaf\u2019s PDF doesn\u2019t refresh after an edit comes in, press Recompile there. To compile on this computer, GitHub Actions or Cloud Run instead, pick it under Compile on, above." })] })] })) : (local);
+    const layoutClass = big ? ` is-tabs show-${big}` : options.layout === 'stacked' ? ' is-stacked' : options.layout === 'tabs' ? ` is-tabs show-${pane}` : '';
+    const split = options.layout !== 'tabs' && !big;
+    const stacked = options.layout === 'stacked';
+    return (_jsxs("div", { className: `wr-desk${desk.sideOpen ? '' : ' no-side'}`, style: { ['--wr-side']: `${desk.side}px`, ['--wr-log']: `${desk.log}px` }, children: [desk.sideOpen ? (_jsxs("aside", { className: "wr-side", children: [_jsx(Handle, { axis: "x", className: "wr-handle-side", onDrag: (dx) => setDesk((now) => ({ side: clamp(now.side + dx, 160, 520) })), onReset: () => setDesk({ side: DESK.side }), label: "Drag to widen or narrow the files" }), onHome ? (_jsx("button", { type: "button", className: "wr-home-back", onClick: onHome, title: "The project\u2019s LaTeX projects, and new ones", children: "\u2190 All LaTeX projects" })) : null, _jsxs("div", { className: "wr-side-head", children: [_jsx("b", { children: "Files" }), _jsxs("span", { className: "wr-file-ops", children: [_jsx("button", { type: "button", onClick: newFile, title: "New file", "aria-label": "New file", children: "+ file" }), _jsx("button", { type: "button", onClick: newFolder, title: "New folder", "aria-label": "New folder", children: "+ folder" }), _jsx("button", { type: "button", onClick: () => uploader.current?.click(), title: "Upload files: figures, a .bib, a style", "aria-label": "Upload", children: "upload" }), _jsx("button", { type: "button", onClick: () => void refreshList(), title: "Read the folder again", "aria-label": "Read the folder again", children: "\u21BB" })] }), _jsx("input", { ref: uploader, type: "file", multiple: true, hidden: true, onChange: (event) => {
+                                    if (event.target.files)
+                                        upload(event.target.files);
+                                    event.target.value = '';
+                                } })] }), fileProblem ? _jsx("p", { className: "wr-bad wr-pad", children: fileProblem }) : null, _jsxs("div", { className: "wr-tree", children: [listError ? _jsx("p", { className: "wr-bad wr-pad", children: listError }) : null, scoped.map((path) => (_jsxs("div", { className: `wr-tree-row${path === (looking ?? shown) ? ' is-on' : ''}`, children: [_jsxs("button", { type: "button", className: `wr-tree-item${path === (looking ?? shown) ? ' is-on' : ''}${isTextFile(path) || isViewable(path) ? '' : ' is-other'}`, disabled: !isTextFile(path) && !isViewable(path), onClick: () => (isTextFile(path) ? (setViewing(null), setOpen(path)) : setViewing(path)), title: isTextFile(path) || isViewable(path) ? path : `${path}: Reader can’t show this kind of file`, children: [path.slice(scope?.dir ? scope.dir.length + 1 : 0).includes('/') ? _jsx("span", { className: "wr-tree-dir", children: path.slice(scope?.dir ? scope.dir.length + 1 : 0, path.lastIndexOf('/') + 1) }) : null, path.split('/').pop(), files[path] && files[path].text !== files[path].disk ? _jsx("i", { children: " \u25CF" }) : null, path === (mainDoc ?? compiled?.main) ? _jsx("small", { children: " main" }) : null] }), _jsxs("span", { className: "wr-tree-ops", children: [_jsx("button", { type: "button", onClick: () => rename(path), "aria-label": `Rename ${path}`, title: "Rename or move", children: "\u270E" }), _jsx("button", { type: "button", onClick: () => remove(path), "aria-label": `Delete ${path}`, title: "Delete", children: "\u00D7" })] })] }, path)))] }), options.citations === 'drawer' ? (_jsxs("div", { className: `wr-drawer${drawer ? ' is-open' : ''}`, children: [_jsxs("button", { type: "button", className: "wr-side-head wr-drawer-head", "aria-expanded": drawer, onClick: () => setDrawer(!drawer), children: [_jsxs("b", { children: ["Cite \u00B7 ", mine.length] }), _jsx("span", { children: drawer ? '▾' : '▸' })] }), drawer ? (_jsxs("div", { className: "wr-cites", children: [mine.map((paper) => (_jsxs("button", { type: "button", className: "wr-cite", onMouseDown: (event) => event.preventDefault(), onClick: () => cite(paper.id), title: `\\cite{${keyFor(paper, entries)}} at the cursor${bibPath ? `, its entry added to ${bibPath} if missing` : ''}`, children: [_jsx("span", { children: paper.title }), _jsx("small", { className: "mono", children: keyFor(paper, entries) })] }, paper.id))), !mine.length ? _jsx("p", { className: "wr-quiet wr-pad", children: "The project has no papers yet." }) : null] })) : null] })) : null, _jsx("div", { className: "wr-side-switch", children: owner ? null : _jsx(SwitchOverleaf, { project: project }) }), _jsxs("div", { className: "wr-side-foot", children: [_jsxs("span", { className: "wr-quiet mono", title: store.label, children: [inDrive ? 'Google Drive' : here?.name, " \u00B7 ", folder.path] }), inDrive ? (_jsx(OpenInDrive, { store: store, dir: scope?.dir ?? '', onProblem: setFileProblem, label: "Open in Drive" })) : here ? (_jsxs(_Fragment, { children: [_jsx(OpenHere, { here: here, folder: [folder.path, scope?.dir].filter(Boolean).join('/'), onProblem: setFileProblem, label: "Show the folder" }), _jsx("button", { type: "button", className: "link-btn", onClick: () => {
+                                            if (window.confirm('Use another folder for the paper on this computer? This folder stays as it is.'))
+                                                save(here.id, undefined);
+                                        }, children: "Change" })] })) : null] })] })) : null, _jsxs("div", { ref: panesRef, className: `wr-panes${layoutClass}${desk.swapped ? ' is-swapped' : ''}`, style: split ? { [stacked ? 'gridTemplateRows' : 'gridTemplateColumns']: `minmax(0, ${desk.split}fr) minmax(0, ${1 - desk.split}fr)` } : undefined, children: [source, preview, split ? (_jsx(Handle, { axis: stacked ? 'y' : 'x', className: "wr-handle-split", style: stacked ? { top: `${desk.split * 100}%` } : { left: `${desk.split * 100}%` }, onDrag: (delta) => {
+                            const box = panesRef.current?.getBoundingClientRect();
+                            if (!box)
+                                return;
+                            setDesk((now) => ({ split: clamp(now.split + delta / (stacked ? box.height : box.width), 0.15, 0.85) }));
+                        }, onReset: () => setDesk({ split: 0.5 }), label: "Drag to share the room between the source and the PDF" })) : null] }), showLog && compiled ? (_jsxs("div", { className: "wr-log", children: [_jsx(Handle, { axis: "y", className: "wr-handle-log", onDrag: (dy) => setDesk((now) => ({ log: clamp(now.log - dy, 90, 640) })), onReset: () => setDesk({ log: DESK.log }), label: "Drag to make the problems taller or shorter" }), _jsxs("div", { className: "wr-tabs", children: [_jsxs("b", { children: [compiled.errors.length, " errors \u00B7 ", compiled.warnings.length, " warnings"] }), _jsx("span", { className: "wr-sp" }), _jsx("button", { type: "button", className: "link-btn", onClick: () => setShowLog(false), children: "Close" })] }), _jsxs("div", { className: "wr-log-body", children: [[...compiled.errors.map((item) => ({ ...item, kind: 'error' })), ...compiled.warnings.map((item) => ({ ...item, kind: 'warning' }))].map((item, index) => (_jsxs("button", { type: "button", className: `wr-problem is-${item.kind}`, onClick: () => goTo(item), children: [_jsx("b", { children: item.kind === 'error' ? 'Error' : 'Warning' }), _jsx("span", { children: item.message }), _jsxs("small", { className: "mono", children: [item.file || compiled.main, item.line ? `:${item.line}` : ''] })] }, index))), !compiled.errors.length && !compiled.warnings.length ? _jsx("p", { className: "wr-quiet wr-pad", children: "Nothing to say." }) : null, missing.length && server && here ? (_jsx(MissingPackages, { names: missing, texLive: texLive, tectonic: Boolean(engines?.tectonic || engines?.tectonicInstallable), onTectonic: () => updateSettings({ write: { ...WRITE_DEFAULTS, ...(settings.write ?? {}), engine: 'tectonic' } }), first: !canOwnTex ? (_jsxs("p", { className: "wr-quiet", children: ["Update the Companion and Reader can install TeX Live \u2014 and any missing package \u2014 for you, without a password: ", _jsx(UpdateCompanion, { server: server, version: here.version })] })) : engines?.texlive?.installed ? (_jsx(InstallMissing, { server: server, names: missing, onDone: () => void compile() })) : (_jsx(OwnTex, { server: server, status: engines?.texlive, onStatus: setOwnTex, onReady: () => void paperEngines(server).then(setEngines).then(() => compile()) })) })) : null, _jsxs("details", { className: "wr-raw", children: [_jsx("summary", { children: "The whole log" }), _jsx("pre", { children: compiled.log })] })] })] })) : null, _jsxs("footer", { className: "wr-status", children: [git ? (_jsxs(_Fragment, { children: [_jsx("span", { className: `wr-dot is-${syncError ? 'bad' : syncing ? 'busy' : synced?.ok ? 'ok' : 'idle'}` }), _jsx("span", { children: syncing ? 'Syncing with Overleaf…' : unsynced ? 'Not syncing with Overleaf for now' : syncError ? 'Not synced' : synced?.at ? `Synced with ${/github/.test(link?.repo ?? '') && !overleafGitUrl(link?.url) ? 'GitHub' : 'Overleaf'} · ${new Date(synced.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Git · not synced yet' }), _jsx("button", { type: "button", className: "link-btn", disabled: syncing, onClick: () => void saveNow().then(() => sync()), children: "Sync" }), onCompare && inDrive ? (_jsx("button", { type: "button", className: "link-btn", disabled: syncing, onClick: () => void saveNow().then(onCompare), title: "See which files differ from Overleaf\u2019s, compare the PDFs, and pick which version each file keeps \u2014 here and on Overleaf", children: "Compare with Overleaf" })) : null] })) : (_jsx("span", { children: folder.sync === 'dropbox' ? 'Dropbox keeps this folder in step with Overleaf' : inDrive ? 'Saved in Google Drive · not on Overleaf' : 'Not synced: a folder on this computer' })), _jsx("span", { className: "wr-sep", children: "\u00B7" }), _jsx("span", { children: saving > 0 ? 'Saving…' : dirtyCount ? `${dirtyCount} not saved` : 'Saved' }), _jsx("span", { className: "wr-sep", children: "\u00B7" }), compiled ? (_jsxs("button", { type: "button", className: `link-btn wr-counts${compiled.errors.length ? ' is-bad' : ''}`, onClick: () => setShowLog(!showLog), children: [compiled.errors.length, " errors \u00B7 ", compiled.warnings.length, " warnings"] })) : (_jsx("span", { children: options.pdf === 'overleaf' ? 'Overleaf compiles it' : compiling ? 'Compiling…' : 'Not compiled yet' })), _jsx("span", { className: "wr-sp" }), _jsx(WriteGuideLink, { section: "editor" }), _jsx("button", { type: "button", className: "link-btn", "aria-expanded": texShown, onClick: () => setTexShown(!texShown), title: "The TeX that compiles the paper: Reader can install TeX Live for you", children: "TeX" }), git ? (_jsx("button", { type: "button", className: "link-btn", "aria-expanded": tokenShown, onClick: () => setTokenShown(!tokenShown), title: inDrive ? 'The Overleaf Git token Reader’s server keeps for you, and how to remove it' : 'The Overleaf Git token on this computer: where it is, and how to remove it', children: inDrive ? 'Overleaf account' : 'Overleaf token' })) : null, _jsx(OpenOverleaf, { project: project, view: "beside", primary: false, compact: true, url: link?.url ?? '' })] }), texShown && server && here ? (_jsxs("div", { className: "wr-sync-banner", children: [_jsx("span", { className: "wr-quiet", children: engines?.texVersion ? `Compiling with ${engines.texVersion}.` : 'No TeX found yet.' }), canOwnTex ? (_jsx(OwnTex, { server: server, status: engines?.texlive, onStatus: setOwnTex, onReady: () => void paperEngines(server).then(setEngines).then(() => compile()) })) : (_jsxs("span", { children: ["Update the Companion (", here.version, ") and Reader can install TeX Live for you: ", _jsx(UpdateCompanion, { server: server, version: here.version })] }))] })) : null, tokenShown ? (_jsx("div", { className: "wr-sync-banner", children: inDrive ? (_jsx("div", { className: "wr-sync-accounts", children: _jsx(OverleafAccounts, { current: link?.gitAccount, projectUrl: link?.url, onChoose: (id) => (updateLink({ gitAccount: id }), setFellBack(null)) }) })) : (_jsx(ForgetToken, { server: server, open: true, onForgotten: () => setNeedToken(true) })) })) : null, fellBack ? (_jsxs("div", { className: "wr-sync-banner", children: [_jsx("span", { children: fellBack }), _jsx("button", { type: "button", className: "link-btn", onClick: () => (setTokenShown(true), setFellBack(null)), children: "Overleaf accounts" })] })) : null, !unsynced && (syncError || needToken || (synced?.conflicts.length ?? 0) > 0) && !(noAccount && paneConnects) ? (_jsxs("div", { className: "wr-sync-banner", children: [synced?.conflicts.length ? (_jsxs("span", { children: [_jsx("b", { children: "Overleaf changed the same lines." }), " Look for ", _jsx("code", { children: "<<<<<<<" }), " in ", synced.conflicts.map((path) => (_jsx("button", { type: "button", className: "link-btn", onClick: () => setOpen(path), children: path }, path))), ", keep what should stay, and sync again."] })) : needToken ? (_jsx("span", { children: inDrive ? 'This LaTeX project is linked to Overleaf, but isn’t syncing: no Overleaf account is connected yet. Optional — writing and compiling here go on either way.' : 'The Companion has no token for this folder’s remote yet.' })) : (_jsx("span", { children: syncError })), inDrive && (needToken || /token|account/i.test(syncError ?? '')) && !accountOpen ? (_jsxs("span", { className: "wr-nudge-actions", children: [_jsx("button", { type: "button", className: "btn sm primary", onClick: () => setAccountOpen(true), children: "Connect Overleaf account" }), _jsx("button", { type: "button", className: "link-btn", onClick: () => (notNow(project.id), setUnsynced(true), setNeedToken(false), setSyncError(null)), title: "Keep writing and compiling here; nothing goes to Overleaf until you press Sync", children: "Not now" })] })) : inDrive && (needToken || /token|account/i.test(syncError ?? '')) ? (_jsxs("div", { className: "wr-sync-accounts", children: [_jsx(OverleafAccounts, { open: true, projectUrl: link?.url, onConnected: () => (setAccountOpen(false), setNeedToken(false), void sync()) }), _jsx("button", { type: "button", className: "link-btn", onClick: () => (notNow(project.id), setAccountOpen(false), setUnsynced(true), setNeedToken(false), setSyncError(null)), title: "Keep writing and compiling here; nothing goes to Overleaf until you press Sync", children: "Not now: write without syncing" })] })) : needToken || /auth|token|403|401|denied/i.test(syncError ?? '') ? (_jsxs("span", { className: "wr-token", children: [_jsx("input", { type: "password", placeholder: "Overleaf Git token", value: token, onChange: (event) => setToken(event.target.value) }), _jsx("button", { type: "button", className: "btn sm primary", disabled: !token.trim(), onClick: () => void sync(), children: "Use it" })] })) : null] })) : null] }));
+}
+// ---------------------------------------------------------------- pdf --
+/** The figures and PDFs a LaTeX project brings in, shown as they are. */
+const VIEWABLE = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', pdf: 'application/pdf' };
+const viewableType = (path) => VIEWABLE[path.split('.').pop()?.toLowerCase() ?? ''];
+const isViewable = (path) => Boolean(viewableType(path));
+/** A figure or a PDF in the folder, read from where the paper is kept. */
+function FilePreview({ store, path }) {
+    const [blob, setBlob] = useState(null);
+    const [url, setUrl] = useState(null);
+    const [problem, setProblem] = useState(null);
+    const type = viewableType(path);
+    useEffect(() => {
+        let live = true;
+        let made = null;
+        void store.readBase64(path).then((base64) => {
+            if (!live)
+                return;
+            const next = new Blob([Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))], { type });
+            setBlob(next);
+            if (type !== 'application/pdf')
+                setUrl((made = URL.createObjectURL(next)));
+        }, (error) => live && setProblem(error instanceof Error ? error.message : String(error)));
+        return () => {
+            live = false;
+            if (made)
+                URL.revokeObjectURL(made);
+        };
+    }, [store, path, type]);
+    if (problem)
+        return _jsxs("p", { className: "wr-bad wr-pad", children: ["Couldn\u2019t read ", path, ": ", problem] });
+    if (!blob)
+        return _jsxs("p", { className: "wr-quiet wr-pad", children: ["Reading ", path, "\u2026"] });
+    if (type === 'application/pdf')
+        return _jsx(PdfPages, { blob: blob });
+    return _jsx("div", { className: "wr-figure", children: url ? _jsx("img", { src: url, alt: path }) : null });
+}
+/** The compiled PDF, every page drawn at the pane's width, its text selectable; where you were stays put across compiles. */
+function PdfPages({ blob, onSource }) {
+    const box = useRef(null);
+    const pagesRef = useRef(null);
+    const [width, setWidth] = useState(0);
+    const [problem, setProblem] = useState(null);
+    useEffect(() => {
+        const element = box.current;
+        if (!element)
+            return;
+        const observer = new ResizeObserver(() => setWidth(Math.round(element.clientWidth)));
+        observer.observe(element);
+        setWidth(Math.round(element.clientWidth));
+        return () => observer.disconnect();
+    }, []);
+    useEffect(() => {
+        if (!blob || !width || !pagesRef.current)
+            return;
+        let cancelled = false;
+        let close = null;
+        const scroller = box.current;
+        const ratio = scroller && scroller.scrollHeight > scroller.clientHeight ? scroller.scrollTop / scroller.scrollHeight : 0;
+        void (async () => {
+            try {
+                const opened = await openPdf(blob);
+                close = opened.close;
+                const { TextLayer } = await import('../lib/pdfReflow');
+                const drawn = [];
+                const scale = window.devicePixelRatio || 1;
+                for (let n = 1; n <= opened.doc.numPages; n += 1) {
+                    const page = await opened.doc.getPage(n);
+                    const base = page.getViewport({ scale: 1 });
+                    const fit = Math.max(0.2, (width - 32) / base.width);
+                    const viewport = page.getViewport({ scale: fit * scale });
+                    const sheet = document.createElement('div');
+                    sheet.className = 'wr-page';
+                    sheet.style.width = `${Math.floor(viewport.width / scale)}px`;
+                    sheet.style.height = `${Math.floor(viewport.height / scale)}px`;
+                    sheet.dataset.page = String(n);
+                    sheet.dataset.width = String(base.width);
+                    sheet.dataset.height = String(base.height);
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.floor(viewport.width);
+                    canvas.height = Math.floor(viewport.height);
+                    await page.render({ canvas, canvasContext: canvas.getContext('2d'), viewport }).promise;
+                    // The words over the picture, invisible, as pdf.js's viewer lays them: selected and copied as text.
+                    const text = document.createElement('div');
+                    text.className = 'pdf-text';
+                    text.style.setProperty('--scale-factor', String(fit));
+                    await new TextLayer({ textContentSource: page.streamTextContent(), container: text, viewport: page.getViewport({ scale: fit }) }).render();
+                    if (cancelled)
+                        return;
+                    sheet.append(canvas, text);
+                    drawn.push(sheet);
+                }
+                if (cancelled || !pagesRef.current)
+                    return;
+                // Swapped in whole, so the pane never shows half a PDF; the place you were in is kept.
+                pagesRef.current.replaceChildren(...drawn);
+                if (scroller)
+                    scroller.scrollTop = ratio * scroller.scrollHeight;
+                setProblem(null);
+            }
+            catch (error) {
+                if (!cancelled)
+                    setProblem(error instanceof Error ? error.message : String(error));
+            }
+            finally {
+                close?.();
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [blob, width]);
+    return (_jsxs("div", { className: "wr-pdf", ref: box, children: [problem ? _jsxs("p", { className: "wr-bad wr-pad", children: ["The PDF couldn\u2019t be drawn: ", problem] }) : null, !blob ? _jsx("p", { className: "wr-quiet wr-pad", children: "The PDF shows here once it compiles." }) : null, _jsx("div", { className: "wr-pdf-pages", ref: pagesRef, title: onSource && blob ? 'Double-click to go to its source' : undefined, onDoubleClick: (event) => {
+                    const sheet = event.target instanceof Element ? event.target.closest('.wr-page') : null;
+                    if (!onSource || !sheet?.dataset.page)
+                        return;
+                    // The browser has selected the word double-clicked: it is looked for on the line SyncTeX names.
+                    const word = window.getSelection()?.toString().trim().split(/\s+/)[0];
+                    const rect = sheet.getBoundingClientRect();
+                    onSource(Number(sheet.dataset.page), ((event.clientX - rect.left) / rect.width) * Number(sheet.dataset.width), ((event.clientY - rect.top) / rect.height) * Number(sheet.dataset.height), word || undefined);
+                } })] }));
+}

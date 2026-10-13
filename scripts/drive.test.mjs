@@ -104,6 +104,9 @@ function stubDrive() {
     const method = init.method || 'GET';
     calls.push({ method, url: String(url) });
 
+    // Whose the token is: read on every grant, since the app never takes that on trust (google.ts, adopt).
+    if (method === 'GET' && request.pathname === '/oauth2/v3/userinfo') return json({ name: 'A Reader', email: 'reader@example.com' });
+
     // A query: folder lookup, or a file lookup by name and parent.
     if (method === 'GET' && request.searchParams.has('q')) {
       const q = request.searchParams.get('q');

@@ -58,6 +58,19 @@ const LIBRARY_DEBOUNCE_MS = 1500;
 /** The account a Google user's library belongs to, as the database is named. */
 const accountOf = (user: GoogleUser | null | undefined) => user?.email?.trim().toLowerCase() || null;
 
+/**
+ * Whose a library read from Drive says it is, when that is not `owner`'s —
+ * the one thing that must never be taken in or written over. With
+ * `drive.file` the app only ever reaches the signed-in account's files, so
+ * this can only mean Drive was reached with another account's token: the
+ * sign-in changed underneath the page, and the page is about to start again
+ * as that account (google.ts, renewOnce). Nothing is merged or sent meanwhile.
+ */
+const someoneElses = (remote: { account?: string } | null | undefined, owner: string): string | null =>
+  remote?.account && remote.account.trim().toLowerCase() !== owner ? remote.account : null;
+const wrongAccount = (theirs: string, owner: string) =>
+  `Drive answered for ${theirs}, not ${owner}, so nothing was read or written. Sign out and sign in again as ${owner}.`;
+
 const defaultSettings: Settings = {
   googleClientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || '',
   driveFolderName: ROOT_FOLDER,
@@ -507,6 +520,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const now = await libraryMark(googleClientId, driveFolderName);
         if (now && now.modifiedTime !== remoteMark.current?.modifiedTime) {
           const remote = await readLibraryFromDrive(googleClientId, driveFolderName);
+          const theirs = someoneElses(remote, owner);
+          if (theirs) throw new Error(wrongAccount(theirs, owner));
           if (remote) {
             toWrite = mergeLibraries(library, remote.library);
             await applyLibrary(toWrite);
@@ -612,6 +627,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         db.getKv<RemoteMark>(REMOTE_KEY).catch(() => undefined),
       ]);
       if (accountNow.current !== owner) return;
+      const theirs = someoneElses(remote, owner);
+      if (theirs) throw new Error(wrongAccount(theirs, owner));
       const local = currentLibrary();
       let next: Library;
       let restored: string | undefined;

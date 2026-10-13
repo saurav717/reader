@@ -87,4 +87,32 @@ describe('tabs', () => {
     const asking = await tab();
     assert.equal(await asking.askOtherTabs(150), false);
   });
+
+  // Alice's token ran out in one tab, and its Drive work waits for the prompt. In another tab the browser is signed
+  // in as Bob, and that tab tells the others. The first tab follows the browser's sign-in, as it does a sign-out —
+  // but Alice's waiting work is not done with Bob's token: it would put her library in his Drive.
+  it('does not do one person’s waiting work with another person’s token', async () => {
+    const expiresAt = Date.now() + 250;
+    const first = await tab(session('alice@x.org', expiresAt));
+    await new Promise((resolve) => setTimeout(resolve, Math.max(0, expiresAt - Date.now()) + 5));
+    assert.equal(first.restoredUser(), null);
+    assert.equal(first.heldUser()?.email, 'alice@x.org');
+    const pending = first.ensureDriveToken('client-id');
+    // Refused while this test is waiting on a timer, so a handler sits on it from the start.
+    pending.catch(() => undefined);
+    await settle();
+    assert.equal(first.renewalWaiting(), true);
+
+    // What Bob's tab sends on signing in or renewing (google.ts, setToken).
+    const bob = session('bob@x.org');
+    const channel = new BroadcastChannel('reader.google.session');
+    channel.postMessage({ type: 'token', token: bob });
+    await settle();
+    channel.close();
+
+    await assert.rejects(pending, (error) => error instanceof first.AccountChangedError && /bob@x\.org, not alice@x\.org/.test(error.message));
+    assert.equal(first.renewalWaiting(), false);
+    assert.deepEqual(first.restoredUser(), bob.user);
+    assert.equal(first.heldUser()?.email, 'bob@x.org');
+  });
 });

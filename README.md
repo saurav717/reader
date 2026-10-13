@@ -873,8 +873,13 @@ The token is kept in this browser's `localStorage` for the hour it lives, so
 a reload does not sign you out; there is no backend to hold a refresh token,
 so nothing longer-lived is kept anywhere. After the hour the app asks Google
 for a new one using the grant you have already given, with no dialog, and a
-token Drive refuses is dropped at once so the next request asks afresh.
-**Sign out** revokes the token outright and forgets it.
+token Drive refuses is dropped at once so the next request asks afresh. That
+ask names the account you signed in with, so a browser signed in to several
+Google accounts is not asked which — and whose a token is is read from Google
+every time, never assumed. Should Google still answer as another account, the
+app opens that account's library rather than carrying on under the first
+one's name: nothing of one account's is read into, or written to, the other's
+Drive. **Sign out** revokes the token outright and forgets it.
 
 ### Your library is your account's, and lives in its Drive
 
