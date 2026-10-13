@@ -204,6 +204,21 @@ describe('headings and front matter', () => {
     ];
     assert.deepEqual(layoutPages([page(runs)], { title: 'A Very Important Paper' }).authors, ['Ada Lovelace', 'Charles Babbage']);
   });
+
+  it('tells a byline withheld for blind review from one that names its authors', () => {
+    const front = (byline) => [
+      line('Under review as a conference paper at ICLR 2026', 54, 40, { width: 220 }),
+      line('A Very Important Paper', 150, 80, { size: 17, font: 'NimbusRomNo9L-Medi', width: 300 }),
+      ...byline,
+      line('Abstract', 54, 160, { size: 11, font: 'NimbusRomNo9L-Medi' }),
+      ...column(54, 174, ['The abstract of the paper runs for a couple of lines of body text', 'and then a third, which is short.', 'End.']),
+    ];
+    const blind = layoutPages([page(front([line('Anonymous authors', 54, 104, { size: 11 }), line('Paper under double-blind review', 54, 118, { size: 11 })]))], { title: 'A Very Important Paper' });
+    assert.equal(blind.anonymous, true);
+    assert.equal(blind.authors, undefined);
+    const named = layoutPages([page(front([line('Ada Lovelace, Charles Babbage', 200, 104, { size: 11, width: 200 })]))], { title: 'A Very Important Paper' });
+    assert.equal(named.anonymous, undefined);
+  });
 });
 
 describe('the bibliography', () => {

@@ -90,6 +90,8 @@ export interface ReflowedPdf {
   authors?: string[];
   /** The byline read whole: marks, notes, institutions. */
   byline?: PaperByline;
+  /** Whether the first page withholds its authors, as a submission under blind review does. */
+  anonymous?: boolean;
   /** Hands back the images the HTML refers to. */
   release: () => void;
 }
@@ -182,6 +184,7 @@ export async function reflowPdf(
       characters: layout.characters,
       authors: layout.authors,
       byline: layout.byline,
+      anonymous: layout.anonymous,
       release: () => {
         for (const url of urls.values()) URL.revokeObjectURL(url);
         urls.clear();
