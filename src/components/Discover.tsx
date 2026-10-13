@@ -45,8 +45,11 @@ interface Props {
   here?: string;
   /** "Add papers" was pressed: put the cursor in the search box. `at` tells one press from the next. */
   focus?: number;
-  /** Set inside a page rather than the dock: no close button, and the heading says where papers go. */
-  embedded?: { title: string };
+  /**
+   * Set inside a page rather than the dock: the heading says where papers go,
+   * and there is no close button unless `back` names where closing returns to.
+   */
+  embedded?: { title: string; back?: string };
 }
 
 const labelFor = (id: SourceId) => sourceList().find((source) => source.id === id)?.label ?? id;
@@ -646,8 +649,8 @@ export default function Discover({ onClose, onOpen, ask, here, focus, embedded }
     <aside className={`panel discover-panel${embedded ? ' is-embedded' : ''}`} aria-label={embedded?.title ?? 'Discover'}>
       <div className="panel-head">
         <h2>{embedded?.title ?? 'Discover'}</h2>
-        {embedded ? null : (
-          <button type="button" className="icon-btn sm" onClick={onClose} aria-label="Close the discover panel">
+        {embedded && !embedded.back ? null : (
+          <button type="button" className="icon-btn sm" onClick={onClose} aria-label={embedded?.back ?? 'Close the discover panel'} title={embedded?.back}>
             <CloseIcon size={17} />
           </button>
         )}

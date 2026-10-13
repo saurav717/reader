@@ -780,8 +780,14 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
     }
   });
   const shown = mine.find((paper) => paper.id === paperId) ?? continueWith(project, papers) ?? mine[0];
-  // With nothing to read, the search takes the cursor as the page opens.
-  const [findAt] = useState(() => Date.now());
+  // "Add a paper" from the tree or the bar: the paper pane is the search until a result is picked.
+  const [adding, setAdding] = useState(false);
+  // With nothing to read, the search takes the cursor as the page opens; "Add a paper" puts it there again.
+  const [findAt, setFindAt] = useState(() => Date.now());
+  const startAdding = () => {
+    setAdding(true);
+    setFindAt(Date.now());
+  };
   // Full code is where a project's work is done: the papers are a strip above it, a card each, and a window over it.
   const [chosenLayout, setLayoutState] = useState<WsLayout>(() => readWs(WS_LAYOUT, ['paper', 'both', 'code', 'write'] as const, 'code'));
   // Read is the paper alone; Code is the whole workspace. Write is there only while Settings puts the writing in the workspace.
@@ -848,7 +854,10 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
   const pick = (id: string) => {
     setPaperId(id);
     rememberWorkspacePaper(project.id, id);
+    setAdding(false);
   };
+  // The search fills the paper pane while adding, and whenever there is nothing to read.
+  const finding = adding || !shown;
   const floatPaper = mine.find((paper) => paper.id === floating);
   const link = (id: string | undefined) => void updateCollection(project.id, (collection) => ({ project: { ...project.project, ...(collection.project ?? {}), playgroundId: id } }));
   const showPaper = layout !== 'code';
@@ -882,7 +891,19 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
           ) : null}
         </div>
         )}
-        {!fullCode && shown ? <span className="pj-ws-now">{shown.title}</span> : null}
+        {!fullCode && shown ? <span className="pj-ws-now">{finding ? `Adding papers to ${project.name}` : shown.title}</span> : null}
+        {fullCode ? null : (
+          <button
+            type="button"
+            className="icon-btn"
+            aria-pressed={adding}
+            aria-label={adding && shown ? 'Back to the paper' : 'Add a paper to this project'}
+            title={adding && shown ? 'Back to the paper' : 'Add a paper: search the indexes, or drop in a PDF'}
+            onClick={() => (adding && shown ? setAdding(false) : startAdding())}
+          >
+            <PlusIcon size={15} />
+          </button>
+        )}
         {writing === 'beside' && overleaf && !fullCode ? (
           <span className="pj-ws-overleaf">
             <CiteButtons project={project} paper={shown} />
@@ -918,7 +939,7 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
               <div key={group.label}>
                 <span className="pj-tree-role">{group.label}</span>
                 {group.papers.map((paper) => (
-                  <button key={paper.id} type="button" className={`pj-tree-item${shown?.id === paper.id ? ' is-on' : ''}`} onClick={() => pick(paper.id)} title={paper.title}>
+                  <button key={paper.id} type="button" className={`pj-tree-item${!finding && shown?.id === paper.id ? ' is-on' : ''}`} onClick={() => pick(paper.id)} title={paper.title}>
                     <span className="pj-tree-title">{paper.title}</span>
                     <span className="pj-tree-meta">
                       {readingState(paper) === 'reading' ? `${Math.round(paper.progress * 100)}%` : readingState(paper) === 'done' ? '✓' : ''}
@@ -929,6 +950,9 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
               </div>
             ))}
             {!mine.length ? <p className="pj-tree-none">No papers yet — search for some beside this.</p> : null}
+            <button type="button" className={`pj-tree-item pj-tree-add${finding ? ' is-on' : ''}`} aria-pressed={finding} onClick={startAdding} title="Search the indexes, paste an arXiv id or a PDF link, or drop in a PDF; what you add goes into this project">
+              <PlusIcon size={13} /> Add a paper
+            </button>
             <span className="pj-tree-sect">Code</span>
             {code ? (
               <div className="pj-tree-code">
@@ -954,7 +978,7 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
         <div className="pj-ws-panes" ref={panes}>
         {showPaper ? (
           <div className="pj-ws-pane pj-ws-paper" style={showCode || showWrite ? { flex: `0 0 ${split * 100}%` } : undefined}>
-            {shown ? (
+            {!finding && shown ? (
               <Reader
                 key={shown.id}
                 paperId={shown.id}
@@ -972,7 +996,7 @@ function ProjectWorkspace({ project, focus, onView, onOpenPaper }: { project: Pr
               />
             ) : (
               <div className="pj-ws-find">
-                <Discover embedded={{ title: `Add papers to ${project.name}` }} here={project.id} focus={findAt} onOpen={pick} onClose={() => undefined} />
+                <Discover embedded={{ title: `Add papers to ${project.name}`, back: shown ? 'Back to the paper' : undefined }} here={project.id} focus={findAt} onOpen={pick} onClose={() => setAdding(false)} />
               </div>
             )}
           </div>
