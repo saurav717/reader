@@ -447,6 +447,11 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
               : `Reader reads the calendars in ${user.email} — just reads: the calendars you keep and the meetings in them — and shows them by day, week or month. Connecting asks Google for read access, once.`
           }
           error={error}
+          note={
+            wasConnected()
+              ? undefined
+              : 'Reading a calendar is what Google calls a sensitive permission, so until this copy of Reader is verified with Google its window first says “Google hasn’t verified this app”: Advanced, then Go to Reader, lets you through to the usual consent screen.'
+          }
           action={{ label: connecting ? 'Connecting…' : wasConnected() ? 'Reconnect calendar' : 'Connect Google Calendar', onClick: connect, disabled: connecting, primary: true }}
         />
       </div>
@@ -482,7 +487,7 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
   );
 }
 
-function Empty({ title, text, error, action }: { title: string; text: string; error?: string | null; action: { label: string; onClick: () => void; disabled?: boolean; primary?: boolean } }) {
+function Empty({ title, text, error, note, action }: { title: string; text: string; error?: string | null; note?: string; action: { label: string; onClick: () => void; disabled?: boolean; primary?: boolean } }) {
   return (
     <div className="scroll" style={{ padding: '18px 32px 32px' }}>
       <div className="cal-empty">
@@ -493,6 +498,7 @@ function Empty({ title, text, error, action }: { title: string; text: string; er
         <button type="button" className={`btn${action.primary ? ' primary' : ''}`} onClick={action.onClick} disabled={action.disabled}>
           {action.label}
         </button>
+        {note ? <p className="cal-empty-note">{note}</p> : null}
       </div>
     </div>
   );

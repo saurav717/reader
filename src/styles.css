@@ -7885,6 +7885,7 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .cal-empty h2 { margin: 10px 0 6px; font-family: var(--serif); font-size: 22px; font-weight: 600; color: var(--ink); }
 .cal-empty p { margin: 0 0 18px; font-size: 13px; line-height: 1.55; }
 .cal-empty .banner { text-align: left; }
+.cal-empty-note { margin: 16px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
 
 /* An event's colour is its calendar's, as --ev; the chip tints from it in either theme. */
 .cal-ev {

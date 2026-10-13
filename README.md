@@ -766,7 +766,17 @@ project (or pick one you already have), then **APIs & Services → Library →
 Google Drive API → Enable**. Without this the sign-in works and every Drive call
 comes back 403. The [Calendar](#calendar) page reads Google Calendar the same
 way, so enable **Google Calendar API** there too, or that page's connect comes
-back 403 and says so.
+back 403 and says so. Reading a calendar is a *sensitive* scope in Google's
+terms (`drive.file` is not), so until the consent screen has been through
+Google's verification, connecting the calendar first shows **Google hasn't
+verified this app**: **Advanced → Go to Reader** lets you through, for up to a
+hundred accounts. To take the screen away for everyone, submit the app for
+verification under **APIs & Services → OAuth consent screen**: Google asks for
+a homepage and a privacy policy on your own domain (the site serves one at
+`/privacy.html`, from `public/privacy.html`) and why the scope is
+needed (read only, shown to the person signed in, nothing kept on a server),
+and answers in days to a couple of weeks. Testing mode is not the way round
+it: it would block everyone not on its list from the Drive sign-in too.
 
 ### 2. An OAuth client ID
 
