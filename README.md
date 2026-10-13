@@ -93,6 +93,20 @@ tour** leaves it at any step; **Settings → Guided tour**, or <kbd>⌘K</kbd> a
 
 ![the tour on the highlights step: the ring round the Notes pane, which H has just opened, and the card saying so](docs/tour.png)
 
+The tour's last card offers a **showcase** — *Show me, with a paper* — and so
+do Settings and the palette. A pointer of the app's own finds *Attention Is
+All You Need*, saves and opens it, turns it from PDF to Reflow to book, asks
+Ask AI where scaled dot-product attention is defined and clicks the passage
+the answer points at, presses <kbd>E</kbd> and has the paper explained,
+plans its implementation, writes a notebook and runs it on a Colab T4 with
+the machine's load beside the cells, then goes between the paper and its
+pages on <kbd>E</kbd>. The paper is saved for real; the model's and Colab's
+part is a replay from `src/showcase/`, so it costs nothing and needs no key
+— the card says so on those scenes. <kbd>→</kbd> skips a scene,
+<kbd>Esc</kbd> leaves.
+
+![the showcase on the Colab scene: the notebook the model wrote, its cells run on a T4, the machine's load in the bar](docs/showcase-colab.png)
+
 ## Running it
 
 ```bash
@@ -883,6 +897,14 @@ app opens that account's library rather than carrying on under the first
 one's name: nothing of one account's is read into, or written to, the other's
 Drive. **Sign out** revokes the token outright and forgets it.
 
+An earlier version did assume it, and could write one account's library into
+the other's Drive under the first one's name. A `library.json` found in your
+Drive carrying another account's name is put right on the next sign-in: the
+papers whose Drive folders are not yours — with `drive.file`, this account
+cannot open another's — go to Junk, where **Restore** brings one back if it was
+wanted here after all; the rest stay, and the file is yours again. The sync
+line in Settings says what was done.
+
 ### Your library is your account's, and lives in its Drive
 
 The library — every paper, its collections, its highlights, and what is in
@@ -894,7 +916,10 @@ written to the Drive of another: with `drive.file` the app cannot even see
 another account's files.
 
 The browser keeps a copy per account (an IndexedDB database named
-`reader:<email>`) so a reload opens at once; Drive's file is the record.
+`reader:<email>`) for a moment offline and for what has not reached Drive
+yet; Drive's file is the record, and signed in, the page opens only once it
+has been read — never on the copy here, which may be behind it. If Drive
+cannot be read, the page opens on the copy here with the error beside it.
 Changes are written to Drive a moment after they stop, and when the tab is
 left. If another browser wrote in the meantime, the two are put together
 before the write rather than one replacing the other. **Sign out** writes

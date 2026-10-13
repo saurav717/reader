@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 
 import { cleanup, loadTogether } from './bundle.mjs';
 
-const { parseLibrary, parseLibraryFile, mergeLibraries, serialise, fromSidecar, libraryFromSidecars, sidecar, emptyLibrary } = await loadTogether([
+const { parseLibrary, parseLibraryFile, mergeLibraries, serialise, fromSidecar, libraryFromSidecars, sidecar, emptyLibrary, disown } = await loadTogether([
   'src/lib/driveLibrary.ts',
   'src/lib/sidecar.ts',
 ]);
@@ -79,6 +79,27 @@ describe('the file in Drive', () => {
     assert.deepEqual(parsed.papers[0].collectionIds, []);
     assert.deepEqual(parsed.highlights, []);
     assert.deepEqual(parsed.collections, []);
+  });
+
+  // A library file another account's library was mixed into (by an earlier
+  // version that held one account's token under another's name): what is
+  // provably theirs goes to Junk, with its highlights, and nothing is lost.
+  it('puts the other account’s papers in Junk, highlights and all, and leaves the rest alone', () => {
+    const library = {
+      papers: [paper('arxiv:1', { collectionIds: ['c1'] }), paper('arxiv:2', { collectionIds: ['c1'] }), paper('arxiv:3')],
+      collections: [{ id: 'c1', name: 'Reading list', color: '#1F5E52', createdAt: '2026-01-01T00:00:00.000Z' }],
+      highlights: [highlight('h1', 'arxiv:1'), highlight('h2', 'arxiv:2')],
+      junk: [{ paper: paper('arxiv:2'), highlights: [], removedAt: 'before', drive: 'kept' }],
+    };
+    const next = disown(library, new Set(['arxiv:2', 'arxiv:3']), '2026-10-13T00:00:00.000Z');
+    assert.deepEqual(next.papers.map((item) => item.id), ['arxiv:1']);
+    assert.deepEqual(next.highlights.map((item) => item.id), ['h1']);
+    assert.deepEqual(next.collections, library.collections);
+    assert.deepEqual(
+      next.junk.map((entry) => [entry.paper.id, entry.highlights.map((item) => item.id), entry.removedAt, entry.drive]),
+      [['arxiv:2', ['h2'], '2026-10-13T00:00:00.000Z', 'not-in-drive'], ['arxiv:3', [], '2026-10-13T00:00:00.000Z', 'not-in-drive']],
+    );
+    assert.equal(disown(library, new Set(), 'now'), library);
   });
 
   it('serialises the same library the same way whatever order it is in', () => {

@@ -15,5 +15,5 @@ stage-e2e/
 __pycache__/
 *.pyc
 
-# tsc emits .js beside the sources when run with --noEmit false; Vite would then bundle those instead of the .ts/.tsx
+# Compiled output: src/ holds TypeScript only. A .js beside a .ts would be what Vite bundles (it tries .js before .ts).
 src/**/*.js

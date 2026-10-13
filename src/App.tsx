@@ -57,6 +57,8 @@ import { peekPlayground } from './lib/playgroundRuns';
 import { useMoveGitHubToken } from './components/Connections';
 import Tour, { type TourHost } from './components/Tour';
 import { START_TOUR, tourSeen } from './lib/tour';
+import Showcase, { type ShowcaseHost } from './components/Showcase';
+import { START_SHOWCASE } from './lib/showcase';
 
 const WELCOME_KEY = 'reader.welcomed';
 const VIEW_KEY = 'reader.view';
@@ -290,10 +292,20 @@ export default function App() {
   // The guided tour: round the app once, on the first visit past the opening
   // screen; again whenever Settings or the palette asks (START_TOUR).
   const [tourOpen, setTourOpen] = useState(false);
+  // The showcase: the app used on a real paper, from the tour's last card, Settings or the palette.
+  const [showcaseOpen, setShowcaseOpen] = useState(false);
   useEffect(() => {
     const open = () => setTourOpen(true);
+    const show = () => {
+      setTourOpen(false);
+      setShowcaseOpen(true);
+    };
     window.addEventListener(START_TOUR, open);
-    return () => window.removeEventListener(START_TOUR, open);
+    window.addEventListener(START_SHOWCASE, show);
+    return () => {
+      window.removeEventListener(START_TOUR, open);
+      window.removeEventListener(START_SHOWCASE, show);
+    };
   }, []);
   // Dismissing the opening screen is remembered for this page load only. A
   // sign-in is kept in this browser for the hour Google's token lasts, so a
@@ -987,12 +999,18 @@ export default function App() {
     if (ready && !welcomeNow && view.kind === 'home' && !onUsage && !tourSeen()) setTourOpen(true);
   }, [ready, welcomeNow, view.kind, onUsage]);
 
+  // Nothing of the library shows until it is read: from this browser, and —
+  // signed in — from Drive, whose file is the library (store.tsx, `opened`).
+  // The renewal prompt is here too, since that read may be what is waiting
+  // on it.
   if (!ready) {
     return (
       <div className="app">
-        <div className="main" style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <div className="main" style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14 }}>
           <span className="spinner" aria-label="Loading your library" />
+          {user && driveConnected ? <span style={{ fontSize: 13, color: 'var(--muted)' }}>Reading your library from Drive…</span> : null}
         </div>
+        {usesGoogle ? <GoogleRenewal clientId={settings.googleClientId.trim()} /> : null}
       </div>
     );
   }
@@ -1027,6 +1045,15 @@ export default function App() {
     leaveZen: () => {
       if (zen) toggleZen();
     },
+  };
+  const showcaseHost: ShowcaseHost = {
+    goHome: () => {
+      setUsageOpen(false);
+      setView({ kind: 'home' });
+    },
+    reading: view.kind === 'paper' ? view.id : null,
+    closeAssistant: () => setAssistantOpen(false),
+    closeExplain: () => setExplainOpen(false),
   };
   // With no paper open the notes pane lists every paper's notes, a card to each.
   // The Draft tab goes when Settings no longer puts the writing in the dock: Discover takes its place.
@@ -1651,6 +1678,7 @@ export default function App() {
 
       {settingsOpen ? <Settings onClose={() => setSettingsOpen(false)} /> : null}
       {tourOpen && !showWelcome ? <Tour host={tourHost} onClose={() => setTourOpen(false)} /> : null}
+      {showcaseOpen && !showWelcome ? <Showcase host={showcaseHost} onClose={() => setShowcaseOpen(false)} /> : null}
     </div>
   );
 }

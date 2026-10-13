@@ -13,9 +13,11 @@ import { COLLECTION_COLORS, WRITE_DEFAULTS } from '../types';
 import { forgetNotes } from './notes';
 import { db, switchDb } from './db';
 import {
+  disown,
   emptyLibrary,
   libraryMark,
   mergeLibraries,
+  provablyNotHere,
   readLibraryFromDrive,
   rebuildFromSidecars,
   serialise,
@@ -59,17 +61,28 @@ const LIBRARY_DEBOUNCE_MS = 1500;
 const accountOf = (user: GoogleUser | null | undefined) => user?.email?.trim().toLowerCase() || null;
 
 /**
- * Whose a library read from Drive says it is, when that is not `owner`'s —
- * the one thing that must never be taken in or written over. With
- * `drive.file` the app only ever reaches the signed-in account's files, so
- * this can only mean Drive was reached with another account's token: the
- * sign-in changed underneath the page, and the page is about to start again
- * as that account (google.ts, renewOnce). Nothing is merged or sent meanwhile.
+ * The one thing that must never happen to a library: being read into, or
+ * written from, a page that is another account's. The token Drive was just
+ * reached with is held beside who it is for (google.ts, heldUser); if that
+ * is not `owner`, the sign-in changed underneath the page, which is about to
+ * start again as that account. Nothing is merged or sent meanwhile.
  */
-const someoneElses = (remote: { account?: string } | null | undefined, owner: string): string | null =>
-  remote?.account && remote.account.trim().toLowerCase() !== owner ? remote.account : null;
-const wrongAccount = (theirs: string, owner: string) =>
-  `Drive answered for ${theirs}, not ${owner}, so nothing was read or written. Sign out and sign in again as ${owner}.`;
+function reachedAsAnother(owner: string): string | null {
+  const reached = google.heldUser()?.email;
+  return reached && !google.sameAccount(reached, owner) ? reached : null;
+}
+const wrongAccount = (reached: string, owner: string) => `Drive was reached as ${reached}, not ${owner}, so nothing was read or written.`;
+
+/**
+ * Whose a library file in this account's own Drive says it is, when that is
+ * another account. An earlier version of the app could hold one account's
+ * token under another's name after a renewal, and then wrote the page's
+ * library into the wrong Drive, stamped with the page's account: the two
+ * libraries were mixed. The file is in this account's Drive, so it is this
+ * account's to put right — see `disownOthers` below.
+ */
+const stampedForAnother = (remote: { account?: string } | null | undefined, owner: string): string | null =>
+  remote?.account && !google.sameAccount(remote.account, owner) ? remote.account : null;
 
 const defaultSettings: Settings = {
   googleClientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || '',
@@ -289,6 +302,14 @@ const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
+  /**
+   * Whether this account's library has been read from Drive once since it
+   * was opened here (or that read failed). Until then the page shows nothing:
+   * the copy this browser keeps is only a cache of Drive's file, and may be
+   * stale — or, after the account mix-up an earlier version could cause,
+   * another account's — so it is never shown before Drive has had its say.
+   */
+  const [opened, setOpened] = useState(false);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
@@ -366,6 +387,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     switchDb(account);
     pulled.current = false;
     setReady(false);
+    setOpened(false);
     (async () => {
       const [loadedPapers, loadedCollections, loadedHighlights, loadedJunk] = await Promise.all([
         db.allPapers(),
@@ -484,6 +506,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  /**
+   * A library that another account's was mixed into (see `stampedForAnother`),
+   * with what provably is theirs taken out: the papers whose Drive folders
+   * this account cannot open went to Junk, where Restore brings one back if
+   * it was wanted here after all. A paper never saved to Drive cannot be told
+   * either way, and stays. Says what it did, for the sync line.
+   */
+  const disownOthers = useCallback(async (library: Library, stamped: string): Promise<{ library: Library; notice: string }> => {
+    const theirs = await provablyNotHere(latest.current.settings.googleClientId, library.papers);
+    const next = disown(library, theirs, new Date().toISOString());
+    const count = theirs.size;
+    const what = count === 0 ? 'None of its papers was provably theirs, so all of them stay.' : `${count} ${count === 1 ? 'paper that was' : 'papers that were'} theirs (their Drive folders are not yours) went to Junk — Restore brings one back if you want it here.`;
+    return { library: next, notice: `${LIBRARY_FILE} in your Drive had been written under ${stamped}'s name by an earlier version of the app, which mixed the two libraries. ${what} The file is yours again.` };
+  }, []);
+
   /** Puts a whole library in place of the one open: in the page, and in this account's copy here. */
   const applyLibrary = useCallback(async (next: Library) => {
     latest.current = { ...latest.current, papers: next.papers, collections: next.collections, highlights: next.highlights };
@@ -520,14 +557,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const now = await libraryMark(googleClientId, driveFolderName);
         if (now && now.modifiedTime !== remoteMark.current?.modifiedTime) {
           const remote = await readLibraryFromDrive(googleClientId, driveFolderName);
-          const theirs = someoneElses(remote, owner);
-          if (theirs) throw new Error(wrongAccount(theirs, owner));
+          const reached = reachedAsAnother(owner);
+          if (reached) throw new Error(wrongAccount(reached, owner));
           if (remote) {
             toWrite = mergeLibraries(library, remote.library);
+            const stamped = stampedForAnother(remote, owner);
+            if (stamped) toWrite = (await disownOthers(toWrite, stamped)).library;
+            if (accountNow.current !== owner) return;
             await applyLibrary(toWrite);
           }
         }
         if (accountNow.current !== owner) return;
+        const reachedNow = reachedAsAnother(owner);
+        if (reachedNow) throw new Error(wrongAccount(reachedNow, owner));
         const mark = await writeLibraryToDrive(googleClientId, driveFolderName, toWrite, {
           account: owner,
           fileId: now?.fileId ?? remoteMark.current?.fileId,
@@ -548,7 +590,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } finally {
       if (pushing.current === run) pushing.current = null;
     }
-  }, [applyLibrary, currentLibrary]);
+  }, [applyLibrary, currentLibrary, disownOthers]);
 
   touchRef.current = () => {
     if (!accountNow.current) return;
@@ -627,8 +669,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         db.getKv<RemoteMark>(REMOTE_KEY).catch(() => undefined),
       ]);
       if (accountNow.current !== owner) return;
-      const theirs = someoneElses(remote, owner);
-      if (theirs) throw new Error(wrongAccount(theirs, owner));
+      const reached = reachedAsAnother(owner);
+      if (reached) throw new Error(wrongAccount(reached, owner));
       const local = currentLibrary();
       let next: Library;
       let restored: string | undefined;
@@ -656,6 +698,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         lastPushed.current = null;
       }
       if (accountNow.current !== owner) return;
+      // Whatever the file in this account's Drive says, the copy here was
+      // filled from it before (so the local side is put right too), and it
+      // is written back as this account's.
+      const stamped = stampedForAnother(remote, owner);
+      let restamp = false;
+      if (stamped) {
+        const repaired = await disownOthers(next, stamped);
+        if (accountNow.current !== owner) return;
+        next = repaired.library;
+        restored = restored ? `${restored} ${repaired.notice}` : repaired.notice;
+        restamp = true;
+      }
       if (!next.collections.length) {
         next = {
           ...next,
@@ -663,15 +717,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         };
       }
       pulled.current = true;
-      dirty.current = Boolean(wasDirty) || !remote?.mark;
+      if (restamp) lastPushed.current = null;
+      dirty.current = Boolean(wasDirty) || !remote?.mark || restamp;
       await applyLibrary(next);
       setLibrarySync({ state: 'saved', at: new Date().toISOString(), message: restored });
       void countStrays();
       void pushLibrary();
     } catch (error) {
       setLibrarySync({ state: 'error', message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      // Read, or failed to: either way the page opens now, on Drive's copy or, failing that, this browser's with the error beside it.
+      setOpened(true);
     }
-  }, [applyLibrary, countStrays, currentLibrary, pushLibrary, takeFromGuest]);
+  }, [applyLibrary, countStrays, currentLibrary, disownOthers, pushLibrary, takeFromGuest]);
 
   // Drive is read once the copy here has been: the other way round, the copy
   // here would land on top of what came from Drive.
@@ -1428,9 +1486,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [syncLog],
   );
 
+  /** Signed in with Drive, the page waits for Drive's copy of the library; otherwise the copy here is all there is. */
+  const waitingOnDrive = Boolean(account) && driveConnected && !opened;
   const value = useMemo<StoreValue>(
     () => ({
-      ready,
+      ready: ready && !waitingOnDrive,
       papers,
       collections,
       highlights,
@@ -1480,7 +1540,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       pushToGitHub,
     }),
     [
-      ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog, librarySync, strays, adoptStrays, discardStrays,
+      ready, waitingOnDrive, papers, collections, highlights, settings, user, driveConnected, authError, syncLog, librarySync, strays, adoptStrays, discardStrays,
       addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile, setPaperAuthors,
       createCollection, renameCollection, updateCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, askingTabs, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,

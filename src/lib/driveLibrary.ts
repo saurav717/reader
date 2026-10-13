@@ -22,6 +22,8 @@ import type { Collection, Highlight, HighlightColor, HighlightStyle, JunkEntry, 
 import { COLLECTION_COLORS } from '../types';
 import {
   downloadText,
+  driveFetch,
+  DriveRequestError,
   ensureDriveToken,
   ensureFolder,
   findAppDataFile,
@@ -398,6 +400,59 @@ export async function rebuildFromSidecars(clientId: string, folderName: string |
     }
   }
   return libraryFromSidecars(read, newId);
+}
+
+/**
+ * Which of `papers` this account's Drive provably does not hold: every Drive
+ * id the paper records (its folder, its sidecar, its PDF) answers 404 here.
+ * With `drive.file` that is what another account's files look like — they
+ * are there, in that account's Drive, and invisible to this one. A paper with
+ * no Drive record at all cannot be told either way, and is not named. Any
+ * answer but a plain yes or a 404 (the network, a limit) throws: a guess here
+ * would put someone's papers in Junk.
+ */
+export async function provablyNotHere(clientId: string, papers: Paper[]): Promise<Set<string>> {
+  const token = await ensureDriveToken(clientId);
+  const theirs = new Set<string>();
+  for (const paper of papers) {
+    const ids = [paper.drive?.folderId, paper.drive?.metaFileId, paper.drive?.pdfFileId].filter((id): id is string => Boolean(id));
+    if (!ids.length) continue;
+    let seen = false;
+    for (const id of ids) {
+      try {
+        await driveFetch(token, `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?fields=id`);
+        seen = true;
+        break;
+      } catch (error) {
+        if (!(error instanceof DriveRequestError) || error.status !== 404) throw error;
+      }
+    }
+    if (!seen) theirs.add(paper.id);
+  }
+  return theirs;
+}
+
+/**
+ * The library with the papers in `ids` moved to Junk, their highlights with
+ * them, as removing them by hand would — nothing is lost, and Junk's Restore
+ * brings one back (and saves it to this account's Drive, since its folder is
+ * not here). For a library file another account's library was mixed into.
+ */
+export function disown(library: Library, ids: Set<string>, removedAt: string): Library {
+  if (!ids.size) return library;
+  const leaving = library.papers.filter((paper) => ids.has(paper.id));
+  const entries: JunkEntry[] = leaving.map((paper) => ({
+    paper,
+    highlights: library.highlights.filter((highlight) => highlight.paperId === paper.id),
+    removedAt,
+    drive: 'not-in-drive',
+  }));
+  return {
+    papers: library.papers.filter((paper) => !ids.has(paper.id)),
+    collections: library.collections,
+    highlights: library.highlights.filter((highlight) => !ids.has(highlight.paperId)),
+    junk: [...entries, ...library.junk.filter((entry) => !ids.has(entry.paper.id))],
+  };
 }
 
 /**
