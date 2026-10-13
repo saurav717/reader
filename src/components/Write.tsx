@@ -25,6 +25,7 @@ import { OpenOverleaf } from './Overleaf';
 import { readTexLog, type CompileFile } from '../lib/latexGithub';
 import { apiFetch } from '../lib/api';
 import { cloudSync, overleafTokenKnown } from '../lib/overleafCloud';
+import { applyGallery, LATEX_GALLERY, type GalleryTemplate } from '../lib/latexGallery';
 import { companionStore, driveShelf, driveStore, subStore, paperDriveFolder, paperDriveNow, setPaperDrive, unpackKit, type PaperStore, type ShelfTemplate, type TemplateShelf } from '../lib/paperStore';
 import { findLostFolder, inDrive, movePaperToDrive, removeFolder } from '../lib/paperMove';
 import { CompanionConnect } from './Playground';
@@ -1900,6 +1901,8 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare, res
       for (const file of BLANK_PROJECT(title)) await store.writeText(within(dir, file.path), file.text);
       return within(dir, 'main.tex');
     });
+  const fromGallery = (template: GalleryTemplate) =>
+    run(async () => applyGallery(store, template, (placed.current = placeFor(name.trim() || template.name))));
   const fromTemplate = (template: ShelfTemplate) =>
     run(async () => {
       if (!shelf) throw new Error('Templates need the Companion on this computer, or the paper in Drive.');
@@ -1935,7 +1938,7 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare, res
 
   const ways: { id: Making; title: string; note: string; icon: string }[] = [
     { id: 'blank', title: 'Blank LaTeX project', note: 'A main.tex, a first section in sections/ and a references.bib, in a folder of its own: add more files as it grows.', icon: '＋' },
-    { id: 'templates', title: 'Browse templates', note: store.kind === 'drive' ? 'The conference kits kept in your Drive: NeurIPS, ICML, ACL…' : 'The conference kits kept on this computer: NeurIPS, ICML, ACL…', icon: '▦' },
+    { id: 'templates', title: 'Browse templates', note: `ICLR, CVPR, ACL, IEEE, ACM, Springer and Elsevier, and the kits you’ve kept ${store.kind === 'drive' ? 'in your Drive' : 'on this computer'}.`, icon: '▦' },
     { id: 'zip', title: 'Upload a template (.zip)', note: 'A conference’s kit, as it gives it out. Kept as a template for next time.', icon: '⇪' },
     { id: 'files', title: 'Upload a LaTeX project', note: 'Its folder from your computer, subfolders and all — the main .tex with its sections, .bib, styles and figures.', icon: '⎘' },
   ];
@@ -2086,24 +2089,42 @@ function WriteHome({ project, here, folder, store, shelf, onOpen, onCompare, res
               </button>
             ) : null}
             {making === 'templates' ? (
-              templatesOld ? (
-                <p className="wr-quiet">Templates need the Companion {PAPER_TEMPLATES_VERSION} or later on this computer{here ? ` (it is ${here.version})` : ''}: update it from Your compute in the Playground.</p>
-              ) : templates === null ? (
-                <p className="wr-quiet">Asking this computer for its templates…</p>
-              ) : templates.length ? (
+              <>
+                <p className="wr-home-shelf">Come with Reader</p>
                 <div className="wr-home-templates">
-                  {templates.map((template) => (
-                    <button key={template.slug} type="button" className="wr-home-template" disabled={busy} onClick={() => void fromTemplate(template)}>
+                  {LATEX_GALLERY.map((template) => (
+                    <button key={template.slug} type="button" className="wr-home-template" disabled={busy} onClick={() => void fromGallery(template)} title={`${template.note} — from ${template.source}`}>
                       <b>{template.name}</b>
-                      <small>
-                        {template.files} files{template.main ? ` · ${template.main}` : ''}
+                      <small>{template.note}</small>
+                      <small className="mono">
+                        {template.files.length} files · {template.main}
                       </small>
                     </button>
                   ))}
                 </div>
-              ) : (
-                <p className="wr-quiet">No template {store.kind === 'drive' ? 'in your Drive' : 'on this computer'} yet: upload a conference’s .zip, and it is kept for next time.</p>
-              )
+                <p className="wr-quiet">
+                  NeurIPS and ICML give theirs out each year on their own sites (<a href="https://neurips.cc/Conferences/2026/CallForPapers" target="_blank" rel="noreferrer">NeurIPS</a>, <a href="https://icml.cc/Conferences/2026/AuthorInstructions" target="_blank" rel="noreferrer">ICML</a>): download the .zip, then <button type="button" className="link-btn" onClick={() => setMaking('zip')}>upload it as a template</button>, and it is kept here.
+                </p>
+                <p className="wr-home-shelf">Yours, {store.kind === 'drive' ? 'in your Drive' : 'on this computer'}</p>
+                {templatesOld ? (
+                  <p className="wr-quiet">{shelf ? <>Templates of your own need the Companion {PAPER_TEMPLATES_VERSION} or later on this computer{here ? ` (it is ${here.version})` : ''}: update it from Your compute in the Playground.</> : 'Templates of your own are kept in Drive, or by the Companion on this computer.'}</p>
+                ) : templates === null ? (
+                  <p className="wr-quiet">{store.kind === 'drive' ? 'Looking in your Drive…' : 'Asking this computer for its templates…'}</p>
+                ) : templates.length ? (
+                  <div className="wr-home-templates">
+                    {templates.map((template) => (
+                      <button key={template.slug} type="button" className="wr-home-template" disabled={busy} onClick={() => void fromTemplate(template)}>
+                        <b>{template.name}</b>
+                        <small>
+                          {template.files} files{template.main ? ` · ${template.main}` : ''}
+                        </small>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="wr-quiet">None yet: upload a conference’s .zip, and it is kept here for next time.</p>
+                )}
+              </>
             ) : null}
             {making === 'zip' ? (
               <>
@@ -2200,6 +2221,8 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
       return null;
     }
   });
+  // A figure or a PDF in the folder, shown in the source's place: the .tex stays open behind it.
+  const [viewing, setViewing] = useState<string | null>(null);
   const editor = useRef<CodeEditorHandle>(null);
   const [compiled, setCompiled] = useState<Compiled | null>(null);
   const [pdf, setPdf] = useState<Blob | null>(null);
@@ -2233,6 +2256,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
   const git = folder.sync === 'git' || (inDrive && Boolean(overleafGitUrl(link?.url)));
 
   const setOpen = (path: string) => {
+    setViewing(null);
     setOpenState(path);
     try {
       localStorage.setItem(`reader.write.${project.id}${owner ? `:${owner}` : ''}.file`, path);
@@ -2275,6 +2299,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
   const texts = scoped.filter(isTextFile);
   const mainGuess = texts.find((path) => path === link?.main) ?? texts.find((path) => path === compiled?.main) ?? texts.find((path) => /(^|\/)main\.tex$/.test(path)) ?? texts.find((path) => path.endsWith('.tex'));
   const shown = open && texts.includes(open) ? open : mainGuess;
+  const looking = viewing && scoped.includes(viewing) ? viewing : null;
   // The main document: as set on the project, else the one the compile found, else the first with main.tex's name.
   const mainDoc = link?.main && texts.includes(link.main) ? link.main : undefined;
   const mainRef = useRef<string | undefined>(mainDoc);
@@ -2489,6 +2514,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
         return moved ? { ...rest, [to]: moved } : rest;
       });
       if (path === shown) setOpen(to);
+      if (path === looking) setViewing(to);
       if (path === link?.main) updateLink({ main: to });
     });
   };
@@ -2651,7 +2677,16 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
         <button type="button" className="wr-icon" aria-pressed={desk.sideOpen} onClick={() => setDesk({ sideOpen: !desk.sideOpen })} title={desk.sideOpen ? 'Hide the files' : 'Show the files'} aria-label={desk.sideOpen ? 'Hide the files' : 'Show the files'}>
           ☰
         </button>
-        {shown ? <span className="wr-file mono">{shown}{current && current.text !== current.disk ? ' ●' : ''}</span> : null}
+        {looking ? (
+          <span className="wr-file mono">
+            {looking}{' '}
+            <button type="button" className="link-btn" onClick={() => setViewing(null)} title={shown ? `Back to ${shown}` : 'Back to the source'}>
+              ← {shown ?? 'source'}
+            </button>
+          </span>
+        ) : shown ? (
+          <span className="wr-file mono">{shown}{current && current.text !== current.disk ? ' ●' : ''}</span>
+        ) : null}
         <span className="wr-sp" />
         {canConnect ? (
           <button type="button" className="btn sm ghost wr-ol-btn" aria-expanded={connecting} onClick={() => setConnecting(!connecting)} title={`Link this LaTeX project${placeDir ? ` (${placeDir}/)` : ''} to an Overleaf project of its own, kept in step both ways — with the Overleaf account connected under Projects → Connections`}>
@@ -2675,7 +2710,9 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
         </div>
       ) : null}
       <div className="wr-editor">
-        {shown && current ? (
+        {looking ? (
+          <FilePreview key={looking} store={store} path={looking} />
+        ) : shown && current ? (
           <CodeEditor
             key={shown}
             ref={editor}
@@ -3021,6 +3058,10 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
     </section>
   );
 
+  // No Overleaf account to sync through: said first where Overleaf makes the PDF, and connecting is the step to take.
+  const noAccount = git && !unsynced && (needToken || (inDrive && /token|account/i.test(syncError ?? '')));
+  // That pane, when it is in view, carries the account's connecting for a paper in Drive: the banner below stands aside.
+  const paneConnects = inDrive && options.pdf === 'overleaf' && big !== 'source' && !(options.layout === 'tabs' && pane === 'source');
   const preview =
     options.pdf === 'overleaf' ? (
       <section className="wr-preview is-overleaf">
@@ -3036,6 +3077,33 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
           ) : null}
         </div>
         <div className="wr-overleaf-pane">
+          {noAccount ? (
+            <div className="wr-overleaf-signin">
+              <h3>You’re not signed in to Overleaf here</h3>
+              <p>
+                {inDrive
+                  ? 'Your edits can’t reach Overleaf — and its PDF won’t change — until an Overleaf account is connected to Reader. It takes a minute: Overleaf’s Git token, from Account Settings → Git integration on Overleaf.'
+                  : 'The Companion on this computer has no Overleaf Git token for this folder yet, so your edits can’t reach Overleaf: give it in the bar below (Overleaf: Account Settings → Git integration).'}
+              </p>
+              {inDrive ? (
+                accountOpen ? (
+                  <div className="wr-sync-accounts">
+                    <OverleafAccounts open projectUrl={link?.url} onConnected={() => (setAccountOpen(false), setNeedToken(false), void sync())} />
+                  </div>
+                ) : (
+                  <div className="wr-row">
+                    <button type="button" className="btn sm primary" onClick={() => setAccountOpen(true)}>
+                      Connect Overleaf account
+                    </button>
+                    <button type="button" className="link-btn" onClick={() => (notNow(project.id), setUnsynced(true), setNeedToken(false), setSyncError(null))} title="Keep writing and compiling here; nothing goes to Overleaf until you press Sync">
+                      Not now
+                    </button>
+                  </div>
+                )
+              ) : null}
+              <p className="wr-quiet">Or compile without Overleaf: pick Cloud Run or GitHub Actions under Compile on, above.</p>
+            </div>
+          ) : null}
           <h3>Overleaf makes the PDF</h3>
           <p>
             {git
@@ -3043,9 +3111,9 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
               : 'This folder isn’t synced with Overleaf’s Git, so Overleaf won’t see these edits by itself: copy them there, or set the folder up with Overleaf’s Git (Change, under the files).'}
           </p>
           <div className="wr-row">
-            <OpenOverleaf project={project} view="beside" url={link?.url ?? ''} />
+            <OpenOverleaf project={project} view="beside" url={link?.url ?? ''} primary={!noAccount} />
             {git ? (
-              <button type="button" className="btn sm" disabled={syncing} onClick={() => void saveNow().then(() => sync())}>
+              <button type="button" className="btn sm" disabled={syncing || noAccount} onClick={() => void saveNow().then(() => sync())}>
                 {syncing ? 'Sending…' : 'Send now'}
               </button>
             ) : null}
@@ -3105,13 +3173,13 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
         <div className="wr-tree">
           {listError ? <p className="wr-bad wr-pad">{listError}</p> : null}
           {scoped.map((path) => (
-            <div key={path} className={`wr-tree-row${path === shown ? ' is-on' : ''}`}>
+            <div key={path} className={`wr-tree-row${path === (looking ?? shown) ? ' is-on' : ''}`}>
               <button
                 type="button"
-                className={`wr-tree-item${path === shown ? ' is-on' : ''}${isTextFile(path) ? '' : ' is-other'}`}
-                disabled={!isTextFile(path)}
-                onClick={() => setOpen(path)}
-                title={path}
+                className={`wr-tree-item${path === (looking ?? shown) ? ' is-on' : ''}${isTextFile(path) || isViewable(path) ? '' : ' is-other'}`}
+                disabled={!isTextFile(path) && !isViewable(path)}
+                onClick={() => (isTextFile(path) ? (setViewing(null), setOpen(path)) : setViewing(path))}
+                title={isTextFile(path) || isViewable(path) ? path : `${path}: Reader can’t show this kind of file`}
               >
                 {path.slice(scope?.dir ? scope.dir.length + 1 : 0).includes('/') ? <span className="wr-tree-dir">{path.slice(scope?.dir ? scope.dir.length + 1 : 0, path.lastIndexOf('/') + 1)}</span> : null}
                 {path.split('/').pop()}
@@ -3309,7 +3377,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
           </button>
         </div>
       ) : null}
-      {!unsynced && (syncError || needToken || (synced?.conflicts.length ?? 0) > 0) ? (
+      {!unsynced && (syncError || needToken || (synced?.conflicts.length ?? 0) > 0) && !(noAccount && paneConnects) ? (
         <div className="wr-sync-banner">
           {synced?.conflicts.length ? (
             <span>
@@ -3356,6 +3424,40 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
 }
 
 // ---------------------------------------------------------------- pdf --
+
+/** The figures and PDFs a LaTeX project brings in, shown as they are. */
+const VIEWABLE: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', pdf: 'application/pdf' };
+const viewableType = (path: string) => VIEWABLE[path.split('.').pop()?.toLowerCase() ?? ''];
+const isViewable = (path: string) => Boolean(viewableType(path));
+
+/** A figure or a PDF in the folder, read from where the paper is kept. */
+function FilePreview({ store, path }: { store: PaperStore; path: string }) {
+  const [blob, setBlob] = useState<Blob | null>(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const type = viewableType(path);
+  useEffect(() => {
+    let live = true;
+    let made: string | null = null;
+    void store.readBase64(path).then(
+      (base64) => {
+        if (!live) return;
+        const next = new Blob([Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))], { type });
+        setBlob(next);
+        if (type !== 'application/pdf') setUrl((made = URL.createObjectURL(next)));
+      },
+      (error) => live && setProblem(error instanceof Error ? error.message : String(error)),
+    );
+    return () => {
+      live = false;
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [store, path, type]);
+  if (problem) return <p className="wr-bad wr-pad">Couldn’t read {path}: {problem}</p>;
+  if (!blob) return <p className="wr-quiet wr-pad">Reading {path}…</p>;
+  if (type === 'application/pdf') return <PdfPages blob={blob} />;
+  return <div className="wr-figure">{url ? <img src={url} alt={path} /> : null}</div>;
+}
 
 /** The compiled PDF, every page drawn at the pane's width; where you were stays put across compiles. */
 function PdfPages({ blob }: { blob: Blob | null }) {
