@@ -3127,7 +3127,7 @@ function WriteDesk({ project, here, folder, store, rootStore, scope, owner = '',
                   : synced?.at
                     ? `Overleaf has everything up to ${new Date(synced.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}.`
                     : 'Not sent yet.'}
-              {syncError ? <span className="wr-bad"> {syncError}</span> : null}
+              {syncError && !noAccount ? <span className="wr-bad"> {syncError}</span> : null}
             </p>
           ) : null}
           <p className="wr-quiet">⌘↵ here sends your edits and opens the project in the window beside once they’ve arrived — Overleaf compiles it as it opens. If Overleaf’s PDF doesn’t refresh after an edit comes in, press Recompile there. To compile on this computer, GitHub Actions or Cloud Run instead, pick it under Compile on, above.</p>
