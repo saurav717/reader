@@ -169,8 +169,8 @@ export function periodLabel(view: CalendarView, date: Date, firstDay: number, lo
 
 export const timeLabel = (date: Date, locale?: string): string => date.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' }).replace(/:00(?=\s?[ap]m)/i, '');
 
-/** An hour of the day as the time axis names it. */
-export const hourLabel = (hour: number, locale?: string): string => new Date(2000, 0, 1, hour).toLocaleTimeString(locale, { hour: 'numeric' }).replace(/:00/, '');
+/** An hour of the day as the time axis names it: "1 am" where the clock has am and pm, "01:00" where it runs to 24. */
+export const hourLabel = (hour: number, locale?: string): string => new Date(2000, 0, 1, hour).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' }).replace(/:00(?=\s?[ap]m)/i, '');
 
 /** How long an event runs, said. */
 export function durationLabel(event: CalendarEvent): string {
