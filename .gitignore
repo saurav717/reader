@@ -14,3 +14,6 @@ stage-e2e/
 # The Companion (Python)
 __pycache__/
 *.pyc
+
+# tsc emits .js beside the sources when run with --noEmit false; Vite would then bundle those instead of the .ts/.tsx
+src/**/*.js

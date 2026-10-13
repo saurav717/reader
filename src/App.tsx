@@ -43,10 +43,11 @@ import Desk from './components/Desk';
 import { keepSpotNow } from './lib/spot';
 import { SIGN_IN_REQUIRED } from './lib/google';
 import { canFullscreen, enterFullscreen, fullscreenElement, leaveFullscreen } from './lib/fullscreen';
-import { ChartIcon, CodeIcon, GoogleMark, GridIcon, HighlighterIcon, HomeIcon, LibraryIcon, OpenBookIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
+import { CalendarIcon, ChartIcon, CodeIcon, GoogleMark, GridIcon, HighlighterIcon, HomeIcon, LibraryIcon, OpenBookIcon, SearchIcon, SettingsIcon, SparkleIcon } from './components/icons';
 import { FINISHED_AT } from './lib/status';
 import { addressWith, currentAddress, pathFor, placeFor } from './lib/route';
 import Playground from './components/Playground';
+import Calendar from './components/Calendar';
 import { OPEN_PLAYGROUND } from './lib/playground';
 import { watchPlaygroundRuns } from './lib/playgroundRuns';
 import { startJobWatch } from './lib/jobWatch';
@@ -254,6 +255,10 @@ export default function App() {
   const onUsage = usageOpen && isOwner;
   /** The Playground is a page of its own too: the library and the dock step aside for it. */
   const onPlayground = view.kind === 'playground' && !onUsage;
+  /** So is the Calendar: the signed-in account's meetings, by day, week or month. */
+  const onCalendar = view.kind === 'calendar' && !onUsage;
+  /** A page that takes the whole window, with no library or dock beside it. */
+  const onOwnPage = onPlayground || onCalendar;
   // What the playgrounds are doing, followed on every page: a run goes on when its page is left.
   // (Each of its views reads it itself: what runs re-renders them each second, not the whole app.)
   useEffect(() => {
@@ -272,14 +277,14 @@ export default function App() {
   useEffect(() => {
     if (LIBRARY_PAGES.includes(view.kind)) lastLibraryView.current = view;
   }, [view]);
-  /** The last page that was not the Playground: where the library's and the dock's buttons go back to from it. */
-  const beforePlayground = useRef<View>({ kind: 'home' });
+  /** The last page that was not the Playground or the Calendar: where the library's and the dock's buttons go back to from them. */
+  const beforeOwnPage = useRef<View>({ kind: 'home' });
   useEffect(() => {
-    if (view.kind !== 'playground') beforePlayground.current = view;
+    if (view.kind !== 'playground' && view.kind !== 'calendar') beforeOwnPage.current = view;
   }, [view]);
-  /** Off the Playground, for a panel's button: the page that was open before it, with the panel to show. */
-  const leavePlayground = () => {
-    if (view.kind === 'playground') setView(beforePlayground.current);
+  /** Off the Playground or the Calendar, for a panel's button: the page that was open before it, with the panel to show. */
+  const leaveOwnPage = () => {
+    if (view.kind === 'playground' || view.kind === 'calendar') setView(beforeOwnPage.current);
   };
   const [welcomed, setWelcomed] = useState(() => localStorage.getItem(WELCOME_KEY) === 'true');
   // The guided tour: round the app once, on the first visit past the opening
@@ -540,7 +545,7 @@ export default function App() {
   // The tab's title names the page, so a history of them can be told apart.
   useEffect(() => {
     if (view.kind === 'playground' && view.id) return; // the playground names itself
-    const lists: Partial<Record<View['kind'], string>> = { all: 'Library', reading: 'Reading', unread: 'Not started', finished: 'Finished', unsorted: 'Unsorted', junk: 'Junk', playground: 'Playground', projects: 'Projects' };
+    const lists: Partial<Record<View['kind'], string>> = { all: 'Library', reading: 'Reading', unread: 'Not started', finished: 'Finished', unsorted: 'Unsorted', junk: 'Junk', playground: 'Playground', projects: 'Projects', calendar: 'Calendar' };
     const name = usageOpen
       ? 'Usage'
       : view.kind === 'paper'
@@ -907,7 +912,7 @@ export default function App() {
           ? `${view.mode === 'workspace' ? 'In the workspace of' : 'Looking over'} the research project “${name ?? 'Project'}”${question ? `, which asks: ${question}` : ''}`
           : view.kind === 'projects'
             ? 'Looking over every research project side by side'
-            : { home: 'On Home — the paper last read, what is in progress and the latest highlights', all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library', playground: 'In the Playground — code of their own, not tied to one paper' }[view.kind];
+            : { home: 'On Home — the paper last read, what is in progress and the latest highlights', all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library', playground: 'In the Playground — code of their own, not tied to one paper', calendar: 'On the Calendar page — their meetings, by day, week or month' }[view.kind];
     const library = Array.from(document.querySelectorAll('.paper-name'), (el) => el.textContent?.trim() ?? '').filter(Boolean);
     return { where, library };
   }, [view, papers, collections, highlights, explainOpen]);
@@ -1148,8 +1153,8 @@ export default function App() {
   const toggleLibrary = () => {
     setUsageOpen(false);
     panelTouched();
-    if (onPlayground) {
-      leavePlayground();
+    if (onOwnPage) {
+      leaveOwnPage();
       setLibraryOpen(true);
       return;
     }
@@ -1158,8 +1163,8 @@ export default function App() {
   const toggleDiscover = () => {
     setUsageOpen(false);
     panelTouched();
-    if (onPlayground) {
-      leavePlayground();
+    if (onOwnPage) {
+      leaveOwnPage();
       setDock('discover');
       return;
     }
@@ -1168,8 +1173,8 @@ export default function App() {
   const toggleNotesPanel = () => {
     setUsageOpen(false);
     panelTouched();
-    if (onPlayground) {
-      leavePlayground();
+    if (onOwnPage) {
+      leaveOwnPage();
       setDock('notes');
       return;
     }
@@ -1204,9 +1209,9 @@ export default function App() {
     </button>
   );
   const navPanels: NavPanel[] = [
-    { key: 'library', label: 'Library', title: 'Your collections, beside the page', icon: <LibraryIcon size={17} />, on: libraryOpen && !onPlayground && !onUsage, onClick: toggleLibrary, side: 'left' },
-    { key: 'discover', label: 'Discover', title: 'Search the indexes, beside the page', icon: <SearchIcon size={17} />, on: dockPane === 'discover' && !onPlayground && !onUsage, onClick: toggleDiscover, side: 'right' },
-    { key: 'notes', label: 'Notes', title: 'Highlights and notes, beside the page (H, or ⌘⇧\\)', icon: <HighlighterIcon size={17} />, on: notesShown && !onPlayground && !onUsage, onClick: toggleNotesPanel, side: 'right' },
+    { key: 'library', label: 'Library', title: 'Your collections, beside the page', icon: <LibraryIcon size={17} />, on: libraryOpen && !onOwnPage && !onUsage, onClick: toggleLibrary, side: 'left' },
+    { key: 'discover', label: 'Discover', title: 'Search the indexes, beside the page', icon: <SearchIcon size={17} />, on: dockPane === 'discover' && !onOwnPage && !onUsage, onClick: toggleDiscover, side: 'right' },
+    { key: 'notes', label: 'Notes', title: 'Highlights and notes, beside the page (H, or ⌘⇧\\)', icon: <HighlighterIcon size={17} />, on: notesShown && !onOwnPage && !onUsage, onClick: toggleNotesPanel, side: 'right' },
     { key: 'ask', label: 'Ask AI', title: 'Ask AI, in a window over the page (⌘\\)', icon: <SparkleIcon size={17} />, on: assistantOpen, onClick: () => setAssistantOpen(!assistantOpen), side: 'float' },
   ];
   const navModel: NavModel = {
@@ -1220,6 +1225,7 @@ export default function App() {
       { key: 'library', label: 'Library', title: 'The Library: your papers and collections', icon: <LibraryIcon size={19} />, active: onLibraryPage, aside: String(papers.length), onClick: goLibrary },
       { key: 'projects', label: 'Projects', title: 'Every project, side by side', icon: <GridIcon size={19} />, active: view.kind === 'projects' && !onUsage, onClick: () => (setUsageOpen(false), setView({ kind: 'projects' })) },
       { key: 'playground', label: 'Code', title: 'Playground — code of your own, on Colab, your PC or a GPU elsewhere (P)', icon: <CodeIcon size={19} />, active: onPlayground, badge: shows.dock ? <RailRunBadge onOpen={goToPlayground} /> : undefined, onClick: () => (setUsageOpen(false), setView({ kind: 'playground' })) },
+      ...(usesGoogle ? [{ key: 'calendar', label: 'Calendar', title: 'Calendar — your meetings, by day, week or month', icon: <CalendarIcon size={19} />, active: onCalendar, onClick: () => (setUsageOpen(false), setView({ kind: 'calendar' })) }] : []),
       ...(isOwner ? [{ key: 'usage', label: 'Usage', title: 'Usage — who has signed in, and what they used on your accounts', icon: <ChartIcon size={19} />, active: onUsage, onClick: () => setUsageOpen(!usageOpen) }] : []),
     ],
     projects: showWelcome
@@ -1261,7 +1267,9 @@ export default function App() {
           ? 'Projects'
           : view.kind === 'playground'
             ? 'Playground'
-            : 'Library';
+            : view.kind === 'calendar'
+              ? 'Calendar'
+              : 'Library';
   return (
     <div
       ref={appRef}
@@ -1304,14 +1312,14 @@ export default function App() {
         <button
           type="button"
           className="icon-btn"
-          aria-pressed={libraryOpen && !onPlayground}
+          aria-pressed={libraryOpen && !onOwnPage}
           aria-label="Library"
           title="Library — your collections and what you are reading"
           onClick={() => {
             setUsageOpen(false);
             panelTouched();
-            if (onPlayground) {
-              leavePlayground();
+            if (onOwnPage) {
+              leaveOwnPage();
               setLibraryOpen(true);
               return;
             }
@@ -1323,14 +1331,14 @@ export default function App() {
         <button
           type="button"
           className="icon-btn"
-          aria-pressed={dockPane === 'discover' && !onPlayground}
+          aria-pressed={dockPane === 'discover' && !onOwnPage}
           aria-label="Discover papers"
           title="Discover"
           onClick={() => {
             setUsageOpen(false);
             panelTouched();
-            if (onPlayground) {
-              leavePlayground();
+            if (onOwnPage) {
+              leaveOwnPage();
               setDock('discover');
               return;
             }
@@ -1342,14 +1350,14 @@ export default function App() {
         <button
           type="button"
           className="icon-btn"
-          aria-pressed={notesShown && !onPlayground}
+          aria-pressed={notesShown && !onOwnPage}
           aria-label="Highlights and notes"
           title="Highlights and notes (H, or ⌘⇧\)"
           onClick={() => {
             setUsageOpen(false);
             panelTouched();
-            if (onPlayground) {
-              leavePlayground();
+            if (onOwnPage) {
+              leaveOwnPage();
               setDock('notes');
               return;
             }
@@ -1384,6 +1392,21 @@ export default function App() {
         </button>
         {shows.dock ? <RailRunBadge onOpen={goToPlayground} /> : null}
         </div>
+        {usesGoogle ? (
+          <button
+            type="button"
+            className={`icon-btn${onCalendar ? ' is-active' : ''}`}
+            aria-current={onCalendar ? 'page' : undefined}
+            aria-label="Calendar"
+            title="Calendar — your meetings, by day, week or month"
+            onClick={() => {
+              setUsageOpen(false);
+              setView({ kind: 'calendar' });
+            }}
+          >
+            <CalendarIcon size={19} />
+          </button>
+        ) : null}
         {chipInRail(settings) && !showWelcome ? <RailCompute /> : null}
         {!showWelcome ? (
           <RailProjects
@@ -1447,7 +1470,7 @@ export default function App() {
         <Nav style={navStyle} model={navModel} />
       )}
 
-      {libraryOpen && !showWelcome && !onUsage && !onPlayground ? (
+      {libraryOpen && !showWelcome && !onUsage && !onOwnPage ? (
         <Library
           view={view}
           activePaperId={reading}
@@ -1493,6 +1516,8 @@ export default function App() {
         <Home returnTo={returnPaper} returnFromThisVisit={Boolean(lastPaperId && returnPaper?.id === lastPaperId)} onOpenPaper={openPaper} onOpenHighlight={openHighlight} onSearch={() => setPaletteOpen(true)} onDiscover={addPapers} onShowNotes={() => openNotesRef.current()} />
       ) : view.kind === 'playground' ? (
         <Playground id={view.id} onOpen={(id) => setView(id ? { kind: 'playground', id } : { kind: 'playground' })} onOpenPaper={openPaper} />
+      ) : view.kind === 'calendar' ? (
+        <Calendar onOpenSettings={() => setSettingsOpen(true)} />
       ) : view.kind === 'projects' || view.kind === 'project' ? (
         <ProjectsPage view={view} onView={setView} onOpenPaper={openPaper} onAddPapers={addPapersToProject} />
       ) : view.kind === 'junk' ? (
@@ -1501,7 +1526,7 @@ export default function App() {
         <CollectionView view={view} onOpenPaper={openPaper} onDiscover={addPapers} />
       ))}
 
-      {shownDock && !showWelcome && !onUsage && !onPlayground ? (
+      {shownDock && !showWelcome && !onUsage && !onOwnPage ? (
         <div className="dock">
           <div className="dock-tabs" role="tablist" aria-label="Side panel">
             <button

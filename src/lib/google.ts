@@ -63,6 +63,14 @@ const DRIVE_SCOPES = `${APPDATA_SCOPE} ${DRIVE_SCOPE}`;
  */
 export const COLAB_SCOPE = 'https://www.googleapis.com/auth/colaboratory';
 
+/**
+ * Calendar: the scope that lets the Calendar page read the meetings in the
+ * signed-in account's calendars. Read-only — the page shows a calendar and
+ * never writes to one. Asked for on its own, like Colab, the first time the
+ * page is opened.
+ */
+export const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+
 interface TokenResponse {
   access_token?: string;
   expires_in?: number;
@@ -419,6 +427,17 @@ export function hasColabAccess(): boolean {
   return currentScopes().includes(COLAB_SCOPE);
 }
 
+export function hasCalendarAccess(): boolean {
+  return currentScopes().includes(CALENDAR_SCOPE);
+}
+
+/**
+ * The scopes granted beyond identity and Drive, to keep on a renewal: Google's
+ * token carries only what the request named, so a renewal for one thing
+ * (Drive, say) that left out the others would lose them until the next click.
+ */
+const extraScopes = (): string[] => [hasColabAccess() ? COLAB_SCOPE : '', hasCalendarAccess() ? CALENDAR_SCOPE : ''].filter(Boolean);
+
 async function fetchProfile(accessToken: string): Promise<GoogleUser> {
   const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -599,7 +618,7 @@ export async function renewNow(clientId: string): Promise<void> {
 export async function ensureDriveToken(clientId: string): Promise<string> {
   if (token && token.expiresAt > Date.now() && token.scopes.includes(DRIVE_SCOPE)) return token.accessToken;
   // An empty prompt reuses the existing grant without showing the dialog again; once, and only from a click.
-  const granted = await renewQuietly(clientId, [IDENTITY_SCOPES, DRIVE_SCOPES]);
+  const granted = await renewQuietly(clientId, [IDENTITY_SCOPES, DRIVE_SCOPES, ...extraScopes()]);
   if (!granted.scopes.includes(DRIVE_SCOPE)) throw new Error('Drive access was not granted');
   return granted.accessToken;
 }
@@ -612,7 +631,7 @@ export async function ensureDriveToken(clientId: string): Promise<string> {
  * granted so far, so Drive keeps working on it.
  */
 export function connectColab(clientId: string): Promise<string> {
-  const scopes = [IDENTITY_SCOPES, hasDriveAccess() ? DRIVE_SCOPES : '', COLAB_SCOPE].filter(Boolean);
+  const scopes = [IDENTITY_SCOPES, hasDriveAccess() ? DRIVE_SCOPES : '', COLAB_SCOPE, hasCalendarAccess() ? CALENDAR_SCOPE : ''].filter(Boolean);
   // Once for every caller, and a window only from a click: a run's polling that lost its token waits for the prompt.
   return renewQuietly(clientId, scopes).then((granted) => {
     if (!granted.scopes.includes(COLAB_SCOPE)) throw new Error('Colab access was not granted');
@@ -624,9 +643,36 @@ export function connectColab(clientId: string): Promise<string> {
 export async function colabToken(clientId: string): Promise<string | null> {
   if (token && token.expiresAt > Date.now() && token.scopes.includes(COLAB_SCOPE)) return token.accessToken;
   if (!token?.scopes.includes(COLAB_SCOPE)) return null;
-  const scopes = [IDENTITY_SCOPES, token.scopes.includes(DRIVE_SCOPE) ? DRIVE_SCOPES : '', COLAB_SCOPE].filter(Boolean);
+  const scopes = [IDENTITY_SCOPES, token.scopes.includes(DRIVE_SCOPE) ? DRIVE_SCOPES : '', COLAB_SCOPE, token.scopes.includes(CALENDAR_SCOPE) ? CALENDAR_SCOPE : ''].filter(Boolean);
   const granted = await renewQuietly(clientId, scopes);
   return granted.scopes.includes(COLAB_SCOPE) ? granted.accessToken : null;
+}
+
+/**
+ * Incremental consent for the calendar, as for Colab: keeps identity, Drive
+ * and Colab where they have been granted, adds reading the calendar. Google
+ * shows its window for the new scope, so this has to happen inside a click.
+ */
+export function connectCalendar(clientId: string): Promise<string> {
+  const scopes = [IDENTITY_SCOPES, hasDriveAccess() ? DRIVE_SCOPES : '', hasColabAccess() ? COLAB_SCOPE : '', CALENDAR_SCOPE].filter(Boolean);
+  return renewQuietly(clientId, scopes).then((granted) => {
+    if (!granted.scopes.includes(CALENDAR_SCOPE)) throw new Error('Calendar access was not granted');
+    return granted.accessToken;
+  });
+}
+
+/** The live token with the calendar on it, renewed quietly on the grant already given; null when the calendar was never connected in this tab. */
+export async function calendarToken(clientId: string): Promise<string | null> {
+  if (token && token.expiresAt > Date.now() && token.scopes.includes(CALENDAR_SCOPE)) return token.accessToken;
+  if (!token?.scopes.includes(CALENDAR_SCOPE)) return null;
+  const scopes = [IDENTITY_SCOPES, token.scopes.includes(DRIVE_SCOPE) ? DRIVE_SCOPES : '', token.scopes.includes(COLAB_SCOPE) ? COLAB_SCOPE : '', CALENDAR_SCOPE].filter(Boolean);
+  const granted = await renewQuietly(clientId, scopes);
+  return granted.scopes.includes(CALENDAR_SCOPE) ? granted.accessToken : null;
+}
+
+/** Forget the calendar in this tab, as `dropColab` forgets Colab: the token goes, and Drive asks quietly for itself next. */
+export function dropCalendar(): void {
+  if (token?.scopes.includes(CALENDAR_SCOPE)) forgetToken();
 }
 
 /**

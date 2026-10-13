@@ -750,7 +750,9 @@ into is visible to anyone hosting the site.
 In the [Google Cloud Console](https://console.cloud.google.com/), create a
 project (or pick one you already have), then **APIs & Services → Library →
 Google Drive API → Enable**. Without this the sign-in works and every Drive call
-comes back 403.
+comes back 403. The [Calendar](#calendar) page reads Google Calendar the same
+way, so enable **Google Calendar API** there too, or that page's connect comes
+back 403 and says so.
 
 ### 2. An OAuth client ID
 
@@ -1012,8 +1014,8 @@ collection, or onto Junk. Escape lets go of the selection.
 ### Navigation
 
 Two kinds of thing are in the navigation: **pages**, which the main area goes
-to — Home, the paper being read, the Library, Projects and each project, and
-the Playground — and **panels**, which open beside whatever page is showing:
+to — Home, the paper being read, the Library, Projects and each project, the
+Playground and the Calendar — and **panels**, which open beside whatever page is showing:
 the Library's collections, Discover, Notes and Ask AI. Settings → Navigation
 lays them out one of five ways:
 
@@ -4570,6 +4572,52 @@ idle stop works from any page, and stops its machine when nothing else is on it.
   and an A100) at once, one shared, Shut down stopping one machine, and the tier
   limit.
 
+## Calendar
+
+The **Calendar** is the signed-in Google account's calendar, in the rail beside
+Code: every meeting in the account's calendars, by **day**, **week** or
+**month**. It is a page of its own at `/calendar`, and the library and the dock
+step aside for it as they do for the Playground.
+
+![the week: seven columns on a time axis, the all-day row above, today marked with the line of now, overlapping meetings side by side](docs/calendar-week.png)
+
+The first time, the page offers to **connect** the calendar. Google asks for
+read access to it — `calendar.readonly`, asked for on its own like Colab's
+scope, on top of the sign-in's identity and Drive — and nothing here ever
+writes to a calendar. The grant is remembered in this tab with the sign-in;
+after Google's hour it is renewed quietly, and Settings → Google says whether
+the calendar is connected, with **Forget** beside it. Taking the permission
+away for good is done at myaccount.google.com/permissions.
+
+- **Week** (the default) — seven columns on a time axis, the week starting on
+  the day it does where you are. All-day events and ones that run past
+  midnight sit in a row above the hours; meetings that overlap share the
+  column side by side; today is marked, with a line at now, and the grid opens
+  an hour before it. A meeting you declined is struck through, one you have
+  not answered is drawn dashed, a tentative one is hatched.
+- **Day** — one column, with the day's meetings as a list beside it: the time
+  and length of each, where it is, **Join** for one with a video call, how many
+  hours the day has in meetings, and the one on now.
+- **Month** — six weeks of seven days, each day's first three events on it and
+  the rest behind **+N more**, which opens the day.
+
+![the day: the column beside its list, with Join on the meetings that have a call](docs/calendar-day.png)
+
+![the month, with all-day events as bars and a full day folded behind "+2 more"](docs/calendar-month.png)
+
+Click a meeting anywhere and a card opens beside it: when and for how long,
+where, how many guests and how many are going, which calendar it is on and
+your answer, the description, **Join**, and **Open in Google Calendar**.
+Every calendar the account keeps is a chip under the title; click one to hide
+it from the page, and again to bring it back. **Today**, **‹** and **›** step
+the view; so do <kbd>T</kbd>, <kbd>←</kbd> and <kbd>→</kbd>, and <kbd>D</kbd>,
+<kbd>W</kbd> and <kbd>M</kbd> pick the view. The page reads the calendar again
+every five minutes while it is open, and **Refresh** does so now.
+
+![a meeting's card over the week](docs/calendar-card.png)
+
+![the week in the dark theme, on the two-zone rail](docs/calendar-week-dark.png)
+
 ## Addresses
 
 Every page has its own address, so a link can be kept or shared, a reload
@@ -4583,6 +4631,7 @@ stays where it was, and Back and Forward go between pages:
 | `/paper/?id=<id>` | a paper |
 | `/usage` | the usage page, for its owner |
 | `/playground`, `/playground/?id=<id>` | the Playground, and one playground |
+| `/calendar` | the Calendar: the signed-in account's meetings |
 
 Panels such as the library, the dock and Ask AI open over a page and do not
 change its address. The tab's title names the page. `src/lib/route.ts` maps
@@ -4604,6 +4653,8 @@ server/fetchPdf.js      which URLs the PDF route will fetch, and what it accepts
 server/index.js         production Express server
 src/lib/anchor.ts       text-quote anchoring: resolve, paint, unpaint
 src/lib/route.ts        each page's address, and the page an address names
+src/lib/calendar.ts     the Calendar page: the days each view shows, where a
+                        meeting goes on the grid, and Google Calendar read
 src/lib/playground.ts   the Playground: playgrounds, Jupyter servers, the
                         files and their sync
 src/lib/api.ts          where the proxy is: the build's default, the setting
@@ -4693,6 +4744,7 @@ node scripts/hover-smoke.mjs    # the cards over an author's name and a citation
 node scripts/pdf-book-smoke.mjs # a Scholar byline read right, the venue's card, the PDF as a book
 node scripts/pdf-assistant-smoke.mjs # every author off the PDF's first page; Ask Claude reading a PDF
 node scripts/library-smoke.mjs  # the list and cards, selecting, moving, marking, Junk and back
+node scripts/calendar-smoke.mjs # the Calendar page: connecting, the week, the day, the month, a meeting's card
 
 npm run build                  # then, needing no server of its own:
 node scripts/versions-drive.mjs
