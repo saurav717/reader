@@ -773,7 +773,8 @@ verified this app**: **Advanced → Go to Reader** lets you through, for up to a
 hundred accounts. To take the screen away for everyone, submit the app for
 verification under **APIs & Services → OAuth consent screen**: Google asks for
 a homepage and a privacy policy on your own domain (the site serves one at
-`/privacy/`, and terms at `/terms/`, from `public/`) and why the scope is
+`/privacy/`, and terms at `/terms/`, from `public/`; the opening screen, Settings → Google
+and the Calendar page's connect card link to them) and why the scope is
 needed (read only, shown to the person signed in, nothing kept on a server),
 and answers in days to a couple of weeks. Testing mode is not the way round
 it: it would block everyone not on its list from the Drive sign-in too.

@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import { useStore } from '../lib/store';
 import * as google from '../lib/google';
+import { basePath } from '../lib/route';
 import {
   CalendarRequestError,
   MINUTES_IN_DAY,
@@ -452,6 +453,7 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
               ? undefined
               : 'Reading a calendar is what Google calls a sensitive permission, so until this copy of Reader is verified with Google its window first says “Google hasn’t verified this app”: Advanced, then Go to Reader, lets you through to the usual consent screen.'
           }
+          more={{ href: `${basePath()}privacy/`, label: 'What Reader does with your calendar: the privacy policy' }}
           action={{ label: connecting ? 'Connecting…' : wasConnected() ? 'Reconnect calendar' : 'Connect Google Calendar', onClick: connect, disabled: connecting, primary: true }}
         />
       </div>
@@ -487,7 +489,7 @@ export default function Calendar({ onOpenSettings, onOpenProject }: { onOpenSett
   );
 }
 
-function Empty({ title, text, error, note, action }: { title: string; text: string; error?: string | null; note?: string; action: { label: string; onClick: () => void; disabled?: boolean; primary?: boolean } }) {
+function Empty({ title, text, error, note, more, action }: { title: string; text: string; error?: string | null; note?: string; /** A page that says more, under the note. */ more?: { href: string; label: string }; action: { label: string; onClick: () => void; disabled?: boolean; primary?: boolean } }) {
   return (
     <div className="scroll" style={{ padding: '18px 32px 32px' }}>
       <div className="cal-empty">
@@ -499,6 +501,13 @@ function Empty({ title, text, error, note, action }: { title: string; text: stri
           {action.label}
         </button>
         {note ? <p className="cal-empty-note">{note}</p> : null}
+        {more ? (
+          <p className="cal-empty-note">
+            <a href={more.href} style={{ color: 'inherit' }}>
+              {more.label}
+            </a>
+          </p>
+        ) : null}
       </div>
     </div>
   );
