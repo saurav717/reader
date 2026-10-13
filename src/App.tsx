@@ -337,6 +337,9 @@ export default function App() {
   const [notesWindow, setNotesWindow] = useState(false);
   // The open paper's notes full screen, on a board of their own.
   const [boardOpen, setBoardOpen] = useState(false);
+  // The paper on screen in a project's workspace (Read, or Code beside the
+  // paper): Explain opens over it there as it does over the paper's own page.
+  const [workspacePaper, setWorkspacePaper] = useState<string | null>(null);
   const notesWindowRef = useRef(notesWindow);
   notesWindowRef.current = notesWindow;
   const [notesFloat, setNotesFloat] = useState(() => tabState.get(NOTES_FLOAT_KEY) === 'true');
@@ -654,6 +657,10 @@ export default function App() {
   }, [ready, papers, view]);
 
   const readingNow = view.kind === 'paper';
+  // A project's workspace with one of its papers up: Read, or Code beside the paper.
+  const paperInWorkspace = view.kind === 'project' && (view.mode === 'read' || view.mode === 'workspace') ? workspacePaper : null;
+  // Where a paper can be explained: its own page, or a project's workspace with one of its papers up.
+  const explainNow = readingNow || paperInWorkspace !== null;
   useEffect(() => {
     if (view.kind === 'paper') setLastPaperId(view.id);
   }, [view]);
@@ -733,8 +740,8 @@ export default function App() {
         toggleFullscreen();
         return;
       }
-      // E, the same way, opens and closes the explanation of the paper.
-      if (readingNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'e' && !isTyping(event.target)) {
+      // E, the same way, opens and closes the explanation of the paper — on its page, or in a project's workspace.
+      if (explainNow && !event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'e' && !isTyping(event.target)) {
         if (document.querySelector('.scrim, .sheet, .palette')) return;
         event.preventDefault();
         toggleExplain();
@@ -770,7 +777,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [toggleZen, toggleExplain, toggleFullscreen, readingNow, view, settings.runningShows.switcher]);
+  }, [toggleZen, toggleExplain, toggleFullscreen, readingNow, explainNow, view, settings.runningShows.switcher]);
 
   // Full screen is for reading: leaving the paper leaves it too.
   useEffect(() => {
@@ -847,8 +854,9 @@ export default function App() {
 
   /** What the Claude window may know about the page, read at the moment of sending. */
   const readScreen = useCallback(async (): Promise<Screen> => {
-    if (view.kind === 'paper') {
-      const paper = papers.find((p) => p.id === view.id);
+    const readingId = view.kind === 'paper' ? view.id : paperInWorkspace;
+    if (readingId) {
+      const paper = papers.find((p) => p.id === readingId);
       if (paper) {
         let fullText = paperText();
         let visible = visiblePassage();
@@ -927,7 +935,7 @@ export default function App() {
             : { home: 'On Home — the paper last read, what is in progress and the latest highlights', all: 'Browsing all papers', reading: 'Browsing papers being read', unread: 'Browsing papers not started', finished: 'Browsing finished papers', unsorted: 'Browsing unsorted papers', junk: 'Browsing the papers removed to Junk', paper: 'Browsing the library', playground: 'In the Playground — code of their own, not tied to one paper', calendar: 'On the Calendar page — their meetings, by day, week or month' }[view.kind];
     const library = Array.from(document.querySelectorAll('.paper-name'), (el) => el.textContent?.trim() ?? '').filter(Boolean);
     return { where, library };
-  }, [view, papers, collections, highlights, explainOpen]);
+  }, [view, papers, collections, highlights, explainOpen, paperInWorkspace]);
 
   const closeAssistant = useCallback(() => setAssistantOpen(false), []);
 
@@ -1059,7 +1067,9 @@ export default function App() {
   // The Draft tab goes when Settings no longer puts the writing in the dock: Discover takes its place.
   const dockPane: Dock = dock === 'draft' && !draftDock ? 'discover' : dock;
   const inZen = zenOn && !showWelcome;
-  const explained = reading ? papers.find((paper) => paper.id === reading) : undefined;
+  // What Explain is about: the paper on its own page, or the one up in a project's workspace.
+  const explainedId = reading ?? paperInWorkspace;
+  const explained = explainedId ? papers.find((paper) => paper.id === explainedId) : undefined;
   // In zen mode the right edge always has something to bring out: the dock as
   // it was left, or the highlights if it was shut — or Discover, when the
   // highlights are out in their window already.
@@ -1546,7 +1556,7 @@ export default function App() {
       ) : view.kind === 'calendar' ? (
         <Calendar onOpenSettings={() => setSettingsOpen(true)} onOpenProject={(id) => (setUsageOpen(false), setView(projectView(id, settings.projectOpensOn)))} />
       ) : view.kind === 'projects' || view.kind === 'project' ? (
-        <ProjectsPage view={view} onView={setView} onOpenPaper={openPaper} onAddPapers={addPapersToProject} />
+        <ProjectsPage view={view} onView={setView} onOpenPaper={openPaper} onAddPapers={addPapersToProject} explaining={explainOpen} onToggleExplain={toggleExplain} onReading={setWorkspacePaper} />
       ) : view.kind === 'junk' ? (
         <JunkView />
       ) : (
