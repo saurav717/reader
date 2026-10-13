@@ -2459,9 +2459,9 @@ the Web button's tools (Anthropic's web search; DeepSeek's two functions) — fo
 the models the app offers; no other tool can be slipped in to spend the key on
 something else. The proxy reads the tokens off the stream as it passes and puts
 them on the usage tally itself. On the Worker, `AI_FOR` in `wrangler.toml` says
-who may use the keys: `owners` (the default — `READER_TOKEN` and the accounts in
-`READER_OWNERS`) or `everyone` signed in, which spends your accounts on each of
-them, up to the per-person limit. (`GEMINI_FOR`, the older setting, is still
+who may use the keys: `everyone` signed in with Google (what this site ships
+with), which spends your accounts on each of them, up to the per-person limit,
+or `owners` alone (`READER_TOKEN` and the accounts in `READER_OWNERS`). (`GEMINI_FOR`, the older setting, is still
 read for Gemini when `AI_FOR` is unset.) `/health` says which keys it holds —
 `"ai": {"anthropic": true, "deepseek": true, "gemini": true}` — and the picker
 says what is missing until then: no key on the proxy, or no sign-in.
