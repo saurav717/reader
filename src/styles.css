@@ -6868,6 +6868,9 @@ li:hover > .pj-x, .pj-paper:hover .pj-x, .pj-x:focus-visible { opacity: 1; }
 .pj-tree-item:hover { background: rgba(127, 127, 127, 0.1); }
 .pj-tree-item.is-on { background: var(--accent-soft); color: var(--accent-ink); font-weight: 500; }
 .pj-tree-item.is-static { cursor: default; }
+.pj-tree-add { margin-top: 2px; color: var(--muted); }
+.pj-tree-add:hover { color: var(--ink); }
+.pj-tree-add.is-on { color: var(--accent-ink); }
 .pj-tree-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-tree-meta { flex: none; font-size: 10.5px; color: var(--muted); }
 .pj-tree-code { display: flex; align-items: center; gap: 4px; padding-right: 8px; }
