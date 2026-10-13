@@ -1411,6 +1411,10 @@ export default function Reader({
           );
         })}
       </p>
+      {content?.anonymous && paper.authors.length ? (
+        // The PDF is the blind-review copy: the names over it are the paper's record, not the file's.
+        <p className="paper-byline">Authors from the paper's record — this PDF is the anonymized submission, and names none.</p>
+      ) : null}
       {byline && (byline.notes.length || byline.affiliations.length) ? (
         // What the marks stand for, and where the authors were, as the first page says.
         <p className="paper-byline">

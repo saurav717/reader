@@ -146,6 +146,12 @@ export interface Layout {
    * and the institutions named — where the authors were when they wrote it.
    */
   byline?: PaperByline;
+  /**
+   * Whether the first page withholds its authors — "Anonymous authors",
+   * "Paper under double-blind review" — as a submission does. The names a
+   * search or the venue gives are then from somewhere other than this file.
+   */
+  anonymous?: boolean;
 }
 
 export interface BylineAuthor {
@@ -3063,6 +3069,7 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
   let frontAuthors: string[] = [];
   let front: Span[][] = [];
   let byline: PaperByline | undefined;
+  let anonymous = false;
   let inReferences = false;
   const headings: { block: Extract<Block, { kind: 'heading' }>; size: number; numbered: number; sub?: boolean }[] = [];
   let carry: Extract<Block, { kind: 'paragraph' }> | null = null;
@@ -3210,10 +3217,9 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
           : -1;
         if (bylineAt >= 0) abstractAt = paras.findIndex((paragraph, index) => index > bylineAt && !paragraph.region && paragraph.lines.length >= 3);
       }
-      frontAuthors = authorsOnFront(
-        ordered.filter((line) => line.baseline < (abstractAt > 0 ? paras[abstractAt].lines[0].top : page.height * 0.4)),
-        options.title,
-      );
+      const frontLines = ordered.filter((line) => line.baseline < (abstractAt > 0 ? paras[abstractAt].lines[0].top : page.height * 0.4));
+      frontAuthors = authorsOnFront(frontLines, options.title);
+      anonymous = frontLines.some((line) => ANONYMOUS_BYLINE.test(plain(spansOf([line]))));
       if (abstractAt > 0) {
         // A figure or a table at the head of a column is read before the
         // abstract under it, and is not front matter: it follows the
@@ -3502,10 +3508,14 @@ export function layoutPages(inputs: PageInput[], options: LayoutOptions = {}): L
     authors: frontAuthors.length ? frontAuthors : undefined,
     front: front.length ? front : undefined,
     byline,
+    anonymous: anonymous || undefined,
   };
 }
 
 // ---------------------------------------------------------------- authors --
+
+/** A byline that withholds the names: "Anonymous authors", "Anonymous submission", "Paper under double-blind review". */
+const ANONYMOUS_BYLINE = /\banonymous\s+(?:authors?|author\(s\)|submission|for\s+review)\b|\bdouble[- ]blind\s+review\b/i;
 //
 // The byline on the first page. Search results cut it short — Google Scholar
 // keeps six names and initials — so the PDF's own list is the one to trust.
