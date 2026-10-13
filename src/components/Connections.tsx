@@ -171,8 +171,9 @@ export function GitHubConnect({ compact = false, onAccount }: { compact?: boolea
           <button
             type="button"
             className="link-btn"
-            onClick={() => {
-              if (saved === ON_SERVER) void forgetGitHubToken();
+            onClick={async () => {
+              // Forgotten by the server first: until it is, asking it would find the connection and take it up again.
+              if (saved === ON_SERVER) await forgetGitHubToken();
               updateSettings({ githubToken: '' });
             }}
             title={via === 'app' || via === 'oauth' ? 'Disconnect, and revoke Reader’s access with GitHub' : 'Forget the token (revoke it on GitHub too, if you are done with it)'}
@@ -393,7 +394,7 @@ export function ProjectConnections() {
  * them up: a private repository made for the code, or one of the account's.
  */
 export function CodeGitHub({ project, code }: { project: Project; code: Playground | undefined }) {
-  const { settings, updateCollection } = useStore();
+  const { settings, updateCollection, updateSettings } = useStore();
   const token = settings.githubToken.trim();
   const repo = project.project.codeRepo;
   const [open, setOpen] = useState(false);
@@ -430,8 +431,22 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
   }, [open]);
   useEffect(() => {
     if (!open || !choosing || mine) return;
-    writableRepos(token).then(setMine, () => setMine([]));
+    setListProblem(null);
+    writableRepos(token).then(setMine, (error: unknown) => {
+      // Said, not shown as an empty list: an error is not "no repositories".
+      setMine([]);
+      setListProblem(error instanceof Error ? error.message : String(error));
+    });
   }, [open, choosing, mine, token]);
+  const [listProblem, setListProblem] = useState<string | null>(null);
+  const disconnect = async () => {
+    // Forgotten by the server first: until it is, asking it would find the connection and take it up again.
+    if (token === ON_SERVER) await forgetGitHubToken();
+    updateSettings({ githubToken: '' });
+    setConnection(null);
+    setMine(null);
+    setChanging(false);
+  };
   const viaApp = connection?.via === 'app';
   const chooseRepos = `https://github.com/apps/${connection?.methods?.appSlug ?? ''}/installations/new`;
 
@@ -525,7 +540,14 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
                     Use
                   </button>
                 </div>
-                {mine && !mine.length ? (
+                {listProblem ? (
+                  <p className="cx-bad">
+                    GitHub didn’t list your repositories: {listProblem}{' '}
+                    <button type="button" className="link-btn" onClick={() => setMine(null)}>
+                      Try again
+                    </button>
+                  </p>
+                ) : mine && !mine.length ? (
                   <p className="cx-quiet">
                     {viaApp ? (
                       <>
@@ -587,6 +609,25 @@ export function CodeGitHub({ project, code }: { project: Project; code: Playgrou
             </>
           ) : null}
           {busy ? <p className="cx-quiet">{busy}</p> : null}
+          {token ? (
+            <div className="cx-pop-foot">
+              <span className="cx-quiet">
+                GitHub: <b>{token === ON_SERVER ? connection?.login ?? '…' : 'a token in this browser'}</b>
+                {connection?.via === 'app' ? ' · Reader’s GitHub App' : connection?.via === 'oauth' ? ' · Signed in with GitHub' : ''}
+              </span>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => {
+                  if (!window.confirm('Disconnect GitHub from Reader? Reader’s access is revoked with GitHub and its token forgotten, for every project. (To sign in as another GitHub account next time, sign out of github.com first.)')) return;
+                  void disconnect();
+                }}
+                title="Sign out of GitHub in Reader: its access revoked, the token forgotten"
+              >
+                Disconnect
+              </button>
+            </div>
+          ) : null}
           {problem ? <p className="cx-bad">{problem}</p> : null}
         </div>
       ) : null}

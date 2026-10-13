@@ -7799,3 +7799,4 @@ body.is-dragging-y, body.is-dragging-y * { cursor: row-resize !important; user-s
 .cx-compare thead th { border-top: 0; font-weight: 600; color: var(--ink); }
 .cx-compare tbody th { font-weight: 500; color: var(--muted); white-space: nowrap; }
 @media (max-width: 640px) { .cx-compare { display: block; overflow-x: auto; } }
+.cx-pop-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; border-top: 1px solid var(--border-soft); }
