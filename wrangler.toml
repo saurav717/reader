@@ -134,13 +134,15 @@ SCHOLAR_FIRST = "serpapi"
 #     npx wrangler secret put DEEPSEEK_KEY     # DeepSeek (the Usage page's balance reads it too)
 #     npx wrangler secret put GEMINI_KEY       # Gemini
 #
-# Who may ask on them: "owners", the default — READER_TOKEN and the Google
-# accounts in READER_OWNERS — or "everyone" signed in, which spends the
-# owner's accounts on each of them. Anyone else can still paste a key of
-# their own, which goes straight to its provider and never through here.
+# Who may ask on them: "everyone" signed in with Google — what this site
+# does, so a visitor needs no key of their own; each person is held to
+# PERSON_LIMIT above, and the owner's accounts pay — or "owners" alone:
+# READER_TOKEN and the Google accounts in READER_OWNERS. Anyone can still
+# paste a key of their own under Settings → AI models, which goes straight
+# to its provider, bills their account, and never comes through here.
 # (GEMINI_FOR, the setting before this one, is still read for Gemini when
 # AI_FOR is unset.)
-AI_FOR = "owners"
+AI_FOR = "everyone"
 # The app's Google OAuth client ID — public, it is in the site's JavaScript.
 # A Google sign-in is only taken for a pass when Google says it was made for
 # this client; a sign-in some other site obtained is not one to this app.
