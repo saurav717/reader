@@ -302,6 +302,14 @@ const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
+  /**
+   * Whether this account's library has been read from Drive once since it
+   * was opened here (or that read failed). Until then the page shows nothing:
+   * the copy this browser keeps is only a cache of Drive's file, and may be
+   * stale — or, after the account mix-up an earlier version could cause,
+   * another account's — so it is never shown before Drive has had its say.
+   */
+  const [opened, setOpened] = useState(false);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
@@ -379,6 +387,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     switchDb(account);
     pulled.current = false;
     setReady(false);
+    setOpened(false);
     (async () => {
       const [loadedPapers, loadedCollections, loadedHighlights, loadedJunk] = await Promise.all([
         db.allPapers(),
@@ -716,6 +725,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       void pushLibrary();
     } catch (error) {
       setLibrarySync({ state: 'error', message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      // Read, or failed to: either way the page opens now, on Drive's copy or, failing that, this browser's with the error beside it.
+      setOpened(true);
     }
   }, [applyLibrary, countStrays, currentLibrary, disownOthers, pushLibrary, takeFromGuest]);
 
@@ -1474,9 +1486,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [syncLog],
   );
 
+  /** Signed in with Drive, the page waits for Drive's copy of the library; otherwise the copy here is all there is. */
+  const waitingOnDrive = Boolean(account) && driveConnected && !opened;
   const value = useMemo<StoreValue>(
     () => ({
-      ready,
+      ready: ready && !waitingOnDrive,
       papers,
       collections,
       highlights,
@@ -1526,7 +1540,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       pushToGitHub,
     }),
     [
-      ready, papers, collections, highlights, settings, user, driveConnected, authError, syncLog, librarySync, strays, adoptStrays, discardStrays,
+      ready, waitingOnDrive, papers, collections, highlights, settings, user, driveConnected, authError, syncLog, librarySync, strays, adoptStrays, discardStrays,
       addPaper, removePaper, setPaperCollections, setReadingStatus, junk, restorePaper, purgeJunk, togglePaperTag, setProgress, markOpened, setPaperPdfUrl, setPaperPdfChoice, setPaperDriveFile, setPaperAuthors,
       createCollection, renameCollection, updateCollection, deleteCollection, addHighlight, updateHighlight,
       deleteHighlight, updateSettings, signIn, connectDrive, driveRemembered, askingTabs, signOut, syncPaper, syncPaperNow, syncAll, syncStateFor,
