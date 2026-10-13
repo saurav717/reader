@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { basePath } from '../lib/route';
 import { useStore } from '../lib/store';
 import { captchaSiteKey, hasProxy, setCaptchaAnswer } from '../lib/api';
 import { prepare as prepareGoogle, SIGN_IN_REQUIRED } from '../lib/google';
@@ -136,7 +137,11 @@ export default function Welcome({ onDismiss, onOpenSettings }: { onDismiss: () =
           {mustSignIn
             ? 'Signing in with Google is the way in.'
             : "Without signing in the app works the same, with a library in this browser that belongs to no account; signing in opens your own, from your Drive."}{' '}
-          Nothing is ever sent anywhere else.
+          What the app does with your data, and what it never sees, is on its{' '}
+          <a href={`${basePath()}privacy/`} style={{ color: 'inherit' }}>
+            privacy policy
+          </a>
+          ; the <a href={`${basePath()}terms/`} style={{ color: 'inherit' }}>terms</a> are beside it.
         </p>
       </div>
     </div>

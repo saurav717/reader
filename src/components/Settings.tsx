@@ -56,6 +56,7 @@ import ProxyPass from './ProxyPass';
 import { RunningChooser } from './PlaygroundRuns';
 import { GitHubConnect } from './Connections';
 import { CalendarConnect } from './Calendar';
+import { basePath } from '../lib/route';
 import { startTour } from '../lib/tour';
 import { startShowcase } from '../lib/showcase';
 
@@ -273,6 +274,14 @@ export default function Settings({ onClose }: { onClose: () => void }) {
           ) : null}
 
           <CalendarConnect />
+
+          <p style={{ margin: '10px 2px 0', fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
+            What Reader does with your Google account, your Drive and your calendar, and what it never sees:{' '}
+            <a href={`${basePath()}privacy/`} style={{ color: 'inherit' }}>
+              privacy policy
+            </a>{' '}
+            · <a href={`${basePath()}terms/`} style={{ color: 'inherit' }}>terms of service</a>.
+          </p>
 
           {librarySync.state === 'error' ? (
             <p className="banner error" style={{ marginTop: 10 }}>
