@@ -93,6 +93,20 @@ tour** leaves it at any step; **Settings → Guided tour**, or <kbd>⌘K</kbd> a
 
 ![the tour on the highlights step: the ring round the Notes pane, which H has just opened, and the card saying so](docs/tour.png)
 
+The tour's last card offers a **showcase** — *Show me, with a paper* — and so
+do Settings and the palette. A pointer of the app's own finds *Attention Is
+All You Need*, saves and opens it, turns it from PDF to Reflow to book, asks
+Ask AI where scaled dot-product attention is defined and clicks the passage
+the answer points at, presses <kbd>E</kbd> and has the paper explained,
+plans its implementation, writes a notebook and runs it on a Colab T4 with
+the machine's load beside the cells, then goes between the paper and its
+pages on <kbd>E</kbd>. The paper is saved for real; the model's and Colab's
+part is a replay from `src/showcase/`, so it costs nothing and needs no key
+— the card says so on those scenes. <kbd>→</kbd> skips a scene,
+<kbd>Esc</kbd> leaves.
+
+![the showcase on the Colab scene: the notebook the model wrote, its cells run on a T4, the machine's load in the bar](docs/showcase-colab.png)
+
 ## Running it
 
 ```bash

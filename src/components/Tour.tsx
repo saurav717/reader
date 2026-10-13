@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { markTourSeen } from '../lib/tour';
+import { startShowcase } from '../lib/showcase';
 import { CloseIcon } from './icons';
 
 /**
@@ -325,7 +326,10 @@ const STEPS: Step[] = [
     body: (
       <>
         <p>
-          Take it again any time: <b>Settings → Guided tour</b>, or <K>{MOD} K</K> and <i>Take the tour</i>. Happy reading.
+          Want to see it all done on a real paper? <b>Show me</b> finds <i>Attention Is All You Need</i>, opens it, asks about it, explains it, plans it and runs it — in two minutes, with the model replayed.
+        </p>
+        <p>
+          Take this tour again any time: <b>Settings → Guided tour</b>, or <K>{MOD} K</K> and <i>Take the tour</i>.
         </p>
       </>
     ),
@@ -569,6 +573,19 @@ export default function Tour({ host, onClose }: { host: TourHost; onClose: () =>
           {index > 0 ? (
             <button type="button" className="btn sm" onClick={back}>
               Back
+            </button>
+          ) : null}
+          {last ? (
+            <button
+              type="button"
+              className="btn sm"
+              onClick={() => {
+                markTourSeen();
+                onClose();
+                startShowcase();
+              }}
+            >
+              Show me, with a paper
             </button>
           ) : null}
           <button type="button" className="btn primary sm" onClick={next} autoFocus>
