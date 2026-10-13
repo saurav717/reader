@@ -900,7 +900,10 @@ written to the Drive of another: with `drive.file` the app cannot even see
 another account's files.
 
 The browser keeps a copy per account (an IndexedDB database named
-`reader:<email>`) so a reload opens at once; Drive's file is the record.
+`reader:<email>`) for a moment offline and for what has not reached Drive
+yet; Drive's file is the record, and signed in, the page opens only once it
+has been read — never on the copy here, which may be behind it. If Drive
+cannot be read, the page opens on the copy here with the error beside it.
 Changes are written to Drive a moment after they stop, and when the tab is
 left. If another browser wrote in the meantime, the two are put together
 before the write rather than one replacing the other. **Sign out** writes

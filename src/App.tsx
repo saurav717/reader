@@ -982,12 +982,18 @@ export default function App() {
     if (ready && !welcomeNow && view.kind === 'home' && !onUsage && !tourSeen()) setTourOpen(true);
   }, [ready, welcomeNow, view.kind, onUsage]);
 
+  // Nothing of the library shows until it is read: from this browser, and —
+  // signed in — from Drive, whose file is the library (store.tsx, `opened`).
+  // The renewal prompt is here too, since that read may be what is waiting
+  // on it.
   if (!ready) {
     return (
       <div className="app">
-        <div className="main" style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <div className="main" style={{ alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 14 }}>
           <span className="spinner" aria-label="Loading your library" />
+          {user && driveConnected ? <span style={{ fontSize: 13, color: 'var(--muted)' }}>Reading your library from Drive…</span> : null}
         </div>
+        {usesGoogle ? <GoogleRenewal clientId={settings.googleClientId.trim()} /> : null}
       </div>
     );
   }

@@ -69,6 +69,8 @@ function matches(file, q) {
   return true;
 }
 
+let slowDownloadsMs = 0;
+
 async function routeGoogle(context) {
   const accountOf = (request) => (request.headers().authorization || '').replace('Bearer token:', '');
   const json = (route, body, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -118,7 +120,11 @@ async function routeGoogle(context) {
         if ('trashed' in patch) file.trashed = patch.trashed;
         file.modifiedTime = new Date(Date.now() + nextId++).toISOString();
       }
-      if (url.searchParams.get('alt') === 'media') return route.fulfill({ status: 200, contentType: file.mimeType, body: file.body || '' });
+      if (url.searchParams.get('alt') === 'media') {
+        // A slow Drive, for the scenario about what the page shows while it waits.
+        if (slowDownloadsMs) await new Promise((resolve) => setTimeout(resolve, slowDownloadsMs));
+        return route.fulfill({ status: 200, contentType: file.mimeType, body: file.body || '' });
+      }
       return json(route, { id: file.id, name: file.name, parents: file.parents, modifiedTime: file.modifiedTime });
     }
     return json(route, {});
@@ -211,6 +217,8 @@ async function newPage() {
     localStorage.setItem('reader.settings', JSON.stringify(stored));
     localStorage.setItem('reader.welcomed', 'true');
     localStorage.setItem('reader.view', JSON.stringify({ kind: 'all' }));
+    // The guided tour is for a first visit; it would stand in front of every click here.
+    localStorage.setItem('reader.tour', 'seen');
   }, settings);
   return { context, page };
 }
@@ -258,11 +266,16 @@ async function signOut(page) {
   await page.waitForTimeout(800);
 }
 
-const titles = (page) =>
-  page.evaluate(() => {
+/** The papers on screen, by title — in the Library view, since Home no longer lists them. */
+const titles = async (page) => {
+  const library = page.locator('button, a').filter({ hasText: /^Library$/ }).first();
+  if (await library.count()) await library.click({ timeout: 2000 }).catch(() => undefined);
+  await page.waitForTimeout(300);
+  return page.evaluate(() => {
     const text = document.body.innerText;
-    return ['Saved Paper', 'Never Saved Anywhere', 'Only In Drive'].filter((title) => text.includes(title));
+    return ['Saved Paper', 'Never Saved Anywhere', 'Only In Drive', 'Stale Here'].filter((title) => text.includes(title));
   });
+};
 
 const closeSettings = (page) => page.getByRole('button', { name: 'Close settings' }).click();
 
@@ -279,6 +292,7 @@ await first.page.screenshot({ path: `${OUT}account-a-settings.png` });
 await closeSettings(first.page);
 await first.page.waitForTimeout(400);
 let shown = await titles(first.page);
+await first.page.screenshot({ path: `${OUT}account-a-library.png` });
 check('A has its own paper back, and the one only its Drive remembered', shown.includes('Saved Paper') && shown.includes('Only In Drive') && !shown.includes('Never Saved Anywhere'), shown.join(', '));
 let written = libraryIn(A);
 check('library.json is in A’s Drive', Boolean(written), written ? `${written.papers.length} papers` : 'none');
@@ -373,6 +387,69 @@ driveOf(A).get(root).trashed = true;
 fresh = await freshBrowser();
 check('the library still comes back', fresh.titles.length === 3, fresh.titles.join(', '));
 check('the folder is taken out of the trash', !driveOf(A).get(root).trashed);
+
+// The copy this browser keeps of an account's library may be behind Drive's
+// — or, after the account mix-up an earlier version could cause, another
+// account's. It is never shown: the page waits for Drive's copy, and opens on
+// that. Here the browser holds a paper A's Drive has never heard of, and
+// Drive is slow to answer.
+console.log('a browser with a stale copy of A’s library waits for Drive');
+{
+  const slow = await newPage();
+  await slow.page.evaluate(async ({ stale }) => {
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open('reader:first@example.org', 1);
+      request.onupgradeneeded = () => {
+        const made = request.result;
+        made.createObjectStore('papers', { keyPath: 'id' });
+        made.createObjectStore('collections', { keyPath: 'id' });
+        made.createObjectStore('highlights', { keyPath: 'id' }).createIndex('paperId', 'paperId', { unique: false });
+        made.createObjectStore('kv');
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const tx = db.transaction(['papers', 'collections'], 'readwrite');
+    tx.objectStore('papers').put(stale);
+    tx.objectStore('collections').put({ id: 'c-old', name: 'Old shelf', color: '#8A4B2A', createdAt: '' });
+    await new Promise((resolve) => (tx.oncomplete = resolve));
+    db.close();
+  }, { stale: paper('arxiv:stale', 'Stale Here') });
+  slowDownloadsMs = 1500;
+  await slow.page.evaluate((who) => localStorage.setItem('fake.account', who), A);
+  await slow.page.getByRole('button', { name: 'Settings' }).first().click();
+  await slow.page.locator('.sheet').getByRole('button', { name: /Sign in with Google/ }).click();
+  let sawSpinner = false;
+  let sawStale = false;
+  let spinnerFor = 0;
+  const started = Date.now();
+  let opened = 0;
+  while (Date.now() - started < 10_000) {
+    const state = await slow.page.evaluate(() => ({
+      spinner: Boolean(document.querySelector('.spinner[aria-label="Loading your library"]')),
+      text: document.body.innerText,
+    }));
+    if (state.spinner) {
+      sawSpinner = true;
+      spinnerFor = Date.now() - started;
+    }
+    if (state.text.includes('Stale Here')) sawStale = true;
+    if (sawSpinner && !state.spinner) {
+      opened = Date.now() - started;
+      break;
+    }
+    await slow.page.waitForTimeout(40);
+  }
+  slowDownloadsMs = 0;
+  await slow.page.waitForTimeout(600);
+  await slow.page.screenshot({ path: `${OUT}account-a-stale-copy.png` });
+  check('the page waits on Drive before it opens', sawSpinner && spinnerFor >= 1200, `spinner for ${spinnerFor} ms, opened at ${opened} ms`);
+  check('the stale copy is never on screen', !sawStale);
+  await closeSettings(slow.page);
+  const onScreen = await titles(slow.page);
+  check('what opens is Drive’s library, not the copy here', onScreen.includes('Saved Paper') && !onScreen.includes('Stale Here'), onScreen.join(', '));
+  await slow.context.close();
+}
 
 await browser.close();
 if (problems.length) {
